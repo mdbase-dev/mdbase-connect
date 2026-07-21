@@ -1,0 +1,9 @@
+{
+  "name": "@mdbase/connect-ui",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./styles.css": "./styles.css"
+  }
+}

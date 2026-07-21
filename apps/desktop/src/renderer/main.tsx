@@ -3,6 +3,7 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
+import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
@@ -139,33 +140,29 @@ function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="brand-lockup">
-          <span className="brand-dot" aria-hidden="true" />
-          <div className="brand-copy"><strong>mdbase</strong><span>connect</span></div>
+      <header className="product-header desktop-header">
+        <div className="product-header-inner">
+          <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>
+          <div className="product-header-meta">
+            <StatusDot state={status?.paused ? "paused" : status?.state === "connected" ? "connected" : "idle"} />
+            <div className="product-header-meta-copy"><strong>{connectionLabel}</strong><small>{access.account?.connector_name ?? "This computer"} · {status?.registered_collections ?? 0} registered</small></div>
+          </div>
         </div>
+      </header>
 
-        <nav className="primary-nav" aria-label="mdbase connect">
+      <nav className="view-tabs" aria-label="mdbase connect views">
+        <div className="view-tabs-inner">
           <NavButton route="overview" current={route} label="Overview" onSelect={setRoute} />
           <NavButton route="collections" current={route} label="Collections" count={collections.length} onSelect={setRoute} />
           <NavButton route="access" current={route} label="App access" attention={access.pending_authorizations.length} onSelect={setRoute} />
           <NavButton route="activity" current={route} label="Activity" onSelect={setRoute} />
           <NavButton route="settings" current={route} label="Settings" onSelect={setRoute} />
-        </nav>
-
-        <div className="connector-summary">
-          <StatusDot state={status?.paused ? "paused" : status?.state === "connected" ? "connected" : "idle"} />
-          <div><strong>{connectionLabel}</strong><small>{access.account?.connector_name ?? "This computer"}</small></div>
         </div>
-      </aside>
+      </nav>
 
       <main className="content">
         <header className="topbar">
           <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
-          <div className="agent-pill">
-            <StatusDot state={status?.paused ? "paused" : status?.state === "connected" ? "connected" : "idle"} />
-            <span><strong>{connectionLabel}</strong><small>{status?.registered_collections ?? 0} registered collections</small></span>
-          </div>
         </header>
 
         <div aria-live="polite">
@@ -566,7 +563,7 @@ function OperationChoices({ allowed, selected, onChange, compact = false }: { al
 }
 
 function NavButton({ route, current, label, count, attention, onSelect }: { route: Route; current: Route; label: string; count?: number; attention?: number; onSelect(route: Route): void }) {
-  return <button className={current === route ? "active" : ""} aria-current={current === route ? "page" : undefined} onClick={() => onSelect(route)}><span>{label}</span>{attention ? <b className="attention-count">{attention}</b> : count !== undefined ? <b>{count}</b> : null}</button>;
+  return <button className={`view-tab ${current === route ? "active" : ""}`} aria-current={current === route ? "page" : undefined} onClick={() => onSelect(route)}><span>{label}</span>{attention ? <b className="view-tab-count attention">{attention}</b> : count !== undefined ? <b className="view-tab-count">{count}</b> : null}</button>;
 }
 
 function SectionHeading({ title, note, count, children }: { title: string; note: string; count?: number; children?: React.ReactNode }) {

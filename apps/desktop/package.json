@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
+    "@mdbase/connect-ui": "workspace:*",
     "@fontsource/atkinson-hyperlegible": "^5.2.0",
     "@fontsource/azeret-mono": "^5.2.0",
     "react": "^19.2.0",

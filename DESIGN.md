@@ -4,17 +4,19 @@
 
 mdbase connect is a desktop utility used in ordinary daylight at a personal
 computer while the user is making a consequential access decision. The theme is
-minimal, precise, and almost entirely white. A narrow white sidebar provides
-stable desktop navigation without becoming a contrasting visual rail. The
-content remains an uninterrupted white canvas. Hierarchy comes from typography,
-spacing, and alignment rather than tinted surfaces, boxes, or decoration.
+minimal, precise, and almost entirely white. Portal and desktop share a compact
+product header, visual tokens, and core controls. Desktop views sit in a quiet
+horizontal tab row below that header; the compact portal overview needs no
+section navigation. Content remains an uninterrupted white canvas. Hierarchy
+comes from typography, spacing, and alignment rather than tinted surfaces,
+boxes, or decoration.
 
 ## Color
 
 - Ink: `oklch(21% 0.018 255)`
 - Accent: `oklch(45% 0.105 238)`
 - Accent dark: `oklch(35% 0.09 238)`
-- White: `oklch(1 0 0)`
+- Paper: `oklch(99.5% 0.002 255)`
 - Hover: `oklch(98% 0.003 255)`
 - Line: `oklch(92% 0.006 255)`
 - Strong line: `oklch(82% 0.008 255)`
@@ -23,8 +25,8 @@ spacing, and alignment rather than tinted surfaces, boxes, or decoration.
 - Danger red: `oklch(50% 0.11 28)`
 - Muted text: `oklch(54% 0.014 255)`
 
-Use a light monochrome strategy. White is the only major surface. Controls stay
-white and use fine grey outlines rather than dark fills. Green indicates verified
+Use a light monochrome strategy. Paper is the only major surface. Controls stay
+on paper and use fine grey outlines rather than dark fills. Green indicates verified
 connection or completion. Amber indicates pending attention. Red indicates
 revocation, disconnection, or destructive local administration. Semantic color
 should occupy as little space as possible.
@@ -44,10 +46,12 @@ label.
 
 ## Layout
 
-- Desktop shell uses a narrow persistent sidebar beside a flexible content
-  workspace. Both stay white, separated by one near-white rule.
-- Primary navigation is conventional and text-led, with counts only when action
-  is required.
+- Portal and desktop share a full-width product header with identity or
+  connection state aligned opposite the wordmark.
+- Desktop primary navigation uses a single horizontal tab row. Counts appear
+  only when they clarify local collection state or pending action.
+- The portal keeps requests, computers, and service details in one centered
+  overview. It does not add navigation when the complete page is already visible.
 - Configuration rows are preferred over card grids. Pending access decisions
   use ruled rows. Empty states are plain text with a single next action.
 - Whitespace establishes section rhythm. Fine dividers are limited to dense

@@ -3,6 +3,7 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
+import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -128,17 +129,21 @@ function Dashboard() {
 
   return (
     <div className="account-shell">
-      <aside className="account-nav">
-        <div className="nav-brand"><Brand /><span>connect</span></div>
-        <nav><a className={data.pending_authorizations.length ? "active" : ""} href="#requests">Requests{data.pending_authorizations.length ? <b>{data.pending_authorizations.length}</b> : null}</a><a className={!data.pending_authorizations.length ? "active" : ""} href="#computers">Computers</a><a href="#account">Account</a></nav>
-        <div className="signed-in"><span>{initials(data.user.name)}</span><div><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div></div>
-      </aside>
+      <header className="product-header account-header">
+        <div className="product-header-inner">
+          <Brand productLabel />
+          <div className="product-header-meta">
+            <div className="product-header-meta-copy"><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div>
+            <span className="product-avatar" aria-hidden="true">{initials(data.user.name)}</span>
+          </div>
+        </div>
+      </header>
       <main className="account-main">
         <header><p className="eyebrow">Your account</p><h1>Your connections.</h1><p>Approve application requests and manage the computers connected to your account.</p></header>
         {error && <div className="message error">{error}</div>}
-        <section id="requests" className={data.pending_authorizations.length ? "attention-section" : ""}>
+        <section id="requests" aria-label="Access requests" className={data.pending_authorizations.length ? "attention-section" : "requests-clear"}>
+          {data.pending_authorizations.length === 0 ? <div className="quiet-status" role="status"><span className="status-dot connected" aria-hidden="true" /><span>No access requests waiting</span></div> : <>
           <SectionHeading title="Access requests" note="A request expires automatically if you do nothing." count={data.pending_authorizations.length} />
-          {data.pending_authorizations.length === 0 ? <div className="quiet-empty"><span className="status-check" aria-hidden="true">✓</span><div><strong>No requests waiting</strong><p>New application requests will appear here.</p></div></div> : (
             <div className="request-list">{data.pending_authorizations.map((request) => (
               <article className="request-row" key={request.id}>
                 <RequestIdentity request={request} />
@@ -151,8 +156,7 @@ function Dashboard() {
                   onDecision={refresh}
                 />
               </article>
-            ))}</div>
-          )}
+            ))}</div></>}
         </section>
         <section id="computers">
           <SectionHeading title="Connected computers" note="Revoking a computer immediately invalidates all of its application access." count={data.connectors.length} />
@@ -164,8 +168,8 @@ function Dashboard() {
           )}
         </section>
         <section id="account">
-          <SectionHeading title="Account" note="Identity, recovery, and service administration." />
-          <div className="account-rows"><AccountRow label="Name" value={data.user.name} /><AccountRow label={data.user.login ? "GitHub" : "Email"} value={identityLabel(data.user)} mono /><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Plan" value="Private preview" detail="Registration is not available" /></div>
+          <SectionHeading title="Account" note="Authentication and service details." />
+          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Plan" value="Private preview" detail="Registration is not available" /></div>
           {data.authentication.provider !== "tailscale" && <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>}
         </section>
       </main>
@@ -360,7 +364,7 @@ function ApprovalForm({
 }
 
 function AccountRow({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) { return <div className="account-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong>{detail && <small>{detail}</small>}</div></div>; }
-function Brand() { return <div className="brand"><span className="brand-dot" aria-hidden="true" /><strong>mdbase</strong></div>; }
+function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
 function Loading({ error = "" }: { error?: string }) { return <main className="loading"><Brand /><p>{error || "Opening mdbase connect…"}</p></main>; }
