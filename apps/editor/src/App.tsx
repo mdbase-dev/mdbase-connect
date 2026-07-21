@@ -2,11 +2,13 @@ import {
   ArrowLeft,
   Braces,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   FilePlus2,
   Folder,
   Info,
+  Link2,
   MoreHorizontal,
   NotebookPen,
   PanelLeft,
@@ -14,6 +16,7 @@ import {
   PanelLeftOpen,
   Search,
   Settings2,
+  Tag,
   Trash2,
   X
 } from "lucide-react";
@@ -30,6 +33,7 @@ import {
 } from "react";
 import { CodeEditor } from "./CodeEditor";
 import { gatewayError } from "./gateway";
+import { backlinksFor, linkSuggestions } from "./links";
 import {
   COLLECTION_WIDTH,
   LIST_WIDTH,
@@ -49,11 +53,14 @@ import type {
 import {
   editableNote,
   folders,
+  noteTags,
   notePreview,
   noteTimestamp,
   noteTitle,
   propertyPatch,
-  safeRenamePath
+  safeRenamePath,
+  tags as collectionTags,
+  types as collectionTypes
 } from "./note";
 import { NewNoteComposer } from "./NewNoteComposer";
 import { KeyedOperationQueue } from "./operation-queue";
@@ -67,6 +74,7 @@ type SaveState = "saved" | "waiting" | "saving" | "conflict";
 type MobilePane = "collections" | "notes" | "editor";
 type Surface = "notes" | "types" | "settings";
 type NoteActivity = "saving" | "properties" | "renaming" | "deleting" | "validating";
+type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 
 interface Draft {
   title: string;
@@ -98,6 +106,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [description, setDescription] = useState<CollectionDescription>();
   const [allNotes, setAllNotes] = useState<NoteSummary[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [foldersLoading, setFoldersLoading] = useState(false);
   const [collectionTotal, setCollectionTotal] = useState<number>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [document, setDocument] = useState<NoteDocument>();
@@ -107,12 +116,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [creatingNote, setCreatingNote] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [folderFilter, setFolderFilter] = useState<string>();
+  const [noteFilter, setNoteFilter] = useState<NoteFilter>();
   const [surface, setSurface] = useState<Surface>("notes");
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState<string>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string>();
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
@@ -141,17 +151,22 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const loadIndex = useCallback(async () => {
     const generation = ++indexGeneration.current;
     setListLoading(true);
+    setFoldersLoading(true);
     const publish = (progress: NoteListProgress) => {
       if (generation !== indexGeneration.current) return;
       setAllNotes(progress.notes);
-      setCollectionTotal(progress.total ?? (progress.complete ? progress.notes.length : undefined));
+      setCollectionTotal(progress.total ?? (progress.structureComplete ? progress.notes.length : undefined));
       setListLoading(!progress.complete);
+      setFoldersLoading(!progress.structureComplete);
     };
     try {
       const notes = await gateway.list(publish);
-      publish({ notes, complete: true, total: notes.length });
+      publish({ notes, structureComplete: true, complete: true, total: notes.length });
     } catch (error) {
-      if (generation === indexGeneration.current) setListLoading(false);
+      if (generation === indexGeneration.current) {
+        setListLoading(false);
+        setFoldersLoading(false);
+      }
       throw error;
     }
   }, [gateway]);
@@ -165,10 +180,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
     const summary = summaryFromDocument(next);
-    setAllNotes((notes) => [
-      summary,
-      ...notes.filter((note) => note.path !== previousPath && note.path !== summary.path)
-    ]);
+    setAllNotes((notes) => {
+      const previous = notes.find((note) => note.path === previousPath || note.path === summary.path);
+      const merged = previous?.file ? { ...summary, file: { ...previous.file, ...summary.file } } : summary;
+      return [merged, ...notes.filter((note) => note.path !== previousPath && note.path !== summary.path)];
+    });
   }, []);
 
   const touchSession = useCallback((session: NoteSession) => {
@@ -211,6 +227,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
     setPropertiesError(undefined);
     setPropertiesOpen(false);
+    setBacklinksOpen(false);
     setDeleteOpen(false);
     setMobilePane("editor");
     if (cached && !cached.deleted) {
@@ -238,6 +255,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPhase("loading");
     setNotice(undefined);
     setListLoading(true);
+    setFoldersLoading(true);
     setCollectionTotal(undefined);
     setNoteLoading(true);
     const generation = ++indexGeneration.current;
@@ -248,16 +266,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const publish = (progress: NoteListProgress) => {
       if (generation !== indexGeneration.current) return;
       setAllNotes(progress.notes);
-      setCollectionTotal(progress.total ?? (progress.complete ? progress.notes.length : undefined));
+      setCollectionTotal(progress.total ?? (progress.structureComplete ? progress.notes.length : undefined));
       setListLoading(!progress.complete);
-      if (!firstPageResolved && (progress.notes.length > 0 || progress.complete)) {
+      setFoldersLoading(!progress.structureComplete);
+      if (!firstPageResolved && (progress.notes.length > 0 || progress.structureComplete)) {
         firstPageResolved = true;
         resolveFirstPage(progress.notes);
       }
     };
     const indexOutcome = gateway.list(publish).then(
       (notes) => {
-        publish({ notes, complete: true, total: notes.length });
+        publish({ notes, structureComplete: true, complete: true, total: notes.length });
         if (!firstPageResolved) {
           firstPageResolved = true;
           resolveFirstPage(notes);
@@ -289,6 +308,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       if (!nextDescription.types.length) setSelectedTypeName(undefined);
     } catch (error) {
       setListLoading(false);
+      setFoldersLoading(false);
       setNoteLoading(false);
       setNotice(gatewayError(error));
       setPhase(descriptionLoaded && gateway.connection() ? "ready" : "disconnected");
@@ -462,9 +482,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const needle = deferredSearch.trim().toLocaleLowerCase();
     return needle ? searchIndex.filter((entry) => entry.text.includes(needle)).map((entry) => entry.note) : allNotes;
   }, [allNotes, deferredSearch, searchIndex]);
-  const visibleNotes = useMemo(() => folderFilter
-    ? searchedNotes.filter((note) => note.path === folderFilter || note.path.startsWith(`${folderFilter}/`))
-    : searchedNotes, [folderFilter, searchedNotes]);
+  const visibleNotes = useMemo(() => {
+    if (!noteFilter) return searchedNotes;
+    if (noteFilter.kind === "folder") {
+      return searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`));
+    }
+    if (noteFilter.kind === "tag") return searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value));
+    return searchedNotes.filter((note) => note.types.includes(noteFilter.value));
+  }, [noteFilter, searchedNotes]);
+  const linkOptions = useMemo(() => linkSuggestions(allNotes), [allNotes]);
+  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes) : [], [allNotes, document]);
 
   const runNoteOperation = useCallback(async <Result,>(
     session: NoteSession,
@@ -493,6 +520,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     saveCurrentInBackground();
     setSurface("notes");
     setPropertiesOpen(false);
+    setBacklinksOpen(false);
     setCreatingNote(true);
     setMobilePane("editor");
   }
@@ -503,11 +531,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setAllNotes((notes) => [summary, ...notes.filter((note) => note.path !== created.path)]);
     setCollectionTotal((total) => total === undefined ? undefined : total + 1);
     setSearch("");
-    setFolderFilter(undefined);
+    setNoteFilter(undefined);
     documentGeneration.current += 1;
     setNotice(undefined);
     setPropertiesError(undefined);
     setPropertiesOpen(false);
+    setBacklinksOpen(false);
     setDeleteOpen(false);
     setMobilePane("editor");
     adoptDocument(created);
@@ -562,6 +591,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (!session) return;
     setPropertiesError(undefined);
     setPropertiesOpen(false);
+    setBacklinksOpen(false);
     try {
       await flushSession(session);
       const draftBefore = session.draft;
@@ -655,6 +685,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSurface(next);
     setCreatingNote(false);
     setPropertiesOpen(false);
+    setBacklinksOpen(false);
     setMobilePane(next === "settings" ? "editor" : "notes");
   }
 
@@ -671,6 +702,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       sessions.current.clear();
       setPhase("disconnected");
       setAllNotes([]);
+      setFoldersLoading(false);
       setDocument(undefined);
       setDraft(undefined);
     } catch (error) {
@@ -688,7 +720,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const collectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
   const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
-  const inspectorWidth = propertiesOpen && viewportWidth > 1120 ? 340 : 0;
+  const inspectorVisible = propertiesOpen || backlinksOpen;
+  const inspectorWidth = inspectorVisible && viewportWidth > 1120 ? 340 : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
     viewportWidth - listTrack - editorMinimum - inspectorWidth
@@ -708,17 +741,19 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (status) noteStatuses.set(session.document.path, status);
   }
   return <div
-    className={`app-shell surface-${surface} pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
+    className={`app-shell surface-${surface} pane-${mobilePane}${inspectorVisible ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
     style={{ "--collection-track": `${collectionTrack}px`, "--list-track": `${listTrack}px` } as CSSProperties}
   >
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       name={description.display_name}
       count={collectionTotal ?? allNotes.length}
       typeCount={description.types.length}
-      activeFolder={folderFilter}
+      typeNames={description.types.map((type) => type.name)}
+      activeFilter={noteFilter}
       notes={allNotes}
+      foldersLoading={foldersLoading}
       surface={surface}
-      onNotes={(folder) => { setFolderFilter(folder); selectSurface("notes"); }}
+      onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
       onDisconnect={() => void disconnect()}
@@ -729,12 +764,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       {(!layout.listCollapsed || mobileLayout) && <NoteList
         notes={visibleNotes}
         loading={listLoading}
-        total={folderFilter ? undefined : collectionTotal}
+        structureLoading={foldersLoading}
+        total={noteFilter ? undefined : collectionTotal}
         selectedPath={selectedPath}
         pendingPath={pendingNotePath}
         statuses={noteStatuses}
         search={search}
-        collectionName={folderFilter ?? description.display_name}
+        collectionName={filterLabel(noteFilter, description.display_name)}
         onSearch={setSearch}
         onSelect={navigateToNote}
         onCreate={beginCreate}
@@ -744,7 +780,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
       {creatingNote ? <NewNoteComposer
         types={description.types}
-        defaultFolder={folderFilter}
+        defaultFolder={noteFilter?.kind === "folder" ? noteFilter.value : undefined}
         leadingActions={editorLeadingActions}
         onCreate={createNote}
         onCancel={() => { setCreatingNote(false); setMobilePane("notes"); }}
@@ -761,7 +797,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             </div>
             {preferences.vim && <span className="vim-label">Vim</span>}
             <SaveIndicator state={saveState} />
-            <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen((value) => !value)}><Info aria-hidden="true" /></button>
+            <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
+              setBacklinksOpen((value) => {
+                if (!value) setPropertiesOpen(false);
+                return !value;
+              });
+            }}><Link2 aria-hidden="true" />{backlinkNotes.length > 0 && <span>{backlinkNotes.length}</span>}</button>
+            <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
+              setPropertiesOpen((value) => {
+                if (!value) setBacklinksOpen(false);
+                return !value;
+              });
+            }}><Info aria-hidden="true" /></button>
             <details className="note-actions">
               <summary className="icon-button" aria-label="More note actions"><MoreHorizontal aria-hidden="true" /></summary>
               <div className="action-menu">
@@ -786,11 +833,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               lineWrapping={preferences.lineWrapping}
               autoFocus
               className="body-editor"
+              linkSuggestions={linkOptions}
             />
           </article>
         </> : <EmptyEditor leadingActions={editorLeadingActions} onCreate={beginCreate} />}
       </main>}
       {propertiesOpen && document && <PropertiesPanel key={document.path} note={document} types={description.types} error={propertiesError} onClose={() => setPropertiesOpen(false)} onSave={(value) => void saveProperties(value)} />}
+      {backlinksOpen && document && <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />}
     </>}
 
     {surface === "types" && <>
@@ -859,34 +908,72 @@ function Wordmark() {
   return <div className="wordmark"><span aria-hidden="true" />mdbase <strong>editor</strong></div>;
 }
 
-function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, onNotes, onTypes, onSettings, onDisconnect, onCollapse }: {
+function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, onFilter, onTypes, onSettings, onDisconnect, onCollapse }: {
   name: string;
   count: number;
   typeCount: number;
-  activeFolder?: string;
+  typeNames: string[];
+  activeFilter?: NoteFilter;
   notes: NoteSummary[];
+  foldersLoading: boolean;
   surface: Surface;
-  onNotes: (folder?: string) => void;
+  onFilter: (filter?: NoteFilter) => void;
   onTypes: () => void;
   onSettings: () => void;
   onDisconnect: () => void;
   onCollapse: () => void;
 }) {
   const collectionFolders = folders(notes);
+  const tagFacets = collectionTags(notes);
+  const typeFacets = collectionTypes(notes, typeNames);
   return <aside className="collection-rail" aria-label="Collection navigation">
     <div className="rail-header"><Wordmark /><PaneControl label="Hide collections sidebar" action="hide" onClick={onCollapse} /></div>
     <nav>
       <p className="collection-name">{name}</p>
-      <button className={surface === "notes" && !activeFolder ? "selected" : ""} onClick={() => onNotes(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
-      <button className={surface === "types" ? "selected" : ""} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{typeCount}</small></button>
+      <button className={surface === "notes" && !activeFilter ? "selected" : ""} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
+      <button className={surface === "types" ? "selected" : ""} onClick={onTypes}><span><Braces aria-hidden="true" />Schemas</span><small>{typeCount}</small></button>
       <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
-      {collectionFolders.length > 0 && <><p className="rail-label">Folders</p>{collectionFolders.map((folder) => <button key={folder.name} className={surface === "notes" && activeFolder === folder.name ? "selected" : ""} onClick={() => onNotes(folder.name)}><span><Folder aria-hidden="true" />{folder.name}</span><small>{folder.count}</small></button>)}</>}
+      <RailFilterSection label="Folders" kind="folder" items={collectionFolders} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} defaultOpen onFilter={onFilter} />
+      <RailFilterSection label="Tags" kind="tag" items={tagFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
+      <RailFilterSection label="Types" kind="type" items={typeFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
     </nav>
     <footer><p><span className="status-dot" />Connected</p><button onClick={onDisconnect}>Disconnect</button></footer>
   </aside>;
 }
 
-function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, total, leadingActions, trailingActions, onSearch, onSelect, onCreate, onCollections }: {
+function RailFilterSection({ label, kind, items, activeFilter, loading, defaultOpen = false, onFilter }: {
+  label: string;
+  kind: NoteFilter["kind"];
+  items: Array<{ name: string; count: number }>;
+  activeFilter?: NoteFilter;
+  loading: boolean;
+  defaultOpen?: boolean;
+  onFilter: (filter: NoteFilter) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const Icon = kind === "folder" ? Folder : kind === "tag" ? Tag : Braces;
+  const listId = `rail-${kind}-filters`;
+  return <div className="rail-filter-section" role="group" aria-label={label} aria-busy={loading}>
+    <button className="rail-section-toggle" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((value) => !value)}>
+      <span>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}{label}</span>
+      {loading && <span className="folder-loading" role="status"><i aria-hidden="true" />Loading</span>}
+    </button>
+    {open && <div id={listId} className="rail-filter-items">
+      {items.map((item) => <button key={item.name} className={activeFilter?.kind === kind && activeFilter.value === item.name ? "selected" : ""} onClick={() => onFilter({ kind, value: item.name })}>
+        <span><Icon aria-hidden="true" />{kind === "tag" ? `#${item.name}` : item.name}</span>
+        <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
+      </button>)}
+      {!items.length && <p className="folder-placeholder">{loading ? `Finding ${label.toLocaleLowerCase()}…` : `No ${label.toLocaleLowerCase()}`}</p>}
+    </div>}
+  </div>;
+}
+
+function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: number }, loading: boolean): string {
+  const subject = kind === "folder" ? `in ${item.name}` : kind === "tag" ? `tagged ${item.name}` : `with type ${item.name}`;
+  return `${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"} ${subject}`;
+}
+
+function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, structureLoading, total, leadingActions, trailingActions, onSearch, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
   pendingPath?: string;
@@ -894,6 +981,7 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   search: string;
   collectionName: string;
   loading: boolean;
+  structureLoading: boolean;
   total?: number;
   leadingActions?: React.ReactNode;
   trailingActions?: React.ReactNode;
@@ -905,16 +993,16 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, total, Boolean(search))}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, structureLoading, total, Boolean(search))}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
     <label className="search-field"><Search aria-hidden="true" /><span className="sr-only">Search every note</span><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search && <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button>}</label>
-    <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={loading}>
+    <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={structureLoading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const note = notes[virtualRow.index];
         const status: NoteRowStatus | undefined = pendingPath === note.path
           ? { label: "Opening", tone: "busy", busy: true }
           : statuses.get(note.path);
         return <button key={note.path} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onClick={() => { if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span>{status ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
-      })}</div> : loading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
+      })}</div> : structureLoading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
 }
@@ -923,16 +1011,43 @@ function NoteListSkeleton() {
   return <div className="note-list-skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index}><span /><small /></div>)}</div>;
 }
 
-function noteCountLabel(count: number, loading: boolean, total: number | undefined, searching: boolean): string {
+function noteCountLabel(count: number, loading: boolean, structureLoading: boolean, total: number | undefined, searching: boolean): string {
   if (loading && searching) return count ? `${count.toLocaleString()} found so far` : "Searching";
-  if (loading && count === 0) return "Reading notes";
-  if (loading) return `${count.toLocaleString()} of ${total?.toLocaleString() ?? "…"} notes`;
+  if (structureLoading && count === 0) return "Reading notes";
+  if (structureLoading) return `${count.toLocaleString()} of ${total?.toLocaleString() ?? "…"} notes`;
+  if (loading) return `${count.toLocaleString()} notes · indexing search`;
   return `${count.toLocaleString()} ${count === 1 ? "note" : "notes"}`;
+}
+
+function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
+  if (!filter) return fallback;
+  return filter.kind === "tag" ? `#${filter.value}` : filter.value;
 }
 
 function SaveIndicator({ state }: { state: SaveState }) {
   const label = state === "saving" ? "Saving" : state === "waiting" ? "Unsaved" : state === "conflict" ? "Needs attention" : "Saved";
   return <span className={`save-state ${state}`} aria-live="polite">{state === "saved" && <Check aria-hidden="true" />}{label}</span>;
+}
+
+function BacklinksPanel({ notes, loading, onClose, onOpen }: {
+  notes: NoteSummary[];
+  loading: boolean;
+  onClose: () => void;
+  onOpen: (path: string) => void;
+}) {
+  return <aside className="backlinks-panel" aria-label="Backlinks" aria-busy={loading}>
+    <header className="panel-header">
+      <div><h2>Backlinks</h2><p>{loading ? "Finding references" : `${notes.length} ${notes.length === 1 ? "note" : "notes"} link here`}</p></div>
+      <button className="icon-button" aria-label="Close backlinks" onClick={onClose}><X aria-hidden="true" /></button>
+    </header>
+    <div className="backlink-list">
+      {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
+        <Link2 aria-hidden="true" />
+        <span><strong>{noteTitle(note)}</strong><small>{note.path}</small></span>
+      </button>)}
+      {!notes.length && <p className="quiet-empty">{loading ? "Reading collection links…" : "No notes link here yet."}</p>}
+    </div>
+  </aside>;
 }
 
 function NoteSkeleton({ leadingActions }: { leadingActions?: React.ReactNode }) {

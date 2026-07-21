@@ -56,6 +56,7 @@ export interface EditableNote {
 
 export interface NoteListProgress {
   notes: NoteSummary[];
+  structureComplete: boolean;
   complete: boolean;
   total?: number;
 }

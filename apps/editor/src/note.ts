@@ -89,6 +89,32 @@ export function folders(notes: NoteSummary[]): Array<{ name: string; count: numb
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export function noteTags(note: NoteSummary): string[] {
+  const fileTags = Array.isArray(note.file?.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  const frontmatterTags = Array.isArray(note.frontmatter.tags)
+    ? note.frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
+    : typeof note.frontmatter.tags === "string" ? [note.frontmatter.tags] : [];
+  return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
+}
+
+export function tags(notes: NoteSummary[]): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const note of notes) {
+    for (const tag of noteTags(note)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+  return [...counts].map(([name, count]) => ({ name, count }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function types(notes: NoteSummary[], declared: string[] = []): Array<{ name: string; count: number }> {
+  const counts = new Map(declared.map((name) => [name, 0]));
+  for (const note of notes) {
+    for (const type of new Set(note.types)) counts.set(type, (counts.get(type) ?? 0) + 1);
+  }
+  return [...counts].map(([name, count]) => ({ name, count }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function propertyPatch(before: JsonObject, after: JsonObject): JsonObject {
   const patch: JsonObject = {};
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {

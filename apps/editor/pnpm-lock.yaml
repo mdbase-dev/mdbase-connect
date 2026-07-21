@@ -12,6 +12,9 @@ importers:
 
   .:
     dependencies:
+      '@codemirror/autocomplete':
+        specifier: ^6.20.3
+        version: 6.20.3
       '@codemirror/lang-json':
         specifier: ^6.0.2
         version: 6.0.2
