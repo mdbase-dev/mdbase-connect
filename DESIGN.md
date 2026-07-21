@@ -68,6 +68,9 @@ label.
   led. No dark fills or shadows. All include hover, focus, disabled, and busy
   states.
 - Status: pair a colored dot with a text label. Never show a dot alone.
+- Direct access: explain the browser's local-network prompt beside one quiet,
+  user-initiated action. Afterward, show only `Connected directly` or
+  `Connected through mdbase`; do not ask users to choose a transport.
 - Permission scopes: plain checkboxes with concrete action descriptions.
 - Lists: stable four-column rhythm for identity, target, state, and actions.
 - Empty states teach the first useful action without decorative illustration.

@@ -629,6 +629,8 @@ export async function buildApp(options: BuildOptions) {
       : { rows: [] };
     const grants = await options.db.query(
       `SELECT g.id, g.operations, g.scope, g.created_at, g.revoked_at,
+              CASE WHEN g.application_origin = '' THEN a.homepage
+                   ELSE g.application_origin END AS application_origin,
               COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
@@ -666,7 +668,10 @@ export async function buildApp(options: BuildOptions) {
         contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template)),
         replicas: hostedReplicas.rows.filter((replica) => replica.collection_id === collection.id)
       })),
-      grants: grants.rows,
+      grants: grants.rows.map((grant) => ({
+        ...grant,
+        application_origin: new URL(grant.application_origin).origin
+      })),
       pending_authorizations: pendingAuthorizations.rows
     };
   });
@@ -793,7 +798,10 @@ export async function buildApp(options: BuildOptions) {
     );
     const grants = await options.db.query(
       `SELECT g.id, g.application_id, a.name AS application_name,
-              a.homepage AS application_homepage, a.icon AS application_icon,
+              a.homepage AS application_homepage,
+              CASE WHEN g.application_origin = '' THEN a.homepage
+                   ELSE g.application_origin END AS application_origin,
+              a.icon AS application_icon,
               col.local_id AS collection_id, col.display_name AS collection_name,
               g.operations, g.scope, g.encryption, g.created_at
        FROM grants g
@@ -818,7 +826,10 @@ export async function buildApp(options: BuildOptions) {
       configured: true,
       online: true,
       account: account.rows[0],
-      grants: grants.rows,
+      grants: grants.rows.map((grant) => ({
+        ...grant,
+        application_origin: new URL(grant.application_origin).origin
+      })),
       pending_authorizations: pendingAuthorizations.rows
     };
   });
@@ -872,8 +883,12 @@ export async function buildApp(options: BuildOptions) {
       [connector.id, input.collection_id]
     );
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
-    const application = await options.db.query<{ id: string; requirements: ApplicationRequirements }>(
-      "SELECT id, requirements FROM applications WHERE id = $1",
+    const application = await options.db.query<{
+      id: string;
+      homepage: string;
+      requirements: ApplicationRequirements;
+    }>(
+      "SELECT id, homepage, requirements FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
@@ -889,7 +904,8 @@ export async function buildApp(options: BuildOptions) {
       applicationId: input.application_id,
       collectionId: collection.rows[0].id,
       operations: input.operations,
-      scope
+      scope,
+      applicationOrigin: new URL(application.rows[0].homepage).origin
     });
     await relay.pushPolicy(connector.id);
     await audit(options.db, connector.user_id, "grant.created", grant.id, {
@@ -1282,8 +1298,12 @@ export async function buildApp(options: BuildOptions) {
       [input.collection_id, user.id]
     );
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
-    const application = await options.db.query<{ id: string; requirements: ApplicationRequirements }>(
-      "SELECT id, requirements FROM applications WHERE id = $1",
+    const application = await options.db.query<{
+      id: string;
+      homepage: string;
+      requirements: ApplicationRequirements;
+    }>(
+      "SELECT id, homepage, requirements FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
@@ -1299,7 +1319,8 @@ export async function buildApp(options: BuildOptions) {
       applicationId: input.application_id,
       collectionId: input.collection_id,
       operations: input.operations,
-      scope
+      scope,
+      applicationOrigin: new URL(application.rows[0].homepage).origin
     });
     await relay.pushPolicy(ownership.rows[0].connector_id);
     await audit(options.db, user.id, "grant.created", grant.id, input);
@@ -1822,6 +1843,7 @@ async function createOrUpdateGrant(
     collectionId: string;
     operations: string[];
     scope: GrantScope;
+    applicationOrigin: string;
   }
 ): Promise<{ id: string; operations: string[]; scope: GrantScope }> {
   const operations = [...new Set(input.operations)];
@@ -1832,20 +1854,29 @@ async function createOrUpdateGrant(
   );
   const grant = existing.rows[0]
     ? await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `UPDATE grants SET operations = $2::jsonb, scope = $3::jsonb
+        `UPDATE grants SET operations = $2::jsonb, scope = $3::jsonb,
+                           application_origin = $4
          WHERE id = $1 RETURNING id, operations, scope`,
-        [existing.rows[0].id, JSON.stringify(operations), JSON.stringify(input.scope)]
+        [
+          existing.rows[0].id,
+          JSON.stringify(operations),
+          JSON.stringify(input.scope),
+          input.applicationOrigin
+        ]
       )
     : await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `INSERT INTO grants (id, user_id, application_id, collection_id, operations, scope)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb) RETURNING id, operations, scope`,
+        `INSERT INTO grants
+           (id, user_id, application_id, collection_id, operations, scope, application_origin)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+         RETURNING id, operations, scope`,
         [
           randomUUID(),
           input.userId,
           input.applicationId,
           input.collectionId,
           JSON.stringify(operations),
-          JSON.stringify(input.scope)
+          JSON.stringify(input.scope),
+          input.applicationOrigin
         ]
       );
   if (existing.rows[0]?.encryption) await rotateGrantEncryption(db, existing.rows[0].id);
@@ -1988,9 +2019,10 @@ async function approveAuthorization(
     requirements: ApplicationRequirements;
     relay_protocol: number | null;
     application_public_key: string | null;
+    redirect_uri: string;
   }>(
     `SELECT ar.application_id, ar.requested_operations, a.requirements,
-            ar.relay_protocol, ar.application_public_key
+            ar.relay_protocol, ar.application_public_key, ar.redirect_uri
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
      WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL AND ar.expires_at > now()`,
@@ -2037,8 +2069,10 @@ async function approveAuthorization(
     };
   }
   await db.query(
-    `INSERT INTO grants (id, user_id, application_id, collection_id, operations, scope, encryption)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
+    `INSERT INTO grants
+       (id, user_id, application_id, collection_id, operations, scope, encryption,
+        application_origin)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8)`,
     [
       grantId,
       input.userId,
@@ -2046,7 +2080,8 @@ async function approveAuthorization(
       input.collectionId,
       JSON.stringify(input.operations),
       JSON.stringify(scope),
-      encryption ? JSON.stringify(encryption) : null
+      encryption ? JSON.stringify(encryption) : null,
+      new URL(pending.redirect_uri).origin
     ]
   );
   await db.query(
@@ -2085,12 +2120,13 @@ async function approveHostedAuthorization(
       application_id: string;
       application_name: string;
       application_homepage: string;
+      redirect_uri: string;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
     }>(
       `SELECT ar.application_id, a.name AS application_name, a.homepage AS application_homepage,
-              ar.requested_operations,
+              ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -2133,7 +2169,7 @@ async function approveHostedAuthorization(
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
-    const applicationUrl = new URL(pending.application_homepage);
+    const applicationUrl = new URL(pending.redirect_uri);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin
       : undefined;
@@ -2165,9 +2201,9 @@ async function approveHostedAuthorization(
     );
     await connection.query(
       `INSERT INTO grants
-         (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
-          operations, scope, encryption)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL)`,
+          (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
+          operations, scope, encryption, application_origin)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8)`,
       [
         grantId,
         input.userId,
@@ -2175,7 +2211,8 @@ async function approveHostedAuthorization(
         input.collectionId,
         replicaId,
         JSON.stringify(operations),
-        JSON.stringify(scope)
+        JSON.stringify(scope),
+        applicationUrl.origin
       ]
     );
     await connection.query(
@@ -2270,6 +2307,7 @@ async function issueApplicationTokens(
   scope: GrantScope;
   grant_id: string;
   encryption: GrantEncryption | null;
+  application_origin: string;
   hosted?: {
     provider_url: string;
     replica_id: string;
@@ -2284,11 +2322,15 @@ async function issueApplicationTokens(
     operations: string[];
     scope: GrantScope;
     encryption: GrantEncryption | null;
+    application_origin: string;
   }>(
     `SELECT COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
-            g.operations, g.scope, g.encryption
+            g.operations, g.scope, g.encryption,
+            CASE WHEN g.application_origin = '' THEN app.homepage
+                 ELSE g.application_origin END AS application_origin
      FROM grants g
+     JOIN applications app ON app.id = g.application_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL`,
     [grantId]
@@ -2330,6 +2372,7 @@ async function issueApplicationTokens(
     scope: grant.rows[0].scope,
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
+    application_origin: new URL(grant.rows[0].application_origin).origin,
     ...(hosted ? { hosted } : {})
   };
 }

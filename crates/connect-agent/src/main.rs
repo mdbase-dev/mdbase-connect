@@ -1,4 +1,5 @@
 mod cloud;
+mod loopback;
 mod relay;
 mod server;
 mod watcher;
@@ -7,6 +8,7 @@ use clap::Parser;
 use cloud::CloudControlClient;
 use mdbase_connect_core::{default_control_endpoint, default_state_dir, CollectionRegistry};
 use mdbase_connect_protocol::crypto::RelayIdentity;
+use mdbase_connect_protocol::DEFAULT_LOOPBACK_PORT;
 use server::AgentState;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +34,10 @@ struct Args {
     /// One-time connector credential created in the user portal.
     #[arg(long, env = "MDBASE_CONNECT_CONNECTOR_TOKEN")]
     connector_token: Option<String>,
+
+    /// Browser-facing direct collection API port, bound only to loopback.
+    #[arg(long, env = "MDBASE_CONNECT_LOOPBACK_PORT", default_value_t = DEFAULT_LOOPBACK_PORT)]
+    loopback_port: u16,
 }
 
 #[tokio::main]
@@ -77,7 +83,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initialization_state = state.clone();
     let relay_state = state.clone();
     tracing::info!(%endpoint, state_dir = %state_dir.display(), "starting local connector agent");
-    server::serve(&endpoint, state, move || {
+    let loopback = loopback::start(args.loopback_port, state.clone()).await?;
+    state.set_loopback_port(loopback.port());
+    let result = server::serve(&endpoint, state, move || {
         let (initialized, initialization_complete) = tokio::sync::oneshot::channel();
         tokio::task::spawn_blocking(move || {
             match registry.list() {
@@ -94,6 +102,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     })
-    .await?;
+    .await;
+    loopback.stop();
+    result?;
     Ok(())
 }

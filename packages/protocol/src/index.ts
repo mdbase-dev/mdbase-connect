@@ -1,5 +1,7 @@
 export const CONTROL_PROTOCOL_VERSION = 2 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 3 as const;
+export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
+export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 
@@ -94,6 +96,8 @@ export interface GrantPolicy {
   scope: GrantScope;
   application_name: string;
   application_homepage: string;
+  /** Exact browser origin authorized to use this grant over loopback. */
+  application_origin?: string;
   application_icon?: string;
   collection_name: string;
   created_at: string;

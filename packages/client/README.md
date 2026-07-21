@@ -55,6 +55,28 @@ await connect.updateType({
 Request `read_type`, `create_type`, and `update_type` during authorization.
 Contract-scoped applications cannot manage collection-wide type definitions.
 
+For a local collection, ask for same-computer access from a user gesture:
+
+```ts
+const status = await connect.checkDirectAccess();
+if (status === "permission_required") {
+  directButton.onclick = () => connect.requestDirectAccess();
+}
+
+connect.onConnectionChange((connection) => {
+  console.log(connection?.route); // "direct", "relay", or "hosted"
+});
+```
+
+After permission is granted, all grantable operations prefer the fixed
+loopback connector automatically. If it is absent or unavailable, the SDK
+retries the exact encrypted envelope through the relay. Durable connector
+receipts prevent an ambiguous direct write from running twice. The SDK retains
+one unresolved encrypted mutation locally and requires that exact write to be
+retried before a later mutation can overtake it. Set
+`directAccess: "disabled"` only when an embedding environment cannot use
+loopback requests.
+
 Application identity is derived from the manifest's exact origin. No developer
 account or manually issued client secret is required.
 

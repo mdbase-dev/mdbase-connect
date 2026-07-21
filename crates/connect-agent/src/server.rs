@@ -1,6 +1,8 @@
 use crate::cloud::CloudControlClient;
 use crate::watcher::CollectionWatchService;
-use mdbase_connect_core::{CollectionRegistry, ConnectError};
+use mdbase_connect_core::{
+    encrypted_request_fingerprint, CollectionRegistry, ConnectError, EncryptedRequestClaim,
+};
 use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
 };
@@ -17,6 +19,7 @@ pub struct AgentState {
     watcher: CollectionWatchService,
     connection_state: std::sync::RwLock<AgentConnectionState>,
     initialized: std::sync::atomic::AtomicBool,
+    loopback_port: std::sync::atomic::AtomicU16,
     cloud: Option<CloudControlClient>,
     relay_identity: RelayIdentity,
 }
@@ -42,6 +45,7 @@ impl AgentState {
             watcher,
             connection_state: std::sync::RwLock::new(AgentConnectionState::LocalOnly),
             initialized: std::sync::atomic::AtomicBool::new(false),
+            loopback_port: std::sync::atomic::AtomicU16::new(0),
             cloud,
             relay_identity,
         }
@@ -54,6 +58,11 @@ impl AgentState {
     pub fn mark_initialized(&self) {
         self.initialized
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn set_loopback_port(&self, port: u16) {
+        self.loopback_port
+            .store(port, std::sync::atomic::Ordering::Release);
     }
 
     fn initialized(&self) -> bool {
@@ -78,6 +87,32 @@ impl AgentState {
         &self,
     ) -> Result<Vec<mdbase_connect_protocol::CollectionSummary>, ConnectError> {
         self.registry.list()
+    }
+
+    pub fn origin_allowed(&self, origin: &str) -> bool {
+        !origin.is_empty()
+            && self.registry.list_grants().is_ok_and(|grants| {
+                grants
+                    .iter()
+                    .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
+            })
+    }
+
+    pub fn handle_direct_encrypted_operation(
+        &self,
+        origin: &str,
+        envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
+    ) -> RelayMessage {
+        let origin_matches = self
+            .registry
+            .grant_context(envelope.grant_id)
+            .ok()
+            .flatten()
+            .is_some_and(|grant| grant.application_origin == origin);
+        if !origin_matches {
+            return encrypted_rejection(envelope.request_id);
+        }
+        self.handle_encrypted_operation(envelope)
     }
 
     pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
@@ -231,15 +266,7 @@ impl AgentState {
         &self,
         envelope: mdbase_connect_protocol::EncryptedRelayEnvelope,
     ) -> RelayMessage {
-        let rejected = || RelayMessage::EncryptedOperationRejected {
-            protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
-            request_id: envelope.request_id,
-            error: ControlError {
-                code: "encrypted_relay_rejected".to_string(),
-                message: "Encrypted relay request was rejected.".to_string(),
-                details: None,
-            },
-        };
+        let rejected = || encrypted_rejection(envelope.request_id);
         let Some(context) = self
             .registry
             .grant_context(envelope.grant_id)
@@ -284,16 +311,49 @@ impl AgentState {
         let Ok(counter) = parse_counter(&envelope.counter) else {
             return rejected();
         };
-        if self
-            .registry
-            .accept_encrypted_request(context.id, &encryption.key_id, counter, envelope.request_id)
-            .is_err()
-        {
-            return rejected();
-        }
         let Ok(input) = serde_json::from_slice::<serde_json::Value>(&plaintext) else {
             return rejected();
         };
+        let Ok(fingerprint) = encrypted_request_fingerprint(&envelope) else {
+            return rejected();
+        };
+        match self.registry.claim_encrypted_request(
+            context.id,
+            &encryption.key_id,
+            counter,
+            envelope.request_id,
+            &fingerprint,
+        ) {
+            Ok(EncryptedRequestClaim::Fresh) => {}
+            Ok(EncryptedRequestClaim::Completed(response)) => {
+                return serde_json::from_str(&response).map_or_else(
+                    |_| rejected(),
+                    |envelope| RelayMessage::EncryptedOperationResponse { envelope },
+                );
+            }
+            Ok(EncryptedRequestClaim::InProgress) => {
+                for _ in 0..1_000 {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    match self.registry.encrypted_request_response(
+                        context.id,
+                        &encryption.key_id,
+                        envelope.request_id,
+                        &fingerprint,
+                    ) {
+                        Ok(Some(response)) => {
+                            return serde_json::from_str(&response).map_or_else(
+                                |_| rejected(),
+                                |envelope| RelayMessage::EncryptedOperationResponse { envelope },
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(_) => return rejected(),
+                    }
+                }
+                return rejected();
+            }
+            Err(_) => return rejected(),
+        }
 
         let paused = self.registry.paused().unwrap_or(true);
         let result = if paused {
@@ -338,8 +398,25 @@ impl AgentState {
         let Ok(ciphertext) = keys.encrypt_json(RelayDirection::Response, metadata, &body) else {
             return rejected();
         };
+        let response_envelope = metadata.envelope(ciphertext);
+        let Ok(serialized_response) = serde_json::to_string(&response_envelope) else {
+            return rejected();
+        };
+        if self
+            .registry
+            .complete_encrypted_request(
+                context.id,
+                &encryption.key_id,
+                envelope.request_id,
+                &fingerprint,
+                &serialized_response,
+            )
+            .is_err()
+        {
+            return rejected();
+        }
         RelayMessage::EncryptedOperationResponse {
-            envelope: metadata.envelope(ciphertext),
+            envelope: response_envelope,
         }
     }
 
@@ -360,6 +437,17 @@ impl AgentState {
                         .clone(),
                     registered_collections,
                     paused: self.registry.paused().unwrap_or(true),
+                    direct_access_available: self
+                        .loopback_port
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        != 0,
+                    loopback_port: match self
+                        .loopback_port
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        0 => None,
+                        port => Some(port),
+                    },
                 })
                 .expect("agent status must serialize")
             }),
@@ -618,6 +706,18 @@ fn is_mutation(operation: &str) -> bool {
     )
 }
 
+fn encrypted_rejection(request_id: uuid::Uuid) -> RelayMessage {
+    RelayMessage::EncryptedOperationRejected {
+        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        request_id,
+        error: ControlError {
+            code: "encrypted_relay_rejected".to_string(),
+            message: "Encrypted relay request was rejected.".to_string(),
+            details: None,
+        },
+    }
+}
+
 async fn handle_stream<S>(stream: S, state: Arc<AgentState>) -> io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -743,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_operations_round_trip_and_replays_fail_closed() {
+    fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
         let test_root = std::env::temp_dir().join(format!(
             "mdbase-connect-encryption-test-{}",
             uuid::Uuid::new_v4()
@@ -779,6 +879,7 @@ mod tests {
                 scope: GrantScope::default(),
                 application_name: "Encrypted application".to_string(),
                 application_homepage: "https://example.test".to_string(),
+                application_origin: "https://example.test".to_string(),
                 application_icon: None,
                 collection_name: "Encrypted notes".to_string(),
                 created_at: "2026-07-21T00:00:00Z".to_string(),
@@ -812,10 +913,14 @@ mod tests {
         assert_eq!(body["ok"], true);
         assert_eq!(body["result"]["display_name"], "Encrypted notes");
 
-        assert!(matches!(
-            state.handle_relay_message(request),
-            Some(RelayMessage::EncryptedOperationRejected { .. })
-        ));
+        let replay = state.handle_relay_message(request).unwrap();
+        let RelayMessage::EncryptedOperationResponse {
+            envelope: replay_envelope,
+        } = replay
+        else {
+            panic!("expected cached encrypted response")
+        };
+        assert_eq!(replay_envelope, envelope);
         fs::remove_dir_all(test_root).unwrap();
     }
 }

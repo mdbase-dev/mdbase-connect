@@ -233,6 +233,7 @@ describe("mdbase connect server", () => {
     expect(token.json().collection_id).toBe(collectionId);
     expect(token.json().operations).toEqual(["read", "query"]);
     expect(token.json().scope).toEqual({ contracts: [{ id: "workout.record", version: 1 }] });
+    expect(token.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
     expect(token.json().refresh_token).toMatch(/^ref_/);
 
     const refreshed = await app.inject({
@@ -318,7 +319,11 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` }
     });
     expect(policyAfterPortalApproval.json().grants).toContainEqual(
-      expect.objectContaining({ collection_id: localCollectionId, operations: ["read"] })
+      expect.objectContaining({
+        collection_id: localCollectionId,
+        operations: ["read"],
+        application_origin: new URL(manifestServer.redirectUri).origin
+      })
     );
     expect(policyAfterPortalApproval.json().pending_authorizations).toHaveLength(0);
 

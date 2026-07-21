@@ -137,6 +137,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       operations jsonb NOT NULL,
       scope jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
       encryption jsonb,
+      application_origin text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
       revoked_at timestamptz,
       CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))
@@ -238,6 +239,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(db, "connectors", "relay_public_key", "ALTER TABLE connectors ADD COLUMN relay_public_key text");
   await ensureColumn(db, "grants", "encryption", "ALTER TABLE grants ADD COLUMN encryption jsonb");
+  await ensureColumn(
+    db,
+    "grants",
+    "application_origin",
+    "ALTER TABLE grants ADD COLUMN application_origin text NOT NULL DEFAULT ''"
+  );
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
   await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");

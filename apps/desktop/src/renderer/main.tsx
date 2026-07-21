@@ -15,7 +15,7 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
   overview: {
     eyebrow: "This computer",
     title: "Your local connection.",
-    lede: "Collections, application access, and relay status in one place."
+    lede: "Collections, application access, and connection status in one place."
   },
   collections: {
     eyebrow: "Local collections",
@@ -266,12 +266,12 @@ function Overview({ status, cloud, access, collections, busy, onNavigate, onPair
         <div className="readiness-copy">
           <p className="eyebrow">Connection state</p>
           <h2>{status?.paused ? "Access is paused." : access.online ? "This computer is ready." : "Working from the local cache."}</h2>
-          <p>{status?.paused ? "Apps remain connected, but every remote operation is being denied locally." : access.online ? "Approved applications can reach available collections while this connector is running." : "Existing local settings remain visible. Cloud changes will resume when the relay reconnects."}</p>
+          <p>{status?.paused ? "Apps remain connected, but every collection operation is being denied locally." : access.online ? "Approved applications can reach available collections directly or through mdbase while this connector is running." : "Direct access keeps working from cached local policy. Cloud changes resume when the portal reconnects."}</p>
         </div>
         <SettingSwitch
           className="pause-control"
-          label="Remote access"
-          description="Pause without disconnecting applications"
+          label="Application access"
+          description="Pause direct and relayed operations without disconnecting apps"
           checked={status ? !status.paused : false}
           disabled={busy || status === null}
           stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
@@ -538,6 +538,7 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
             <ComputerNameSetting account={access.account} online={access.online} busy={busy} onAct={onAct} onNotice={onNotice} />
             <SettingRow label="Server" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Control service reachable" : "Using cached local policy"} mono />
             <SettingRow label="Connection" value={status?.state === "connected" ? "Connected" : "Offline"} detail="The relay connection is always outbound from this computer" />
+            <SettingRow label="Direct access" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps on this computer can bypass the relay" />
           </div>
           <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from its portal? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
         </section>
@@ -559,19 +560,19 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
           />
           <SettingSwitch
             className="setting-toggle"
-            label="Remote access"
-            description="Pause all applications while keeping the relay connected"
+            label="Application access"
+            description="Pause direct and relayed operations while keeping grants connected"
             checked={status ? !status.paused : false}
             disabled={busy || status === null}
             stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
             onChange={(checked) => void onAct(async () => {
               await window.mdbaseConnect.setAccessPaused(!checked);
-              onNotice(checked ? "Remote access is available." : "Remote access is paused.");
+              onNotice(checked ? "Application access is available." : "Application access is paused.");
             })}
           />
         </div>
       </section>
-      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Record payloads pass through the relay only while an operation is active.</p></div></section>
+      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Same-computer apps connect directly when allowed; remote operations remain end-to-end encrypted through the relay.</p></div></section>
     </div>
   );
 }

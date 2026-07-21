@@ -4,12 +4,11 @@ use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::{
     ActivityEntry, ApplicationRequirements, CollectionChange, CollectionChangesPage,
     CollectionContractDescriptor, CollectionDescription, CollectionSummary,
-    CollectionTypeDescriptor, ContractRequirement, GrantPolicy, GrantScope, GrantSummary,
-    TypeProvision, CONTROL_PROTOCOL_VERSION,
+    CollectionTypeDescriptor, ContractRequirement, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
+    GrantSummary, TypeProvision, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
-#[cfg(windows)]
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 use std::env;
@@ -114,6 +113,20 @@ pub struct CollectionRegistry {
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncryptedRequestClaim {
+    Fresh,
+    Completed(String),
+    InProgress,
+}
+
+pub fn encrypted_request_fingerprint(
+    envelope: &EncryptedRelayEnvelope,
+) -> Result<String, ConnectError> {
+    let digest = Sha256::digest(serde_json::to_vec(envelope)?);
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 impl CollectionRegistry {
     pub fn open(state_dir: impl AsRef<Path>) -> Result<Self, ConnectError> {
         fs::create_dir_all(state_dir.as_ref())?;
@@ -154,6 +167,7 @@ impl CollectionRegistry {
                 scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}',
                 application_name TEXT NOT NULL DEFAULT 'Application',
                 application_homepage TEXT NOT NULL DEFAULT '',
+                application_origin TEXT NOT NULL DEFAULT '',
                 application_icon TEXT,
                 collection_name TEXT NOT NULL DEFAULT 'Collection',
                 encryption TEXT,
@@ -196,7 +210,9 @@ impl CollectionRegistry {
                 grant_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
                 request_id TEXT NOT NULL,
-                counter TEXT,
+                request_counter TEXT NOT NULL DEFAULT '',
+                request_fingerprint TEXT NOT NULL DEFAULT '',
+                response_envelope TEXT,
                 received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (grant_id, key_id, request_id)
             );
@@ -207,6 +223,7 @@ impl CollectionRegistry {
         for migration in [
             "ALTER TABLE grants ADD COLUMN application_name TEXT NOT NULL DEFAULT 'Application'",
             "ALTER TABLE grants ADD COLUMN application_homepage TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE grants ADD COLUMN application_origin TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grants ADD COLUMN application_icon TEXT",
             "ALTER TABLE grants ADD COLUMN collection_name TEXT NOT NULL DEFAULT 'Collection'",
             "ALTER TABLE grants ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
@@ -215,6 +232,9 @@ impl CollectionRegistry {
             "ALTER TABLE collections ADD COLUMN description TEXT",
             "ALTER TABLE grant_crypto_state ADD COLUMN reorder_floor TEXT",
             "ALTER TABLE grant_crypto_requests ADD COLUMN counter TEXT",
+            "ALTER TABLE grant_crypto_requests ADD COLUMN request_counter TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE grant_crypto_requests ADD COLUMN request_fingerprint TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE grant_crypto_requests ADD COLUMN response_envelope TEXT",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {
@@ -232,9 +252,14 @@ impl CollectionRegistry {
             [],
         )?;
         connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS grant_crypto_requests_counter
-             ON grant_crypto_requests (grant_id, key_id, counter)
-             WHERE counter IS NOT NULL",
+            "UPDATE grant_crypto_requests SET request_counter = counter
+             WHERE request_counter = '' AND counter IS NOT NULL",
+            [],
+        )?;
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS grant_crypto_requests_request_counter
+             ON grant_crypto_requests (grant_id, key_id, request_counter)
+             WHERE request_counter <> ''",
             [],
         )?;
         Ok(())
@@ -696,7 +721,11 @@ impl CollectionRegistry {
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                if let Some(fields) = input.get("fields").and_then(Value::as_object) {
+                if let Some(fields) = input
+                    .get("patch")
+                    .or_else(|| input.get("fields"))
+                    .and_then(Value::as_object)
+                {
                     for (field, value) in fields {
                         if value.is_null() {
                             prospective.remove(field);
@@ -1075,8 +1104,9 @@ impl CollectionRegistry {
             let mut statement = transaction.prepare(
                 "INSERT INTO grants
                    (id, application_id, collection_id, operations, scope, application_name,
-                    application_homepage, application_icon, collection_name, created_at, encryption)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    application_homepage, application_origin, application_icon, collection_name,
+                    created_at, encryption)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -1087,6 +1117,7 @@ impl CollectionRegistry {
                     serde_json::to_string(&grant.scope)?,
                     grant.application_name,
                     grant.application_homepage,
+                    grant.application_origin,
                     grant.application_icon,
                     grant.collection_name,
                     grant.created_at,
@@ -1147,6 +1178,7 @@ impl CollectionRegistry {
                     scope: grant.scope.clone(),
                     application_name: grant.application_name.clone(),
                     application_homepage: grant.application_homepage.clone(),
+                    application_origin: grant.application_origin.clone(),
                     application_icon: grant.application_icon.clone(),
                     collection_name: grant.collection_name.clone(),
                     created_at: grant.created_at.clone(),
@@ -1160,8 +1192,8 @@ impl CollectionRegistry {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
             "SELECT id, application_id, application_name, application_homepage,
-                    application_icon, collection_id, collection_name, operations, scope, created_at,
-                    encryption
+                    application_origin, application_icon, collection_id, collection_name,
+                    operations, scope, created_at, encryption
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -1170,13 +1202,14 @@ impl CollectionRegistry {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, String>(5)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, String>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, String>(9)?,
-                row.get::<_, Option<String>>(10)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, Option<String>>(11)?,
             ))
         })?;
         rows.map(|row| {
@@ -1185,6 +1218,7 @@ impl CollectionRegistry {
                 application_id,
                 application_name,
                 application_homepage,
+                application_origin,
                 application_icon,
                 collection_id,
                 collection_name,
@@ -1198,6 +1232,7 @@ impl CollectionRegistry {
                 application_id: parse_registry_uuid(&application_id)?,
                 application_name,
                 application_homepage,
+                application_origin,
                 application_icon,
                 collection_id: parse_registry_uuid(&collection_id)?,
                 collection_name,
@@ -1318,18 +1353,19 @@ impl CollectionRegistry {
             .find(|grant| grant.id == grant_id))
     }
 
-    /// Atomically accepts a fresh encrypted request counter and request ID.
+    /// Atomically claims a fresh encrypted request or returns its durable response receipt.
     ///
     /// Authentication must happen before this call so unauthenticated traffic cannot advance the
     /// durable replay window. The immediate transaction makes concurrent duplicate deliveries
     /// deterministic across relay sessions and process threads.
-    pub fn accept_encrypted_request(
+    pub fn claim_encrypted_request(
         &self,
         grant_id: Uuid,
         key_id: &str,
         counter: u64,
         request_id: Uuid,
-    ) -> Result<(), ConnectError> {
+        request_fingerprint: &str,
+    ) -> Result<EncryptedRequestClaim, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let state = transaction
@@ -1347,26 +1383,35 @@ impl CollectionRegistry {
             )
             .transpose()
             .map_err(|_| ConnectError::EncryptedRelayRejected)?;
-        let duplicate_id = transaction
+        let existing = transaction
             .query_row(
-                "SELECT 1 FROM grant_crypto_requests
+                "SELECT request_fingerprint, response_envelope FROM grant_crypto_requests
                  WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3",
                 params![grant_id.to_string(), key_id, request_id.to_string()],
-                |_| Ok(()),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
-            .optional()?
-            .is_some();
+            .optional()?;
+        if let Some((fingerprint, response)) = existing {
+            if fingerprint != request_fingerprint {
+                return Err(ConnectError::EncryptedRelayRejected);
+            }
+            transaction.commit()?;
+            return Ok(match response {
+                Some(response) => EncryptedRequestClaim::Completed(response),
+                None => EncryptedRequestClaim::InProgress,
+            });
+        }
         let duplicate_counter = transaction
             .query_row(
                 "SELECT 1 FROM grant_crypto_requests
-                 WHERE grant_id = ?1 AND key_id = ?2 AND counter = ?3",
+                 WHERE grant_id = ?1 AND key_id = ?2 AND request_counter = ?3",
                 params![grant_id.to_string(), key_id, counter.to_string()],
                 |_| Ok(()),
             )
             .optional()?
             .is_some();
         let reorder_floor = state.map_or(0, |(_, floor)| floor);
-        if duplicate_id || duplicate_counter || counter <= reorder_floor {
+        if duplicate_counter || counter <= reorder_floor {
             return Err(ConnectError::EncryptedRelayRejected);
         }
         let last = state.map_or(counter, |(last, _)| last.max(counter));
@@ -1386,26 +1431,80 @@ impl CollectionRegistry {
             ],
         )?;
         transaction.execute(
-            "INSERT INTO grant_crypto_requests (grant_id, key_id, request_id, counter)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO grant_crypto_requests
+               (grant_id, key_id, request_id, request_counter, request_fingerprint)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 grant_id.to_string(),
                 key_id,
                 request_id.to_string(),
-                counter.to_string()
+                counter.to_string(),
+                request_fingerprint
             ],
         )?;
         transaction.execute(
             "DELETE FROM grant_crypto_requests
-             WHERE grant_id = ?1 AND key_id = ?2 AND rowid NOT IN (
+             WHERE grant_id = ?1 AND key_id = ?2 AND response_envelope IS NOT NULL
+               AND rowid NOT IN (
                SELECT rowid FROM grant_crypto_requests
                WHERE grant_id = ?1 AND key_id = ?2
+                 AND response_envelope IS NOT NULL
                ORDER BY rowid DESC LIMIT 1024
              )",
             params![grant_id.to_string(), key_id],
         )?;
         transaction.commit()?;
+        Ok(EncryptedRequestClaim::Fresh)
+    }
+
+    pub fn complete_encrypted_request(
+        &self,
+        grant_id: Uuid,
+        key_id: &str,
+        request_id: Uuid,
+        request_fingerprint: &str,
+        response_envelope: &str,
+    ) -> Result<(), ConnectError> {
+        let updated = self.connection()?.execute(
+            "UPDATE grant_crypto_requests SET response_envelope = ?5
+             WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3
+               AND request_fingerprint = ?4 AND response_envelope IS NULL",
+            params![
+                grant_id.to_string(),
+                key_id,
+                request_id.to_string(),
+                request_fingerprint,
+                response_envelope
+            ],
+        )?;
+        if updated != 1 {
+            return Err(ConnectError::EncryptedRelayRejected);
+        }
         Ok(())
+    }
+
+    pub fn encrypted_request_response(
+        &self,
+        grant_id: Uuid,
+        key_id: &str,
+        request_id: Uuid,
+        request_fingerprint: &str,
+    ) -> Result<Option<String>, ConnectError> {
+        self.connection()?
+            .query_row(
+                "SELECT response_envelope FROM grant_crypto_requests
+                 WHERE grant_id = ?1 AND key_id = ?2 AND request_id = ?3
+                   AND request_fingerprint = ?4",
+                params![
+                    grant_id.to_string(),
+                    key_id,
+                    request_id.to_string(),
+                    request_fingerprint
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(ConnectError::from)
     }
 
     pub fn authorizes(
@@ -2321,7 +2420,7 @@ schema:
             registry.scoped_operation(
                 collection.id,
                 "update",
-                &json!({ "path": "tasks/one.md", "fields": { "type": "private" } }),
+                &json!({ "path": "tasks/one.md", "patch": { "type": "private" } }),
                 &scope
             ),
             Err(ConnectError::AccessDenied(_))
@@ -2427,6 +2526,7 @@ schema:
             scope: GrantScope::default(),
             application_name: "Workout Tracker".to_string(),
             application_homepage: "https://workouts.example".to_string(),
+            application_origin: "https://workouts.example".to_string(),
             application_icon: None,
             collection_name: "Workouts".to_string(),
             created_at: "2026-07-19T00:00:00Z".to_string(),
@@ -2454,31 +2554,60 @@ schema:
     }
 
     #[test]
-    fn encrypted_replay_window_survives_restart_and_allows_reordered_delivery() {
+    fn encrypted_replay_window_survives_restart_allows_reordering_and_serializes_duplicates() {
         let state = tempdir().unwrap();
         let grant_id = Uuid::new_v4();
         let first_request = Uuid::new_v4();
         let registry = CollectionRegistry::open(state.path()).unwrap();
+        assert_eq!(
+            registry
+                .claim_encrypted_request(grant_id, "key-1", 40, first_request, "fingerprint-1")
+                .unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
         registry
-            .accept_encrypted_request(grant_id, "key-1", 40, first_request)
+            .complete_encrypted_request(
+                grant_id,
+                "key-1",
+                first_request,
+                "fingerprint-1",
+                r#"{"ciphertext":"response"}"#,
+            )
             .unwrap();
         drop(registry);
 
         let registry = CollectionRegistry::open(state.path()).unwrap();
         assert!(matches!(
-            registry.accept_encrypted_request(grant_id, "key-1", 40, Uuid::new_v4()),
+            registry.claim_encrypted_request(
+                grant_id,
+                "key-1",
+                40,
+                Uuid::new_v4(),
+                "fingerprint-2"
+            ),
             Err(ConnectError::EncryptedRelayRejected)
         ));
-        assert!(matches!(
-            registry.accept_encrypted_request(grant_id, "key-1", 41, first_request),
-            Err(ConnectError::EncryptedRelayRejected)
-        ));
-        registry
-            .accept_encrypted_request(grant_id, "key-1", 42, Uuid::new_v4())
-            .unwrap();
-        registry
-            .accept_encrypted_request(grant_id, "key-1", 41, Uuid::new_v4())
-            .unwrap();
+        assert_eq!(
+            registry
+                .claim_encrypted_request(grant_id, "key-1", 40, first_request, "fingerprint-1")
+                .unwrap(),
+            EncryptedRequestClaim::Completed(r#"{"ciphertext":"response"}"#.to_string())
+        );
+        assert!(registry
+            .claim_encrypted_request(grant_id, "key-1", 41, first_request, "tampered")
+            .is_err());
+        assert_eq!(
+            registry
+                .claim_encrypted_request(grant_id, "key-1", 42, Uuid::new_v4(), "fingerprint-42")
+                .unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
+        assert_eq!(
+            registry
+                .claim_encrypted_request(grant_id, "key-1", 41, Uuid::new_v4(), "fingerprint-41")
+                .unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
 
         let shared = Arc::new(registry);
         let request_id = Uuid::new_v4();
@@ -2486,16 +2615,110 @@ schema:
             .map(|_| {
                 let registry = shared.clone();
                 std::thread::spawn(move || {
-                    registry.accept_encrypted_request(grant_id, "key-1", 43, request_id)
+                    registry.claim_encrypted_request(
+                        grant_id,
+                        "key-1",
+                        43,
+                        request_id,
+                        "fingerprint-43",
+                    )
                 })
             })
             .collect::<Vec<_>>();
         let accepted = threads
             .into_iter()
             .map(|thread| thread.join().unwrap())
-            .filter(Result::is_ok)
+            .filter(|result| matches!(result, Ok(EncryptedRequestClaim::Fresh)))
             .count();
         assert_eq!(accepted, 1);
+        assert_eq!(
+            shared
+                .claim_encrypted_request(
+                    grant_id,
+                    "key-1",
+                    2_000,
+                    Uuid::new_v4(),
+                    "fingerprint-2000"
+                )
+                .unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
+        assert!(shared
+            .claim_encrypted_request(grant_id, "key-1", 975, Uuid::new_v4(), "fingerprint-stale")
+            .is_err());
+    }
+
+    #[test]
+    fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() {
+        let state = tempdir().unwrap();
+        let path = state.path().join("connector.sqlite");
+        let legacy = Connection::open(&path).unwrap();
+        legacy
+            .execute_batch(
+                "CREATE TABLE grants (
+                    id TEXT PRIMARY KEY,
+                    application_id TEXT NOT NULL,
+                    collection_id TEXT NOT NULL,
+                    operations TEXT NOT NULL
+                 );
+                 CREATE TABLE grant_crypto_state (
+                    grant_id TEXT NOT NULL,
+                    key_id TEXT NOT NULL,
+                    last_request_counter TEXT NOT NULL,
+                    PRIMARY KEY (grant_id, key_id)
+                 );
+                 CREATE TABLE grant_crypto_requests (
+                    grant_id TEXT NOT NULL,
+                    key_id TEXT NOT NULL,
+                    request_id TEXT NOT NULL,
+                    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (grant_id, key_id, request_id)
+                 );",
+            )
+            .unwrap();
+        let grant_id = Uuid::new_v4();
+        legacy
+            .execute(
+                "INSERT INTO grant_crypto_state (grant_id, key_id, last_request_counter)
+                 VALUES (?1, 'legacy-key', '40')",
+                [grant_id.to_string()],
+            )
+            .unwrap();
+        drop(legacy);
+
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let connection = registry.connection().unwrap();
+        let origin: String = connection
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('grants')
+                 WHERE name = 'application_origin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(origin, "''");
+        let floor: String = connection
+            .query_row(
+                "SELECT reorder_floor FROM grant_crypto_state
+                 WHERE grant_id = ?1 AND key_id = 'legacy-key'",
+                [grant_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(floor, "40");
+        drop(connection);
+        assert_eq!(
+            registry
+                .claim_encrypted_request(
+                    grant_id,
+                    "legacy-key",
+                    41,
+                    Uuid::new_v4(),
+                    "upgraded-fingerprint"
+                )
+                .unwrap(),
+            EncryptedRequestClaim::Fresh
+        );
     }
 
     #[test]
@@ -2510,6 +2733,7 @@ schema:
             scope: GrantScope::default(),
             application_name: "Encrypted app".to_string(),
             application_homepage: "https://app.example".to_string(),
+            application_origin: "https://app.example".to_string(),
             application_icon: None,
             collection_name: "Collection".to_string(),
             created_at: "2026-07-21T00:00:00Z".to_string(),
@@ -2528,7 +2752,7 @@ schema:
             .replace_grants(std::slice::from_ref(&grant))
             .unwrap();
         registry
-            .accept_encrypted_request(grant.id, "key-1", 7, Uuid::new_v4())
+            .claim_encrypted_request(grant.id, "key-1", 7, Uuid::new_v4(), "fingerprint")
             .unwrap();
 
         registry

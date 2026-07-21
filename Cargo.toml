@@ -15,7 +15,7 @@ license = "MIT"
 repository = "https://github.com/mdbase-dev/mdbase-connect"
 
 [workspace.dependencies]
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 axum = "0.8.9"
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }

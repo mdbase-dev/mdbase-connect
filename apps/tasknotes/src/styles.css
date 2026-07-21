@@ -42,6 +42,9 @@ button:disabled { cursor: default; opacity: 0.48; }
 header { display: flex; align-items: flex-start; justify-content: space-between; min-height: 120px; }
 header .wordmark { margin: 0 0 5px; }
 .connection { margin: 0; font-size: 12px; color: oklch(0.55 0.02 225); }
+.direct-access { min-height: 28px; margin-top: 8px; padding-inline: 9px; font-size: 12px; background: transparent; }
+.direct-option { display: flex; align-items: baseline; gap: 9px; }
+.direct-option span { font-size: 11px; color: oklch(0.59 0.018 225); }
 section h1 { margin: 0 0 22px; font-size: 25px; line-height: 1.2; letter-spacing: -0.025em; }
 
 .quick-add { display: flex; gap: 8px; padding-bottom: 24px; border-bottom: 1px solid oklch(0.9 0.007 225); }
@@ -78,6 +81,7 @@ section h1 { margin: 0 0 22px; font-size: 25px; line-height: 1.2; letter-spacing
   .welcome h1 { font-size: 34px; }
   .shell { width: min(100% - 28px, 720px); padding-top: 20px; }
   header { min-height: 104px; }
+  .direct-option span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

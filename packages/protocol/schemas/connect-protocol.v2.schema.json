@@ -125,6 +125,7 @@
         "scope": { "$ref": "#/$defs/grantScope" },
         "application_name": { "type": "string", "minLength": 1 },
         "application_homepage": { "type": "string" },
+        "application_origin": { "type": "string", "format": "uri" },
         "application_icon": { "type": "string" },
         "collection_name": { "type": "string", "minLength": 1 },
         "created_at": { "type": "string", "format": "date-time" },

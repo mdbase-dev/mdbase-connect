@@ -111,9 +111,10 @@ fn encrypt(key: &[u8; KEY_BYTES], plaintext: &[u8], aad: &[u8]) -> ApiResult<Vec
         .map_err(|_| ApiError::internal("The hosted encryption key is invalid."))?;
     let mut nonce = [0_u8; NONCE_BYTES];
     OsRng.fill_bytes(&mut nonce);
+    let nonce = Nonce::from(nonce);
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &nonce,
             Payload {
                 msg: plaintext,
                 aad,
@@ -135,9 +136,13 @@ fn decrypt(key: &[u8; KEY_BYTES], envelope: &[u8], aad: &[u8]) -> ApiResult<Vec<
     }
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|_| ApiError::internal("The hosted encryption key is invalid."))?;
+    let nonce_bytes: [u8; NONCE_BYTES] = envelope[1..1 + NONCE_BYTES]
+        .try_into()
+        .map_err(|_| ApiError::internal("The hosted ciphertext envelope is invalid."))?;
+    let nonce = Nonce::from(nonce_bytes);
     cipher
         .decrypt(
-            Nonce::from_slice(&envelope[1..1 + NONCE_BYTES]),
+            &nonce,
             Payload {
                 msg: &envelope[1 + NONCE_BYTES..],
                 aad,

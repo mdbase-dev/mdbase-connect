@@ -12,7 +12,8 @@ Four trust zones make up the local-hosted path:
 
 1. An independently hosted frontend application.
 2. A hosted or self-hosted Connect control plane and transient relay.
-3. A user-owned connector agent with outbound network connections.
+3. A user-owned connector agent with a browser-only loopback service and
+   outbound network connections.
 4. User-owned mdbase collections on the local filesystem.
 
 The connector is the authority for local data and policy. The server routes a
@@ -24,7 +25,8 @@ checks its local policy copy again before it opens a collection.
 - `mdbase-rs` owns collection loading, validation, querying, mutation,
   revisions, and normalized filesystem events.
 - `connect-agent` owns collection registration, local policy enforcement, the
-  local change journal, activity, and outbound relay connectivity.
+  local change journal, activity, browser loopback access, and outbound relay
+  connectivity.
 - `connect-cli` and the Electron controller use the agent's versioned local
   control socket.
 - `connect-server` owns accounts, pairing, app discovery, grants, token
@@ -150,6 +152,34 @@ design is in
 The Electron controller is the primary collection and permission surface. The
 portal handles sign-in, pairing, account state, remote approval on trusted
 private deployments, and emergency computer revocation.
+
+## Direct local transport
+
+Local-authority grants synchronize the application's exact approved origin to
+the connector. The browser SDK can then send the existing protocol-3 envelope
+to `http://127.0.0.1:28485/v1/operations`. The fixed endpoint reveals only
+generic protocol readiness. It is separate from the Unix socket or Windows
+pipe used for desktop administration and exposes all grantable collection
+operations through the same connector handler as the relay.
+
+The loopback listener binds only IPv4 and IPv6 loopback, validates the exact
+`Host` and grant origin, returns exact-origin CORS headers, omits ambient
+credentials, requires `application/mdbase-connect+json`, and bounds request
+size, concurrency, execution time, and per-origin rate. Protocol-3 key proof
+remains the operation authority; CORS is an additional browser boundary.
+
+Chrome's Local Network Access permission is requested from an explicit app
+action. Once granted, routing is automatic and the UI may quietly report
+`Connected directly`. Unsupported, denied, absent, or incompatible local
+access falls back to the encrypted relay without changing application record
+code. Hosted authorities continue to use their provider directly.
+
+Every authenticated request is claimed in the connector's durable replay
+window. The completed encrypted response is stored as a receipt. If a direct
+response is lost, the SDK retries the exact envelope through the relay and the
+connector returns that receipt instead of executing the operation again.
+Authenticated counters may arrive out of order within a bounded 1,024-message
+window so concurrent browser requests remain safe and usable.
 
 ## Data authority and hosted replication
 

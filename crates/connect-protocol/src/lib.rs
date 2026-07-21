@@ -6,6 +6,8 @@ pub mod crypto;
 
 pub const CONTROL_PROTOCOL_VERSION: u32 = 2;
 pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 3;
+pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
+pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
 
@@ -218,6 +220,10 @@ pub struct AgentStatus {
     pub state: AgentConnectionState,
     pub registered_collections: usize,
     pub paused: bool,
+    #[serde(default)]
+    pub direct_access_available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loopback_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -505,6 +511,9 @@ pub struct GrantSummary {
     pub application_id: Uuid,
     pub application_name: String,
     pub application_homepage: String,
+    /// Exact browser origin authorized to use this grant over loopback.
+    #[serde(default)]
+    pub application_origin: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_icon: Option<String>,
     pub collection_id: Uuid,
@@ -581,6 +590,9 @@ pub struct GrantPolicy {
     pub application_name: String,
     #[serde(default)]
     pub application_homepage: String,
+    /// Exact browser origin authorized to use this grant over loopback.
+    #[serde(default)]
+    pub application_origin: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_icon: Option<String>,
     #[serde(default = "default_collection_name")]
@@ -795,6 +807,7 @@ mod tests {
                     scope: GrantScope::default(),
                     application_name: "Tasks".to_string(),
                     application_homepage: "https://tasks.example".to_string(),
+                    application_origin: "https://tasks.example".to_string(),
                     application_icon: None,
                     collection_name: "My tasks".to_string(),
                     created_at: "2026-07-21T00:00:00Z".to_string(),

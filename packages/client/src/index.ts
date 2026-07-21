@@ -5,6 +5,7 @@ import type {
   CollectionFileMetadata,
   CollectionOperation,
   CollectionTypeDocument,
+  EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   GrantEncryption,
   GrantScope,
@@ -13,6 +14,7 @@ import type {
   RecordSummary,
   RecordResult
 } from "@mdbase/connect-protocol";
+import { DEFAULT_LOOPBACK_PORT } from "@mdbase/connect-protocol";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
@@ -59,6 +61,27 @@ export interface MdbaseConnectOptions {
   /** Encrypted relay is required by default for newly authorized grants. */
   relayEncryption?: "required" | "disabled";
   keyStore?: GrantKeyStore;
+  /** Prefer same-computer connector access when the browser permits it. */
+  directAccess?: "auto" | "disabled";
+  /** Loopback origin override for development and automated testing. */
+  loopbackUrl?: string;
+}
+
+export type MdbaseConnectionRoute = "hosted" | "direct" | "relay";
+export type DirectAccessStatus =
+  | "disabled"
+  | "permission_required"
+  | "checking"
+  | "available"
+  | "unavailable"
+  | "denied";
+
+export interface MdbaseConnection {
+  collectionId: string;
+  operations: CollectionOperation[];
+  scope: GrantScope;
+  route: MdbaseConnectionRoute;
+  directAccess: DirectAccessStatus;
 }
 
 export interface ReadInput {
@@ -275,12 +298,22 @@ interface StoredToken {
   refreshExpiresAt?: number;
   grantId?: string;
   encryption?: GrantEncryption;
+  applicationOrigin?: string;
   keyHandle?: string;
   hosted?: {
     providerUrl: string;
     replicaId: string;
     accessToken: string;
   };
+}
+
+interface PendingDirectMutation {
+  grantId: string;
+  keyId: string;
+  operation: CollectionOperation;
+  inputFingerprint: string;
+  envelope: EncryptedRelayOperationRequest;
+  createdAt: number;
 }
 
 const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
@@ -292,9 +325,16 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly storage: Storage;
   private readonly relayEncryption: "required" | "disabled";
   private readonly keyStore: GrantKeyStore;
+  private readonly directAccessMode: "auto" | "disabled";
+  private readonly loopbackUrl: string;
   private application: Application | null = null;
   private refreshPromise: Promise<StoredToken> | null = null;
   private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
+  private directStatus: DirectAccessStatus;
+  private route: MdbaseConnectionRoute = "relay";
+  private directFailures = 0;
+  private directRetryAt = 0;
+  private readonly connectionListeners = new Set<(connection: MdbaseConnection | null) => void>();
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(options.serverUrl);
@@ -303,6 +343,11 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.storage = options.storage ?? defaultStorage();
     this.relayEncryption = options.relayEncryption ?? "required";
     this.keyStore = options.keyStore ?? new IndexedDbGrantKeyStore();
+    this.directAccessMode = options.directAccess ?? "auto";
+    this.loopbackUrl = canonicalLoopbackUrl(
+      options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`
+    );
+    this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
     this.collectionClient = new MdbaseCollectionClient({
       operation: (operation, input) => this.performOperation(operation, input)
     });
@@ -331,6 +376,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     const replaced = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey()));
     if (replaced?.keyHandle) await this.keyStore.delete(replaced.keyHandle);
     this.storage.removeItem(this.pendingKey());
+    this.clearPendingMutation();
     const application = await this.discover();
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
@@ -410,11 +456,50 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return { collectionId: token.collectionId, operations: token.operations, scope: token.scope };
   }
 
-  connection(): { collectionId: string; operations: CollectionOperation[]; scope: GrantScope } | null {
+  connection(): MdbaseConnection | null {
     const token = this.currentToken();
     return token
-      ? { collectionId: token.collectionId, operations: token.operations, scope: token.scope }
+      ? {
+          collectionId: token.collectionId,
+          operations: token.operations,
+          scope: token.scope,
+          route: token.hosted ? "hosted" : this.route,
+          directAccess: token.hosted ? "disabled" : this.directStatus
+        }
       : null;
+  }
+
+  onConnectionChange(listener: (connection: MdbaseConnection | null) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.connection());
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  async checkDirectAccess(): Promise<DirectAccessStatus> {
+    const token = this.currentToken();
+    if (!this.directEligible(token)) return this.setDirectStatus("disabled");
+    const permission = await localNetworkPermission();
+    if (permission === "denied") return this.setDirectStatus("denied");
+    if ((permission === "prompt" || permission === null)
+        && this.storage.getItem(this.directPreferenceKey()) !== "enabled") {
+      return this.setDirectStatus("permission_required");
+    }
+    return this.probeDirectAccess();
+  }
+
+  /** Call from a user gesture to request browser permission for direct local access. */
+  async requestDirectAccess(): Promise<DirectAccessStatus> {
+    const token = this.currentToken();
+    if (!this.directCapable(token)) return this.setDirectStatus("disabled");
+    this.storage.setItem(this.directPreferenceKey(), "enabled");
+    this.directRetryAt = 0;
+    return this.probeDirectAccess();
+  }
+
+  disableDirectAccess(): void {
+    this.storage.setItem(this.directPreferenceKey(), "disabled");
+    this.setDirectStatus("disabled");
+    this.setRoute("relay");
   }
 
   disconnect(): void {
@@ -425,6 +510,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     for (const handle of handles) void this.keyStore.delete(handle);
     this.storage.removeItem(this.tokenKey());
     this.storage.removeItem(this.pendingKey());
+    this.clearPendingMutation();
+    this.setRoute("relay");
+    this.emitConnection();
   }
 
   describe(): Promise<CollectionDescription> {
@@ -484,22 +572,46 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private async performOperation<Result>(operation: CollectionOperation, input: unknown): Promise<Result> {
-    let token = await this.authorizedToken();
+    let token = this.currentToken();
     if (!token) throw new MdbaseConnectError("not_authorized", "Connect this application before accessing a collection.");
     if (!token.operations.includes(operation)) {
       throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`);
     }
-    let attempt = await this.sendOperation<Result>(token, operation, input);
+    let tryDirect = isMutation(operation) && this.storage.getItem(this.pendingMutationKey()) !== null
+      ? true
+      : await this.shouldAttemptDirect(token);
+    if (!tryDirect) {
+      token = await this.authorizedToken();
+      if (!token) throw new MdbaseConnectError("not_authorized", "Reconnect this application to continue.");
+    }
+    let attempt = await this.sendOperation<Result>(token, operation, input, tryDirect);
     let response = attempt.response;
     const staleBinding = response.status === 409
       && (await response.clone().json().catch(() => null))?.error?.code === "encryption_binding_stale";
     if ((response.status === 401 || staleBinding) && token.refreshToken) {
+      if (attempt.pendingMutation && attempt.directDeliveryUncertain) {
+        throw new MdbaseConnectError(
+          "direct_outcome_unknown",
+          "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change."
+        );
+      }
+      if (attempt.pendingMutation) this.clearPendingMutation();
       token = await this.refreshAuthorization();
-      attempt = await this.sendOperation<Result>(token, operation, input);
+      tryDirect = await this.shouldAttemptDirect(token);
+      attempt = await this.sendOperation<Result>(token, operation, input, tryDirect);
       response = attempt.response;
     }
     const body = await response.json();
-    if (!response.ok) throw apiError(body, "operation_failed", "Collection operation failed.");
+    if (!response.ok) {
+      const error = apiError(body, "operation_failed", "Collection operation failed.");
+      if (attempt.pendingMutation && attempt.directDeliveryUncertain) {
+        throw uncertainDirectMutation(error);
+      }
+      if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
+        this.clearPendingMutation();
+      }
+      throw error;
+    }
     if (attempt.encryptedRequest) {
       const encryptedResponse = body?.envelope as EncryptedRelayOperationResponse | undefined;
       if (!encryptedResponse || !token.encryption || !token.grantId || !token.keyHandle) {
@@ -516,6 +628,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
           attempt.encryptedRequest,
           encryptedResponse
         );
+        if (attempt.pendingMutation) this.clearPendingMutation();
         if (!decrypted.ok) throw new MdbaseConnectError(decrypted.error.code, decrypted.error.message);
         return decrypted.result;
       } catch (error) {
@@ -530,46 +643,223 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private async sendOperation<Result>(
     token: StoredToken,
     operation: CollectionOperation,
-    input: unknown
+    input: unknown,
+    tryDirect: boolean
   ): Promise<{
     response: Response;
     encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
+    directDeliveryUncertain?: boolean;
+    pendingMutation?: boolean;
   }> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
+    let pendingMutation = false;
     if (token.encryption && !token.hosted) {
       if (!token.grantId || !token.keyHandle) {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
       try {
-        encryptedRequest = await encryptRelayRequest(
-          this.keyStore,
-          token.keyHandle,
-          { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
-          operation,
-          input
-        );
+        if (tryDirect && isMutation(operation)) {
+          const inputFingerprint = await operationFingerprint(operation, input);
+          const pending = parseStored<PendingDirectMutation>(
+            this.storage.getItem(this.pendingMutationKey())
+          );
+          if (pending) {
+            if (pending.grantId !== token.grantId
+                || pending.keyId !== token.encryption.key_id
+                || pending.operation !== operation
+                || pending.inputFingerprint !== inputFingerprint) {
+              throw new MdbaseConnectError(
+                "pending_mutation_unresolved",
+                "A previous direct write still has an unknown outcome. Retry that same write before making another change."
+              );
+            }
+            encryptedRequest = pending.envelope;
+          } else {
+            encryptedRequest = await encryptRelayRequest(
+              this.keyStore,
+              token.keyHandle,
+              { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
+              operation,
+              input
+            );
+            this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
+              grantId: token.grantId,
+              keyId: token.encryption.key_id,
+              operation,
+              inputFingerprint,
+              envelope: encryptedRequest,
+              createdAt: Date.now()
+            } satisfies PendingDirectMutation));
+          }
+          pendingMutation = true;
+        } else {
+          encryptedRequest = await encryptRelayRequest(
+            this.keyStore,
+            token.keyHandle,
+            { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
+            operation,
+            input
+          );
+        }
       } catch (error) {
         if (error instanceof RelayCryptoError) throw new MdbaseConnectError(error.code, error.message);
         throw error;
       }
       body = encryptedRequest;
     }
+    if (tryDirect && encryptedRequest && !token.hosted) {
+      let directDeliveryUncertain = false;
+      try {
+        const response = await fetch(`${this.loopbackUrl}/v1/operations`, loopbackRequest({
+          method: "POST",
+          headers: { "content-type": "application/mdbase-connect+json" },
+          body: JSON.stringify(encryptedRequest)
+        }));
+        if (!directFallbackStatus(response.status)) {
+          if (response.ok) {
+            this.markDirectAvailable();
+            this.setRoute("direct");
+          }
+          return { response, encryptedRequest, pendingMutation };
+        }
+        directDeliveryUncertain = response.status >= 500;
+        this.markDirectUnavailable();
+      } catch {
+        directDeliveryUncertain = true;
+        if ((await localNetworkPermission()) === "denied") this.setDirectStatus("denied");
+        else this.markDirectUnavailable();
+      }
+      let relayToken: StoredToken;
+      try {
+        relayToken = token.expiresAt > Date.now() + 30_000
+          ? token
+          : await this.refreshAuthorization();
+      } catch (error) {
+        if (pendingMutation && directDeliveryUncertain) throw uncertainDirectMutation(error);
+        throw error;
+      }
+      let response: Response;
+      try {
+        response = await fetch(
+          `${this.serverUrl}/v1/collections/${encodeURIComponent(relayToken.collectionId)}/operations/${operation}`,
+          {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${relayToken.accessToken}`,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify(encryptedRequest)
+          }
+        );
+      } catch (error) {
+        if (pendingMutation && directDeliveryUncertain) throw uncertainDirectMutation(error);
+        throw error;
+      }
+      if (response.ok) this.setRoute("relay");
+      return { response, encryptedRequest, directDeliveryUncertain, pendingMutation };
+    }
     const operationUrl = token.hosted
       ? `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`
       : `${this.serverUrl}/v1/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
-    const response = await fetch(
-      operationUrl,
-      {
+    const response = await fetch(operationUrl, {
         method: "POST",
         headers: {
           authorization: `Bearer ${token.hosted?.accessToken ?? token.accessToken}`,
           "content-type": "application/json"
         },
         body: JSON.stringify(body)
-      }
-    );
+      });
+    if (response.ok) this.setRoute(token.hosted ? "hosted" : "relay");
     return { response, encryptedRequest };
+  }
+
+  private directCapable(token: StoredToken | null): boolean {
+    if (!token || token.hosted || !token.encryption || !token.grantId || !token.keyHandle) return false;
+    if (this.directAccessMode === "disabled") return false;
+    if (typeof location !== "undefined"
+        && token.applicationOrigin
+        && token.applicationOrigin !== location.origin) return false;
+    return true;
+  }
+
+  private directEligible(token: StoredToken | null): token is StoredToken {
+    return token !== null
+      && this.directCapable(token)
+      && this.storage.getItem(this.directPreferenceKey()) !== "disabled";
+  }
+
+  private async shouldAttemptDirect(token: StoredToken): Promise<boolean> {
+    if (!this.directEligible(token)) return false;
+    if (this.directStatus === "available") return true;
+    if (this.directStatus === "unavailable" && Date.now() < this.directRetryAt) return false;
+    const permission = await localNetworkPermission();
+    if (permission === "denied") {
+      this.setDirectStatus("denied");
+      return false;
+    }
+    if ((permission === "prompt" || permission === null)
+        && this.storage.getItem(this.directPreferenceKey()) !== "enabled") {
+      this.setDirectStatus("permission_required");
+      return false;
+    }
+    this.setDirectStatus("checking");
+    return true;
+  }
+
+  private async probeDirectAccess(): Promise<DirectAccessStatus> {
+    this.setDirectStatus("checking");
+    try {
+      const response = await fetch(`${this.loopbackUrl}/v1/ready`, loopbackRequest({
+        method: "GET",
+        cache: "no-store"
+      }));
+      const body = await response.json().catch(() => null);
+      if (response.ok
+          && body?.service === "mdbase-connect"
+          && body?.loopback_protocol_version === 1
+          && body?.encrypted_protocol_version === 3) {
+        this.markDirectAvailable();
+        return "available";
+      }
+    } catch {
+      // Permission denial, unsupported mixed content, and an absent connector all reject fetch.
+    }
+    if ((await localNetworkPermission()) === "denied") return this.setDirectStatus("denied");
+    this.markDirectUnavailable();
+    return "unavailable";
+  }
+
+  private markDirectAvailable(): void {
+    this.directFailures = 0;
+    this.directRetryAt = 0;
+    this.setDirectStatus("available");
+  }
+
+  private markDirectUnavailable(): void {
+    this.directFailures += 1;
+    this.directRetryAt = Date.now() + Math.min(60_000, 1_000 * 2 ** (this.directFailures - 1));
+    this.setDirectStatus("unavailable");
+  }
+
+  private setDirectStatus(status: DirectAccessStatus): DirectAccessStatus {
+    if (this.directStatus !== status) {
+      this.directStatus = status;
+      this.emitConnection();
+    }
+    return status;
+  }
+
+  private setRoute(route: MdbaseConnectionRoute): void {
+    if (this.route !== route) {
+      this.route = route;
+      this.emitConnection();
+    }
+  }
+
+  private emitConnection(): void {
+    const connection = this.connection();
+    for (const listener of this.connectionListeners) listener(connection);
   }
 
   private currentToken(): StoredToken | null {
@@ -578,6 +868,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     token.scope ??= { contracts: [] };
     if (token.expiresAt <= Date.now()
         && (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now())) {
+      // The cloud bearer and the local grant proof have separate lifetimes. Keep an
+      // encrypted local grant usable while the connector still recognizes it; relay
+      // use will require reauthorization, and revocation remains enforced locally.
+      if (this.directCapable(token)) return token;
       if (token.keyHandle) void this.keyStore.delete(token.keyHandle);
       this.storage.removeItem(this.tokenKey());
       return null;
@@ -589,7 +883,13 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     const token = this.currentToken();
     if (!token) return null;
     if (token.expiresAt > Date.now() + 30_000) return token;
-    if (!token.refreshToken) {
+    if (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now()) {
+      if (this.directCapable(token)) {
+        throw new MdbaseConnectError(
+          "relay_authorization_expired",
+          "Direct access is still available on this computer, but using the relay requires reconnecting this application."
+        );
+      }
       if (token.keyHandle) void this.keyStore.delete(token.keyHandle);
       this.storage.removeItem(this.tokenKey());
       return null;
@@ -610,6 +910,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     if (!current?.refreshToken) {
       throw new MdbaseConnectError("not_authorized", "Reconnect this application to continue.");
     }
+    if ((current.refreshExpiresAt ?? 0) <= Date.now()) {
+      throw new MdbaseConnectError(
+        "relay_authorization_expired",
+        "Direct access is still available on this computer, but using the relay requires reconnecting this application."
+      );
+    }
     const attemptedRefreshToken = current.refreshToken;
     const response = await fetch(`${this.serverUrl}/oauth/token`, {
       method: "POST",
@@ -626,8 +932,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       if (latest?.refreshToken && latest.refreshToken !== attemptedRefreshToken) {
         return latest;
       }
-      if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
-      this.storage.removeItem(this.tokenKey());
+      if (!this.directCapable(current)) {
+        if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
+        this.storage.removeItem(this.tokenKey());
+      }
       throw apiError(body, "authorization_expired", "Reconnect this application to continue.");
     }
     return this.storeTokenResponse(body, current.clientId, current.keyHandle);
@@ -647,6 +955,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         : undefined,
       grantId: body.grant_id,
       encryption: body.encryption ?? undefined,
+      applicationOrigin: body.application_origin ?? new URL(this.manifestUrl).origin,
       keyHandle,
       hosted: body.hosted ? {
         providerUrl: body.hosted.provider_url,
@@ -655,17 +964,116 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       } : undefined
     };
     this.storage.setItem(this.tokenKey(), JSON.stringify(token));
+    this.route = token.hosted ? "hosted" : "relay";
+    this.directStatus = token.hosted || this.directAccessMode === "disabled"
+      ? "disabled"
+      : "unavailable";
+    this.emitConnection();
     return token;
   }
 
   private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestUrl}`; }
   private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestUrl}`; }
+  private pendingMutationKey() {
+    return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestUrl}`;
+  }
+  private clearPendingMutation(): void {
+    this.storage.removeItem(this.pendingMutationKey());
+  }
+  private directPreferenceKey() {
+    return `mdbase-connect:direct:${new URL(this.manifestUrl).origin}`;
+  }
 }
 
 export class MdbaseConnectError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
   }
+}
+
+type LoopbackRequestInit = RequestInit & {
+  targetAddressSpace?: "loopback";
+};
+
+function loopbackRequest(init: RequestInit): LoopbackRequestInit {
+  return { ...init, credentials: "omit", targetAddressSpace: "loopback" };
+}
+
+async function localNetworkPermission(): Promise<PermissionState | null> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return null;
+  try {
+    const status = await navigator.permissions.query({
+      name: "local-network-access" as PermissionName
+    });
+    return status.state;
+  } catch {
+    return null;
+  }
+}
+
+function directFallbackStatus(status: number): boolean {
+  return status === 404 || status === 405 || status === 426 || status >= 500;
+}
+
+function isMutation(operation: CollectionOperation): boolean {
+  return operation === "create"
+    || operation === "update"
+    || operation === "delete"
+    || operation === "rename"
+    || operation === "create_type"
+    || operation === "update_type";
+}
+
+async function operationFingerprint(
+  operation: CollectionOperation,
+  input: unknown
+): Promise<string> {
+  const encoded = new TextEncoder().encode(`${operation}\0${canonicalJson(input ?? {})}`);
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sortJson(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJson(item)])
+    );
+  }
+  return value;
+}
+
+function uncertainDirectMutation(cause: unknown): MdbaseConnectError {
+  const error = new MdbaseConnectError(
+    "direct_outcome_unknown",
+    "The direct write may have completed, and mdbase could not recover its receipt through the relay. Retry the exact same write to recover safely."
+  );
+  Object.defineProperty(error, "cause", { value: cause, configurable: true });
+  return error;
+}
+
+function canonicalLoopbackUrl(value: string): string {
+  const url = new URL(value);
+  if (url.protocol !== "http:"
+      || !["127.0.0.1", "[::1]"].includes(url.hostname)
+      || url.username
+      || url.password
+      || url.pathname !== "/"
+      || url.search
+      || url.hash) {
+    throw new MdbaseConnectError(
+      "invalid_loopback_url",
+      "loopbackUrl must be an HTTP origin on 127.0.0.1 or ::1."
+    );
+  }
+  return url.origin;
 }
 
 export async function createPkce(): Promise<{ verifier: string; challenge: string }> {

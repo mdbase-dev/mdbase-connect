@@ -10,13 +10,16 @@ const requestedOperations = ["describe", "changes", "read", "query", "create", "
 function App() {
   const connect = useMemo(() => new MdbaseConnect<TaskFrontmatter>({ serverUrl }), []);
   const tasknotes = useMemo(() => new TasknotesCollection(connect), [connect]);
-  const [connected, setConnected] = useState(() => connect.connection() !== null);
+  const [connection, setConnection] = useState(() => connect.connection());
+  const connected = connection !== null;
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const loadGeneration = useRef(0);
+
+  useEffect(() => connect.onConnectionChange(setConnection), [connect]);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -40,13 +43,14 @@ function App() {
     connect.completeAuthorization()
       .then(() => {
         history.replaceState({}, "", callback.pathname);
-        setConnected(true);
+        setConnection(connect.connection());
       })
       .catch((caught) => setError(message(caught)));
   }, [connect]);
 
   useEffect(() => {
     if (!connected) return;
+    void connect.checkDirectAccess();
     void load();
     const controller = new AbortController();
     void (async () => {
@@ -110,11 +114,19 @@ function App() {
     <header>
       <div>
         <p className="wordmark">TaskNotes</p>
-        <p className="connection">Connected through mdbase</p>
+        <p className="connection">{connection?.route === "direct" ? "Connected directly" : "Connected through mdbase"}</p>
+        {connection?.directAccess === "permission_required" && (
+          <div className="direct-option">
+            <button className="direct-access" aria-describedby="direct-access-hint" onClick={() => void connect.requestDirectAccess()}>
+              Connect directly
+            </button>
+            <span id="direct-access-hint">Let TaskNotes reach mdbase on this computer.</span>
+          </div>
+        )}
       </div>
       <button className="quiet" onClick={() => {
         connect.disconnect();
-        setConnected(false);
+        setConnection(null);
         setTasks([]);
       }}>Disconnect</button>
     </header>

@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+import { chromium } from "@playwright/test";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
   MemoryGrantKeyStore
 } from "../packages/client/dist/crypto.js";
+import { MdbaseConnect } from "../packages/client/dist/index.js";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -36,8 +38,20 @@ const agentBinary = join(repoRoot, "target", "debug", `mdbase-connect-agent${ext
 const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
 let agent;
 let manifestServer;
+let browserManifestServer;
+let directOrigin;
 const applicationKeyStore = new MemoryGrantKeyStore();
 let relayContext;
+
+class MemoryStorage {
+  values = new Map();
+  get length() { return this.values.size; }
+  clear() { this.values.clear(); }
+  getItem(key) { return this.values.get(key) ?? null; }
+  key(index) { return [...this.values.keys()][index] ?? null; }
+  removeItem(key) { this.values.delete(key); }
+  setItem(key, value) { this.values.set(key, value); }
+}
 
 try {
   const session = await request("/v1/dev/session", {
@@ -103,6 +117,11 @@ type: private
 secret: connector scope test
 ---
 `);
+  await mkdir(join(collectionPath, "bulk"), { recursive: true });
+  await Promise.all(Array.from({ length: 1_000 }, (_, index) => writeFile(
+    join(collectionPath, "bulk", `${String(index).padStart(4, "0")}.md`),
+    `---\ntype: task\ntitle: Bulk ${index}\nstatus: open\n---\n`
+  )));
   await stopAgent(agent);
   agent = startAgent(["--server-url", serverUrl, "--connector-token", connector.body.token]);
 
@@ -114,6 +133,8 @@ secret: connector scope test
 
   const manifest = await openManifestServer();
   manifestServer = manifest.server;
+  browserManifestServer = manifest.browserServer;
+  directOrigin = manifest.origin;
   const application = await request("/v1/apps/discover", {
     method: "POST",
     body: { manifest_url: manifest.manifestUrl }
@@ -171,6 +192,21 @@ secret: connector scope test
       encryption: token.body.encryption
     }
   };
+  const hostileReady = await fetch("http://127.0.0.1:28485/v1/ready", {
+    headers: { origin: "https://hostile.example" }
+  });
+  if (hostileReady.status !== 403 || hostileReady.headers.has("access-control-allow-origin")) {
+    throw new Error("Hostile origin could read loopback readiness");
+  }
+  const directReady = await fetch("http://127.0.0.1:28485/v1/ready", {
+    headers: { origin: directOrigin }
+  });
+  const directReadyBody = await directReady.json();
+  if (directReady.status !== 200
+      || directReady.headers.get("access-control-allow-origin") !== directOrigin
+      || directReadyBody.loopback_protocol_version !== 1) {
+    throw new Error(`Authorized origin could not discover direct access: ${JSON.stringify(directReadyBody)}`);
+  }
   const refreshed = await request("/oauth/token", {
     method: "POST",
     form: {
@@ -181,6 +217,146 @@ secret: connector scope test
   });
   const accessToken = refreshed.body.access_token;
   relayContext.binding.encryption = refreshed.body.encryption;
+  const sdkStorage = new MemoryStorage();
+  sdkStorage.setItem(`mdbase-connect:token:${serverUrl}:${manifest.manifestUrl}`, JSON.stringify({
+    accessToken,
+    refreshToken: refreshed.body.refresh_token,
+    clientId: appId,
+    collectionId: collection.id,
+    operations: refreshed.body.operations,
+    scope: refreshed.body.scope,
+    // Direct access remains usable while the cloud access token needs renewal.
+    expiresAt: Date.now() - 1,
+    refreshExpiresAt: Date.now() + refreshed.body.refresh_expires_in * 1_000,
+    grantId: refreshed.body.grant_id,
+    encryption: refreshed.body.encryption,
+    applicationOrigin: refreshed.body.application_origin,
+    keyHandle: "e2e-grant"
+  }));
+  const sdk = new MdbaseConnect({
+    serverUrl,
+    manifestUrl: manifest.manifestUrl,
+    redirectUri: manifest.redirectUri,
+    storage: sdkStorage,
+    keyStore: applicationKeyStore
+  });
+  const browserFetch = globalThis.fetch;
+  globalThis.fetch = (input, init = {}) => {
+    if (!String(input).startsWith("http://127.0.0.1:28485/")) return browserFetch(input, init);
+    const headers = new Headers(init.headers);
+    headers.set("origin", directOrigin);
+    return browserFetch(input, { ...init, headers });
+  };
+  try {
+    if (await sdk.requestDirectAccess() !== "available") {
+      throw new Error("Browser SDK did not discover the direct connector");
+    }
+    const sdkQuery = await sdk.query({ limit: 1_100 });
+    if (!sdkQuery.valid
+        || sdkQuery.result.results.length !== 1_000
+        || sdk.connection()?.route !== "direct") {
+      throw new Error("Browser SDK did not complete the 1,000-record query directly");
+    }
+  } finally {
+    globalThis.fetch = browserFetch;
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const browserContext = await browser.newContext();
+    await browserContext.grantPermissions(["local-network-access"], { origin: manifest.browserOrigin });
+    const page = await browserContext.newPage();
+    await page.goto(`${manifest.browserOrigin}/browser-e2e`);
+    await page.waitForFunction(() => Boolean(globalThis.directHarness?.publicKey));
+    const browserPublicKey = await page.evaluate(() => globalThis.directHarness.publicKey);
+    const browserApplication = await request("/v1/apps/discover", {
+      method: "POST",
+      body: { manifest_url: manifest.browserManifestUrl }
+    });
+    const browserAppId = browserApplication.body.application.id;
+    const browserVerifier = "browser-end-to-end-pkce-verifier-forty-three-chars";
+    const browserChallenge = createHash("sha256").update(browserVerifier).digest("base64url");
+    const browserOperations = [
+      "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+      "read_type", "create_type", "update_type"
+    ];
+    const browserAuthorize = await fetch(
+      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=3&application_public_key=${encodeURIComponent(browserPublicKey)}`,
+      { headers: { cookie }, redirect: "manual" }
+    );
+    if (browserAuthorize.status !== 302) {
+      throw new Error(`Browser authorization start returned HTTP ${browserAuthorize.status}`);
+    }
+    const browserAuthorizationId = browserAuthorize.headers.get("location")?.split("/").at(-1);
+    if (!browserAuthorizationId) throw new Error("Browser authorization request ID missing");
+    await poll(async () => {
+      const snapshot = await cliJson(["access", "snapshot"]);
+      return snapshot.result?.pending_authorizations?.some(
+        (pending) => pending.id === browserAuthorizationId
+      ) ? snapshot : null;
+    }, "browser authorization request did not reach the local connector controls");
+    await cliJson([
+      "access", "approve", browserAuthorizationId, collection.local_id,
+      "--operations", browserOperations.join(",")
+    ]);
+    const browserCompleted = await poll(async () => {
+      const current = await request(
+        `/v1/authorization-requests/${browserAuthorizationId}/status`,
+        { cookie }
+      );
+      return current.body.redirect_uri ? current : null;
+    }, "approved browser authorization did not return to the browser");
+    const browserCallback = new URL(browserCompleted.body.redirect_uri);
+    const browserToken = await request("/oauth/token", {
+      method: "POST",
+      form: {
+        grant_type: "authorization_code",
+        code: browserCallback.searchParams.get("code"),
+        client_id: browserAppId,
+        redirect_uri: manifest.browserRedirectUri,
+        code_verifier: browserVerifier
+      }
+    });
+    const browserResult = await page.evaluate(async (config) => {
+      return globalThis.directHarness.exercise(config);
+    }, {
+      serverUrl,
+      manifestUrl: manifest.browserManifestUrl,
+      redirectUri: manifest.browserRedirectUri,
+      token: {
+        accessToken: browserToken.body.access_token,
+        refreshToken: browserToken.body.refresh_token,
+        clientId: browserAppId,
+        collectionId: browserToken.body.collection_id,
+        operations: browserToken.body.operations,
+        scope: browserToken.body.scope,
+        // Exercise genuine cloud-independent access, not merely deferred renewal.
+        expiresAt: Date.now() - 60_000,
+        refreshExpiresAt: Date.now() - 30_000,
+        grantId: browserToken.body.grant_id,
+        encryption: browserToken.body.encryption,
+        applicationOrigin: browserToken.body.application_origin,
+        keyHandle: "browser-e2e-grant"
+      }
+    });
+    if (browserResult.status !== "available"
+        || browserResult.route !== "direct"
+        || browserResult.records !== 1_002
+        || !browserResult.read
+        || !browserResult.updated
+        || !browserResult.renamed
+        || !browserResult.validated
+        || !browserResult.createdType
+        || !browserResult.readType
+        || !browserResult.updatedType
+        || !browserResult.changed
+        || !browserResult.deleted) {
+      throw new Error(`Real browser direct-operation matrix failed: ${JSON.stringify(browserResult)}`);
+    }
+    await browserContext.close();
+  } finally {
+    await browser.close();
+  }
 
   const descriptionResponse = await rawOperation(collection.id, "describe", accessToken, {});
   const descriptionBody = await descriptionResponse.json();
@@ -250,6 +426,11 @@ secret: connector scope test
       || readBody.result?.result?.frontmatter?.status !== "done") {
     throw new Error(`Unexpected relay read response: ${JSON.stringify(readBody)}`);
   }
+  const bulkQuery = await rawOperation(collection.id, "query", accessToken, { limit: 1_100 });
+  const bulkQueryBody = await bulkQuery.json();
+  if (bulkQuery.status !== 200 || bulkQueryBody.result?.result?.results?.length < 1_001) {
+    throw new Error(`Direct 1,000-record query was incomplete: ${JSON.stringify(bulkQueryBody)}`);
+  }
   const downgrade = await fetch(`${serverUrl}/v1/collections/${collection.id}/operations/read`, {
     method: "POST",
     headers: {
@@ -268,12 +449,18 @@ secret: connector scope test
     "read",
     { path: "sessions/first.md" }
   );
-  const replayFirst = await rawEncryptedEnvelope(collection.id, "read", accessToken, replayEnvelope);
+  const replayFirst = await rawDirectEnvelope(replayEnvelope);
   if (replayFirst.status !== 200) throw new Error(`Fresh encrypted request failed with HTTP ${replayFirst.status}`);
   const replaySecond = await rawEncryptedEnvelope(collection.id, "read", accessToken, replayEnvelope);
-  if (replaySecond.status !== 502
-      || (await replaySecond.json()).error?.code !== "encrypted_relay_rejected") {
-    throw new Error("Connector did not reject an authenticated replay");
+  const replayFirstBody = await replayFirst.json();
+  const replaySecondBody = await replaySecond.json();
+  if (replaySecond.status !== 200
+      || !sameEnvelope(replaySecondBody.envelope, replayFirstBody.envelope)) {
+    throw new Error(`Direct-to-relay retry did not return the durable encrypted receipt: ${JSON.stringify({
+      direct: replayFirstBody,
+      relay: replaySecondBody,
+      relayStatus: replaySecond.status
+    })}`);
   }
   const tampered = {
     ...await encryptRelayRequest(
@@ -315,12 +502,11 @@ secret: connector scope test
   }
   await cliJson(["access", "pause", "false"]);
 
-  const localAccess = await cliJson(["access", "snapshot"]);
-  await cliJson(["access", "revoke", localAccess.result.grants[0].id]);
+  await cliJson(["access", "revoke", token.body.grant_id]);
   const revoked = await rawOperation(collection.id, "read", accessToken, {
     path: "sessions/first.md"
   });
-  if (revoked.status !== 401) throw new Error(`Revoked token returned HTTP ${revoked.status}`);
+  if (revoked.status !== 403) throw new Error(`Revoked direct grant returned HTTP ${revoked.status}`);
   const revokedRefresh = await fetch(`${serverUrl}/oauth/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -336,6 +522,9 @@ secret: connector scope test
   process.stdout.write("mdbase connect end-to-end MVP path passed\n");
 } finally {
   if (agent) await stopAgent(agent);
+  if (browserManifestServer) {
+    await new Promise((resolveClose) => browserManifestServer.close(resolveClose));
+  }
   if (manifestServer) await new Promise((resolveClose) => manifestServer.close(resolveClose));
   await app.close();
   await database.end();
@@ -409,6 +598,18 @@ async function rawEncryptedEnvelope(collectionId, operation, accessToken, envelo
   });
 }
 
+async function rawDirectEnvelope(envelope) {
+  if (!directOrigin) throw new Error("Direct origin is unavailable");
+  return fetch("http://127.0.0.1:28485/v1/operations", {
+    method: "POST",
+    headers: {
+      origin: directOrigin,
+      "content-type": "application/mdbase-connect+json"
+    },
+    body: JSON.stringify(envelope)
+  });
+}
+
 async function rawOperation(collectionId, operation, accessToken, input) {
   if (!relayContext) {
     return rawEncryptedEnvelope(collectionId, operation, accessToken, input);
@@ -420,7 +621,7 @@ async function rawOperation(collectionId, operation, accessToken, input) {
     operation,
     input
   );
-  const response = await rawEncryptedEnvelope(collectionId, operation, accessToken, encryptedRequest);
+  const response = await rawDirectEnvelope(encryptedRequest);
   if (!response.ok) return response;
   const routed = await response.json();
   const decrypted = await decryptRelayResponse(
@@ -445,6 +646,12 @@ function syntheticResponse(status, body) {
   };
 }
 
+function sameEnvelope(left, right) {
+  const keys = Object.keys(left ?? {});
+  return keys.length === Object.keys(right ?? {}).length
+    && keys.every((key) => left[key] === right[key]);
+}
+
 async function poll(action, failureMessage) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const result = await action();
@@ -455,16 +662,126 @@ async function poll(action, failureMessage) {
 }
 
 async function openManifestServer() {
-  const server = createServer((request, response) => {
+  const primary = await openApplicationServer(
+    "MVP Workout App",
+    [{ id: "tasknotes.task", version: 1 }]
+  );
+  const browser = await openApplicationServer("Browser direct E2E", []);
+  return {
+    server: primary.server,
+    browserServer: browser.server,
+    origin: primary.origin,
+    browserOrigin: browser.origin,
+    manifestUrl: primary.manifestUrl,
+    browserManifestUrl: browser.manifestUrl,
+    redirectUri: primary.redirectUri,
+    browserRedirectUri: browser.redirectUri
+  };
+}
+
+async function openApplicationServer(name, contracts) {
+  const server = createServer(async (request, response) => {
     const address = server.address();
     const origin = `http://localhost:${address.port}`;
+    if (request.url === "/client/index.js" || request.url === "/client/crypto.js") {
+      response.setHeader("content-type", "text/javascript");
+      response.end(await readFile(join(repoRoot, "packages", "client", "dist", request.url.split("/").at(-1))));
+      return;
+    }
+    if (request.url === "/protocol/index.js") {
+      response.setHeader("content-type", "text/javascript");
+      response.end(await readFile(join(repoRoot, "packages", "protocol", "dist", "index.js")));
+      return;
+    }
+    if (request.url === "/browser-e2e") {
+      response.setHeader("content-type", "text/html");
+      response.end(`<!doctype html>
+<meta charset="utf-8">
+<script type="importmap">{"imports":{"@mdbase/connect-protocol":"${origin}/protocol/index.js"}}</script>
+<script type="module">
+  import { MdbaseConnect, MemoryGrantKeyStore } from "${origin}/client/index.js";
+  const keyStore = new MemoryGrantKeyStore();
+  const key = await keyStore.create("browser-e2e-grant");
+  globalThis.directHarness = {
+    publicKey: key.publicKey,
+    async exercise(config) {
+      const tokenKey = \`mdbase-connect:token:\${config.serverUrl}:\${config.manifestUrl}\`;
+      localStorage.setItem(tokenKey, JSON.stringify(config.token));
+      const connect = new MdbaseConnect({
+        serverUrl: config.serverUrl,
+        manifestUrl: config.manifestUrl,
+        redirectUri: config.redirectUri,
+        keyStore
+      });
+      const status = await connect.requestDirectAccess();
+      const description = await connect.describe();
+      const created = await connect.create({
+        path: "browser/direct.md",
+        frontmatter: { type: "task", title: "Real browser direct", status: "open" },
+        body: "Created in Chromium."
+      });
+      const revision = created.result.revision;
+      const read = await connect.read({ path: "browser/direct.md" });
+      const updated = await connect.update({
+        path: "browser/direct.md",
+        patch: { status: "done" },
+        if_revision: revision
+      });
+      const readUpdated = await connect.read({ path: "browser/direct.md" });
+      const renamed = await connect.rename({
+        from: "browser/direct.md",
+        to: "browser/renamed.md"
+      });
+      const query = await connect.query({ limit: 1_100 });
+      const validated = await connect.validate();
+      const typeDocument = \`---
+kind: mdbase.type
+name: browsernote
+version: 1
+description: Browser note
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: { type: string }
+---
+\`;
+      const createdType = await connect.createType({ document: typeDocument });
+      const readType = await connect.readType({ name: "browsernote" });
+      const updatedType = await connect.updateType({
+        name: "browsernote",
+        document: typeDocument.replace("Browser note", "Updated browser note"),
+        if_revision: readType.result.revision
+      });
+      const changed = await connect.changes({ after: description.change_cursor });
+      const deleted = await connect.delete({ path: "browser/renamed.md" });
+      return {
+        status,
+        route: connect.connection()?.route,
+        records: query.result.results.length,
+        read: read.result.body.includes("Created in Chromium"),
+        updated: updated.valid && readUpdated.result.frontmatter.status === "done",
+        renamed: renamed.result.path === "browser/renamed.md",
+        validated: validated.valid,
+        createdType: createdType.valid && createdType.result.path === "_types/browsernote.md",
+        readType: readType.valid && readType.result.document.includes("Browser note"),
+        updatedType: updatedType.valid && updatedType.result.document.includes("Updated browser note"),
+        changed: changed.events.length > 0,
+        deleted: deleted.result.deleted
+      };
+    }
+  };
+</script>`);
+      return;
+    }
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
-      name: "MVP Workout App",
+      name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+      requirements: { contracts }
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
@@ -472,6 +789,7 @@ async function openManifestServer() {
   const origin = `http://localhost:${address.port}`;
   return {
     server,
+    origin,
     manifestUrl: `${origin}/.well-known/mdbase-app.json`,
     redirectUri: `${origin}/auth/mdbase/callback`
   };

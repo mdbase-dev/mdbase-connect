@@ -25,6 +25,11 @@ collections—application contracts such as TaskNotes are optional consumers,
 never the storage model. Success means connecting an app feels deliberate and
 understandable, while revoking it is immediate and unambiguous.
 
+For a local-authority collection, the browser SDK should use the connector's
+same-computer loopback service when the user has allowed local-network access,
+then fall back to the encrypted relay when direct access is unavailable. This
+is an automatic route choice, not another storage mode or onboarding decision.
+
 ## Brand Personality
 
 Quiet, trustworthy, capable. The product should feel like a well-made operating

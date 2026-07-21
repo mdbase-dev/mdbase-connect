@@ -169,8 +169,10 @@ authenticated associated data binds at least:
 
 The encrypted body contains the canonical operation input or response. A unique
 nonce is derived or generated according to the selected audited construction.
-Authentication failure, duplicate request IDs, reused counters, wrong
-direction, and stale keys are rejected before decoding the payload.
+Authentication failure, reused counters under another request, wrong direction,
+and stale keys are rejected before decoding the payload. Authenticated counters
+may arrive out of order within a bounded window. An identical request ID and
+envelope returns its completed encrypted response receipt.
 
 Server-generated authorization and routing errors remain visible protocol
 errors. Connector-generated mdbase results and diagnostics stay inside the
@@ -203,6 +205,21 @@ authorization codes, and cryptographic error details from ordinary logs.
 Payloads remain in memory only for request routing. Queueing, retry, and
 backpressure use request IDs and sizes. The service does not persist encrypted
 payloads as an incidental message archive.
+
+### Direct loopback delivery
+
+The same protocol-3 request and response envelopes are used on the connector's
+browser-only loopback service. This preserves grant binding, key proof, replay
+handling, and response authentication while avoiding control-plane payload
+delivery for same-computer applications. Exact-origin CORS, loopback `Host`
+validation, non-simple content types, no cookies, and bounded resources harden
+the HTTP boundary; none replace cryptographic authorization.
+
+The connector persists completed encrypted response receipts locally, keyed by
+grant key, request ID, counter, and request fingerprint. If a direct response
+is lost, relay fallback presents the exact same request and receives the same
+ciphertext without repeating the collection operation. Receipts contain
+ciphertext rather than plaintext and are pruned with the bounded replay window.
 
 ## Standard hosted encryption
 

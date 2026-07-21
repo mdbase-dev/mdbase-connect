@@ -14,7 +14,8 @@ application general type-management access.
 This is a functional private-beta foundation. The tested path covers creating a local
 collection, pairing an outbound-only connector, discovering an independent web
 app, approving exact operations locally or from the authenticated account
-portal, reading and writing records through the relay, discovering schemas and
+portal, reading and writing records directly on the same computer or through
+the encrypted relay, discovering schemas and
 TaskNotes contract metadata, limiting applications to records belonging to
 their declared contracts, renewing browser authorization, receiving filesystem
 changes, rejecting stale revisions, pausing access, and immediately enforcing
@@ -27,7 +28,8 @@ application and contract adapter—not a collection kind or platform default.
 ## What is here
 
 - `crates/connect-agent`: Rust background connector, local policy enforcement,
-  filesystem watching, and outbound WebSocket relay.
+  a hardened browser loopback API, filesystem watching, and outbound WebSocket
+  relay.
 - `crates/connect-cli`: local administration and operation CLI.
 - `apps/desktop`: Electron controller for collection registration, application
   metadata and availability, application access, browser pairing, local
@@ -73,13 +75,16 @@ pnpm e2e:provider
 
 `pnpm e2e` launches an ephemeral control plane, a real connector agent, a test
 web application, and a real mdbase collection. It completes OAuth/PKCE,
-approves access through the local control API, discovers a real JSON Schema and
+approves access through the local control API, performs a 1,000-record query
+through the browser SDK's direct route, discovers a real JSON Schema and
 TaskNotes contract, proves that private records outside the contract cannot be
 read or queried, rotates authorization credentials, relays create/read/update
 operations, verifies change delivery and revision conflicts, exercises the
 local pause switch, revokes the grant, and confirms that access and renewal are
 rejected. It also crosses the JavaScript/Rust encryption boundary and verifies
-tamper, replay, and plaintext-downgrade rejection.
+tamper and plaintext-downgrade rejection. It also proves that an identical
+direct-to-relay retry returns a durable encrypted receipt without executing a
+mutation twice.
 
 `pnpm e2e:sync` exercises the hosted TaskNotes vertical slice through the real
 HTTP server, including offline writes, two-client convergence, idempotency,
@@ -136,6 +141,11 @@ tokens are stored encrypted by Electron, and cloud tokens are hashed at rest.
 New SDK authorizations require encrypted relay protocol 3 by default. Operation
 inputs and results remain ciphertext at the control plane; identifiers,
 operation names, timing, and sizes remain visible.
+
+The same envelopes protect direct loopback operations. The connector requires
+the grant's exact browser origin, an exact loopback `Host`, non-simple JSON, and
+application-key proof on every operation; its desktop administration socket is
+not exposed to browsers.
 
 The private Render deployment can use GitHub OAuth and Google Identity Services
 with allowlists of immutable provider subjects. The server refuses development

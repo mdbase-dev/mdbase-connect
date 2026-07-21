@@ -3,6 +3,8 @@ interface AgentStatus {
   state: "local_only" | "connecting" | "connected" | "offline";
   registered_collections: number;
   paused: boolean;
+  direct_access_available: boolean;
+  loopback_port?: number;
 }
 
 interface CollectionSummary {
@@ -70,6 +72,7 @@ interface GrantSummary {
   application_id: string;
   application_name: string;
   application_homepage: string;
+  application_origin: string;
   application_icon?: string;
   collection_id: string;
   collection_name: string;

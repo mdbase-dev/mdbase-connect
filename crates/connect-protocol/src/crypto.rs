@@ -65,7 +65,7 @@ impl RelayIdentity {
             Ok(bytes) => Self::decode_identity(&bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let identity = Self::generate();
-                match write_identity_file(&path, identity.secret.to_bytes().as_slice()) {
+                match write_identity_file(&path, &identity.secret.to_bytes()) {
                     Ok(()) => Ok(identity),
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                         Self::decode_identity(&fs::read(path)?)
@@ -101,7 +101,7 @@ impl RelayIdentity {
         let peer = PublicKey::from_sec1_bytes(&peer_bytes)
             .map_err(|_| RelayCryptoError::InvalidPublicKey)?;
         let shared = diffie_hellman(self.secret.to_nonzero_scalar(), peer.as_affine());
-        RelayKeys::derive(shared.raw_secret_bytes().as_slice(), binding)
+        RelayKeys::derive(shared.raw_secret_bytes(), binding)
     }
 
     #[cfg(test)]
@@ -218,9 +218,10 @@ impl RelayKeys {
         let cipher = Aes256Gcm::new_from_slice(self.key(direction))
             .map_err(|_| RelayCryptoError::InvalidBinding)?;
         let nonce_bytes = nonce(counter);
+        let nonce = Nonce::from(nonce_bytes);
         let ciphertext = cipher
             .encrypt(
-                Nonce::from_slice(&nonce_bytes),
+                &nonce,
                 Payload {
                     msg: plaintext,
                     aad: metadata.aad(direction).as_bytes(),
@@ -243,9 +244,10 @@ impl RelayKeys {
         let cipher = Aes256Gcm::new_from_slice(self.key(direction))
             .map_err(|_| RelayCryptoError::InvalidBinding)?;
         let nonce_bytes = nonce(counter);
+        let nonce = Nonce::from(nonce_bytes);
         cipher
             .decrypt(
-                Nonce::from_slice(&nonce_bytes),
+                &nonce,
                 Payload {
                     msg: &ciphertext,
                     aad: metadata.aad(direction).as_bytes(),
