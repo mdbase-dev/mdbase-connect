@@ -1,4 +1,13 @@
 packages: []
 
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@tanstack/react-virtual@3.14.7'
+  - '@tanstack/virtual-core@3.17.5'
+  - '@testing-library/jest-dom@7.0.0'
+
+overrides:
+  "@mdbase/connect": "file:vendor/mdbase-connect-0.1.0-alpha.1.tgz"
+  "@mdbase/connect-protocol": "file:vendor/mdbase-connect-protocol-0.1.0-alpha.1.tgz"
