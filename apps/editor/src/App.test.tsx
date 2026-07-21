@@ -10,6 +10,13 @@ vi.mock("./CodeEditor", () => ({
     <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />
 }));
 
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 76,
+    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 76, size: 76 }))
+  })
+}));
+
 describe("mdbase editor", () => {
   it("opens a collection, selects a note, and autosaves body changes", async () => {
     const gateway = new DemoCollectionGateway(12);
@@ -97,6 +104,47 @@ describe("mdbase editor", () => {
     expect(gateway.readCalls).toBe(readCalls);
   });
 
+  it("searches note content in the loaded index without another query or watcher", async () => {
+    const gateway = new CountingGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const listCalls = gateway.listCalls;
+    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+
+    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Garden notes 2/ })).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(gateway.listCalls).toBe(listCalls);
+    expect(gateway.watchCalls).toBe(1);
+  });
+
+  it("opens only the latest selected note after saving the current note", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    gateway.readPaths.length = 0;
+    await user.type(body, "\nPending change.");
+    await gateway.updateStarted;
+
+    const second = screen.getByRole("option", { name: /Garden notes 2/ });
+    const third = screen.getByRole("option", { name: /A quiet interface 3/ });
+    await user.click(second);
+    expect(second).toHaveAttribute("aria-busy", "true");
+    expect(second).toHaveTextContent("Saving current note");
+    await user.click(third);
+    expect(second).not.toHaveAttribute("aria-busy");
+    expect(third).toHaveAttribute("aria-busy", "true");
+
+    gateway.releaseUpdate();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
+    expect(gateway.readPaths).not.toContain("Journal/garden-notes-2.md");
+    expect(gateway.readPaths.at(-1)).toBe("Projects/a-quiet-interface-3.md");
+  });
+
   it("renders an explicit full-access explanation before authorization", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
@@ -144,9 +192,9 @@ class ProgressiveListGateway extends DemoCollectionGateway {
   private release?: () => void;
   listCalls = 0;
 
-  override async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     this.listCalls += 1;
-    const notes = await super.list(search);
+    const notes = await super.list();
     onProgress?.({ notes: notes.slice(0, 1), complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.release = resolve; });
     onProgress?.({ notes, complete: true, total: notes.length });
@@ -162,14 +210,15 @@ class CountingGateway extends DemoCollectionGateway {
   listCalls = 0;
   readCalls = 0;
   createCalls = 0;
+  watchCalls = 0;
 
   constructor() {
     super(3);
   }
 
-  override async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     this.listCalls += 1;
-    return super.list(search, onProgress);
+    return super.list(onProgress);
   }
 
   override async read(path: string): Promise<NoteDocument> {
@@ -183,6 +232,33 @@ class CountingGateway extends DemoCollectionGateway {
   }
 
   override async watch(_onChange: () => void, signal: AbortSignal): Promise<void> {
+    this.watchCalls += 1;
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  }
+}
+
+class SlowUpdateGateway extends DemoCollectionGateway {
+  private release?: () => void;
+  private markStarted?: () => void;
+  readonly updateStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
+  readPaths: string[] = [];
+
+  constructor() {
+    super(3);
+  }
+
+  override async read(path: string): Promise<NoteDocument> {
+    this.readPaths.push(path);
+    return super.read(path);
+  }
+
+  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
+    this.markStarted?.();
+    await new Promise<void>((resolve) => { this.release = resolve; });
+    return super.update(input);
+  }
+
+  releaseUpdate() {
+    this.release?.();
   }
 }

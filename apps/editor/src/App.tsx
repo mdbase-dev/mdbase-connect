@@ -56,6 +56,7 @@ type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 type SaveState = "saved" | "waiting" | "saving" | "conflict";
 type MobilePane = "collections" | "notes" | "editor";
 type Surface = "notes" | "types" | "settings";
+type NoteNavigationPhase = "saving" | "opening";
 
 interface Draft {
   title: string;
@@ -63,17 +64,22 @@ interface Draft {
   source: TitleSource;
 }
 
+interface PendingNoteNavigation {
+  path: string;
+  phase: NoteNavigationPhase;
+}
+
 export function App({ gateway }: { gateway: CollectionGateway }) {
   const [phase, setPhase] = useState<AppPhase>("starting");
   const [description, setDescription] = useState<CollectionDescription>();
   const [allNotes, setAllNotes] = useState<NoteSummary[]>([]);
-  const [listedNotes, setListedNotes] = useState<NoteSummary[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [collectionTotal, setCollectionTotal] = useState<number>();
   const [selectedPath, setSelectedPath] = useState<string>();
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
+  const [pendingNoteNavigation, setPendingNoteNavigation] = useState<PendingNoteNavigation>();
   const [creatingNote, setCreatingNote] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -90,8 +96,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   const indexGeneration = useRef(0);
-  const skipInitialIndexLoad = useRef(false);
   const documentGeneration = useRef(0);
+  const navigationGeneration = useRef(0);
   const baseline = useRef("");
   const documentRef = useRef<NoteDocument | undefined>(undefined);
   const draftRef = useRef<Draft | undefined>(undefined);
@@ -103,21 +109,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
 
-  const loadIndex = useCallback(async (query = "") => {
+  const loadIndex = useCallback(async () => {
     const generation = ++indexGeneration.current;
-    const normalizedQuery = query.trim();
     setListLoading(true);
     const publish = (progress: NoteListProgress) => {
       if (generation !== indexGeneration.current) return;
-      setListedNotes(progress.notes);
+      setAllNotes(progress.notes);
+      setCollectionTotal(progress.total ?? (progress.complete ? progress.notes.length : undefined));
       setListLoading(!progress.complete);
-      if (!normalizedQuery) {
-        setAllNotes(progress.notes);
-        setCollectionTotal(progress.total ?? (progress.complete ? progress.notes.length : undefined));
-      }
     };
     try {
-      const notes = await gateway.list(query, publish);
+      const notes = await gateway.list(publish);
       publish({ notes, complete: true, total: notes.length });
     } catch (error) {
       if (generation === indexGeneration.current) setListLoading(false);
@@ -143,6 +145,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPathDraft(next.path);
     setSaveState("saved");
     setNoteLoading(false);
+    setPendingNoteNavigation(undefined);
     setCreatingNote(false);
     localStorage.setItem("mdbase-editor:last-note", next.path);
   }, []);
@@ -186,7 +189,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const publish = (progress: NoteListProgress) => {
       if (generation !== indexGeneration.current) return;
       setAllNotes(progress.notes);
-      setListedNotes(progress.notes);
       setCollectionTotal(progress.total ?? (progress.complete ? progress.notes.length : undefined));
       setListLoading(!progress.complete);
       if (!firstPageResolved && (progress.notes.length > 0 || progress.complete)) {
@@ -194,7 +196,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         resolveFirstPage(progress.notes);
       }
     };
-    const indexOutcome = gateway.list("", publish).then(
+    const indexOutcome = gateway.list(publish).then(
       (notes) => {
         publish({ notes, complete: true, total: notes.length });
         if (!firstPageResolved) {
@@ -214,7 +216,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try {
       const nextDescription = await refreshDescription();
       descriptionLoaded = true;
-      skipInitialIndexLoad.current = true;
       setPhase("ready");
       const remembered = localStorage.getItem("mdbase-editor:last-note");
       let opened = remembered ? await openNote(remembered) : false;
@@ -263,7 +264,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     void gateway.watch((change) => {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
-        void loadIndex(deferredSearch);
+        void loadIndex();
         if (change?.type === "mdbase.type.changed") void refreshDescription();
       }, 180);
     }, controller.signal).catch((error) => {
@@ -273,19 +274,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       controller.abort();
       window.clearTimeout(refreshTimer);
     };
-  }, [deferredSearch, gateway, loadIndex, phase, refreshDescription]);
+  }, [gateway, loadIndex, phase, refreshDescription]);
 
-  useEffect(() => {
-    if (phase !== "ready") return;
-    if (!deferredSearch && skipInitialIndexLoad.current) {
-      skipInitialIndexLoad.current = false;
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void loadIndex(deferredSearch).catch((error) => setNotice(gatewayError(error)));
-    }, deferredSearch ? 180 : 0);
-    return () => window.clearTimeout(timer);
-  }, [deferredSearch, loadIndex, phase]);
+  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
+    const summary = summaryFromDocument(next);
+    setAllNotes((notes) => [
+      summary,
+      ...notes.filter((note) => note.path !== previousPath && note.path !== summary.path)
+    ]);
+  }, []);
 
   const runSave = useCallback(async () => {
     const currentDocument = documentRef.current;
@@ -310,7 +307,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setDocument(updated);
         baseline.current = currentFingerprint;
         setSaveState(fingerprint(updated.path, draftRef.current!) === currentFingerprint ? "saved" : "waiting");
-        void loadIndex(deferredSearch);
+        updateNoteSummary(updated);
       }
     } catch (error) {
       setSaveState("conflict");
@@ -323,7 +320,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setSaveTick((value) => value + 1);
       }
     }
-  }, [deferredSearch, gateway, loadIndex]);
+  }, [gateway, updateNoteSummary]);
 
   useEffect(() => {
     if (!document || !draft || fingerprint(document.path, draft) === baseline.current) return;
@@ -343,6 +340,38 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     throw new Error("The latest edits are still being saved. Try again in a moment.");
   }, [runSave]);
 
+  async function navigateToNote(path: string) {
+    const generation = ++navigationGeneration.current;
+    if (path === documentRef.current?.path && !noteLoading) {
+      setPendingNoteNavigation(undefined);
+      setMobilePane("editor");
+      return;
+    }
+    setPendingNoteNavigation({ path, phase: hasPendingSave() ? "saving" : "opening" });
+    setNotice(undefined);
+    try {
+      await flushSave();
+      if (generation !== navigationGeneration.current) return;
+      setPendingNoteNavigation({ path, phase: "opening" });
+      const opened = await openNote(path);
+      if (generation === navigationGeneration.current && !opened) setPendingNoteNavigation(undefined);
+    } catch (error) {
+      if (generation !== navigationGeneration.current) return;
+      setPendingNoteNavigation(undefined);
+      setNotice(gatewayError(error));
+    }
+  }
+
+  function hasPendingSave(): boolean {
+    const currentDocument = documentRef.current;
+    const currentDraft = draftRef.current;
+    return saving.current || Boolean(
+      currentDocument
+      && currentDraft
+      && fingerprint(currentDocument.path, currentDraft) !== baseline.current
+    );
+  }
+
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       const currentDocument = documentRef.current;
@@ -353,9 +382,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, []);
 
+  const searchIndex = useMemo(() => allNotes.map((note) => ({
+    note,
+    text: noteSearchText(note)
+  })), [allNotes]);
+  const searchedNotes = useMemo(() => {
+    const needle = deferredSearch.trim().toLocaleLowerCase();
+    return needle ? searchIndex.filter((entry) => entry.text.includes(needle)).map((entry) => entry.note) : allNotes;
+  }, [allNotes, deferredSearch, searchIndex]);
   const visibleNotes = useMemo(() => folderFilter
-    ? listedNotes.filter((note) => note.path === folderFilter || note.path.startsWith(`${folderFilter}/`))
-    : listedNotes, [folderFilter, listedNotes]);
+    ? searchedNotes.filter((note) => note.path === folderFilter || note.path.startsWith(`${folderFilter}/`))
+    : searchedNotes, [folderFilter, searchedNotes]);
 
   async function connectCollection() {
     setNotice(undefined);
@@ -363,6 +400,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function beginCreate() {
+    navigationGeneration.current += 1;
+    setPendingNoteNavigation(undefined);
     setNotice(undefined);
     try {
       await flushSave();
@@ -380,7 +419,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const created = await gateway.create(input);
     const summary = summaryFromDocument(created);
     setAllNotes((notes) => [summary, ...notes.filter((note) => note.path !== created.path)]);
-    setListedNotes((notes) => [summary, ...notes.filter((note) => note.path !== created.path)]);
     setCollectionTotal((total) => total === undefined ? undefined : total + 1);
     setSearch("");
     setFolderFilter(undefined);
@@ -416,7 +454,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setSelectedPath(renamed.path);
       setPathDraft(renamed.path);
       setEditingPath(false);
-      await loadIndex(deferredSearch);
+      updateNoteSummary(renamed, latest.path);
     } catch (error) {
       setNotice(gatewayError(error));
     }
@@ -441,7 +479,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setDraft(nextDraft);
       baseline.current = fingerprint(updated.path, nextDraft);
       setSaveState("saved");
-      await loadIndex(deferredSearch);
+      updateNoteSummary(updated);
     } catch (error) {
       setPropertiesError(gatewayError(error));
     }
@@ -468,9 +506,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setDocument(undefined);
       setDraft(undefined);
       setSelectedPath(undefined);
-      const notes = await gateway.list(deferredSearch);
-      setListedNotes(notes);
-      if (!deferredSearch) setAllNotes(notes);
+      const notes = allNotes.filter((note) => note.path !== current.path);
+      setAllNotes(notes);
+      setCollectionTotal((total) => total === undefined ? undefined : Math.max(0, total - 1));
       if (notes[0]) await openNote(notes[0].path);
     } catch (error) {
       setNotice(gatewayError(error));
@@ -478,6 +516,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function selectSurface(next: Surface) {
+    navigationGeneration.current += 1;
+    setPendingNoteNavigation(undefined);
     try {
       await flushSave();
       setSurface(next);
@@ -490,10 +530,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function disconnect() {
+    navigationGeneration.current += 1;
+    setPendingNoteNavigation(undefined);
     gateway.disconnect();
     setPhase("disconnected");
     setAllNotes([]);
-    setListedNotes([]);
     setDocument(undefined);
     setDraft(undefined);
   }
@@ -523,12 +564,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         loading={listLoading}
         total={folderFilter ? undefined : collectionTotal}
         selectedPath={selectedPath}
+        pendingNavigation={pendingNoteNavigation}
         search={search}
         collectionName={folderFilter ?? description.display_name}
         onSearch={setSearch}
-        onSelect={(path) => void (async () => {
-          try { await flushSave(); await openNote(path); } catch (error) { setNotice(gatewayError(error)); }
-        })()}
+        onSelect={(path) => void navigateToNote(path)}
         onCreate={() => void beginCreate()}
         onCollections={() => setMobilePane("collections")}
       />
@@ -636,9 +676,10 @@ function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, 
   </aside>;
 }
 
-function NoteList({ notes, selectedPath, search, collectionName, loading, total, onSearch, onSelect, onCreate, onCollections }: {
+function NoteList({ notes, selectedPath, pendingNavigation, search, collectionName, loading, total, onSearch, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
+  pendingNavigation?: PendingNoteNavigation;
   search: string;
   collectionName: string;
   loading: boolean;
@@ -652,11 +693,12 @@ function NoteList({ notes, selectedPath, search, collectionName, loading, total,
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
     <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button><div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, total, Boolean(search))}</p></div><button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
-    <label className={`search-field${loading && !search ? " disabled" : ""}`}><Search aria-hidden="true" /><span className="sr-only">Search every note</span><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder={loading && !search ? "Reading collection" : "Search"} disabled={loading && !search} />{search && <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button>}</label>
+    <label className="search-field"><Search aria-hidden="true" /><span className="sr-only">Search every note</span><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search && <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button>}</label>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={loading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const note = notes[virtualRow.index];
-        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} className={`note-row${note.path === selectedPath ? " selected" : ""}`} onClick={() => onSelect(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span><span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span></button>;
+        const pending = pendingNavigation?.path === note.path ? pendingNavigation : undefined;
+        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} aria-busy={pending ? true : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${pending ? " pending" : ""}`} onClick={() => onSelect(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span>{pending ? <span className="note-transition">{pending.phase === "saving" ? "Saving current note" : "Opening"}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
       })}</div> : loading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
@@ -693,6 +735,26 @@ function fingerprint(path: string, draft: Draft): string {
 function summaryFromDocument(document: NoteDocument): NoteSummary {
   const { revision: _revision, raw_frontmatter: _rawFrontmatter, ...summary } = document;
   return summary;
+}
+
+function noteSearchText(note: NoteSummary): string {
+  const values: string[] = [note.path, note.body ?? "", ...note.types];
+  collectSearchValues(note.frontmatter, values);
+  return values.join("\n").toLocaleLowerCase();
+}
+
+function collectSearchValues(value: unknown, values: string[]) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    values.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchValues(item, values);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectSearchValues(item, values);
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {

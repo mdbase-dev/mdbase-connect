@@ -66,7 +66,7 @@ export interface CollectionGateway {
   completeAuthorization(): Promise<void>;
   disconnect(): void;
   describe(): Promise<CollectionDescription>;
-  list(search?: string, onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
+  list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
   read(path: string): Promise<NoteDocument>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
   update(input: SaveNoteInput): Promise<NoteDocument>;

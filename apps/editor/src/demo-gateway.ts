@@ -83,11 +83,9 @@ export class DemoCollectionGateway implements CollectionGateway {
     };
   }
 
-  async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
-    const needle = search.trim().toLocaleLowerCase();
-    await delay(needle ? 12 : 4);
+  async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    await delay(4);
     const notes = this.notes
-      .filter((note) => !needle || `${note.path}\n${note.body}`.toLocaleLowerCase().includes(needle))
       .map(({ revision: _revision, raw_frontmatter: _raw, ...note }) => note);
     const firstPage = notes.slice(0, Math.min(200, notes.length));
     onProgress?.({ notes: firstPage, complete: firstPage.length === notes.length, total: notes.length });

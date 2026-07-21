@@ -639,6 +639,10 @@ select:focus-visible {
   background: var(--selected);
 }
 
+.note-row.pending:not(.selected) {
+  background: var(--hover);
+}
+
 .note-title {
   overflow: hidden;
   font-size: 14px;
@@ -662,6 +666,16 @@ select:focus-visible {
   flex: 0 0 auto;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.note-transition {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .list-empty,

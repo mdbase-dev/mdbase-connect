@@ -67,17 +67,16 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.connect.describe();
   }
 
-  async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const notes: NoteSummary[] = [];
     let offset = 0;
     do {
       const limit = offset === 0 ? FIRST_PAGE_SIZE : PAGE_SIZE;
       const response = await this.connect.query({
-        ...(search.trim() ? { where: searchExpression(search) } : {}),
         order_by: [{ field: "file.mtime", direction: "desc" }],
         limit,
         offset,
-        include_body: false
+        include_body: true
       });
       const result = validResult(response);
       notes.push(...result.results);
@@ -149,11 +148,6 @@ export class CollectionOperationError extends Error {
 function validResult<Result>(envelope: MdbaseOperationEnvelope<Result>): Result {
   if (!envelope.valid) throw new CollectionOperationError(envelope.diagnostics);
   return envelope.result;
-}
-
-function searchExpression(search: string): string {
-  const literal = JSON.stringify(search.trim().toLocaleLowerCase());
-  return `file.path.lower().contains(${literal}) || file.body.lower().contains(${literal})`;
 }
 
 export function gatewayError(error: unknown): string {
