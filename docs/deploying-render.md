@@ -1,66 +1,108 @@
 # Private Render deployment
 
-The repository includes a Render Blueprint for a single-user, relay-only
-deployment at `connect.mdbase.dev`. It creates one Singapore web service and
-one private PostgreSQL database. Hosted collection routes and public
-registration remain unavailable.
+The Render Blueprint provisions two public services in Singapore:
+
+- `mdbase-connect`, the account/control plane and transient encrypted relay;
+- `mdbase-connect-hosted-provider`, the Rust hosted data plane at
+  `sync.mdbase.dev`.
+
+Each service has its own paid, private PostgreSQL database. Hosted record
+payloads never pass through or persist in the control-plane database. The data
+plane database stores encrypted canonical records and change payloads; record
+paths use keyed lookup tokens. Render-generated 256-bit secrets bind the two
+services and protect the provider's wrapped per-collection data keys.
 
 ## Before creating the Blueprint
 
-Create a GitHub OAuth app with these exact values:
+Create a GitHub OAuth app with:
 
-- Application name: `mdbase connect`
-- Homepage URL: `https://connect.mdbase.dev`
-- Authorization callback URL:
-  `https://connect.mdbase.dev/auth/github/callback`
+- Homepage: `https://connect.mdbase.dev`
+- Callback: `https://connect.mdbase.dev/auth/github/callback`
 - Device flow: disabled
 
-Keep the client secret out of the repository. GitHub usernames can change, so
-the deployment allowlist uses numeric GitHub account IDs. The initial allowed
-ID for `callumalpass` is `12558714`.
+Keep the client secret out of the repository. The private-preview allowlist
+uses immutable numeric GitHub account IDs rather than usernames.
 
-## Create the services
+The hosted container intentionally builds against the pinned, published
+`mdbase-rs` revision in `Dockerfile.hosted-provider`. Update that SHA only after
+running its conformance suite and `pnpm e2e:provider:stress` against the new
+revision. Regenerate `deploy/docker/Cargo.lock.hosted-provider` against that
+clean revision at the same time. The repository-root lock remains the local
+v0.3 development lock for the intentionally in-progress sibling checkout.
 
-In Render, choose **New → Blueprint**, select
-`mdbase-dev/mdbase-connect`, and use the repository's `render.yaml`. Confirm
-the paid web-service and database plans. Render asks for three values during
-the initial creation:
+## Create or update the services
+
+In Render, create a Blueprint from `mdbase-dev/mdbase-connect` and
+`render.yaml`. On first creation, provide:
 
 - `MDBASE_CONNECT_GITHUB_CLIENT_ID`
 - `MDBASE_CONNECT_GITHUB_CLIENT_SECRET`
-- `MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS` (`12558714` initially)
+- `MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS`
 
-The Blueprint runs migrations before each deployment, waits for `/ready`, and
-deploys commits only after GitHub checks pass. Keep the web service at one
-instance: relay connections and in-flight request coordination are currently
-process-local.
+The Blueprint generates the provider internal token and master key. Do not
+replace the master key on an existing provider database: startup deliberately
+fails if it cannot decrypt the durable key check. Key rotation must rewrap every
+collection data key transactionally before the old key is retired.
 
-## Attach the domain
+Both databases deny public network connections. The hosted database uses paid
+PostgreSQL 18 with storage autoscaling and point-in-time recovery. Automatic
+deploys wait for GitHub checks, and both services use `/ready` as a database-aware
+health check.
 
-Render lists the DNS target for `connect.mdbase.dev` after service creation.
-Create the corresponding `connect` CNAME at the DNS provider. If the provider
-offers HTTP proxying, leave it disabled until Render has verified the domain
-and issued its certificate.
+## Domains
 
-The generated `onrender.com` hostname remains useful for initial diagnostics,
-but GitHub sign-in is intentionally bound to `https://connect.mdbase.dev`.
+Attach and verify both DNS names before testing browser OAuth:
 
-## Verify the deployment
+- `connect.mdbase.dev` → control-plane Render hostname
+- `sync.mdbase.dev` → hosted-provider Render hostname
 
-1. Confirm `/health` and `/ready` both return HTTP 200.
-2. Open `/login` and sign in with the allowlisted GitHub account.
-3. Confirm `/dashboard` shows the expected GitHub username.
-4. Pair a fresh desktop installation against `https://connect.mdbase.dev`.
-5. Approve a test app, perform one encrypted read and write, then revoke it.
-6. Confirm the revoked grant cannot reconnect or refresh.
+Render terminates TLS. The control plane refuses a non-HTTPS public origin, and
+the provider binds browser capabilities to each application's exact manifest
+origin. CLI mirrors have no `Origin` header and authenticate with their own
+collection-scoped replica credential.
 
-## Operations
+## Acceptance check
 
-Render manages database snapshots and point-in-time recovery according to the
-selected PostgreSQL plan. Before inviting another user or enabling hosted
-collections, perform and document a restore drill, add external monitoring,
-and decide how security and abuse reports will be handled.
+Before any invitation:
 
-Do not set `MDBASE_CONNECT_HOSTED_COLLECTIONS=1` for the initial deployment.
-That mode introduces stored encrypted collection state and a larger operational
-and recovery surface.
+1. Confirm `/health` and `/ready` on both services.
+2. Sign in through GitHub and create a hosted TaskNotes collection.
+3. Authorize the current `mdbase-editor` build and perform create, read, query,
+   update, rename, and delete operations.
+4. Add one receive-only and one writable mirror. Verify config, type resources,
+   rename identity, conflict persistence, explicit resolution, token rotation,
+   and revocation.
+5. Inspect control-plane PostgreSQL and confirm it contains hosted metadata but
+   no record payloads, hashes, frontmatter, bodies, or local paths.
+6. Trigger a Render logical export, restore it into a separate database, start a
+   provider with the same master key, and compare collection heads and complete
+   snapshots. Record recovery time and the tested recovery point.
+7. Run an external uptime check against both `/ready` endpoints and alert on
+   sustained 5xx responses or database exhaustion.
+
+Render provides continuous PITR for paid PostgreSQL. PITR is not a substitute
+for the restore drill: recovery creates another database and the service must be
+deliberately repointed only after snapshot verification.
+
+## Scaling and incident boundaries
+
+The hosted provider is horizontally correct: PostgreSQL row locks order writes,
+working sets are disposable and head-checked, and the E2E suite races two
+processes on one revision. Start with one instance while traffic is private;
+scale after repeating the 10,000-record budget in-region.
+
+The provider also compacts each collection to the most recent 10,000 changes
+every five minutes. A replica behind that cursor automatically performs a
+snapshot reset; it does not prevent retention indefinitely. Tune
+`MDBASE_CONNECT_HOSTED_RETAIN_CHANGES` only after measuring database growth and
+reset frequency in the production region.
+
+The relay still coordinates live WebSockets and in-flight requests in process,
+so keep the control plane at one instance until relay routing moves to shared
+infrastructure. Hosted data-plane scaling does not change that constraint.
+
+Provider logs include request IDs, routes, statuses, durations, and internal
+errors through structured tracing. They must never log authorization headers,
+mutation bodies, frontmatter values, query source, decrypted Markdown, or the
+master key. Rotate/revoke a suspected replica or grant immediately; rotate the
+internal control-plane credential on both services together.

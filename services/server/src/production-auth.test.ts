@@ -178,6 +178,81 @@ describe("production GitHub authentication", () => {
     });
     expect(response.statusCode).toBe(404);
   });
+
+  it("manages the complete hosted collection and receive-only mirror lifecycle", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedReferenceAuthority: true,
+      publicUrl: "http://127.0.0.1:8787"
+    });
+    resources.push(() => app.close());
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Hosted user", email: "hosted@example.com" }
+    });
+    const cookie = cookiePair(responseCookies(login)[0]);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie },
+      payload: { display_name: "Tasks", template: "tasknotes" }
+    });
+    expect(created.statusCode).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    const enrolled = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/collections/${collectionId}/replicas`,
+      headers: { cookie },
+      payload: {
+        name: "Laptop mirror",
+        mode: "read_only",
+        allowed_types: ["task"]
+      }
+    });
+    expect(enrolled.statusCode).toBe(201);
+    expect(enrolled.json().token).toMatch(/^hsr_/);
+    const replicaId = enrolled.json().replica.id as string;
+    const dashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
+    expect(dashboard.json().hosted_collections).toEqual([
+      expect.objectContaining({
+        id: collectionId,
+        display_name: "Tasks",
+        contracts: [{ id: "tasknotes.task", version: 1 }],
+        replicas: [expect.objectContaining({ id: replicaId, mode: "read_only" })]
+      })
+    ]);
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie },
+      payload: { display_name: "Renamed tasks" }
+    });
+    expect(renamed.json().collection.display_name).toBe("Renamed tasks");
+    const rotated = await app.inject({
+      method: "POST",
+      url: `/v1/hosted/replicas/${replicaId}/token`,
+      headers: { cookie }
+    });
+    expect(rotated.json().token).toMatch(/^hsr_/);
+    expect(rotated.json().token).not.toBe(enrolled.json().token);
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/replicas/${replicaId}`,
+      headers: { cookie }
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/hosted/collections/${collectionId}`,
+      headers: { cookie }
+    })).statusCode).toBe(200);
+    const empty = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
+    expect(empty.json().hosted_collections).toEqual([]);
+  });
 });
 
 function responseCookies(response: { headers: Record<string, string | string[] | undefined> }): string[] {

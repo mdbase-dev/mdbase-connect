@@ -121,6 +121,14 @@ export interface SyncCollectionResources {
   spec_version: string;
   types: CollectionTypeDescriptor[];
   contracts: CollectionContractDescriptor[];
+  documents?: SyncResourceDocument[];
+}
+
+export interface SyncResourceDocument {
+  path: string;
+  kind: "configuration" | "type";
+  revision: string;
+  document: string;
 }
 
 export interface SyncSession {

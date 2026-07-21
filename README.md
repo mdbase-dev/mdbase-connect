@@ -24,6 +24,8 @@ encryption; the relay sees routing metadata and ciphertext.
   activity, tray operation, and launch-at-login.
 - `services/server`: Fastify control plane and transient relay backed by
   PostgreSQL.
+- `crates/connect-hosted-provider`: encrypted PostgreSQL authority for hosted
+  collections, with direct app operations and the versioned sync data plane.
 - `apps/portal`: deliberately small account, computer management, secure
   pairing, remote approval, and grant-review surface. Routine collection
   configuration stays in the local controller, and there is no developer
@@ -33,7 +35,8 @@ encryption; the relay sees routing metadata and ciphertext.
 - `packages/devkit`: canonical artifact validation and an explicit frontend
   sandbox over the same typed collection-client boundary.
 - `packages/sync`: the versioned hosted-replication model, offline replica
-  stores and client, HTTP transport, and receive-only Markdown mirror.
+  stores and client, HTTP transport, and receive-only or conflict-safe writable
+  Markdown mirrors.
 - `packages/tasknotes`: portable TaskNotes contract adapter using configurable
   field roles and generic revision-safe operations.
 - `apps/tasknotes`: deliberately small reference frontend for the TaskNotes
@@ -45,7 +48,7 @@ development the Rust workspace uses the adjacent `../mdbase-rs` checkout.
 
 ## Verify the MVP
 
-Prerequisites are a Rust toolchain, Node 22+, and pnpm 10.
+Prerequisites are a Rust toolchain, Node 24 LTS, and pnpm 11.15.1.
 
 ```bash
 pnpm install
@@ -55,6 +58,7 @@ pnpm typecheck
 pnpm test
 pnpm e2e
 pnpm e2e:sync
+pnpm e2e:provider
 ```
 
 `pnpm e2e` launches an ephemeral control plane, a real connector agent, a test
@@ -71,6 +75,15 @@ tamper, replay, and plaintext-downgrade rejection.
 HTTP server, including offline writes, two-client convergence, idempotency,
 contract discovery, conflicts, a receive-only Markdown mirror, cursor reset,
 and revocation.
+
+`pnpm e2e:provider` runs the production Rust provider against disposable
+PostgreSQL 18. It includes a real Chromium portal flow, direct OAuth SDK
+operations, encrypted-at-rest checks, two provider instances racing one write,
+pinned snapshots, writable filesystem mirroring, durable retry receipts,
+compaction, restart recovery, logical backup restoration into a fresh database,
+credential rotation, quotas, and ciphertext tamper detection.
+`pnpm e2e:provider:stress` repeats the path with 10,000 records and enforces the
+documented latency budgets.
 
 To produce and inspect a local desktop bundle:
 
@@ -116,13 +129,14 @@ operation names, timing, and sizes remain visible.
 The private Render deployment uses GitHub OAuth and an allowlist of immutable
 numeric account IDs. The server refuses development authentication on
 non-loopback origins, and development email login must never be exposed
-publicly. The first hosted deployment remains a single-user private preview:
-public registration, hosted collections, horizontal relay scaling, restore
-drills, signed desktop releases, and abuse-response operations remain release
-gates.
+publicly. Hosted Markdown is encrypted under per-collection data keys; record
+paths are represented in PostgreSQL by keyed lookup tokens. Public
+registration, a live Render restore drill, signed desktop releases, and
+abuse-response operations remain release gates.
 
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/mvp.md`](docs/mvp.md), [`docs/sync.md`](docs/sync.md), and
-[`docs/encryption.md`](docs/encryption.md) for the trust model, acceptance path,
+[`docs/encryption.md`](docs/encryption.md), and
+[`docs/hosted-provider.md`](docs/hosted-provider.md) for the trust model, acceptance path,
 implemented protocol boundaries, and remaining replication and encryption
 work.

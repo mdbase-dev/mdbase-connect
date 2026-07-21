@@ -921,6 +921,11 @@ function scopedResources(resources: SyncCollectionResources, replica: ReplicaSta
     types: resources.types.filter((type) => replica.allowedTypes.has(type.name)).map(clone),
     contracts: resources.contracts
       .filter((contract) => replica.allowedTypes.has(contract.type_name))
+      .map(clone),
+    documents: resources.documents
+      ?.filter((document) => document.kind === "configuration"
+        || (document.kind === "type"
+          && replica.allowedTypes.has(document.path.replace(/^_types\//, "").replace(/\.md$/, ""))))
       .map(clone)
   };
 }

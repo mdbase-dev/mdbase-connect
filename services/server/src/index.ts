@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { runtimeConfigFromEnv } from "./runtime-config.js";
+import { HostedProviderClient } from "./hosted-provider.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -15,6 +16,9 @@ const { app } = await buildApp({
   tailscaleAuth: runtime.tailscaleAuth,
   githubAuth: runtime.githubAuth ?? undefined,
   hostedCollections: runtime.hostedCollections,
+  hostedProvider: runtime.hostedProvider
+    ? new HostedProviderClient(runtime.hostedProvider)
+    : undefined,
   trustProxy: runtime.trustProxy,
   allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1"
 });

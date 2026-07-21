@@ -1,0 +1,33 @@
+FROM rust:1.94.0-bookworm AS build
+
+ARG MDBASE_RS_REPOSITORY=https://github.com/callumalpass/mdbase-rs.git
+ARG MDBASE_RS_REVISION=73372a1f786e20d213be6e9821eb0649ecfcc050
+
+RUN git clone --filter=blob:none "$MDBASE_RS_REPOSITORY" /build/mdbase-rs \
+ && git -C /build/mdbase-rs checkout --detach "$MDBASE_RS_REVISION"
+
+WORKDIR /build/mdbase-connect
+COPY Cargo.toml ./
+# Local v0.3 development intentionally follows the adjacent in-progress
+# mdbase-rs checkout. Releases use a second lock generated against the pinned,
+# published revision above so a dirty sibling cannot affect the image graph.
+COPY deploy/docker/Cargo.lock.hosted-provider ./Cargo.lock
+COPY crates crates
+RUN cargo build --locked --release -p mdbase-connect-hosted-provider
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 10001 mdbase
+
+COPY --from=build /build/mdbase-connect/target/release/mdbase-connect-hosted-provider /usr/local/bin/
+
+ENV HOST=0.0.0.0 \
+    PORT=8790 \
+    RUST_LOG=mdbase_connect_hosted_provider=info,tower_http=debug
+
+EXPOSE 8790
+USER mdbase
+CMD ["mdbase-connect-hosted-provider"]

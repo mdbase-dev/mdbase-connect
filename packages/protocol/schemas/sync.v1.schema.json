@@ -45,7 +45,19 @@
         "revision": { "type": "string", "minLength": 1 },
         "spec_version": { "type": "string", "minLength": 1 },
         "types": { "type": "array", "items": { "$ref": "#/$defs/collectionType" } },
-        "contracts": { "type": "array", "items": { "$ref": "#/$defs/contract" } }
+        "contracts": { "type": "array", "items": { "$ref": "#/$defs/contract" } },
+        "documents": { "type": "array", "items": { "$ref": "#/$defs/resourceDocument" } }
+      }
+    },
+    "resourceDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind", "revision", "document"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["configuration", "type"] },
+        "revision": { "type": "string", "minLength": 1 },
+        "document": { "type": "string" }
       }
     },
     "record": {

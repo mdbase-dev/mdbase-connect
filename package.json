@@ -2,25 +2,19 @@
   "name": "mdbase-connect",
   "version": "0.1.0-alpha.1",
   "private": true,
-  "packageManager": "pnpm@10.7.0",
+  "packageManager": "pnpm@11.15.1",
   "scripts": {
     "build": "pnpm -r build",
     "e2e": "pnpm build && cargo build --workspace && node scripts/e2e.mjs",
     "e2e:sync": "pnpm build && node scripts/sync-e2e.mjs",
+    "e2e:provider": "pnpm build && cargo build -p mdbase-connect-hosted-provider && node scripts/hosted-provider-e2e.mjs",
+    "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",
     "e2e:oracle": "pnpm build && cargo build --workspace && node scripts/oracle-e2e.mjs",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },
-  "pnpm": {
-    "overrides": {
-      "tar@<7.5.19": "7.5.19",
-      "tmp@<0.2.6": "0.2.7"
-    },
-    "onlyBuiltDependencies": [
-      "electron",
-      "electron-winstaller",
-      "esbuild"
-    ]
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

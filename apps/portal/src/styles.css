@@ -123,10 +123,160 @@ h1 {
 }
 
 .computer-list,
+.hosted-list,
 .account-rows,
 .request-list,
 .portal-grant-list {
   border-top: 1px solid var(--line);
+}
+
+.hosted-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.hosted-summary {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) auto auto auto;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 4.7rem;
+}
+
+.hosted-summary > div:first-child,
+.replica-row > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.hosted-summary strong,
+.replica-row strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hosted-summary small,
+.replica-row small,
+.replica-count {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+}
+
+.replica-count {
+  white-space: nowrap;
+}
+
+.hosted-detail,
+.inline-create {
+  padding: 1rem 0 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.hosted-detail label,
+.inline-create label,
+.mirror-form label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.hosted-detail label > span,
+.inline-create label > span,
+.mirror-form label > span {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.hosted-rename,
+.inline-create,
+.mirror-form {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1.2fr) auto;
+  align-items: end;
+  gap: 1rem;
+}
+
+.mirror-form {
+  grid-template-columns: minmax(12rem, 0.8fr) minmax(11rem, 0.7fr) minmax(16rem, 1.2fr) auto;
+}
+
+.hosted-rename {
+  grid-template-columns: minmax(14rem, 1fr) auto;
+}
+
+.hosted-rename > div,
+.inline-create > div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.inline-create p,
+.mirror-form p,
+.mirror-setup p {
+  max-width: 65ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.replica-detail {
+  padding: 0.75rem 0 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.replica-detail > summary {
+  width: fit-content;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  cursor: pointer;
+}
+
+.replica-detail > div {
+  margin-top: 0.65rem;
+}
+
+.replica-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.mirror-setup {
+  display: grid;
+  gap: 0.7rem;
+  max-width: 60rem;
+  padding-top: 0.2rem;
+}
+
+.mirror-setup > p:first-child {
+  color: var(--ink-soft);
+}
+
+.copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.copy-row code {
+  overflow-x: auto;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-soft);
+  background: var(--paper-hover);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  white-space: nowrap;
 }
 
 .computer-row {
@@ -707,6 +857,32 @@ select {
 
   .computer-row {
     grid-template-columns: 1fr auto;
+  }
+
+  .hosted-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    padding: 0.85rem 0;
+  }
+
+  .hosted-summary .replica-count,
+  .hosted-summary .computer-actions {
+    grid-column: 1 / -1;
+  }
+
+  .hosted-summary .computer-actions {
+    justify-content: flex-start;
+  }
+
+  .hosted-rename,
+  .inline-create,
+  .mirror-form {
+    grid-template-columns: 1fr;
+  }
+
+  .copy-row,
+  .replica-row {
+    grid-template-columns: 1fr;
   }
 
   .computer-name-form,

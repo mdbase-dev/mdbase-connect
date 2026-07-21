@@ -1,6 +1,8 @@
 # Hosted collections and sync
 
-Status: executable vertical slice; production hosted provider remains in design
+Status: production provider and filesystem-mirror path implemented for private
+preview; writable initialization can import existing Markdown, while atomic
+control-plane import and authority transfer remain later administration features
 
 ## Purpose
 
@@ -36,27 +38,29 @@ reference path through a real HTTP server:
 - an executable authority state machine with stable record IDs, ordered
   revisions, projection by type scope, scope epochs, cursor compaction,
   idempotent retries, and revocation;
-- versioned PostgreSQL persistence with compare-and-swap writes, including
-  retries when independent server processes race;
+- a normalized Rust/PostgreSQL authority with encrypted canonical payloads,
+  keyed record-path lookup, quotas, pinned snapshot leases, compactable history,
+  and durable idempotency receipts;
 - replica registration and hashed bearer credentials on the Connect server;
+- direct hosted OAuth capabilities in the browser SDK, without routing record
+  payloads through the control plane;
 - a durable-store abstraction with memory and IndexedDB implementations, plus
   an offline client for optimistic create, update, rename, and delete;
 - TaskNotes contract discovery from each hosted sync session, an adapter over
-  the offline replica, and a receive-only Markdown directory mirror with atomic
-  writes and local-divergence detection.
+  the offline replica, and receive-only or writable Markdown directory mirrors
+  with atomic writes, durable journals, and explicit conflict resolution.
 
 The network end-to-end test creates a hosted TaskNotes collection, queues work
 offline, synchronizes two clients, materializes Markdown, returns a stale-write
 conflict, recovers an expired cursor without losing pending work, and enforces
 replica revocation and token-renewal denial.
 
-The authority in this slice is a TypeScript reference implementation. It keeps
-one versioned state document per collection and applies a narrow TaskNotes
-validator. It establishes and tests the replication contract; it is not the
-production mdbase cloud provider. General mdbase validation and queries,
-normalized record/change tables, incremental resource changes, quotas,
-encrypted hosted storage, backups, durable snapshot recovery, and operational
-administration remain for the Rust provider.
+The TypeScript authority remains a deterministic protocol test double. The
+production route uses `mdbase-connect-hosted-provider`, and hosted validation,
+matching, queries, lifecycle behavior, and reference rewrites run through
+`mdbase-rs`. Paid PostgreSQL point-in-time recovery is provisioned on Render; a
+restore drill and long-retention logical-export procedure remain operational
+launch gates.
 
 ## Design commitments
 
@@ -368,16 +372,14 @@ Incoming documents use temporary files and atomic rename where the platform
 supports them. The watcher recognizes writes made by the mirror from the saved
 revision and avoids uploading them again.
 
-The first mirror is receive-only. If a user edits a mirrored file, Connect
-pauses that record and reports local divergence before applying another remote
-version. This provides useful Markdown availability while the outbound mutation
-path is developed.
-
-Writable mirroring follows in a separate milestone. Its watcher converts local
-create, document replacement, rename, and delete activity into conditional
-mutations. Changes to collection configuration and type definitions require an
-explicit whole-collection administration permission and their own resource
-revision checks.
+Receive-only mirrors pause on any local record or resource divergence before
+applying another remote version. Writable mirrors scan ordinary Markdown,
+preserve stable identity for exact renames, and convert creates, updates,
+renames, and deletes into journaled conditional mutations. Lost responses replay
+the same mutation ID. Concurrent edits persist a structured conflict beneath
+`.mdbase/conflicts/` and require an explicit local or remote resolution.
+Configuration and type documents remain receive-only until a separate
+whole-collection administration capability is introduced.
 
 ## Application cache behavior
 
@@ -413,8 +415,10 @@ POST /v1/hosted/collections/{collection}/sync/mutations
 The session response declares protocol version, replica mode, scope epoch,
 retained cursor boundary, and current head. Snapshot pages use opaque
 continuation tokens. Mutation responses return one durable receipt per mutation
-with applied, conflicted, rejected, or previously-applied status. Capability,
-resource, acknowledgement, and batch-mutation endpoints remain to be added.
+with applied, conflicted, rejected, or previously-applied status. Replica
+capabilities and versioned resource documents are included in session and
+mutation enforcement. Mutations are currently submitted individually; durable
+causal links preserve local ordering.
 
 Replication is versioned independently from the mdbase spec, Connect relay
 protocol, app manifest, and domain contracts. Shared Rust and TypeScript

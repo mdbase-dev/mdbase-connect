@@ -5,6 +5,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "types": ["vite/client"],
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -15,4 +16,3 @@
   },
   "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"]
 }
-

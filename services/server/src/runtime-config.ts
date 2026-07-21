@@ -1,4 +1,5 @@
 import type { GitHubAuthConfig } from "./github-auth.js";
+import type { HostedProviderConfig } from "./hosted-provider.js";
 
 export interface RuntimeConfig {
   host: string;
@@ -7,6 +8,7 @@ export interface RuntimeConfig {
   tailscaleAuth: boolean;
   githubAuth: GitHubAuthConfig | null;
   hostedCollections: boolean;
+  hostedProvider: HostedProviderConfig | null;
   trustProxy: boolean;
 }
 
@@ -40,7 +42,30 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       }
     }
   }
-  return { ...config, publicUrl: publicUrl.origin };
+  let hostedProvider = config.hostedProvider;
+  if (config.hostedCollections && !hostedProvider) {
+    throw new Error("Hosted collections require a configured hosted storage provider.");
+  }
+  if (hostedProvider) {
+    const providerUrl = new URL(hostedProvider.url);
+    if (
+      providerUrl.username
+      || providerUrl.password
+      || providerUrl.pathname !== "/"
+      || providerUrl.search
+      || providerUrl.hash
+    ) {
+      throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
+    }
+    if (providerUrl.protocol !== "https:" && !isLoopback(providerUrl.hostname)) {
+      throw new Error("The hosted storage provider URL must use HTTPS outside loopback development.");
+    }
+    if (hostedProvider.internalToken.length < 32) {
+      throw new Error("The hosted storage provider internal token must contain at least 32 characters.");
+    }
+    hostedProvider = { ...hostedProvider, url: providerUrl.origin };
+  }
+  return { ...config, publicUrl: publicUrl.origin, hostedProvider };
 }
 
 export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -55,6 +80,10 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const githubConfigured = Boolean(clientId || clientSecret || allowedUserIds.size);
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
+  const hostedProviderUrl = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
+  const hostedProviderInternalToken =
+    env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
+  const hostedProviderConfigured = Boolean(hostedProviderUrl || hostedProviderInternalToken);
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
@@ -62,6 +91,9 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",
     githubAuth: githubConfigured ? { clientId, clientSecret, allowedUserIds } : null,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
+    hostedProvider: hostedProviderConfigured
+      ? { url: hostedProviderUrl, internalToken: hostedProviderInternalToken }
+      : null,
     trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1"
   });
 }

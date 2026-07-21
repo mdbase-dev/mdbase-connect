@@ -59,6 +59,13 @@ IndexedDB, encrypts operation inputs for the connector, and decrypts connector
 results locally. Set `relayEncryption: "disabled"` only for an explicit private
 protocol-2 migration; an encrypted grant never falls back to plaintext.
 
+For a hosted collection, the same authorization exchange returns a short-lived,
+grant-bound provider capability. The SDK routes operations directly to the
+hosted Rust data plane, binds browser requests to the manifest origin, and does
+not send record payloads through the Connect control plane. Refresh rotation,
+permission narrowing, and revocation keep the same public SDK behavior across
+local and hosted authorities.
+
 Record-facing code can depend on `MdbaseCollectionClient` instead of the OAuth
 client. It accepts a small `MdbaseCollectionTransport`, which is the stable seam
 used by Connect, the developer sandbox, and future hosted providers. This keeps

@@ -23,10 +23,21 @@ interface CachedAuthority {
 export class HostedAuthorityRegistry {
   private readonly cache = new Map<string, CachedAuthority>();
   private readonly gates = new Map<string, Promise<void>>();
+  private readonly schemaReady: Promise<unknown>;
 
-  constructor(private readonly db: DatabasePool) {}
+  constructor(private readonly db: DatabasePool) {
+    this.schemaReady = db.query(`
+      CREATE TABLE IF NOT EXISTS hosted_authority_states (
+        collection_id uuid,
+        state jsonb,
+        version bigint,
+        updated_at timestamptz
+      )
+    `);
+  }
 
   async create(collectionId: string): Promise<void> {
+    await this.schemaReady;
     const authority = new MemoryHostedAuthority({
       id: collectionId,
       validate: validateTasknotes,
@@ -38,6 +49,18 @@ export class HostedAuthorityRegistry {
       [collectionId, JSON.stringify(authority.serialize())]
     );
     this.cache.set(collectionId, { authority, version: 1 });
+  }
+
+  async delete(collectionId: string): Promise<void> {
+    await this.schemaReady;
+    const removed = await this.db.query(
+      "DELETE FROM hosted_authority_states WHERE collection_id = $1 RETURNING collection_id",
+      [collectionId]
+    );
+    if (!removed.rows[0]) {
+      throw new SyncError("hosted_collection_not_found", "Hosted collection not found.");
+    }
+    this.cache.delete(collectionId);
   }
 
   async registerReplica(collectionId: string, options: ReplicaOptions): Promise<string> {
@@ -124,6 +147,7 @@ export class HostedAuthorityRegistry {
   }
 
   private async load(collectionId: string, refresh = false): Promise<CachedAuthority> {
+    await this.schemaReady;
     const present = this.cache.get(collectionId);
     if (present && !refresh) return present;
     const result = await this.db.query<{ state: SerializedHostedAuthority; version: string | number }>(
@@ -193,6 +217,45 @@ export function tasknotesResources(): SyncCollectionResources {
       type_name: "task",
       extension: "x-tasknotes",
       configuration: contract
+    }],
+    documents: [{
+      path: "mdbase.yaml",
+      kind: "configuration",
+      revision: "tasknotes-config:1",
+      document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
+    }, {
+      path: "_types/task.md",
+      kind: "type",
+      revision: "tasknotes-type:1",
+      document: `---
+kind: mdbase.type
+name: task
+version: 1
+description: A TaskNotes-compatible task.
+collection:
+  path:
+    folder: tasks
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [type, title]
+    additionalProperties: true
+    properties:
+      type: { const: task }
+      title: { type: string, minLength: 1 }
+      status: { enum: [open, done] }
+x-tasknotes:
+  contract: tasknotes.task
+  version: 1
+  field_roles: { title: title, status: status }
+  status: { completed_values: [done], default: open }
+---
+`
     }]
   };
+}
+
+export function tasknotesContracts(): Array<{ id: string; version: number }> {
+  return tasknotesResources().contracts.map(({ id, version }) => ({ id, version }));
 }

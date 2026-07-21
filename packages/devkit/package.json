@@ -19,11 +19,14 @@
   "bin": {
     "mdbase-connect-dev": "./dist/cli.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "dependencies": {
     "@mdbase/connect": "workspace:*",
     "@mdbase/connect-protocol": "workspace:*",
-    "ajv": "^8.17.1"
+    "ajv": "^8.20.0"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
@@ -31,8 +34,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

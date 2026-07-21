@@ -243,6 +243,11 @@ interface StoredToken {
   grantId?: string;
   encryption?: GrantEncryption;
   keyHandle?: string;
+  hosted?: {
+    providerUrl: string;
+    replicaId: string;
+    accessToken: string;
+  };
 }
 
 const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
@@ -350,7 +355,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     });
     const body = await response.json();
     if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.");
-    if (pending.relayEncryption === "required" && (
+    if (pending.relayEncryption === "required" && !body.hosted && (
       !body.encryption
       || !pending.keyHandle
       || body.encryption.application_public_key !== pending.applicationPublicKey
@@ -362,7 +367,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         "Authorization did not establish the required encrypted relay grant."
       );
     }
-    const token = this.storeTokenResponse(body, pending.clientId, pending.keyHandle);
+    if (body.hosted && pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
+    const token = this.storeTokenResponse(
+      body,
+      pending.clientId,
+      body.hosted ? undefined : pending.keyHandle
+    );
     this.storage.removeItem(this.pendingKey());
     return { collectionId: token.collectionId, operations: token.operations, scope: token.scope };
   }
@@ -482,7 +492,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
-    if (token.encryption) {
+    if (token.encryption && !token.hosted) {
       if (!token.grantId || !token.keyHandle) {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
@@ -500,12 +510,15 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       }
       body = encryptedRequest;
     }
+    const operationUrl = token.hosted
+      ? `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`
+      : `${this.serverUrl}/v1/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
     const response = await fetch(
-      `${this.serverUrl}/v1/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`,
+      operationUrl,
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${token.accessToken}`,
+          authorization: `Bearer ${token.hosted?.accessToken ?? token.accessToken}`,
           "content-type": "application/json"
         },
         body: JSON.stringify(body)
@@ -589,7 +602,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         : undefined,
       grantId: body.grant_id,
       encryption: body.encryption ?? undefined,
-      keyHandle
+      keyHandle,
+      hosted: body.hosted ? {
+        providerUrl: body.hosted.provider_url,
+        replicaId: body.hosted.replica_id,
+        accessToken: body.hosted.access_token
+      } : undefined
     };
     this.storage.setItem(this.tokenKey(), JSON.stringify(token));
     return token;

@@ -9,6 +9,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     tailscaleAuth: false,
     githubAuth: null,
     hostedCollections: false,
+    hostedProvider: null,
     trustProxy: false,
     ...overrides
   };
@@ -78,5 +79,40 @@ describe("public runtime configuration", () => {
       publicUrl: "https://connect.example/control",
       tailscaleAuth: true
     }))).toThrow(/must be an origin/);
+  });
+
+  it("requires a canonical TLS provider and a strong internal credential for hosted mode", () => {
+    expect(() => validateRuntimeConfig(config({
+      tailscaleAuth: true,
+      publicUrl: "https://connect.example",
+      hostedCollections: true
+    }))).toThrow(/storage provider/);
+    expect(() => validateRuntimeConfig(config({
+      tailscaleAuth: true,
+      publicUrl: "https://connect.example",
+      hostedCollections: true,
+      hostedProvider: { url: "http://provider.example", internalToken: "x".repeat(40) }
+    }))).toThrow(/HTTPS/);
+    expect(() => validateRuntimeConfig(config({
+      tailscaleAuth: true,
+      publicUrl: "https://connect.example",
+      hostedCollections: true,
+      hostedProvider: { url: "https://provider.example/path", internalToken: "x".repeat(40) }
+    }))).toThrow(/must be an origin/);
+    expect(() => validateRuntimeConfig(config({
+      tailscaleAuth: true,
+      publicUrl: "https://connect.example",
+      hostedCollections: true,
+      hostedProvider: { url: "https://provider.example", internalToken: "short" }
+    }))).toThrow(/32 characters/);
+
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://127.0.0.1:8790",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
+    });
+    expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
   });
 });

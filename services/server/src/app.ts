@@ -26,7 +26,12 @@ import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { fetchManifest } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
-import { asSyncMutation, HostedAuthorityRegistry } from "./hosted.js";
+import { asSyncMutation, HostedAuthorityRegistry, tasknotesContracts } from "./hosted.js";
+import {
+  HostedProviderClient,
+  HostedProviderResponseError,
+  HostedProviderUnavailableError
+} from "./hosted-provider.js";
 import {
   exchangeGitHubCode,
   externalUserId,
@@ -73,6 +78,8 @@ interface BuildOptions {
   tailscaleAuth?: boolean;
   githubAuth?: GitHubAuthConfig;
   hostedCollections?: boolean;
+  hostedProvider?: HostedProviderClient;
+  hostedReferenceAuthority?: boolean;
   publicUrl?: string;
   portalDist?: string;
   allowInsecureManifests?: boolean;
@@ -103,7 +110,15 @@ export async function buildApp(options: BuildOptions) {
   });
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
   const relay = new RelayHub(options.db);
-  const hosted = new HostedAuthorityRegistry(options.db);
+  if (options.hostedProvider && options.hostedReferenceAuthority) {
+    throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
+  }
+  if (options.hostedCollections && !options.hostedProvider && !options.hostedReferenceAuthority) {
+    throw new Error("Hosted collections require a configured storage provider.");
+  }
+  const hostedReference = options.hostedReferenceAuthority
+    ? new HostedAuthorityRegistry(options.db)
+    : undefined;
 
   await app.register(cookie);
   await app.register(helmet, {
@@ -137,6 +152,19 @@ export async function buildApp(options: BuildOptions) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
     if (
+      options.hostedProvider
+      && request.url.startsWith("/v1/hosted/collections/")
+      && request.url.includes("/sync/")
+    ) {
+      return reply.code(421).send({
+        ...apiError(
+          "sync_provider_direct_required",
+          "Connect directly to the collection's hosted storage provider."
+        ),
+        sync_url: options.hostedProvider.url
+      });
+    }
+    if (
       !["GET", "HEAD", "OPTIONS"].includes(request.method)
       && sessionToken(request)
       && request.headers.origin
@@ -157,6 +185,20 @@ export async function buildApp(options: BuildOptions) {
       const denied = error.code === "replica_revoked" || error.code === "scope_denied" || error.code === "read_only_replica";
       return reply.code(denied ? 403 : 400).send(apiError(error.code, error.message));
     }
+    if (error instanceof HostedProviderResponseError) {
+      if ([400, 404, 409, 429].includes(error.status)) {
+        return reply.code(error.status).send(apiError(error.code, error.message));
+      }
+      request.log.error({ provider_status: error.status, provider_code: error.code }, "Hosted provider rejected control request");
+      return reply.code(502).send(apiError(
+        "hosted_provider_error",
+        "The hosted storage provider could not complete the request."
+      ));
+    }
+    if (error instanceof HostedProviderUnavailableError) {
+      request.log.error({ error: error.cause }, "Hosted provider is unavailable");
+      return reply.code(503).send(apiError("hosted_provider_unavailable", error.message));
+    }
     if (error instanceof GitHubIdentityError) {
       request.log.warn({ error: error.message }, "GitHub authentication failed");
       return reply.code(502).send(apiError(
@@ -172,6 +214,9 @@ export async function buildApp(options: BuildOptions) {
   app.get("/ready", async (_request, reply) => {
     try {
       await options.db.query("SELECT 1");
+      if (options.hostedCollections && options.hostedProvider) {
+        await options.hostedProvider.ready();
+      }
       return { ok: true, service: "mdbase-connect" };
     } catch {
       return reply.code(503).send({ ok: false, service: "mdbase-connect" });
@@ -442,13 +487,46 @@ export async function buildApp(options: BuildOptions) {
        WHERE c.user_id = $1 ORDER BY col.display_name`,
       [user.id]
     );
+    const hostedCollections = options.hostedCollections
+      ? await options.db.query<{
+          id: string;
+          display_name: string;
+          template: string;
+          provider_url: string | null;
+          created_at: string;
+        }>(
+          `SELECT id, display_name, template, provider_url, created_at
+           FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
+          [user.id]
+        )
+      : { rows: [] };
+    const hostedReplicas = hostedCollections.rows.length
+      ? await options.db.query<{
+          id: string;
+          collection_id: string;
+          name: string;
+          mode: "read_only" | "read_write";
+          allowed_types: string[];
+          revoked_at: string | null;
+          created_at: string;
+        }>(
+          `SELECT r.id, r.collection_id, r.name, r.mode, r.allowed_types,
+                  r.revoked_at, r.created_at
+           FROM hosted_replicas r JOIN hosted_collections c ON c.id = r.collection_id
+           WHERE c.user_id = $1 AND r.purpose = 'mirror' ORDER BY r.created_at`,
+          [user.id]
+        )
+      : { rows: [] };
     const grants = await options.db.query(
-      `SELECT g.id, g.operations, g.scope, g.created_at, g.revoked_at, g.collection_id,
+      `SELECT g.id, g.operations, g.scope, g.created_at, g.revoked_at,
+              COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
-              col.display_name AS collection_name
+              COALESCE(col.display_name, hosted.display_name) AS collection_name,
+              CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
        JOIN applications a ON a.id = g.application_id
-       JOIN collections col ON col.id = g.collection_id
+       LEFT JOIN collections col ON col.id = g.collection_id
+       LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
        WHERE g.user_id = $1 ORDER BY g.created_at DESC`,
       [user.id]
     );
@@ -470,6 +548,13 @@ export async function buildApp(options: BuildOptions) {
       },
       connectors: connectors.rows,
       collections: collections.rows,
+      hosted_collections: hostedCollections.rows.map((collection) => ({
+        ...collection,
+        provider_url: collection.provider_url ?? publicUrl,
+        spec_version: "0.3.0",
+        contracts: tasknotesContracts(),
+        replicas: hostedReplicas.rows.filter((replica) => replica.collection_id === collection.id)
+      })),
       grants: grants.rows,
       pending_authorizations: pendingAuthorizations.rows
     };
@@ -766,15 +851,25 @@ export async function buildApp(options: BuildOptions) {
       template: z.literal("tasknotes").default("tasknotes")
     }).strict().parse(request.body);
     const collectionId = randomUUID();
-    await options.db.query(
-      `INSERT INTO hosted_collections (id, user_id, display_name, template)
-       VALUES ($1, $2, $3, $4)`,
-      [collectionId, user.id, input.display_name, input.template]
-    );
     try {
-      await hosted.create(collectionId);
+      if (options.hostedProvider) {
+        await options.hostedProvider.createCollection(collectionId, input.template);
+      } else {
+        await hostedReference!.create(collectionId);
+      }
+      await options.db.query(
+        `INSERT INTO hosted_collections (id, user_id, display_name, template, provider_url)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [collectionId, user.id, input.display_name, input.template, options.hostedProvider?.url ?? null]
+      );
     } catch (error) {
-      await options.db.query("DELETE FROM hosted_collections WHERE id = $1", [collectionId]);
+      if (options.hostedProvider) {
+        await options.hostedProvider.deleteCollection(collectionId).catch((cleanupError) => {
+          request.log.error({ cleanupError, collectionId }, "Failed to compensate hosted collection creation");
+        });
+      } else {
+        await hostedReference!.delete(collectionId).catch(() => undefined);
+      }
       throw error;
     }
     await audit(options.db, user.id, "hosted_collection.created", collectionId, { template: input.template });
@@ -783,7 +878,8 @@ export async function buildApp(options: BuildOptions) {
         id: collectionId,
         display_name: input.display_name,
         template: input.template,
-        spec_version: "0.3.0"
+        spec_version: "0.3.0",
+        sync_url: options.hostedProvider?.url ?? publicUrl
       }
     });
   });
@@ -802,20 +898,38 @@ export async function buildApp(options: BuildOptions) {
     }
     const replicaId = randomUUID();
     const token = randomToken("hsr");
-    await hosted.registerReplica(collectionId, {
-      id: replicaId,
-      name: input.name,
-      mode: input.mode,
-      allowedTypes: input.allowed_types
-    });
+    if (options.hostedProvider) {
+      await options.hostedProvider.registerReplica(collectionId, {
+        id: replicaId,
+        name: input.name,
+        mode: input.mode,
+        allowedTypes: input.allowed_types,
+        token
+      });
+    } else {
+      await hostedReference!.registerReplica(collectionId, {
+        id: replicaId,
+        name: input.name,
+        mode: input.mode,
+        allowedTypes: input.allowed_types
+      });
+    }
     try {
       await options.db.query(
         `INSERT INTO hosted_replicas (id, collection_id, name, mode, allowed_types, token_hash)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
-        [replicaId, collectionId, input.name, input.mode, JSON.stringify(input.allowed_types), tokenHash(token)]
+        [
+          replicaId,
+          collectionId,
+          input.name,
+          input.mode,
+          JSON.stringify(input.allowed_types),
+          options.hostedProvider ? null : tokenHash(token)
+        ]
       );
     } catch (error) {
-      await hosted.revokeReplica(collectionId, replicaId);
+      if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId);
+      else await hostedReference!.revokeReplica(collectionId, replicaId);
       throw error;
     }
     await audit(options.db, user.id, "hosted_replica.created", replicaId, {
@@ -824,9 +938,65 @@ export async function buildApp(options: BuildOptions) {
       allowed_types: input.allowed_types
     });
     return reply.code(201).send({
-      replica: { id: replicaId, collection_id: collectionId, name: input.name, mode: input.mode },
-      token
+      replica: {
+        id: replicaId,
+        collection_id: collectionId,
+        name: input.name,
+        mode: input.mode
+      },
+      token,
+      sync_url: options.hostedProvider?.url ?? publicUrl
     });
+  });
+
+  app.patch("/v1/hosted/collections/:collectionId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    const input = z.object({ display_name: z.string().trim().min(1).max(200) }).strict().parse(request.body);
+    const renamed = await options.db.query<{ id: string; display_name: string }>(
+      `UPDATE hosted_collections SET display_name = $3
+       WHERE id = $1 AND user_id = $2 RETURNING id, display_name`,
+      [collectionId, user.id, input.display_name]
+    );
+    if (!renamed.rows[0]) {
+      return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
+    }
+    await audit(options.db, user.id, "hosted_collection.renamed", collectionId, {
+      display_name: input.display_name
+    });
+    return { collection: renamed.rows[0] };
+  });
+
+  app.delete("/v1/hosted/collections/:collectionId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+      return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
+    }
+    if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+    else await hostedReference!.delete(collectionId);
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      await connection.query(
+        "DELETE FROM grants WHERE hosted_collection_id = $1 AND user_id = $2",
+        [collectionId, user.id]
+      );
+      await connection.query(
+        "DELETE FROM hosted_collections WHERE id = $1 AND user_id = $2",
+        [collectionId, user.id]
+      );
+      await audit(connection, user.id, "hosted_collection.deleted", collectionId, {});
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return { ok: true };
   });
 
   app.post("/v1/hosted/replicas/:replicaId/token", async (request, reply) => {
@@ -840,8 +1010,12 @@ export async function buildApp(options: BuildOptions) {
     );
     if (!active.rows[0]) return reply.code(404).send(apiError("replica_not_found", "Active replica not found."));
     const token = randomToken("hsr");
-    await options.db.query("UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1", [replicaId, tokenHash(token)]);
-    return { token };
+    if (options.hostedProvider) {
+      await options.hostedProvider.rotateReplicaToken(replicaId, token);
+    } else {
+      await options.db.query("UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1", [replicaId, tokenHash(token)]);
+    }
+    return { token, sync_url: options.hostedProvider?.url ?? publicUrl };
   });
 
   app.delete("/v1/hosted/replicas/:replicaId", async (request, reply) => {
@@ -849,14 +1023,18 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const { replicaId } = z.object({ replicaId: z.uuid() }).parse(request.params);
     const active = await options.db.query<{ collection_id: string }>(
-      `UPDATE hosted_replicas SET revoked_at = now()
-       WHERE id = $1 AND revoked_at IS NULL AND collection_id IN
-         (SELECT id FROM hosted_collections WHERE user_id = $2)
-       RETURNING collection_id`,
+      `SELECT r.collection_id FROM hosted_replicas r
+       JOIN hosted_collections c ON c.id = r.collection_id
+       WHERE r.id = $1 AND r.revoked_at IS NULL AND c.user_id = $2`,
       [replicaId, user.id]
     );
     if (!active.rows[0]) return reply.code(404).send(apiError("replica_not_found", "Active replica not found."));
-    await hosted.revokeReplica(active.rows[0].collection_id, replicaId);
+    if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId);
+    else await hostedReference!.revokeReplica(active.rows[0].collection_id, replicaId);
+    await options.db.query(
+      "UPDATE hosted_replicas SET revoked_at = now(), token_hash = NULL WHERE id = $1",
+      [replicaId]
+    );
     await audit(options.db, user.id, "hosted_replica.revoked", replicaId, {});
     return { ok: true };
   });
@@ -869,7 +1047,11 @@ export async function buildApp(options: BuildOptions) {
     if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
-    await hosted.compactThrough(collectionId, input.through);
+    if (options.hostedProvider) {
+      await options.hostedProvider.compactThrough(collectionId, input.through);
+    } else {
+      await hostedReference!.compactThrough(collectionId, input.through);
+    }
     return { ok: true };
   });
 
@@ -878,7 +1060,7 @@ export async function buildApp(options: BuildOptions) {
     if (!replica) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
     if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hosted.transport(collectionId, replica.id)).openSession();
+    return (await hostedReference!.transport(collectionId, replica.id)).openSession();
   });
 
   app.get("/v1/hosted/collections/:collectionId/sync/snapshot", async (request, reply) => {
@@ -887,7 +1069,7 @@ export async function buildApp(options: BuildOptions) {
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
     const query = z.object({ snapshot_id: z.uuid(), page: z.string().regex(/^[1-9][0-9]*$/).optional() }).parse(request.query);
     if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hosted.transport(collectionId, replica.id)).snapshot(query.snapshot_id, query.page);
+    return (await hostedReference!.transport(collectionId, replica.id)).snapshot(query.snapshot_id, query.page);
   });
 
   app.get("/v1/hosted/collections/:collectionId/sync/changes", async (request, reply) => {
@@ -899,7 +1081,7 @@ export async function buildApp(options: BuildOptions) {
       limit: z.coerce.number().int().positive().max(500).default(200)
     }).parse(request.query);
     if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hosted.transport(collectionId, replica.id)).changes(query.after, query.limit);
+    return (await hostedReference!.transport(collectionId, replica.id)).changes(query.after, query.limit);
   });
 
   app.post("/v1/hosted/collections/:collectionId/sync/mutations", async (request, reply) => {
@@ -910,7 +1092,7 @@ export async function buildApp(options: BuildOptions) {
     if (collectionId !== replica.collection_id || mutation.replica_id !== replica.id) {
       return reply.code(403).send(apiError("replica_scope_denied", "Mutation belongs to another replica."));
     }
-    return (await hosted.transport(collectionId, replica.id)).mutate(asSyncMutation(mutation));
+    return (await hostedReference!.transport(collectionId, replica.id)).mutate(asSyncMutation(mutation));
   });
 
   app.get("/v1/relay", { websocket: true }, async (socket, request) => {
@@ -926,7 +1108,7 @@ export async function buildApp(options: BuildOptions) {
     const input = z.object({ manifest_url: z.url() }).parse(request.body);
     const discovered = await fetchManifest(input.manifest_url, options.allowInsecureManifests);
     const application = await upsertApplication(options.db, discovered);
-    await reconcileApplicationGrants(options.db, relay, application);
+    await reconcileApplicationGrants(options.db, relay, options.hostedProvider, application);
     return { application };
   });
 
@@ -978,12 +1160,13 @@ export async function buildApp(options: BuildOptions) {
     }).strict().parse(request.body);
     const active = await options.db.query<{
       id: string;
-      connector_id: string;
+      connector_id: string | null;
+      hosted_replica_id: string | null;
       operations: string[];
       encryption: GrantEncryption | null;
     }>(
-      `SELECT g.id, g.operations, g.encryption, col.connector_id FROM grants g
-       JOIN collections col ON col.id = g.collection_id
+      `SELECT g.id, g.operations, g.encryption, col.connector_id, g.hosted_replica_id
+       FROM grants g LEFT JOIN collections col ON col.id = g.collection_id
        WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
       [grantId, user.id]
     );
@@ -996,12 +1179,22 @@ export async function buildApp(options: BuildOptions) {
         "Existing access can be narrowed here, but broader access requires a new application request."
       ));
     }
+    if (current.hosted_replica_id) {
+      if (!options.hostedProvider) {
+        return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+      }
+      const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+      await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
+        mode: write ? "read_write" : "read_only",
+        allowedOperations: operations
+      });
+    }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
       "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
       [grantId, JSON.stringify(operations)]
     );
     if (current.encryption) await rotateGrantEncryption(options.db, grantId);
-    await relay.pushPolicy(current.connector_id);
+    if (current.connector_id) await relay.pushPolicy(current.connector_id);
     await audit(options.db, user.id, "grant.narrowed", grantId, {
       previous_operations: current.operations,
       operations
@@ -1013,17 +1206,31 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
-    const active = await options.db.query<{ id: string; connector_id: string }>(
-      `SELECT g.id, col.connector_id FROM grants g
-       JOIN collections col ON col.id = g.collection_id
+    const active = await options.db.query<{
+      id: string;
+      connector_id: string | null;
+      hosted_replica_id: string | null;
+    }>(
+      `SELECT g.id, col.connector_id, g.hosted_replica_id FROM grants g
+       LEFT JOIN collections col ON col.id = g.collection_id
        WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
       [grantId, user.id]
     );
     if (!active.rows[0]) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+    if (active.rows[0].hosted_replica_id) {
+      if (!options.hostedProvider) {
+        return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
+      }
+      await options.hostedProvider.revokeReplica(active.rows[0].hosted_replica_id);
+      await options.db.query(
+        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
+        [active.rows[0].hosted_replica_id]
+      );
+    }
     await options.db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grantId]);
     await options.db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
     await options.db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
-    await relay.pushPolicy(active.rows[0].connector_id);
+    if (active.rows[0].connector_id) await relay.pushPolicy(active.rows[0].connector_id);
     await audit(options.db, user.id, "grant.revoked", grantId, {});
     return { ok: true };
   });
@@ -1105,7 +1312,31 @@ export async function buildApp(options: BuildOptions) {
        WHERE c.user_id = $1 AND col.enabled = true ORDER BY col.display_name`,
       [user.id]
     );
-    return { authorization: authorization.rows[0], collections: collections.rows };
+    const hosted = options.hostedCollections
+      ? await options.db.query<{
+          id: string;
+          display_name: string;
+          spec_version?: string;
+          contracts?: ContractRequirement[];
+        }>(
+          `SELECT id, display_name FROM hosted_collections
+           WHERE user_id = $1 ORDER BY display_name`,
+          [user.id]
+        )
+      : { rows: [] };
+    return {
+      authorization: authorization.rows[0],
+      collections: [
+        ...collections.rows.map((collection) => ({ ...collection, kind: "local" })),
+        ...hosted.rows.map((collection) => ({
+          ...collection,
+          kind: "hosted",
+          connector_name: "Hosted by mdbase",
+          spec_version: "0.3.0",
+          contracts: tasknotesContracts()
+        }))
+      ]
+    };
   });
 
   app.get("/v1/authorization-requests/:requestId/status", async (request, reply) => {
@@ -1155,15 +1386,32 @@ export async function buildApp(options: BuildOptions) {
        WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true`,
       [input.collection_id, user.id]
     );
-    if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
-    const approved = await approveAuthorization(options.db, relay, {
-      requestId,
-      userId: user.id,
-      connectorId: collection.rows[0].connector_id,
-      collectionId: input.collection_id,
-      operations: input.operations,
-      source: "portal"
-    });
+    let approved: boolean;
+    if (collection.rows[0]) {
+      approved = await approveAuthorization(options.db, relay, {
+        requestId,
+        userId: user.id,
+        connectorId: collection.rows[0].connector_id,
+        collectionId: input.collection_id,
+        operations: input.operations,
+        source: "portal"
+      });
+    } else {
+      const hosted = await options.db.query<{ id: string; template: string }>(
+        "SELECT id, template FROM hosted_collections WHERE id = $1 AND user_id = $2",
+        [input.collection_id, user.id]
+      );
+      if (!hosted.rows[0] || !options.hostedProvider) {
+        return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
+      }
+      approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
+        requestId,
+        userId: user.id,
+        collectionId: input.collection_id,
+        operations: input.operations,
+        template: hosted.rows[0].template
+      });
+    }
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };
   });
@@ -1223,7 +1471,7 @@ export async function buildApp(options: BuildOptions) {
       if (!consumed.rows[0]) {
         return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
       }
-      return issueApplicationTokens(options.db, authorizationCode.grant_id);
+      return issueApplicationTokens(options.db, options.hostedProvider, authorizationCode.grant_id);
     }
 
     const refresh = await options.db.query<{ id: string; grant_id: string }>(
@@ -1246,7 +1494,7 @@ export async function buildApp(options: BuildOptions) {
     if (!rotated.rows[0]) {
       return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
     }
-    return issueApplicationTokens(options.db, current.grant_id);
+    return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
   });
 
   app.post("/v1/collections/:collectionId/operations/:operation", async (request, reply) => {
@@ -1435,30 +1683,47 @@ async function createOrUpdateGrant(
 async function reconcileApplicationGrants(
   db: DatabasePool,
   relay: RelayHub,
+  hostedProvider: HostedProviderClient | undefined,
   application: { id: string; requirements: ApplicationRequirements }
 ): Promise<void> {
   const desiredScope = scopeForRequirements(application.requirements);
   const grants = await db.query<{
     id: string;
     user_id: string;
-    connector_id: string;
-    contracts: ContractRequirement[];
+    connector_id: string | null;
+    hosted_replica_id: string | null;
+    operations: string[];
+    contracts: ContractRequirement[] | null;
+    template: string | null;
     scope: GrantScope;
   }>(
-    `SELECT g.id, g.user_id, col.connector_id, col.contracts, g.scope
+    `SELECT g.id, g.user_id, col.connector_id, g.hosted_replica_id,
+            g.operations, col.contracts, hosted.template, g.scope
      FROM grants g
-     JOIN collections col ON col.id = g.collection_id
+     LEFT JOIN collections col ON col.id = g.collection_id
+     LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      WHERE g.application_id = $1 AND g.revoked_at IS NULL`,
     [application.id]
   );
   const changedConnectors = new Set<string>();
   for (const grant of grants.rows) {
-    const collectionCompatible = contractsSatisfy(grant.contracts, desiredScope.contracts);
+    const availableContracts = grant.template === "tasknotes"
+      ? tasknotesContracts()
+      : grant.contracts ?? [];
+    const collectionCompatible = contractsSatisfy(availableContracts, desiredScope.contracts);
     if (scopesEqual(grant.scope, desiredScope) && collectionCompatible) continue;
     const mayNarrow = desiredScope.contracts.length > 0
       && (grant.scope.contracts.length === 0
         || isContractSubset(desiredScope.contracts, grant.scope.contracts));
     if (mayNarrow && collectionCompatible) {
+      if (grant.hosted_replica_id) {
+        if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
+        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+        await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
+          mode: write ? "read_write" : "read_only",
+          allowedOperations: grant.operations
+        });
+      }
       await db.query("UPDATE grants SET scope = $2::jsonb WHERE id = $1", [
         grant.id,
         JSON.stringify(desiredScope)
@@ -1469,6 +1734,13 @@ async function reconcileApplicationGrants(
         scope: desiredScope
       });
     } else {
+      if (grant.hosted_replica_id) {
+        if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
+        await hostedProvider.revokeReplica(grant.hosted_replica_id);
+        await db.query("UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1", [
+          grant.hosted_replica_id
+        ]);
+      }
       await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
       await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
       await db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
@@ -1478,7 +1750,7 @@ async function reconcileApplicationGrants(
         required_scope: desiredScope
       });
     }
-    changedConnectors.add(grant.connector_id);
+    if (grant.connector_id) changedConnectors.add(grant.connector_id);
   }
   for (const connectorId of changedConnectors) await relay.pushPolicy(connectorId);
 }
@@ -1590,6 +1862,124 @@ async function approveAuthorization(
   return true;
 }
 
+async function approveHostedAuthorization(
+  db: DatabasePool,
+  provider: HostedProviderClient,
+  input: {
+    requestId: string;
+    userId: string;
+    collectionId: string;
+    operations: string[];
+    template: string;
+  }
+): Promise<boolean> {
+  const connection = await db.connect();
+  let replicaId: string | null = null;
+  try {
+    await connection.query("BEGIN");
+    const authorization = await connection.query<{
+      application_id: string;
+      application_name: string;
+      application_homepage: string;
+      requested_operations: string[];
+      requirements: ApplicationRequirements;
+    }>(
+      `SELECT ar.application_id, a.name AS application_name, a.homepage AS application_homepage,
+              ar.requested_operations,
+              a.requirements
+       FROM authorization_requests ar
+       JOIN applications a ON a.id = ar.application_id
+       WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
+         AND ar.expires_at > now()
+       FOR UPDATE`,
+      [input.requestId, input.userId]
+    );
+    const pending = authorization.rows[0];
+    if (!pending) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
+      throw new RequestValidationError("Approved operations must be requested by the application.");
+    }
+    if (input.template !== "tasknotes") {
+      throw new RequestValidationError("The hosted collection template is unavailable.");
+    }
+    const scope = scopeForRequirements(pending.requirements);
+    if (!contractsSatisfy(tasknotesContracts(), scope.contracts)) {
+      throw new RequestValidationError(
+        "This hosted collection does not provide the contracts required by the application."
+      );
+    }
+    const operations = [...new Set(input.operations)];
+    const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+    const applicationUrl = new URL(pending.application_homepage);
+    const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
+      ? applicationUrl.origin
+      : undefined;
+    replicaId = randomUUID();
+    const bootstrapToken = randomToken("hsa");
+    await provider.registerReplica(input.collectionId, {
+      id: replicaId,
+      name: `${pending.application_name} application access`,
+      purpose: "application",
+      mode: write ? "read_write" : "read_only",
+      allowedTypes: ["task"],
+      allowedOperations: operations,
+      allowedOrigin,
+      token: bootstrapToken,
+      tokenTtlSeconds: 3_600
+    });
+    const grantId = randomUUID();
+    await connection.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, name, purpose, mode, allowed_types, token_hash)
+       VALUES ($1, $2, $3, 'application', $4, $5::jsonb, NULL)`,
+      [
+        replicaId,
+        input.collectionId,
+        `${pending.application_name} application access`,
+        write ? "read_write" : "read_only",
+        JSON.stringify(["task"])
+      ]
+    );
+    await connection.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
+          operations, scope, encryption)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL)`,
+      [
+        grantId,
+        input.userId,
+        pending.application_id,
+        input.collectionId,
+        replicaId,
+        JSON.stringify(operations),
+        JSON.stringify(scope)
+      ]
+    );
+    await connection.query(
+      `UPDATE authorization_requests SET completed_at = now(), grant_id = $2
+       WHERE id = $1 AND completed_at IS NULL`,
+      [input.requestId, grantId]
+    );
+    await audit(connection, input.userId, "authorization.approved", input.requestId, {
+      hosted_collection_id: input.collectionId,
+      operations,
+      scope,
+      source: "portal"
+    });
+    await connection.query("COMMIT");
+    return true;
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    if (replicaId) await provider.revokeReplica(replicaId).catch(() => undefined);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function denyAuthorization(
   db: DatabasePool,
   input: {
@@ -1645,7 +2035,11 @@ async function createAuthorizationRedirect(
   return redirect.href;
 }
 
-async function issueApplicationTokens(db: DatabasePool, grantId: string): Promise<{
+async function issueApplicationTokens(
+  db: DatabasePool,
+  hostedProvider: HostedProviderClient | undefined,
+  grantId: string
+): Promise<{
   access_token: string;
   refresh_token: string;
   token_type: "Bearer";
@@ -1656,19 +2050,45 @@ async function issueApplicationTokens(db: DatabasePool, grantId: string): Promis
   scope: GrantScope;
   grant_id: string;
   encryption: GrantEncryption | null;
+  hosted?: {
+    provider_url: string;
+    replica_id: string;
+    access_token: string;
+  };
 }> {
   const grant = await db.query<{
     collection_id: string;
+    hosted_collection_id: string | null;
+    hosted_replica_id: string | null;
+    provider_url: string | null;
     operations: string[];
     scope: GrantScope;
     encryption: GrantEncryption | null;
   }>(
-    "SELECT collection_id, operations, scope, encryption FROM grants WHERE id = $1 AND revoked_at IS NULL",
+    `SELECT COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
+            g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
+            g.operations, g.scope, g.encryption
+     FROM grants g
+     LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+     WHERE g.id = $1 AND g.revoked_at IS NULL`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
+  let hosted: { provider_url: string; replica_id: string; access_token: string } | undefined;
+  if (grant.rows[0].hosted_collection_id) {
+    if (!hostedProvider || !grant.rows[0].hosted_replica_id || !grant.rows[0].provider_url) {
+      throw new RequestValidationError("The hosted application capability is unavailable.");
+    }
+    const providerToken = randomToken("hsa");
+    await hostedProvider.rotateReplicaToken(grant.rows[0].hosted_replica_id, providerToken, 3_600);
+    hosted = {
+      provider_url: grant.rows[0].provider_url,
+      replica_id: grant.rows[0].hosted_replica_id,
+      access_token: providerToken
+    };
+  }
   await db.query(
     `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
      VALUES ($1, $2, $3, now() + interval '1 hour')`,
@@ -1689,7 +2109,8 @@ async function issueApplicationTokens(db: DatabasePool, grantId: string): Promis
     operations: grant.rows[0].operations,
     scope: grant.rows[0].scope,
     grant_id: grantId,
-    encryption: grant.rows[0].encryption
+    encryption: grant.rows[0].encryption,
+    ...(hosted ? { hosted } : {})
   };
 }
 

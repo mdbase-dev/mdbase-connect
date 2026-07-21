@@ -1,7 +1,45 @@
 previews:
-  generation: off
+  generation: "off"
 
 services:
+  - type: web
+    name: mdbase-connect-hosted-provider
+    runtime: docker
+    repo: https://github.com/mdbase-dev/mdbase-connect
+    branch: main
+    plan: starter
+    region: singapore
+    dockerfilePath: ./deploy/docker/Dockerfile.hosted-provider
+    dockerContext: .
+    healthCheckPath: /ready
+    maxShutdownDelaySeconds: 60
+    autoDeployTrigger: checksPass
+    domains:
+      - sync.mdbase.dev
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mdbase-connect-hosted-db
+          property: connectionString
+      - key: MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN
+        generateValue: true
+      - key: MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY
+        generateValue: true
+      - key: MDBASE_CONNECT_HOSTED_PROVIDER_ALLOWED_ORIGINS
+        value: https://connect.mdbase.dev
+      - key: MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION
+        value: "100000"
+      - key: MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION
+        value: "1073741824"
+      - key: MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT
+        value: "2097152"
+      - key: MDBASE_CONNECT_HOSTED_MAX_REPLICAS_PER_COLLECTION
+        value: "100"
+      - key: MDBASE_CONNECT_HOSTED_RETAIN_CHANGES
+        value: "10000"
+      - key: MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS
+        value: "300"
+
   - type: web
     name: mdbase-connect
     runtime: docker
@@ -35,13 +73,30 @@ services:
       - key: MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS
         sync: false
       - key: MDBASE_CONNECT_HOSTED_COLLECTIONS
-        value: "0"
+        value: "1"
+      - key: MDBASE_CONNECT_HOSTED_PROVIDER_URL
+        value: https://sync.mdbase.dev
+      - key: MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN
+        fromService:
+          type: web
+          name: mdbase-connect-hosted-provider
+          envVarKey: MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN
       - key: MDBASE_CONNECT_TRUST_PROXY
         value: "1"
       - key: MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS
         value: "0"
 
 databases:
+  - name: mdbase-connect-hosted-db
+    region: singapore
+    plan: basic-1gb
+    diskSizeGB: 15
+    storageAutoscalingEnabled: true
+    postgresMajorVersion: "18"
+    databaseName: mdbase_connect_hosted
+    user: mdbase_connect_hosted
+    ipAllowList: []
+
   - name: mdbase-connect-db
     region: singapore
     plan: basic-256mb

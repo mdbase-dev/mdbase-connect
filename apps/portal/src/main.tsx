@@ -12,6 +12,7 @@ import {
   type AvailableCollection,
   type ContractRequirement,
   type DashboardData,
+  type HostedCollection,
   type PendingAuthorization
 } from "./api";
 import "./styles.css";
@@ -152,13 +153,24 @@ function Dashboard() {
                 <ApprovalForm
                   request={request}
                   collections={compatibleCollections(
-                    request,
-                    data.collections.filter((collection) => collection.enabled)
+                  request,
+                  [
+                    ...data.collections.filter((collection) => collection.enabled)
+                      .map((collection) => ({ ...collection, kind: "local" as const })),
+                    ...data.hosted_collections.map((collection) => ({
+                      ...collection,
+                      kind: "hosted" as const,
+                      connector_name: "Hosted by mdbase"
+                    }))
+                  ]
                   )}
                   onDecision={refresh}
                 />
               </article>
             ))}</div></>}
+        </section>
+        <section id="hosted">
+          <HostedCollections collections={data.hosted_collections} onChanged={refresh} onError={setError} />
         </section>
         <section id="permissions">
           <SectionHeading title="Application access" note="Review exact permissions, narrow them, or revoke access immediately." count={data.grants.filter((grant) => !grant.revoked_at).length} />
@@ -167,7 +179,7 @@ function Dashboard() {
           ) : (
             <div className="portal-grant-list">{data.grants.filter((grant) => !grant.revoked_at).map((grant) => {
               const collection = data.collections.find((candidate) => candidate.id === grant.collection_id);
-              return <PortalGrant key={grant.id} grant={grant} connectorName={collection?.connector_name ?? "Unknown computer"} onChanged={refresh} onError={setError} />;
+              return <PortalGrant key={grant.id} grant={grant} connectorName={grant.collection_kind === "hosted" ? "Hosted by mdbase" : collection?.connector_name ?? "Unknown computer"} onChanged={refresh} onError={setError} />;
             })}</div>
           )}
         </section>
@@ -188,6 +200,184 @@ function Dashboard() {
       </main>
     </div>
   );
+}
+
+interface ReplicaSecret {
+  replicaId: string;
+  token: string;
+  syncUrl: string;
+  mode: "read_only" | "read_write";
+}
+
+function HostedCollections({ collections, onChanged, onError }: {
+  collections: HostedCollection[];
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("My tasks");
+  const [busy, setBusy] = useState(false);
+
+  async function create(event: React.FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await api("/v1/hosted/collections", {
+        method: "POST",
+        body: JSON.stringify({ display_name: name.trim(), template: "tasknotes" })
+      });
+      setCreating(false);
+      setName("My tasks");
+      await onChanged();
+    } catch (reason) {
+      onError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <>
+    <SectionHeading
+      title="Hosted collections"
+      note="Keep the authoritative Markdown on mdbase, with optional local mirrors."
+      count={collections.length}
+    />
+    {collections.length === 0 && !creating
+      ? <Empty title="No hosted collections" text="Create a TaskNotes collection whose source of truth stays available without a connected computer." />
+      : <div className="hosted-list">{collections.map((collection) => (
+          <HostedCollectionRow key={collection.id} collection={collection} onChanged={onChanged} onError={onError} />
+        ))}</div>}
+    {creating ? <form className="inline-create" onSubmit={(event) => void create(event)}>
+      <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <p>Starts with the TaskNotes schema. You can receive an exact Markdown mirror on any computer afterward.</p>
+      <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create collection"}</button></div>
+    </form> : <button className="button secondary" onClick={() => setCreating(true)}>Create hosted collection</button>}
+  </>;
+}
+
+function HostedCollectionRow({ collection, onChanged, onError }: {
+  collection: HostedCollection;
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  const [panel, setPanel] = useState<"mirror" | "rename" | null>(null);
+  const [name, setName] = useState(collection.display_name);
+  const [mirrorName, setMirrorName] = useState("Local mirror");
+  const [mirrorMode, setMirrorMode] = useState<"read_only" | "read_write">("read_only");
+  const [busy, setBusy] = useState(false);
+  const [secret, setSecret] = useState<ReplicaSecret | null>(null);
+  const activeReplicas = collection.replicas.filter((replica) => !replica.revoked_at);
+  useEffect(() => { if (panel !== "rename") setName(collection.display_name); }, [collection.display_name, panel]);
+
+  async function rename(event: React.FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await api(`/v1/hosted/collections/${collection.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ display_name: name.trim() })
+      });
+      setPanel(null);
+      await onChanged();
+    } catch (reason) { onError(message(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function addMirror(event: React.FormEvent) {
+    event.preventDefault();
+    if (!mirrorName.trim()) return;
+    setBusy(true);
+    try {
+      const enrollment = await api<{
+        replica: { id: string };
+        token: string;
+        sync_url: string;
+      }>(`/v1/hosted/collections/${collection.id}/replicas`, {
+        method: "POST",
+        body: JSON.stringify({ name: mirrorName.trim(), mode: mirrorMode, allowed_types: ["task"] })
+      });
+      setSecret({ replicaId: enrollment.replica.id, token: enrollment.token, syncUrl: enrollment.sync_url, mode: mirrorMode });
+      await onChanged();
+    } catch (reason) { onError(message(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete ${collection.display_name} and all of its hosted Markdown? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await api(`/v1/hosted/collections/${collection.id}`, { method: "DELETE" });
+      await onChanged();
+    } catch (reason) { onError(message(reason)); setBusy(false); }
+  }
+
+  async function revoke(replicaId: string, replicaName: string) {
+    if (!window.confirm(`Revoke ${replicaName}? Its local files remain, but it will no longer receive changes.`)) return;
+    setBusy(true);
+    try {
+      await api(`/v1/hosted/replicas/${replicaId}`, { method: "DELETE" });
+      if (secret?.replicaId === replicaId) setSecret(null);
+      await onChanged();
+    } catch (reason) { onError(message(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function rotate(replicaId: string) {
+    setBusy(true);
+    try {
+      const value = await api<{ token: string; sync_url: string }>(`/v1/hosted/replicas/${replicaId}/token`, { method: "POST" });
+      const replica = activeReplicas.find((candidate) => candidate.id === replicaId);
+      if (!replica) throw new Error("Mirror is no longer available.");
+      setSecret({ replicaId, token: value.token, syncUrl: value.sync_url, mode: replica.mode });
+    } catch (reason) { onError(message(reason)); }
+    finally { setBusy(false); }
+  }
+
+  return <article className="hosted-row">
+    <div className="hosted-summary">
+      <div><strong>{collection.display_name}</strong><small>TaskNotes · authoritative on mdbase · created {relativeTime(collection.created_at)}</small></div>
+      <span className="availability online"><i />Hosted</span>
+      <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
+      <div className="computer-actions"><button className="quiet-action" disabled={busy} onClick={() => { setSecret(null); setPanel(panel === "mirror" ? null : "mirror"); }}>Add mirror</button><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button><button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button></div>
+    </div>
+    {panel === "rename" && <form className="hosted-detail hosted-rename" onSubmit={(event) => void rename(event)}>
+      <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setPanel(null)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === collection.display_name}>Save</button></div>
+    </form>}
+    {panel === "mirror" && <div className="hosted-detail">
+      {!secret ? <form className="mirror-form" onSubmit={(event) => void addMirror(event)}>
+        <label><span>Mirror name</span><input autoFocus maxLength={200} value={mirrorName} onChange={(event) => setMirrorName(event.target.value)} /></label>
+        <label><span>Local edits</span><select value={mirrorMode} onChange={(event) => setMirrorMode(event.target.value as "read_only" | "read_write")}><option value="read_only">Receive only</option><option value="read_write">Sync to hosted</option></select></label>
+        <p>{mirrorMode === "read_only" ? "Local edits never overwrite the hosted source of truth." : "Local edits sync conditionally. Concurrent edits stop for an explicit choice—never last-write-wins."}</p>
+        <button className="button primary" disabled={busy || !mirrorName.trim()}>{busy ? "Preparing…" : "Prepare mirror"}</button>
+      </form> : <MirrorSetup collectionId={collection.id} secret={secret} />}
+    </div>}
+    {activeReplicas.length > 0 && <details className="replica-detail">
+      <summary>Manage mirrors</summary>
+      <div>{activeReplicas.map((replica) => <div className="replica-row" key={replica.id}>
+        <div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Receive-only" : "Two-way"} · added {relativeTime(replica.created_at)}</small></div>
+        <div><button className="quiet-action" disabled={busy} onClick={() => void rotate(replica.id)}>Replace token</button><button className="quiet-danger" disabled={busy} onClick={() => void revoke(replica.id, replica.name)}>Revoke</button></div>
+      </div>)}</div>
+      {secret && panel !== "mirror" && <MirrorSetup collectionId={collection.id} secret={secret} />}
+    </details>}
+  </article>;
+}
+
+function MirrorSetup({ collectionId, secret }: { collectionId: string; secret: ReplicaSecret }) {
+  const command = `mdbase-mirror init ./tasks --server ${secret.syncUrl} --collection ${collectionId} --replica ${secret.replicaId}${secret.mode === "read_write" ? " --writable" : ""}`;
+  const [copied, setCopied] = useState<"token" | "command" | null>(null);
+  async function copy(value: string, kind: "token" | "command") {
+    await navigator.clipboard.writeText(value);
+    setCopied(kind);
+  }
+  return <div className="mirror-setup" aria-live="polite">
+    <p><strong>Save this token now.</strong> It is shown once. The CLI asks for it without echoing it.</p>
+    <div className="copy-row"><code>{secret.token}</code><button className="quiet-action" type="button" onClick={() => void copy(secret.token, "token")}>{copied === "token" ? "Copied" : "Copy token"}</button></div>
+    <p>Install <code>@mdbase/connect-sync</code>, then run:</p>
+    <div className="copy-row"><code>{command}</code><button className="quiet-action" type="button" onClick={() => void copy(command, "command")}>{copied === "command" ? "Copied" : "Copy command"}</button></div>
+  </div>;
 }
 
 function ComputerRow({ connector, collectionCount, availableCount, onChanged, onError }: {

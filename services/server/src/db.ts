@@ -90,6 +90,25 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       last_seen_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(connector_id, local_id)
     );
+    CREATE TABLE IF NOT EXISTS hosted_collections (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      display_name text NOT NULL,
+      template text NOT NULL,
+      provider_url text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS hosted_replicas (
+      id uuid PRIMARY KEY,
+      collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
+      name text NOT NULL,
+      purpose text NOT NULL DEFAULT 'mirror' CHECK (purpose IN ('mirror', 'application')),
+      mode text NOT NULL CHECK (mode IN ('read_only', 'read_write')),
+      allowed_types jsonb NOT NULL DEFAULT '[]'::jsonb,
+      token_hash text UNIQUE,
+      revoked_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS applications (
       id uuid PRIMARY KEY,
       canonical_identity text NOT NULL UNIQUE,
@@ -106,12 +125,15 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       application_id uuid NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
-      collection_id uuid NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      collection_id uuid REFERENCES collections(id) ON DELETE CASCADE,
+      hosted_collection_id uuid REFERENCES hosted_collections(id) ON DELETE CASCADE,
+      hosted_replica_id uuid REFERENCES hosted_replicas(id) ON DELETE SET NULL,
       operations jsonb NOT NULL,
       scope jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
       encryption jsonb,
       created_at timestamptz NOT NULL DEFAULT now(),
-      revoked_at timestamptz
+      revoked_at timestamptz,
+      CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))
     );
     CREATE TABLE IF NOT EXISTS authorization_requests (
       id uuid PRIMARY KEY,
@@ -173,29 +195,6 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now()
     );
-    CREATE TABLE IF NOT EXISTS hosted_collections (
-      id uuid PRIMARY KEY,
-      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      display_name text NOT NULL,
-      template text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS hosted_authority_states (
-      collection_id uuid PRIMARY KEY REFERENCES hosted_collections(id) ON DELETE CASCADE,
-      state jsonb NOT NULL,
-      version bigint NOT NULL DEFAULT 1,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS hosted_replicas (
-      id uuid PRIMARY KEY,
-      collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
-      name text NOT NULL,
-      mode text NOT NULL CHECK (mode IN ('read_only', 'read_write')),
-      allowed_types jsonb NOT NULL DEFAULT '[]'::jsonb,
-      token_hash text NOT NULL UNIQUE,
-      revoked_at timestamptz,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
   `);
   const authorizationColumns = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
@@ -229,6 +228,55 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await ensureColumn(db, "grants", "encryption", "ALTER TABLE grants ADD COLUMN encryption jsonb");
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
+  await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");
+  await ensureColumn(
+    db,
+    "grants",
+    "hosted_collection_id",
+    "ALTER TABLE grants ADD COLUMN hosted_collection_id uuid"
+  );
+  await ensureColumn(db, "grants", "hosted_replica_id", "ALTER TABLE grants ADD COLUMN hosted_replica_id uuid");
+  await ensureColumn(
+    db,
+    "hosted_replicas",
+    "purpose",
+    "ALTER TABLE hosted_replicas ADD COLUMN purpose text NOT NULL DEFAULT 'mirror'"
+  );
+  const grantCollection = await db.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_name = 'grants' AND column_name = 'collection_id'`
+  );
+  if (grantCollection.rows[0]?.is_nullable === "NO") {
+    await db.query("ALTER TABLE grants ALTER COLUMN collection_id DROP NOT NULL");
+  }
+  const hostedReplicaToken = await db.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_name = 'hosted_replicas' AND column_name = 'token_hash'`
+  );
+  if (hostedReplicaToken.rows[0]?.is_nullable === "NO") {
+    await db.query("ALTER TABLE hosted_replicas ALTER COLUMN token_hash DROP NOT NULL");
+  }
+  await ensureConstraint(
+    db,
+    "grants",
+    "grants_hosted_collection_id_fkey",
+    `ALTER TABLE grants ADD CONSTRAINT grants_hosted_collection_id_fkey
+     FOREIGN KEY (hosted_collection_id) REFERENCES hosted_collections(id) ON DELETE CASCADE`
+  );
+  await ensureConstraint(
+    db,
+    "grants",
+    "grants_hosted_replica_id_fkey",
+    `ALTER TABLE grants ADD CONSTRAINT grants_hosted_replica_id_fkey
+     FOREIGN KEY (hosted_replica_id) REFERENCES hosted_replicas(id) ON DELETE SET NULL`
+  );
+  await ensureConstraint(
+    db,
+    "grants",
+    "grants_collection_target_check",
+    `ALTER TABLE grants ADD CONSTRAINT grants_collection_target_check
+     CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))`
+  );
 }
 
 async function ensureColumn(
@@ -240,6 +288,20 @@ async function ensureColumn(
   const result = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
     [table, column]
+  );
+  if (!result.rows[0]) await db.query(statement);
+}
+
+async function ensureConstraint(
+  db: DatabaseQueryable,
+  table: string,
+  constraint: string,
+  statement: string
+): Promise<void> {
+  const result = await db.query<{ constraint_name: string }>(
+    `SELECT constraint_name FROM information_schema.table_constraints
+     WHERE table_name = $1 AND constraint_name = $2`,
+    [table, constraint]
   );
   if (!result.rows[0]) await db.query(statement);
 }

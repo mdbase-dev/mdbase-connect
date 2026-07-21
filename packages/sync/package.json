@@ -11,6 +11,9 @@
   },
   "homepage": "https://mdbase.dev",
   "sideEffects": false,
+  "bin": {
+    "mdbase-mirror": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,10 +24,13 @@
       "import": "./dist/node.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "dependencies": {
     "@mdbase/connect-protocol": "workspace:*",
-    "yaml": "^2.8.1"
+    "yaml": "^2.9.0"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
@@ -32,8 +38,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

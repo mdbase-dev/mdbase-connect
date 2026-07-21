@@ -6,6 +6,7 @@ pub mod crypto;
 
 pub const CONTROL_PROTOCOL_VERSION: u32 = 2;
 pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 3;
+pub const SYNC_PROTOCOL_VERSION: u32 = 1;
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,6 +301,157 @@ pub struct CollectionChangesPage {
     pub reset: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncRecord {
+    pub record_id: Uuid,
+    pub path: String,
+    pub revision: String,
+    pub frontmatter: serde_json::Map<String, Value>,
+    pub body: String,
+    pub types: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncCollectionResources {
+    pub revision: String,
+    pub spec_version: String,
+    pub types: Vec<CollectionTypeDescriptor>,
+    pub contracts: Vec<CollectionContractDescriptor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub documents: Vec<SyncResourceDocument>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncResourceDocument {
+    pub path: String,
+    pub kind: String,
+    pub revision: String,
+    pub document: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncReplicaMode {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSession {
+    pub protocol_version: u32,
+    pub session_id: Uuid,
+    pub replica_id: Uuid,
+    pub collection_id: Uuid,
+    pub mode: SyncReplicaMode,
+    pub scope_epoch: u64,
+    pub retained_after: u64,
+    pub head: u64,
+    pub snapshot_id: Uuid,
+    pub resources: SyncCollectionResources,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSnapshotPage {
+    pub protocol_version: u32,
+    pub snapshot_id: Uuid,
+    pub scope_epoch: u64,
+    pub cursor: u64,
+    pub records: Vec<SyncRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_page: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SyncChange {
+    Put {
+        sequence: u64,
+        record: SyncRecord,
+    },
+    Remove {
+        sequence: u64,
+        record_id: Uuid,
+        previous_path: String,
+        revision: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncChangesPage {
+    pub protocol_version: u32,
+    pub scope_epoch: u64,
+    pub events: Vec<SyncChange>,
+    pub cursor: u64,
+    pub head: u64,
+    pub has_more: bool,
+    pub reset_required: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncMutationOperation {
+    Create,
+    Update,
+    Rename,
+    Delete,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncMutation {
+    pub mutation_id: Uuid,
+    pub replica_id: Uuid,
+    pub scope_epoch: u64,
+    pub operation: SyncMutationOperation,
+    pub record_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_revision: Option<String>,
+    pub input: serde_json::Map<String, Value>,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_predecessor: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncConflict {
+    pub record_id: Uuid,
+    pub mutation: SyncMutation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<SyncRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_revision: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncMutationError {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SyncMutationReceipt {
+    Applied {
+        mutation_id: Uuid,
+        sequence: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record: Option<SyncRecord>,
+    },
+    PreviouslyApplied {
+        mutation_id: Uuid,
+        sequence: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record: Option<SyncRecord>,
+    },
+    Conflicted {
+        mutation_id: Uuid,
+        conflict: SyncConflict,
+    },
+    Rejected {
+        mutation_id: Uuid,
+        error: SyncMutationError,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplicationSummary {
     pub id: Uuid,
@@ -546,6 +698,31 @@ mod tests {
         );
     }
 
+    fn assert_sync_schema(reference: &str, value: Value) {
+        let mut schema: Value = serde_json::from_str(include_str!(
+            "../../../packages/protocol/schemas/sync.v1.schema.json"
+        ))
+        .unwrap();
+        if !reference.is_empty() {
+            let object = schema.as_object_mut().unwrap();
+            object.remove("oneOf");
+            object.insert("$ref".to_string(), Value::String(format!("#{reference}")));
+        }
+        let validator = jsonschema::JSONSchema::options()
+            .with_draft(jsonschema::Draft::Draft202012)
+            .compile(&schema)
+            .unwrap();
+        let errors = validator
+            .validate(&value)
+            .err()
+            .map(|errors| errors.map(|error| error.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(
+            errors.is_empty(),
+            "sync schema errors: {errors:#?}\nvalue: {value:#}"
+        );
+    }
+
     #[test]
     fn control_request_has_stable_wire_shape() {
         let request = ControlRequest {
@@ -651,5 +828,110 @@ mod tests {
             "/$defs/collectionDescription",
             serde_json::to_value(description).unwrap(),
         );
+    }
+
+    #[test]
+    fn rust_sync_messages_match_the_canonical_wire_schema() {
+        let collection_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+        let replica_id = Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap();
+        let session_id = Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap();
+        let snapshot_id = Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap();
+        let record_id = Uuid::parse_str("01955555-5555-7555-8555-555555555555").unwrap();
+        let mutation_id = Uuid::parse_str("01966666-6666-7666-8666-666666666666").unwrap();
+        let resources = SyncCollectionResources {
+            revision: "resources:1".to_string(),
+            spec_version: "0.3.0".to_string(),
+            types: Vec::new(),
+            contracts: Vec::new(),
+            documents: Vec::new(),
+        };
+        let record = SyncRecord {
+            record_id,
+            path: "tasks/example.md".to_string(),
+            revision: "sha256:record".to_string(),
+            frontmatter: serde_json::Map::from_iter([
+                ("type".to_string(), Value::String("task".to_string())),
+                ("title".to_string(), Value::String("Example".to_string())),
+            ]),
+            body: "Body".to_string(),
+            types: vec!["task".to_string()],
+        };
+        let mutation = SyncMutation {
+            mutation_id,
+            replica_id,
+            scope_epoch: 1,
+            operation: SyncMutationOperation::Update,
+            record_id,
+            base_revision: Some(record.revision.clone()),
+            input: serde_json::Map::from_iter([(
+                "patch".to_string(),
+                serde_json::json!({"status": "done"}),
+            )]),
+            created_at: "2026-07-21T00:00:00Z".to_string(),
+            causal_predecessor: None,
+        };
+
+        for (reference, value) in [
+            (
+                "/$defs/session",
+                serde_json::to_value(SyncSession {
+                    protocol_version: SYNC_PROTOCOL_VERSION,
+                    session_id,
+                    replica_id,
+                    collection_id,
+                    mode: SyncReplicaMode::ReadWrite,
+                    scope_epoch: 1,
+                    retained_after: 0,
+                    head: 1,
+                    snapshot_id,
+                    resources: resources.clone(),
+                })
+                .unwrap(),
+            ),
+            (
+                "/$defs/snapshotPage",
+                serde_json::to_value(SyncSnapshotPage {
+                    protocol_version: SYNC_PROTOCOL_VERSION,
+                    snapshot_id,
+                    scope_epoch: 1,
+                    cursor: 1,
+                    records: vec![record.clone()],
+                    next_page: None,
+                })
+                .unwrap(),
+            ),
+            (
+                "/$defs/changesPage",
+                serde_json::to_value(SyncChangesPage {
+                    protocol_version: SYNC_PROTOCOL_VERSION,
+                    scope_epoch: 1,
+                    events: vec![SyncChange::Put {
+                        sequence: 1,
+                        record: record.clone(),
+                    }],
+                    cursor: 1,
+                    head: 1,
+                    has_more: false,
+                    reset_required: false,
+                })
+                .unwrap(),
+            ),
+            ("/$defs/mutation", serde_json::to_value(&mutation).unwrap()),
+            (
+                "/$defs/receipt",
+                serde_json::to_value(SyncMutationReceipt::Conflicted {
+                    mutation_id,
+                    conflict: SyncConflict {
+                        record_id,
+                        mutation,
+                        current_revision: Some(record.revision.clone()),
+                        current: Some(record),
+                    },
+                })
+                .unwrap(),
+            ),
+        ] {
+            assert_sync_schema(reference, value);
+        }
     }
 }

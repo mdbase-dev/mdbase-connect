@@ -57,6 +57,45 @@ describe("provider-neutral collection client", () => {
 });
 
 describe("authorization renewal", () => {
+  it("sends hosted operations directly to the provider with its scoped capability", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const providerUrl = "https://provider.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_control",
+      refreshToken: "ref_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      expiresAt: Date.now() + 60_000,
+      refreshExpiresAt: Date.now() + 120_000,
+      hosted: {
+        providerUrl,
+        replicaId: "00000000-0000-0000-0000-000000000003",
+        accessToken: "hsa_direct"
+      }
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      result: { valid: true, result: { results: [] }, diagnostics: [] }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    expect((await connect.query()).valid).toBe(true);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `${providerUrl}/v1/hosted/collections/00000000-0000-0000-0000-000000000002/operations/query`
+    );
+    expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization)
+      .toBe("Bearer hsa_direct");
+  });
+
   it("rotates an expired access token and retries with the renewed credential", async () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
