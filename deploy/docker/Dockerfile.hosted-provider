@@ -1,7 +1,7 @@
 FROM rust:1.94.0-bookworm AS build
 
 ARG MDBASE_RS_REPOSITORY=https://github.com/callumalpass/mdbase-rs.git
-ARG MDBASE_RS_REVISION=600a23236a9ad49e2ad8c416d36fe8e06c797d50
+ARG MDBASE_RS_REVISION=b47eecfbb6f6f82f9a92b461f5eba10265e7abd2
 
 RUN git clone --filter=blob:none "$MDBASE_RS_REPOSITORY" /build/mdbase-rs \
  && git -C /build/mdbase-rs checkout --detach "$MDBASE_RS_REVISION"
