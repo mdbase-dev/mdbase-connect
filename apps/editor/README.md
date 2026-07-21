@@ -5,10 +5,12 @@ user-approved collection through mdbase connect and works with the Markdown
 records in place.
 
 The editor includes a CodeMirror Markdown surface with optional Vim keys,
-structured and JSON frontmatter views, deliberate note creation, collection
-settings, and read-only inspection of type definitions. Type definitions are
-not currently editable: changing the collection schema needs a separately
-permissioned management API in mdbase connect.
+`@` and `[[` object-link completion, backlinks, structured and JSON frontmatter
+views, deliberate note creation, collection settings, and read-only inspection
+of type definitions. Use `@/type/query` to scope the object picker to a declared
+mdbase type. Type definitions are not currently editable: changing the
+collection schema needs a separately permissioned management API in mdbase
+connect.
 
 The application requests `describe`, `changes`, `read`, `query`, `validate`,
 `create`, `update`, `delete`, and `rename` for one selected collection. Its

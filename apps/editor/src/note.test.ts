@@ -57,15 +57,14 @@ describe("collection helpers", () => {
     });
   });
 
-  it("counts tag and type facets from collection metadata", () => {
+  it("counts tags and only declared mdbase type facets", () => {
     const notes = [
       summary("Notes/one.md", { tags: ["ideas"] }, ["note"], ["ideas", "inline"]),
       summary("Notes/two.md", { tags: "#ideas" }, ["note", "journal"])
     ];
     expect(noteTags(notes[0])).toEqual(["ideas", "inline"]);
     expect(tags(notes)).toEqual([{ name: "ideas", count: 2 }, { name: "inline", count: 1 }]);
-    expect(types(notes, ["person"])).toEqual([
-      { name: "journal", count: 1 },
+    expect(types(notes, ["note", "person"])).toEqual([
       { name: "note", count: 2 },
       { name: "person", count: 0 }
     ]);

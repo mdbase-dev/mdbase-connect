@@ -4,6 +4,14 @@ import { basename, folder, noteTitle } from "./note";
 export interface LinkSuggestion {
   path: string;
   title: string;
+  aliases?: string[];
+  types?: string[];
+}
+
+export interface LinkMatch {
+  suggestion: LinkSuggestion;
+  label: string;
+  rank: number;
 }
 
 interface LinkReference {
@@ -19,10 +27,33 @@ interface LinkIndex {
   filenames: Map<string, NoteSummary[]>;
 }
 
-export function linkSuggestions(notes: NoteSummary[]): LinkSuggestion[] {
+export function linkSuggestions(notes: NoteSummary[], declaredTypes: string[] = []): LinkSuggestion[] {
+  const declared = new Set(declaredTypes);
   return notes
-    .map((note) => ({ path: note.path, title: noteTitle(note) }))
+    .map((note) => ({
+      path: note.path,
+      title: noteTitle(note),
+      aliases: noteAliases(note),
+      types: declared.size ? note.types.filter((type) => declared.has(type)) : note.types
+    }))
     .sort((left, right) => left.title.localeCompare(right.title) || left.path.localeCompare(right.path));
+}
+
+export function linkMatches(suggestions: LinkSuggestion[], query: string, type?: string, limit = Number.POSITIVE_INFINITY): LinkMatch[] {
+  const needle = query.trim().toLocaleLowerCase();
+  const typeName = type?.toLocaleLowerCase();
+  const candidates = suggestions
+    .filter((suggestion) => !typeName || suggestion.types?.some((candidate) => candidate.toLocaleLowerCase() === typeName));
+  if (!needle) {
+    return candidates.slice(0, limit).map((suggestion) => ({ suggestion, label: suggestion.title, rank: 0 }));
+  }
+  return candidates
+    .map((suggestion) => bestLinkMatch(suggestion, needle))
+    .filter((match) => match.rank < 4)
+    .sort((left, right) => left.rank - right.rank
+      || left.label.localeCompare(right.label)
+      || left.suggestion.path.localeCompare(right.suggestion.path))
+    .slice(0, limit);
 }
 
 export function backlinksFor(targetPath: string, notes: NoteSummary[]): NoteSummary[] {
@@ -32,11 +63,49 @@ export function backlinksFor(targetPath: string, notes: NoteSummary[]): NoteSumm
     .sort((left, right) => noteTitle(left).localeCompare(noteTitle(right)) || left.path.localeCompare(right.path));
 }
 
-export function wikilinkFor(suggestion: LinkSuggestion): string {
+export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title): string {
   const target = suggestion.path.replace(/\.md$/i, "");
-  return basename(suggestion.path).localeCompare(suggestion.title, undefined, { sensitivity: "accent" }) === 0
+  return basename(suggestion.path).localeCompare(label, undefined, { sensitivity: "accent" }) === 0
     ? target
-    : `${target}|${suggestion.title}`;
+    : `${target}|${label}`;
+}
+
+function bestLinkMatch(suggestion: LinkSuggestion, query: string): LinkMatch {
+  const aliases = suggestion.aliases ?? [];
+  let best = { label: suggestion.title, rank: textRank(suggestion.title, query) };
+  for (const label of aliases) {
+    const rank = textRank(label, query);
+    const exactAlias = label.toLocaleLowerCase() === query && best.label.toLocaleLowerCase() !== query;
+    if (rank < best.rank || (rank === best.rank && exactAlias)) best = { label, rank };
+  }
+  const pathRank = pathMatchRank(suggestion.path, query);
+  return { suggestion, label: best.label, rank: Math.min(best.rank, pathRank) };
+}
+
+function textRank(value: string, query: string): number {
+  if (!query) return 0;
+  const normalized = value.toLocaleLowerCase();
+  if (normalized.startsWith(query)) return 0;
+  if (normalized.includes(query)) return 2;
+  return 4;
+}
+
+function pathMatchRank(path: string, query: string): number {
+  if (!query) return 0;
+  const normalized = path.toLocaleLowerCase();
+  if (normalized.startsWith(query) || normalized.split("/").at(-1)?.startsWith(query)) return 1;
+  if (normalized.includes(query)) return 3;
+  return 4;
+}
+
+function noteAliases(note: NoteSummary): string[] {
+  const values = [note.frontmatter.aliases, note.frontmatter.alias];
+  const aliases = values.flatMap((value) => {
+    if (typeof value === "string") return value.split(",");
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+    return [];
+  }).map((value) => value.trim()).filter(Boolean);
+  return [...new Set(aliases)];
 }
 
 function referencesFor(note: NoteSummary): LinkReference[] {

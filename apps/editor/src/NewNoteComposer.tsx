@@ -135,9 +135,10 @@ function schemaSuppliesValue(schema?: JsonObject): boolean {
   return Boolean(schema && ("default" in schema || "const" in schema));
 }
 
-function suggestedPath(title: string, folder = "Notes"): string {
+function suggestedPath(title: string, folder = ""): string {
   const name = slug(title) || "Untitled";
-  return `${folder.replace(/^\/+|\/+$/g, "") || "Notes"}/${name}.md`;
+  const cleanFolder = folder.replace(/^\/+|\/+$/g, "");
+  return cleanFolder ? `${cleanFolder}/${name}.md` : `${name}.md`;
 }
 
 function typeFolder(type?: CollectionTypeDescriptor): string | undefined {

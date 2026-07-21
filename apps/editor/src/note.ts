@@ -109,7 +109,10 @@ export function tags(notes: NoteSummary[]): Array<{ name: string; count: number 
 export function types(notes: NoteSummary[], declared: string[] = []): Array<{ name: string; count: number }> {
   const counts = new Map(declared.map((name) => [name, 0]));
   for (const note of notes) {
-    for (const type of new Set(note.types)) counts.set(type, (counts.get(type) ?? 0) + 1);
+    for (const type of new Set(note.types)) {
+      const count = counts.get(type);
+      if (count !== undefined) counts.set(type, count + 1);
+    }
   }
   return [...counts].map(([name, count]) => ({ name, count }))
     .sort((left, right) => left.name.localeCompare(right.name));
