@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { JsonObject } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionGateway, NoteDocument, NoteListProgress, NoteSummary } from "./model";
@@ -120,7 +121,7 @@ describe("mdbase editor", () => {
     expect(gateway.watchCalls).toBe(1);
   });
 
-  it("opens only the latest selected note after saving the current note", async () => {
+  it("opens other notes while the current note saves in the background", async () => {
     const gateway = new SlowUpdateGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -130,19 +131,174 @@ describe("mdbase editor", () => {
     await user.type(body, "\nPending change.");
     await gateway.updateStarted;
 
+    const first = screen.getByRole("option", { name: /The shape of useful tools/ });
     const second = screen.getByRole("option", { name: /Garden notes 2/ });
-    const third = screen.getByRole("option", { name: /A quiet interface 3/ });
     await user.click(second);
-    expect(second).toHaveAttribute("aria-busy", "true");
-    expect(second).toHaveTextContent("Saving current note");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(first).toHaveAttribute("aria-busy", "true");
+    expect(first).toHaveTextContent("Saving");
+
+    const third = screen.getByRole("option", { name: /A quiet interface 3/ });
     await user.click(third);
-    expect(second).not.toHaveAttribute("aria-busy");
-    expect(third).toHaveAttribute("aria-busy", "true");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
 
     gateway.releaseUpdate();
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
-    expect(gateway.readPaths).not.toContain("Journal/garden-notes-2.md");
+    await waitFor(() => expect(first).not.toHaveAttribute("aria-busy"));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
+    expect(gateway.readPaths).toContain("Journal/garden-notes-2.md");
     expect(gateway.readPaths.at(-1)).toBe("Projects/a-quiet-interface-3.md");
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Pending change.");
+  });
+
+  it("saves a second note while the first note is still saving", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nFirst note change.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    await user.type(screen.getByRole("textbox", { name: "Note body" }), "\nSecond note change.");
+
+    await waitFor(async () => {
+      expect((await gateway.read("Journal/garden-notes-2.md")).body).toContain("Second note change.");
+    }, { timeout: 2_000 });
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).not.toContain("First note change.");
+
+    gateway.releaseUpdate();
+    await waitFor(async () => {
+      expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("First note change.");
+    });
+  });
+
+  it("reopens the cached draft while its background save is still running", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    await user.type(body, "\nStill here.");
+    await gateway.updateStarted;
+    const readsBeforeNavigation = gateway.readPaths.length;
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    await user.click(screen.getByRole("option", { name: /The shape of useful tools/ }));
+
+    expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
+    expect(gateway.readPaths.length).toBe(readsBeforeNavigation + 1);
+    gateway.releaseUpdate();
+    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument());
+    expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Still here.");
+  });
+
+  it("keeps a background save failure attached to its note", async () => {
+    const gateway = new FailingUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nUnsaved sentence.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    gateway.failUpdate();
+
+    expect(await screen.findByText(/Couldn’t save “The shape of useful tools”/)).toBeInTheDocument();
+    const failed = screen.getByRole("option", { name: /The shape of useful tools.*Save failed/ });
+    await user.click(failed);
+    expect((screen.getByRole("textbox", { name: "Note body" }) as HTMLTextAreaElement).value).toContain("Unsaved sentence.");
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+  });
+
+  it("orders property updates behind a note save without blocking navigation", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nBefore properties.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("button", { name: "Note properties" }));
+    await user.click(screen.getByRole("button", { name: "Add property" }));
+    await user.type(screen.getByRole("combobox", { name: "Name" }), "status");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
+    await user.click(screen.getByRole("button", { name: "Save properties" }));
+    expect(screen.queryByRole("complementary", { name: "Note properties" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(gateway.events).not.toContain("properties");
+    gateway.releaseUpdate();
+
+    await waitFor(() => expect(gateway.events).toContain("properties"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("properties"));
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).raw_frontmatter?.status).toBe("draft");
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  });
+
+  it("orders rename behind a note save without returning to that note", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nBefore rename.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("button", { name: "Notes/the-shape-of-useful-tools.md" }));
+    const path = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(path);
+    await user.type(path, "Notes/renamed-in-background.md{Enter}");
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(gateway.events).not.toContain("rename");
+    gateway.releaseUpdate();
+    await waitFor(() => expect(gateway.events).toContain("rename"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("rename"));
+    expect((await gateway.list()).some((note) => note.path === "Notes/renamed-in-background.md")).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  });
+
+  it("orders validation behind a note save without blocking navigation", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nBefore validation.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("button", { name: "Check note" }));
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(gateway.events).not.toContain("validate");
+    gateway.releaseUpdate();
+    await waitFor(() => expect(gateway.events).toContain("validate"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("validate"));
+    expect(screen.queryByText("No validation issues.")).not.toBeInTheDocument();
+  });
+
+  it("leaves a deleted note immediately and deletes it after its active save", async () => {
+    const gateway = new SlowUpdateGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nDiscard with note.");
+    await gateway.updateStarted;
+    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(gateway.events).not.toContain("delete");
+    const deleting = screen.getByRole("option", { name: /The shape of useful tools.*Deleting/ });
+    expect(deleting).toHaveAttribute("aria-busy", "true");
+    expect(deleting).toHaveAttribute("aria-disabled", "true");
+    await user.click(deleting);
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+    gateway.releaseUpdate();
+
+    await waitFor(() => expect(gateway.events).toContain("delete"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("delete"));
+    await waitFor(() => expect(screen.queryByRole("option", { name: /The shape of useful tools/ })).not.toBeInTheDocument());
+    expect((await gateway.list()).some((note) => note.path === "Notes/the-shape-of-useful-tools.md")).toBe(false);
   });
 
   it("renders an explicit full-access explanation before authorization", async () => {
@@ -240,8 +396,10 @@ class CountingGateway extends DemoCollectionGateway {
 class SlowUpdateGateway extends DemoCollectionGateway {
   private release?: () => void;
   private markStarted?: () => void;
+  private readonly blockedUpdate = new Promise<void>((resolve) => { this.release = resolve; });
   readonly updateStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
   readPaths: string[] = [];
+  events: string[] = [];
 
   constructor() {
     super(3);
@@ -253,12 +411,57 @@ class SlowUpdateGateway extends DemoCollectionGateway {
   }
 
   override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
-    this.markStarted?.();
-    await new Promise<void>((resolve) => { this.release = resolve; });
-    return super.update(input);
+    this.events.push("save:start");
+    if (input.path === "Notes/the-shape-of-useful-tools.md") {
+      this.markStarted?.();
+      await this.blockedUpdate;
+    }
+    const updated = await super.update(input);
+    this.events.push("save:end");
+    return updated;
+  }
+
+  override async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
+    this.events.push("properties");
+    return super.updateProperties(path, patch, revision);
+  }
+
+  override async rename(from: string, to: string, revision: string): Promise<NoteDocument> {
+    this.events.push("rename");
+    return super.rename(from, to, revision);
+  }
+
+  override async validate(): Promise<[]> {
+    this.events.push("validate");
+    return [];
+  }
+
+  override async delete(path: string, revision: string): Promise<void> {
+    this.events.push("delete");
+    return super.delete(path, revision);
   }
 
   releaseUpdate() {
     this.release?.();
+  }
+}
+
+class FailingUpdateGateway extends DemoCollectionGateway {
+  private fail?: () => void;
+  private markStarted?: () => void;
+  readonly updateStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
+
+  constructor() {
+    super(3);
+  }
+
+  override async update(): Promise<NoteDocument> {
+    this.markStarted?.();
+    await new Promise<void>((resolve) => { this.fail = resolve; });
+    throw new Error("The relay could not save this note.");
+  }
+
+  failUpdate() {
+    this.fail?.();
   }
 }
