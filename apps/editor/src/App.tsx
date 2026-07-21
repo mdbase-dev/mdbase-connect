@@ -9,6 +9,7 @@ import {
   Folder,
   Info,
   Link2,
+  LogOut,
   MoreHorizontal,
   NotebookPen,
   PanelLeft,
@@ -1038,7 +1039,12 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
       <RailFilterSection label="Tags" kind="tag" items={tagFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
       <RailFilterSection label="Types" kind="type" items={typeFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
     </nav>
-    <footer><p><span className="status-dot" />Connected</p><button onClick={onDisconnect}>Disconnect</button></footer>
+    <footer className="connection-footer">
+      <p role="status" aria-label="Collection connected"><span className="status-dot" aria-hidden="true" /><span>Connected</span></p>
+      <button className="disconnect-action" aria-label="Disconnect collection" title="Disconnect collection" onClick={onDisconnect}>
+        <LogOut aria-hidden="true" /><span>Disconnect</span>
+      </button>
+    </footer>
   </aside>;
 }
 

@@ -354,6 +354,7 @@ select:focus-visible {
 
 .collection-rail {
   grid-column: 1;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   padding: 22px 10px 16px;
@@ -493,35 +494,67 @@ select:focus-visible {
   font-size: 11px;
 }
 
-.collection-rail footer {
-  padding: 14px 9px 0;
+.collection-rail .connection-footer {
+  min-height: 41px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 12px 1px 0;
   border-top: 1px solid var(--line);
 }
 
-.collection-rail footer p {
+.connection-footer p {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 0 0 7px;
+  margin: 0;
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .status-dot {
   width: 6px;
   height: 6px;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--success);
+  box-shadow: 0 0 0 3px oklch(44% 0.085 153 / 0.1);
 }
 
-.collection-rail footer button {
-  padding: 0;
+.collection-rail .disconnect-action {
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 -5px 0 0;
+  padding: 0 6px;
+  border-radius: 4px;
   color: var(--faint);
   font-size: 11px;
+  transition: color 160ms ease-out, background 160ms ease-out;
 }
 
-.collection-rail footer button:hover {
-  color: var(--ink);
+.collection-rail .disconnect-action svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  stroke-width: 1.7;
+}
+
+.collection-rail .disconnect-action:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@container (max-width: 145px) {
+  .disconnect-action > span {
+    display: none;
+  }
 }
 
 .note-list-pane,
@@ -1494,6 +1527,11 @@ select:focus-visible {
   text-transform: uppercase;
 }
 
+.property-row-label select:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .property-row > input,
 .property-row > select,
 .add-property-row input,
@@ -1519,6 +1557,18 @@ select:focus-visible {
 .new-note-fields select:focus {
   border-color: var(--line-strong);
   background: var(--white);
+}
+
+.property-row > input:is([type="date"], [type="datetime-local"]),
+.new-note-fields input:is([type="date"], [type="datetime-local"]) {
+  color-scheme: light;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-row > input::-webkit-calendar-picker-indicator,
+.new-note-fields input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
 }
 
 .boolean-property {

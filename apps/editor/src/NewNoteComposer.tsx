@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
+import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 
 export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate, onCancel }: {
   types: CollectionTypeDescriptor[];
@@ -84,7 +85,14 @@ export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate
 function RequiredField({ name, schema, value, onChange }: { name: string; schema?: JsonObject; value: unknown; onChange: (value: unknown) => void }) {
   const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item): item is string => typeof item === "string") : [];
   const type = typeof schema?.type === "string" ? schema.type : "string";
+  const dateFormat = schemaDateFormat(schema);
   if (choices.length) return <label><span>{name}</span><select value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)}><option value="">Choose</option>{choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select></label>;
+  if (dateFormat) return <label><span>{name}</span><input
+    type={schemaDateInputType(dateFormat)}
+    step={dateFormat === "date-time" ? 1 : undefined}
+    value={schemaDateInputValue(value, dateFormat)}
+    onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
+  /></label>;
   if (type === "boolean") return <label className="required-toggle"><span>{name}</span><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /></label>;
   if (type === "number" || type === "integer") return <label><span>{name}</span><input type="number" value={typeof value === "number" ? value : ""} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
   if (type === "array" || type === "object") return <JsonRequiredField name={name} type={type} onChange={onChange} />;

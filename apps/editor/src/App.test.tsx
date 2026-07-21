@@ -24,6 +24,9 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(12)} />);
 
     await screen.findByRole("heading", { name: "Writing" });
+    const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
+    expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
+    expect(within(collectionRail).getByRole("button", { name: "Disconnect collection" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show collections sidebar" }));
