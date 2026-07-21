@@ -3,23 +3,31 @@
   "version": "0.1.0-alpha.1",
   "private": false,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "packages/sync"
+  },
+  "homepage": "https://mdbase.dev",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./node": {
-      "types": "./src/node.ts",
+      "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     }
   },
-  "files": ["src", "dist", "README.md"],
+  "files": ["dist", "README.md"],
   "dependencies": {
     "@mdbase/connect-protocol": "workspace:*",
     "yaml": "^2.8.1"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

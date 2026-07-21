@@ -8,6 +8,7 @@
     "e2e": "pnpm build && cargo build --workspace && node scripts/e2e.mjs",
     "e2e:sync": "pnpm build && node scripts/sync-e2e.mjs",
     "e2e:oracle": "pnpm build && cargo build --workspace && node scripts/oracle-e2e.mjs",
+    "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

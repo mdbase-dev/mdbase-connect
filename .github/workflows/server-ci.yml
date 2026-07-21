@@ -30,6 +30,7 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm package:audit
 
   server-container:
     runs-on: ubuntu-latest

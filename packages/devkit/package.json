@@ -3,6 +3,13 @@
   "version": "0.1.0-alpha.1",
   "private": false,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "packages/devkit"
+  },
+  "homepage": "https://mdbase.dev",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -19,7 +26,7 @@
     "ajv": "^8.17.1"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

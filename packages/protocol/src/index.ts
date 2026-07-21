@@ -224,12 +224,27 @@ export interface MdbaseOperationEnvelope<Result = JsonObject> {
   diagnostics: MdbaseDiagnostic[];
 }
 
-export interface RecordResult<Frontmatter extends JsonObject = JsonObject> {
+export interface CollectionFileMetadata extends JsonObject {
+  name: string;
+  folder: string;
+  size: number;
+  mtime: string;
+  tags?: string[];
+  links?: unknown[];
+  embeds?: unknown[];
+}
+
+export interface RecordSummary<Frontmatter extends JsonObject = JsonObject> {
   path: string;
   frontmatter: Frontmatter;
   raw_frontmatter?: Frontmatter;
   body?: string;
   types: string[];
+  file?: CollectionFileMetadata;
+}
+
+export interface RecordResult<Frontmatter extends JsonObject = JsonObject>
+  extends RecordSummary<Frontmatter> {
   revision: string;
 }
 

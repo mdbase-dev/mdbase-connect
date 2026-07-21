@@ -2,12 +2,14 @@ import type {
   CollectionChange,
   CollectionChangesPage,
   CollectionDescription,
+  CollectionFileMetadata,
   CollectionOperation,
   EncryptedRelayOperationResponse,
   GrantEncryption,
   GrantScope,
   JsonObject,
   MdbaseOperationEnvelope,
+  RecordSummary,
   RecordResult
 } from "@mdbase/connect-protocol";
 import {
@@ -31,6 +33,7 @@ export type {
   CollectionChangesPage,
   CollectionContractDescriptor,
   CollectionDescription,
+  CollectionFileMetadata,
   CollectionOperation as MdbaseOperation,
   CollectionTypeDescriptor,
   ContractRequirement,
@@ -38,7 +41,8 @@ export type {
   JsonObject,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
-  RecordResult
+  RecordResult,
+  RecordSummary
 } from "@mdbase/connect-protocol";
 
 export interface MdbaseConnectOptions {
@@ -66,7 +70,7 @@ export interface QueryInput {
 }
 
 export interface QueryResult<Record extends JsonObject = JsonObject> {
-  results: Array<RecordResult<Record> & JsonObject>;
+  results: Array<RecordSummary<Record> & JsonObject>;
   meta?: {
     total_count: number;
     has_more: boolean;
