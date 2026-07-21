@@ -87,11 +87,34 @@ export class DemoCollectionGateway implements CollectionGateway {
     await delay(4);
     const notes = this.notes
       .map(({ revision: _revision, raw_frontmatter: _raw, ...note }) => note);
-    const firstPage = notes.slice(0, Math.min(200, notes.length));
-    onProgress?.({ notes: firstPage, complete: firstPage.length === notes.length, total: notes.length });
-    if (firstPage.length !== notes.length) {
+    const structure = notes.map(({ body: _body, ...note }) => note);
+    const firstStructurePage = structure.slice(0, Math.min(200, structure.length));
+    const structureComplete = firstStructurePage.length === structure.length;
+    onProgress?.({
+      notes: firstStructurePage,
+      structureComplete,
+      complete: structureComplete && structure.length === 0,
+      total: structure.length
+    });
+    if (!structureComplete) {
       await delay(4);
-      onProgress?.({ notes, complete: true, total: notes.length });
+      onProgress?.({ notes: structure, structureComplete: true, complete: false, total: structure.length });
+    }
+    if (notes.length) {
+      await delay(4);
+      const firstContentPage = notes.slice(0, Math.min(200, notes.length));
+      const hydrated = [...structure];
+      for (let index = 0; index < firstContentPage.length; index += 1) hydrated[index] = firstContentPage[index];
+      onProgress?.({
+        notes: hydrated,
+        structureComplete: true,
+        complete: firstContentPage.length === notes.length,
+        total: notes.length
+      });
+      if (firstContentPage.length !== notes.length) {
+        await delay(4);
+        onProgress?.({ notes, structureComplete: true, complete: true, total: notes.length });
+      }
     }
     return notes;
   }
@@ -178,7 +201,13 @@ export class DemoCollectionGateway implements CollectionGateway {
 
   private bump(note: NoteDocument) {
     note.revision = `demo-${this.sequence++}`;
-    note.file = { ...note.file!, mtime: new Date().toISOString() };
+    note.file = {
+      ...note.file!,
+      mtime: new Date().toISOString(),
+      tags: demoTags(note.frontmatter, note.body ?? ""),
+      links: demoLinks(note.body ?? ""),
+      embeds: demoEmbeds(note.body ?? "")
+    };
     this.emit();
   }
 
@@ -203,17 +232,20 @@ function demoNote(index: number): NoteDocument {
   const path = `${folder}/${slug(title)}.md`;
   const paragraphs = index === 0
     ? "Good tools leave room around the work. They keep the durable thing visible, make consequential choices legible, and then get out of the way.\n\nThis note is ordinary Markdown. It can be edited here, from the filesystem, or by another application with permission."
-    : `A generated note used to test a large collection.\n\nRecord ${index + 1} remains lightweight while the list is virtualized.`;
+    : index === 1
+      ? "A generated note used to test a large collection.\n\nThis grew from [[Notes/the-shape-of-useful-tools|The shape of useful tools]]."
+      : `A generated note used to test a large collection.\n\nRecord ${index + 1} remains lightweight while the list is virtualized.`;
   return demoDocument(path, title, paragraphs, index + 1);
 }
 
 function demoDocument(path: string, title: string, body: string, sequence: number): NoteDocument {
   const persisted = `# ${title}\n\n${body}`.trimEnd() + "\n";
   const timestamp = new Date(Date.now() - sequence * 3_600_000).toISOString();
+  const frontmatter = sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {};
   return {
     path,
-    frontmatter: sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {},
-    raw_frontmatter: sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {},
+    frontmatter,
+    raw_frontmatter: frontmatter,
     body: persisted,
     types: sequence % 4 === 0 ? ["note"] : [],
     revision: `demo-${sequence}`,
@@ -222,9 +254,29 @@ function demoDocument(path: string, title: string, body: string, sequence: numbe
       folder: path.split("/").slice(0, -1).join("/"),
       size: new TextEncoder().encode(persisted).byteLength,
       mtime: timestamp,
-      tags: sequence % 3 === 0 ? ["notes", "ideas"] : []
+      tags: demoTags(frontmatter, persisted),
+      links: demoLinks(persisted),
+      embeds: demoEmbeds(persisted)
     }
   };
+}
+
+function demoTags(frontmatter: JsonObject, body: string): string[] {
+  const persisted = Array.isArray(frontmatter.tags) ? frontmatter.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  const inline = [...body.matchAll(/(?:^|\s)#([A-Za-z0-9_/-]+)/gm)].map((match) => match[1]);
+  return [...new Set([...persisted, ...inline])];
+}
+
+function demoLinks(body: string): string[] {
+  const wikilinks = [...body.matchAll(/(?<!!)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map((match) => match[1].trim());
+  const markdown = [...body.matchAll(/(?<!!)\[[^\]]+\]\((?!https?:\/\/)([^)#]+)(?:#[^)]*)?\)/g)].map((match) => match[1].trim());
+  return [...new Set([...wikilinks, ...markdown])];
+}
+
+function demoEmbeds(body: string): string[] {
+  const wikilinks = [...body.matchAll(/!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map((match) => match[1].trim());
+  const markdown = [...body.matchAll(/!\[[^\]]*\]\((?!https?:\/\/)([^)#]+)(?:#[^)]*)?\)/g)].map((match) => match[1].trim());
+  return [...new Set([...wikilinks, ...markdown])];
 }
 
 function slug(value: string): string {

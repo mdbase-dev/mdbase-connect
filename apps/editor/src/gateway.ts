@@ -69,8 +69,38 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const notes: NoteSummary[] = [];
+    const noteIndexes = new Map<string, number>();
     let offset = 0;
+
+    // Establish the complete collection shape first. Omitting bodies makes paths,
+    // folders, counts, and frontmatter available without waiting for search data.
     do {
+      const limit = offset === 0 ? FIRST_PAGE_SIZE : PAGE_SIZE;
+      const response = await this.connect.query({
+        order_by: [{ field: "file.mtime", direction: "desc" }],
+        limit,
+        offset,
+        include_body: false
+      });
+      const result = validResult(response);
+      for (const note of result.results) {
+        noteIndexes.set(note.path, notes.length);
+        notes.push(note);
+      }
+      offset += result.results.length;
+      const structureComplete = !result.meta?.has_more || result.results.length === 0;
+      onProgress?.({
+        notes: [...notes],
+        structureComplete,
+        complete: structureComplete && notes.length === 0,
+        total: result.meta?.total_count
+      });
+      if (structureComplete) break;
+    } while (true);
+
+    // Hydrate bodies in the background so local full-text search becomes complete.
+    offset = 0;
+    while (notes.length > 0) {
       const limit = offset === 0 ? FIRST_PAGE_SIZE : PAGE_SIZE;
       const response = await this.connect.query({
         order_by: [{ field: "file.mtime", direction: "desc" }],
@@ -79,12 +109,25 @@ export class ConnectCollectionGateway implements CollectionGateway {
         include_body: true
       });
       const result = validResult(response);
-      notes.push(...result.results);
+      for (const note of result.results) {
+        const index = noteIndexes.get(note.path);
+        if (index === undefined) {
+          noteIndexes.set(note.path, notes.length);
+          notes.push(note);
+        } else {
+          notes[index] = note;
+        }
+      }
       offset += result.results.length;
       const complete = !result.meta?.has_more || result.results.length === 0;
-      onProgress?.({ notes: [...notes], complete, total: result.meta?.total_count });
+      onProgress?.({
+        notes: [...notes],
+        structureComplete: true,
+        complete,
+        total: result.meta?.total_count
+      });
       if (complete) break;
-    } while (true);
+    }
     return notes;
   }
 

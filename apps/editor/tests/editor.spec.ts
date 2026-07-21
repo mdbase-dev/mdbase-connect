@@ -31,6 +31,41 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   }))).toEqual({ outline: "none", shadow: "none" });
 });
 
+test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+
+  const folders = page.getByRole("group", { name: "Folders" });
+  const foldersToggle = folders.getByRole("button", { name: "Folders" });
+  await expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
+  await foldersToggle.click();
+  await expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
+
+  const tags = page.getByRole("group", { name: "Tags" });
+  await tags.getByRole("button", { name: "Tags" }).click();
+  await tags.getByRole("button", { name: /#ideas/ }).click();
+  await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
+  await expect(page.getByRole("option")).toHaveCount(4);
+
+  await page.locator(".collection-rail nav > button").first().click();
+  await page.getByRole("button", { name: "Backlinks" }).click();
+  const backlinks = page.getByRole("complementary", { name: "Backlinks" });
+  await expect(backlinks.getByText("1 note link here")).toBeVisible();
+  await backlinks.getByRole("button", { name: /Garden notes 2/ }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type("\n\n[[the shape");
+  const completion = page.locator(".cm-tooltip-autocomplete");
+  await expect(completion).toBeVisible();
+  await expect(completion.getByText("The shape of useful tools", { exact: true }).first()).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+});
+
 test("creates a note only after the creation form is complete", async ({ page }) => {
   await page.goto("?demo=4");
   await expect(page.getByText("4 notes", { exact: true })).toBeVisible();
@@ -55,7 +90,7 @@ test("creates a note only after the creation form is complete", async ({ page })
 
 test("inspects type definitions and persists editor settings", async ({ page }) => {
   await page.goto("?demo=12");
-  await page.getByRole("button", { name: /Types/ }).click();
+  await page.getByRole("button", { name: /Schemas/ }).click();
   await expect(page.getByRole("heading", { name: "note" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "note type YAML" })).toContainText("kind: mdbase.type");
 

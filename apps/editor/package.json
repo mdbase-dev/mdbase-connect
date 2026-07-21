@@ -15,6 +15,7 @@
     "manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/lang-yaml": "^6.1.3",

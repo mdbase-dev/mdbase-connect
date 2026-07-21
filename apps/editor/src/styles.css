@@ -342,6 +342,7 @@ select:focus-visible {
 .type-list-pane,
 .editor-pane,
 .properties-panel,
+.backlinks-panel,
 .type-inspector,
 .settings-view,
 .new-note-composer {
@@ -434,14 +435,61 @@ select:focus-visible {
   font-weight: 700;
 }
 
-.rail-label {
-  margin: 28px 9px 8px;
+.rail-filter-section {
+  margin-top: 18px;
+}
+
+.collection-rail nav .rail-section-toggle {
+  min-height: 28px;
+  padding: 5px 9px;
   color: var(--faint);
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.collection-rail nav .rail-section-toggle:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.collection-rail nav .rail-section-toggle > span {
+  gap: 5px;
+}
+
+.collection-rail nav .rail-section-toggle svg {
+  width: 11px;
+  height: 11px;
+}
+
+.rail-filter-items {
+  display: grid;
+}
+
+.folder-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.folder-loading i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: opening-pulse 900ms ease-in-out infinite alternate;
+}
+
+.folder-placeholder {
+  margin: 0;
+  padding: 8px 9px;
+  color: var(--faint);
+  font-size: 11px;
 }
 
 .collection-rail footer {
@@ -532,6 +580,28 @@ select:focus-visible {
   width: 17px;
   height: 17px;
   stroke-width: 1.65;
+}
+
+.backlink-button {
+  position: relative;
+}
+
+.backlink-button > span {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 13px;
+  height: 13px;
+  display: grid;
+  place-items: center;
+  padding: 0 3px;
+  border: 1px solid var(--white);
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--white);
+  font-family: var(--mono);
+  font-size: 7px;
+  line-height: 1;
 }
 
 .desktop-pane-control {
@@ -1058,6 +1128,47 @@ select:focus-visible {
   border-left-color: var(--ink);
 }
 
+.code-editor .cm-tooltip.cm-tooltip-autocomplete {
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--white);
+  box-shadow: 0 10px 28px oklch(20% 0.02 255 / 0.09);
+}
+
+.code-editor .cm-tooltip-autocomplete > ul {
+  max-height: 240px;
+  font-family: inherit;
+}
+
+.code-editor .cm-tooltip-autocomplete > ul > li {
+  min-width: 220px;
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.code-editor .cm-tooltip-autocomplete > ul > li[aria-selected="true"] {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.code-editor .cm-completionIcon {
+  display: none;
+}
+
+.code-editor .cm-completionLabel {
+  font-weight: 700;
+}
+
+.code-editor .cm-completionDetail {
+  margin-left: 14px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+}
+
 .code-editor.vim-enabled .cm-scroller:not(.cm-vimMode) .cm-cursorLayer:not(.cm-vimCursorLayer) {
   animation: none !important;
   opacity: 1 !important;
@@ -1150,7 +1261,8 @@ select:focus-visible {
   to { opacity: 0.55; }
 }
 
-.properties-panel {
+.properties-panel,
+.backlinks-panel {
   grid-column: 4;
   display: flex;
   flex-direction: column;
@@ -1170,10 +1282,65 @@ select:focus-visible {
   flex: 1;
 }
 
-.properties-panel h2 {
+.properties-panel h2,
+.backlinks-panel h2 {
   margin: 2px 0 0;
   font-size: 15px;
   letter-spacing: -0.01em;
+}
+
+.backlink-list {
+  min-height: 0;
+  flex: 1;
+  margin-top: 24px;
+  overflow-y: auto;
+}
+
+.backlink-list > button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  text-align: left;
+}
+
+.backlink-list > button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.backlink-list > button > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--faint);
+  stroke-width: 1.6;
+}
+
+.backlink-list > button > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.backlink-list strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlink-list small {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-header p {
@@ -1884,7 +2051,8 @@ select:focus-visible {
     grid-template-columns: var(--collection-display) var(--list-display) minmax(320px, 1fr);
   }
 
-  .app-shell.inspector-visible .properties-panel {
+  .app-shell.inspector-visible .properties-panel,
+  .app-shell.inspector-visible .backlinks-panel {
     position: absolute;
     z-index: 20;
     top: 0;
@@ -2049,7 +2217,9 @@ select:focus-visible {
   }
 
   .properties-panel,
-  .app-shell.inspector-visible .properties-panel {
+  .backlinks-panel,
+  .app-shell.inspector-visible .properties-panel,
+  .app-shell.inspector-visible .backlinks-panel {
     position: absolute;
     z-index: 30;
     inset: 0;

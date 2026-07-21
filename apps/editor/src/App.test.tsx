@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { JsonObject } from "@mdbase/connect";
@@ -79,6 +79,44 @@ describe("mdbase editor", () => {
     expect(created.body).toBe("");
   });
 
+  it("collapses collection facets, filters notes, and follows backlinks", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(12)} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const folders = screen.getByRole("group", { name: "Folders" });
+    const foldersToggle = within(folders).getByRole("button", { name: "Folders" });
+    expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(foldersToggle);
+    expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(folders).queryByRole("button", { name: /Archive/ })).not.toBeInTheDocument();
+    await user.click(foldersToggle);
+    await user.click(within(folders).getByRole("button", { name: /Archive/ }));
+    expect(screen.getByRole("heading", { name: "Archive" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+
+    const tags = screen.getByRole("group", { name: "Tags" });
+    await user.click(within(tags).getByRole("button", { name: "Tags" }));
+    await user.click(within(tags).getByRole("button", { name: /#ideas/ }));
+    expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(4);
+
+    const types = screen.getByRole("group", { name: "Types" });
+    await user.click(within(types).getByRole("button", { name: "Types" }));
+    await user.click(within(types).getByRole("button", { name: /note/ }));
+    expect(screen.getByRole("heading", { name: "note" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+
+    const collection = screen.getByRole("complementary", { name: "Collection navigation" });
+    await user.click(within(collection).getAllByRole("button", { name: /^Notes/ })[0]);
+    await user.click(screen.getByText("The shape of useful tools", { selector: ".note-title" }));
+    await user.click(screen.getByRole("button", { name: "Backlinks" }));
+    const backlinks = screen.getByRole("complementary", { name: "Backlinks" });
+    expect(within(backlinks).getByText("1 note link here")).toBeInTheDocument();
+    await user.click(within(backlinks).getByRole("button", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+  });
+
   it("keeps the note frame stable while a note is loading", async () => {
     const gateway = new SlowReadGateway();
     render(<App gateway={gateway} />);
@@ -103,12 +141,29 @@ describe("mdbase editor", () => {
 
   it("opens the first note after the first page while the remaining index loads", async () => {
     const gateway = new ProgressiveListGateway(12);
+    const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
     expect(screen.getByText("1 of 12 notes")).toBeInTheDocument();
+    const folderNavigation = screen.getByRole("group", { name: "Folders" });
+    expect(folderNavigation).toHaveAttribute("aria-busy", "true");
+    expect(within(folderNavigation).getByRole("status")).toHaveTextContent("Loading");
+    expect(within(folderNavigation).getByLabelText("1 or more notes in Notes")).toHaveTextContent("1+");
     expect(gateway.listCalls).toBe(1);
-    gateway.releaseList();
+
+    gateway.releaseStructure();
+    expect(await screen.findByText("12 notes · indexing search")).toBeInTheDocument();
+    expect(folderNavigation).toHaveAttribute("aria-busy", "false");
+    expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
+    expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
+
+    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    expect(await screen.findByText("Searching")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
+    gateway.releaseContent();
+    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    await user.clear(screen.getByRole("textbox", { name: "Search every note" }));
     expect(await screen.findByText("12 notes")).toBeInTheDocument();
     expect(gateway.listCalls).toBe(1);
   });
@@ -371,20 +426,28 @@ class SlowDescriptionGateway extends DemoCollectionGateway {
 }
 
 class ProgressiveListGateway extends DemoCollectionGateway {
-  private release?: () => void;
+  private releaseStructurePage?: () => void;
+  private releaseContentPage?: () => void;
   listCalls = 0;
 
   override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     this.listCalls += 1;
     const notes = await super.list();
-    onProgress?.({ notes: notes.slice(0, 1), complete: false, total: notes.length });
-    await new Promise<void>((resolve) => { this.release = resolve; });
-    onProgress?.({ notes, complete: true, total: notes.length });
+    const structure = notes.map(({ body: _body, ...note }) => note);
+    onProgress?.({ notes: structure.slice(0, 1), structureComplete: false, complete: false, total: notes.length });
+    await new Promise<void>((resolve) => { this.releaseStructurePage = resolve; });
+    onProgress?.({ notes: structure, structureComplete: true, complete: false, total: notes.length });
+    await new Promise<void>((resolve) => { this.releaseContentPage = resolve; });
+    onProgress?.({ notes, structureComplete: true, complete: true, total: notes.length });
     return notes;
   }
 
-  releaseList() {
-    this.release?.();
+  releaseStructure() {
+    this.releaseStructurePage?.();
+  }
+
+  releaseContent() {
+    this.releaseContentPage?.();
   }
 }
 
