@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { JsonObject } from "@mdbase/connect";
+import type { CollectionChange, JsonObject } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionGateway, NoteDocument, NoteListProgress, NoteSummary } from "./model";
@@ -60,6 +60,40 @@ describe("mdbase editor", () => {
     expect(saved.body).toContain("A saved sentence.");
   });
 
+  it("refreshes an open note when it changes through the connector", async () => {
+    const gateway = new RemoteChangeGateway();
+    render(<App gateway={gateway} />);
+
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    await gateway.watchStarted;
+    await gateway.modifyRemotely();
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Changed on another device"));
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("The remote version is current.\n");
+  });
+
+  it("preserves local edits when a remote change arrives", async () => {
+    const gateway = new RemoteChangeGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    await gateway.watchStarted;
+    await user.type(body, "\nA local sentence.");
+    await gateway.modifyRemotely();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
+    expect((body as HTMLTextAreaElement).value).toContain("A local sentence.");
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(gateway.updateCalls).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Keep my edits" }));
+    await waitFor(() => expect(gateway.updateCalls).toBe(1));
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    expect((body as HTMLTextAreaElement).value).toContain("A local sentence.");
+  });
+
   it("creates a note and exposes collection-wide navigation", async () => {
     const gateway = new DemoCollectionGateway(4);
     const user = userEvent.setup();
@@ -69,14 +103,30 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "New note" }));
     const title = await screen.findByRole("textbox", { name: "Title" });
     await user.type(title, "A useful note");
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
+    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("A useful note.md");
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "note");
+    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
     await user.click(screen.getByRole("button", { name: "Create note" }));
     expect(await screen.findByDisplayValue("A useful note")).toBeInTheDocument();
     await waitFor(async () => expect((await gateway.list()).length).toBe(5));
     const created = await gateway.read("Notes/A useful note.md");
     expect(created.raw_frontmatter?.title).toBe("A useful note");
     expect(created.body).toBe("");
+  });
+
+  it("creates untyped notes at the collection root", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    await user.click(screen.getByRole("button", { name: "New note" }));
+    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Root note");
+    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Root note.md");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+
+    expect(await screen.findByDisplayValue("Root note")).toBeInTheDocument();
+    expect((await gateway.read("Root note.md")).types).toEqual([]);
   });
 
   it("collapses collection facets, filters notes, and follows backlinks", async () => {
@@ -390,6 +440,67 @@ describe("mdbase editor", () => {
     expect(await screen.findByText(/view, create, edit, move, validate, and delete/i)).toBeInTheDocument();
   });
 });
+
+class RemoteChangeGateway extends DemoCollectionGateway {
+  private remote?: NoteDocument;
+  private listener?: (change?: CollectionChange) => void;
+  private markWatching?: () => void;
+  readonly watchStarted = new Promise<void>((resolve) => { this.markWatching = resolve; });
+  updateCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    if (!this.remote) return super.list(onProgress);
+    const notes = await super.list();
+    const { revision: _revision, raw_frontmatter: _rawFrontmatter, ...summary } = this.remote;
+    const updated = notes.map((note) => note.path === summary.path ? structuredClone(summary) : note);
+    onProgress?.({ notes: updated, structureComplete: true, complete: true, total: updated.length });
+    return updated;
+  }
+
+  override async read(path: string): Promise<NoteDocument> {
+    if (this.remote?.path === path) return structuredClone(this.remote);
+    return super.read(path);
+  }
+
+  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
+    this.updateCalls += 1;
+    if (!this.remote || this.remote.path !== input.path) return super.update(input);
+    if (this.remote.revision !== input.revision) throw new Error("This note changed elsewhere. Reload it before saving.");
+    this.remote = {
+      ...this.remote,
+      body: `# ${input.title}\n\n${input.body}`,
+      revision: "remote-saved"
+    };
+    return structuredClone(this.remote);
+  }
+
+  override async watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal): Promise<void> {
+    this.listener = onChange;
+    this.markWatching?.();
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    this.listener = undefined;
+  }
+
+  async modifyRemotely() {
+    const current = await super.read("Notes/the-shape-of-useful-tools.md");
+    this.remote = {
+      ...current,
+      body: "# Changed on another device\n\nThe remote version is current.\n",
+      revision: "remote-2",
+      file: current.file ? { ...current.file, mtime: new Date().toISOString() } : undefined
+    };
+    this.listener?.({
+      cursor: 2,
+      type: "mdbase.record.modified",
+      occurred_at: new Date().toISOString(),
+      payload: { path: current.path, types: current.types }
+    });
+  }
+}
 
 class SlowReadGateway extends DemoCollectionGateway {
   private release?: () => void;

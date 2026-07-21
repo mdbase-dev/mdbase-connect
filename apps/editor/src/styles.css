@@ -14,6 +14,7 @@
   --hover: oklch(97.7% 0.006 245);
   --selected: oklch(96.4% 0.016 238);
   --accent: oklch(47% 0.1 238);
+  --accent-strong: oklch(41% 0.1 238);
   --accent-soft: oklch(93.5% 0.035 238);
   --success: oklch(44% 0.085 153);
   --danger: oklch(50% 0.11 28);
@@ -1031,6 +1032,47 @@ select:focus-visible {
   height: 13px;
 }
 
+.notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.remote-change-notice {
+  flex-wrap: wrap;
+}
+
+.remote-change-notice > span {
+  min-width: 180px;
+}
+
+.notice .notice-actions button {
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.notice .notice-actions button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.notice .notice-actions .primary-notice-action {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.notice .notice-actions .primary-notice-action:hover {
+  background: var(--accent-strong);
+  color: white;
+}
+
 .delete-confirm {
   background: var(--danger-soft);
 }
@@ -1129,6 +1171,7 @@ select:focus-visible {
 }
 
 .code-editor .cm-tooltip.cm-tooltip-autocomplete {
+  max-width: min(480px, calc(100vw - 24px));
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -1143,6 +1186,7 @@ select:focus-visible {
 
 .code-editor .cm-tooltip-autocomplete > ul > li {
   min-width: 220px;
+  overflow: hidden;
   padding: 7px 10px;
   color: var(--muted);
   font-size: 12px;
@@ -1162,6 +1206,9 @@ select:focus-visible {
 }
 
 .code-editor .cm-completionDetail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-left: 14px;
   color: var(--faint);
   font-family: var(--mono);

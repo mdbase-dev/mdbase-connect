@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NoteSummary } from "./model";
-import { backlinksFor, linkSuggestions, wikilinkFor } from "./links";
+import { backlinksFor, linkMatches, linkSuggestions, wikilinkFor } from "./links";
 
 describe("collection links", () => {
   const notes = [
@@ -27,6 +27,27 @@ describe("collection links", () => {
     const suggestions = linkSuggestions(notes);
     expect(wikilinkFor(suggestions.find((item) => item.path === "Projects/project.md")!)).toBe("Projects/project|Launch project");
     expect(wikilinkFor({ path: "Notes/alpha.md", title: "alpha" })).toBe("Notes/alpha");
+  });
+
+  it("builds mdbase-aware suggestions and finds aliases within a type", () => {
+    const people = [
+      {
+        ...note("People/ada.md", "Ada Lovelace"),
+        frontmatter: { title: "Ada Lovelace", aliases: ["Ada", "Countess of Lovelace"] },
+        types: ["person", "legacy"]
+      },
+      { ...note("Notes/ada.md", "Ada notes"), types: ["note"] }
+    ];
+    const suggestions = linkSuggestions(people, ["person", "note"]);
+
+    expect(suggestions[0].types).toEqual(["person"]);
+    expect(suggestions[0].aliases).toEqual(["Ada", "Countess of Lovelace"]);
+    expect(linkMatches(suggestions, "countess", "person")).toMatchObject([{
+      label: "Countess of Lovelace",
+      suggestion: { path: "People/ada.md" }
+    }]);
+    expect(linkMatches(suggestions, "ada", "person")).toHaveLength(1);
+    expect(wikilinkFor(suggestions[0], "Countess of Lovelace")).toBe("People/ada|Countess of Lovelace");
   });
 });
 

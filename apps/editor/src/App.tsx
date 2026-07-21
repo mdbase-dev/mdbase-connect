@@ -86,6 +86,7 @@ interface NoteSession {
   document: NoteDocument;
   draft: Draft;
   persistedDraft: Draft;
+  remoteDocument?: NoteDocument;
   saveState: SaveState;
   activity?: NoteActivity;
   error?: string;
@@ -219,6 +220,46 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     activateSession(session);
   }, [activateSession]);
 
+  const applyRemoteDocument = useCallback((session: NoteSession, next: NoteDocument) => {
+    const nextDraft = editableNote(next);
+    session.document = next;
+    session.draft = nextDraft;
+    session.persistedDraft = structuredClone(nextDraft);
+    session.remoteDocument = undefined;
+    session.saveState = "saved";
+    session.error = undefined;
+    updateNoteSummary(next);
+    if (currentSession.current === session) {
+      setDocument(next);
+      setDraft(nextDraft);
+      setPathDraft(next.path);
+    }
+    touchSession(session);
+  }, [touchSession, updateNoteSummary]);
+
+  const refreshCachedNote = useCallback(async (path: string) => {
+    const initial = sessions.current.get(path);
+    if (!initial || initial.deleted) return;
+
+    await operationQueue.current.wait(initial);
+    const session = sessions.current.get(path);
+    if (session !== initial || session.deleted) return;
+
+    const next = await gateway.read(path);
+    if (sessions.current.get(path) !== session || session.deleted || next.revision === session.document.revision) return;
+
+    if (sessionDirty(session)) {
+      session.remoteDocument = next;
+      session.saveState = "conflict";
+      session.error = `“${session.draft.title || session.document.path}” changed elsewhere. Your edits are still here.`;
+      touchSession(session);
+      if (currentSession.current === session) setNotice(session.error);
+      return;
+    }
+
+    applyRemoteDocument(session, next);
+  }, [applyRemoteDocument, gateway, touchSession]);
+
   const openNote = useCallback(async (path: string): Promise<boolean> => {
     const generation = ++documentGeneration.current;
     const cached = sessions.current.get(path);
@@ -340,11 +381,24 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (phase !== "ready") return;
     const controller = new AbortController();
     let refreshTimer: number | undefined;
+    const changedPaths = new Set<string>();
+    let typesChanged = false;
     void gateway.watch((change) => {
+      if (change?.type === "mdbase.record.modified" && typeof change.payload.path === "string") {
+        changedPaths.add(change.payload.path);
+      }
+      if (change?.type === "mdbase.type.changed") typesChanged = true;
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
+        const paths = [...changedPaths];
+        changedPaths.clear();
+        const shouldRefreshTypes = typesChanged;
+        typesChanged = false;
         void loadIndex();
-        if (change?.type === "mdbase.type.changed") void refreshDescription();
+        for (const path of paths) void refreshCachedNote(path).catch((error) => {
+          if (!controller.signal.aborted) setNotice(gatewayError(error));
+        });
+        if (shouldRefreshTypes) void refreshDescription();
       }, 180);
     }, controller.signal).catch((error) => {
       if (!controller.signal.aborted) setNotice(gatewayError(error));
@@ -353,10 +407,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       controller.abort();
       window.clearTimeout(refreshTimer);
     };
-  }, [gateway, loadIndex, phase, refreshDescription]);
+  }, [gateway, loadIndex, phase, refreshCachedNote, refreshDescription]);
 
   const requestSave = useCallback((session: NoteSession): Promise<void> => {
     if (session.deleted) return Promise.resolve();
+    if (session.remoteDocument) {
+      session.saveState = "conflict";
+      touchSession(session);
+      return Promise.resolve();
+    }
     if (session.savePromise) {
       if (sessionDirty(session)) session.saveAgain = true;
       return session.savePromise;
@@ -415,7 +474,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [gateway, touchSession, updateNoteSummary]);
 
   const flushSession = useCallback(async (session: NoteSession) => {
-    while (!session.deleted && (sessionDirty(session) || session.savePromise)) await requestSave(session);
+    if (session.remoteDocument) throw new Error("Resolve the version changed elsewhere before continuing.");
+    while (!session.deleted && !session.remoteDocument && (sessionDirty(session) || session.savePromise)) await requestSave(session);
     await operationQueue.current.wait(session);
   }, [requestSave]);
 
@@ -427,7 +487,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => {
     const session = currentSession.current;
-    if (!document || !draft || !session || session.document.path !== document.path || !sessionDirty(session)) return;
+    if (!document || !draft || !session || session.remoteDocument || session.document.path !== document.path || !sessionDirty(session)) return;
     if (session.saveState !== "saving") {
       session.saveState = "waiting";
       setSaveState("waiting");
@@ -441,11 +501,41 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (!session || session.deleted) return;
     const next = change(session.draft);
     session.draft = next;
-    session.error = undefined;
-    if (session.saveState !== "saving") session.saveState = "waiting";
+    if (!session.remoteDocument) {
+      session.error = undefined;
+      if (session.saveState !== "saving") session.saveState = "waiting";
+    }
     setDraft(next);
     setSaveState(session.saveState);
     touchSession(session);
+  }
+
+  function useRemoteVersion() {
+    const session = currentSession.current;
+    if (!session?.remoteDocument) return;
+    applyRemoteDocument(session, session.remoteDocument);
+    setNotice("Loaded the latest version.");
+  }
+
+  function keepLocalVersion() {
+    const session = currentSession.current;
+    const remote = session?.remoteDocument;
+    if (!session || !remote) return;
+
+    const localDraft = session.draft;
+    session.document = remote;
+    session.persistedDraft = editableNote(remote);
+    session.remoteDocument = undefined;
+    session.draft = localDraft;
+    session.error = undefined;
+    session.saveState = "waiting";
+    updateNoteSummary(remote);
+    setDocument(remote);
+    setDraft(localDraft);
+    setSaveState("waiting");
+    setNotice(undefined);
+    touchSession(session);
+    void requestSave(session).catch(() => undefined);
   }
 
   function navigateToNote(path: string) {
@@ -490,7 +580,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (noteFilter.kind === "tag") return searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value));
     return searchedNotes.filter((note) => note.types.includes(noteFilter.value));
   }, [noteFilter, searchedNotes]);
-  const linkOptions = useMemo(() => linkSuggestions(allNotes), [allNotes]);
+  const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
+  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames), [allNotes, linkTypeNames]);
   const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes) : [], [allNotes, document]);
 
   const runNoteOperation = useCallback(async <Result,>(
@@ -731,6 +822,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     viewportWidth - collectionTrack - editorMinimum - inspectorWidth
   ));
   const listName = surface === "types" ? "types" : "notes";
+  const activeRemoteDocument = currentSession.current?.remoteDocument;
+  const editorNotice = activeRemoteDocument ? currentSession.current?.error : notice;
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
@@ -817,7 +910,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               </div>
             </details>
           </header>
-          {notice && <div className="notice" role="status"><CircleAlert aria-hidden="true" /><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X aria-hidden="true" /></button></div>}
+          {editorNotice && <div className={`notice${activeRemoteDocument ? " remote-change-notice" : ""}`} role={activeRemoteDocument ? "alert" : "status"}>
+            <CircleAlert aria-hidden="true" />
+            <span>{editorNotice}</span>
+            {activeRemoteDocument ? <div className="notice-actions">
+              <button onClick={useRemoteVersion}>Use remote</button>
+              <button className="primary-notice-action" onClick={keepLocalVersion}>Keep my edits</button>
+            </div> : <button aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X aria-hidden="true" /></button>}
+          </div>}
           {deleteOpen && <div className="delete-confirm" role="alert"><span>Delete this note from the collection?</span><button onClick={() => setDeleteOpen(false)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote()}>Delete</button></div>}
           <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
             <label className="sr-only" htmlFor="note-title">Note title</label>
@@ -834,6 +934,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               autoFocus
               className="body-editor"
               linkSuggestions={linkOptions}
+              linkTypes={linkTypeNames}
             />
           </article>
         </> : <EmptyEditor leadingActions={editorLeadingActions} onCreate={beginCreate} />}
@@ -1136,6 +1237,7 @@ function sessionDirty(session: NoteSession): boolean {
 
 function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
   if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
+  if (session.remoteDocument) return { label: "Changed elsewhere", tone: "error", busy: false };
   if (session.activity) {
     const labels: Record<NoteActivity, string> = {
       saving: "Saving",
