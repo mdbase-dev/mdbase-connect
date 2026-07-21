@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/portal/package.json apps/portal/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/sync/package.json packages/sync/package.json
+COPY packages/ui/package.json packages/ui/package.json
 COPY services/server/package.json services/server/package.json
 
 RUN pnpm install --frozen-lockfile \
@@ -16,6 +17,7 @@ RUN pnpm install --frozen-lockfile \
 COPY apps/portal apps/portal
 COPY packages/protocol packages/protocol
 COPY packages/sync packages/sync
+COPY packages/ui packages/ui
 COPY services/server services/server
 
 RUN pnpm --filter @mdbase/connect-protocol build \
