@@ -10,6 +10,8 @@ import {
   MoreHorizontal,
   NotebookPen,
   PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   Settings2,
   Trash2,
@@ -28,6 +30,13 @@ import {
 } from "react";
 import { CodeEditor } from "./CodeEditor";
 import { gatewayError } from "./gateway";
+import {
+  COLLECTION_WIDTH,
+  LIST_WIDTH,
+  loadLayoutPreferences,
+  saveLayoutPreferences,
+  type LayoutPreferences
+} from "./layout-preferences";
 import type {
   CollectionGateway,
   CreateNoteInput,
@@ -110,6 +119,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
+  const [layout, setLayout] = useState<LayoutPreferences>(loadLayoutPreferences);
+  const [resizingPane, setResizingPane] = useState<"collection" | "list">();
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [, setSessionTick] = useState(0);
   const indexGeneration = useRef(0);
   const documentGeneration = useRef(0);
@@ -119,6 +131,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const operationQueue = useRef(new KeyedOperationQueue<NoteSession>());
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
+  useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
 
   const loadIndex = useCallback(async () => {
     const generation = ++indexGeneration.current;
@@ -665,13 +683,35 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "loading" || !description) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
+  const hasListPane = surface !== "settings";
+  const mobileLayout = viewportWidth <= 760;
+  const collectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
+  const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
+  const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
+  const inspectorWidth = propertiesOpen && viewportWidth > 1120 ? 340 : 0;
+  const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
+    COLLECTION_WIDTH.max,
+    viewportWidth - listTrack - editorMinimum - inspectorWidth
+  ));
+  const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
+    LIST_WIDTH.max,
+    viewportWidth - collectionTrack - editorMinimum - inspectorWidth
+  ));
+  const listName = surface === "types" ? "types" : "notes";
+  const editorLeadingActions = layout.listCollapsed ? <>
+    {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+    <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
+  </> : undefined;
   const noteStatuses = new Map<string, NoteRowStatus>();
   for (const session of sessions.current.values()) {
     const status = noteRowStatus(session);
     if (status) noteStatuses.set(session.document.path, status);
   }
-  return <div className={`app-shell surface-${surface} pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}`}>
-    <CollectionRail
+  return <div
+    className={`app-shell surface-${surface} pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
+    style={{ "--collection-track": `${collectionTrack}px`, "--list-track": `${listTrack}px` } as CSSProperties}
+  >
+    {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       name={description.display_name}
       count={collectionTotal ?? allNotes.length}
       typeCount={description.types.length}
@@ -682,10 +722,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
       onDisconnect={() => void disconnect()}
-    />
+      onCollapse={() => setLayout((current) => ({ ...current, collectionCollapsed: true }))}
+    />}
 
     {surface === "notes" && <>
-      <NoteList
+      {(!layout.listCollapsed || mobileLayout) && <NoteList
         notes={visibleNotes}
         loading={listLoading}
         total={folderFilter ? undefined : collectionTotal}
@@ -698,16 +739,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onSelect={navigateToNote}
         onCreate={beginCreate}
         onCollections={() => setMobilePane("collections")}
-      />
+        leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+      />}
       {creatingNote ? <NewNoteComposer
         types={description.types}
         defaultFolder={folderFilter}
+        leadingActions={editorLeadingActions}
         onCreate={createNote}
         onCancel={() => { setCreatingNote(false); setMobilePane("notes"); }}
       /> : <main className="editor-pane" aria-label="Note editor">
-        {noteLoading ? <NoteSkeleton /> : document && draft ? <>
+        {noteLoading ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => setMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            {editorLeadingActions}
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void renameNote(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
@@ -743,17 +788,54 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               className="body-editor"
             />
           </article>
-        </> : <EmptyEditor onCreate={beginCreate} />}
+        </> : <EmptyEditor leadingActions={editorLeadingActions} onCreate={beginCreate} />}
       </main>}
       {propertiesOpen && document && <PropertiesPanel key={document.path} note={document} types={description.types} error={propertiesError} onClose={() => setPropertiesOpen(false)} onSave={(value) => void saveProperties(value)} />}
     </>}
 
     {surface === "types" && <>
-      <TypeList types={description.types} selectedName={selectedTypeName} onSelect={(name) => { setSelectedTypeName(name); setMobilePane("editor"); }} onCollections={() => setMobilePane("collections")} />
-      <TypeInspector type={selectedType} onBack={() => setMobilePane("notes")} />
+      {(!layout.listCollapsed || mobileLayout) && <TypeList
+        types={description.types}
+        selectedName={selectedTypeName}
+        leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        onSelect={(name) => { setSelectedTypeName(name); setMobilePane("editor"); }}
+        onCollections={() => setMobilePane("collections")}
+      />}
+      <TypeInspector type={selectedType} leadingActions={editorLeadingActions} onBack={() => setMobilePane("notes")} />
     </>}
 
-    {surface === "settings" && <SettingsView description={description} noteCount={allNotes.length} preferences={preferences} onChange={setPreferences} onBack={() => setMobilePane("collections")} />}
+    {surface === "settings" && <SettingsView
+      description={description}
+      noteCount={allNotes.length}
+      preferences={preferences}
+      leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      onChange={setPreferences}
+      onBack={() => setMobilePane("collections")}
+    />}
+
+    {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
+      {!layout.collectionCollapsed && <PaneResizeHandle
+        className="collection-resizer"
+        label="Resize collections sidebar"
+        value={layout.collectionWidth}
+        min={COLLECTION_WIDTH.min}
+        max={collectionResizeMax}
+        onChange={(collectionWidth) => setLayout((current) => ({ ...current, collectionWidth }))}
+        onReset={() => setLayout((current) => ({ ...current, collectionWidth: COLLECTION_WIDTH.default }))}
+        onDragChange={(dragging) => setResizingPane(dragging ? "collection" : undefined)}
+      />}
+      {hasListPane && !layout.listCollapsed && <PaneResizeHandle
+        className="list-resizer"
+        label={`Resize ${listName} sidebar`}
+        value={layout.listWidth}
+        min={LIST_WIDTH.min}
+        max={listResizeMax}
+        onChange={(listWidth) => setLayout((current) => ({ ...current, listWidth }))}
+        onReset={() => setLayout((current) => ({ ...current, listWidth: LIST_WIDTH.default }))}
+        onDragChange={(dragging) => setResizingPane(dragging ? "list" : undefined)}
+      />}
+    </aside>}
   </div>;
 }
 
@@ -777,7 +859,7 @@ function Wordmark() {
   return <div className="wordmark"><span aria-hidden="true" />mdbase <strong>editor</strong></div>;
 }
 
-function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, onNotes, onTypes, onSettings, onDisconnect }: {
+function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, onNotes, onTypes, onSettings, onDisconnect, onCollapse }: {
   name: string;
   count: number;
   typeCount: number;
@@ -788,10 +870,11 @@ function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, 
   onTypes: () => void;
   onSettings: () => void;
   onDisconnect: () => void;
+  onCollapse: () => void;
 }) {
   const collectionFolders = folders(notes);
   return <aside className="collection-rail" aria-label="Collection navigation">
-    <Wordmark />
+    <div className="rail-header"><Wordmark /><PaneControl label="Hide collections sidebar" action="hide" onClick={onCollapse} /></div>
     <nav>
       <p className="collection-name">{name}</p>
       <button className={surface === "notes" && !activeFolder ? "selected" : ""} onClick={() => onNotes(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
@@ -803,7 +886,7 @@ function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, 
   </aside>;
 }
 
-function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, total, onSearch, onSelect, onCreate, onCollections }: {
+function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, total, leadingActions, trailingActions, onSearch, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
   pendingPath?: string;
@@ -812,6 +895,8 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   collectionName: string;
   loading: boolean;
   total?: number;
+  leadingActions?: React.ReactNode;
+  trailingActions?: React.ReactNode;
   onSearch: (value: string) => void;
   onSelect: (path: string) => void;
   onCreate: () => void;
@@ -820,7 +905,7 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button><div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, total, Boolean(search))}</p></div><button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, total, Boolean(search))}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
     <label className="search-field"><Search aria-hidden="true" /><span className="sr-only">Search every note</span><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search && <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button>}</label>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={loading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
@@ -850,12 +935,80 @@ function SaveIndicator({ state }: { state: SaveState }) {
   return <span className={`save-state ${state}`} aria-live="polite">{state === "saved" && <Check aria-hidden="true" />}{label}</span>;
 }
 
-function NoteSkeleton() {
-  return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar"><span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
+function NoteSkeleton({ leadingActions }: { leadingActions?: React.ReactNode }) {
+  return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
 }
 
-function EmptyEditor({ onCreate }: { onCreate: () => void }) {
-  return <div className="empty-editor"><p>Select a note, or start a new one.</p><button onClick={onCreate}>New note</button></div>;
+function EmptyEditor({ leadingActions, onCreate }: { leadingActions?: React.ReactNode; onCreate: () => void }) {
+  return <div className="empty-editor">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<p>Select a note, or start a new one.</p><button onClick={onCreate}>New note</button></div>;
+}
+
+function PaneControl({ label, action, onClick }: { label: string; action: "show" | "hide"; onClick: () => void }) {
+  const Icon = action === "show" ? PanelLeftOpen : PanelLeftClose;
+  return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><Icon aria-hidden="true" /></button>;
+}
+
+function PaneResizeHandle({ className, label, value, min, max, onChange, onReset, onDragChange }: {
+  className: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+  onReset: () => void;
+  onDragChange: (dragging: boolean) => void;
+}) {
+  const drag = useRef<{ pointerId: number; startX: number; startValue: number } | undefined>(undefined);
+  const boundedMax = Math.max(min, max);
+  const setBoundedValue = (next: number) => onChange(Math.round(Math.min(boundedMax, Math.max(min, next))));
+
+  function finishDrag(element: HTMLDivElement, pointerId: number) {
+    if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
+    drag.current = undefined;
+    onDragChange(false);
+  }
+
+  return <div
+    className={`pane-resizer ${className}`}
+    role="separator"
+    aria-label={label}
+    aria-orientation="vertical"
+    aria-valuemin={min}
+    aria-valuemax={boundedMax}
+    aria-valuenow={Math.min(boundedMax, Math.max(min, value))}
+    aria-valuetext={`${Math.round(value)} pixels`}
+    title="Drag to resize · Double-click to reset"
+    tabIndex={0}
+    onDoubleClick={onReset}
+    onPointerDown={(event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      drag.current = { pointerId: event.pointerId, startX: event.clientX, startValue: value };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      onDragChange(true);
+    }}
+    onPointerMove={(event) => {
+      if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+      setBoundedValue(drag.current.startValue + event.clientX - drag.current.startX);
+    }}
+    onPointerUp={(event) => {
+      if (drag.current?.pointerId === event.pointerId) finishDrag(event.currentTarget, event.pointerId);
+    }}
+    onPointerCancel={(event) => {
+      if (drag.current?.pointerId === event.pointerId) finishDrag(event.currentTarget, event.pointerId);
+    }}
+    onKeyDown={(event) => {
+      const step = event.shiftKey ? 24 : 8;
+      let next: number | undefined;
+      if (event.key === "ArrowLeft") next = value - step;
+      if (event.key === "ArrowRight") next = value + step;
+      if (event.key === "Home") next = min;
+      if (event.key === "End") next = boundedMax;
+      if (next === undefined) return;
+      event.preventDefault();
+      setBoundedValue(next);
+    }}
+  />;
 }
 
 function draftFingerprint(draft: Draft): string {

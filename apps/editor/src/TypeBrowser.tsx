@@ -1,12 +1,14 @@
 import { ArrowLeft, FileCode2, PanelLeft, Search, X } from "lucide-react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { stringify } from "yaml";
 import { CodeEditor } from "./CodeEditor";
 
-export function TypeList({ types, selectedName, onSelect, onCollections }: {
+export function TypeList({ types, selectedName, leadingActions, trailingActions, onSelect, onCollections }: {
   types: CollectionTypeDescriptor[];
   selectedName?: string;
+  leadingActions?: ReactNode;
+  trailingActions?: ReactNode;
   onSelect: (name: string) => void;
   onCollections: () => void;
 }) {
@@ -15,7 +17,9 @@ export function TypeList({ types, selectedName, onSelect, onCollections }: {
   return <section className="type-list-pane" aria-label="Types">
     <header className="list-header">
       <button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>
+      {leadingActions}
       <div><h1>Types</h1><p>{types.length} {types.length === 1 ? "definition" : "definitions"}</p></div>
+      {trailingActions}
     </header>
     <label className="search-field">
       <Search aria-hidden="true" /><span className="sr-only">Search types</span>
@@ -31,12 +35,13 @@ export function TypeList({ types, selectedName, onSelect, onCollections }: {
   </section>;
 }
 
-export function TypeInspector({ type, onBack }: { type?: CollectionTypeDescriptor; onBack: () => void }) {
+export function TypeInspector({ type, leadingActions, onBack }: { type?: CollectionTypeDescriptor; leadingActions?: ReactNode; onBack: () => void }) {
   const source = useMemo(() => type ? stringify(typeDefinition(type), { lineWidth: 0 }) : "", [type]);
-  if (!type) return <main className="type-inspector empty-type"><p>Select a type definition to inspect it.</p></main>;
+  if (!type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<p>Select a type definition to inspect it.</p></main>;
   return <main className="type-inspector" aria-label={`${type.name} type definition`}>
     <header className="type-inspector-bar">
       <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+      {leadingActions}
       <span>{type.path ?? `_types/${type.name}.md`}</span>
       <small>Inspecting</small>
     </header>
