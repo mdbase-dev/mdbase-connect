@@ -19,6 +19,32 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("mdbase editor", () => {
+  it("collapses, restores, and resizes both navigation sidebars", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(12)} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
+    expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show collections sidebar" }));
+    expect(screen.getByRole("complementary", { name: "Collection navigation" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide notes sidebar" }));
+    expect(screen.queryByRole("region", { name: "Notes" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show notes sidebar" }));
+    expect(screen.getByRole("region", { name: "Notes" })).toBeInTheDocument();
+
+    const collectionResize = screen.getByRole("separator", { name: "Resize collections sidebar" });
+    collectionResize.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(collectionResize).toHaveAttribute("aria-valuenow", "184");
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:layout") ?? "null")).toMatchObject({
+      collectionWidth: 184,
+      collectionCollapsed: false,
+      listCollapsed: false
+    });
+  });
+
   it("opens a collection, selects a note, and autosaves body changes", async () => {
     const gateway = new DemoCollectionGateway(12);
     const user = userEvent.setup();

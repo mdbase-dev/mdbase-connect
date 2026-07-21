@@ -71,6 +71,43 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
 });
 
+test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+
+  const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
+  await collectionResize.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(collectionResize).toHaveAttribute("aria-valuenow", "184");
+
+  const listResize = page.getByRole("separator", { name: "Resize notes sidebar" });
+  const before = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
+  const handle = await listResize.boundingBox();
+  if (!handle) throw new Error("The notes resize handle is not visible.");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 48, handle.y + 80);
+  await page.mouse.up();
+  const after = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
+  expect(after).toBeGreaterThan(before + 40);
+
+  await page.getByRole("button", { name: "Hide collections sidebar" }).click();
+  await expect(page.getByRole("complementary", { name: "Collection navigation" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Show collections sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Hide notes sidebar" }).click();
+  await expect(page.getByRole("region", { name: "Notes" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Show notes sidebar" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show collections sidebar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show notes sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Show collections sidebar" }).click();
+  await page.getByRole("button", { name: "Show notes sidebar" }).click();
+  await expect(page.getByRole("separator", { name: "Resize collections sidebar" })).toHaveAttribute("aria-valuenow", "184");
+  const restored = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
+  expect(restored).toBeCloseTo(after, 0);
+});
+
 test("keeps the Vim insert-mode cursor visible", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mdbase-editor:preferences", JSON.stringify({

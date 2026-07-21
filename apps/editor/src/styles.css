@@ -321,15 +321,20 @@ select:focus-visible {
 }
 
 .app-shell {
+  --collection-track: 176px;
+  --list-track: 304px;
+  --collection-display: var(--collection-track);
+  --list-display: var(--list-track);
+  position: relative;
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 176px 304px minmax(380px, 1fr);
+  grid-template-columns: var(--collection-display) var(--list-display) minmax(380px, 1fr);
   background: var(--canvas);
 }
 
 .app-shell.inspector-visible {
-  grid-template-columns: 176px 304px minmax(380px, 1fr) 340px;
+  grid-template-columns: var(--collection-display) var(--list-display) minmax(380px, 1fr) 340px;
 }
 
 .collection-rail,
@@ -346,14 +351,24 @@ select:focus-visible {
 }
 
 .collection-rail {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   padding: 22px 10px 16px;
   border-right: 1px solid var(--line);
 }
 
-.collection-rail > .wordmark {
-  padding: 0 9px;
+.rail-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 1px 0 9px;
+}
+
+.rail-header > .wordmark {
+  min-width: 0;
+  flex: 1;
 }
 
 .collection-rail nav {
@@ -462,6 +477,7 @@ select:focus-visible {
 
 .note-list-pane,
 .type-list-pane {
+  grid-column: 2;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   border-right: 1px solid var(--line);
@@ -516,6 +532,71 @@ select:focus-visible {
   width: 17px;
   height: 17px;
   stroke-width: 1.65;
+}
+
+.desktop-pane-control {
+  width: 28px;
+  height: 28px;
+  color: var(--faint);
+}
+
+.desktop-pane-control:hover {
+  color: var(--muted);
+}
+
+.pane-resizers {
+  position: absolute;
+  z-index: 15;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.resizing-pane .pane-resizer::after {
+  background: var(--line-strong);
+}
+
+.pane-resizer:focus-visible::after {
+  width: 2px;
+  background: var(--accent);
+}
+
+.collection-resizer {
+  left: var(--collection-display);
+}
+
+.list-resizer {
+  left: calc(var(--collection-display) + var(--list-display));
+}
+
+.resizing-pane {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .new-note {
@@ -697,19 +778,25 @@ select:focus-visible {
   font-size: 13px;
 }
 
+.empty-editor {
+  position: relative;
+  grid-row: 1 / -1;
+}
+
 .list-empty p,
 .empty-editor p {
   margin: 0 0 10px;
 }
 
-.list-empty button,
-.empty-editor button {
+.list-empty > button,
+.empty-editor > button {
   padding: 0;
   color: var(--accent);
   font-weight: 700;
 }
 
 .editor-pane {
+  grid-column: 3;
   position: relative;
   display: grid;
   grid-template-rows: 52px auto auto minmax(0, 1fr);
@@ -1019,6 +1106,7 @@ select:focus-visible {
 .skeleton-bar {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 0 24px;
   border-bottom: 1px solid var(--line);
 }
@@ -1063,6 +1151,7 @@ select:focus-visible {
 }
 
 .properties-panel {
+  grid-column: 4;
   display: flex;
   flex-direction: column;
   padding: 18px 16px 16px;
@@ -1426,6 +1515,7 @@ select:focus-visible {
 }
 
 .type-inspector {
+  grid-column: 3;
   display: grid;
   grid-template-rows: 52px auto minmax(0, 1fr);
   overflow: hidden;
@@ -1544,14 +1634,26 @@ select:focus-visible {
 }
 
 .empty-type {
+  position: relative;
   place-items: center;
   color: var(--faint);
   font-size: 13px;
 }
 
 .settings-view {
+  position: relative;
   grid-column: 2 / -1;
   overflow-y: auto;
+}
+
+.empty-pane-actions,
+.settings-pane-actions {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 14px;
+  display: flex;
+  gap: 4px;
 }
 
 .settings-mobile-bar {
@@ -1658,6 +1760,7 @@ select:focus-visible {
 }
 
 .new-note-composer {
+  grid-column: 3;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
@@ -1776,7 +1879,9 @@ select:focus-visible {
 
   .app-shell,
   .app-shell.inspector-visible {
-    grid-template-columns: 156px 278px minmax(360px, 1fr);
+    --collection-display: min(var(--collection-track), 156px);
+    --list-display: min(var(--list-track), 278px);
+    grid-template-columns: var(--collection-display) var(--list-display) minmax(320px, 1fr);
   }
 
   .app-shell.inspector-visible .properties-panel {
@@ -1786,6 +1891,14 @@ select:focus-visible {
     right: 0;
     width: 340px;
     height: 100%;
+  }
+}
+
+@media (min-width: 761px) {
+  .collection-pane-collapsed .collection-rail,
+  .list-pane-collapsed .note-list-pane,
+  .list-pane-collapsed .type-list-pane {
+    display: none;
   }
 }
 
@@ -1890,6 +2003,14 @@ select:focus-visible {
   .mobile-back,
   .mobile-collections {
     display: inline-grid;
+  }
+
+  .desktop-pane-control,
+  .pane-resizers,
+  .pane-resizer,
+  .empty-pane-actions,
+  .settings-pane-actions {
+    display: none;
   }
 
   .list-header {

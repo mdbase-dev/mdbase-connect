@@ -1,13 +1,14 @@
 import { ArrowLeft } from "lucide-react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 
-export function NewNoteComposer({ types, defaultFolder, onCreate, onCancel }: {
+export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate, onCancel }: {
   types: CollectionTypeDescriptor[];
   defaultFolder?: string;
+  leadingActions?: ReactNode;
   onCreate: (input: CreateNoteInput) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -61,7 +62,7 @@ export function NewNoteComposer({ types, defaultFolder, onCreate, onCancel }: {
   }
 
   return <main className="new-note-composer" aria-label="Create note">
-    <header className="editor-bar"><button className="mobile-back icon-button" aria-label="Cancel new note" onClick={onCancel}><ArrowLeft aria-hidden="true" /></button><span>New note</span></header>
+    <header className="editor-bar"><button className="mobile-back icon-button" aria-label="Cancel new note" onClick={onCancel}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>New note</span></header>
     <form onSubmit={(event) => void submit(event)}>
       <p className="eyebrow">New Markdown record</p>
       <label className="new-note-title"><span className="sr-only">Title</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>

@@ -1,11 +1,13 @@
 import { ArrowLeft } from "lucide-react";
 import type { CollectionDescription } from "@mdbase/connect";
+import type { ReactNode } from "react";
 import type { EditorPreferences } from "./preferences";
 
-export function SettingsView({ description, noteCount, preferences, onChange, onBack }: {
+export function SettingsView({ description, noteCount, preferences, leadingActions, onChange, onBack }: {
   description: CollectionDescription;
   noteCount: number;
   preferences: EditorPreferences;
+  leadingActions?: ReactNode;
   onChange: (value: EditorPreferences) => void;
   onBack: () => void;
 }) {
@@ -13,6 +15,7 @@ export function SettingsView({ description, noteCount, preferences, onChange, on
   const runtime = objectValue(description.configuration?.runtime);
   return <main className="settings-view" aria-label="Editor settings">
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label="Back to collection" onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span>Settings</span></header>
+    {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
     <div className="settings-document">
       <header><p className="eyebrow">mdbase editor</p><h1>Settings</h1></header>
       <section>
