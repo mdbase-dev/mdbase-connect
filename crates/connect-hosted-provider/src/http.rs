@@ -103,7 +103,8 @@ impl AppState {
 struct CreateCollectionRequest {
     collection_id: Uuid,
     template: String,
-    display_name: String,
+    #[serde(default)]
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -275,7 +276,11 @@ async fn create_collection(
     state.authorize_internal(&headers)?;
     let collection = state
         .provider
-        .create_collection(input.collection_id, &input.template, &input.display_name)
+        .create_collection(
+            input.collection_id,
+            &input.template,
+            input.display_name.as_deref().unwrap_or("Hosted collection"),
+        )
         .await?;
     Ok((
         StatusCode::CREATED,
@@ -500,6 +505,16 @@ mod tests {
         assert!(bool::from(hash.ct_eq(&hash)));
         let other: [u8; 32] = Sha256::digest(b"another-long-test-token-that-is-different").into();
         assert!(!bool::from(hash.ct_eq(&other)));
+    }
+
+    #[test]
+    fn collection_creation_remains_compatible_with_pre_identity_clients() {
+        let input: CreateCollectionRequest = serde_json::from_value(serde_json::json!({
+            "collection_id": Uuid::new_v4(),
+            "template": "tasknotes"
+        }))
+        .unwrap();
+        assert_eq!(input.display_name, None);
     }
 
     #[test]
