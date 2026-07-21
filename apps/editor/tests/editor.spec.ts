@@ -74,8 +74,9 @@ test("creates a note only after the creation form is complete", async ({ page })
   const create = page.getByRole("button", { name: "Create note" });
   await expect(create).toBeDisabled();
   await page.getByRole("textbox", { name: "Title" }).fill("A useful note");
-  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
+  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("A useful note.md");
   await page.getByRole("combobox", { name: "Type" }).selectOption("note");
+  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
   await expect(create).toBeEnabled();
   const createStarted = Date.now();
   await create.click();
