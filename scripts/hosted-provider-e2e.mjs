@@ -326,29 +326,13 @@ try {
   });
   void hostedSdk.authorize(["describe", "changes", "read", "query", "create", "update"]);
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
-  const authorize = await fetch(authorizationUrl, { headers: { cookie }, redirect: "manual" });
-  assert.equal(authorize.status, 302);
-  const authorizationId = authorize.headers.get("location")?.split("/").at(-1);
-  assert.ok(authorizationId);
-  await controlRequest(
-    controlUrl,
-    `/v1/authorization-requests/${authorizationId}/approve`,
+  const callbackUrl = await authorizeHostedApplication(
+    authorizationUrl,
     cookie,
-    {
-      method: "POST",
-      body: {
-        collection_id: collectionId,
-        operations: ["describe", "changes", "read", "query", "create", "update"]
-      }
-    }
+    collectionId,
+    manifest.origin
   );
-  const authorizationStatus = await controlRequest(
-    controlUrl,
-    `/v1/authorization-requests/${authorizationId}/status`,
-    cookie
-  );
-  assert.equal(authorizationStatus.status, "approved");
-  await hostedSdk.completeAuthorization(authorizationStatus.redirect_uri);
+  await hostedSdk.completeAuthorization(callbackUrl);
   const storedHostedToken = storage.token();
   assert.equal(storedHostedToken.hosted.providerUrl, provider.url);
   assert.equal(storedHostedToken.encryption, undefined);
@@ -1024,6 +1008,33 @@ async function portalLifecycleE2E(controlUrl) {
     page.once("dialog", (dialog) => dialog.accept());
     await renamedRow.getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText("Browser renamed tasks", { exact: true })).toHaveCount(0);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, callbackOrigin) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const separator = cookie.indexOf("=");
+    assert.ok(separator > 0, "Development session cookie is malformed");
+    const context = await browser.newContext();
+    await context.addCookies([{
+      name: cookie.slice(0, separator),
+      value: cookie.slice(separator + 1),
+      url: new URL(authorizationUrl).origin
+    }]);
+    const page = await context.newPage();
+    await page.goto(authorizationUrl);
+    await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
+    await expect(page.getByText(/Local collections remain under their connected computer/)).toBeVisible();
+    const collection = page.getByLabel("Collection");
+    await expect(collection.locator("option")).toHaveCount(2);
+    await collection.selectOption(collectionId);
+    await expect(collection.locator("option:checked")).toHaveText("Hosted tasks · Hosted by mdbase");
+    await page.getByRole("button", { name: "Allow access" }).click();
+    await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
+    return page.url();
   } finally {
     await browser.close();
   }

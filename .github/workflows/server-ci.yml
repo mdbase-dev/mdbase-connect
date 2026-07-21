@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: callumalpass/mdbase-rs
-          ref: 73372a1f786e20d213be6e9821eb0649ecfcc050
+          ref: 600a23236a9ad49e2ad8c416d36fe8e06c797d50
           path: mdbase-rs
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -67,6 +67,9 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
-      - run: cargo test --locked -p mdbase-connect-hosted-provider
+      # Compile and test every Rust crate against the exact SDK revision used
+      # by the production provider image. This keeps path-only developer
+      # dependencies from making a clean checkout unreproducible.
+      - run: cargo test --locked --workspace
       - run: cargo build --locked -p mdbase-connect-hosted-provider
       - run: node scripts/hosted-provider-e2e.mjs

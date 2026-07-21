@@ -579,7 +579,7 @@ function Authorization({ requestId }: { requestId: string }) {
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
         {status === "pending" ? <>
-          <p>Choose the collection and exact permissions this application may use. The computer holding your files remains the final gate.</p>
+          <p>Choose the collection and exact permissions this application may use. Local collections remain under their connected computer; hosted collections remain under your mdbase account.</p>
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
@@ -660,7 +660,7 @@ function ApprovalForm({
       <label className="collection-field" htmlFor={`collection-${request.id}`}>
         <span>Collection</span>
         <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || collections.length === 0}>
-          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} — {collection.connector_name}</option>)}
+          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}</option>)}
         </select>
       </label>
       {collections.length === 0 && <p className="field-note error-copy">
