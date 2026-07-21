@@ -215,7 +215,7 @@ function HostedCollections({ collections, onChanged, onError }: {
   onError(value: string): void;
 }) {
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("My tasks");
+  const [name, setName] = useState("My collection");
   const [busy, setBusy] = useState(false);
 
   async function create(event: React.FormEvent) {
@@ -225,10 +225,10 @@ function HostedCollections({ collections, onChanged, onError }: {
     try {
       await api("/v1/hosted/collections", {
         method: "POST",
-        body: JSON.stringify({ display_name: name.trim(), template: "tasknotes" })
+        body: JSON.stringify({ display_name: name.trim(), template: "mdbase" })
       });
       setCreating(false);
-      setName("My tasks");
+      setName("My collection");
       await onChanged();
     } catch (reason) {
       onError(message(reason));
@@ -244,13 +244,13 @@ function HostedCollections({ collections, onChanged, onError }: {
       count={collections.length}
     />
     {collections.length === 0 && !creating
-      ? <Empty title="No hosted collections" text="Create a TaskNotes collection whose source of truth stays available without a connected computer." />
+      ? <Empty title="No hosted collections" text="Create an mdbase collection whose source of truth stays available without a connected computer." />
       : <div className="hosted-list">{collections.map((collection) => (
           <HostedCollectionRow key={collection.id} collection={collection} onChanged={onChanged} onError={onError} />
         ))}</div>}
     {creating ? <form className="inline-create" onSubmit={(event) => void create(event)}>
       <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <p>Starts with the TaskNotes schema. You can receive an exact Markdown mirror on any computer afterward.</p>
+      <p>Starts as a clean mdbase 0.3 collection. Add Markdown through compatible apps, with an optional exact local mirror.</p>
       <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create collection"}</button></div>
     </form> : <button className="button secondary" onClick={() => setCreating(true)}>Create hosted collection</button>}
   </>;
@@ -296,7 +296,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
         sync_url: string;
       }>(`/v1/hosted/collections/${collection.id}/replicas`, {
         method: "POST",
-        body: JSON.stringify({ name: mirrorName.trim(), mode: mirrorMode, allowed_types: ["task"] })
+        body: JSON.stringify({ name: mirrorName.trim(), mode: mirrorMode, allowed_types: [] })
       });
       setSecret({ replicaId: enrollment.replica.id, token: enrollment.token, syncUrl: enrollment.sync_url, mode: mirrorMode });
       await onChanged();
@@ -337,7 +337,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
 
   return <article className="hosted-row">
     <div className="hosted-summary">
-      <div><strong>{collection.display_name}</strong><small>TaskNotes · authoritative on mdbase · created {relativeTime(collection.created_at)}</small></div>
+      <div><strong>{collection.display_name}</strong><small>mdbase · authoritative on mdbase · created {relativeTime(collection.created_at)}</small></div>
       <span className="availability online"><i />Hosted</span>
       <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
       <div className="computer-actions"><button className="quiet-action" disabled={busy} onClick={() => { setSecret(null); setPanel(panel === "mirror" ? null : "mirror"); }}>Add mirror</button><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button><button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button></div>
@@ -366,7 +366,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
 }
 
 function MirrorSetup({ collectionId, secret }: { collectionId: string; secret: ReplicaSecret }) {
-  const command = `mdbase-mirror init ./tasks --server ${secret.syncUrl} --collection ${collectionId} --replica ${secret.replicaId}${secret.mode === "read_write" ? " --writable" : ""}`;
+  const command = `mdbase-mirror init ./collection --server ${secret.syncUrl} --collection ${collectionId} --replica ${secret.replicaId}${secret.mode === "read_write" ? " --writable" : ""}`;
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
   async function copy(value: string, kind: "token" | "command") {
     await navigator.clipboard.writeText(value);

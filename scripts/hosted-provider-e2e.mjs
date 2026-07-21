@@ -30,7 +30,7 @@ let manifestServer;
 const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
   await import("../packages/sync/dist/index.js");
 const { DirectoryMirror, MirrorDivergenceError } = await import("../packages/sync/dist/node.js");
-const { resolveTasknotesSyncContract, TasknotesCollection, TasknotesOfflineCollection } =
+const { resolveTasknotesSyncContract, TasknotesOfflineCollection } =
   await import("../packages/tasknotes/dist/index.js");
 const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/dist/index.js");
 const { buildApp } = await import("../services/server/dist/app.js");
@@ -88,11 +88,11 @@ try {
   const quotaToken = `quota-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: { collection_id: quotaCollectionId, template: "tasknotes", display_name: "Quota tasks" }
   });
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: { collection_id: quotaCollectionId, template: "tasknotes", display_name: "Quota tasks" }
   });
   await internalRequest(
     quotaProvider.url,
@@ -193,7 +193,7 @@ try {
   const maintenanceToken = `maintenance-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(maintenanceProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: maintenanceCollectionId, template: "tasknotes" }
+    body: { collection_id: maintenanceCollectionId, template: "tasknotes", display_name: "Maintenance tasks" }
   });
   await internalRequest(
     maintenanceProvider.url,
@@ -249,15 +249,15 @@ try {
   assert.ok(cookie);
   const created = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Hosted tasks", template: "tasknotes" }
+    body: { display_name: "Task app data", template: "tasknotes" }
   });
   const collectionId = created.collection.id;
   assert.equal(created.collection.sync_url, provider.url);
   const other = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Other hosted tasks", template: "tasknotes" }
+    body: { display_name: "Hosted writing", template: "mdbase" }
   });
-  const otherCollectionId = other.collection.id;
+  const genericCollectionId = other.collection.id;
   const writer = await registerReplica(controlUrl, cookie, collectionId, "Writer", "read_write", ["task"]);
   const reader = await registerReplica(controlUrl, cookie, collectionId, "Reader", "read_write", ["task"]);
   const mirror = await registerReplica(controlUrl, cookie, collectionId, "Mirror", "read_only", ["task"]);
@@ -324,12 +324,12 @@ try {
     storage,
     keyStore: new MemoryGrantKeyStore()
   });
-  void hostedSdk.authorize(["describe", "changes", "read", "query", "create", "update"]);
+  void hostedSdk.authorize(["describe", "changes", "read", "query", "create", "update", "delete", "rename"]);
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   const callbackUrl = await authorizeHostedApplication(
     authorizationUrl,
     cookie,
-    collectionId,
+    genericCollectionId,
     manifest.origin
   );
   await hostedSdk.completeAuthorization(callbackUrl);
@@ -338,19 +338,19 @@ try {
   assert.equal(storedHostedToken.encryption, undefined);
   const appToken = storedHostedToken.hosted.accessToken;
   const appReplicaId = storedHostedToken.hosted.replicaId;
-  const appSync = await rawRequest(provider.url, syncPath(collectionId, "sessions"), {
+  const appSync = await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
     method: "POST",
     token: appToken
   });
   assert.equal(appSync.status, 401);
   const wrongOrigin = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${collectionId}/operations/query`,
+    `/v1/hosted/collections/${genericCollectionId}/operations/query`,
     {
       method: "POST",
       token: appToken,
       headers: { origin: "https://evil.example" },
-      body: { types: ["task"] }
+      body: {}
     }
   );
   assert.equal(wrongOrigin.status, 403);
@@ -364,24 +364,45 @@ try {
     return originalFetch(input, { ...init, headers });
   };
   const description = await hostedSdk.describe();
-  assert.equal(description.contracts[0].id, "tasknotes.task");
-  const hostedTasknotes = new TasknotesCollection(hostedSdk);
-  const sdkCreated = await hostedTasknotes.create({ title: "Created through hosted SDK" });
-  assert.ok(sdkCreated.revision);
-  assert.equal((await hostedTasknotes.list()).some((task) => task.title === "Created through hosted SDK"), true);
-  await hostedTasknotes.setCompleted(sdkCreated.path, true);
-  assert.equal(
-    (await hostedTasknotes.list()).find((task) => task.title === "Created through hosted SDK").completed,
-    true
-  );
+  assert.equal(description.display_name, "Hosted writing");
+  assert.deepEqual(description.contracts, []);
+  const sdkCreated = await hostedSdk.create({
+    path: "Draft.md",
+    frontmatter: { title: "Created through hosted SDK" },
+    body: "Generic mdbase Markdown."
+  });
+  assert.equal(sdkCreated.valid, true);
+  const sdkUpdated = await hostedSdk.update({
+    path: "Draft.md",
+    fields: { title: "Updated through hosted SDK" },
+    if_revision: sdkCreated.result.revision
+  });
+  assert.equal(sdkUpdated.valid, true);
+  const sdkRenamed = await hostedSdk.rename({
+    from: "Draft.md",
+    to: "Writing/Draft.md",
+    if_revision: sdkUpdated.result.revision
+  });
+  assert.equal(sdkRenamed.valid, true);
+  assert.equal((await hostedSdk.query()).result.results[0].path, "Writing/Draft.md");
+  assert.equal((await hostedSdk.delete({
+    path: "Writing/Draft.md",
+    if_revision: sdkRenamed.result.revision
+  })).valid, true);
   globalThis.fetch = originalFetch;
   const dashboardWithApp = await controlRequest(controlUrl, "/v1/me", cookie);
-  const hostedGrant = dashboardWithApp.grants.find((grant) => grant.collection_id === collectionId);
+  const hostedGrant = dashboardWithApp.grants.find((grant) => grant.collection_id === genericCollectionId);
   assert.ok(hostedGrant);
   assert.equal(hostedGrant.collection_kind, "hosted");
   assert.equal(
     dashboardWithApp.hosted_collections
       .find((collection) => collection.id === collectionId)
+      .replicas.some((replica) => replica.id === appReplicaId),
+    false
+  );
+  assert.equal(
+    dashboardWithApp.hosted_collections
+      .find((collection) => collection.id === genericCollectionId)
       .replicas.some((replica) => replica.id === appReplicaId),
     false
   );
@@ -391,14 +412,14 @@ try {
   });
   const deniedWrite = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${collectionId}/operations/create`,
+    `/v1/hosted/collections/${genericCollectionId}/operations/create`,
     {
       method: "POST",
       token: appToken,
       headers: { origin: manifest.origin },
       body: {
-        path: "tasks/permission-expansion.md",
-        frontmatter: { type: "task", title: "Must not exist" }
+        path: "permission-expansion.md",
+        frontmatter: { title: "Must not exist" }
       }
     }
   );
@@ -407,13 +428,13 @@ try {
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   const revokedApp = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${collectionId}/operations/query`,
+    `/v1/hosted/collections/${genericCollectionId}/operations/query`,
     { method: "POST", token: appToken, headers: { origin: manifest.origin }, body: {} }
   );
   assert.equal(revokedApp.status, 401);
   assert.equal(
     (
-      await rawRequest(provider.url, syncPath(otherCollectionId, "sessions"), {
+      await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
         method: "POST",
         token: writer.token
       })
@@ -977,10 +998,13 @@ async function portalLifecycleE2E(controlUrl) {
     await expect(page.getByRole("heading", { name: "Your connections." })).toBeVisible();
 
     await page.getByRole("button", { name: "Create hosted collection" }).click();
-    await page.getByLabel("Collection name").fill("Browser E2E tasks");
+    await expect(page.getByText(/Starts as a clean mdbase 0\.3 collection/)).toBeVisible();
+    await expect(page.getByText(/TaskNotes/)).toHaveCount(0);
+    await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create collection" }).click();
-    const row = page.locator("article.hosted-row").filter({ hasText: "Browser E2E tasks" });
+    const row = page.locator("article.hosted-row").filter({ hasText: "Browser E2E collection" });
     await expect(row).toBeVisible();
+    await expect(row).toContainText("mdbase · authoritative on mdbase");
 
     await row.getByRole("button", { name: "Add mirror" }).click();
     await row.getByLabel("Mirror name").fill("Browser writable mirror");
@@ -1001,13 +1025,13 @@ async function portalLifecycleE2E(controlUrl) {
     await expect(row).not.toContainText("Browser writable mirror");
 
     await row.getByRole("button", { name: "Rename" }).click();
-    await row.getByLabel("Collection name").fill("Browser renamed tasks");
+    await row.getByLabel("Collection name").fill("Browser renamed collection");
     await row.getByRole("button", { name: "Save" }).click();
-    const renamedRow = page.locator("article.hosted-row").filter({ hasText: "Browser renamed tasks" });
+    const renamedRow = page.locator("article.hosted-row").filter({ hasText: "Browser renamed collection" });
     await expect(renamedRow).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
     await renamedRow.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText("Browser renamed tasks", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0);
   } finally {
     await browser.close();
   }
@@ -1031,7 +1055,7 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     const collection = page.getByLabel("Collection");
     await expect(collection.locator("option")).toHaveCount(2);
     await collection.selectOption(collectionId);
-    await expect(collection.locator("option:checked")).toHaveText("Hosted tasks · Hosted by mdbase");
+    await expect(collection.locator("option:checked")).toHaveText("Hosted writing · Hosted by mdbase");
     await page.getByRole("button", { name: "Allow access" }).click();
     await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
     return page.url();
@@ -1311,7 +1335,7 @@ async function openManifestServer() {
       name: "Hosted SDK E2E",
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+      requirements: { contracts: [] }
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

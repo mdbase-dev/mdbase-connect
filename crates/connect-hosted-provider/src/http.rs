@@ -103,6 +103,12 @@ impl AppState {
 struct CreateCollectionRequest {
     collection_id: Uuid,
     template: String,
+    display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenameCollectionRequest {
+    display_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,7 +147,7 @@ pub fn app(state: AppState) -> Router {
         .route("/internal/v1/collections", post(create_collection))
         .route(
             "/internal/v1/collections/{collection_id}",
-            delete(delete_collection),
+            patch(rename_collection).delete(delete_collection),
         )
         .route(
             "/internal/v1/collections/{collection_id}/replicas",
@@ -269,12 +275,26 @@ async fn create_collection(
     state.authorize_internal(&headers)?;
     let collection = state
         .provider
-        .create_collection(input.collection_id, &input.template)
+        .create_collection(input.collection_id, &input.template, &input.display_name)
         .await?;
     Ok((
         StatusCode::CREATED,
         Json(json!({ "collection": collection })),
     ))
+}
+
+async fn rename_collection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<RenameCollectionRequest>,
+) -> ApiResult<StatusCode> {
+    state.authorize_internal(&headers)?;
+    state
+        .provider
+        .rename_collection(collection_id, &input.display_name)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_collection(

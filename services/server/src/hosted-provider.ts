@@ -28,11 +28,20 @@ export class HostedProviderClient {
     await this.request("GET", "/ready", undefined, false);
   }
 
-  async createCollection(collectionId: string, template: string): Promise<void> {
+  async createCollection(collectionId: string, template: string, displayName: string): Promise<void> {
     await this.request("POST", "/internal/v1/collections", {
       collection_id: collectionId,
-      template
+      template,
+      display_name: displayName
     });
+  }
+
+  async renameCollection(collectionId: string, displayName: string): Promise<void> {
+    await this.request(
+      "PATCH",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}`,
+      { display_name: displayName }
+    );
   }
 
   async deleteCollection(collectionId: string): Promise<void> {
@@ -67,12 +76,20 @@ export class HostedProviderClient {
 
   async updateApplicationReplica(
     replicaId: string,
-    policy: { mode: "read_only" | "read_write"; allowedOperations: string[] }
+    policy: {
+      mode: "read_only" | "read_write";
+      allowedTypes: string[];
+      allowedOperations: string[];
+    }
   ): Promise<void> {
     await this.request(
       "PATCH",
       `/internal/v1/replicas/${encodeURIComponent(replicaId)}/policy`,
-      { mode: policy.mode, allowed_operations: policy.allowedOperations }
+      {
+        mode: policy.mode,
+        allowed_types: policy.allowedTypes,
+        allowed_operations: policy.allowedOperations
+      }
     );
   }
 

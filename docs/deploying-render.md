@@ -66,7 +66,7 @@ collection-scoped replica credential.
 Before any invitation:
 
 1. Confirm `/health` and `/ready` on both services.
-2. Sign in through GitHub and create a hosted TaskNotes collection.
+2. Sign in through GitHub and create a hosted mdbase collection.
 3. Authorize the current `mdbase-editor` build and perform create, read, query,
    update, rename, and delete operations.
 4. Add one receive-only and one writable mirror. Verify config, type resources,

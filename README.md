@@ -1,8 +1,9 @@
 # mdbase connect
 
 mdbase connect lets user-authorized websites and native applications operate
-on a user's local [mdbase](https://mdbase.dev) collections without exposing
-collection folders directly to the internet.
+on a user's local or mdbase-hosted [mdbase](https://mdbase.dev) collections.
+Local collection folders are never exposed directly to the internet; hosted
+collections keep their authoritative Markdown on mdbase with optional mirrors.
 
 This is a functional private-beta foundation. The tested path covers creating a local
 collection, pairing an outbound-only connector, discovering an independent web
@@ -13,6 +14,9 @@ their declared contracts, renewing browser authorization, receiving filesystem
 changes, rejecting stale revisions, pausing access, and immediately enforcing
 revocation. Browser-to-connector operation payloads use grant-bound end-to-end
 encryption; the relay sees routing metadata and ciphertext.
+
+Hosted collections are generic mdbase collections. TaskNotes is one reference
+application and contract adapter—not a collection kind or platform default.
 
 ## What is here
 

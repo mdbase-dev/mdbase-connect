@@ -1,10 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
-import { HostedAuthorityRegistry } from "./hosted.js";
+import {
+  hostedContracts,
+  HostedAuthorityRegistry,
+  hostedTypesForContracts
+} from "./hosted.js";
 
 let database: DatabasePool | undefined;
 afterEach(async () => database?.end());
+
+describe("hosted collection profiles", () => {
+  it("keeps generic mdbase collections independent of application contracts", () => {
+    expect(hostedContracts("mdbase")).toEqual([]);
+    expect(hostedTypesForContracts("mdbase", [])).toEqual([]);
+    expect(hostedContracts("tasknotes")).toEqual([{ id: "tasknotes.task", version: 1 }]);
+    expect(hostedTypesForContracts(
+      "tasknotes",
+      [{ id: "tasknotes.task", version: 1 }]
+    )).toEqual(["task"]);
+  });
+});
 
 describe("persisted hosted authority", () => {
   it("survives registry restart, preserves idempotency, and serializes stale writers", async () => {
@@ -18,7 +34,7 @@ describe("persisted hosted authority", () => {
       [collectionId, userId, "Tasks", "tasknotes"]
     );
     const first = new HostedAuthorityRegistry(database);
-    await first.create(collectionId);
+    await first.create(collectionId, "tasknotes");
     await first.registerReplica(collectionId, {
       id: replicaId,
       name: "Client",
@@ -67,7 +83,7 @@ describe("persisted hosted authority", () => {
       [collectionId, userId, "Tasks", "tasknotes"]
     );
     const first = new HostedAuthorityRegistry(database);
-    await first.create(collectionId);
+    await first.create(collectionId, "tasknotes");
     await first.registerReplica(collectionId, {
       id: replicaId, name: "Client", mode: "read_write", allowedTypes: ["task"]
     });
@@ -111,7 +127,7 @@ describe("persisted hosted authority", () => {
       [collectionId, userId, "Tasks", "tasknotes"]
     );
     const writerRegistry = new HostedAuthorityRegistry(database);
-    await writerRegistry.create(collectionId);
+    await writerRegistry.create(collectionId, "tasknotes");
     await writerRegistry.registerReplica(collectionId, {
       id: replicaId, name: "Client", mode: "read_write", allowedTypes: ["task"]
     });

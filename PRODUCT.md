@@ -6,19 +6,23 @@ product
 
 ## Users
 
-People who keep durable personal or professional data in local mdbase-backed
-Markdown collections and want to use independent web or native applications
-without moving those collections into an application vendor's database. Users
-may be comfortable with files and Obsidian, but should not need to understand
-relays, OAuth, or networking to control access.
+People who keep durable personal or professional data in mdbase-backed Markdown
+collections and want to use independent web or native applications without
+moving those collections into an application vendor's database. A collection
+may be authoritative on their own computer or hosted by mdbase with an optional
+local mirror. Users may be comfortable with files and Obsidian, but should not
+need to understand relays, OAuth, or networking to control access.
 
 ## Product Purpose
 
-mdbase connect makes a user's local collections safely available to applications
-they choose. The local desktop client is the primary control surface for
-collections, applications, permissions, connection state, and activity. The
-hosted service supplies identity, short-lived authorization, routing, and an
-outbound-only relay. Success means connecting an app feels deliberate and
+mdbase connect makes a user's local and hosted collections safely available to
+applications they choose. The local desktop client controls computer-owned
+collections; the account portal controls mdbase-hosted collections and shared
+application access. The hosted service supplies identity, short-lived
+authorization, routing, an outbound-only relay for local authorities, and a
+durable authority for hosted collections. Hosted collections are always mdbase
+collections—application contracts such as TaskNotes are optional consumers,
+never the storage model. Success means connecting an app feels deliberate and
 understandable, while revoking it is immediate and unambiguous.
 
 ## Brand Personality

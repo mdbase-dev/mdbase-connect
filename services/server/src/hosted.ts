@@ -1,4 +1,9 @@
-import type { JsonObject, SyncCollectionResources, SyncMutation } from "@mdbase/connect-protocol";
+import type {
+  ContractRequirement,
+  JsonObject,
+  SyncCollectionResources,
+  SyncMutation
+} from "@mdbase/connect-protocol";
 import {
   MemoryHostedAuthority,
   SyncError,
@@ -12,6 +17,8 @@ interface CachedAuthority {
   authority: MemoryHostedAuthority;
   version: number;
 }
+
+export type HostedTemplate = "mdbase" | "tasknotes";
 
 /**
  * Transactional persistence boundary for the sync reference authority.
@@ -36,13 +43,9 @@ export class HostedAuthorityRegistry {
     `);
   }
 
-  async create(collectionId: string): Promise<void> {
+  async create(collectionId: string, template: HostedTemplate = "mdbase"): Promise<void> {
     await this.schemaReady;
-    const authority = new MemoryHostedAuthority({
-      id: collectionId,
-      validate: validateTasknotes,
-      resources: tasknotesResources()
-    });
+    const authority = new MemoryHostedAuthority({ id: collectionId, ...authorityOptions(hostedResources(template)) });
     await this.db.query(
       `INSERT INTO hosted_authority_states (collection_id, state, version)
        VALUES ($1, $2::jsonb, 1)`,
@@ -109,7 +112,7 @@ export class HostedAuthorityRegistry {
         const cached = await this.load(collectionId, true);
         const working = MemoryHostedAuthority.restore(
           cached.authority.serialize(),
-          authorityOptions(),
+          authorityOptions(cached.authority.serialize().resources ?? mdbaseResources()),
           cached.authority
         );
         const result = await operation(working);
@@ -159,7 +162,11 @@ export class HostedAuthorityRegistry {
     const version = Number(row.version);
     if (present?.version === version) return present;
     const cached = {
-      authority: MemoryHostedAuthority.restore(row.state, authorityOptions(), present?.authority),
+      authority: MemoryHostedAuthority.restore(
+        row.state,
+        authorityOptions(row.state.resources ?? mdbaseResources()),
+        present?.authority
+      ),
       version
     };
     this.cache.set(collectionId, cached);
@@ -167,10 +174,11 @@ export class HostedAuthorityRegistry {
   }
 }
 
-function authorityOptions() {
+function authorityOptions(resources: SyncCollectionResources) {
+  const tasknotes = resources.contracts.some((contract) => contract.id === "tasknotes.task");
   return {
-    validate: validateTasknotes,
-    resources: tasknotesResources()
+    ...(tasknotes ? { validate: validateTasknotes } : {}),
+    resources
   };
 }
 
@@ -183,6 +191,42 @@ function validateTasknotes(record: { types: string[]; frontmatter: JsonObject })
 
 export function asSyncMutation(value: unknown): SyncMutation {
   return value as SyncMutation;
+}
+
+export function hostedResources(template: string): SyncCollectionResources {
+  if (template === "mdbase") return mdbaseResources();
+  if (template === "tasknotes") return tasknotesResources();
+  throw new SyncError("unsupported_template", "The hosted collection template is unavailable.");
+}
+
+export function hostedContracts(template: string): ContractRequirement[] {
+  return hostedResources(template).contracts.map(({ id, version }) => ({ id, version }));
+}
+
+export function hostedTypesForContracts(
+  template: string,
+  contracts: ContractRequirement[]
+): string[] {
+  if (contracts.length === 0) return [];
+  const requested = new Set(contracts.map(({ id, version }) => `${id}@${version}`));
+  return [...new Set(hostedResources(template).contracts
+    .filter(({ id, version }) => requested.has(`${id}@${version}`))
+    .map(({ type_name }) => type_name))];
+}
+
+export function mdbaseResources(): SyncCollectionResources {
+  return {
+    revision: "mdbase-template:1",
+    spec_version: "0.3.0",
+    types: [],
+    contracts: [],
+    documents: [{
+      path: "mdbase.yaml",
+      kind: "configuration",
+      revision: "mdbase-config:1",
+      document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
+    }]
+  };
 }
 
 export function tasknotesResources(): SyncCollectionResources {
@@ -254,8 +298,4 @@ x-tasknotes:
 `
     }]
   };
-}
-
-export function tasknotesContracts(): Array<{ id: string; version: number }> {
-  return tasknotesResources().contracts.map(({ id, version }) => ({ id, version }));
 }

@@ -80,6 +80,8 @@ pub struct RegisterReplica {
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateApplicationReplica {
     pub mode: SyncReplicaMode,
+    #[serde(default)]
+    pub allowed_types: Vec<String>,
     pub allowed_operations: Vec<String>,
 }
 
@@ -94,6 +96,7 @@ pub enum ReplicaPurpose {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCollection {
     pub id: Uuid,
+    pub display_name: String,
     pub spec_version: String,
     pub resource_revision: String,
 }
@@ -202,7 +205,15 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         template_name: &str,
+        display_name: &str,
     ) -> ApiResult<ProviderCollection> {
+        let display_name = display_name.trim();
+        if display_name.is_empty() || display_name.chars().count() > 200 {
+            return Err(ApiError::bad_request(
+                "invalid_collection_name",
+                "Hosted collection names must contain between 1 and 200 characters.",
+            ));
+        }
         let (resources, documents) = template::resources(template_name)?;
         let data_key = self.crypto.generate_data_key();
         let wrapped_data_key = self
@@ -214,14 +225,15 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let inserted = sqlx::query(
             r#"INSERT INTO hosted_provider_collections
-                 (id, template, spec_version, resource_revision, wrapped_data_key,
+                 (id, template, display_name, spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
                   max_document_bytes, max_replicas)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
         .bind(template_name)
+        .bind(display_name)
         .bind(&resources.spec_version)
         .bind(&resources.revision)
         .bind(wrapped_data_key)
@@ -246,20 +258,23 @@ impl HostedProvider {
         .await?;
         if inserted.rows_affected() == 0 {
             let existing = sqlx::query(
-                "SELECT template, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
+                "SELECT template, display_name, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
             )
             .bind(collection_id)
             .fetch_one(&mut *transaction)
             .await?;
             let existing_template: String = existing.get("template");
-            if existing_template != template_name {
+            if existing_template != template_name
+                || existing.get::<String, _>("display_name") != display_name
+            {
                 return Err(ApiError::conflict(
                     "hosted_collection_conflict",
-                    "Hosted collection already exists with a different template.",
+                    "Hosted collection already exists with different metadata.",
                 ));
             }
             let result = ProviderCollection {
                 id: collection_id,
+                display_name: existing.get("display_name"),
                 spec_version: existing.get("spec_version"),
                 resource_revision: existing.get("resource_revision"),
             };
@@ -288,9 +303,38 @@ impl HostedProvider {
         transaction.commit().await?;
         Ok(ProviderCollection {
             id: collection_id,
+            display_name: display_name.to_string(),
             spec_version: resources.spec_version,
             resource_revision: resources.revision,
         })
+    }
+
+    pub async fn rename_collection(
+        &self,
+        collection_id: Uuid,
+        display_name: &str,
+    ) -> ApiResult<()> {
+        let display_name = display_name.trim();
+        if display_name.is_empty() || display_name.chars().count() > 200 {
+            return Err(ApiError::bad_request(
+                "invalid_collection_name",
+                "Hosted collection names must contain between 1 and 200 characters.",
+            ));
+        }
+        let result = sqlx::query(
+            "UPDATE hosted_provider_collections SET display_name = $2, updated_at = now() WHERE id = $1 AND state = 'active'",
+        )
+        .bind(collection_id)
+        .bind(display_name)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            ));
+        }
+        Ok(())
     }
 
     pub async fn delete_collection(&self, collection_id: Uuid) -> ApiResult<()> {
@@ -469,6 +513,8 @@ impl HostedProvider {
         replica_id: Uuid,
         mut input: UpdateApplicationReplica,
     ) -> ApiResult<()> {
+        input.allowed_types.sort();
+        input.allowed_types.dedup();
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_operations(&input.allowed_operations, input.mode)?;
@@ -481,14 +527,18 @@ impl HostedProvider {
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET scope_epoch = scope_epoch + CASE
-                     WHEN mode IS DISTINCT FROM $2 OR allowed_operations IS DISTINCT FROM $3
+                     WHEN mode IS DISTINCT FROM $2
+                       OR allowed_types IS DISTINCT FROM $3
+                       OR allowed_operations IS DISTINCT FROM $4
                      THEN 1 ELSE 0 END,
                    mode = $2,
-                   allowed_operations = $3
+                   allowed_types = $3,
+                   allowed_operations = $4
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
         .bind(replica_mode(input.mode))
+        .bind(input.allowed_types)
         .bind(input.allowed_operations)
         .execute(&self.pool)
         .await?;
@@ -1403,7 +1453,7 @@ impl HostedProvider {
 
     async fn describe_operation(&self, collection_id: Uuid, replica: &Replica) -> ApiResult<Value> {
         let row = sqlx::query(
-            r#"SELECT head, wrapped_data_key, resources_ciphertext
+            r#"SELECT head, display_name, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections WHERE id = $1 AND state = 'active'"#,
         )
         .bind(collection_id)
@@ -1425,7 +1475,7 @@ impl HostedProvider {
         let description = CollectionDescription {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
-            display_name: "Hosted collection".to_string(),
+            display_name: row.get("display_name"),
             spec_version: resources.spec_version,
             operations: replica.allowed_operations.clone(),
             change_cursor: number(row.get::<i64, _>("head"), "collection head")?,

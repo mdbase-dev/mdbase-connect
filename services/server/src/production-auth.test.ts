@@ -200,7 +200,7 @@ describe("production GitHub authentication", () => {
       method: "POST",
       url: "/v1/hosted/collections",
       headers: { cookie },
-      payload: { display_name: "Tasks", template: "tasknotes" }
+      payload: { display_name: "Writing" }
     });
     expect(created.statusCode).toBe(201);
     const collectionId = created.json().collection.id as string;
@@ -211,7 +211,7 @@ describe("production GitHub authentication", () => {
       payload: {
         name: "Laptop mirror",
         mode: "read_only",
-        allowed_types: ["task"]
+        allowed_types: []
       }
     });
     expect(enrolled.statusCode).toBe(201);
@@ -221,8 +221,9 @@ describe("production GitHub authentication", () => {
     expect(dashboard.json().hosted_collections).toEqual([
       expect.objectContaining({
         id: collectionId,
-        display_name: "Tasks",
-        contracts: [{ id: "tasknotes.task", version: 1 }],
+        display_name: "Writing",
+        template: "mdbase",
+        contracts: [],
         replicas: [expect.objectContaining({ id: replicaId, mode: "read_only" })]
       })
     ]);
@@ -230,9 +231,9 @@ describe("production GitHub authentication", () => {
       method: "PATCH",
       url: `/v1/hosted/collections/${collectionId}`,
       headers: { cookie },
-      payload: { display_name: "Renamed tasks" }
+      payload: { display_name: "Renamed collection" }
     });
-    expect(renamed.json().collection.display_name).toBe("Renamed tasks");
+    expect(renamed.json().collection.display_name).toBe("Renamed collection");
     const rotated = await app.inject({
       method: "POST",
       url: `/v1/hosted/replicas/${replicaId}/token`,

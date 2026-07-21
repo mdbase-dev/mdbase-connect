@@ -69,6 +69,7 @@ describe("hosted provider control client", () => {
     });
     await provider.updateApplicationReplica("replica", {
       mode: "read_only",
+      allowedTypes: ["task"],
       allowedOperations: ["read", "query"]
     });
     await provider.rotateReplicaToken("replica", "new-token", 3600);
@@ -76,7 +77,11 @@ describe("hosted provider control client", () => {
       [
         "https://provider.example/internal/v1/replicas/replica/policy",
         "PATCH",
-        JSON.stringify({ mode: "read_only", allowed_operations: ["read", "query"] })
+        JSON.stringify({
+          mode: "read_only",
+          allowed_types: ["task"],
+          allowed_operations: ["read", "query"]
+        })
       ],
       [
         "https://provider.example/internal/v1/replicas/replica/token",
@@ -94,8 +99,26 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    await provider.createCollection("collection", "tasknotes");
+    await provider.createCollection("collection", "tasknotes", "Tasks");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(fetchMock.mock.calls[1]?.[1]?.body);
+  });
+
+  it("propagates collection identity changes to the authority", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(undefined, { status: 204 })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    await provider.renameCollection("collection", "Research notes");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://provider.example/internal/v1/collections/collection",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ display_name: "Research notes" })
+      })
+    );
   });
 });
