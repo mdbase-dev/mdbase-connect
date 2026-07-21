@@ -268,10 +268,15 @@ function Overview({ status, cloud, access, collections, busy, onNavigate, onPair
           <h2>{status?.paused ? "Access is paused." : access.online ? "This computer is ready." : "Working from the local cache."}</h2>
           <p>{status?.paused ? "Apps remain connected, but every remote operation is being denied locally." : access.online ? "Approved applications can reach available collections while this connector is running." : "Existing local settings remain visible. Cloud changes will resume when the relay reconnects."}</p>
         </div>
-        <label className="pause-control">
-          <span><strong>Allow remote access</strong><small>Pause without disconnecting applications</small></span>
-          <input type="checkbox" checked={!status?.paused} disabled={busy} onChange={(event) => onPause(!event.target.checked)} />
-        </label>
+        <SettingSwitch
+          className="pause-control"
+          label="Remote access"
+          description="Pause without disconnecting applications"
+          checked={status ? !status.paused : false}
+          disabled={busy || status === null}
+          stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
+          onChange={(checked) => onPause(!checked)}
+        />
       </section>
       <section className="overview-list" aria-label="Connector summary">
         <OverviewRow label="Collections" value={`${collections.length} registered`} detail="Only enabled local folders can be reached" action="Manage" onClick={() => onNavigate("collections")} />
@@ -527,8 +532,30 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
       <section>
         <SectionHeading title="Background behavior" note="Keep the local connector ready without opening a window." />
         <div className="settings-rows">
-          <label className={`setting-toggle ${startup.available ? "" : "disabled"}`}><span><strong>Start at login</strong><small>{startup.available ? "Launch in the tray when you sign in" : "Available in installed builds"}</small></span><input type="checkbox" checked={startup.enabled} disabled={!startup.available || busy} onChange={(event) => void onAct(async () => { await window.mdbaseConnect.setLaunchAtLogin(event.target.checked); onNotice(event.target.checked ? "mdbase connect will start at login." : "Launch at login is off."); })} /></label>
-          <label className="setting-toggle"><span><strong>Allow remote access</strong><small>Pause all applications while keeping the relay connected</small></span><input type="checkbox" checked={!status?.paused} disabled={busy} onChange={(event) => void onAct(async () => { await window.mdbaseConnect.setAccessPaused(!event.target.checked); onNotice(event.target.checked ? "Remote access is available." : "Remote access is paused."); })} /></label>
+          <SettingSwitch
+            className="setting-toggle"
+            label="Start at login"
+            description={startup.available ? "Launch in the tray when you sign in" : "Available in installed builds"}
+            checked={startup.enabled}
+            disabled={!startup.available || busy}
+            stateLabel={startup.available ? startup.enabled ? "On" : "Off" : "Unavailable"}
+            onChange={(checked) => void onAct(async () => {
+              await window.mdbaseConnect.setLaunchAtLogin(checked);
+              onNotice(checked ? "mdbase connect will start at login." : "Launch at login is off.");
+            })}
+          />
+          <SettingSwitch
+            className="setting-toggle"
+            label="Remote access"
+            description="Pause all applications while keeping the relay connected"
+            checked={status ? !status.paused : false}
+            disabled={busy || status === null}
+            stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
+            onChange={(checked) => void onAct(async () => {
+              await window.mdbaseConnect.setAccessPaused(!checked);
+              onNotice(checked ? "Remote access is available." : "Remote access is paused.");
+            })}
+          />
         </div>
       </section>
       <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Record payloads pass through the relay only while an operation is active.</p></div></section>
@@ -633,6 +660,33 @@ function Empty({ title, text, action, onAction }: { title: string; text: string;
 
 function StatusDot({ state }: { state: "connected" | "paused" | "danger" | "idle" }) {
   return <span className={`status-dot ${state}`} aria-hidden="true" />;
+}
+
+function SettingSwitch({ className, label, description, checked, disabled, stateLabel, onChange }: {
+  className: "pause-control" | "setting-toggle";
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  stateLabel: string;
+  onChange(checked: boolean): void;
+}) {
+  return (
+    <label className={`${className} ${disabled ? "disabled" : ""}`}>
+      <span className="toggle-copy"><strong>{label}</strong><small>{description}</small></span>
+      <span className="toggle-action">
+        <span className="toggle-state" aria-hidden="true">{stateLabel}</span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label={label}
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      </span>
+    </label>
+  );
 }
 
 function operationDescription(operation: string) {
