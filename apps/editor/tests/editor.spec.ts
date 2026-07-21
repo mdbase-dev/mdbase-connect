@@ -66,6 +66,37 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
 });
 
+for (const trigger of ["@", "[["] as const) {
+  test(`${trigger} picker remains usable when its query autosaves`, async ({ page }) => {
+    const runtimeErrors: string[] = [];
+    page.on("pageerror", (error) => runtimeErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") runtimeErrors.push(message.text());
+    });
+
+    await page.goto("?demo=12");
+    const editor = page.getByRole("main", { name: "Note editor" });
+    const body = page.getByRole("textbox", { name: "Note body" });
+    const saveState = editor.locator(".save-state");
+    await body.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type(`\n\n${trigger}the shape`);
+
+    const completion = page.locator(".cm-tooltip-autocomplete");
+    await expect(completion).toBeVisible();
+    await expect(saveState).toHaveText("Unsaved");
+    await expect(saveState).toHaveText("Saved", { timeout: 2_000 });
+    await expect(completion).toBeVisible();
+
+    await page.keyboard.press("Enter");
+    await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+    await expect(saveState).toHaveText("Unsaved");
+    await expect(saveState).toHaveText("Saved", { timeout: 2_000 });
+    await expect(page.getByText(/Couldn’t save/)).toHaveCount(0);
+    expect(runtimeErrors).toEqual([]);
+  });
+}
+
 test("creates a note only after the creation form is complete", async ({ page }) => {
   await page.goto("?demo=4");
   await expect(page.getByText("4 notes", { exact: true })).toBeVisible();

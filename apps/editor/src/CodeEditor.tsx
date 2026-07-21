@@ -46,6 +46,11 @@ export function CodeEditor({
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
+  const linkSuggestionsRef = useRef(linkSuggestions);
+  const linkTypesRef = useRef(linkTypes);
+
+  linkSuggestionsRef.current = linkSuggestions;
+  linkTypesRef.current = linkTypes;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -60,7 +65,10 @@ export function CodeEditor({
           minimalSetup,
           languageExtension(language),
           wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
-          completions.current.of(language === "markdown" && linkSuggestions.length ? linkAutocomplete(linkSuggestions, linkTypes) : []),
+          completions.current.of(language === "markdown" ? linkAutocomplete(
+            () => linkSuggestionsRef.current,
+            () => linkTypesRef.current
+          ) : []),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           EditorView.contentAttributes.of({
@@ -114,9 +122,12 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: completions.current.reconfigure(language === "markdown" && linkSuggestions.length ? linkAutocomplete(linkSuggestions, linkTypes) : [])
+      effects: completions.current.reconfigure(language === "markdown" ? linkAutocomplete(
+        () => linkSuggestionsRef.current,
+        () => linkTypesRef.current
+      ) : [])
     });
-  }, [language, linkSuggestions, linkTypes]);
+  }, [language]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -136,10 +147,10 @@ function languageExtension(language: EditorLanguage): Extension {
   return [];
 }
 
-function linkAutocomplete(suggestions: LinkSuggestion[], types: string[]): Extension {
+function linkAutocomplete(suggestions: () => LinkSuggestion[], types: () => string[]): Extension {
   return autocompletion({
     activateOnTyping: true,
-    override: [(context) => linkCompletion(context, suggestions, types)]
+    override: [(context) => linkCompletion(context, suggestions(), types())]
   });
 }
 
