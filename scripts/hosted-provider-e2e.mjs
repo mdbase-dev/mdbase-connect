@@ -372,6 +372,7 @@ try {
     body: "Generic mdbase Markdown."
   });
   assert.equal(sdkCreated.valid, true);
+  assert.deepEqual(sdkCreated.result.types, []);
   const sdkUpdated = await hostedSdk.update({
     path: "Draft.md",
     fields: { title: "Updated through hosted SDK" },

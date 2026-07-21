@@ -1,8 +1,9 @@
 import { createServer } from "node:http";
 import { createECDH } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
 import { pkceChallenge } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -383,6 +384,103 @@ describe("mdbase connect server", () => {
     );
   });
 
+  it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test",
+      allowInsecureManifests: true
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Writer", email: "writer@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const collection = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie },
+      payload: { display_name: "Writing", template: "mdbase" }
+    });
+    const collectionId = collection.json().collection.id as string;
+
+    const manifestServer = await startManifestServer({ contracts: [] }, "Writing Editor");
+    resources.push(manifestServer.close);
+    const discovered = await app.inject({
+      method: "POST",
+      url: "/v1/apps/discover",
+      payload: { manifest_url: manifestServer.manifestUrl }
+    });
+    const applicationId = discovered.json().application.id as string;
+    const verifier = "hosted-unrestricted-verifier-that-is-long-enough-0001";
+    const authorization = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update`,
+      headers: { cookie }
+    });
+    const requestId = authorization.headers.location!.split("/").at(-1)!;
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["describe", "query", "create", "update"]
+      }
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({ purpose: "application", allowedTypes: [] })
+    );
+
+    const provisioned = await db.query<{ id: string; allowed_types: string[] }>(
+      "SELECT id, allowed_types FROM hosted_replicas WHERE purpose = 'application'"
+    );
+    expect(provisioned.rows[0].allowed_types).toEqual([]);
+
+    await db.query("UPDATE hosted_replicas SET allowed_types = $2::jsonb WHERE id = $1", [
+      provisioned.rows[0].id,
+      JSON.stringify(["task"])
+    ]);
+    vi.mocked(hostedProvider.updateApplicationReplica).mockClear();
+    const rediscovered = await app.inject({
+      method: "POST",
+      url: "/v1/apps/discover",
+      payload: { manifest_url: manifestServer.manifestUrl }
+    });
+    expect(rediscovered.statusCode).toBe(200);
+    expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
+      provisioned.rows[0].id,
+      expect.objectContaining({ allowedTypes: [] })
+    );
+    const reconciled = await db.query<{ allowed_types: string[] }>(
+      "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
+      [provisioned.rows[0].id]
+    );
+    expect(reconciled.rows[0].allowed_types).toEqual([]);
+  });
+
   it("uses a trusted Tailscale identity instead of a development session", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -424,7 +522,10 @@ describe("mdbase connect server", () => {
   });
 });
 
-async function startManifestServer(): Promise<{
+async function startManifestServer(
+  requirements = { contracts: [{ id: "workout.record", version: 1 }] },
+  name = "Workout Tracker"
+): Promise<{
   manifestUrl: string;
   redirectUri: string;
   close(): Promise<void>;
@@ -436,10 +537,10 @@ async function startManifestServer(): Promise<{
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
-      name: "Workout Tracker",
+      name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts: [{ id: "workout.record", version: 1 }] }
+      requirements
     }));
   });
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

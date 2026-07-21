@@ -1714,13 +1714,15 @@ async function reconcileApplicationGrants(
     operations: string[];
     contracts: ContractRequirement[] | null;
     template: string | null;
+    allowed_types: string[] | null;
     scope: GrantScope;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_replica_id,
-            g.operations, col.contracts, hosted.template, g.scope
+            g.operations, col.contracts, hosted.template, replica.allowed_types, g.scope
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+     LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.application_id = $1 AND g.revoked_at IS NULL`,
     [application.id]
   );
@@ -1730,19 +1732,33 @@ async function reconcileApplicationGrants(
       ? hostedContracts(grant.template)
       : grant.contracts ?? [];
     const collectionCompatible = contractsSatisfy(availableContracts, desiredScope.contracts);
-    if (scopesEqual(grant.scope, desiredScope) && collectionCompatible) continue;
+    const scopeMatches = scopesEqual(grant.scope, desiredScope);
+    const desiredAllowedTypes = grant.template
+      ? hostedTypesForContracts(grant.template, desiredScope.contracts)
+      : [];
+    const replicaScopeMatches = !grant.hosted_replica_id
+      || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
+    if (scopeMatches && collectionCompatible && replicaScopeMatches) continue;
     const mayNarrow = desiredScope.contracts.length > 0
       && (grant.scope.contracts.length === 0
         || isContractSubset(desiredScope.contracts, grant.scope.contracts));
-    if (mayNarrow && collectionCompatible) {
+    if ((scopeMatches || mayNarrow) && collectionCompatible) {
       if (grant.hosted_replica_id) {
         if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
         const write = grant.operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           mode: write ? "read_write" : "read_only",
-          allowedTypes: hostedTypesForContracts(grant.template!, desiredScope.contracts),
+          allowedTypes: desiredAllowedTypes,
           allowedOperations: grant.operations
         });
+        await db.query(
+          "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
+          [
+            grant.hosted_replica_id,
+            JSON.stringify(desiredAllowedTypes),
+            write ? "read_write" : "read_only"
+          ]
+        );
       }
       await db.query("UPDATE grants SET scope = $2::jsonb WHERE id = $1", [
         grant.id,
@@ -1786,6 +1802,13 @@ function isContractSubset(
 ): boolean {
   const available = new Set(superset.map((contract) => `${contract.id}@${contract.version}`));
   return subset.every((contract) => available.has(`${contract.id}@${contract.version}`));
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  const leftValues = new Set(left);
+  const rightValues = new Set(right);
+  return leftValues.size === rightValues.size
+    && [...leftValues].every((value) => rightValues.has(value));
 }
 
 async function approveAuthorization(
