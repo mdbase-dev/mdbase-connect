@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Braces,
   Check,
   ChevronRight,
   CircleAlert,
@@ -7,23 +8,29 @@ import {
   Folder,
   Info,
   MoreHorizontal,
+  NotebookPen,
   PanelLeft,
   Search,
+  Settings2,
   Trash2,
   X
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import type { CollectionDescription } from "@mdbase/connect";
 import {
   useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type CSSProperties
 } from "react";
+import { CodeEditor } from "./CodeEditor";
 import { gatewayError } from "./gateway";
 import type {
   CollectionGateway,
+  CreateNoteInput,
   NoteDocument,
   NoteSummary,
   SaveNoteInput,
@@ -38,10 +45,16 @@ import {
   propertyPatch,
   safeRenamePath
 } from "./note";
+import { NewNoteComposer } from "./NewNoteComposer";
+import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
+import { PropertiesPanel } from "./PropertiesPanel";
+import { SettingsView } from "./SettingsView";
+import { TypeInspector, TypeList } from "./TypeBrowser";
 
 type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 type SaveState = "saved" | "waiting" | "saving" | "conflict";
 type MobilePane = "collections" | "notes" | "editor";
+type Surface = "notes" | "types" | "settings";
 
 interface Draft {
   title: string;
@@ -51,24 +64,28 @@ interface Draft {
 
 export function App({ gateway }: { gateway: CollectionGateway }) {
   const [phase, setPhase] = useState<AppPhase>("starting");
-  const [collectionName, setCollectionName] = useState("Collection");
+  const [description, setDescription] = useState<CollectionDescription>();
   const [allNotes, setAllNotes] = useState<NoteSummary[]>([]);
   const [listedNotes, setListedNotes] = useState<NoteSummary[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
+  const [noteLoading, setNoteLoading] = useState(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [folderFilter, setFolderFilter] = useState<string>();
+  const [surface, setSurface] = useState<Surface>("notes");
+  const [selectedTypeName, setSelectedTypeName] = useState<string>();
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState<string>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
-  const [propertiesText, setPropertiesText] = useState("{}");
   const [propertiesError, setPropertiesError] = useState<string>();
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
+  const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   const indexGeneration = useRef(0);
   const documentGeneration = useRef(0);
   const baseline = useRef("");
@@ -80,6 +97,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => { documentRef.current = document; }, [document]);
   useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => { savePreferences(preferences); }, [preferences]);
 
   const loadIndex = useCallback(async (query = "") => {
     const generation = ++indexGeneration.current;
@@ -89,13 +107,23 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (!query.trim()) setAllNotes(notes);
   }, [gateway]);
 
+  const refreshDescription = useCallback(async () => {
+    const next = await gateway.describe();
+    setDescription(next);
+    setSelectedTypeName((current) => next.types.some((type) => type.name === current) ? current : next.types[0]?.name);
+    return next;
+  }, [gateway]);
+
   const openNote = useCallback(async (path: string) => {
     const generation = ++documentGeneration.current;
     setSelectedPath(path);
     setDocument(undefined);
     setDraft(undefined);
+    setNoteLoading(true);
+    setCreatingNote(false);
     setNotice(undefined);
     setPropertiesError(undefined);
+    setPropertiesOpen(false);
     setDeleteOpen(false);
     setMobilePane("editor");
     try {
@@ -108,11 +136,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setDocument(next);
       setDraft(nextDraft);
       setPathDraft(next.path);
-      setPropertiesText(JSON.stringify(next.raw_frontmatter ?? {}, null, 2));
       setSaveState("saved");
       localStorage.setItem("mdbase-editor:last-note", next.path);
     } catch (error) {
       if (generation === documentGeneration.current) setNotice(gatewayError(error));
+    } finally {
+      if (generation === documentGeneration.current) setNoteLoading(false);
     }
   }, [gateway]);
 
@@ -120,8 +149,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPhase("loading");
     setNotice(undefined);
     try {
-      const description = await gateway.describe();
-      setCollectionName(description.display_name);
+      const nextDescription = await refreshDescription();
       const notes = await gateway.list();
       setAllNotes(notes);
       setListedNotes(notes);
@@ -129,11 +157,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       const remembered = localStorage.getItem("mdbase-editor:last-note");
       const initial = notes.find((note) => note.path === remembered)?.path ?? notes[0]?.path;
       if (initial) await openNote(initial);
+      if (!nextDescription.types.length) setSelectedTypeName(undefined);
     } catch (error) {
       setNotice(gatewayError(error));
       setPhase(gateway.connection() ? "ready" : "disconnected");
     }
-  }, [gateway, openNote]);
+  }, [gateway, openNote, refreshDescription]);
 
   useEffect(() => {
     let alive = true;
@@ -160,9 +189,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (phase !== "ready") return;
     const controller = new AbortController();
     let refreshTimer: number | undefined;
-    void gateway.watch(() => {
+    void gateway.watch((change) => {
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void loadIndex(deferredSearch), 180);
+      refreshTimer = window.setTimeout(() => {
+        void loadIndex(deferredSearch);
+        if (change?.type === "mdbase.type.changed") void refreshDescription();
+      }, 180);
     }, controller.signal).catch((error) => {
       if (!controller.signal.aborted) setNotice(gatewayError(error));
     });
@@ -170,7 +202,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       controller.abort();
       window.clearTimeout(refreshTimer);
     };
-  }, [deferredSearch, gateway, loadIndex, phase]);
+  }, [deferredSearch, gateway, loadIndex, phase, refreshDescription]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -195,11 +227,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
     saving.current = true;
     setSaveState("saving");
-    const input: SaveNoteInput = {
-      path: currentDocument.path,
-      revision: currentDocument.revision,
-      ...currentDraft
-    };
+    const input: SaveNoteInput = { path: currentDocument.path, revision: currentDocument.revision, ...currentDraft };
     try {
       const updated = await gateway.update(input);
       if (documentRef.current?.path === input.path) {
@@ -223,8 +251,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [deferredSearch, gateway, loadIndex]);
 
   useEffect(() => {
-    if (!document || !draft) return;
-    if (fingerprint(document.path, draft) === baseline.current) return;
+    if (!document || !draft || fingerprint(document.path, draft) === baseline.current) return;
     setSaveState("waiting");
     const timer = window.setTimeout(() => void runSave().catch(() => undefined), 650);
     return () => window.clearTimeout(timer);
@@ -245,9 +272,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       const currentDocument = documentRef.current;
       const currentDraft = draftRef.current;
-      if (currentDocument && currentDraft && fingerprint(currentDocument.path, currentDraft) !== baseline.current) {
-        event.preventDefault();
-      }
+      if (currentDocument && currentDraft && fingerprint(currentDocument.path, currentDraft) !== baseline.current) event.preventDefault();
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
@@ -262,16 +287,27 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
   }
 
-  async function createNote() {
+  async function beginCreate() {
     setNotice(undefined);
     try {
       await flushSave();
-      const created = await gateway.create();
-      await loadIndex("");
-      await openNote(created.path);
+      setSurface("notes");
+      setPropertiesOpen(false);
+      setCreatingNote(true);
+      setMobilePane("editor");
     } catch (error) {
       setNotice(gatewayError(error));
     }
+  }
+
+  async function createNote(input: CreateNoteInput) {
+    await flushSave();
+    const created = await gateway.create(input);
+    await loadIndex("");
+    setSearch("");
+    setFolderFilter(undefined);
+    setCreatingNote(false);
+    await openNote(created.path);
   }
 
   async function renameNote() {
@@ -303,25 +339,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  async function saveProperties() {
+  async function saveProperties(next: Record<string, unknown>) {
     const current = documentRef.current;
     if (!current) return;
     setPropertiesError(undefined);
     try {
-      const parsed = JSON.parse(propertiesText) as unknown;
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-        throw new Error("Properties must be a JSON object.");
-      }
       await flushSave();
       const latest = documentRef.current!;
       const updated = await gateway.updateProperties(
         latest.path,
-        propertyPatch(latest.raw_frontmatter ?? {}, parsed as Record<string, unknown>),
+        propertyPatch(latest.raw_frontmatter ?? {}, next),
         latest.revision
       );
       documentRef.current = updated;
       setDocument(updated);
-      setPropertiesText(JSON.stringify(updated.raw_frontmatter ?? {}, null, 2));
       const nextDraft = editableNote(updated);
       draftRef.current = nextDraft;
       setDraft(nextDraft);
@@ -363,6 +394,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
+  async function selectSurface(next: Surface) {
+    try {
+      await flushSave();
+      setSurface(next);
+      setCreatingNote(false);
+      setPropertiesOpen(false);
+      setMobilePane(next === "settings" ? "editor" : "notes");
+    } catch (error) {
+      setNotice(gatewayError(error));
+    }
+  }
+
   function disconnect() {
     gateway.disconnect();
     setPhase("disconnected");
@@ -373,127 +416,97 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   if (phase === "starting") return <LoadingScreen />;
-  if (phase === "disconnected") {
-    return <ConnectScreen notice={notice} onConnect={() => void connectCollection()} />;
-  }
-  if (phase === "loading") return <LoadingScreen />;
+  if (phase === "disconnected") return <ConnectScreen notice={notice} onConnect={() => void connectCollection()} />;
+  if (phase === "loading" || !description) return <LoadingScreen />;
 
-  return <div className={`app-shell pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}`}>
+  const selectedType = description.types.find((type) => type.name === selectedTypeName);
+  return <div className={`app-shell surface-${surface} pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}`}>
     <CollectionRail
-      name={collectionName}
+      name={description.display_name}
       count={allNotes.length}
+      typeCount={description.types.length}
       activeFolder={folderFilter}
       notes={allNotes}
-      onFolder={(folder) => { setFolderFilter(folder); setMobilePane("notes"); }}
+      surface={surface}
+      onNotes={(folder) => { setFolderFilter(folder); void selectSurface("notes"); }}
+      onTypes={() => void selectSurface("types")}
+      onSettings={() => void selectSurface("settings")}
       onDisconnect={disconnect}
     />
-    <NoteList
-      notes={visibleNotes}
-      selectedPath={selectedPath}
-      search={search}
-      collectionName={folderFilter ?? collectionName}
-      onSearch={setSearch}
-      onSelect={(path) => void (async () => {
-        try {
-          await flushSave();
-          await openNote(path);
-        } catch (error) {
-          setNotice(gatewayError(error));
-        }
-      })()}
-      onCreate={() => void createNote()}
-      onCollections={() => setMobilePane("collections")}
-    />
-    <main className="editor-pane" aria-label="Note editor">
-      {document && draft ? <>
-        <header className="editor-bar">
-          <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => setMobilePane("notes")}>
-            <ArrowLeft aria-hidden="true" />
-          </button>
-          <div className="path-wrap">
-            {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void renameNote(); }}>
-              <label className="sr-only" htmlFor="note-path">Markdown path</label>
-              <input
-                id="note-path"
-                className="path-input"
-                value={pathDraft}
-                onChange={(event) => setPathDraft(event.target.value)}
-                onBlur={() => void renameNote()}
-                autoFocus
-              />
-            </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown file">
-              {document.path}
-            </button>}
-          </div>
-          <SaveIndicator state={saveState} />
-          <button
-            className={`icon-button${propertiesOpen ? " active" : ""}`}
-            aria-label="Note properties"
-            aria-pressed={propertiesOpen}
-            onClick={() => setPropertiesOpen((value) => !value)}
-          ><Info aria-hidden="true" /></button>
-          <details className="note-actions">
-            <summary className="icon-button" aria-label="More note actions"><MoreHorizontal aria-hidden="true" /></summary>
-            <div className="action-menu">
-              <button onClick={() => void validateNote()}><Check aria-hidden="true" /> Check note</button>
-              <button className="danger-action" onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" /> Delete note</button>
+
+    {surface === "notes" && <>
+      <NoteList
+        notes={visibleNotes}
+        selectedPath={selectedPath}
+        search={search}
+        collectionName={folderFilter ?? description.display_name}
+        onSearch={setSearch}
+        onSelect={(path) => void (async () => {
+          try { await flushSave(); await openNote(path); } catch (error) { setNotice(gatewayError(error)); }
+        })()}
+        onCreate={() => void beginCreate()}
+        onCollections={() => setMobilePane("collections")}
+      />
+      {creatingNote ? <NewNoteComposer
+        types={description.types}
+        defaultFolder={folderFilter}
+        onCreate={createNote}
+        onCancel={() => { setCreatingNote(false); setMobilePane("notes"); }}
+      /> : <main className="editor-pane" aria-label="Note editor">
+        {noteLoading ? <NoteSkeleton /> : document && draft ? <>
+          <header className="editor-bar">
+            <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => setMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            <div className="path-wrap">
+              {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void renameNote(); }}>
+                <label className="sr-only" htmlFor="note-path">Markdown path</label>
+                <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void renameNote()} autoFocus />
+              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown file">{document.path}</button>}
             </div>
-          </details>
-        </header>
-        {notice && <div className="notice" role="status">
-          <CircleAlert aria-hidden="true" />
-          <span>{notice}</span>
-          <button aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X aria-hidden="true" /></button>
-        </div>}
-        {deleteOpen && <div className="delete-confirm" role="alert">
-          <span>Delete this note from the collection?</span>
-          <button onClick={() => setDeleteOpen(false)}>Keep note</button>
-          <button className="danger-action" onClick={() => void deleteNote()}>Delete</button>
-        </div>}
-        <article className="writing-surface">
-          <label className="sr-only" htmlFor="note-title">Note title</label>
-          <input
-            id="note-title"
-            className="title-input"
-            value={draft.title}
-            onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-            placeholder="Untitled"
-            spellCheck="true"
-          />
-          <label className="sr-only" htmlFor="note-body">Note body</label>
-          <textarea
-            id="note-body"
-            className="body-input"
-            value={draft.body}
-            onChange={(event) => setDraft({ ...draft, body: event.target.value })}
-            placeholder="Start writing"
-            spellCheck="true"
-          />
-        </article>
-      </> : <EmptyEditor onCreate={() => void createNote()} />}
-    </main>
-    {propertiesOpen && document && <PropertiesPanel
-      note={document}
-      text={propertiesText}
-      error={propertiesError}
-      onChange={setPropertiesText}
-      onClose={() => setPropertiesOpen(false)}
-      onSave={() => void saveProperties()}
-    />}
+            {preferences.vim && <span className="vim-label">Vim</span>}
+            <SaveIndicator state={saveState} />
+            <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen((value) => !value)}><Info aria-hidden="true" /></button>
+            <details className="note-actions">
+              <summary className="icon-button" aria-label="More note actions"><MoreHorizontal aria-hidden="true" /></summary>
+              <div className="action-menu">
+                <button onClick={() => void validateNote()}><Check aria-hidden="true" /> Check note</button>
+                <button className="danger-action" onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" /> Delete note</button>
+              </div>
+            </details>
+          </header>
+          {notice && <div className="notice" role="status"><CircleAlert aria-hidden="true" /><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X aria-hidden="true" /></button></div>}
+          {deleteOpen && <div className="delete-confirm" role="alert"><span>Delete this note from the collection?</span><button onClick={() => setDeleteOpen(false)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote()}>Delete</button></div>}
+          <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
+            <label className="sr-only" htmlFor="note-title">Note title</label>
+            <input id="note-title" className="title-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Untitled" spellCheck="true" />
+            <CodeEditor
+              key={document.path}
+              value={draft.body}
+              onChange={(body) => setDraft((current) => current ? { ...current, body } : current)}
+              label="Note body"
+              language="markdown"
+              placeholder="Start writing"
+              vimEnabled={preferences.vim}
+              lineWrapping={preferences.lineWrapping}
+              autoFocus
+              className="body-editor"
+            />
+          </article>
+        </> : <EmptyEditor onCreate={() => void beginCreate()} />}
+      </main>}
+      {propertiesOpen && document && <PropertiesPanel key={document.path} note={document} types={description.types} error={propertiesError} onClose={() => setPropertiesOpen(false)} onSave={(value) => void saveProperties(value)} />}
+    </>}
+
+    {surface === "types" && <>
+      <TypeList types={description.types} selectedName={selectedTypeName} onSelect={(name) => { setSelectedTypeName(name); setMobilePane("editor"); }} onCollections={() => setMobilePane("collections")} />
+      <TypeInspector type={selectedType} onBack={() => setMobilePane("notes")} />
+    </>}
+
+    {surface === "settings" && <SettingsView description={description} noteCount={allNotes.length} preferences={preferences} onChange={setPreferences} onBack={() => setMobilePane("collections")} />}
   </div>;
 }
 
 function ConnectScreen({ notice, onConnect }: { notice?: string; onConnect: () => void }) {
-  return <main className="connect-screen">
-    <section>
-      <Wordmark />
-      <h1>Your notes,<br />as files.</h1>
-      <p className="connect-copy">Open an mdbase collection and write. Its Markdown stays on your computer.</p>
-      <button className="connect-button" onClick={onConnect}>Connect a collection <ChevronRight aria-hidden="true" /></button>
-      <p className="access-copy">This editor asks to view, create, edit, move, validate, and delete records in one collection. You approve access on the computer that holds it.</p>
-      {notice && <p className="connect-error" role="alert">{notice}</p>}
-    </section>
-  </main>;
+  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">Open an mdbase collection and write. Its Markdown stays on your computer.</p><button className="connect-button" onClick={onConnect}>Connect a collection <ChevronRight aria-hidden="true" /></button><p className="access-copy">This editor asks to view, create, edit, move, validate, and delete records and inspect type definitions in one collection. You approve access on the computer that holds it.</p>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
 }
 
 function LoadingScreen() {
@@ -504,38 +517,33 @@ function Wordmark() {
   return <div className="wordmark"><span aria-hidden="true" />mdbase <strong>editor</strong></div>;
 }
 
-function CollectionRail(props: {
+function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, onNotes, onTypes, onSettings, onDisconnect }: {
   name: string;
   count: number;
+  typeCount: number;
   activeFolder?: string;
   notes: NoteSummary[];
-  onFolder: (folder?: string) => void;
+  surface: Surface;
+  onNotes: (folder?: string) => void;
+  onTypes: () => void;
+  onSettings: () => void;
   onDisconnect: () => void;
 }) {
-  const collectionFolders = folders(props.notes);
+  const collectionFolders = folders(notes);
   return <aside className="collection-rail" aria-label="Collection navigation">
     <Wordmark />
     <nav>
-      <button className={!props.activeFolder ? "selected" : ""} onClick={() => props.onFolder(undefined)}>
-        <span>{props.name}</span><small>{props.count}</small>
-      </button>
-      <p className="rail-label">Folders</p>
-      {collectionFolders.map((folder) => <button
-        key={folder.name}
-        className={props.activeFolder === folder.name ? "selected" : ""}
-        onClick={() => props.onFolder(folder.name)}
-      >
-        <span><Folder aria-hidden="true" />{folder.name}</span><small>{folder.count}</small>
-      </button>)}
+      <p className="collection-name">{name}</p>
+      <button className={surface === "notes" && !activeFolder ? "selected" : ""} onClick={() => onNotes(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
+      <button className={surface === "types" ? "selected" : ""} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{typeCount}</small></button>
+      <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
+      {collectionFolders.length > 0 && <><p className="rail-label">Folders</p>{collectionFolders.map((folder) => <button key={folder.name} className={surface === "notes" && activeFolder === folder.name ? "selected" : ""} onClick={() => onNotes(folder.name)}><span><Folder aria-hidden="true" />{folder.name}</span><small>{folder.count}</small></button>)}</>}
     </nav>
-    <footer>
-      <p><span className="status-dot" />Connected</p>
-      <button onClick={props.onDisconnect}>Disconnect</button>
-    </footer>
+    <footer><p><span className="status-dot" />Connected</p><button onClick={onDisconnect}>Disconnect</button></footer>
   </aside>;
 }
 
-function NoteList(props: {
+function NoteList({ notes, selectedPath, search, collectionName, onSearch, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
   search: string;
@@ -546,44 +554,15 @@ function NoteList(props: {
   onCollections: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
-    count: props.notes.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 76,
-    overscan: 8
-  });
-
+  const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
-    <header className="list-header">
-      <button className="mobile-collections icon-button" aria-label="Collections" onClick={props.onCollections}>
-        <PanelLeft aria-hidden="true" />
-      </button>
-      <div><h1>{props.collectionName}</h1><p>{props.notes.length} {props.notes.length === 1 ? "note" : "notes"}</p></div>
-      <button className="icon-button new-note" aria-label="New note" onClick={props.onCreate}><FilePlus2 aria-hidden="true" /></button>
-    </header>
-    <label className="search-field">
-      <Search aria-hidden="true" />
-      <span className="sr-only">Search every note</span>
-      <input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Search" />
-      {props.search && <button aria-label="Clear search" onClick={() => props.onSearch("")}><X aria-hidden="true" /></button>}
-    </label>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button><div><h1>{collectionName}</h1><p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p></div><button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
+    <label className="search-field"><Search aria-hidden="true" /><span className="sr-only">Search every note</span><input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search && <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button>}</label>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes">
-      {props.notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const note = props.notes[virtualRow.index];
-          return <button
-            key={note.path}
-            role="option"
-            aria-selected={note.path === props.selectedPath}
-            className={`note-row${note.path === props.selectedPath ? " selected" : ""}`}
-            onClick={() => props.onSelect(note.path)}
-            style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}
-          >
-            <span className="note-title">{noteTitle(note)}</span>
-            <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>
-          </button>;
-        })}
-      </div> : <div className="list-empty"><p>{props.search ? "No notes found." : "This collection is empty."}</p>{!props.search && <button onClick={props.onCreate}>Create the first note</button>}</div>}
+      {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
+        const note = notes[virtualRow.index];
+        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} className={`note-row${note.path === selectedPath ? " selected" : ""}`} onClick={() => onSelect(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span><span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span></button>;
+      })}</div> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
 }
@@ -593,26 +572,8 @@ function SaveIndicator({ state }: { state: SaveState }) {
   return <span className={`save-state ${state}`} aria-live="polite">{state === "saved" && <Check aria-hidden="true" />}{label}</span>;
 }
 
-function PropertiesPanel(props: {
-  note: NoteDocument;
-  text: string;
-  error?: string;
-  onChange: (value: string) => void;
-  onClose: () => void;
-  onSave: () => void;
-}) {
-  return <aside className="properties-panel" aria-label="Note properties">
-    <header><div><h2>Properties</h2><p>{props.note.types.length ? props.note.types.join(", ") : "Untyped record"}</p></div><button className="icon-button" aria-label="Close properties" onClick={props.onClose}><X aria-hidden="true" /></button></header>
-    <dl>
-      <div><dt>Path</dt><dd>{props.note.path}</dd></div>
-      <div><dt>Size</dt><dd>{formatBytes(props.note.file?.size)}</dd></div>
-      <div><dt>Modified</dt><dd>{formatDate(props.note.file?.mtime)}</dd></div>
-    </dl>
-    <label htmlFor="frontmatter">Frontmatter</label>
-    <textarea id="frontmatter" value={props.text} onChange={(event) => props.onChange(event.target.value)} spellCheck="false" />
-    {props.error && <p className="property-error" role="alert">{props.error}</p>}
-    <button className="property-save" onClick={props.onSave}>Save properties</button>
-  </aside>;
+function NoteSkeleton() {
+  return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar"><span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
 }
 
 function EmptyEditor({ onCreate }: { onCreate: () => void }) {
@@ -625,17 +586,4 @@ function fingerprint(path: string, draft: Draft): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function formatBytes(value?: number): string {
-  if (value === undefined) return "Unknown";
-  if (value < 1_000) return `${value} B`;
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
-  return `${(value / 1_000_000).toFixed(1)} MB`;
-}
-
-function formatDate(value?: string): string {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }

@@ -1,5 +1,6 @@
 import type {
   CollectionDescription,
+  CollectionChange,
   CollectionFileMetadata,
   JsonObject,
   MdbaseDiagnostic,
@@ -35,6 +36,14 @@ export interface SaveNoteInput {
   revision: string;
 }
 
+export interface CreateNoteInput {
+  title: string;
+  path: string;
+  type?: string;
+  titleField?: string;
+  properties: JsonObject;
+}
+
 export type TitleSource =
   | { kind: "frontmatter"; field: string }
   | { kind: "heading" };
@@ -53,11 +62,11 @@ export interface CollectionGateway {
   describe(): Promise<CollectionDescription>;
   list(search?: string): Promise<NoteSummary[]>;
   read(path: string): Promise<NoteDocument>;
-  create(): Promise<NoteDocument>;
+  create(input: CreateNoteInput): Promise<NoteDocument>;
   update(input: SaveNoteInput): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
   rename(from: string, to: string, revision: string): Promise<NoteDocument>;
   delete(path: string, revision: string): Promise<void>;
   validate(path: string): Promise<MdbaseDiagnostic[]>;
-  watch(onChange: () => void, signal: AbortSignal): Promise<void>;
+  watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal): Promise<void>;
 }

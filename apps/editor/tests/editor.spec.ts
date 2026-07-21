@@ -9,6 +9,63 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   await title.fill("Useful tools, revised");
   await page.getByRole("textbox", { name: "Note body" }).fill("A deliberately quiet editing surface.");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+
+  const codeMirror = page.locator(".body-editor .cm-editor");
+  await codeMirror.click();
+  await expect(codeMirror).toHaveClass(/cm-focused/);
+  expect(await codeMirror.evaluate((element) => ({
+    outline: getComputedStyle(element).outlineStyle,
+    shadow: getComputedStyle(element).boxShadow
+  }))).toEqual({ outline: "none", shadow: "none" });
+});
+
+test("creates a note only after the creation form is complete", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.getByText("4 notes", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New note" }).click();
+
+  const create = page.getByRole("button", { name: "Create note" });
+  await expect(create).toBeDisabled();
+  await page.getByRole("textbox", { name: "Title" }).fill("A useful note");
+  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
+  await page.getByRole("combobox", { name: "Type" }).selectOption("note");
+  await expect(create).toBeEnabled();
+  await create.click();
+
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("A useful note");
+  await expect(page.locator(".body-editor .cm-placeholder")).toHaveText("Start writing");
+  await expect(page.getByText("5 notes", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
+});
+
+test("inspects type definitions and persists editor settings", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: /Types/ }).click();
+  await expect(page.getByRole("heading", { name: "note" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "note type YAML" })).toContainText("kind: mdbase.type");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  const vim = page.getByRole("switch", { name: "Vim key bindings" });
+  await expect(vim).toHaveAttribute("aria-checked", "false");
+  await vim.click();
+  await expect(vim).toHaveAttribute("aria-checked", "true");
+
+  await page.getByRole("button", { name: /Notes/ }).first().click();
+  await expect(page.getByText("Vim", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Vim", { exact: true })).toBeVisible();
+});
+
+test("edits structured frontmatter without exposing an undifferentiated textarea", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click();
+  await page.getByRole("button", { name: "Note properties" }).click();
+
+  const panel = page.getByRole("complementary", { name: "Note properties" });
+  await expect(panel.getByRole("heading", { name: "Properties" })).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "tags JSON value" })).toBeVisible();
+  await panel.getByRole("tab", { name: /JSON/ }).click();
+  await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"tags"');
 });
 
 test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {

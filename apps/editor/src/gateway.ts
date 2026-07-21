@@ -12,6 +12,7 @@ import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
   ConnectionSummary,
+  CreateNoteInput,
   NoteDocument,
   NoteFrontmatter,
   NoteSummary,
@@ -87,12 +88,12 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return validResult(await this.connect.read({ path }));
   }
 
-  async create(): Promise<NoteDocument> {
-    const suffix = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  async create(input: CreateNoteInput): Promise<NoteDocument> {
     return validResult(await this.connect.create({
-      path: `Notes/Untitled ${suffix}.md`,
-      frontmatter: {},
-      body: "# Untitled\n"
+      path: input.path,
+      ...(input.type ? { type: input.type } : {}),
+      frontmatter: input.properties,
+      body: input.titleField ? "" : `# ${input.title}\n`
     }));
   }
 
@@ -127,9 +128,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return response.diagnostics;
   }
 
-  async watch(onChange: () => void, signal: AbortSignal): Promise<void> {
+  async watch(onChange: (change: import("@mdbase/connect").CollectionChange) => void, signal: AbortSignal): Promise<void> {
     for await (const change of this.connect.watch({ signal, pollIntervalMs: 1_500 })) {
-      if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange();
+      if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange(change);
     }
   }
 }

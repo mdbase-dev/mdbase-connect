@@ -7,6 +7,7 @@ import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
   ConnectionSummary,
+  CreateNoteInput,
   NoteDocument,
   NoteSummary,
   SaveNoteInput
@@ -37,8 +38,44 @@ export class DemoCollectionGateway implements CollectionGateway {
       spec_version: "0.3.0",
       operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
       change_cursor: this.sequence,
-      types: [],
-      contracts: []
+      types: [{
+        name: "note",
+        version: 1,
+        description: "A general note with optional tags.",
+        path: "_types/note.md",
+        definition: {
+          kind: "mdbase.type",
+          name: "note",
+          version: 1,
+          description: "A general note with optional tags.",
+          match: { path_glob: "Notes/**/*.md" },
+          schema: {
+            dialect: "json-schema-2020-12",
+            value: {
+              type: "object",
+              properties: {
+                type: { const: "note" },
+                title: { type: "string", minLength: 1 },
+                tags: { type: "array", items: { type: "string" } }
+              }
+            }
+          }
+        },
+        schema: {
+          type: "object",
+          properties: {
+            type: { const: "note" },
+            title: { type: "string", minLength: 1 },
+            tags: { type: "array", items: { type: "string" } }
+          }
+        },
+        extensions: {}
+      }],
+      contracts: [],
+      configuration: {
+        spec_version: "0.3.0",
+        settings: { types_folder: "_types", validation: "error" }
+      }
     };
   }
 
@@ -55,9 +92,13 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(this.required(path));
   }
 
-  async create(): Promise<NoteDocument> {
-    const path = `Notes/Untitled ${this.sequence}.md`;
-    const note = demoDocument(path, "Untitled", "", this.sequence++);
+  async create(input: CreateNoteInput): Promise<NoteDocument> {
+    if (this.notes.some((candidate) => candidate.path === input.path)) throw new Error("A note already uses that path.");
+    const note = demoDocument(input.path, input.title, "", this.sequence++);
+    note.frontmatter = { ...input.properties, ...(input.type ? { type: input.type } : {}) };
+    note.raw_frontmatter = structuredClone(note.frontmatter);
+    note.types = input.type ? [input.type] : [];
+    if (input.titleField) note.body = "";
     this.notes.unshift(note);
     this.emit();
     return clone(note);
@@ -110,7 +151,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return [];
   }
 
-  async watch(onChange: () => void, signal: AbortSignal): Promise<void> {
+  async watch(onChange: (change?: import("@mdbase/connect").CollectionChange) => void, signal: AbortSignal): Promise<void> {
     this.listeners.add(onChange);
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     this.listeners.delete(onChange);

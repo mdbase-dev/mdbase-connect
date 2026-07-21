@@ -4,6 +4,12 @@ A quiet, browser-based editor for an entire mdbase collection. It connects to a
 user-approved collection through mdbase connect and works with the Markdown
 records in place.
 
+The editor includes a CodeMirror Markdown surface with optional Vim keys,
+structured and JSON frontmatter views, deliberate note creation, collection
+settings, and read-only inspection of type definitions. Type definitions are
+not currently editable: changing the collection schema needs a separately
+permissioned management API in mdbase connect.
+
 The application requests `describe`, `changes`, `read`, `query`, `validate`,
 `create`, `update`, `delete`, and `rename` for one selected collection. Its
 manifest declares no domain contract, so the local connector treats the grant
@@ -22,6 +28,10 @@ pnpm dev
 
 Open `http://localhost:5173/mdbase-editor/?demo=5000` for a generated local
 collection that does not require authorization.
+
+Run the browser suite with `pnpm test:e2e`. It covers the real CodeMirror
+integration, creation and frontmatter flows, type inspection, settings,
+responsive navigation, accessibility, and a 10,000-record performance case.
 
 ## Deployment
 

@@ -29,7 +29,22 @@ content is 17px with a relaxed 1.7 line height and a maximum readable measure.
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
-requested. Mobile uses the same hierarchy as three navigable screens.
+requested. Types reuse the list-and-document rhythm; settings become one quiet
+document rather than a dashboard. Mobile presents each level as a separate
+navigable screen.
+
+## Editing
+
+CodeMirror provides Markdown behavior without introducing IDE chrome. Its
+focus state uses the normal caret and selection only: the editor surface never
+gains a border, outline, or glow. Vim bindings are optional and loaded only
+when enabled. Frontmatter opens as typed rows first, with JSON available as an
+escape hatch for nested or unfamiliar values.
+
+Creating a note is a short composition step. Nothing is written until the
+title, path, selected type, and any required fields are ready and the user
+chooses Create note. While an existing note is fetched, a stable document
+skeleton preserves the pane geometry and avoids flashing the empty state.
 
 ## Signature
 
