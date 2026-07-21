@@ -1,5 +1,8 @@
 import type { GitHubAuthConfig } from "./github-auth.js";
+import type { GoogleAuthConfig } from "./google-auth.js";
 import type { HostedProviderConfig } from "./hosted-provider.js";
+
+export type RegistrationMode = "closed" | "open";
 
 export interface RuntimeConfig {
   host: string;
@@ -7,6 +10,8 @@ export interface RuntimeConfig {
   devAuth: boolean;
   tailscaleAuth: boolean;
   githubAuth: GitHubAuthConfig | null;
+  googleAuth: GoogleAuthConfig | null;
+  registration: RegistrationMode;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   trustProxy: boolean;
@@ -24,21 +29,32 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   if (config.devAuth && !localPublicOrigin) {
     throw new Error("Development authentication cannot be enabled on a public origin.");
   }
-  const authenticationModes = [config.devAuth, config.tailscaleAuth, Boolean(config.githubAuth)]
+  const externalAuth = Boolean(config.githubAuth || config.googleAuth);
+  const authenticationModes = [config.devAuth, config.tailscaleAuth, externalAuth]
     .filter(Boolean).length;
   if (authenticationModes !== 1) {
-    throw new Error("Exactly one identity provider must be configured before the server starts.");
+    throw new Error("Exactly one authentication mode must be configured before the server starts.");
   }
   if (config.githubAuth) {
     if (!config.githubAuth.clientId.trim() || !config.githubAuth.clientSecret.trim()) {
       throw new Error("GitHub authentication requires a client ID and client secret.");
     }
-    if (config.githubAuth.allowedUserIds.size === 0) {
-      throw new Error("GitHub authentication requires at least one allowed user ID.");
-    }
     for (const id of config.githubAuth.allowedUserIds) {
       if (!/^[1-9][0-9]*$/.test(id)) {
         throw new Error("GitHub allowed user IDs must be positive numeric IDs.");
+      }
+    }
+    if (config.registration === "closed" && config.githubAuth.allowedUserIds.size === 0) {
+      throw new Error("Closed GitHub authentication requires at least one allowed user ID.");
+    }
+  }
+  if (config.googleAuth) {
+    if (!config.googleAuth.clientId.trim()) {
+      throw new Error("Google authentication requires a web client ID.");
+    }
+    for (const subject of config.googleAuth.allowedSubjects) {
+      if (!/^[A-Za-z0-9_-]{1,255}$/.test(subject)) {
+        throw new Error("Google allowed subjects must be valid account subject identifiers.");
       }
     }
   }
@@ -78,6 +94,10 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       .filter(Boolean)
   );
   const githubConfigured = Boolean(clientId || clientSecret || allowedUserIds.size);
+  const googleClientId = env.MDBASE_CONNECT_GOOGLE_CLIENT_ID?.trim() ?? "";
+  const allowedGoogleSubjects = commaSeparatedSet(env.MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS);
+  const googleConfigured = Boolean(googleClientId || allowedGoogleSubjects.size);
+  const registration = registrationMode(env.MDBASE_CONNECT_REGISTRATION);
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
   const hostedProviderUrl = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
@@ -90,12 +110,28 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     devAuth: env.MDBASE_CONNECT_DEV_AUTH === "1",
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",
     githubAuth: githubConfigured ? { clientId, clientSecret, allowedUserIds } : null,
+    googleAuth: googleConfigured
+      ? { clientId: googleClientId, allowedSubjects: allowedGoogleSubjects }
+      : null,
+    registration,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedProvider: hostedProviderConfigured
       ? { url: hostedProviderUrl, internalToken: hostedProviderInternalToken }
       : null,
     trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1"
   });
+}
+
+function commaSeparatedSet(value: string | undefined): Set<string> {
+  return new Set((value ?? "").split(",").map((item) => item.trim()).filter(Boolean));
+}
+
+function registrationMode(value: string | undefined): RegistrationMode {
+  const normalized = value?.trim() || "closed";
+  if (normalized !== "closed" && normalized !== "open") {
+    throw new Error("MDBASE_CONNECT_REGISTRATION must be either closed or open.");
+  }
+  return normalized;
 }
 
 function isLoopback(hostname: string): boolean {

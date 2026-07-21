@@ -34,6 +34,8 @@ describe("production GitHub authentication", () => {
     const config = await app.inject({ method: "GET", url: "/v1/auth/config" });
     expect(config.json()).toEqual({
       provider: "github",
+      providers: [{ id: "github", label: "Continue with GitHub", login_url: "/auth/github" }],
+      registration: "closed",
       development_login: false,
       login_url: "/auth/github"
     });
@@ -54,7 +56,7 @@ describe("production GitHub authentication", () => {
     expect(authorization.searchParams.get("allow_signup")).toBe("false");
     const state = authorization.searchParams.get("state")!;
     const oauthCookie = responseCookies(started)
-      .find((value) => value.startsWith("__Host-mdbase_oauth_state="))!;
+      .find((value) => value.startsWith("__Host-mdbase_oauth_github="))!;
     expect(oauthCookie).toContain("HttpOnly");
     expect(oauthCookie).toContain("Secure");
     expect(oauthCookie.toLowerCase()).toContain("samesite=lax");
@@ -94,7 +96,7 @@ describe("production GitHub authentication", () => {
         login: "callumalpass",
         email: null
       }),
-      authentication: { provider: "github" }
+      authentication: { provider: "github", registration: "closed" }
     }));
 
     const crossOriginLogout = await app.inject({
@@ -154,7 +156,7 @@ describe("production GitHub authentication", () => {
     const authorization = new URL(started.headers.location!);
     const state = authorization.searchParams.get("state")!;
     const oauthCookie = responseCookies(started)
-      .find((value) => value.startsWith("__Host-mdbase_oauth_state="))!;
+      .find((value) => value.startsWith("__Host-mdbase_oauth_github="))!;
     const completed = await app.inject({
       method: "GET",
       url: `/auth/github/callback?code=code-1&state=${encodeURIComponent(state)}`,

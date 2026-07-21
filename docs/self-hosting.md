@@ -27,10 +27,12 @@ body limit, and public-address checks for application manifest discovery.
 manifest hosts and is intended only for local or tailnet staging.
 
 The process refuses development authentication on a non-loopback public URL and
-refuses to start unless exactly one identity mode is enabled. A public origin
-can instead use GitHub OAuth with a numeric account-ID allowlist. TLS, secret
-storage, backups, monitoring, scaling, and incident response remain deployment
-responsibilities.
+refuses to start unless exactly one authentication mode is enabled. An external
+provider mode may offer GitHub and Google together. Registration is closed by
+default and uses immutable provider-subject allowlists; public account creation
+must be enabled explicitly. See [Google authentication](./google-auth.md). TLS,
+secret storage, backups, monitoring, scaling, and incident response remain
+deployment responsibilities.
 
 ## Connect the desktop app
 

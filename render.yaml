@@ -72,6 +72,12 @@ services:
         sync: false
       - key: MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS
         sync: false
+      - key: MDBASE_CONNECT_GOOGLE_CLIENT_ID
+        sync: false
+      - key: MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS
+        sync: false
+      - key: MDBASE_CONNECT_REGISTRATION
+        value: closed
       - key: MDBASE_CONNECT_HOSTED_COLLECTIONS
         value: "1"
       - key: MDBASE_CONNECT_HOSTED_PROVIDER_URL

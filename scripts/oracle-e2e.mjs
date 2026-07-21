@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import {
+  decryptRelayResponse,
+  encryptRelayRequest,
+  MemoryGrantKeyStore
+} from "../packages/client/dist/crypto.js";
 
 const run = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -12,11 +17,14 @@ const appOrigin = (process.env.MDBASE_CONNECT_ORACLE_APP_ORIGIN ?? "https://orac
 const extension = process.platform === "win32" ? ".exe" : "";
 const agentBinary = join(repoRoot, "target", "debug", `mdbase-connect-agent${extension}`);
 const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
+const benchmarkIterations = parseBenchmarkIterations(process.env.MDBASE_CONNECT_BENCHMARK_ITERATIONS);
+const encryptedRelay = process.env.MDBASE_CONNECT_ORACLE_ENCRYPTION === "required";
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-oracle-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "tasks");
 let connectorId;
 let agent;
+let relayContext;
 
 try {
   const health = await request("/health");
@@ -54,12 +62,24 @@ try {
     body: { manifest_url: manifestUrl }
   });
   const appId = application.body.application.id;
+  const applicationKeyStore = encryptedRelay ? new MemoryGrantKeyStore() : undefined;
+  const applicationKey = applicationKeyStore ? await applicationKeyStore.create("oracle-e2e-grant") : undefined;
   const redirectUri = `${appOrigin}/`;
   const verifier = "oracle-end-to-end-pkce-verifier-forty-three-characters";
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const operations = "describe,changes,read,query,create,update";
+  const authorizeUrl = new URL(`${serverUrl}/oauth/authorize`);
+  authorizeUrl.search = new URLSearchParams({
+    client_id: appId,
+    redirect_uri: redirectUri,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: "oracle-e2e",
+    operations,
+    ...(applicationKey ? { relay_protocol: "3", application_public_key: applicationKey.publicKey } : {})
+  }).toString();
   const authorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=oracle-e2e&operations=${operations}`,
+    authorizeUrl,
     { redirect: "manual" }
   );
   if (authorize.status !== 302) throw new Error(`Oracle authorization returned HTTP ${authorize.status}`);
@@ -95,6 +115,23 @@ try {
   if (token.body.scope?.contracts?.[0]?.id !== "tasknotes.task" || !token.body.refresh_token) {
     throw new Error(`Oracle authorization did not return contract scope: ${JSON.stringify(token.body)}`);
   }
+  if (encryptedRelay) {
+    if (!applicationKeyStore
+        || !token.body.grant_id
+        || token.body.encryption?.protocol_version !== 3
+        || token.body.encryption?.application_public_key !== applicationKey?.publicKey) {
+      throw new Error(`Oracle authorization did not establish encrypted relay protocol 3: ${JSON.stringify(token.body)}`);
+    }
+    relayContext = {
+      store: applicationKeyStore,
+      handle: "oracle-e2e-grant",
+      binding: {
+        grantId: token.body.grant_id,
+        applicationId: appId,
+        encryption: token.body.encryption
+      }
+    };
+  }
   const refreshed = await request("/oauth/token", {
     method: "POST",
     form: {
@@ -104,6 +141,7 @@ try {
     }
   });
   const accessToken = refreshed.body.access_token;
+  if (relayContext) relayContext.binding.encryption = refreshed.body.encryption;
   const collectionId = dashboard.collection.id;
 
   const description = await operation(collectionId, "describe", accessToken, {});
@@ -155,7 +193,11 @@ try {
   if (privateRead.response.status !== 403 || privateRead.body.error?.code !== "access_denied") {
     throw new Error(`Oracle contract scope exposed a private record: ${JSON.stringify(privateRead.body)}`);
   }
-  process.stdout.write("mdbase connect Oracle protocol 2 end-to-end path passed\n");
+  if (benchmarkIterations > 0) {
+    const results = await benchmarkRelay(collectionId, accessToken, benchmarkIterations);
+    process.stdout.write(`${JSON.stringify({ server: serverUrl, relay_protocol: relayContext ? 3 : 2, iterations: benchmarkIterations, results }, null, 2)}\n`);
+  }
+  process.stdout.write(`mdbase connect Oracle protocol ${relayContext ? 3 : 2} end-to-end path passed\n`);
 } finally {
   if (agent) await stopAgent(agent);
   if (connectorId) {
@@ -171,13 +213,90 @@ async function operation(collectionId, operationName, accessToken, input) {
 }
 
 async function rawOperation(collectionId, operationName, accessToken, input) {
+  const encryptedRequest = relayContext
+    ? await encryptRelayRequest(
+      relayContext.store,
+      relayContext.handle,
+      relayContext.binding,
+      operationName,
+      input
+    )
+    : input;
   const response = await fetch(`${serverUrl}/v1/collections/${collectionId}/operations/${operationName}`, {
     method: "POST",
     headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-    body: JSON.stringify(input)
+    body: JSON.stringify(encryptedRequest)
   });
   const body = await response.json();
-  return { response, body };
+  if (!response.ok || !relayContext) return { response, body };
+  const decrypted = await decryptRelayResponse(
+    relayContext.store,
+    relayContext.handle,
+    relayContext.binding,
+    encryptedRequest,
+    body.envelope
+  );
+  if (decrypted.ok) return { response, body: { ok: true, result: decrypted.result } };
+  const status = decrypted.error.code === "access_denied" || decrypted.error.code === "access_paused" ? 403 : 502;
+  return { response: syntheticResponse(status), body: { error: decrypted.error } };
+}
+
+async function benchmarkRelay(collectionId, accessToken, iterations) {
+  const samples = { describe: [], query: [], create: [], read: [], update: [] };
+  await operation(collectionId, "query", accessToken, { types: ["task"], limit: 1_000, include_body: false });
+  for (let index = 0; index < iterations; index += 1) {
+    await measure(samples.describe, () => operation(collectionId, "describe", accessToken, {}));
+    await measure(samples.query, () => operation(collectionId, "query", accessToken, {
+      types: ["task"], limit: 1_000, include_body: false
+    }));
+    const path = `tasks/benchmark-${Date.now()}-${index}.md`;
+    const created = await measure(samples.create, () => operation(collectionId, "create", accessToken, {
+      path,
+      frontmatter: { type: "task", title: `Relay benchmark ${index}`, status: "open" }
+    }));
+    await measure(samples.read, () => operation(collectionId, "read", accessToken, { path }));
+    await measure(samples.update, () => operation(collectionId, "update", accessToken, {
+      path,
+      fields: { status: "done" },
+      if_revision: created.result.revision
+    }));
+  }
+  return Object.fromEntries(Object.entries(samples).map(([name, values]) => [name, summarize(values)]));
+}
+
+async function measure(samples, action) {
+  const started = performance.now();
+  const result = await action();
+  samples.push(performance.now() - started);
+  return result;
+}
+
+function summarize(samples) {
+  const sorted = [...samples].sort((left, right) => left - right);
+  const percentile = (value) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * value) - 1)];
+  return {
+    min_ms: round(sorted[0]),
+    p50_ms: round(percentile(0.5)),
+    p95_ms: round(percentile(0.95)),
+    max_ms: round(sorted.at(-1))
+  };
+}
+
+function round(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function parseBenchmarkIterations(value) {
+  if (value === undefined || value === "") return 0;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new Error("MDBASE_CONNECT_BENCHMARK_ITERATIONS must be an integer from 1 to 100.");
+  }
+  return parsed;
+}
+
+function syntheticResponse(status) {
+  return { ok: status >= 200 && status < 300, status };
 }
 
 async function request(path, options = {}) {

@@ -17,7 +17,7 @@ import {
 } from "./api";
 import "./styles.css";
 
-const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"];
+const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"];
 
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
@@ -31,7 +31,7 @@ function Portal() {
 function Login() {
   const [name, setName] = useState("Callum");
   const [email, setEmail] = useState("callum@example.com");
-  const [provider, setProvider] = useState<"github" | "tailscale" | "development" | "session" | null>(null);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -44,8 +44,7 @@ function Login() {
           setError(message(identifyError));
         }
         try {
-          const config = await api<{ provider: "github" | "tailscale" | "development" | "session" }>("/v1/auth/config");
-          setProvider(config.provider);
+          setConfig(await api<AuthConfig>("/v1/auth/config"));
         } catch (configError) {
           setError(message(configError));
         }
@@ -64,8 +63,8 @@ function Login() {
     }
   }
 
-  if (!provider) return <Loading error={error} />;
-  if (provider === "tailscale") return (
+  if (!config) return <Loading error={error} />;
+  if (config.provider === "tailscale") return (
     <main className="center-page">
       <div className="page-brand"><Brand /><span>connect</span></div>
       <section className="auth-panel">
@@ -77,17 +76,31 @@ function Login() {
       </section>
     </main>
   );
-  if (provider === "github") return (
+  const providers = config.providers.length > 0
+    ? config.providers
+    : config.provider === "github"
+      ? [{ id: "github" as const, label: "Continue with GitHub", login_url: "/auth/github" }]
+      : [];
+  if (providers.length > 0) return (
     <main className="center-page">
       <div className="page-brand"><Brand /><span>connect</span></div>
       <section className="auth-panel">
-        <p className="eyebrow">Private preview</p>
+        <p className="eyebrow">{config.registration === "open" ? "Account access" : "Private preview"}</p>
         <h1>Sign in to mdbase connect</h1>
-        <p>Access is currently limited to invited GitHub accounts.</p>
-        {error && <div className="message error">{error}</div>}
-        <a className="button primary link-button" href={`/auth/github?return_to=${encodeURIComponent(returnTarget())}`}>
-          Continue with GitHub
-        </a>
+        <p>{config.registration === "open"
+          ? "Choose an identity provider to create or open your account."
+          : "Access is currently limited to invited accounts."}</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        <div className="auth-providers">
+          {providers.map((provider, index) => <React.Fragment key={provider.id}>
+            {index > 0 && <div className="provider-divider"><span>or</span></div>}
+            {provider.id === "google"
+              ? <GoogleSignIn returnTo={returnTarget()} onError={setError} />
+              : <a className="button primary link-button provider-button" href={`${provider.login_url}?return_to=${encodeURIComponent(returnTarget())}`}>
+                  {provider.label}
+                </a>}
+          </React.Fragment>)}
+        </div>
       </section>
     </main>
   );
@@ -106,6 +119,126 @@ function Login() {
       </form>
     </main>
   );
+}
+
+interface AuthProviderOption {
+  id: "google" | "github";
+  label: string;
+  login_url: string;
+}
+
+interface AuthConfig {
+  provider: "google" | "github" | "tailscale" | "development" | "session";
+  providers: AuthProviderOption[];
+  registration: "closed" | "open";
+  development_login: boolean;
+}
+
+interface GoogleAccountsApi {
+  accounts: {
+    id: {
+      initialize(config: {
+        client_id: string;
+        nonce: string;
+        auto_select: boolean;
+        use_fedcm_for_button: boolean;
+        callback(response: { credential: string }): void;
+      }): void;
+      renderButton(element: HTMLElement, config: {
+        type: "standard";
+        theme: "outline";
+        size: "large";
+        text: "continue_with";
+        shape: "rectangular";
+        logo_alignment: "left";
+        width: number;
+      }): void;
+    };
+  };
+}
+
+let googleLibrary: Promise<GoogleAccountsApi> | null = null;
+
+function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: string): void }) {
+  const button = useRef<HTMLDivElement>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function prepare() {
+      try {
+        setReady(false);
+        const start = await api<{ client_id: string; nonce: string }>(
+          `/auth/google?return_to=${encodeURIComponent(returnTo)}`
+        );
+        const google = await loadGoogleIdentityServices();
+        if (!active || !button.current) return;
+        button.current.replaceChildren();
+        google.accounts.id.initialize({
+          client_id: start.client_id,
+          nonce: start.nonce,
+          auto_select: false,
+          use_fedcm_for_button: true,
+          callback: (response) => {
+            if (!active) return;
+            setBusy(true);
+            void api<{ redirect_to: string }>("/auth/google/callback", {
+              method: "POST",
+              headers: { "x-mdbase-auth": "google" },
+              body: JSON.stringify({ credential: response.credential })
+            }).then((result) => {
+              location.href = result.redirect_to;
+            }).catch((reason) => {
+              onError(message(reason));
+              setBusy(false);
+              setAttempt((value) => value + 1);
+            });
+          }
+        });
+        const width = Math.min(400, Math.max(240, Math.floor(button.current.clientWidth)));
+        google.accounts.id.renderButton(button.current, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          text: "continue_with",
+          shape: "rectangular",
+          logo_alignment: "left",
+          width
+        });
+        setReady(true);
+      } catch (reason) {
+        if (active) onError(message(reason));
+      }
+    }
+    void prepare();
+    return () => { active = false; };
+  }, [attempt, onError, returnTo]);
+
+  return <div className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
+    <div ref={button} className="google-button" />
+    {!ready && <span className="provider-loading">Preparing Google sign-in…</span>}
+  </div>;
+}
+
+function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
+  const current = (window as unknown as { google?: GoogleAccountsApi }).google;
+  if (current?.accounts?.id) return Promise.resolve(current);
+  if (googleLibrary) return googleLibrary;
+  googleLibrary = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => {
+      const loaded = (window as unknown as { google?: GoogleAccountsApi }).google;
+      if (loaded?.accounts?.id) resolve(loaded);
+      else reject(new Error("Google sign-in did not load correctly."));
+    };
+    script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
+    document.head.append(script);
+  });
+  return googleLibrary;
 }
 
 function Dashboard() {
@@ -194,7 +327,7 @@ function Dashboard() {
         </section>
         <section id="account">
           <SectionHeading title="Account" note="Authentication and service details." />
-          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Plan" value="Private preview" detail="Registration is not available" /></div>
+          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Registration" value={data.authentication.registration === "open" ? "Open" : "Invitation only"} detail={data.authentication.registration === "open" ? "New identities may create an account" : "New accounts require service access"} /></div>
           {data.authentication.provider !== "tailscale" && <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>}
         </section>
       </main>
@@ -690,7 +823,14 @@ function Loading({ error = "" }: { error?: string }) { return <main className="l
 function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
-function operationLabel(operation: string) { return operation === "query" ? "Search and query" : `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`; }
+function operationLabel(operation: string) {
+  return ({
+    query: "Search and query",
+    read_type: "Inspect type definitions",
+    create_type: "Create type definitions",
+    update_type: "Change type definitions"
+  } as Record<string, string>)[operation] ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`;
+}
 function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
   request: PendingAuthorization,
   collections: T[]
@@ -717,6 +857,7 @@ function identityLabel(user: { email: string | null; login: string | null }) {
   return user.login ? `@${user.login}` : user.email ?? "Identity unavailable";
 }
 function authenticationLabel(provider: DashboardData["authentication"]["provider"]) {
+  if (provider === "google") return "Google";
   if (provider === "github") return "GitHub";
   if (provider === "tailscale") return "Tailscale identity";
   return "Development session";

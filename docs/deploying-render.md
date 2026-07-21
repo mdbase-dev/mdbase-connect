@@ -39,6 +39,14 @@ In Render, create a Blueprint from `mdbase-dev/mdbase-connect` and
 - `MDBASE_CONNECT_GITHUB_CLIENT_SECRET`
 - `MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS`
 
+Google sign-in can be enabled alongside GitHub after creating the production
+web client described in [Google authentication](./google-auth.md). Set both
+`MDBASE_CONNECT_GOOGLE_CLIENT_ID` and, once known,
+`MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS` while registration remains closed. An
+empty Google allowlist rejects all Google accounts and logs the verified
+subject needed to bootstrap the first invitation. Leaving both unset keeps the
+existing GitHub-only preview unchanged.
+
 The Blueprint generates the provider internal token and master key. Do not
 replace the master key on an existing provider database: startup deliberately
 fails if it cannot decrypt the durable key check. Key rotation must rewrap every

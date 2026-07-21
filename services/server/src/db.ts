@@ -39,7 +39,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id uuid PRIMARY KEY,
-      email text NOT NULL UNIQUE,
+      email text UNIQUE,
       name text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -47,8 +47,11 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       provider text NOT NULL,
       subject text NOT NULL,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      login text NOT NULL,
+      login text,
       email text,
+      email_verified boolean NOT NULL DEFAULT false,
+      avatar_url text,
+      last_login_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY(provider, subject),
@@ -68,6 +71,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       token_hash text NOT NULL UNIQUE,
+      provider text NOT NULL DEFAULT 'session',
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -231,6 +235,21 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");
   await ensureColumn(
     db,
+    "external_identities",
+    "email_verified",
+    "ALTER TABLE external_identities ADD COLUMN email_verified boolean NOT NULL DEFAULT false"
+  );
+  await ensureColumn(db, "external_identities", "avatar_url", "ALTER TABLE external_identities ADD COLUMN avatar_url text");
+  await ensureColumn(db, "external_identities", "last_login_at", "ALTER TABLE external_identities ADD COLUMN last_login_at timestamptz");
+  await ensureColumn(
+    db,
+    "sessions",
+    "provider",
+    "ALTER TABLE sessions ADD COLUMN provider text NOT NULL DEFAULT 'session'"
+  );
+  await backfillSessionProviders(db);
+  await ensureColumn(
+    db,
     "grants",
     "hosted_collection_id",
     "ALTER TABLE grants ADD COLUMN hosted_collection_id uuid"
@@ -256,6 +275,8 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   if (hostedReplicaToken.rows[0]?.is_nullable === "NO") {
     await db.query("ALTER TABLE hosted_replicas ALTER COLUMN token_hash DROP NOT NULL");
   }
+  await ensureNullable(db, "users", "email");
+  await ensureNullable(db, "external_identities", "login");
   await ensureConstraint(
     db,
     "grants",
@@ -277,6 +298,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     `ALTER TABLE grants ADD CONSTRAINT grants_collection_target_check
      CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))`
   );
+}
+
+export async function backfillSessionProviders(db: DatabaseQueryable): Promise<void> {
+  await db.query(
+    `UPDATE sessions SET provider = 'github'
+     FROM external_identities
+     WHERE sessions.provider = 'session'
+       AND external_identities.user_id = sessions.user_id
+       AND external_identities.provider = 'github'`
+  );
+}
+
+async function ensureNullable(db: DatabaseQueryable, table: string, column: string): Promise<void> {
+  const result = await db.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_name = $1 AND column_name = $2`,
+    [table, column]
+  );
+  if (result.rows[0]?.is_nullable === "NO") {
+    await db.query(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP NOT NULL`);
+  }
 }
 
 async function ensureColumn(

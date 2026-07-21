@@ -493,7 +493,12 @@ describe("mdbase connect server", () => {
     resources.push(() => app.close());
 
     const config = await app.inject({ method: "GET", url: "/v1/auth/config" });
-    expect(config.json()).toEqual({ provider: "tailscale", development_login: false });
+    expect(config.json()).toEqual({
+      provider: "tailscale",
+      providers: [],
+      registration: "closed",
+      development_login: false
+    });
 
     const unauthenticated = await app.inject({ method: "GET", url: "/v1/me" });
     expect(unauthenticated.statusCode).toBe(401);
@@ -509,7 +514,7 @@ describe("mdbase connect server", () => {
     expect(authenticated.statusCode).toBe(200);
     expect(authenticated.json()).toEqual(expect.objectContaining({
       user: expect.objectContaining({ email: "callumalpass@gmail.com", name: "Callum Alpass" }),
-      authentication: { provider: "tailscale" },
+      authentication: { provider: "tailscale", registration: "closed" },
       pending_authorizations: []
     }));
 

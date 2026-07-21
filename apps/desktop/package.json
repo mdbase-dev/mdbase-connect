@@ -12,7 +12,7 @@
     "start": "pnpm dev:agent && pnpm build && electron .",
     "make": "pnpm dev:agent --release && pnpm build && electron-forge make",
     "package": "pnpm dev:agent --release && pnpm build && electron-forge package && node scripts/verify-package.mjs",
-    "test": "node --test",
+    "test": "pnpm build:main && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {

@@ -99,12 +99,16 @@ access does not pretend those actions are available.
 
 ## Application identity and authorization
 
-Account sign-in is separate from application authorization. The private preview
-uses GitHub OAuth, binds the callback to a one-time browser state and PKCE
-verifier, and admits only configured numeric GitHub account IDs. GitHub access
-tokens are used only to fetch the identity and are not retained. Local
-development can use an explicitly enabled unverified email session; public
-origins refuse that mode.
+Account sign-in is separate from application authorization. External identity
+providers normalize verified identities into a shared account and session
+boundary. GitHub OAuth binds its callback to a one-time browser state and PKCE
+verifier. Google Identity Services binds its signed ID token to a one-time
+browser nonce. Provider subjects, rather than email addresses or mutable
+usernames, identify accounts. GitHub access tokens are used only to fetch the
+identity and are not retained; Google access tokens are not requested. Closed
+registration admits only configured provider subjects. Local development can
+use an explicitly enabled unverified email session; public origins refuse that
+mode.
 
 Web applications are identified by the exact origin of an HTTPS manifest at
 `/.well-known/mdbase-app.json`. Authorization uses short-lived codes and PKCE;

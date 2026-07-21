@@ -600,6 +600,13 @@ impl HostedProvider {
         .bind(to_i64(through, "compaction cursor")?)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query(
+            "DELETE FROM hosted_provider_resource_changes WHERE collection_id = $1 AND sequence <= $2",
+        )
+        .bind(collection_id)
+        .bind(to_i64(through, "compaction cursor")?)
+        .execute(&mut *transaction)
+        .await?;
         let through_i64 = to_i64(through, "compaction cursor")?;
         let oldest_live_snapshot: Option<i64> = sqlx::query_scalar(
             r#"SELECT min(cursor) FROM hosted_provider_snapshot_leases
@@ -861,6 +868,27 @@ impl HostedProvider {
                 "invalid_cursor",
                 "Change cursor is ahead of the collection authority.",
             ));
+        }
+        let resource_changed = sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM hosted_provider_resource_changes
+                 WHERE collection_id = $1 AND sequence > $2
+               )"#,
+        )
+        .bind(collection_id)
+        .bind(to_i64(after, "change cursor")?)
+        .fetch_one(&self.pool)
+        .await?;
+        if resource_changed {
+            return Ok(SyncChangesPage {
+                protocol_version: SYNC_PROTOCOL_VERSION,
+                scope_epoch: replica.scope_epoch,
+                events: Vec::new(),
+                cursor: after,
+                head,
+                has_more: false,
+                reset_required: true,
+            });
         }
         let raw_limit = i64::from(limit.clamp(1, 500));
         let rows = sqlx::query(
@@ -1422,13 +1450,21 @@ impl HostedProvider {
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await?;
         authorize_application_operation(&replica, operation, request_origin)?;
+        if matches!(operation, "read_type" | "create_type" | "update_type")
+            && !replica.allowed_types.is_empty()
+        {
+            return Err(ApiError::forbidden(
+                "scope_denied",
+                "Type definitions can only be managed with full collection access.",
+            ));
+        }
         match operation {
             "describe" => self.describe_operation(collection_id, &replica).await,
             "changes" => {
                 self.changes_operation(collection_id, &replica, &input)
                     .await
             }
-            "read" | "query" | "validate" => {
+            "read" | "query" | "validate" | "read_type" => {
                 let scoped_input = scope_read_input(operation, input, &replica.allowed_types)?;
                 let result = self
                     .execute_read_operation(collection_id, operation, &scoped_input)
@@ -1442,6 +1478,10 @@ impl HostedProvider {
             }
             "create" | "update" | "delete" | "rename" => {
                 self.write_operation(collection_id, token, &replica, operation, input)
+                    .await
+            }
+            "create_type" | "update_type" => {
+                self.write_type_operation(collection_id, &replica, operation, input)
                     .await
             }
             _ => Err(ApiError::bad_request(
@@ -1545,7 +1585,7 @@ impl HostedProvider {
             .and_then(Value::as_u64)
             .unwrap_or(100)
             .clamp(1, 500);
-        let rows = sqlx::query(
+        let record_rows = sqlx::query(
             r#"SELECT sequence, before_ciphertext, after_ciphertext, created_at::text AS occurred_at
                FROM hosted_provider_changes
                WHERE collection_id = $1 AND sequence > $2
@@ -1559,10 +1599,24 @@ impl HostedProvider {
         .bind(to_i64(limit + 1, "change page limit")?)
         .fetch_all(&self.pool)
         .await?;
-        let has_more = rows.len() > limit as usize;
+        let resource_rows = sqlx::query(
+            r#"SELECT sequence, type_name, path, revision, created_at::text AS occurred_at
+               FROM hosted_provider_resource_changes
+               WHERE collection_id = $1 AND sequence > $2
+                 AND (cardinality($3::text[]) = 0 OR type_name = ANY($3::text[]))
+               ORDER BY sequence LIMIT $4"#,
+        )
+        .bind(collection_id)
+        .bind(to_i64(after, "change cursor")?)
+        .bind(&replica.allowed_types)
+        .bind(to_i64(limit + 1, "change page limit")?)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut has_more =
+            record_rows.len() > limit as usize || resource_rows.len() > limit as usize;
         let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
         let mut events = Vec::new();
-        for row in rows.into_iter().take(limit as usize) {
+        for row in record_rows {
             let sequence = number(row.get::<i64, _>("sequence"), "change sequence")?;
             let before = optional_encrypted_record(
                 &self.crypto,
@@ -1592,6 +1646,23 @@ impl HostedProvider {
                 occurred_at: row.get("occurred_at"),
                 payload,
             });
+        }
+        for row in resource_rows {
+            events.push(CollectionChange {
+                cursor: number(row.get::<i64, _>("sequence"), "resource change sequence")?,
+                event_type: "mdbase.type.changed".to_string(),
+                occurred_at: row.get("occurred_at"),
+                payload: json!({
+                    "name": row.get::<String, _>("type_name"),
+                    "path": row.get::<String, _>("path"),
+                    "revision": row.get::<String, _>("revision"),
+                }),
+            });
+        }
+        events.sort_by_key(|event| event.cursor);
+        if events.len() > limit as usize {
+            events.truncate(limit as usize);
+            has_more = true;
         }
         let cursor = events.last().map(|event| event.cursor).unwrap_or_else(|| {
             if has_more {
@@ -1864,6 +1935,228 @@ impl HostedProvider {
             ),
         };
         serde_json::to_value(result).map_err(|error| {
+            ApiError::internal(format!("Hosted operation could not serialize: {error}"))
+        })
+    }
+
+    async fn write_type_operation(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        operation: &str,
+        input: Value,
+    ) -> ApiResult<Value> {
+        if !replica.allowed_types.is_empty() {
+            return Err(ApiError::forbidden(
+                "scope_denied",
+                "Type definitions can only be managed with full collection access.",
+            ));
+        }
+        let mut transaction = self.pool.begin().await?;
+        let collection = sqlx::query(
+            r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active' FOR UPDATE"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let mut head = number(collection.get::<i64, _>("head"), "collection head")?;
+        let max_document_bytes = number(
+            collection.get::<i64, _>("max_document_bytes"),
+            "maximum document size",
+        )?;
+        if input
+            .get("document")
+            .and_then(Value::as_str)
+            .is_some_and(|document| document.len() as u64 > max_document_bytes)
+        {
+            return Err(ApiError::bad_request(
+                "document_quota_exceeded",
+                "The type definition exceeds the hosted document size limit.",
+            ));
+        }
+        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let working_set = self.working_set(collection_id).await;
+        let mut cached = working_set.lock().await;
+        if cached
+            .as_ref()
+            .is_none_or(|working_set| working_set.head != Some(head))
+        {
+            let resources =
+                load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                    .await?;
+            let records =
+                load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
+            let workspace = WorkingSet::materialize(
+                resources,
+                records.values().map(|record| StoredDocument {
+                    record_id: record.record.record_id,
+                    path: record.record.path.clone(),
+                    document: record.document.clone(),
+                }),
+            )?;
+            *cached = Some(CachedCollection {
+                head: Some(head),
+                workspace,
+                records,
+                query_cache: HashMap::new(),
+                query_order: VecDeque::new(),
+            });
+        }
+        let cached = cached
+            .as_mut()
+            .expect("hosted working set was initialized above");
+        let envelope = cached.workspace.type_operation(operation, &input)?;
+        if !envelope.valid {
+            transaction.commit().await?;
+            return serde_json::to_value(envelope).map_err(|error| {
+                ApiError::internal(format!("Hosted operation could not serialize: {error}"))
+            });
+        }
+        // The workspace has already changed. Keep the cache invalid until the
+        // matching database transaction commits so a failed persistence step
+        // cannot leave a stale in-memory collection serving future requests.
+        cached.head = None;
+        let path = result_string(&envelope.result, "path")?.to_string();
+        let type_name = result_string(&envelope.result, "name")?.to_string();
+        let revision = result_string(&envelope.result, "revision")?.to_string();
+        let document = cached.workspace.resource_document(&path)?;
+        let (types, contracts) = cached.workspace.type_resources()?;
+        let record_inputs = cached
+            .records
+            .iter()
+            .map(|(id, persisted)| {
+                (
+                    *id,
+                    persisted.record.path.clone(),
+                    persisted.record.frontmatter.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let classifications = cached.workspace.classify_records(&record_inputs)?;
+
+        head = head
+            .checked_add(1)
+            .ok_or_else(|| ApiError::internal("The hosted collection sequence is exhausted."))?;
+        let resource_revision = format!("hosted:1:{head}:resources");
+        let mut resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            collection.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        resources.revision = resource_revision.clone();
+        resources.types = types;
+        resources.contracts = contracts;
+        let resources_ciphertext =
+            self.crypto
+                .encrypt_json(&data_key, &resources, &resources_aad(collection_id))?;
+        let document_ciphertext = self.crypto.encrypt_bytes(
+            &data_key,
+            document.as_bytes(),
+            &resource_document_aad(collection_id, &path),
+        )?;
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_resources
+                 (collection_id, path, kind, revision, document_ciphertext)
+               VALUES ($1, $2, 'type', $3, $4)
+               ON CONFLICT (collection_id, path) DO UPDATE SET
+                 revision = EXCLUDED.revision,
+                 document_ciphertext = EXCLUDED.document_ciphertext,
+                 updated_at = now()"#,
+        )
+        .bind(collection_id)
+        .bind(&path)
+        .bind(&revision)
+        .bind(document_ciphertext)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_resource_changes
+                 (collection_id, sequence, type_name, path, revision)
+               VALUES ($1, $2, $3, $4, $5)"#,
+        )
+        .bind(collection_id)
+        .bind(to_i64(head, "resource change sequence")?)
+        .bind(&type_name)
+        .bind(&path)
+        .bind(&revision)
+        .execute(&mut *transaction)
+        .await?;
+
+        for (record_id, next_types) in classifications {
+            let Some(persisted) = cached.records.get_mut(&record_id) else {
+                continue;
+            };
+            if persisted.record.types == next_types {
+                continue;
+            }
+            persisted.record.types = next_types;
+            let sequence: i64 = sqlx::query_scalar(
+                "SELECT sequence FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            let sequence_u64 = number(sequence, "record sequence")?;
+            let current_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                persisted,
+                &current_record_aad(collection_id, record_id, sequence_u64),
+            )?;
+            let version_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                persisted,
+                &record_version_aad(collection_id, record_id, sequence_u64),
+            )?;
+            sqlx::query(
+                r#"UPDATE hosted_provider_records
+                   SET types = $3, payload_ciphertext = $4, updated_at = now()
+                   WHERE collection_id = $1 AND record_id = $2"#,
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(&persisted.record.types)
+            .bind(current_ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                r#"UPDATE hosted_provider_record_versions
+                   SET types = $4, payload_ciphertext = $5
+                   WHERE collection_id = $1 AND record_id = $2 AND sequence = $3"#,
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(sequence)
+            .bind(&persisted.record.types)
+            .bind(version_ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        sqlx::query(
+            r#"UPDATE hosted_provider_collections
+               SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(collection_id)
+        .bind(to_i64(head, "collection head")?)
+        .bind(resource_revision)
+        .bind(resources_ciphertext)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        cached.head = Some(head);
+        cached.query_cache.clear();
+        cached.query_order.clear();
+        serde_json::to_value(envelope).map_err(|error| {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
         })
     }
@@ -2246,6 +2539,14 @@ fn authorize_application_operation(
     Ok(())
 }
 
+fn result_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
+    value.get(field).and_then(Value::as_str).ok_or_else(|| {
+        ApiError::internal(format!(
+            "The hosted collection operation omitted its {field} result."
+        ))
+    })
+}
+
 fn scope_read_input(operation: &str, input: Value, allowed_types: &[String]) -> ApiResult<Value> {
     if operation != "query" || allowed_types.is_empty() {
         return Ok(input);
@@ -2541,9 +2842,27 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
 
 fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResult<()> {
     const OPERATIONS: &[&str] = &[
-        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "validate",
+        "create",
+        "update",
+        "delete",
+        "rename",
+        "read_type",
+        "create_type",
+        "update_type",
     ];
-    const WRITES: &[&str] = &["create", "update", "delete", "rename"];
+    const WRITES: &[&str] = &[
+        "create",
+        "update",
+        "delete",
+        "rename",
+        "create_type",
+        "update_type",
+    ];
     if operations
         .iter()
         .any(|operation| !OPERATIONS.contains(&operation.as_str()))

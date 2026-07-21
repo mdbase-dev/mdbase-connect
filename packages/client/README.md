@@ -26,6 +26,35 @@ for await (const change of connect.watch()) {
 }
 ```
 
+Applications with full collection access can also register and maintain type
+definitions. Type source is returned with a revision token so updates cannot
+silently overwrite a definition changed by another application:
+
+```ts
+const created = await connect.createType({
+  document: `---
+kind: mdbase.type
+name: workout
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+---
+`
+});
+
+const current = await connect.readType({ name: "workout" });
+await connect.updateType({
+  path: current.result.path,
+  document: current.result.document.replace("version: 1", "version: 2"),
+  if_revision: current.result.revision
+});
+```
+
+Request `read_type`, `create_type`, and `update_type` during authorization.
+Contract-scoped applications cannot manage collection-wide type definitions.
+
 Application identity is derived from the manifest's exact origin. No developer
 account or manually issued client secret is required.
 

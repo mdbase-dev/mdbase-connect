@@ -40,12 +40,18 @@ import {
 } from "./hosted-provider.js";
 import {
   exchangeGitHubCode,
-  externalUserId,
   GitHubIdentityError,
   type GitHubAuthConfig
 } from "./github-auth.js";
+import { createExternalSession } from "./external-auth.js";
+import {
+  GoogleIdentityError,
+  verifyGoogleCredential,
+  type GoogleAuthConfig
+} from "./google-auth.js";
+import type { RegistrationMode } from "./runtime-config.js";
 
-const OPERATIONS = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"] as const;
+const OPERATIONS = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"] as const;
 const operationSchema = z.enum(OPERATIONS);
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -83,6 +89,8 @@ interface BuildOptions {
   devAuth?: boolean;
   tailscaleAuth?: boolean;
   githubAuth?: GitHubAuthConfig;
+  googleAuth?: GoogleAuthConfig;
+  registration?: RegistrationMode;
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
@@ -97,6 +105,7 @@ interface User {
   email: string | null;
   name: string;
   login: string | null;
+  authentication_provider?: "github" | "google" | "session" | "tailscale";
 }
 
 interface ConnectorIdentity {
@@ -115,6 +124,7 @@ export async function buildApp(options: BuildOptions) {
     requestTimeout: 35_000
   });
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
+  const registration = options.registration ?? "closed";
   const relay = new RelayHub(options.db);
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
@@ -132,17 +142,22 @@ export async function buildApp(options: BuildOptions) {
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
+        connectSrc: ["'self'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/"] : [])],
         fontSrc: ["'self'", "data:"],
         formAction: ["'self'"],
+        frameSrc: options.googleAuth ? ["https://accounts.google.com/gsi/"] : ["'none'"],
         frameAncestors: ["'none'"],
         imgSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/client"] : [])],
+        styleSrc: ["'self'", "'unsafe-inline'", ...(options.googleAuth ? ["https://accounts.google.com/gsi/style"] : [])],
         upgradeInsecureRequests: null
       }
     },
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: options.googleAuth
+      ? { policy: "same-origin-allow-popups" }
+      : { policy: "same-origin" }
   });
   await app.register(rateLimit, {
     global: true,
@@ -212,6 +227,13 @@ export async function buildApp(options: BuildOptions) {
         "GitHub sign-in could not be completed. Please try again."
       ));
     }
+    if (error instanceof GoogleIdentityError) {
+      request.log.warn({ error: error.message }, "Google authentication failed");
+      return reply.code(502).send(apiError(
+        "identity_provider_error",
+        "Google sign-in could not be completed. Please try again."
+      ));
+    }
     request.log.error(error);
     return reply.code(500).send(apiError("internal_error", "The request could not be completed."));
   });
@@ -229,17 +251,32 @@ export async function buildApp(options: BuildOptions) {
     }
   });
 
-  app.get("/v1/auth/config", async () => ({
-    provider: options.tailscaleAuth
+  app.get("/v1/auth/config", async () => {
+    const providers = [
+      ...(options.googleAuth
+        ? [{ id: "google" as const, label: "Continue with Google", login_url: "/auth/google" }]
+        : []),
+      ...(options.githubAuth
+        ? [{ id: "github" as const, label: "Continue with GitHub", login_url: "/auth/github" }]
+        : [])
+    ];
+    const provider = options.tailscaleAuth
       ? "tailscale"
       : options.githubAuth
         ? "github"
-        : options.devAuth
-          ? "development"
-          : "session",
-    development_login: options.devAuth === true,
-    ...(options.githubAuth ? { login_url: "/auth/github" } : {})
-  }));
+        : options.googleAuth
+          ? "google"
+          : options.devAuth
+            ? "development"
+            : "session";
+    return {
+      provider,
+      providers,
+      registration,
+      development_login: options.devAuth === true,
+      ...(providers.length === 1 ? { login_url: providers[0].login_url } : {})
+    };
+  });
 
   app.get("/auth/github", {
     config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
@@ -257,7 +294,7 @@ export async function buildApp(options: BuildOptions) {
        VALUES ($1, 'github', $2, $3, $4, now() + interval '10 minutes')`,
       [randomUUID(), tokenHash(state), safeReturnTarget(query.return_to, publicUrl), codeVerifier]
     );
-    reply.setCookie(oauthStateCookieName(publicUrl), state, {
+    reply.setCookie(oauthStateCookieName(publicUrl, "github"), state, {
       httpOnly: true,
       sameSite: "lax",
       secure: publicUrl.startsWith("https:"),
@@ -270,7 +307,7 @@ export async function buildApp(options: BuildOptions) {
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
     authorize.searchParams.set("code_challenge_method", "S256");
-    authorize.searchParams.set("allow_signup", "false");
+    authorize.searchParams.set("allow_signup", registration === "open" ? "true" : "false");
     return reply.redirect(authorize.href);
   });
 
@@ -283,7 +320,7 @@ export async function buildApp(options: BuildOptions) {
       state: z.string().min(1).max(200).optional(),
       error: z.string().max(200).optional()
     }).parse(request.query);
-    const cookieName = oauthStateCookieName(publicUrl);
+    const cookieName = oauthStateCookieName(publicUrl, "github");
     const cookieState = request.cookies[cookieName];
     reply.clearCookie(cookieName, { path: "/", secure: publicUrl.startsWith("https:") });
     if (query.error || !query.code || !query.state || !cookieState || !safeEqual(query.state, cookieState)) {
@@ -306,45 +343,105 @@ export async function buildApp(options: BuildOptions) {
     if (!/^[1-9][0-9]*$/.test(identity.id) || !identity.login || identity.login.length > 100) {
       throw new GitHubIdentityError("GitHub returned an invalid user identity.");
     }
-    if (!options.githubAuth.allowedUserIds.has(identity.id)) {
+    if (!identityAllowed(registration, options.githubAuth.allowedUserIds, identity.id)) {
       request.log.warn({ github_user_id: identity.id }, "GitHub user is not on the login allowlist");
       return reply.code(403).send(apiError("account_not_allowed", "This account does not have access."));
     }
-    const userId = externalUserId("github", identity.id);
     const name = (identity.name?.trim() || identity.login).slice(0, 100);
     const email = identity.email?.trim().toLowerCase() || null;
-    const token = randomToken("ses");
-    const connection = await options.db.connect();
-    try {
-      await connection.query("BEGIN");
-      await connection.query(
-        `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
-        [userId, `github-${identity.id}@identity.invalid`, name]
-      );
-      await connection.query(
-        `INSERT INTO external_identities (provider, subject, user_id, login, email)
-         VALUES ('github', $1, $2, $3, $4)
-         ON CONFLICT(provider, subject) DO UPDATE SET
-           login = excluded.login, email = excluded.email, updated_at = now()`,
-        [identity.id, userId, identity.login, email]
-      );
-      await connection.query("DELETE FROM sessions WHERE expires_at <= now()");
-      await connection.query(
-        `INSERT INTO sessions (id, user_id, token_hash, expires_at)
-         VALUES ($1, $2, $3, now() + interval '30 days')`,
-        [randomUUID(), userId, tokenHash(token)]
-      );
-      await audit(connection, userId, "session.created", null, { provider: "github" });
-      await connection.query("COMMIT");
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
-    }
-    setSessionCookie(reply, token, publicUrl);
+    const session = await createExternalSession(options.db, {
+      provider: "github",
+      subject: identity.id,
+      name,
+      login: identity.login,
+      email,
+      emailVerified: false,
+      avatarUrl: null
+    });
+    setSessionCookie(reply, session.token, publicUrl);
     return reply.redirect(state.rows[0].return_to);
+  });
+
+  app.get("/auth/google", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    if (!options.googleAuth) return reply.code(404).send(apiError("not_found", "Not found."));
+    const query = z.object({ return_to: z.string().max(2_048).optional() }).parse(request.query);
+    const state = randomToken("oauth");
+    const nonce = randomToken("nonce");
+    await options.db.query(
+      "DELETE FROM oauth_login_states WHERE expires_at <= now() OR consumed_at IS NOT NULL"
+    );
+    await options.db.query(
+      `INSERT INTO oauth_login_states
+         (id, provider, state_hash, return_to, code_verifier, expires_at)
+       VALUES ($1, 'google', $2, $3, $4, now() + interval '10 minutes')`,
+      [randomUUID(), tokenHash(state), safeReturnTarget(query.return_to, publicUrl), nonce]
+    );
+    reply.setCookie(oauthStateCookieName(publicUrl, "google"), state, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: publicUrl.startsWith("https:"),
+      path: "/",
+      maxAge: 10 * 60
+    });
+    reply.header("cache-control", "no-store");
+    return { client_id: options.googleAuth.clientId, nonce };
+  });
+
+  app.post("/auth/google/callback", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    if (!options.googleAuth) return reply.code(404).send(apiError("not_found", "Not found."));
+    if (
+      request.headers.origin !== new URL(publicUrl).origin
+      || request.headers["x-mdbase-auth"] !== "google"
+    ) {
+      return reply.code(403).send(apiError("origin_denied", "The sign-in response origin is not allowed."));
+    }
+    const input = z.object({ credential: z.string().min(100).max(20_000) }).strict().parse(request.body);
+    const cookieName = oauthStateCookieName(publicUrl, "google");
+    const cookieState = request.cookies[cookieName];
+    reply.clearCookie(cookieName, { path: "/", secure: publicUrl.startsWith("https:") });
+    if (!cookieState) {
+      return reply.code(400).send(apiError("invalid_login", "The Google sign-in request is invalid or expired."));
+    }
+    const state = await options.db.query<{ code_verifier: string; return_to: string }>(
+      `UPDATE oauth_login_states SET consumed_at = now()
+       WHERE provider = 'google' AND state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+       RETURNING code_verifier, return_to`,
+      [tokenHash(cookieState)]
+    );
+    if (!state.rows[0]) {
+      return reply.code(400).send(apiError("invalid_login", "The Google sign-in request is invalid or expired."));
+    }
+    const identity = await verifyGoogleCredential(options.googleAuth, {
+      credential: input.credential,
+      nonce: state.rows[0].code_verifier
+    });
+    if (!/^[A-Za-z0-9_-]{1,255}$/.test(identity.id)) {
+      throw new GoogleIdentityError("Google returned an invalid account subject.");
+    }
+    if (!identityAllowed(registration, options.googleAuth.allowedSubjects, identity.id)) {
+      request.log.warn({ google_subject: identity.id }, "Google user is not on the login allowlist");
+      return reply.code(403).send(apiError("account_not_allowed", "This account does not have access."));
+    }
+    const name = identity.name.trim().slice(0, 100);
+    if (!name) throw new GoogleIdentityError("Google returned an invalid account name.");
+    const email = identity.emailVerified
+      ? identity.email?.trim().toLowerCase().slice(0, 320) || null
+      : null;
+    const session = await createExternalSession(options.db, {
+      provider: "google",
+      subject: identity.id,
+      name,
+      login: null,
+      email,
+      emailVerified: identity.emailVerified,
+      avatarUrl: identity.avatarUrl
+    });
+    setSessionCookie(reply, session.token, publicUrl);
+    return { redirect_to: state.rows[0].return_to };
   });
 
   app.post("/v1/pairing-requests", async (request, reply) => {
@@ -478,8 +575,9 @@ export async function buildApp(options: BuildOptions) {
   });
 
   app.get("/v1/me", async (request, reply) => {
-    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
-    if (!user) return;
+    const authenticated = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!authenticated) return;
+    const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const connectors = await options.db.query(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at
        FROM connectors c WHERE c.user_id = $1 ORDER BY c.created_at`,
@@ -550,7 +648,8 @@ export async function buildApp(options: BuildOptions) {
     return {
       user,
       authentication: {
-        provider: options.tailscaleAuth ? "tailscale" : options.githubAuth ? "github" : "session"
+        provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
+        registration
       },
       connectors: connectors.rows,
       collections: collections.rows,
@@ -1200,7 +1299,7 @@ export async function buildApp(options: BuildOptions) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         mode: write ? "read_write" : "read_only",
         allowedTypes: hostedTypesForContracts(current.template!, current.scope.contracts),
@@ -1745,7 +1844,7 @@ async function reconcileApplicationGrants(
     if ((scopeMatches || mayNarrow) && collectionCompatible) {
       if (grant.hosted_replica_id) {
         if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
-        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
@@ -1956,7 +2055,7 @@ async function approveHostedAuthorization(
     const allowedTypes = hostedTypesForContracts(input.template, scope.contracts);
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
-    const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+    const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
     const applicationUrl = new URL(pending.application_homepage);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin
@@ -2259,10 +2358,10 @@ async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<U
   const user = await db.query<User>(
     `SELECT u.id,
             CASE WHEN i.provider IS NULL THEN u.email ELSE i.email END AS email,
-            u.name, i.login
+            u.name, i.login, s.provider AS authentication_provider
      FROM sessions s
      JOIN users u ON u.id = s.user_id
-     LEFT JOIN external_identities i ON i.user_id = u.id
+     LEFT JOIN external_identities i ON i.user_id = u.id AND i.provider = s.provider
      WHERE s.token_hash = $1 AND s.expires_at > now()`,
     [tokenHash(token)]
   );
@@ -2283,7 +2382,7 @@ async function tailscaleUser(request: FastifyRequest, db: DatabasePool): Promise
      RETURNING id, email, name`,
     [randomUUID(), login, name]
   );
-  return { ...user.rows[0], login: null };
+  return { ...user.rows[0], login: null, authentication_provider: "tailscale" };
 }
 
 async function authenticatedUser(
@@ -2382,8 +2481,18 @@ function sessionCookieName(publicUrl: string): string {
   return publicUrl.startsWith("https:") ? "__Host-mdbase_session" : "mdbase_session";
 }
 
-function oauthStateCookieName(publicUrl: string): string {
-  return publicUrl.startsWith("https:") ? "__Host-mdbase_oauth_state" : "mdbase_oauth_state";
+function oauthStateCookieName(publicUrl: string, provider: "github" | "google"): string {
+  return publicUrl.startsWith("https:")
+    ? `__Host-mdbase_oauth_${provider}`
+    : `mdbase_oauth_${provider}`;
+}
+
+function identityAllowed(
+  registration: RegistrationMode,
+  allowedSubjects: ReadonlySet<string>,
+  subject: string
+): boolean {
+  return registration === "open" || allowedSubjects.has(subject);
 }
 
 function safeReturnTarget(requested: string | undefined, publicUrl: string): string {

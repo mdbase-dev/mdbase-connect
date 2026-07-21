@@ -8,6 +8,8 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     devAuth: false,
     tailscaleAuth: false,
     githubAuth: null,
+    googleAuth: null,
+    registration: "closed" as const,
     hostedCollections: false,
     hostedProvider: null,
     trustProxy: false,
@@ -38,7 +40,7 @@ describe("public runtime configuration", () => {
   });
 
   it("refuses to start without a real authentication mode", () => {
-    expect(() => validateRuntimeConfig(config())).toThrow(/Exactly one identity provider/);
+    expect(() => validateRuntimeConfig(config())).toThrow(/Exactly one authentication mode/);
   });
 
   it("accepts one allowlisted GitHub provider on a canonical HTTPS origin", () => {
@@ -56,7 +58,7 @@ describe("public runtime configuration", () => {
     expect(value.githubAuth?.allowedUserIds.has("12558714")).toBe(true);
   });
 
-  it("rejects partial GitHub configuration, invalid IDs, and multiple providers", () => {
+  it("rejects partial GitHub configuration, invalid IDs, and conflicting authentication modes", () => {
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "https://connect.example",
       MDBASE_CONNECT_GITHUB_CLIENT_ID: "client-id"
@@ -71,7 +73,44 @@ describe("public runtime configuration", () => {
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1"
-    })).toThrow(/Exactly one identity provider/);
+    })).toThrow(/Exactly one authentication mode/);
+  });
+
+  it("supports Google and GitHub together while keeping registration policy explicit", () => {
+    const value = validateRuntimeConfig(config({
+      publicUrl: "https://connect.example",
+      githubAuth: {
+        clientId: "github-client",
+        clientSecret: "github-secret",
+        allowedUserIds: new Set(["12558714"])
+      },
+      googleAuth: {
+        clientId: "google-client.apps.googleusercontent.com",
+        allowedSubjects: new Set(["109876543210"])
+      }
+    }));
+    expect(value.githubAuth).not.toBeNull();
+    expect(value.googleAuth).not.toBeNull();
+
+    const open = runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
+      MDBASE_CONNECT_REGISTRATION: "open"
+    });
+    expect(open.registration).toBe("open");
+    expect(open.googleAuth?.clientId).toContain("apps.googleusercontent.com");
+
+    const closedBootstrap = runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com"
+    });
+    expect(closedBootstrap.registration).toBe("closed");
+    expect(closedBootstrap.googleAuth?.allowedSubjects.size).toBe(0);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
+      MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: "not a subject"
+    })).toThrow(/subject identifiers/);
   });
 
   it("rejects public URLs containing path or credential components", () => {

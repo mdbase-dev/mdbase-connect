@@ -22,6 +22,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const COLLECTION_NAMESPACE: Uuid = Uuid::from_u128(0x72972de3_d05a_4db7_82f5_c9ce02f0fb1d);
+const ENCRYPTED_REPLAY_WINDOW: u64 = 1024;
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -188,12 +189,14 @@ impl CollectionRegistry {
                 grant_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
                 last_request_counter TEXT NOT NULL,
+                reorder_floor TEXT NOT NULL DEFAULT '0',
                 PRIMARY KEY (grant_id, key_id)
             );
             CREATE TABLE IF NOT EXISTS grant_crypto_requests (
                 grant_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
                 request_id TEXT NOT NULL,
+                counter TEXT,
                 received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (grant_id, key_id, request_id)
             );
@@ -210,6 +213,8 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
             "ALTER TABLE collections ADD COLUMN description TEXT",
+            "ALTER TABLE grant_crypto_state ADD COLUMN reorder_floor TEXT",
+            "ALTER TABLE grant_crypto_requests ADD COLUMN counter TEXT",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {
@@ -217,6 +222,21 @@ impl CollectionRegistry {
                 }
             }
         }
+        // Registries created before the bounded replay window cannot safely distinguish a fresh
+        // out-of-order counter from one accepted before counters were recorded. Start their
+        // reorder window above the previous high-water mark; new keys start at zero.
+        connection.execute(
+            "UPDATE grant_crypto_state
+             SET reorder_floor = last_request_counter
+             WHERE reorder_floor IS NULL",
+            [],
+        )?;
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS grant_crypto_requests_counter
+             ON grant_crypto_requests (grant_id, key_id, counter)
+             WHERE counter IS NOT NULL",
+            [],
+        )?;
         Ok(())
     }
 
@@ -659,6 +679,10 @@ impl CollectionRegistry {
             }
             "validate" => Err(ConnectError::AccessDenied(
                 "Collection-wide validation is unavailable to a contract-scoped application."
+                    .to_string(),
+            )),
+            "read_type" | "create_type" | "update_type" => Err(ConnectError::AccessDenied(
+                "Type definitions can only be managed by an application with full collection access."
                     .to_string(),
             )),
             other => Err(ConnectError::UnsupportedOperation(other.to_string())),
@@ -1235,15 +1259,19 @@ impl CollectionRegistry {
     ) -> Result<(), ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let last = transaction
+        let state = transaction
             .query_row(
-                "SELECT last_request_counter FROM grant_crypto_state
+                "SELECT last_request_counter, reorder_floor FROM grant_crypto_state
                  WHERE grant_id = ?1 AND key_id = ?2",
                 params![grant_id.to_string(), key_id],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?
-            .map(|value| value.parse::<u64>())
+            .map(
+                |(last, floor)| -> Result<(u64, u64), std::num::ParseIntError> {
+                    Ok((last.parse::<u64>()?, floor.parse::<u64>()?))
+                },
+            )
             .transpose()
             .map_err(|_| ConnectError::EncryptedRelayRejected)?;
         let duplicate_id = transaction
@@ -1255,20 +1283,44 @@ impl CollectionRegistry {
             )
             .optional()?
             .is_some();
-        if duplicate_id || last.is_some_and(|last| counter <= last) {
+        let duplicate_counter = transaction
+            .query_row(
+                "SELECT 1 FROM grant_crypto_requests
+                 WHERE grant_id = ?1 AND key_id = ?2 AND counter = ?3",
+                params![grant_id.to_string(), key_id, counter.to_string()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        let reorder_floor = state.map_or(0, |(_, floor)| floor);
+        if duplicate_id || duplicate_counter || counter <= reorder_floor {
             return Err(ConnectError::EncryptedRelayRejected);
         }
+        let last = state.map_or(counter, |(last, _)| last.max(counter));
+        let reorder_floor = reorder_floor.max(last.saturating_sub(ENCRYPTED_REPLAY_WINDOW));
         transaction.execute(
-            "INSERT INTO grant_crypto_state (grant_id, key_id, last_request_counter)
-             VALUES (?1, ?2, ?3)
+            "INSERT INTO grant_crypto_state
+               (grant_id, key_id, last_request_counter, reorder_floor)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(grant_id, key_id) DO UPDATE SET
-               last_request_counter = excluded.last_request_counter",
-            params![grant_id.to_string(), key_id, counter.to_string()],
+               last_request_counter = excluded.last_request_counter,
+               reorder_floor = excluded.reorder_floor",
+            params![
+                grant_id.to_string(),
+                key_id,
+                last.to_string(),
+                reorder_floor.to_string()
+            ],
         )?;
         transaction.execute(
-            "INSERT INTO grant_crypto_requests (grant_id, key_id, request_id)
-             VALUES (?1, ?2, ?3)",
-            params![grant_id.to_string(), key_id, request_id.to_string()],
+            "INSERT INTO grant_crypto_requests (grant_id, key_id, request_id, counter)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                grant_id.to_string(),
+                key_id,
+                request_id.to_string(),
+                counter.to_string()
+            ],
         )?;
         transaction.execute(
             "DELETE FROM grant_crypto_requests
@@ -1600,6 +1652,9 @@ fn execute_loaded(
             "update" => operations.update(input),
             "delete" => operations.delete(input),
             "rename" => operations.rename(input),
+            "read_type" => operations.read_type(input),
+            "create_type" => operations.create_type(input),
+            "update_type" => operations.update_type(input),
             other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
         };
         return serde_json::to_value(result).map_err(ConnectError::from);
@@ -1618,7 +1673,18 @@ fn execute_loaded(
 
 fn supported_operations() -> &'static [&'static str] {
     &[
-        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "validate",
+        "create",
+        "update",
+        "delete",
+        "rename",
+        "read_type",
+        "create_type",
+        "update_type",
     ]
 }
 
@@ -1738,6 +1804,69 @@ mod tests {
             .unwrap();
         assert_eq!(read["valid"], true);
         assert_eq!(read["result"]["frontmatter"]["title"], "Hello");
+    }
+
+    #[test]
+    fn type_operations_are_revision_safe_and_require_full_collection_scope() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("typed");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Typed")).unwrap();
+        let document = r#"---
+kind: mdbase.type
+name: project
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: { type: string }
+---
+"#;
+
+        let created = registry
+            .operation(collection.id, "create_type", &json!({"document": document}))
+            .unwrap();
+        assert_eq!(created["valid"], true, "{created}");
+        assert_eq!(created["result"]["path"], "_types/project.md");
+        let revision = created["result"]["revision"].as_str().unwrap();
+
+        let read = registry
+            .operation(collection.id, "read_type", &json!({"name": "project"}))
+            .unwrap();
+        assert_eq!(read["result"]["revision"], revision);
+
+        let updated = registry
+            .operation(
+                collection.id,
+                "update_type",
+                &json!({
+                    "name": "project",
+                    "if_revision": revision,
+                    "document": document.replace("version: 1", "version: 2")
+                }),
+            )
+            .unwrap();
+        assert_eq!(updated["valid"], true, "{updated}");
+        assert_ne!(updated["result"]["revision"], revision);
+
+        let contract_scope = GrantScope {
+            contracts: vec![ContractRequirement {
+                id: "some.app".to_string(),
+                version: 1,
+            }],
+        };
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "read_type",
+                &json!({"name": "project"}),
+                &contract_scope
+            ),
+            Err(ConnectError::AccessDenied(_))
+        ));
     }
 
     #[test]
@@ -2183,7 +2312,7 @@ schema:
     }
 
     #[test]
-    fn encrypted_replay_window_survives_restart_and_serializes_concurrent_delivery() {
+    fn encrypted_replay_window_survives_restart_and_allows_reordered_delivery() {
         let state = tempdir().unwrap();
         let grant_id = Uuid::new_v4();
         let first_request = Uuid::new_v4();
@@ -2202,6 +2331,12 @@ schema:
             registry.accept_encrypted_request(grant_id, "key-1", 41, first_request),
             Err(ConnectError::EncryptedRelayRejected)
         ));
+        registry
+            .accept_encrypted_request(grant_id, "key-1", 42, Uuid::new_v4())
+            .unwrap();
+        registry
+            .accept_encrypted_request(grant_id, "key-1", 41, Uuid::new_v4())
+            .unwrap();
 
         let shared = Arc::new(registry);
         let request_id = Uuid::new_v4();
@@ -2209,7 +2344,7 @@ schema:
             .map(|_| {
                 let registry = shared.clone();
                 std::thread::spawn(move || {
-                    registry.accept_encrypted_request(grant_id, "key-1", 42, request_id)
+                    registry.accept_encrypted_request(grant_id, "key-1", 43, request_id)
                 })
             })
             .collect::<Vec<_>>();

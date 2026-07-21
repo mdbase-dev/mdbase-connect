@@ -119,7 +119,8 @@ connector token is shown or copied. See
 
 The private hosted relay is defined by [`render.yaml`](render.yaml). See
 [`docs/deploying-render.md`](docs/deploying-render.md) for the one-user Render
-deployment, GitHub OAuth setup, DNS, and verification checklist.
+deployment, DNS, and verification checklist, and
+[`docs/google-auth.md`](docs/google-auth.md) for Google sign-in setup.
 
 ## Security status
 
@@ -130,11 +131,11 @@ New SDK authorizations require encrypted relay protocol 3 by default. Operation
 inputs and results remain ciphertext at the control plane; identifiers,
 operation names, timing, and sizes remain visible.
 
-The private Render deployment uses GitHub OAuth and an allowlist of immutable
-numeric account IDs. The server refuses development authentication on
-non-loopback origins, and development email login must never be exposed
-publicly. Hosted Markdown is encrypted under per-collection data keys; record
-paths are represented in PostgreSQL by keyed lookup tokens. Public
+The private Render deployment can use GitHub OAuth and Google Identity Services
+with allowlists of immutable provider subjects. The server refuses development
+authentication on non-loopback origins, and development email login must never
+be exposed publicly. Hosted Markdown is encrypted under per-collection data
+keys; record paths are represented in PostgreSQL by keyed lookup tokens. Public
 registration, a live Render restore drill, signed desktop releases, and
 abuse-response operations remain release gates.
 

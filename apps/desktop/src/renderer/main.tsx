@@ -10,7 +10,7 @@ import "./styles.css";
 
 type Route = "overview" | "collections" | "access" | "activity" | "settings";
 
-const allOperations = ["read", "query", "create", "update", "rename", "delete", "validate"];
+const allOperations = ["read", "query", "create", "update", "rename", "delete", "validate", "read_type", "create_type", "update_type"];
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
     eyebrow: "This computer",
@@ -690,7 +690,7 @@ function SettingSwitch({ className, label, description, checked, disabled, state
 }
 
 function operationDescription(operation: string) {
-  return ({ read: "Open individual records", query: "Find and filter records", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity" } as Record<string, string>)[operation] ?? operation;
+  return ({ read: "Open individual records", query: "Find and filter records", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility" } as Record<string, string>)[operation] ?? operation;
 }
 
 function compatibleCollections(

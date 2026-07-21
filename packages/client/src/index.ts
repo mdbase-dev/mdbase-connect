@@ -4,6 +4,7 @@ import type {
   CollectionDescription,
   CollectionFileMetadata,
   CollectionOperation,
+  CollectionTypeDocument,
   EncryptedRelayOperationResponse,
   GrantEncryption,
   GrantScope,
@@ -36,6 +37,7 @@ export type {
   CollectionFileMetadata,
   CollectionOperation as MdbaseOperation,
   CollectionTypeDescriptor,
+  CollectionTypeDocument,
   ContractRequirement,
   GrantScope,
   JsonObject,
@@ -131,6 +133,21 @@ export interface RenameResult extends RecordResult {
   references_updated?: JsonObject[];
 }
 
+export interface ReadTypeInput {
+  name?: string;
+  path?: string;
+}
+
+export interface CreateTypeInput {
+  document: string;
+  path?: string;
+}
+
+export interface UpdateTypeInput extends ReadTypeInput {
+  document: string;
+  if_revision: string;
+}
+
 export interface ChangesInput {
   after?: number;
   limit?: number;
@@ -194,6 +211,18 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
     return this.operation("validate", input);
+  }
+
+  readType(input: ReadTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.operation("read_type", input);
+  }
+
+  createType(input: CreateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.operation("create_type", input);
+  }
+
+  updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.operation("update_type", input);
   }
 
   async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
@@ -428,6 +457,18 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
     return this.collectionClient.validate(input);
+  }
+
+  readType(input: ReadTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.collectionClient.readType(input);
+  }
+
+  createType(input: CreateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.collectionClient.createType(input);
+  }
+
+  updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
+    return this.collectionClient.updateType(input);
   }
 
   async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {

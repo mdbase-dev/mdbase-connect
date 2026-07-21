@@ -428,7 +428,7 @@ function sandboxDescription(value: Partial<CollectionDescription> = {}): Collect
     collection_id: value.collection_id ?? "01900000-0000-7000-8000-000000000001",
     display_name: value.display_name ?? "Developer sandbox",
     spec_version: value.spec_version ?? "0.3.0",
-    operations: value.operations ?? ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+    operations: value.operations ?? ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"],
     change_cursor: value.change_cursor ?? 0,
     types: clone(value.types ?? []),
     contracts: clone(value.contracts ?? [])

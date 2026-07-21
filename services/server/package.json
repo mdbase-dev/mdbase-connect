@@ -22,6 +22,7 @@
     "@mdbase/connect-protocol": "workspace:*",
     "@mdbase/connect-sync": "workspace:*",
     "fastify": "^5.10.0",
+    "google-auth-library": "^10.9.0",
     "pg": "^8.22.0",
     "pg-mem": "^3.0.14",
     "ws": "^8.21.1",

@@ -15,6 +15,8 @@ const { app } = await buildApp({
   devAuth: runtime.devAuth,
   tailscaleAuth: runtime.tailscaleAuth,
   githubAuth: runtime.githubAuth ?? undefined,
+  googleAuth: runtime.googleAuth ?? undefined,
+  registration: runtime.registration,
   hostedCollections: runtime.hostedCollections,
   hostedProvider: runtime.hostedProvider
     ? new HostedProviderClient(runtime.hostedProvider)

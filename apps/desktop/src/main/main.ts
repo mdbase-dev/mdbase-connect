@@ -16,6 +16,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { requestAgent } from "./control-client";
+import { relaunchAfterAgentStops } from "./agent-lifecycle";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -492,8 +493,18 @@ function validateServerUrl(serverUrl: unknown): string {
 function restartApplication(delay = 250): void {
   setTimeout(() => {
     quitting = true;
-    app.relaunch();
-    app.exit(0);
+    const runningAgent = agentProcess;
+    void relaunchAfterAgentStops(
+      runningAgent,
+      () => app.relaunch(),
+      () => app.exit(0)
+    ).catch((error) => {
+      quitting = false;
+      dialog.showErrorBox(
+        "mdbase connect could not restart",
+        error instanceof Error ? error.message : String(error)
+      );
+    });
   }, delay);
 }
 

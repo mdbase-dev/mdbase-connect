@@ -20,7 +20,10 @@ export type CollectionOperation =
   | "create"
   | "update"
   | "delete"
-  | "rename";
+  | "rename"
+  | "read_type"
+  | "create_type"
+  | "update_type";
 
 export interface MdbaseAppManifest {
   manifest_version: 1;
@@ -268,6 +271,13 @@ export interface CollectionTypeDescriptor {
   collection?: JsonObject;
   lifecycle?: JsonObject;
   extensions: Record<string, unknown>;
+}
+
+export interface CollectionTypeDocument {
+  name: string;
+  path: string;
+  revision: string;
+  document: string;
 }
 
 export interface CollectionContractDescriptor {
