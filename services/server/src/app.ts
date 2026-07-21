@@ -45,7 +45,7 @@ import {
   type GitHubAuthConfig
 } from "./github-auth.js";
 
-const OPERATIONS = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"] as const;
+const OPERATIONS = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"] as const;
 const operationSchema = z.enum(OPERATIONS);
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -1200,7 +1200,7 @@ export async function buildApp(options: BuildOptions) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         mode: write ? "read_write" : "read_only",
         allowedTypes: hostedTypesForContracts(current.template!, current.scope.contracts),
@@ -1745,7 +1745,7 @@ async function reconcileApplicationGrants(
     if ((scopeMatches || mayNarrow) && collectionCompatible) {
       if (grant.hosted_replica_id) {
         if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
-        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
@@ -1956,7 +1956,7 @@ async function approveHostedAuthorization(
     const allowedTypes = hostedTypesForContracts(input.template, scope.contracts);
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
-    const write = operations.some((operation) => ["create", "update", "delete", "rename"].includes(operation));
+    const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
     const applicationUrl = new URL(pending.application_homepage);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin

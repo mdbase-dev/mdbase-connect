@@ -549,7 +549,10 @@ impl AgentState {
 }
 
 fn is_mutation(operation: &str) -> bool {
-    matches!(operation, "create" | "update" | "delete" | "rename")
+    matches!(
+        operation,
+        "create" | "update" | "delete" | "rename" | "create_type" | "update_type"
+    )
 }
 
 async fn handle_stream<S>(stream: S, state: Arc<AgentState>) -> io::Result<()>

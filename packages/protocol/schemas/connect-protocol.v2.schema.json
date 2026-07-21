@@ -14,7 +14,7 @@
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
     },
     "operation": {
-      "enum": ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"]
+      "enum": ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"]
     },
     "contractRequirement": {
       "type": "object",

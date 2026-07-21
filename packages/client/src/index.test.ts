@@ -32,6 +32,28 @@ describe("provider-neutral collection client", () => {
     }]);
   });
 
+  it("exposes revision-safe type document operations", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return { valid: true, result: {}, diagnostics: [] } as Result;
+      }
+    });
+    await client.readType({ name: "task" });
+    await client.createType({ document: "---\nkind: mdbase.type\n---\n" });
+    await client.updateType({
+      path: "_types/task.md",
+      document: "---\nkind: mdbase.type\n---\n",
+      if_revision: "sha256:one"
+    });
+    expect(calls.map(({ operation }) => operation)).toEqual([
+      "read_type",
+      "create_type",
+      "update_type"
+    ]);
+  });
+
   it("surfaces cursor resets from any transport", async () => {
     const client = new MdbaseCollectionClient({
       async operation<Result>() {

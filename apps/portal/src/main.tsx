@@ -17,7 +17,7 @@ import {
 } from "./api";
 import "./styles.css";
 
-const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"];
+const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"];
 
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
@@ -692,7 +692,14 @@ function Loading({ error = "" }: { error?: string }) { return <main className="l
 function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
-function operationLabel(operation: string) { return operation === "query" ? "Search and query" : `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`; }
+function operationLabel(operation: string) {
+  return ({
+    query: "Search and query",
+    read_type: "Inspect type definitions",
+    create_type: "Create type definitions",
+    update_type: "Change type definitions"
+  } as Record<string, string>)[operation] ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`;
+}
 function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
   request: PendingAuthorization,
   collections: T[]

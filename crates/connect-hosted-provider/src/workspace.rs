@@ -169,6 +169,7 @@ impl WorkingSet {
         })?;
         match operation {
             "read" => Ok(operations.read(input)),
+            "read_type" => Ok(operations.read_type(input)),
             // Query execution remains entirely in mdbase-rs. Its v0.3 query
             // facade is newer than the minimum path dependency supported by
             // the hosted build, so only the common legacy envelope is adapted
@@ -180,6 +181,129 @@ impl WorkingSet {
                 "The hosted provider does not support that read operation.",
             )),
         }
+    }
+
+    pub fn type_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error}"
+            ))
+        })?;
+        let operations = collection.v03_operations().map_err(|diagnostic| {
+            ApiError::internal(format!(
+                "The hosted collection could not open: {}",
+                diagnostic.message
+            ))
+        })?;
+        match operation {
+            "create_type" => Ok(operations.create_type(input)),
+            "update_type" => Ok(operations.update_type(input)),
+            _ => Err(ApiError::bad_request(
+                "unsupported_operation",
+                "The hosted provider does not support that type operation.",
+            )),
+        }
+    }
+
+    pub fn resource_document(&self, path: &str) -> ApiResult<String> {
+        fs::read_to_string(safe_path(self.directory.path(), path)?).map_err(Into::into)
+    }
+
+    pub fn type_resources(
+        &self,
+    ) -> ApiResult<(
+        Vec<mdbase_connect_protocol::CollectionTypeDescriptor>,
+        Vec<mdbase_connect_protocol::CollectionContractDescriptor>,
+    )> {
+        let report = mdbase::v03::inspect_collection(self.directory.path());
+        if !report.valid {
+            return Err(ApiError::internal(
+                report
+                    .diagnostics
+                    .first()
+                    .map(|diagnostic| diagnostic.message.clone())
+                    .unwrap_or_else(|| "The hosted type registry is invalid.".to_string()),
+            ));
+        }
+        let mut types = Vec::new();
+        let mut contracts = Vec::new();
+        for type_file in report.types {
+            let description = type_file
+                .frontmatter
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let collection = type_file.frontmatter.get("collection").cloned();
+            let lifecycle = type_file.frontmatter.get("lifecycle").cloned();
+            let extensions = type_file
+                .frontmatter
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(key, _)| key.starts_with("x-"))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<_, _>>();
+            for (extension, configuration) in &extensions {
+                let Some(id) = configuration.get("contract").and_then(Value::as_str) else {
+                    continue;
+                };
+                contracts.push(mdbase_connect_protocol::CollectionContractDescriptor {
+                    id: id.to_string(),
+                    version: configuration
+                        .get("version")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(1),
+                    type_name: type_file.name.clone(),
+                    extension: extension.clone(),
+                    configuration: configuration.clone(),
+                });
+            }
+            types.push(mdbase_connect_protocol::CollectionTypeDescriptor {
+                name: type_file.name,
+                version: type_file.version,
+                description,
+                path: Some(type_file.path),
+                definition: type_file
+                    .frontmatter
+                    .as_object()
+                    .cloned()
+                    .map(Value::Object),
+                schema: type_file.schema,
+                collection,
+                lifecycle,
+                extensions,
+            });
+        }
+        types.sort_by(|left, right| left.name.cmp(&right.name));
+        contracts.sort_by(|left, right| {
+            (&left.id, left.version, &left.type_name).cmp(&(
+                &right.id,
+                right.version,
+                &right.type_name,
+            ))
+        });
+        Ok((types, contracts))
+    }
+
+    pub fn classify_records(
+        &self,
+        records: &[(Uuid, String, Map<String, Value>)],
+    ) -> ApiResult<BTreeMap<Uuid, Vec<String>>> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error}"
+            ))
+        })?;
+        Ok(records
+            .iter()
+            .map(|(id, path, frontmatter)| {
+                (
+                    *id,
+                    collection
+                        .determine_types_for_path(&Value::Object(frontmatter.clone()), Some(path)),
+                )
+            })
+            .collect())
     }
 }
 
@@ -478,5 +602,41 @@ mod tests {
         };
         let error = workspace.execute(&mutation).unwrap_err();
         assert_eq!(error.code, "invalid_path");
+    }
+
+    #[test]
+    fn reads_creates_and_updates_type_resources() {
+        let workspace = WorkingSet::materialize(resources(), []).unwrap();
+        let task = workspace
+            .read_operation("read_type", &json!({"name": "task"}))
+            .unwrap();
+        assert!(task.valid);
+        let task_revision = task.result["revision"].as_str().unwrap();
+        let updated = workspace
+            .type_operation(
+                "update_type",
+                &json!({
+                    "name": "task",
+                    "if_revision": task_revision,
+                    "document": task.result["document"].as_str().unwrap().replace(
+                        "A TaskNotes-compatible task.",
+                        "An updated task."
+                    )
+                }),
+            )
+            .unwrap();
+        assert!(updated.valid, "{:?}", updated.diagnostics);
+
+        let created = workspace
+            .type_operation(
+                "create_type",
+                &json!({
+                    "document": "---\nkind: mdbase.type\nname: project\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: { type: string }\n---\n"
+                }),
+            )
+            .unwrap();
+        assert!(created.valid, "{:?}", created.diagnostics);
+        let (types, _) = workspace.type_resources().unwrap();
+        assert!(types.iter().any(|definition| definition.name == "project"));
     }
 }

@@ -661,6 +661,10 @@ impl CollectionRegistry {
                 "Collection-wide validation is unavailable to a contract-scoped application."
                     .to_string(),
             )),
+            "read_type" | "create_type" | "update_type" => Err(ConnectError::AccessDenied(
+                "Type definitions can only be managed by an application with full collection access."
+                    .to_string(),
+            )),
             other => Err(ConnectError::UnsupportedOperation(other.to_string())),
         }
     }
@@ -1600,6 +1604,9 @@ fn execute_loaded(
             "update" => operations.update(input),
             "delete" => operations.delete(input),
             "rename" => operations.rename(input),
+            "read_type" => operations.read_type(input),
+            "create_type" => operations.create_type(input),
+            "update_type" => operations.update_type(input),
             other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
         };
         return serde_json::to_value(result).map_err(ConnectError::from);
@@ -1618,7 +1625,18 @@ fn execute_loaded(
 
 fn supported_operations() -> &'static [&'static str] {
     &[
-        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "validate",
+        "create",
+        "update",
+        "delete",
+        "rename",
+        "read_type",
+        "create_type",
+        "update_type",
     ]
 }
 
@@ -1738,6 +1756,69 @@ mod tests {
             .unwrap();
         assert_eq!(read["valid"], true);
         assert_eq!(read["result"]["frontmatter"]["title"], "Hello");
+    }
+
+    #[test]
+    fn type_operations_are_revision_safe_and_require_full_collection_scope() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("typed");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Typed")).unwrap();
+        let document = r#"---
+kind: mdbase.type
+name: project
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      title: { type: string }
+---
+"#;
+
+        let created = registry
+            .operation(collection.id, "create_type", &json!({"document": document}))
+            .unwrap();
+        assert_eq!(created["valid"], true, "{created}");
+        assert_eq!(created["result"]["path"], "_types/project.md");
+        let revision = created["result"]["revision"].as_str().unwrap();
+
+        let read = registry
+            .operation(collection.id, "read_type", &json!({"name": "project"}))
+            .unwrap();
+        assert_eq!(read["result"]["revision"], revision);
+
+        let updated = registry
+            .operation(
+                collection.id,
+                "update_type",
+                &json!({
+                    "name": "project",
+                    "if_revision": revision,
+                    "document": document.replace("version: 1", "version: 2")
+                }),
+            )
+            .unwrap();
+        assert_eq!(updated["valid"], true, "{updated}");
+        assert_ne!(updated["result"]["revision"], revision);
+
+        let contract_scope = GrantScope {
+            contracts: vec![ContractRequirement {
+                id: "some.app".to_string(),
+                version: 1,
+            }],
+        };
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "read_type",
+                &json!({"name": "project"}),
+                &contract_scope
+            ),
+            Err(ConnectError::AccessDenied(_))
+        ));
     }
 
     #[test]
