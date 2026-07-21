@@ -2,7 +2,9 @@
 
 A quiet, browser-based editor for an entire mdbase collection. It connects to a
 user-approved collection through mdbase connect and works with the Markdown
-records in place.
+records in place. The Connect authorization screen offers both collections on
+your connected computers and collections hosted by mdbase. After approval, the
+same editor works against either storage provider.
 
 The editor includes a CodeMirror Markdown surface with optional Vim keys,
 `@` and `[[` object-link completion, backlinks, structured and JSON frontmatter
@@ -31,9 +33,10 @@ pnpm dev
 Open `http://localhost:5173/mdbase-editor/?demo=5000` for a generated local
 collection that does not require authorization.
 
-Run the browser suite with `pnpm test:e2e`. It covers the real CodeMirror
-integration, creation and frontmatter flows, type inspection, settings,
-responsive navigation, accessibility, and a 10,000-record performance case.
+Run the browser suite with `pnpm test:e2e`. It covers hosted authorization and
+direct-provider CRUD, the real CodeMirror integration, creation and frontmatter
+flows, type inspection, settings, responsive navigation, accessibility, and a
+10,000-record performance case.
 
 ## Deployment
 

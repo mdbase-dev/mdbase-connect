@@ -34,7 +34,7 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
       </section>
 
       <section>
-        <div className="settings-intro"><h2>Collection</h2><p>Read from the connected collection.</p></div>
+        <div className="settings-intro"><h2>Collection</h2><p>The collection you chose in mdbase connect.</p></div>
         <FactRow label="Name" value={description.display_name} />
         <FactRow label="Specification" value={description.spec_version} />
         <FactRow label="Records" value={String(noteCount)} />
@@ -45,7 +45,7 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
       </section>
 
       <section>
-        <div className="settings-intro"><h2>Connection</h2><p>This application has collection-wide access.</p></div>
+        <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
         <FactRow label="Operations" value={description.operations.join(", ")} mono />
         <FactRow label="Collection ID" value={description.collection_id} mono />
       </section>
