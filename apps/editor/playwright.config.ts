@@ -6,12 +6,12 @@ export default defineConfig({
   retries: 0,
   reporter: "line",
   use: {
-    baseURL: "http://127.0.0.1:4174/mdbase-editor/",
+    baseURL: "http://127.0.0.1:4174/",
     trace: "retain-on-failure"
   },
   webServer: {
-    command: "pnpm dev --port 4174",
-    url: "http://127.0.0.1:4174/mdbase-editor/?demo=10",
+    command: "pnpm build:e2e && pnpm preview --port 4174",
+    url: "http://127.0.0.1:4174/?demo=10",
     reuseExistingServer: true,
     timeout: 120_000
   },

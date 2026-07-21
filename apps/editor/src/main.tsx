@@ -8,7 +8,7 @@ import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
 import "./styles.css";
 
-const demoCount = import.meta.env.DEV
+const demoCount = import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1"
   ? Number(new URL(location.href).searchParams.get("demo") ?? 0)
   : 0;
 const gateway = demoCount > 0
