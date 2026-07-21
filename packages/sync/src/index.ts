@@ -537,6 +537,68 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     return Object.values((await this.store.load()).conflicts);
   }
 
+  async conflictEntries(): Promise<
+    Array<{ recordId: string; receipt: SyncMutationReceipt<Frontmatter> }>
+  > {
+    return Object.entries((await this.store.load()).conflicts).map(
+      ([recordId, receipt]) => ({ recordId, receipt }),
+    );
+  }
+
+  /** Resolve one blocked record without disturbing mutations for other records. */
+  resolveConflict(recordId: string, resolution: "local" | "remote"): Promise<void> {
+    return this.exclusive(async () => {
+      const data = await this.requireInitialized();
+      const receipt = data.conflicts[recordId];
+      if (!receipt) throw new SyncError("conflict_not_found", "The record has no sync issue to resolve.");
+      const current = receipt.status === "conflicted" ? receipt.conflict.current : undefined;
+      if (resolution === "remote") {
+        data.pending = data.pending.filter((mutation) => mutation.record_id !== recordId);
+        if (current) data.records[recordId] = clone(current);
+        else delete data.records[recordId];
+        delete data.conflicts[recordId];
+        await this.store.save(data);
+        return;
+      }
+      if (receipt.status !== "conflicted" || !current) {
+        throw new SyncError(
+          "local_resolution_unavailable",
+          "This sync issue cannot keep the local version; use the hosted version or edit a new record."
+        );
+      }
+      const pending = data.pending.filter((mutation) => mutation.record_id === recordId);
+      if (pending.length === 0) {
+        throw new SyncError("conflict_mutation_missing", "The local change for this sync issue is unavailable.");
+      }
+      const first = pending[0];
+      const replacedMutationId = first.mutation_id;
+      first.mutation_id = crypto.randomUUID();
+      first.created_at = new Date().toISOString();
+      for (const later of pending.slice(1)) {
+        if (later.causal_predecessor === replacedMutationId) {
+          later.causal_predecessor = first.mutation_id;
+        }
+      }
+      if (first.operation === "create") {
+        first.operation = "update";
+        first.base_revision = current.revision;
+        first.input = {
+          patch: clone(first.input.frontmatter ?? {}),
+          body: first.input.body ?? "",
+          types: first.input.types ?? current.types
+        };
+      } else {
+        first.base_revision = current.revision;
+      }
+      delete first.causal_predecessor;
+      delete data.conflicts[recordId];
+      const overlay = applyPendingOverlay<Frontmatter>({ [recordId]: clone(current) }, pending);
+      if (overlay[recordId]) data.records[recordId] = overlay[recordId];
+      else delete data.records[recordId];
+      await this.store.save(data);
+    });
+  }
+
   async collectionResources(): Promise<SyncCollectionResources | null> {
     return clone((await this.store.load()).resources ?? null);
   }

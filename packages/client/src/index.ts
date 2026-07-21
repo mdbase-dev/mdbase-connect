@@ -12,7 +12,12 @@ import type {
   JsonObject,
   MdbaseOperationEnvelope,
   RecordSummary,
-  RecordResult
+  RecordResult,
+  SyncChangesPage,
+  SyncMutation,
+  SyncMutationReceipt,
+  SyncSession,
+  SyncSnapshotPage
 } from "@mdbase/connect-protocol";
 import { DEFAULT_LOOPBACK_PORT } from "@mdbase/connect-protocol";
 import {
@@ -65,6 +70,8 @@ export interface MdbaseConnectOptions {
   directAccess?: "auto" | "disabled";
   /** Loopback origin override for development and automated testing. */
   loopbackUrl?: string;
+  /** Override browser navigation, for example to use a native system browser. */
+  navigate?: (url: string) => void | Promise<void>;
 }
 
 export type MdbaseConnectionRoute = "hosted" | "direct" | "relay";
@@ -82,6 +89,19 @@ export interface MdbaseConnection {
   scope: GrantScope;
   route: MdbaseConnectionRoute;
   directAccess: DirectAccessStatus;
+}
+
+export interface MdbaseHostedSyncTransport<Frontmatter extends JsonObject = JsonObject> {
+  openSession(): Promise<SyncSession>;
+  snapshot(snapshotId: string, page?: string): Promise<SyncSnapshotPage<Frontmatter>>;
+  changes(after: number, limit?: number): Promise<SyncChangesPage<Frontmatter>>;
+  mutate(mutation: SyncMutation): Promise<SyncMutationReceipt<Frontmatter>>;
+}
+
+export interface MdbaseHostedSyncConnection<Frontmatter extends JsonObject = JsonObject> {
+  collectionId: string;
+  replicaId: string;
+  transport: MdbaseHostedSyncTransport<Frontmatter>;
 }
 
 export interface ReadInput {
@@ -327,6 +347,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly keyStore: GrantKeyStore;
   private readonly directAccessMode: "auto" | "disabled";
   private readonly loopbackUrl: string;
+  private readonly navigate?: (url: string) => void | Promise<void>;
   private application: Application | null = null;
   private refreshPromise: Promise<StoredToken> | null = null;
   private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
@@ -348,6 +369,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`
     );
     this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
+    this.navigate = options.navigate;
     this.collectionClient = new MdbaseCollectionClient({
       operation: (operation, input) => this.performOperation(operation, input)
     });
@@ -367,7 +389,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   async authorize(operations: CollectionOperation[] = DEFAULT_OPERATIONS): Promise<never> {
-    if (typeof location === "undefined") {
+    if (typeof location === "undefined" && !this.navigate) {
       throw new MdbaseConnectError(
         "browser_required",
         "Authorization navigation requires a browser environment."
@@ -405,7 +427,8 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       authorize.searchParams.set("relay_protocol", "3");
       authorize.searchParams.set("application_public_key", grantKey.publicKey);
     }
-    location.assign(authorize.href);
+    if (this.navigate) await this.navigate(authorize.href);
+    else location.assign(authorize.href);
     return new Promise<never>(() => undefined);
   }
 
@@ -500,6 +523,43 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.storage.setItem(this.directPreferenceKey(), "disabled");
     this.setDirectStatus("disabled");
     this.setRoute("relay");
+  }
+
+  /**
+   * Return an offline-replication transport for an authorized hosted
+   * collection. Provider credentials stay inside the SDK and are refreshed
+   * before requests when necessary.
+   */
+  hostedSync(): MdbaseHostedSyncConnection<Frontmatter> | null {
+    const token = this.currentToken();
+    if (!token?.hosted) return null;
+    const collectionId = token.collectionId;
+    const replicaId = token.hosted.replicaId;
+    return {
+      collectionId,
+      replicaId,
+      transport: {
+        openSession: () => this.performHostedSyncRequest(collectionId, replicaId, "POST", "sessions"),
+        snapshot: (snapshotId, page) => {
+          const query = new URLSearchParams({ snapshot_id: snapshotId });
+          if (page) query.set("page", page);
+          return this.performHostedSyncRequest(collectionId, replicaId, "GET", `snapshot?${query}`);
+        },
+        changes: (after, limit = 200) => this.performHostedSyncRequest(
+          collectionId,
+          replicaId,
+          "GET",
+          `changes?${new URLSearchParams({ after: String(after), limit: String(limit) })}`
+        ),
+        mutate: (mutation) => this.performHostedSyncRequest(
+          collectionId,
+          replicaId,
+          "POST",
+          "mutations",
+          mutation
+        )
+      }
+    };
   }
 
   disconnect(): void {
@@ -638,6 +698,63 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       }
     }
     return body.result as Result;
+  }
+
+  private async performHostedSyncRequest<Result>(
+    collectionId: string,
+    replicaId: string,
+    method: "GET" | "POST",
+    path: string,
+    input?: unknown
+  ): Promise<Result> {
+    let token = await this.authorizedToken();
+    if (!token?.hosted
+        || token.collectionId !== collectionId
+        || token.hosted.replicaId !== replicaId) {
+      throw new MdbaseConnectError(
+        "hosted_authorization_changed",
+        "Reconnect this hosted collection before synchronizing."
+      );
+    }
+    let response = await this.sendHostedSyncRequest(token, collectionId, method, path, input);
+    if (response.status === 401 && token.refreshToken) {
+      token = await this.refreshAuthorization();
+      if (!token.hosted
+          || token.collectionId !== collectionId
+          || token.hosted.replicaId !== replicaId) {
+        throw new MdbaseConnectError(
+          "hosted_authorization_changed",
+          "Reconnect this hosted collection before synchronizing."
+        );
+      }
+      response = await this.sendHostedSyncRequest(token, collectionId, method, path, input);
+    }
+    const body = await response.json();
+    if (!response.ok) throw apiError(body, "sync_failed", "Hosted collection synchronization failed.");
+    return body as Result;
+  }
+
+  private sendHostedSyncRequest(
+    token: StoredToken,
+    collectionId: string,
+    method: "GET" | "POST",
+    path: string,
+    input?: unknown
+  ): Promise<Response> {
+    if (!token.hosted) {
+      throw new MdbaseConnectError("not_hosted", "This authorization is not for a hosted collection.");
+    }
+    return fetch(
+      `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(collectionId)}/sync/${path}`,
+      {
+        method,
+        headers: {
+          authorization: `Bearer ${token.hosted.accessToken}`,
+          ...(input === undefined ? {} : { "content-type": "application/json" })
+        },
+        ...(input === undefined ? {} : { body: JSON.stringify(input) })
+      }
+    );
   }
 
   private async sendOperation<Result>(

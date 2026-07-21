@@ -6,6 +6,11 @@ scoped ordered changes, conditional idempotent mutations, conflicts, cursor
 reset, revocation, offline queues, and receive-only or writable Markdown
 mirrors.
 
+Application replicas resolve a stale record explicitly with
+`resolveConflict(recordId, "local" | "remote")`. Keeping the local version
+rebases it as a new idempotent mutation; keeping the remote version discards
+only that record's queued mutations.
+
 The in-process reference authority remains useful for deterministic contract
 tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted
 PostgreSQL storage, durable receipts and snapshot leases, and canonical

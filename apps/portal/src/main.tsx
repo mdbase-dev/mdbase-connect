@@ -299,6 +299,7 @@ function Dashboard() {
                   ]
                   )}
                   onDecision={refresh}
+                  onCollectionCreated={() => void refresh()}
                 />
               </article>
             ))}</div></>}
@@ -717,6 +718,10 @@ function Authorization({ requestId }: { requestId: string }) {
             request={authorization}
             collections={compatibleCollections(authorization, request.collections)}
             onDecision={(decision) => setStatus(decision)}
+            onCollectionCreated={(collection) => setRequest((current) => current ? {
+              ...current,
+              collections: [...current.collections, collection]
+            } : current)}
           />
           <div className="desktop-alternative"><span>Want to review this on the computer instead?</span><a href={deepLink}>Open mdbase connect</a></div>
         </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>Returning to the application…</h2><p>Your approved collection and permissions will follow you back.</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>Returning to the application…</h2><p>The application will show that access was not granted.</p></>}
@@ -744,15 +749,17 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
 function ApprovalForm({
   request,
   collections,
-  onDecision
+  onDecision,
+  onCollectionCreated
 }: {
   request: PendingAuthorization;
   collections: AvailableCollection[];
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
+  onCollectionCreated(collection: AvailableCollection): void;
 }) {
   const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
-  const [submitting, setSubmitting] = useState<"approved" | "denied" | null>(null);
+  const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [error, setError] = useState("");
   const selected = collections.find((collection) => collection.id === collectionId);
   const setup = selected ? neededProvisions(request, selected) : [];
@@ -789,6 +796,35 @@ function ApprovalForm({
     }
   }
 
+  async function createCloudCollection() {
+    setSubmitting("creating");
+    setError("");
+    try {
+      const tasknotes = request.requirements.contracts.some((contract) => contract.id === "tasknotes.task");
+      const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", {
+        method: "POST",
+        body: JSON.stringify({
+          display_name: tasknotes ? "My tasks" : "My collection",
+          template: tasknotes ? "tasknotes" : "mdbase"
+        })
+      });
+      const collection: AvailableCollection = {
+        id: created.collection.id,
+        display_name: created.collection.display_name,
+        connector_name: "mdbase cloud",
+        spec_version: created.collection.spec_version ?? "0.3.0",
+        contracts: tasknotes ? [{ id: "tasknotes.task", version: 1 }] : [],
+        kind: "hosted"
+      };
+      onCollectionCreated(collection);
+      setCollectionId(collection.id);
+    } catch (creationError) {
+      setError(message(creationError));
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
       <label className="collection-field" htmlFor={`collection-${request.id}`}>
@@ -797,9 +833,15 @@ function ApprovalForm({
           {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}{neededProvisions(request, collection).length ? " · setup required" : ""}</option>)}
         </select>
       </label>
-      {collections.length === 0 && <p className="field-note error-copy">
-        No collection is ready. Open mdbase connect on the collection's computer to add the required types.
-      </p>}
+      {collections.length === 0 && <div className="authorization-empty-collection">
+        <p className="field-note">No compatible collection is ready.</p>
+        <button
+          className="button secondary"
+          type="button"
+          disabled={submitting !== null}
+          onClick={() => void createCloudCollection()}
+        >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
+      </div>}
       {setup.length > 0 && <p className="field-note">Allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
       <fieldset className="permission-field">
         <legend>Permissions</legend>

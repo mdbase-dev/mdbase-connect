@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPrivateAddress } from "./manifest.js";
+import { isNativeRedirectUri, isPrivateAddress } from "./manifest.js";
 
 describe("manifest network boundary", () => {
   it.each([
@@ -23,4 +23,29 @@ describe("manifest network boundary", () => {
     "allows public address %s",
     (address) => expect(isPrivateAddress(address)).toBe(false)
   );
+});
+
+describe("native manifest callbacks", () => {
+  it("accepts a reverse-domain private-use application scheme", () => {
+    expect(isNativeRedirectUri(
+      new URL("dev.tasknotes.app://auth/mdbase/callback"),
+      "tasknotes.dev"
+    )).toBe(true);
+  });
+
+  it("binds the private-use scheme to the manifest publisher", () => {
+    expect(isNativeRedirectUri(
+      new URL("com.example.app://auth/mdbase/callback"),
+      "tasknotes.dev"
+    )).toBe(false);
+  });
+
+  it.each([
+    "tasknotes://auth/callback",
+    "javascript://auth/callback",
+    "dev.tasknotes.app://user:secret@auth/callback",
+    "dev.tasknotes.app://auth/callback#fragment"
+  ])("rejects an unsafe native callback %s", (value) => {
+    expect(isNativeRedirectUri(new URL(value))).toBe(false);
+  });
 });

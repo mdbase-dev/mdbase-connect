@@ -107,6 +107,41 @@ describe("hosted sync vertical slice", () => {
     expect(independent).toMatchObject({ status: "applied", record: { frontmatter: { title: "Independent" } } });
   });
 
+  it("resolves stale offline edits by keeping either the local or hosted version", async () => {
+    const hosted = authority();
+    hosted.seed([{
+      record_id: ids.record,
+      path: "tasks/one.md",
+      frontmatter: { type: "task", title: "Original" },
+      body: "",
+      types: ["task"]
+    }]);
+    hosted.registerReplica({ id: ids.writer, name: "Phone", mode: "read_write", allowedTypes: ["task"] });
+    hosted.registerReplica({ id: ids.reader, name: "Tablet", mode: "read_write", allowedTypes: ["task"] });
+    const phone = new OfflineReplica(hosted.transport(ids.writer), store(ids.writer));
+    const tablet = new OfflineReplica(hosted.transport(ids.reader), store(ids.reader));
+    await Promise.all([phone.initialize(), tablet.initialize()]);
+
+    await phone.queueUpdate({ recordId: ids.record, patch: { title: "Phone edit" } });
+    await phone.sync();
+    await tablet.queueUpdate({ recordId: ids.record, patch: { title: "Tablet edit" } });
+    await tablet.sync();
+    expect(await tablet.conflicts()).toHaveLength(1);
+    await tablet.resolveConflict(ids.record, "local");
+    expect((await tablet.records())[0].frontmatter.title).toBe("Tablet edit");
+    await tablet.sync();
+    await phone.pull();
+    expect((await phone.records())[0].frontmatter.title).toBe("Tablet edit");
+
+    await tablet.queueUpdate({ recordId: ids.record, patch: { title: "Tablet stale again" } });
+    await phone.queueUpdate({ recordId: ids.record, patch: { title: "Phone final" } });
+    await phone.sync();
+    await tablet.sync();
+    await tablet.resolveConflict(ids.record, "remote");
+    expect(await tablet.pending()).toEqual([]);
+    expect((await tablet.records())[0].frontmatter.title).toBe("Phone final");
+  });
+
   it("rebuilds an expired cursor without losing a queued offline mutation", async () => {
     const hosted = authority();
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });

@@ -118,6 +118,12 @@ Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.
 
+Native shells can pass `navigate` to open the authorization URL in the system
+browser and list a reverse-domain callback such as
+`dev.tasknotes.app://auth/mdbase/callback` in the public manifest. PKCE remains
+mandatory. Call `completeAuthorization(callbackUrl)` when the application
+receives the deep link.
+
 New authorizations require encrypted relay protocol 3 by default. The SDK keeps
 a non-extractable per-authorization P-256 key and atomic message counter in
 IndexedDB, encrypts operation inputs for the connector, and decrypts connector
@@ -130,6 +136,10 @@ hosted Rust data plane, binds browser requests to the manifest origin, and does
 not send record payloads through the Connect control plane. Refresh rotation,
 permission narrowing, and revocation keep the same public SDK behavior across
 local and hosted authorities.
+
+`hostedSync()` exposes a provider-neutral sync transport without exposing the
+provider credential. It refreshes the grant-bound capability as needed and can
+be passed directly to `@mdbase/connect-sync` for an offline application cache.
 
 Record-facing code can depend on `MdbaseCollectionClient` instead of the OAuth
 client. It accepts a small `MdbaseCollectionTransport`, which is the stable seam

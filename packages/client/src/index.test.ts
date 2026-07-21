@@ -81,6 +81,31 @@ describe("provider-neutral collection client", () => {
 });
 
 describe("authorization renewal", () => {
+  it("uses injected navigation for native authorization", async () => {
+    const storage = new MemoryStorage();
+    const navigate = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "TaskNotes",
+        homepage: "https://tasks.example"
+      }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/.well-known/mdbase-app.json",
+      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      storage,
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    void connect.authorize(["query"]);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(new URL(navigate.mock.calls[0][0]).searchParams.get("redirect_uri"))
+      .toBe("dev.tasknotes.app://auth/mdbase/callback");
+  });
+
   it("sends hosted operations directly to the provider with its scoped capability", async () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
@@ -115,6 +140,59 @@ describe("authorization renewal", () => {
     expect((await connect.query()).valid).toBe(true);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       `${providerUrl}/v1/hosted/collections/00000000-0000-0000-0000-000000000002/operations/query`
+    );
+    expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization)
+      .toBe("Bearer hsa_direct");
+  });
+
+  it("keeps hosted sync credentials private and refreshes them for the offline transport", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const providerUrl = "https://provider.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_control",
+      refreshToken: "ref_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query", "create", "update", "delete"],
+      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      expiresAt: Date.now() + 60_000,
+      refreshExpiresAt: Date.now() + 120_000,
+      hosted: {
+        providerUrl,
+        replicaId: "00000000-0000-0000-0000-000000000003",
+        accessToken: "hsa_direct"
+      }
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      protocol_version: 1,
+      session_id: "00000000-0000-0000-0000-000000000004",
+      replica_id: "00000000-0000-0000-0000-000000000003",
+      collection_id: "00000000-0000-0000-0000-000000000002",
+      mode: "read_write",
+      scope_epoch: 1,
+      retained_after: 0,
+      head: 0,
+      snapshot_id: "00000000-0000-0000-0000-000000000005",
+      resources: { revision: "one", spec_version: "0.3.0", types: [], contracts: [] }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    const hosted = connect.hostedSync();
+    expect(hosted).toEqual(expect.objectContaining({
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      replicaId: "00000000-0000-0000-0000-000000000003"
+    }));
+    expect(JSON.stringify(hosted)).not.toContain("hsa_direct");
+    expect((await hosted!.transport.openSession()).mode).toBe("read_write");
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `${providerUrl}/v1/hosted/collections/00000000-0000-0000-0000-000000000002/sync/sessions`
     );
     expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization)
       .toBe("Bearer hsa_direct");

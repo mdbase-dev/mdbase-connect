@@ -15,7 +15,11 @@
       "minItems": 1,
       "maxItems": 10,
       "uniqueItems": true,
-      "items": { "type": "string", "format": "uri", "pattern": "^https://" }
+      "items": {
+        "type": "string",
+        "format": "uri",
+        "description": "An HTTPS URI on the manifest origin or a native reverse-domain private-use scheme."
+      }
     },
     "requirements": { "$ref": "#/$defs/requirements" },
     "provisions": {

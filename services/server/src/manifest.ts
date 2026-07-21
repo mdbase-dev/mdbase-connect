@@ -94,16 +94,44 @@ function validateManifestOrigins(source: URL, manifest: AppManifest, development
   if (homepage.origin !== source.origin) throw new Error("Manifest homepage must use the manifest origin.");
   for (const redirect of manifest.redirect_uris) {
     const redirectUrl = new URL(redirect);
-    if (redirectUrl.origin !== source.origin) {
-      throw new Error("Redirect URIs must use the manifest origin.");
+    if (redirectUrl.origin === source.origin) {
+      if (redirectUrl.protocol !== "https:" && !developmentOrigin) {
+        throw new Error("Web redirect URIs must use HTTPS.");
+      }
+      continue;
     }
-    if (redirectUrl.protocol !== "https:" && !developmentOrigin) {
-      throw new Error("Redirect URIs must use HTTPS.");
+    if (!isNativeRedirectUri(redirectUrl, source.hostname)) {
+      throw new Error("Redirect URIs must use the manifest origin or a private-use application scheme.");
     }
   }
   if (manifest.icon && new URL(manifest.icon).origin !== source.origin) {
     throw new Error("Manifest icons must use the manifest origin.");
   }
+}
+
+/**
+ * Native OAuth callbacks use an app-owned reverse-domain scheme. PKCE protects
+ * the authorization code if another installed application claims the same
+ * scheme, while the manifest keeps the callback bound to the web publisher's
+ * identity.
+ */
+export function isNativeRedirectUri(url: URL, publisherHostname?: string): boolean {
+  const scheme = url.protocol.slice(0, -1);
+  const publisherPrefix = publisherHostname
+    ?.toLowerCase()
+    .split(".")
+    .reverse()
+    .join(".");
+  return scheme.includes(".")
+    && /^[a-z][a-z0-9+.-]*$/.test(scheme)
+    && !["http", "https", "file", "javascript", "data"].includes(scheme)
+    && (!publisherPrefix
+      || scheme === publisherPrefix
+      || scheme.startsWith(`${publisherPrefix}.`))
+    && url.username === ""
+    && url.password === ""
+    && url.hostname.length > 0
+    && url.hash === "";
 }
 
 async function assertPublicHost(hostname: string, allowPrivate: boolean): Promise<void> {
