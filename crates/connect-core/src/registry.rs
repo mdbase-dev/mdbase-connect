@@ -5,7 +5,7 @@ use mdbase_connect_protocol::{
     ActivityEntry, ApplicationRequirements, CollectionChange, CollectionChangesPage,
     CollectionContractDescriptor, CollectionDescription, CollectionSummary,
     CollectionTypeDescriptor, ContractRequirement, GrantPolicy, GrantScope, GrantSummary,
-    CONTROL_PROTOCOL_VERSION,
+    TypeProvision, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
@@ -521,6 +521,79 @@ impl CollectionRegistry {
                 available.id == required.id && available.version == required.version
             })
         }))
+    }
+
+    pub fn provision_types(
+        &self,
+        id: Uuid,
+        requirements: &ApplicationRequirements,
+        provisions: &[TypeProvision],
+    ) -> Result<Vec<ContractRequirement>, ConnectError> {
+        let mut available = self.describe(id)?.contracts;
+        let missing = requirements
+            .contracts
+            .iter()
+            .filter(|required| !has_contract(&available, required))
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            return Ok(contract_requirements(&available));
+        }
+        if missing.iter().any(|required| {
+            !provisions
+                .iter()
+                .any(|provision| provision.provides.contains(required))
+        }) {
+            return Err(ConnectError::AccessDenied(
+                "This collection is missing a required contract that the application cannot install."
+                    .to_string(),
+            ));
+        }
+
+        for provision in provisions {
+            if !provision
+                .provides
+                .iter()
+                .any(|provided| missing.contains(provided) && !has_contract(&available, provided))
+            {
+                continue;
+            }
+            let mut input = json!({ "document": provision.document });
+            if let Some(path) = &provision.path {
+                input["path"] = json!(path);
+            }
+            let result = self.operation(id, "create_type", &input)?;
+            if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                return Err(ConnectError::AccessDenied(format!(
+                    "The {} type could not be installed: {}",
+                    provision.name,
+                    error_message(&result, "the type definition was rejected")
+                )));
+            }
+            if result
+                .pointer("/result/name")
+                .and_then(Value::as_str)
+                .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
+            {
+                return Err(ConnectError::AccessDenied(format!(
+                    "The installed type did not match the declared {} type.",
+                    provision.name
+                )));
+            }
+            available = self.describe(id)?.contracts;
+        }
+
+        if requirements
+            .contracts
+            .iter()
+            .any(|required| !has_contract(&available, required))
+        {
+            return Err(ConnectError::AccessDenied(
+                "The installed type definitions did not provide every required contract."
+                    .to_string(),
+            ));
+        }
+        Ok(contract_requirements(&available))
     }
 
     pub fn scoped_operation(
@@ -1629,10 +1702,30 @@ fn normalized_optional(value: Option<String>) -> Option<String> {
 fn error_message(value: &Value, fallback: &str) -> String {
     value
         .pointer("/error/message")
+        .or_else(|| value.pointer("/diagnostics/0/message"))
         .or_else(|| value.get("message"))
         .and_then(Value::as_str)
         .unwrap_or(fallback)
         .to_string()
+}
+
+fn has_contract(
+    available: &[CollectionContractDescriptor],
+    required: &ContractRequirement,
+) -> bool {
+    available
+        .iter()
+        .any(|contract| contract.id == required.id && contract.version == required.version)
+}
+
+fn contract_requirements(contracts: &[CollectionContractDescriptor]) -> Vec<ContractRequirement> {
+    contracts
+        .iter()
+        .map(|contract| ContractRequirement {
+            id: contract.id.clone(),
+            version: contract.version,
+        })
+        .collect()
 }
 
 fn execute_loaded(
@@ -1867,6 +1960,55 @@ schema:
             ),
             Err(ConnectError::AccessDenied(_))
         ));
+    }
+
+    #[test]
+    fn provisions_required_type_contracts_idempotently() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("provisioned");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Provisioned")).unwrap();
+        let requirements = ApplicationRequirements {
+            contracts: vec![ContractRequirement {
+                id: "workout.record".to_string(),
+                version: 1,
+            }],
+        };
+        let provision = TypeProvision {
+            name: "Workout".to_string(),
+            path: None,
+            document: r#"---
+kind: mdbase.type
+name: workout
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      type: { const: workout }
+x-workout:
+  contract: workout.record
+  version: 1
+---
+"#
+            .to_string(),
+            provides: requirements.contracts.clone(),
+        };
+
+        let contracts = registry
+            .provision_types(
+                collection.id,
+                &requirements,
+                std::slice::from_ref(&provision),
+            )
+            .unwrap();
+        assert!(contracts.contains(&requirements.contracts[0]));
+        assert!(root.join("_types/workout.md").is_file());
+        registry
+            .provision_types(collection.id, &requirements, &[provision])
+            .unwrap();
     }
 
     #[test]

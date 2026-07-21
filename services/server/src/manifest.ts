@@ -1,25 +1,56 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import type { ApplicationProvisions, ApplicationRequirements } from "@mdbase/connect-protocol";
 import { z } from "zod";
 
+const contractSchema = z.object({
+  id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
+  version: z.number().int().positive()
+}).strict();
+const contractsSchema = z.array(contractSchema).max(20).refine(
+  (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
+  "Contracts must be unique."
+);
+const requirementsSchema = z.object({ contracts: contractsSchema }).strict().default({ contracts: [] });
 const manifestSchema = z.object({
   manifest_version: z.literal(1),
   name: z.string().trim().min(1).max(100),
   homepage: z.url(),
   icon: z.url().optional(),
   redirect_uris: z.array(z.url()).min(1).max(10),
-  requirements: z.object({
-    contracts: z.array(z.object({
-      id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
-      version: z.number().int().positive()
-    }).strict()).max(20).refine(
-      (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
-      "Contract requirements must be unique."
-    )
-  }).strict().default({ contracts: [] })
-}).strict();
+  requirements: requirementsSchema,
+  provisions: z.object({
+    types: z.array(z.object({
+      name: z.string().trim().min(1).max(100),
+      path: z.string().trim().min(1).max(240).optional(),
+      document: z.string().min(1).max(131_072),
+      provides: contractsSchema.refine((contracts) => contracts.length > 0, "A provision must provide at least one contract.")
+    }).strict()).max(20)
+  }).strict().default({ types: [] })
+}).strict().superRefine((manifest, context) => {
+  const required = new Set(manifest.requirements.contracts.map((contract) => `${contract.id}@${contract.version}`));
+  for (const [typeIndex, provision] of manifest.provisions.types.entries()) {
+    for (const provided of provision.provides) {
+      if (!required.has(`${provided.id}@${provided.version}`)) {
+        context.addIssue({
+          code: "custom",
+          path: ["provisions", "types", typeIndex, "provides"],
+          message: "Type provisions may only provide contracts required by the application."
+        });
+      }
+    }
+  }
+});
 
-export type AppManifest = z.infer<typeof manifestSchema>;
+export interface AppManifest {
+  manifest_version: 1;
+  name: string;
+  homepage: string;
+  icon?: string;
+  redirect_uris: string[];
+  requirements: ApplicationRequirements;
+  provisions: ApplicationProvisions;
+}
 
 export async function fetchManifest(source: string, allowInsecure = false): Promise<{
   manifest: AppManifest;
@@ -43,10 +74,10 @@ export async function fetchManifest(source: string, allowInsecure = false): Prom
     });
     if (!response.ok) throw new Error(`Manifest returned HTTP ${response.status}.`);
     const length = Number(response.headers.get("content-length") ?? "0");
-    if (length > 65_536) throw new Error("Application manifest is too large.");
+    if (length > 524_288) throw new Error("Application manifest is too large.");
     const sourceText = await response.text();
-    if (sourceText.length > 65_536) throw new Error("Application manifest is too large.");
-    const manifest = manifestSchema.parse(JSON.parse(sourceText));
+    if (sourceText.length > 524_288) throw new Error("Application manifest is too large.");
+    const manifest: AppManifest = manifestSchema.parse(JSON.parse(sourceText));
     validateManifestOrigins(url, manifest, developmentOrigin);
     return {
       manifest,

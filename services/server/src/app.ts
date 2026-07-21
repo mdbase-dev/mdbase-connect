@@ -10,11 +10,14 @@ import websocket from "@fastify/websocket";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import type {
+  ApplicationProvisions,
   ApplicationRequirements,
+  CollectionContractDescriptor,
   ContractRequirement,
   EncryptedRelayOperationRequest,
   GrantEncryption,
-  GrantScope
+  GrantScope,
+  TypeProvision
 } from "@mdbase/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
@@ -28,9 +31,11 @@ import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./rela
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 import {
   asSyncMutation,
-  hostedContracts,
+  contractRequirements,
+  effectiveHostedContractDescriptors,
+  hostedContractDescriptors,
   HostedAuthorityRegistry,
-  hostedTypesForContracts,
+  typesForContracts,
   type HostedTemplate
 } from "./hosted.js";
 import {
@@ -596,10 +601,11 @@ export async function buildApp(options: BuildOptions) {
           id: string;
           display_name: string;
           template: string;
+          contracts: CollectionContractDescriptor[];
           provider_url: string | null;
           created_at: string;
         }>(
-          `SELECT id, display_name, template, provider_url, created_at
+          `SELECT id, display_name, template, provider_url, contracts, created_at
            FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
           [user.id]
         )
@@ -637,7 +643,7 @@ export async function buildApp(options: BuildOptions) {
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.requested_operations, ar.expires_at,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
-              a.requirements
+              a.requirements, a.provisions
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
@@ -657,7 +663,7 @@ export async function buildApp(options: BuildOptions) {
         ...collection,
         provider_url: collection.provider_url ?? publicUrl,
         spec_version: "0.3.0",
-        contracts: hostedContracts(collection.template),
+        contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template)),
         replicas: hostedReplicas.rows.filter((replica) => replica.collection_id === collection.id)
       })),
       grants: grants.rows,
@@ -800,7 +806,7 @@ export async function buildApp(options: BuildOptions) {
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.application_id, a.name AS application_name,
               a.homepage AS application_homepage, a.icon AS application_icon,
-              ar.requested_operations, ar.expires_at, a.requirements
+              ar.requested_operations, ar.expires_at, a.requirements, a.provisions
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
@@ -830,14 +836,37 @@ export async function buildApp(options: BuildOptions) {
     return { application };
   });
 
+  app.get("/v1/connectors/apps/:applicationId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { applicationId } = z.object({ applicationId: z.uuid() }).parse(request.params);
+    const application = await options.db.query(
+      `SELECT id, name, homepage, icon, requirements, provisions
+       FROM applications WHERE id = $1`,
+      [applicationId]
+    );
+    if (!application.rows[0]) {
+      return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    }
+    return { application: application.rows[0] };
+  });
+
   app.post("/v1/connectors/grants", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
     const input = z.object({
       application_id: z.uuid(),
       collection_id: z.uuid(),
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema).min(1),
+      contracts: z.array(contractRequirementSchema).max(100).optional()
     }).parse(request.body);
+    if (input.contracts) {
+      await options.db.query(
+        `UPDATE collections SET contracts = $3::jsonb, last_seen_at = now()
+         WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+        [connector.id, input.collection_id, JSON.stringify(input.contracts)]
+      );
+    }
     const collection = await options.db.query<{ id: string; contracts: ContractRequirement[] }>(
       `SELECT id, contracts FROM collections WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
       [connector.id, input.collection_id]
@@ -914,8 +943,16 @@ export async function buildApp(options: BuildOptions) {
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const input = z.object({
       collection_id: z.uuid(),
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema).min(1),
+      contracts: z.array(contractRequirementSchema).max(100).optional()
     }).parse(request.body);
+    if (input.contracts) {
+      await options.db.query(
+        `UPDATE collections SET contracts = $3::jsonb, last_seen_at = now()
+         WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+        [connector.id, input.collection_id, JSON.stringify(input.contracts)]
+      );
+    }
     const collection = await options.db.query<{ id: string }>(
       `SELECT id FROM collections
        WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
@@ -963,9 +1000,16 @@ export async function buildApp(options: BuildOptions) {
         await hostedReference!.create(collectionId, input.template);
       }
       await options.db.query(
-        `INSERT INTO hosted_collections (id, user_id, display_name, template, provider_url)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [collectionId, user.id, input.display_name, input.template, options.hostedProvider?.url ?? null]
+        `INSERT INTO hosted_collections (id, user_id, display_name, template, provider_url, contracts)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [
+          collectionId,
+          user.id,
+          input.display_name,
+          input.template,
+          options.hostedProvider?.url ?? null,
+          JSON.stringify(hostedContractDescriptors(input.template))
+        ]
       );
     } catch (error) {
       if (options.hostedProvider) {
@@ -1277,9 +1321,10 @@ export async function buildApp(options: BuildOptions) {
       encryption: GrantEncryption | null;
       scope: GrantScope;
       template: string | null;
+      hosted_contracts: CollectionContractDescriptor[] | null;
     }>(
       `SELECT g.id, g.operations, g.encryption, g.scope, col.connector_id,
-              g.hosted_replica_id, hosted.template
+              g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -1302,7 +1347,10 @@ export async function buildApp(options: BuildOptions) {
       const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         mode: write ? "read_write" : "read_only",
-        allowedTypes: hostedTypesForContracts(current.template!, current.scope.contracts),
+        allowedTypes: typesForContracts(
+          effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
+          current.scope.contracts
+        ),
         allowedOperations: operations
       });
     }
@@ -1416,7 +1464,7 @@ export async function buildApp(options: BuildOptions) {
     const authorization = await options.db.query(
       `SELECT ar.id, ar.requested_operations, ar.expires_at,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
-              a.requirements
+              a.requirements, a.provisions
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()`,
       [requestId, user.id]
@@ -1435,8 +1483,9 @@ export async function buildApp(options: BuildOptions) {
           display_name: string;
           spec_version?: string;
           template: HostedTemplate;
+          contracts: CollectionContractDescriptor[];
         }>(
-          `SELECT id, display_name, template FROM hosted_collections
+          `SELECT id, display_name, template, contracts FROM hosted_collections
            WHERE user_id = $1 ORDER BY display_name`,
           [user.id]
         )
@@ -1450,7 +1499,7 @@ export async function buildApp(options: BuildOptions) {
           kind: "hosted",
           connector_name: "Hosted by mdbase",
           spec_version: "0.3.0",
-          contracts: hostedContracts(collection.template)
+          contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template))
         }))
       ]
     };
@@ -1514,8 +1563,8 @@ export async function buildApp(options: BuildOptions) {
         source: "portal"
       });
     } else {
-      const hosted = await options.db.query<{ id: string; template: string; display_name: string }>(
-        "SELECT id, template, display_name FROM hosted_collections WHERE id = $1 AND user_id = $2",
+      const hosted = await options.db.query<{ id: string; template: string; display_name: string; contracts: CollectionContractDescriptor[] }>(
+        "SELECT id, template, display_name, contracts FROM hosted_collections WHERE id = $1 AND user_id = $2",
         [input.collection_id, user.id]
       );
       if (!hosted.rows[0] || !options.hostedProvider) {
@@ -1527,7 +1576,8 @@ export async function buildApp(options: BuildOptions) {
         collectionId: input.collection_id,
         operations: input.operations,
         template: hosted.rows[0].template,
-        displayName: hosted.rows[0].display_name
+        displayName: hosted.rows[0].display_name,
+        contracts: effectiveHostedContractDescriptors(hosted.rows[0].contracts, hosted.rows[0].template)
       });
     }
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
@@ -1724,6 +1774,7 @@ async function upsertApplication(
   redirect_uris: string[];
   canonical_identity: string;
   requirements: ApplicationRequirements;
+  provisions: ApplicationProvisions;
 }> {
   const application = await db.query<{
     id: string;
@@ -1733,10 +1784,11 @@ async function upsertApplication(
     redirect_uris: string[];
     canonical_identity: string;
     requirements: ApplicationRequirements;
+    provisions: ApplicationProvisions;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_url, name, homepage, icon, redirect_uris, requirements)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+       (id, canonical_identity, manifest_url, name, homepage, icon, redirect_uris, requirements, provisions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        manifest_url = excluded.manifest_url,
        name = excluded.name,
@@ -1744,8 +1796,9 @@ async function upsertApplication(
        icon = excluded.icon,
        redirect_uris = excluded.redirect_uris,
        requirements = excluded.requirements,
+       provisions = excluded.provisions,
        updated_at = now()
-     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements`,
+     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements, provisions`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
@@ -1754,7 +1807,8 @@ async function upsertApplication(
       discovered.manifest.homepage,
       discovered.manifest.icon ?? null,
       JSON.stringify(discovered.manifest.redirect_uris),
-      JSON.stringify(discovered.manifest.requirements)
+      JSON.stringify(discovered.manifest.requirements),
+      JSON.stringify(discovered.manifest.provisions)
     ]
   );
   return application.rows[0];
@@ -1811,13 +1865,16 @@ async function reconcileApplicationGrants(
     connector_id: string | null;
     hosted_replica_id: string | null;
     operations: string[];
-    contracts: ContractRequirement[] | null;
+    local_contracts: ContractRequirement[] | null;
+    hosted_contracts: CollectionContractDescriptor[] | null;
     template: string | null;
     allowed_types: string[] | null;
     scope: GrantScope;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_replica_id,
-            g.operations, col.contracts, hosted.template, replica.allowed_types, g.scope
+            g.operations, col.contracts AS local_contracts,
+            hosted.contracts AS hosted_contracts, hosted.template,
+            replica.allowed_types, g.scope
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -1827,13 +1884,16 @@ async function reconcileApplicationGrants(
   );
   const changedConnectors = new Set<string>();
   for (const grant of grants.rows) {
+    const hostedDescriptors = grant.template
+      ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
+      : [];
     const availableContracts = grant.template
-      ? hostedContracts(grant.template)
-      : grant.contracts ?? [];
+      ? contractRequirements(hostedDescriptors)
+      : grant.local_contracts ?? [];
     const collectionCompatible = contractsSatisfy(availableContracts, desiredScope.contracts);
     const scopeMatches = scopesEqual(grant.scope, desiredScope);
     const desiredAllowedTypes = grant.template
-      ? hostedTypesForContracts(grant.template, desiredScope.contracts)
+      ? typesForContracts(hostedDescriptors, desiredScope.contracts)
       : [];
     const replicaScopeMatches = !grant.hosted_replica_id
       || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
@@ -2014,6 +2074,7 @@ async function approveHostedAuthorization(
     operations: string[];
     template: string;
     displayName: string;
+    contracts: CollectionContractDescriptor[];
   }
 ): Promise<boolean> {
   const connection = await db.connect();
@@ -2026,10 +2087,11 @@ async function approveHostedAuthorization(
       application_homepage: string;
       requested_operations: string[];
       requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
     }>(
       `SELECT ar.application_id, a.name AS application_name, a.homepage AS application_homepage,
               ar.requested_operations,
-              a.requirements
+              a.requirements, a.provisions
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
@@ -2046,13 +2108,28 @@ async function approveHostedAuthorization(
       throw new RequestValidationError("Approved operations must be requested by the application.");
     }
     const scope = scopeForRequirements(pending.requirements);
-    const availableContracts = hostedContracts(input.template);
+    let availableDescriptors = input.contracts;
+    let availableContracts = contractRequirements(availableDescriptors);
+    if (!contractsSatisfy(availableContracts, scope.contracts)) {
+      const provisions = requiredTypeProvisions(pending.requirements, pending.provisions, availableContracts);
+      if (!provisions) {
+        throw new RequestValidationError(
+          "This hosted collection does not provide the contracts required by the application."
+        );
+      }
+      availableDescriptors = await provider.provisionTypes(input.collectionId, provisions);
+      availableContracts = contractRequirements(availableDescriptors);
+      await connection.query(
+        "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1",
+        [input.collectionId, JSON.stringify(availableDescriptors)]
+      );
+    }
     if (!contractsSatisfy(availableContracts, scope.contracts)) {
       throw new RequestValidationError(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    const allowedTypes = hostedTypesForContracts(input.template, scope.contracts);
+    const allowedTypes = typesForContracts(availableDescriptors, scope.contracts);
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
@@ -2348,6 +2425,22 @@ function contractsSatisfy(
 ): boolean {
   const present = new Set((available ?? []).map((contract) => `${contract.id}@${contract.version}`));
   return required.every((contract) => present.has(`${contract.id}@${contract.version}`));
+}
+
+function requiredTypeProvisions(
+  requirements: ApplicationRequirements,
+  provisions: ApplicationProvisions,
+  available: ContractRequirement[]
+): TypeProvision[] | null {
+  const missing = requirements.contracts.filter((required) =>
+    !available.some((present) => present.id === required.id && present.version === required.version)
+  );
+  if (missing.some((required) => !provisions.types.some((provision) =>
+    provision.provides.some((provided) => provided.id === required.id && provided.version === required.version)
+  ))) return null;
+  return provisions.types.filter((provision) => provision.provides.some((provided) =>
+    missing.some((required) => required.id === provided.id && required.version === provided.version)
+  ));
 }
 
 class RequestValidationError extends Error {}

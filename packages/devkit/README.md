@@ -29,3 +29,8 @@ mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json
 mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json --allow-local
 mdbase-connect-dev validate-contract tasknotes-contract.json
 ```
+
+Application manifests support connector-controlled type provisioning. Put the
+complete portable type document in `provisions.types`, declare the contracts it
+provides, and list the same contracts under `requirements.contracts`. The
+validator rejects provisions for contracts the application does not require.

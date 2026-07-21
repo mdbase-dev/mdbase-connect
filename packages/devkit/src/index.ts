@@ -52,7 +52,9 @@ export function validateAppManifest(
   const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
   const schemaResult = validationResult(appManifestValidator, candidate);
   if (!schemaResult.valid) return schemaResult;
-  return validateManifestOrigins(value, options.allowLocal === true);
+  const originResult = validateManifestOrigins(value, options.allowLocal === true);
+  if (!originResult.valid) return originResult;
+  return validateProvisionRequirements(value);
 }
 
 export function validateContractExtension(value: unknown): ValidationResult {
@@ -380,6 +382,31 @@ function validateManifestOrigins(value: unknown, allowLocal: boolean): Validatio
   } catch {
     return semanticIssue("/", "contains an invalid URL");
   }
+}
+
+function validateProvisionRequirements(value: unknown): ValidationResult {
+  const manifest = asObject(value);
+  const requirements = asObject(manifest.requirements);
+  const requiredContracts = Array.isArray(requirements.contracts) ? requirements.contracts : [];
+  const required = new Set(requiredContracts.map((contract) => {
+    const value = asObject(contract);
+    return `${value.id}@${value.version}`;
+  }));
+  const provisions = asObject(manifest.provisions);
+  const types = Array.isArray(provisions.types) ? provisions.types : [];
+  for (const [typeIndex, provisionValue] of types.entries()) {
+    const provision = asObject(provisionValue);
+    for (const providedValue of provision.provides as unknown[]) {
+      const provided = asObject(providedValue);
+      if (!required.has(`${provided.id}@${provided.version}`)) {
+        return semanticIssue(
+          `/provisions/types/${typeIndex}/provides`,
+          "may only contain contracts required by the application"
+        );
+      }
+    }
+  }
+  return { valid: true, issues: [] };
 }
 
 function localManifestSchemaCandidate(value: unknown): unknown {

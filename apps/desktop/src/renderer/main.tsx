@@ -407,24 +407,32 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
-  const compatible = useMemo(
-    () => collections.filter((collection) => request.compatible_collection_ids.includes(collection.id)),
-    [collections, request.compatible_collection_ids]
+  const available = useMemo(
+    () => collections.filter((collection) =>
+      request.compatible_collection_ids.includes(collection.id)
+      || request.provisionable_collection_ids.includes(collection.id)
+    ),
+    [collections, request.compatible_collection_ids, request.provisionable_collection_ids]
   );
-  const [collectionId, setCollectionId] = useState(compatible[0]?.id ?? "");
+  const [collectionId, setCollectionId] = useState(available[0]?.id ?? "");
   const [operations, setOperations] = useState(request.requested_operations);
+  const selected = available.find((collection) => collection.id === collectionId);
+  const setup = selected && request.provisionable_collection_ids.includes(selected.id)
+    ? neededProvisions(request.requirements, request.provisions, selected)
+    : [];
   useEffect(() => {
-    if (!compatible.some((collection) => collection.id === collectionId)) {
-      setCollectionId(compatible[0]?.id ?? "");
+    if (!available.some((collection) => collection.id === collectionId)) {
+      setCollectionId(available[0]?.id ?? "");
     }
-  }, [collectionId, compatible]);
+  }, [collectionId, available]);
   return (
     <article className="request-panel">
       <div className="identity-mark">{initials(request.application_name)}</div>
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{host(request.application_homepage)}</code><small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
       <div className="request-fields">
-        <label><span>Collection</span><select value={collectionId} disabled={compatible.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{compatible.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}</option>)}</select></label>
-        {compatible.length === 0 && <small>No registered collection provides the required contracts.</small>}
+        <label><span>Collection</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{request.provisionable_collection_ids.includes(collection.id) ? " · setup required" : ""}</option>)}</select></label>
+        {available.length === 0 && <small>No registered collection provides the required contracts and the app cannot install them.</small>}
+        {setup.length > 0 && <small>Allowing access will add {provisionNames(setup)} to this collection.</small>}
         <fieldset><legend>Requested operations</legend><OperationChoices allowed={request.requested_operations} selected={operations} onChange={setOperations} /></fieldset>
       </div>
       <div className="decision-actions">
@@ -462,9 +470,13 @@ function ManualApplication({ collections, busy, onAct, onNotice }: { collections
   const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
   const [operations, setOperations] = useState(["read", "query"]);
   const compatible = useMemo(
-    () => application ? compatibleCollections(application.requirements, collections) : collections,
+    () => application ? availableCollections(application.requirements, application.provisions, collections) : collections,
     [application, collections]
   );
+  const selected = compatible.find((collection) => collection.id === collectionId);
+  const setup = application && selected
+    ? neededProvisions(application.requirements, application.provisions, selected)
+    : [];
   useEffect(() => {
     if (!compatible.some((collection) => collection.id === collectionId)) {
       setCollectionId(compatible[0]?.id ?? "");
@@ -483,8 +495,9 @@ function ManualApplication({ collections, busy, onAct, onNotice }: { collections
           ) : (
             <div className="manual-grant">
               <div><p className="eyebrow">Application found</p><h3>{application.name}</h3><code>{host(application.homepage)}</code>{application.requirements.contracts.length > 0 && <small>{scopeDescription(application.requirements.contracts)}</small>}</div>
-              <label><span>Collection</span><select value={collectionId} disabled={compatible.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{compatible.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}</option>)}</select></label>
-              {compatible.length === 0 && <small>No registered collection provides the required contracts.</small>}
+              <label><span>Collection</span><select value={collectionId} disabled={compatible.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{compatible.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{neededProvisions(application.requirements, application.provisions, collection).length ? " · setup required" : ""}</option>)}</select></label>
+              {compatible.length === 0 && <small>No registered collection provides the required contracts and the app cannot install them.</small>}
+              {setup.length > 0 && <small>Connecting will add {provisionNames(setup)} to this collection.</small>}
               <fieldset><legend>Allow</legend><OperationChoices allowed={allOperations} selected={operations} onChange={setOperations} compact /></fieldset>
               <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.createGrant({ applicationId: application.id, collectionId, operations }); onNotice(`${application.name} is connected.`); setApplication(null); setManifestUrl(""); setExpanded(false); })}>Connect app</button>
             </div>
@@ -693,17 +706,32 @@ function operationDescription(operation: string) {
   return ({ read: "Open individual records", query: "Find and filter records", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility" } as Record<string, string>)[operation] ?? operation;
 }
 
-function compatibleCollections(
+function availableCollections(
   requirements: ApplicationRequirements,
+  provisions: ApplicationProvisions | undefined,
   collections: CollectionSummary[]
 ): CollectionSummary[] {
   if (requirements.contracts.length === 0) return collections;
   return collections.filter((collection) => requirements.contracts.every((requirement) =>
-    collection.contracts.some((contract) =>
-      contract.id === requirement.id && contract.version === requirement.version
-    )
+    hasContract(collection.contracts, requirement)
+    || (provisions?.types ?? []).some((provision) => provision.provides.some((provided) => sameContract(provided, requirement)))
   ));
 }
+
+function neededProvisions(
+  requirements: ApplicationRequirements,
+  provisions: ApplicationProvisions | undefined,
+  collection: CollectionSummary
+): TypeProvision[] {
+  const missing = requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
+  return (provisions?.types ?? []).filter((provision) =>
+    provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
+  );
+}
+
+function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
+function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
+function provisionNames(provisions: TypeProvision[]) { return provisions.map((provision) => provision.name).join(" and "); }
 
 function scopeDescription(contracts: ContractRequirement[]): string {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);

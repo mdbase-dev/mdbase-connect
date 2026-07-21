@@ -11,6 +11,7 @@ use axum::{
 };
 use mdbase_connect_protocol::{
     SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage,
+    TypeProvision,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -124,6 +125,11 @@ struct CompactRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ProvisionTypesRequest {
+    types: Vec<TypeProvision>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SnapshotQuery {
     snapshot_id: Uuid,
     page: Option<String>,
@@ -157,6 +163,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/collections/{collection_id}/compact",
             post(compact_collection),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/types/provision",
+            post(provision_types),
         )
         .route(
             "/internal/v1/replicas/{replica_id}/token",
@@ -438,6 +448,24 @@ async fn mutate(
             .mutate(collection_id, token, mutation)
             .await?,
     ))
+}
+
+async fn provision_types(
+    State(state): State<AppState>,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<ProvisionTypesRequest>,
+) -> ApiResult<Json<Value>> {
+    if input.types.len() > 20 {
+        return Err(ApiError::bad_request(
+            "too_many_type_provisions",
+            "An application may provision at most 20 type definitions.",
+        ));
+    }
+    let contracts = state
+        .provider
+        .provision_types(collection_id, input.types)
+        .await?;
+    Ok(Json(json!({ "contracts": contracts })))
 }
 
 async fn operation(

@@ -7,10 +7,11 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
-    CollectionChange, CollectionChangesPage, CollectionDescription, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncConflict, SyncMutation, SyncMutationError, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
-    SyncSnapshotPage, CONTROL_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    CollectionChange, CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
+    SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
+    SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, TypeProvision, CONTROL_PROTOCOL_VERSION,
+    SYNC_PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1481,7 +1482,7 @@ impl HostedProvider {
                     .await
             }
             "create_type" | "update_type" => {
-                self.write_type_operation(collection_id, &replica, operation, input)
+                self.write_type_operation(collection_id, operation, input)
                     .await
             }
             _ => Err(ApiError::bad_request(
@@ -1489,6 +1490,97 @@ impl HostedProvider {
                 "The hosted provider does not support that collection operation.",
             )),
         }
+    }
+
+    pub async fn provision_types(
+        &self,
+        collection_id: Uuid,
+        provisions: Vec<TypeProvision>,
+    ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+        let mut contracts = self.collection_contracts(collection_id).await?;
+        for provision in provisions {
+            if provision.provides.iter().all(|provided| {
+                contracts.iter().any(|available| {
+                    available.id == provided.id && available.version == provided.version
+                })
+            }) {
+                continue;
+            }
+            let mut input = json!({ "document": provision.document });
+            if let Some(path) = provision.path {
+                input["path"] = json!(path);
+            }
+            let result = self
+                .write_type_operation(collection_id, "create_type", input)
+                .await?;
+            if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                let detail = result
+                    .pointer("/diagnostics/0/message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("the type definition was rejected");
+                return Err(ApiError::bad_request(
+                    "type_provision_failed",
+                    format!(
+                        "The {} type could not be installed: {detail}",
+                        provision.name
+                    ),
+                ));
+            }
+            if result
+                .pointer("/result/name")
+                .and_then(Value::as_str)
+                .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
+            {
+                return Err(ApiError::bad_request(
+                    "type_provision_failed",
+                    format!(
+                        "The installed type did not match the declared {} type.",
+                        provision.name
+                    ),
+                ));
+            }
+            contracts = self.collection_contracts(collection_id).await?;
+            if provision.provides.iter().any(|provided| {
+                !contracts.iter().any(|available| {
+                    available.id == provided.id && available.version == provided.version
+                })
+            }) {
+                return Err(ApiError::bad_request(
+                    "type_provision_failed",
+                    format!(
+                        "The {} type did not provide every contract declared by the application.",
+                        provision.name
+                    ),
+                ));
+            }
+        }
+        Ok(contracts)
+    }
+
+    async fn collection_contracts(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+        let row = sqlx::query(
+            r#"SELECT wrapped_data_key, resources_ciphertext
+               FROM hosted_provider_collections WHERE id = $1 AND state = 'active'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
+        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            row.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        Ok(resources.contracts)
     }
 
     async fn describe_operation(&self, collection_id: Uuid, replica: &Replica) -> ApiResult<Value> {
@@ -1942,16 +2034,9 @@ impl HostedProvider {
     async fn write_type_operation(
         &self,
         collection_id: Uuid,
-        replica: &Replica,
         operation: &str,
         input: Value,
     ) -> ApiResult<Value> {
-        if !replica.allowed_types.is_empty() {
-            return Err(ApiError::forbidden(
-                "scope_denied",
-                "Type definitions can only be managed with full collection access.",
-            ));
-        }
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
             r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes

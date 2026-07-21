@@ -5,6 +5,12 @@ on a user's local or mdbase-hosted [mdbase](https://mdbase.dev) collections.
 Local collection folders are never exposed directly to the internet; hosted
 collections keep their authoritative Markdown on mdbase with optional mirrors.
 
+Applications can declare portable type provisions in their manifest.
+When a selected collection is missing a required contract, its local or hosted
+authority installs the declared type during approval, verifies the resulting
+contract scope, and creates the grant afterward. Setup does not grant the
+application general type-management access.
+
 This is a functional private-beta foundation. The tested path covers creating a local
 collection, pairing an outbound-only connector, discovering an independent web
 app, approving exact operations locally or from the authenticated account

@@ -121,4 +121,37 @@ describe("hosted provider control client", () => {
       })
     );
   });
+
+  it("sends bounded type provisions and returns authoritative contract metadata", async () => {
+    const contract = {
+      id: "workout.record",
+      version: 1,
+      type_name: "workout",
+      extension: "x-workout",
+      configuration: { contract: "workout.record", version: 1 }
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ contracts: [contract] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const provision = {
+      name: "Workout",
+      document: "---\nkind: mdbase.type\nname: workout\n---\n",
+      provides: [{ id: "workout.record", version: 1 }]
+    };
+    await expect(provider.provisionTypes("collection", [provision])).resolves.toEqual([contract]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://provider.example/internal/v1/collections/collection/types/provision",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ types: [provision] })
+      })
+    );
+  });
 });

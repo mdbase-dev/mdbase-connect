@@ -433,10 +433,7 @@ impl AgentState {
                 Ok(cloud) => cloud.discover(&params).await,
                 Err(error) => Err(error),
             },
-            ControlCommand::GrantCreate(params) => match self.cloud() {
-                Ok(cloud) => cloud.create_grant(&params).await,
-                Err(error) => Err(error),
-            },
+            ControlCommand::GrantCreate(params) => self.create_grant(&params).await,
             ControlCommand::GrantUpdate(params) => match self.cloud() {
                 Ok(cloud) => cloud.update_grant(&params).await,
                 Err(error) => Err(error),
@@ -491,16 +488,55 @@ impl AgentState {
             .ok_or_else(|| {
                 ConnectError::Cloud("The authorization request is no longer available.".to_string())
             })?;
-        if !self
-            .registry
-            .is_compatible(params.collection_id, &pending.requirements)?
-        {
+        let contracts = self
+            .ensure_application_types(
+                cloud,
+                params.collection_id,
+                &pending.requirements,
+                &pending.provisions,
+            )
+            .await?;
+        cloud.approve_authorization(params, &contracts).await
+    }
+
+    async fn create_grant(
+        &self,
+        params: &mdbase_connect_protocol::GrantCreateParams,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let cloud = self.cloud()?;
+        let application = cloud.application(params.application_id).await?;
+        let contracts = self
+            .ensure_application_types(
+                cloud,
+                params.collection_id,
+                &application.requirements,
+                &application.provisions,
+            )
+            .await?;
+        cloud.create_grant(params, &contracts).await
+    }
+
+    async fn ensure_application_types(
+        &self,
+        cloud: &CloudControlClient,
+        collection_id: uuid::Uuid,
+        requirements: &mdbase_connect_protocol::ApplicationRequirements,
+        provisions: &mdbase_connect_protocol::ApplicationProvisions,
+    ) -> Result<Vec<mdbase_connect_protocol::ContractRequirement>, ConnectError> {
+        let registered = self.registry.get(collection_id)?;
+        if !registered.enabled {
             return Err(ConnectError::AccessDenied(
-                "This collection does not provide the contracts required by the application."
-                    .to_string(),
+                "This collection is disabled on its computer.".to_string(),
             ));
         }
-        cloud.approve_authorization(params).await
+        let contracts =
+            self.registry
+                .provision_types(collection_id, requirements, &provisions.types)?;
+        self.watcher.rescan(collection_id);
+        let mut collection = self.registry.get(collection_id)?;
+        collection.contracts = contracts;
+        cloud.sync_collection(&collection).await?;
+        Ok(collection.contracts)
     }
 
     async fn access_snapshot(&self) -> Result<serde_json::Value, ConnectError> {
@@ -543,9 +579,36 @@ impl AgentState {
                         .map(|_| collection.id)
                 })
                 .collect();
+            pending.provisionable_collection_ids = collections
+                .iter()
+                .filter(|collection| collection.enabled)
+                .filter(|collection| !pending.compatible_collection_ids.contains(&collection.id))
+                .filter(|collection| {
+                    requirements_can_be_provisioned(
+                        &pending.requirements,
+                        &pending.provisions,
+                        &collection.contracts,
+                    )
+                })
+                .map(|collection| collection.id)
+                .collect();
         }
         serde_json::to_value(snapshot).map_err(ConnectError::from)
     }
+}
+
+fn requirements_can_be_provisioned(
+    requirements: &mdbase_connect_protocol::ApplicationRequirements,
+    provisions: &mdbase_connect_protocol::ApplicationProvisions,
+    available: &[mdbase_connect_protocol::ContractRequirement],
+) -> bool {
+    requirements.contracts.iter().all(|required| {
+        available.contains(required)
+            || provisions
+                .types
+                .iter()
+                .any(|provision| provision.provides.contains(required))
+    })
 }
 
 fn is_mutation(operation: &str) -> bool {

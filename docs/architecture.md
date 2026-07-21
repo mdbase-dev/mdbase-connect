@@ -61,6 +61,16 @@ are unavailable to a contract-scoped grant. Scoped queries reject link
 traversal into other records until the query engine can carry the grant scope
 through link resolution.
 
+An application manifest may pair required contracts with portable type provisions.
+A collection is then either ready, provisionable, or incompatible. During
+approval, the authority that owns the collection installs only provisions
+needed for missing contracts, reopens the collection, and verifies the exact
+contract identities and versions before a grant is created. This setup action
+does not give the application continuing `create_type` or `update_type`
+permission. Local collection paths and record payloads remain outside the
+control plane; only the declared type documents and resulting contract metadata
+participate in authorization.
+
 `describe` returns the collection's spec version, supported operations, JSON
 Schemas, collection-relative type paths, complete portable type definitions,
 canonical collection settings, `x-*` type extensions, discovered contract

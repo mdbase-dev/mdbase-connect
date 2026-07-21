@@ -461,6 +461,8 @@ pub struct ApplicationSummary {
     pub icon: Option<String>,
     #[serde(default)]
     pub requirements: ApplicationRequirements,
+    #[serde(default)]
+    pub provisions: ApplicationProvisions,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -473,6 +475,22 @@ pub struct ContractRequirement {
 pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationProvisions {
+    #[serde(default)]
+    pub types: Vec<TypeProvision>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeProvision {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub document: String,
+    #[serde(default)]
+    pub provides: Vec<ContractRequirement>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -511,7 +529,11 @@ pub struct PendingAuthorization {
     #[serde(default)]
     pub requirements: ApplicationRequirements,
     #[serde(default)]
+    pub provisions: ApplicationProvisions,
+    #[serde(default)]
     pub compatible_collection_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub provisionable_collection_ids: Vec<Uuid>,
     pub expires_at: String,
 }
 

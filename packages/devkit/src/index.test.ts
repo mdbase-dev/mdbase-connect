@@ -55,6 +55,34 @@ describe("canonical developer validation", () => {
       homepage: "https://tasks.example/",
       redirect_uris: ["https://attacker.example/callback"]
     }).valid).toBe(false);
+    expect(validateAppManifest({
+      manifest_version: 1,
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/callback"],
+      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      provisions: {
+        types: [{
+          name: "Task",
+          document: "---\nkind: mdbase.type\nname: task\n---\n",
+          provides: [{ id: "tasknotes.task", version: 1 }]
+        }]
+      }
+    }).valid).toBe(true);
+    expect(validateAppManifest({
+      manifest_version: 1,
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/callback"],
+      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      provisions: {
+        types: [{
+          name: "Unrelated",
+          document: "---\nkind: mdbase.type\nname: unrelated\n---\n",
+          provides: [{ id: "other.contract", version: 1 }]
+        }]
+      }
+    }).valid).toBe(false);
   });
 
   it("defines extension contracts without erasing application-specific fields", () => {

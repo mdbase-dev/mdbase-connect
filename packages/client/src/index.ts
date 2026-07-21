@@ -30,6 +30,8 @@ export {
 } from "./crypto.js";
 
 export type {
+  ApplicationProvisions,
+  ApplicationRequirements,
   CollectionChange,
   CollectionChangesPage,
   CollectionContractDescriptor,
@@ -41,10 +43,12 @@ export type {
   ContractRequirement,
   GrantScope,
   JsonObject,
+  MdbaseAppManifest,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordResult,
-  RecordSummary
+  RecordSummary,
+  TypeProvision
 } from "@mdbase/connect-protocol";
 
 export interface MdbaseConnectOptions {

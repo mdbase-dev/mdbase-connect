@@ -24,6 +24,17 @@ interface ApplicationRequirements {
   contracts: ContractRequirement[];
 }
 
+interface TypeProvision {
+  name: string;
+  path?: string;
+  document: string;
+  provides: ContractRequirement[];
+}
+
+interface ApplicationProvisions {
+  types: TypeProvision[];
+}
+
 interface GrantScope {
   contracts: ContractRequirement[];
 }
@@ -51,6 +62,7 @@ interface ApplicationSummary {
   homepage: string;
   icon?: string;
   requirements: ApplicationRequirements;
+  provisions?: ApplicationProvisions;
 }
 
 interface GrantSummary {
@@ -74,7 +86,9 @@ interface PendingAuthorization {
   application_icon?: string;
   requested_operations: string[];
   requirements: ApplicationRequirements;
+  provisions: ApplicationProvisions;
   compatible_collection_ids: string[];
+  provisionable_collection_ids: string[];
   expires_at: string;
 }
 

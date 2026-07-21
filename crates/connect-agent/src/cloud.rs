@@ -1,7 +1,8 @@
 use mdbase_connect_core::ConnectError;
 use mdbase_connect_protocol::{
-    AccessSnapshot, ApplicationDiscoverParams, AuthorizationApproveParams, AuthorizationIdParams,
-    ComputerNameParams, GrantCreateParams, GrantIdParams, GrantUpdateParams,
+    AccessSnapshot, ApplicationDiscoverParams, ApplicationSummary, AuthorizationApproveParams,
+    AuthorizationIdParams, CollectionSummary, ComputerNameParams, GrantCreateParams, GrantIdParams,
+    GrantUpdateParams,
 };
 use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
@@ -51,11 +52,56 @@ impl CloudControlClient {
         .await
     }
 
-    pub async fn create_grant(&self, params: &GrantCreateParams) -> Result<Value, ConnectError> {
+    pub async fn application(
+        &self,
+        application_id: uuid::Uuid,
+    ) -> Result<ApplicationSummary, ConnectError> {
+        let value: Value = self
+            .json(
+                Method::GET,
+                &format!("/v1/connectors/apps/{application_id}"),
+                None,
+            )
+            .await?;
+        serde_json::from_value(value["application"].clone()).map_err(ConnectError::from)
+    }
+
+    pub async fn sync_collection(
+        &self,
+        collection: &CollectionSummary,
+    ) -> Result<(), ConnectError> {
+        let _: Value = self
+            .json(
+                Method::POST,
+                "/v1/connectors/sync",
+                Some(serde_json::json!({
+                    "collections": [{
+                        "id": collection.id,
+                        "display_name": collection.display_name,
+                        "spec_version": collection.spec_version,
+                        "enabled": collection.enabled,
+                        "contracts": collection.contracts,
+                    }]
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn create_grant(
+        &self,
+        params: &GrantCreateParams,
+        contracts: &[mdbase_connect_protocol::ContractRequirement],
+    ) -> Result<Value, ConnectError> {
         self.json(
             Method::POST,
             "/v1/connectors/grants",
-            Some(serde_json::to_value(params)?),
+            Some(serde_json::json!({
+                "application_id": params.application_id,
+                "collection_id": params.collection_id,
+                "operations": params.operations,
+                "contracts": contracts,
+            })),
         )
         .await
     }
@@ -81,6 +127,7 @@ impl CloudControlClient {
     pub async fn approve_authorization(
         &self,
         params: &AuthorizationApproveParams,
+        contracts: &[mdbase_connect_protocol::ContractRequirement],
     ) -> Result<Value, ConnectError> {
         self.json(
             Method::POST,
@@ -91,6 +138,7 @@ impl CloudControlClient {
             Some(serde_json::json!({
                 "collection_id": params.collection_id,
                 "operations": params.operations,
+                "contracts": contracts,
             })),
         )
         .await

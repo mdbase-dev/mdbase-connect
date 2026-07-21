@@ -481,6 +481,106 @@ describe("mdbase connect server", () => {
     expect(reconciled.rows[0].allowed_types).toEqual([]);
   });
 
+  it("provisions missing hosted types before creating a contract-scoped grant", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const contract = {
+      id: "workout.record",
+      version: 1,
+      type_name: "workout",
+      extension: "x-workout",
+      configuration: { contract: "workout.record", version: 1 }
+    };
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypes: vi.fn().mockResolvedValue([contract]),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test",
+      allowInsecureManifests: true
+    });
+    resources.push(() => app.close());
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Athlete", email: "athlete@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const collection = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie },
+      payload: { display_name: "Training", template: "mdbase" }
+    });
+    const collectionId = collection.json().collection.id as string;
+    const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n";
+    const manifestServer = await startManifestServer(
+      { contracts: [{ id: "workout.record", version: 1 }] },
+      "Workout Tracker",
+      { types: [{
+        name: "Workout",
+        document: typeDocument,
+        provides: [{ id: "workout.record", version: 1 }]
+      }] }
+    );
+    resources.push(manifestServer.close);
+    const discovered = await app.inject({
+      method: "POST",
+      url: "/v1/apps/discover",
+      payload: { manifest_url: manifestServer.manifestUrl }
+    });
+    const applicationId = discovered.json().application.id as string;
+    expect(discovered.json().application.provisions.types[0].name).toBe("Workout");
+    const authorization = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("hosted-provision-verifier-that-is-long-enough-0001")}&code_challenge_method=S256&operations=read,query,create`,
+      headers: { cookie }
+    });
+    const requestId = authorization.headers.location!.split("/").at(-1)!;
+    const pending = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie }
+    });
+    expect(pending.json().authorization.provisions.types[0].provides).toEqual([
+      { id: "workout.record", version: 1 }
+    ]);
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: { collection_id: collectionId, operations: ["read", "query", "create"] }
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(hostedProvider.provisionTypes).toHaveBeenCalledWith(
+      collectionId,
+      [expect.objectContaining({ name: "Workout", document: typeDocument })]
+    );
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({ allowedTypes: ["workout"] })
+    );
+    const stored = await db.query<{ contracts: unknown[] }>(
+      "SELECT contracts FROM hosted_collections WHERE id = $1",
+      [collectionId]
+    );
+    expect(stored.rows[0].contracts).toEqual([contract]);
+  });
+
   it("uses a trusted Tailscale identity instead of a development session", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -529,7 +629,15 @@ describe("mdbase connect server", () => {
 
 async function startManifestServer(
   requirements = { contracts: [{ id: "workout.record", version: 1 }] },
-  name = "Workout Tracker"
+  name = "Workout Tracker",
+  provisions?: {
+    types: Array<{
+      name: string;
+      path?: string;
+      document: string;
+      provides: Array<{ id: string; version: number }>;
+    }>;
+  }
 ): Promise<{
   manifestUrl: string;
   redirectUri: string;
@@ -545,7 +653,8 @@ async function startManifestServer(
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements
+      requirements,
+      ...(provisions ? { provisions } : {})
     }));
   });
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

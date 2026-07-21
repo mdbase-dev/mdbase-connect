@@ -84,6 +84,7 @@ export interface PendingAuthorization {
   homepage: string;
   icon: string | null;
   requirements: ApplicationRequirements;
+  provisions: ApplicationProvisions;
 }
 
 export interface AvailableCollection {
@@ -102,6 +103,17 @@ export interface ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+}
+
+export interface TypeProvision {
+  name: string;
+  path?: string;
+  document: string;
+  provides: ContractRequirement[];
+}
+
+export interface ApplicationProvisions {
+  types: TypeProvision[];
 }
 
 export interface GrantScope {

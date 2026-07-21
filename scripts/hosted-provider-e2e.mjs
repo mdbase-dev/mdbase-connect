@@ -76,6 +76,36 @@ try {
   });
   assert.equal(publicPreflight.headers.get("access-control-allow-origin"), "*");
 
+  phase("provisioning a portable application type through the internal authority");
+  const provisionCollectionId = crypto.randomUUID();
+  await internalRequest(provider.url, "/internal/v1/collections", {
+    method: "POST",
+    body: { collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe" }
+  });
+  const typeProvision = {
+    name: "Workout",
+    document: "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n",
+    provides: [{ id: "workout.record", version: 1 }]
+  };
+  const provisionedTypes = await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/types/provision`,
+    { method: "POST", body: { types: [typeProvision] } }
+  );
+  assert.deepEqual(
+    provisionedTypes.contracts.map(({ id, version, type_name }) => ({ id, version, type_name })),
+    [{ id: "workout.record", version: 1, type_name: "workout" }]
+  );
+  const repeatedProvision = await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/types/provision`,
+    { method: "POST", body: { types: [typeProvision] } }
+  );
+  assert.equal(repeatedProvision.contracts.length, 1);
+  await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
+    method: "DELETE"
+  });
+
   phase("enforcing durable collection, document, and replica quotas");
   const quotaProvider = await startProvider(databaseUrl, 0, masterKey, {
     MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: "1",

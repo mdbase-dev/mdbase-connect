@@ -59,7 +59,9 @@ Application identity is derived from the manifest's exact origin. No developer
 account or manually issued client secret is required.
 
 Applications declare required domain contracts in their manifest. Connect only
-offers compatible collections and derives the record scope from this declaration:
+offers collections that are compatible or can be configured safely, then derives
+the record scope from this declaration. The manifest may include portable
+type definitions for the connector to install during approval:
 
 ```json
 {
@@ -69,9 +71,21 @@ offers compatible collections and derives the record scope from this declaration
   "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
   "requirements": {
     "contracts": [{ "id": "tasknotes.task", "version": 1 }]
+  },
+  "provisions": {
+    "types": [{
+      "name": "Task",
+      "document": "---\nkind: mdbase.type\nname: task\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-tasknotes:\n  contract: tasknotes.task\n  version: 1\n---\n",
+      "provides": [{ "id": "tasknotes.task", "version": 1 }]
+    }]
   }
 }
 ```
+
+Provisioning is part of the approval flow. The connector validates and
+installs only the missing type definitions, verifies that they expose the
+declared contracts, and creates the scoped grant afterward. The application is
+not granted collection-wide `create_type` access.
 
 The SDK returns the mdbase operation envelope, carries revision tokens in typed
 record results, and accepts `if_revision` on mutations. `describe()` exposes

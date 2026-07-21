@@ -100,6 +100,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       display_name text NOT NULL,
       template text NOT NULL,
       provider_url text,
+      contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS hosted_replicas (
@@ -122,6 +123,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       icon text,
       redirect_uris jsonb NOT NULL,
       requirements jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
+      provisions jsonb NOT NULL DEFAULT '{"types":[]}'::jsonb,
       first_seen_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
@@ -219,6 +221,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await ensureColumn(
     db,
     "applications",
+    "provisions",
+    "ALTER TABLE applications ADD COLUMN provisions jsonb NOT NULL DEFAULT '{\"types\":[]}'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "applications",
     "requirements",
     "ALTER TABLE applications ADD COLUMN requirements jsonb NOT NULL DEFAULT '{\"contracts\":[]}'::jsonb"
   );
@@ -233,6 +241,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
   await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "contracts",
+    "ALTER TABLE hosted_collections ADD COLUMN contracts jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
   await ensureColumn(
     db,
     "external_identities",

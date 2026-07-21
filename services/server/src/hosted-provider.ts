@@ -1,3 +1,5 @@
+import type { CollectionContractDescriptor, TypeProvision } from "@mdbase/connect-protocol";
+
 export interface HostedProviderConfig {
   url: string;
   internalToken: string;
@@ -46,6 +48,18 @@ export class HostedProviderClient {
 
   async deleteCollection(collectionId: string): Promise<void> {
     await this.request("DELETE", `/internal/v1/collections/${encodeURIComponent(collectionId)}`);
+  }
+
+  async provisionTypes(
+    collectionId: string,
+    provisions: TypeProvision[]
+  ): Promise<CollectionContractDescriptor[]> {
+    const result = await this.request(
+      "POST",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/types/provision`,
+      { types: provisions }
+    ) as { contracts?: CollectionContractDescriptor[] } | undefined;
+    return result?.contracts ?? [];
   }
 
   async registerReplica(collectionId: string, replica: HostedReplicaEnrollment): Promise<void> {

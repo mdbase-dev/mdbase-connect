@@ -13,7 +13,8 @@ import {
   type ContractRequirement,
   type DashboardData,
   type HostedCollection,
-  type PendingAuthorization
+  type PendingAuthorization,
+  type TypeProvision
 } from "./api";
 import "./styles.css";
 
@@ -753,6 +754,8 @@ function ApprovalForm({
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | null>(null);
   const [error, setError] = useState("");
+  const selected = collections.find((collection) => collection.id === collectionId);
+  const setup = selected ? neededProvisions(request, selected) : [];
 
   useEffect(() => {
     if (!collections.some((collection) => collection.id === collectionId)) {
@@ -791,12 +794,13 @@ function ApprovalForm({
       <label className="collection-field" htmlFor={`collection-${request.id}`}>
         <span>Collection</span>
         <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || collections.length === 0}>
-          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}</option>)}
+          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}{neededProvisions(request, collection).length ? " · setup required" : ""}</option>)}
         </select>
       </label>
       {collections.length === 0 && <p className="field-note error-copy">
-        No enabled collection provides the contracts required by this application.
+        No collection is ready. Open mdbase connect on the collection's computer to add the required types.
       </p>}
+      {setup.length > 0 && <p className="field-note">Allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
       <fieldset className="permission-field">
         <legend>Permissions</legend>
         <div className="permission-options">{request.requested_operations.map((operation) => (
@@ -833,16 +837,31 @@ function operationLabel(operation: string) {
 }
 function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
   request: PendingAuthorization,
-  collections: T[]
+  collections: Array<T & { kind?: "local" | "hosted" }>
 ): T[] {
   const required = request.requirements.contracts;
   if (required.length === 0) return collections;
   return collections.filter((collection) => required.every((requirement) =>
-    collection.contracts.some((contract) =>
-      contract.id === requirement.id && contract.version === requirement.version
-    )
+    hasContract(collection.contracts, requirement)
+    || (collection.kind === "hosted" && request.provisions.types.some((provision) =>
+      provision.provides.some((provided) => sameContract(provided, requirement))
+    ))
   ));
 }
+
+function neededProvisions(
+  request: Pick<PendingAuthorization, "requirements" | "provisions">,
+  collection: Pick<AvailableCollection, "contracts">
+): TypeProvision[] {
+  const missing = request.requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
+  return request.provisions.types.filter((provision) =>
+    provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
+  );
+}
+
+function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
+function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
+function provisionNames(provisions: TypeProvision[]) { return provisions.map((provision) => provision.name).join(" and "); }
 function scopeDescription(contracts: ContractRequirement[]) {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
   return `Access is limited to records matching ${names.join(" and ")}.`;

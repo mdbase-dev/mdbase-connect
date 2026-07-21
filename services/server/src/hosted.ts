@@ -1,4 +1,5 @@
 import type {
+  CollectionContractDescriptor,
   ContractRequirement,
   JsonObject,
   SyncCollectionResources,
@@ -203,15 +204,37 @@ export function hostedContracts(template: string): ContractRequirement[] {
   return hostedResources(template).contracts.map(({ id, version }) => ({ id, version }));
 }
 
+export function hostedContractDescriptors(template: string): CollectionContractDescriptor[] {
+  return hostedResources(template).contracts;
+}
+
+export function effectiveHostedContractDescriptors(
+  contracts: CollectionContractDescriptor[] | null | undefined,
+  template: string
+): CollectionContractDescriptor[] {
+  return contracts?.length ? contracts : hostedContractDescriptors(template);
+}
+
+export function contractRequirements(contracts: CollectionContractDescriptor[]): ContractRequirement[] {
+  return contracts.map(({ id, version }) => ({ id, version }));
+}
+
+export function typesForContracts(
+  available: CollectionContractDescriptor[],
+  required: ContractRequirement[]
+): string[] {
+  if (required.length === 0) return [];
+  const requested = new Set(required.map(({ id, version }) => `${id}@${version}`));
+  return [...new Set(available
+    .filter(({ id, version }) => requested.has(`${id}@${version}`))
+    .map(({ type_name }) => type_name))];
+}
+
 export function hostedTypesForContracts(
   template: string,
   contracts: ContractRequirement[]
 ): string[] {
-  if (contracts.length === 0) return [];
-  const requested = new Set(contracts.map(({ id, version }) => `${id}@${version}`));
-  return [...new Set(hostedResources(template).contracts
-    .filter(({ id, version }) => requested.has(`${id}@${version}`))
-    .map(({ type_name }) => type_name))];
+  return typesForContracts(hostedContractDescriptors(template), contracts);
 }
 
 export function mdbaseResources(): SyncCollectionResources {

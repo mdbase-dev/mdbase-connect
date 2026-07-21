@@ -34,6 +34,27 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(syncSchema.$id));
 });
 
+test("application manifests declare connector-controlled type provisioning", () => {
+  const validate = validator(manifestSchema.$id);
+  const manifest = {
+    manifest_version: 1,
+    name: "Tasks",
+    homepage: "https://tasks.example/",
+    redirect_uris: ["https://tasks.example/callback"],
+    requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+    provisions: {
+      types: [{
+        name: "Task",
+        document: "---\nkind: mdbase.type\nname: task\n---\n",
+        provides: [{ id: "tasknotes.task", version: 1 }]
+      }]
+    }
+  };
+  assert.equal(validate(manifest), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...manifest, manifest_version: 2 }), false);
+  assert.equal(validate({ ...manifest, provisions: { types: [{ ...manifest.provisions.types[0], provides: [] }] } }), false);
+});
+
 test("sync wire objects are independently addressable", () => {
   const validateWireObject = validator(syncSchema.$id);
   const validateMutation = validator(`${syncSchema.$id}#/$defs/mutation`);

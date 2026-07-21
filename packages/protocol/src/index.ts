@@ -32,6 +32,7 @@ export interface MdbaseAppManifest {
   icon?: string;
   redirect_uris: string[];
   requirements?: ApplicationRequirements;
+  provisions?: ApplicationProvisions;
 }
 
 export interface ContractRequirement {
@@ -41,6 +42,21 @@ export interface ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+}
+
+export interface TypeProvision {
+  /** Type name shown during approval and verified after installation. */
+  name: string;
+  /** Optional collection-relative destination. The collection validates the final path. */
+  path?: string;
+  /** Complete portable mdbase type document. */
+  document: string;
+  /** Contracts expected to be exposed after this type is installed. */
+  provides: ContractRequirement[];
+}
+
+export interface ApplicationProvisions {
+  types: TypeProvision[];
 }
 
 export interface GrantScope {
