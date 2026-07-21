@@ -10,9 +10,10 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   await page.getByRole("textbox", { name: "Note body" }).fill("A deliberately quiet editing surface.");
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
 
+  const body = page.getByRole("textbox", { name: "Note body" });
   const codeMirror = page.locator(".body-editor .cm-editor");
-  await codeMirror.click();
-  await expect(codeMirror).toHaveClass(/cm-focused/);
+  await body.click();
+  await expect(body).toBeFocused();
   expect(await codeMirror.evaluate((element) => ({
     outline: getComputedStyle(element).outlineStyle,
     shadow: getComputedStyle(element).boxShadow
