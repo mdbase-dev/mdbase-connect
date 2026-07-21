@@ -54,13 +54,19 @@ export interface EditableNote {
   source: TitleSource;
 }
 
+export interface NoteListProgress {
+  notes: NoteSummary[];
+  complete: boolean;
+  total?: number;
+}
+
 export interface CollectionGateway {
   connection(): ConnectionSummary | null;
   authorize(): Promise<void>;
   completeAuthorization(): Promise<void>;
   disconnect(): void;
   describe(): Promise<CollectionDescription>;
-  list(search?: string): Promise<NoteSummary[]>;
+  list(search?: string, onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
   read(path: string): Promise<NoteDocument>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
   update(input: SaveNoteInput): Promise<NoteDocument>;

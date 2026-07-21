@@ -9,6 +9,7 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
+  NoteListProgress,
   NoteSummary,
   SaveNoteInput
 } from "./model";
@@ -17,9 +18,11 @@ export class DemoCollectionGateway implements CollectionGateway {
   private notes: NoteDocument[];
   private sequence = 1;
   private listeners = new Set<() => void>();
+  private readonly openingDelay: number;
 
-  constructor(count = 240) {
+  constructor(count = 240, openingDelay = 0) {
     this.notes = Array.from({ length: Math.max(1, Math.min(count, 50_000)) }, (_, index) => demoNote(index));
+    this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
   connection(): ConnectionSummary {
@@ -31,6 +34,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   disconnect(): void {}
 
   async describe(): Promise<CollectionDescription> {
+    if (this.openingDelay) await delay(this.openingDelay);
     return {
       protocol_version: 2,
       collection_id: "00000000-0000-4000-8000-000000000001",
@@ -79,12 +83,19 @@ export class DemoCollectionGateway implements CollectionGateway {
     };
   }
 
-  async list(search = ""): Promise<NoteSummary[]> {
+  async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const needle = search.trim().toLocaleLowerCase();
     await delay(needle ? 12 : 4);
-    return this.notes
+    const notes = this.notes
       .filter((note) => !needle || `${note.path}\n${note.body}`.toLocaleLowerCase().includes(needle))
       .map(({ revision: _revision, raw_frontmatter: _raw, ...note }) => note);
+    const firstPage = notes.slice(0, Math.min(200, notes.length));
+    onProgress?.({ notes: firstPage, complete: firstPage.length === notes.length, total: notes.length });
+    if (firstPage.length !== notes.length) {
+      await delay(4);
+      onProgress?.({ notes, complete: true, total: notes.length });
+    }
+    return notes;
   }
 
   async read(path: string): Promise<NoteDocument> {

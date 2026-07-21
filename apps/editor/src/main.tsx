@@ -11,8 +11,11 @@ import "./styles.css";
 const demoCount = import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1"
   ? Number(new URL(location.href).searchParams.get("demo") ?? 0)
   : 0;
+const demoDelay = demoCount > 0
+  ? Number(new URL(location.href).searchParams.get("delay") ?? 0)
+  : 0;
 const gateway = demoCount > 0
-  ? new DemoCollectionGateway(demoCount)
+  ? new DemoCollectionGateway(demoCount, demoDelay)
   : new ConnectCollectionGateway();
 
 createRoot(document.getElementById("root")!).render(

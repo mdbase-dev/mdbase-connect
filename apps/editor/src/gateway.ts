@@ -15,6 +15,7 @@ import type {
   CreateNoteInput,
   NoteDocument,
   NoteFrontmatter,
+  NoteListProgress,
   NoteSummary,
   SaveNoteInput
 } from "./model";
@@ -31,7 +32,8 @@ export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
   "rename"
 ];
 
-const PAGE_SIZE = 250;
+const FIRST_PAGE_SIZE = 200;
+const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
   private readonly connect: MdbaseConnect<NoteFrontmatter>;
@@ -65,21 +67,24 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.connect.describe();
   }
 
-  async list(search = ""): Promise<NoteSummary[]> {
+  async list(search = "", onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const notes: NoteSummary[] = [];
     let offset = 0;
     do {
+      const limit = offset === 0 ? FIRST_PAGE_SIZE : PAGE_SIZE;
       const response = await this.connect.query({
         ...(search.trim() ? { where: searchExpression(search) } : {}),
         order_by: [{ field: "file.mtime", direction: "desc" }],
-        limit: PAGE_SIZE,
+        limit,
         offset,
         include_body: false
       });
       const result = validResult(response);
       notes.push(...result.results);
       offset += result.results.length;
-      if (!result.meta?.has_more || result.results.length === 0) break;
+      const complete = !result.meta?.has_more || result.results.length === 0;
+      onProgress?.({ notes: [...notes], complete, total: result.meta?.total_count });
+      if (complete) break;
     } while (true);
     return notes;
   }

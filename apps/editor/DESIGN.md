@@ -45,6 +45,10 @@ Creating a note is a short composition step. Nothing is written until the
 title, path, selected type, and any required fields are ready and the user
 chooses Create note. While an existing note is fetched, a stable document
 skeleton preserves the pane geometry and avoids flashing the empty state.
+The collection opens into the same three-pane geometry: the first page becomes
+usable immediately while the remaining index continues in the note list. A
+newly created note is adopted from the create response, so the editor never
+waits for a collection-wide refresh or a redundant read.
 
 ## Signature
 

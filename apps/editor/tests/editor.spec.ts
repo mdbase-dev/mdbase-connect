@@ -1,6 +1,17 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
+test("keeps the application geometry visible while a collection opens", async ({ page }) => {
+  await page.goto("?demo=80&delay=450");
+  const opening = page.getByRole("main", { name: "Opening collection" });
+  await expect(opening).toBeVisible();
+  await expect(opening).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByText("Reading its notes and types")).toBeVisible();
+  expect(await opening.locator(":scope > *").count()).toBe(3);
+  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(opening).not.toBeAttached();
+});
+
 test("edits and autosaves a Markdown note", async ({ page }) => {
   await page.goto("?demo=240");
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
@@ -31,9 +42,12 @@ test("creates a note only after the creation form is complete", async ({ page })
   await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
   await page.getByRole("combobox", { name: "Type" }).selectOption("note");
   await expect(create).toBeEnabled();
+  const createStarted = Date.now();
   await create.click();
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("A useful note");
+  const createReadyMs = Date.now() - createStarted;
+  expect(createReadyMs).toBeLessThan(500);
   await expect(page.locator(".body-editor .cm-placeholder")).toHaveText("Start writing");
   await expect(page.getByText("5 notes", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
@@ -72,16 +86,19 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
 test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {
   const started = Date.now();
   await page.goto("?demo=10000");
-  await expect(page.getByText("10000 notes")).toBeVisible();
-  const initialReadyMs = Date.now() - started;
-  expect(initialReadyMs).toBeLessThan(2_500);
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+  const firstUsableMs = Date.now() - started;
+  expect(firstUsableMs).toBeLessThan(1_800);
+  await expect(page.getByText("10,000 notes")).toBeVisible();
+  const fullIndexMs = Date.now() - started;
+  expect(fullIndexMs).toBeLessThan(2_500);
 
   const renderedRows = await page.locator(".note-row").count();
   expect(renderedRows).toBeLessThan(40);
 
   const searchStarted = Date.now();
   await page.getByRole("textbox", { name: "Search every note" }).fill("quiet interface 51");
-  await expect(page.locator(".list-header p")).not.toHaveText("10000 notes");
+  await expect(page.locator(".list-header p")).not.toHaveText("10,000 notes");
   const searchReadyMs = Date.now() - searchStarted;
   expect(searchReadyMs).toBeLessThan(900);
 
@@ -97,7 +114,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", async ({
   });
   expect(inputLatency).toBeLessThan(16);
 
-  console.log(JSON.stringify({ initialReadyMs, searchReadyMs, renderedRows, inputP95Ms: inputLatency }));
+  console.log(JSON.stringify({ firstUsableMs, fullIndexMs, searchReadyMs, renderedRows, inputP95Ms: inputLatency }));
 });
 
 test("uses one navigable pane at mobile width", async ({ page }) => {
