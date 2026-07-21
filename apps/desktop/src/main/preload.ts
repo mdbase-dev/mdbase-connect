@@ -7,11 +7,17 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
   createCollection: (input: { path: string; name: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),
+  updateCollectionMetadata: (input: { collectionId: string; name: string; description?: string }) =>
+    ipcRenderer.invoke("connect:collections:update-metadata", input),
+  setCollectionEnabled: (collectionId: string, enabled: boolean) =>
+    ipcRenderer.invoke("connect:collections:set-enabled", { collectionId, enabled }),
   validateCollection: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:validate", collectionId),
   removeCollection: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:remove", collectionId),
   openPath: (path: string) => ipcRenderer.invoke("connect:path:open", path),
+  openCollectionConfig: (collectionId: string) =>
+    ipcRenderer.invoke("connect:collections:open-config", collectionId),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),
@@ -23,6 +29,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   pairingStatus: (pairingId: string) => ipcRenderer.invoke("connect:pairing:status", pairingId),
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
+  renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
   discoverApplication: (manifestUrl: string) => ipcRenderer.invoke("connect:apps:discover", manifestUrl),
   createGrant: (input: { applicationId: string; collectionId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:create", input),

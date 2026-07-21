@@ -1,7 +1,7 @@
 use mdbase_connect_core::ConnectError;
 use mdbase_connect_protocol::{
     AccessSnapshot, ApplicationDiscoverParams, AuthorizationApproveParams, AuthorizationIdParams,
-    GrantCreateParams, GrantIdParams, GrantUpdateParams,
+    ComputerNameParams, GrantCreateParams, GrantIdParams, GrantUpdateParams,
 };
 use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
@@ -25,6 +25,18 @@ impl CloudControlClient {
 
     pub async fn snapshot(&self) -> Result<AccessSnapshot, ConnectError> {
         self.json(Method::GET, "/v1/connectors/control", None).await
+    }
+
+    pub async fn rename_computer(
+        &self,
+        params: &ComputerNameParams,
+    ) -> Result<Value, ConnectError> {
+        self.json(
+            Method::PATCH,
+            "/v1/connectors/self",
+            Some(serde_json::to_value(params)?),
+        )
+        .await
     }
 
     pub async fn discover(

@@ -381,6 +381,26 @@ impl AgentState {
                 }
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
+            ControlCommand::CollectionUpdateMetadata(params) => {
+                let result = self.registry.update_metadata(
+                    params.collection_id,
+                    &params.name,
+                    params.description.as_deref(),
+                );
+                if result.is_ok() {
+                    self.watcher.rescan(params.collection_id);
+                }
+                result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
+            }
+            ControlCommand::CollectionSetEnabled(params) => {
+                let result = self
+                    .registry
+                    .set_enabled(params.collection_id, params.enabled);
+                if result.is_ok() {
+                    self.refresh_watchers();
+                }
+                result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
+            }
             ControlCommand::CollectionRemove(params) => {
                 let result = self.registry.remove(params.collection_id);
                 if result.is_ok() {
@@ -405,6 +425,10 @@ impl AgentState {
                 .registry
                 .set_paused(params.paused)
                 .map(|_| serde_json::json!({ "paused": params.paused })),
+            ControlCommand::AccountRenameComputer(params) => match self.cloud() {
+                Ok(cloud) => cloud.rename_computer(&params).await,
+                Err(error) => Err(error),
+            },
             ControlCommand::ApplicationDiscover(params) => match self.cloud() {
                 Ok(cloud) => cloud.discover(&params).await,
                 Err(error) => Err(error),
@@ -510,6 +534,7 @@ impl AgentState {
         for pending in &mut snapshot.pending_authorizations {
             pending.compatible_collection_ids = collections
                 .iter()
+                .filter(|collection| collection.enabled)
                 .filter_map(|collection| {
                     self.registry
                         .is_compatible(collection.id, &pending.requirements)

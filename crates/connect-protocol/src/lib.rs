@@ -37,6 +37,10 @@ pub enum ControlCommand {
     CollectionAdd(CollectionPathParams),
     #[serde(rename = "collections.create")]
     CollectionCreate(CollectionCreateParams),
+    #[serde(rename = "collections.update-metadata")]
+    CollectionUpdateMetadata(CollectionMetadataParams),
+    #[serde(rename = "collections.set-enabled")]
+    CollectionSetEnabled(CollectionEnabledParams),
     #[serde(rename = "collections.remove")]
     CollectionRemove(CollectionIdParams),
     #[serde(rename = "collections.validate")]
@@ -47,6 +51,8 @@ pub enum ControlCommand {
     AccessSnapshot,
     #[serde(rename = "access.pause")]
     AccessPause(AccessPauseParams),
+    #[serde(rename = "account.rename-computer")]
+    AccountRenameComputer(ComputerNameParams),
     #[serde(rename = "apps.discover")]
     ApplicationDiscover(ApplicationDiscoverParams),
     #[serde(rename = "grants.create")]
@@ -76,6 +82,20 @@ pub struct CollectionCreateParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionMetadataParams {
+    pub collection_id: Uuid,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionEnabledParams {
+    pub collection_id: Uuid,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionIdParams {
     pub collection_id: Uuid,
 }
@@ -91,6 +111,11 @@ pub struct CollectionOperationParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessPauseParams {
     pub paused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerNameParams {
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +232,8 @@ pub enum AgentConnectionState {
 pub struct CollectionSummary {
     pub id: Uuid,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub path: String,
     pub spec_version: String,
     pub enabled: bool,

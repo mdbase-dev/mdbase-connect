@@ -489,6 +489,35 @@ export async function buildApp(options: BuildOptions) {
     return reply.code(201).send({ connector: connector.rows[0], token });
   });
 
+  app.patch("/v1/connectors/self", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const input = z.object({ name: z.string().trim().min(1).max(100) }).strict().parse(request.body);
+    const renamed = await options.db.query<{ id: string; name: string }>(
+      "UPDATE connectors SET name = $2 WHERE id = $1 RETURNING id, name",
+      [connector.id, input.name]
+    );
+    await audit(options.db, connector.user_id, "connector.renamed", connector.id, {
+      name: input.name,
+      source: "local_controller"
+    });
+    return { connector: renamed.rows[0] };
+  });
+
+  app.patch("/v1/connectors/:connectorId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { connectorId } = z.object({ connectorId: z.uuid() }).parse(request.params);
+    const input = z.object({ name: z.string().trim().min(1).max(100) }).strict().parse(request.body);
+    const renamed = await options.db.query<{ id: string; name: string }>(
+      "UPDATE connectors SET name = $3 WHERE id = $1 AND user_id = $2 RETURNING id, name",
+      [connectorId, user.id, input.name]
+    );
+    if (!renamed.rows[0]) return reply.code(404).send(apiError("connector_not_found", "Computer not found."));
+    await audit(options.db, user.id, "connector.renamed", connectorId, { name: input.name });
+    return { connector: renamed.rows[0] };
+  });
+
   app.delete("/v1/connectors/:connectorId", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
@@ -938,6 +967,46 @@ export async function buildApp(options: BuildOptions) {
     await relay.pushPolicy(ownership.rows[0].connector_id);
     await audit(options.db, user.id, "grant.created", grant.id, input);
     return reply.code(201).send({ grant });
+  });
+
+  app.patch("/v1/grants/:grantId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      operations: z.array(operationSchema).min(1)
+    }).strict().parse(request.body);
+    const active = await options.db.query<{
+      id: string;
+      connector_id: string;
+      operations: string[];
+      encryption: GrantEncryption | null;
+    }>(
+      `SELECT g.id, g.operations, g.encryption, col.connector_id FROM grants g
+       JOIN collections col ON col.id = g.collection_id
+       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
+      [grantId, user.id]
+    );
+    const current = active.rows[0];
+    if (!current) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+    const operations = [...new Set(input.operations)];
+    if (operations.some((operation) => !current.operations.includes(operation))) {
+      return reply.code(409).send(apiError(
+        "permission_expansion_requires_approval",
+        "Existing access can be narrowed here, but broader access requires a new application request."
+      ));
+    }
+    const updated = await options.db.query<{ id: string; operations: string[] }>(
+      "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
+      [grantId, JSON.stringify(operations)]
+    );
+    if (current.encryption) await rotateGrantEncryption(options.db, grantId);
+    await relay.pushPolicy(current.connector_id);
+    await audit(options.db, user.id, "grant.narrowed", grantId, {
+      previous_operations: current.operations,
+      operations
+    });
+    return { grant: updated.rows[0] };
   });
 
   app.delete("/v1/grants/:grantId", async (request, reply) => {

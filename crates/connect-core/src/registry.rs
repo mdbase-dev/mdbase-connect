@@ -14,8 +14,10 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tempfile::NamedTempFile;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -137,6 +139,7 @@ impl CollectionRegistry {
                 id TEXT PRIMARY KEY,
                 path TEXT NOT NULL UNIQUE,
                 display_name TEXT NOT NULL,
+                description TEXT,
                 spec_version TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -206,6 +209,7 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
+            "ALTER TABLE collections ADD COLUMN description TEXT",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {
@@ -219,7 +223,7 @@ impl CollectionRegistry {
     pub fn list(&self) -> Result<Vec<CollectionSummary>, ConnectError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, display_name, path, spec_version, enabled
+            "SELECT id, display_name, description, path, spec_version, enabled
              FROM collections ORDER BY display_name COLLATE NOCASE, path",
         )?;
         let rows = statement.query_map([], |row| {
@@ -227,15 +231,16 @@ impl CollectionRegistry {
             Ok((
                 id,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, bool>(4)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, bool>(5)?,
             ))
         })?;
 
         let mut collections = rows
             .map(|row| {
-                let (id, display_name, path, spec_version, enabled) = row?;
+                let (id, display_name, description, path, spec_version, enabled) = row?;
                 let id = Uuid::parse_str(&id).map_err(|error| {
                     ConnectError::CollectionOpen(format!(
                         "invalid collection id in registry: {error}"
@@ -244,6 +249,7 @@ impl CollectionRegistry {
                 Ok(CollectionSummary {
                     id,
                     display_name,
+                    description,
                     path,
                     spec_version,
                     enabled,
@@ -254,6 +260,7 @@ impl CollectionRegistry {
         drop(statement);
         drop(connection);
         for collection in &mut collections {
+            let _ = self.refresh_summary_metadata(collection);
             if let Ok(description) = self.describe(collection.id) {
                 collection.contracts = description
                     .contracts
@@ -265,6 +272,12 @@ impl CollectionRegistry {
                     .collect();
             }
         }
+        collections.sort_by(|left, right| {
+            left.display_name
+                .to_lowercase()
+                .cmp(&right.display_name.to_lowercase())
+                .then_with(|| left.path.cmp(&right.path))
+        });
         Ok(collections)
     }
 
@@ -292,25 +305,22 @@ impl CollectionRegistry {
         let metadata = read_collection_metadata(&path)?;
         let path_string = path.to_string_lossy().to_string();
         let id = Uuid::new_v5(&COLLECTION_NAMESPACE, path_string.as_bytes());
-        let display_name = metadata
-            .name
-            .or_else(|| {
-                path.file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| "Collection".to_string());
+        let display_name = collection_display_name(&metadata, &path);
+        let description = normalized_optional(metadata.description);
 
         self.connection()?.execute(
-            "INSERT INTO collections (id, path, display_name, spec_version, enabled)
-             VALUES (?1, ?2, ?3, ?4, 1)
+            "INSERT INTO collections (id, path, display_name, description, spec_version, enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1)
              ON CONFLICT(path) DO UPDATE SET
                display_name = excluded.display_name,
+               description = excluded.description,
                spec_version = excluded.spec_version,
                updated_at = CURRENT_TIMESTAMP",
             params![
                 id.to_string(),
                 path_string,
                 display_name,
+                description,
                 metadata.spec_version
             ],
         )?;
@@ -346,20 +356,94 @@ impl CollectionRegistry {
         self.add(path)
     }
 
+    pub fn update_metadata(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<CollectionSummary, ConnectError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 100 {
+            return Err(ConnectError::CollectionOpen(
+                "Collection name must be between 1 and 100 characters.".to_string(),
+            ));
+        }
+        let description = description.map(str::trim).filter(|value| !value.is_empty());
+        if description.is_some_and(|value| value.chars().count() > 500) {
+            return Err(ConnectError::CollectionOpen(
+                "Collection description must be 500 characters or fewer.".to_string(),
+            ));
+        }
+
+        let registered = self.get(id)?;
+        let config_path = Path::new(&registered.path).join("mdbase.yaml");
+        let source = fs::read_to_string(&config_path)?;
+        let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+        let mapping = config.as_mapping_mut().ok_or_else(|| {
+            ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
+        })?;
+        mapping.insert(
+            serde_yaml::Value::String("name".to_string()),
+            serde_yaml::Value::String(name.to_string()),
+        );
+        let description_key = serde_yaml::Value::String("description".to_string());
+        if let Some(description) = description {
+            mapping.insert(
+                description_key,
+                serde_yaml::Value::String(description.to_string()),
+            );
+        } else {
+            mapping.remove(&description_key);
+        }
+
+        let serialized = serde_yaml::to_string(&config)?;
+        let root = config_path.parent().ok_or_else(|| {
+            ConnectError::CollectionOpen("Collection config has no parent folder.".to_string())
+        })?;
+        let permissions = fs::metadata(&config_path)?.permissions();
+        let mut temporary = NamedTempFile::new_in(root)?;
+        temporary.as_file().set_permissions(permissions)?;
+        temporary.write_all(serialized.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&config_path)
+            .map_err(|error| ConnectError::Io(error.error))?;
+
+        let mut updated = registered;
+        self.refresh_summary_metadata(&mut updated)?;
+        self.providers
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?
+            .remove(&id);
+        Ok(updated)
+    }
+
+    pub fn set_enabled(&self, id: Uuid, enabled: bool) -> Result<CollectionSummary, ConnectError> {
+        let changed = self.connection()?.execute(
+            "UPDATE collections SET enabled = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![id.to_string(), enabled],
+        )?;
+        if changed == 0 {
+            return Err(ConnectError::CollectionNotFound(id));
+        }
+        self.get(id)
+    }
+
     pub fn get(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let connection = self.connection()?;
         let row = connection
             .query_row(
-                "SELECT display_name, path, spec_version, enabled
+                "SELECT display_name, description, path, spec_version, enabled
                  FROM collections WHERE id = ?1",
                 [id.to_string()],
                 |row| {
                     Ok(CollectionSummary {
                         id,
                         display_name: row.get(0)?,
-                        path: row.get(1)?,
-                        spec_version: row.get(2)?,
-                        enabled: row.get(3)?,
+                        description: row.get(1)?,
+                        path: row.get(2)?,
+                        spec_version: row.get(3)?,
+                        enabled: row.get(4)?,
                         contracts: Vec::new(),
                     })
                 },
@@ -427,6 +511,11 @@ impl CollectionRegistry {
         scope: &GrantScope,
     ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
+        if !registered.enabled {
+            return Err(ConnectError::AccessDenied(
+                "This collection is disabled on its computer.".to_string(),
+            ));
+        }
         let provider = self.provider_for(&registered)?;
         provider.with_collection(|collection| {
             self.scoped_operation_loaded(&registered, collection, operation, input, scope)
@@ -746,6 +835,37 @@ impl CollectionRegistry {
         )?;
         transaction.commit()?;
         Ok(cursor as u64)
+    }
+
+    fn refresh_summary_metadata(
+        &self,
+        collection: &mut CollectionSummary,
+    ) -> Result<(), ConnectError> {
+        let path = Path::new(&collection.path);
+        let metadata = read_collection_metadata(path)?;
+        let display_name = collection_display_name(&metadata, path);
+        let description = normalized_optional(metadata.description);
+        if collection.display_name != display_name
+            || collection.description != description
+            || collection.spec_version != metadata.spec_version
+        {
+            self.connection()?.execute(
+                "UPDATE collections
+                 SET display_name = ?2, description = ?3, spec_version = ?4,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                params![
+                    collection.id.to_string(),
+                    display_name,
+                    description,
+                    metadata.spec_version
+                ],
+            )?;
+            collection.display_name = display_name;
+            collection.description = description;
+            collection.spec_version = metadata.spec_version;
+        }
+        Ok(())
     }
 
     pub fn changes(
@@ -1374,11 +1494,33 @@ struct CollectionMetadata {
     spec_version: String,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 fn read_collection_metadata(root: &Path) -> Result<CollectionMetadata, ConnectError> {
     let source = fs::read_to_string(root.join("mdbase.yaml"))?;
     Ok(serde_yaml::from_str(&source)?)
+}
+
+fn collection_display_name(metadata: &CollectionMetadata, path: &Path) -> String {
+    metadata
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "Collection".to_string())
+}
+
+fn normalized_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn error_message(value: &Value, fallback: &str) -> String {
@@ -1460,6 +1602,62 @@ mod tests {
             "unregistering must not delete collection files"
         );
         assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn collection_metadata_refreshes_edits_and_disabled_collections_fail_closed() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let created = registry.create(&root, Some("Notes")).unwrap();
+        assert_eq!(created.description, None);
+
+        let config_path = root.join("mdbase.yaml");
+        let mut config: serde_yaml::Value =
+            serde_yaml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        let mapping = config.as_mapping_mut().unwrap();
+        mapping.insert(
+            serde_yaml::Value::String("name".to_string()),
+            serde_yaml::Value::String("External name".to_string()),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("description".to_string()),
+            serde_yaml::Value::String("Changed outside the app".to_string()),
+        );
+        mapping.insert(
+            serde_yaml::Value::String("x-preview".to_string()),
+            serde_yaml::from_str("{ keep: true }").unwrap(),
+        );
+        fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+
+        let refreshed = registry.list().unwrap().remove(0);
+        assert_eq!(refreshed.display_name, "External name");
+        assert_eq!(
+            refreshed.description.as_deref(),
+            Some("Changed outside the app")
+        );
+
+        let updated = registry
+            .update_metadata(created.id, "Edited safely", Some("A useful collection"))
+            .unwrap();
+        assert_eq!(updated.display_name, "Edited safely");
+        assert_eq!(updated.description.as_deref(), Some("A useful collection"));
+        let persisted: serde_yaml::Value =
+            serde_yaml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(persisted["x-preview"]["keep"], true);
+
+        let disabled = registry.set_enabled(created.id, false).unwrap();
+        assert!(!disabled.enabled);
+        assert!(matches!(
+            registry.scoped_operation(
+                created.id,
+                "describe",
+                &json!({}),
+                &GrantScope { contracts: vec![] }
+            ),
+            Err(ConnectError::AccessDenied(message)) if message.contains("disabled")
+        ));
     }
 
     #[test]

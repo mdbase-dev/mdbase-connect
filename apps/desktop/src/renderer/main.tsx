@@ -304,20 +304,57 @@ function Collections({ collections, busy, onAdd, onCreate, onAct, onNotice }: {
         <Empty title="No collections registered" text="Add a folder with an existing mdbase.yaml, or create a new collection." action="Create the first collection" onAction={onCreate} />
       ) : (
         <div className="collection-list">
-          {collections.map((collection) => (
-            <article className="collection-card" key={collection.id}>
-              <div className="collection-glyph" aria-hidden="true"><span /></div>
-              <div className="collection-copy"><div className="collection-title-row"><h3>{collection.display_name}</h3><span className="version">v{collection.spec_version}</span></div><button className="path" title={collection.path} onClick={() => void window.mdbaseConnect.openPath(collection.path)}>{collection.path}</button></div>
-              <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
-              <div className="row-actions">
-                <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.validateCollection(collection.id); onNotice(`${collection.display_name} passed collection validation.`); })}>Validate</button>
-                <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove</button>
-              </div>
-            </article>
-          ))}
+          {collections.map((collection) => <CollectionRow key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} />)}
         </div>
       )}
     </section>
+  );
+}
+
+function CollectionRow({ collection, busy, onAct, onNotice }: {
+  collection: CollectionSummary;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(collection.display_name);
+  const [description, setDescription] = useState(collection.description ?? "");
+  useEffect(() => {
+    if (!editing) {
+      setName(collection.display_name);
+      setDescription(collection.description ?? "");
+    }
+  }, [collection.description, collection.display_name, editing]);
+
+  const changed = name.trim() !== collection.display_name
+    || description.trim() !== (collection.description ?? "");
+  return (
+    <article className={`collection-card ${editing ? "editing" : ""}`}>
+      <div className="collection-summary">
+        <div className="collection-copy">
+          <div className="collection-title-row"><h3>{collection.display_name}</h3><span className="version">v{collection.spec_version}</span></div>
+          {collection.description && <p>{collection.description}</p>}
+          <button className="path" title={collection.path} onClick={() => void window.mdbaseConnect.openPath(collection.path)}>{collection.path}</button>
+        </div>
+        <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
+        <div className="row-actions">
+          <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Details"}</button>
+          <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
+        </div>
+      </div>
+      {editing && <div className="collection-editor">
+        <form onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const updated = await window.mdbaseConnect.updateCollectionMetadata({ collectionId: collection.id, name, description }); setEditing(false); onNotice(`${updated.display_name} details were saved to mdbase.yaml.`); }); }}>
+          <label><span>Name</span><input value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+          <label><span>Description</span><textarea value={description} maxLength={500} rows={2} placeholder="Optional" onChange={(event) => setDescription(event.target.value)} /></label>
+          <div className="editor-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => void window.mdbaseConnect.openCollectionConfig(collection.id)}>Open mdbase.yaml</button><button className="button primary" disabled={busy || !changed || !name.trim()}>Save details</button></div>
+        </form>
+        <div className="collection-maintenance">
+          <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.validateCollection(collection.id); onNotice(`${collection.display_name} passed collection validation.`); })}>Validate collection</button>
+          <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
+        </div>
+      </div>}
+    </article>
   );
 }
 
@@ -480,7 +517,7 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
         <section>
           <SectionHeading title="Portal connection" note="Account and routing metadata for this computer." />
           <div className="settings-rows">
-            <SettingRow label="Computer" value={access.account?.connector_name ?? "This computer"} detail={access.account?.user_email ?? "Account details unavailable while offline"} />
+            <ComputerNameSetting account={access.account} online={access.online} busy={busy} onAct={onAct} onNotice={onNotice} />
             <SettingRow label="Server" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Control service reachable" : "Using cached local policy"} mono />
             <SettingRow label="Connection" value={status?.state === "connected" ? "Connected" : "Offline"} detail="The relay connection is always outbound from this computer" />
           </div>
@@ -497,6 +534,26 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
       <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Record payloads pass through the relay only while an operation is active.</p></div></section>
     </div>
   );
+}
+
+function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
+  account?: ConnectorAccount;
+  online: boolean;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(account?.connector_name ?? "This computer");
+  useEffect(() => {
+    if (!editing) setName(account?.connector_name ?? "This computer");
+  }, [account?.connector_name, editing]);
+  if (!editing) return <div className="setting-row"><span>Computer</span><div><strong>{account?.connector_name ?? "This computer"}</strong><small>{account?.user_email ?? "Account details unavailable while offline"}</small></div><button className="quiet-action" disabled={busy || !online} onClick={() => setEditing(true)}>Rename</button></div>;
+  return <form className="setting-row setting-editor" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const result = await window.mdbaseConnect.renameComputer(name); setEditing(false); onNotice(`This computer is now named ${result.connector.name}.`); }); }}>
+    <span>Computer</span>
+    <label><span>Computer name</span><input autoFocus value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+    <div className="row-actions"><button type="button" className="quiet-action" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === account?.connector_name}>Save</button></div>
+  </form>;
 }
 
 function SettingRow({ label, value, detail, mono = false }: { label: string; value: string; detail: string; mono?: boolean }) {

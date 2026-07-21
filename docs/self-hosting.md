@@ -44,7 +44,8 @@ in the portal or copied through the clipboard.
 Once paired, use the local app to create or register collections, inspect app
 manifests, approve pending requests, edit or revoke grants, pause all remote
 access, and review local activity. The portal remains available for account
-state and emergency computer revocation.
+state, computer naming and revocation, remote grant review, narrowing, and
+revocation.
 
 For headless development, the agent still accepts an explicitly provisioned
 connector token:

@@ -20,12 +20,14 @@ encryption; the relay sees routing metadata and ciphertext.
   filesystem watching, and outbound WebSocket relay.
 - `crates/connect-cli`: local administration and operation CLI.
 - `apps/desktop`: Electron controller for collection registration, application
-  access, browser pairing, local activity, tray operation, and launch-at-login.
+  metadata and availability, application access, browser pairing, local
+  activity, tray operation, and launch-at-login.
 - `services/server`: Fastify control plane and transient relay backed by
   PostgreSQL.
-- `apps/portal`: deliberately small account, computer-recovery, secure pairing,
-  and remote approval surface. Routine collection configuration stays in the
-  local controller, and there is no developer portal.
+- `apps/portal`: deliberately small account, computer management, secure
+  pairing, remote approval, and grant-review surface. Routine collection
+  configuration stays in the local controller, and there is no developer
+  portal.
 - `packages/client`: browser SDK using authorization code + PKCE.
 - `packages/protocol`: shared versioned web/relay contracts.
 - `packages/devkit`: canonical artifact validation and an explicit frontend

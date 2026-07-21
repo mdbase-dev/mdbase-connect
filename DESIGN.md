@@ -50,8 +50,12 @@ label.
   connection state aligned opposite the wordmark.
 - Desktop primary navigation uses a single horizontal tab row. Counts appear
   only when they clarify local collection state or pending action.
-- The portal keeps requests, computers, and service details in one centered
-  overview. It does not add navigation when the complete page is already visible.
+- The portal keeps requests, active application grants, computers, and service
+  details in one centered overview. It does not add navigation when the complete
+  page is already visible.
+- Collection metadata editing expands inline beneath the collection row. Name
+  and description remain visibly tied to `mdbase.yaml`; availability is a
+  separate immediate control.
 - Configuration rows are preferred over card grids. Pending access decisions
   use ruled rows. Empty states are plain text with a single next action.
 - Whitespace establishes section rhythm. Fine dividers are limited to dense

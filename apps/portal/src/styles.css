@@ -124,7 +124,8 @@ h1 {
 
 .computer-list,
 .account-rows,
-.request-list {
+.request-list,
+.portal-grant-list {
   border-top: 1px solid var(--line);
 }
 
@@ -144,6 +145,40 @@ h1 {
 .computer-row > div {
   display: grid;
   gap: 0.2rem;
+}
+
+.computer-actions {
+  display: flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 0.15rem !important;
+}
+
+.computer-name-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) auto;
+  align-items: end;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem 0;
+}
+
+.computer-name-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.computer-name-form label span {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.computer-name-form > div {
+  display: flex;
+  grid-auto-flow: initial;
+  gap: 0.4rem;
 }
 
 .computer-row strong,
@@ -191,8 +226,136 @@ h1 {
   cursor: pointer;
 }
 
+.quiet-action {
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-radius: 3px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quiet-action:hover,
 .quiet-danger:hover {
   background: var(--paper-hover);
+}
+
+.quiet-action:disabled,
+.quiet-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.portal-grant {
+  border-bottom: 1px solid var(--line);
+}
+
+.portal-grant summary {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(10rem, 1fr) auto auto;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 4.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.portal-grant summary::-webkit-details-marker {
+  display: none;
+}
+
+.portal-grant summary > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.portal-grant summary strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-grant summary small,
+.portal-grant summary > span {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-grant summary small {
+  font-family: var(--mono);
+}
+
+.portal-grant summary b {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.portal-grant summary b::after {
+  content: " +";
+  color: var(--ink-muted);
+}
+
+.portal-grant[open] summary b::after {
+  content: " −";
+}
+
+.portal-grant-detail {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1.2fr) minmax(13rem, 0.8fr);
+  gap: 1.4rem 2.5rem;
+  padding: 0.2rem 0 1.4rem;
+}
+
+.detail-label {
+  margin: 0 0 0.55rem;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.grant-permissions {
+  justify-content: flex-start;
+}
+
+.grant-context {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+.grant-context p {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+
+.grant-context span {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+}
+
+.grant-context strong {
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.grant-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
 }
 
 .account-row {
@@ -544,6 +707,27 @@ select {
 
   .computer-row {
     grid-template-columns: 1fr auto;
+  }
+
+  .computer-name-form,
+  .portal-grant-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-grant summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.55rem 1rem;
+    padding: 0.8rem 0;
+  }
+
+  .portal-grant summary > div:nth-child(2),
+  .portal-grant summary > span {
+    grid-column: 1;
+  }
+
+  .portal-grant summary > b {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .availability {

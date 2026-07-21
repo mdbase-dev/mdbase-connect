@@ -16,6 +16,8 @@ import {
 } from "./api";
 import "./styles.css";
 
+const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"];
+
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
@@ -158,12 +160,23 @@ function Dashboard() {
               </article>
             ))}</div></>}
         </section>
+        <section id="permissions">
+          <SectionHeading title="Application access" note="Review exact permissions, narrow them, or revoke access immediately." count={data.grants.filter((grant) => !grant.revoked_at).length} />
+          {data.grants.every((grant) => grant.revoked_at) ? (
+            <Empty title="No applications connected" text="Approved website connections will appear here." />
+          ) : (
+            <div className="portal-grant-list">{data.grants.filter((grant) => !grant.revoked_at).map((grant) => {
+              const collection = data.collections.find((candidate) => candidate.id === grant.collection_id);
+              return <PortalGrant key={grant.id} grant={grant} connectorName={collection?.connector_name ?? "Unknown computer"} onChanged={refresh} onError={setError} />;
+            })}</div>
+          )}
+        </section>
         <section id="computers">
           <SectionHeading title="Connected computers" note="Revoking a computer immediately invalidates all of its application access." count={data.connectors.length} />
           {data.connectors.length === 0 ? <Empty title="No computers connected" text="Open mdbase connect on a computer and choose Connect this computer." /> : (
             <div className="computer-list">{data.connectors.map((connector) => {
-              const count = data.collections.filter((collection) => collection.connector_id === connector.id).length;
-              return <div className="computer-row" key={connector.id}><span className="computer-icon" aria-hidden="true" /><div><strong>{connector.name}</strong><small>{count} {count === 1 ? "collection" : "collections"} · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small></div><span className={`availability ${connector.last_seen_at ? "online" : "idle"}`}><i />{connector.last_seen_at ? "Registered" : "Pending"}</span><button className="quiet-danger" onClick={() => { if (window.confirm(`Revoke ${connector.name}? Applications connected through it will stop working.`)) void api(`/v1/connectors/${connector.id}`, { method: "DELETE" }).then(refresh).catch((reason) => setError(message(reason))); }}>Revoke</button></div>;
+              const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
+              return <ComputerRow key={connector.id} connector={connector} collectionCount={collections.length} availableCount={collections.filter((collection) => collection.enabled).length} onChanged={refresh} onError={setError} />;
             })}</div>
           )}
         </section>
@@ -175,6 +188,124 @@ function Dashboard() {
       </main>
     </div>
   );
+}
+
+function ComputerRow({ connector, collectionCount, availableCount, onChanged, onError }: {
+  connector: DashboardData["connectors"][number];
+  collectionCount: number;
+  availableCount: number;
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(connector.name);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!editing) setName(connector.name); }, [connector.name, editing]);
+  const online = connector.last_seen_at !== null
+    && Date.now() - new Date(connector.last_seen_at).getTime() < 45_000;
+
+  async function rename(event: React.FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || name.trim() === connector.name) return;
+    setBusy(true);
+    try {
+      await api(`/v1/connectors/${connector.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: name.trim() })
+      });
+      setEditing(false);
+      await onChanged();
+    } catch (reason) {
+      onError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke() {
+    if (!window.confirm(`Revoke ${connector.name}? Applications connected through it will stop working.`)) return;
+    setBusy(true);
+    try {
+      await api(`/v1/connectors/${connector.id}`, { method: "DELETE" });
+      await onChanged();
+    } catch (reason) {
+      onError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  return <div className={`computer-row ${editing ? "editing" : ""}`}>
+    {editing ? <form className="computer-name-form" onSubmit={(event) => void rename(event)}>
+      <label><span>Computer name</span><input autoFocus value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label>
+      <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === connector.name}>Save</button></div>
+    </form> : <div><strong>{connector.name}</strong><small>{collectionCount} {collectionCount === 1 ? "collection" : "collections"}, {availableCount} available · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small></div>}
+    {!editing && <><span className={`availability ${online ? "online" : "idle"}`}><i />{online ? "Online" : connector.last_seen_at ? "Offline" : "Pending"}</span><div className="computer-actions"><button className="quiet-action" disabled={busy} onClick={() => setEditing(true)}>Rename</button><button className="quiet-danger" disabled={busy} onClick={() => void revoke()}>Revoke</button></div></>}
+  </div>;
+}
+
+function PortalGrant({ grant, connectorName, onChanged, onError }: {
+  grant: DashboardData["grants"][number];
+  connectorName: string;
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  const [operations, setOperations] = useState(new Set(grant.operations));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
+  const orderedOperations = [
+    ...allOperations.filter((operation) => grant.operations.includes(operation)),
+    ...grant.operations.filter((operation) => !allOperations.includes(operation))
+  ];
+  const changed = orderedOperations.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
+
+  function toggle(operation: string) {
+    setOperations((current) => {
+      const next = new Set(current);
+      if (next.has(operation)) next.delete(operation); else next.add(operation);
+      return next;
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/v1/grants/${grant.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ operations: orderedOperations.filter((operation) => operations.has(operation)) })
+      });
+      await onChanged();
+    } catch (reason) {
+      onError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke() {
+    if (!window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) return;
+    setBusy(true);
+    try {
+      await api(`/v1/grants/${grant.id}`, { method: "DELETE" });
+      await onChanged();
+    } catch (reason) {
+      onError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  return <details className="portal-grant">
+    <summary>
+      <div><strong>{grant.application_name}</strong><small>{host(grant.homepage)}</small></div>
+      <div><strong>{grant.collection_name}</strong><small>{connectorName}</small></div>
+      <span>{grant.operations.length} {grant.operations.length === 1 ? "permission" : "permissions"}</span>
+      <b>Review</b>
+    </summary>
+    <div className="portal-grant-detail">
+      <div><p className="detail-label">Allowed actions</p><div className="permission-options grant-permissions">{orderedOperations.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} disabled={busy} onChange={() => toggle(operation)} /><span>{operationLabel(operation)}</span></label>)}</div></div>
+      <div className="grant-context"><p><span>Scope</span><strong>{grant.scope.contracts.length ? scopeDescription(grant.scope.contracts) : "All record types in this collection."}</strong></p><p><span>Connected</span><strong>{relativeTime(grant.created_at)}</strong></p></div>
+      <div className="grant-actions"><button className="button secondary" disabled={busy || !changed || operations.size === 0} onClick={() => void save()}>Save narrower access</button><button className="quiet-danger" disabled={busy} onClick={() => void revoke()}>Revoke access</button></div>
+    </div>
+  </details>;
 }
 
 function Pairing({ pairingId }: { pairingId: string }) {

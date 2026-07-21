@@ -327,6 +327,60 @@ describe("mdbase connect server", () => {
       expect.objectContaining({ display_name: "Workouts" })
     );
     expect(dashboard.json().grants[0].application_name).toBe("Workout Tracker");
+
+    const renamedComputer = await app.inject({
+      method: "PATCH",
+      url: `/v1/connectors/${connector.connector.id}`,
+      headers: { cookie },
+      payload: { name: "Desk computer" }
+    });
+    expect(renamedComputer.statusCode).toBe(200);
+    expect(renamedComputer.json().connector.name).toBe("Desk computer");
+    const locallyRenamedComputer = await app.inject({
+      method: "PATCH",
+      url: "/v1/connectors/self",
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { name: "Studio computer" }
+    });
+    expect(locallyRenamedComputer.statusCode).toBe(200);
+    expect(locallyRenamedComputer.json().connector.name).toBe("Studio computer");
+
+    const broadenedForTest = await app.inject({
+      method: "POST",
+      url: "/v1/grants",
+      headers: { cookie },
+      payload: {
+        application_id: applicationId,
+        collection_id: collectionId,
+        operations: ["read", "query"]
+      }
+    });
+    expect(broadenedForTest.statusCode).toBe(201);
+    const managedGrantId = broadenedForTest.json().grant.id as string;
+    const narrowed = await app.inject({
+      method: "PATCH",
+      url: `/v1/grants/${managedGrantId}`,
+      headers: { cookie },
+      payload: { operations: ["read"] }
+    });
+    expect(narrowed.statusCode).toBe(200);
+    expect(narrowed.json().grant.operations).toEqual(["read"]);
+    const permissionExpansion = await app.inject({
+      method: "PATCH",
+      url: `/v1/grants/${managedGrantId}`,
+      headers: { cookie },
+      payload: { operations: ["read", "query"] }
+    });
+    expect(permissionExpansion.statusCode).toBe(409);
+    expect(permissionExpansion.json().error.code).toBe("permission_expansion_requires_approval");
+    const narrowedPolicy = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(narrowedPolicy.json().grants).toContainEqual(
+      expect.objectContaining({ id: managedGrantId, operations: ["read"] })
+    );
   });
 
   it("uses a trusted Tailscale identity instead of a development session", async () => {

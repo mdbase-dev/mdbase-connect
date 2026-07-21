@@ -8,6 +8,7 @@ interface AgentStatus {
 interface CollectionSummary {
   id: string;
   display_name: string;
+  description?: string;
   path: string;
   spec_version: string;
   enabled: boolean;
@@ -104,9 +105,12 @@ interface Window {
     addCollection(): Promise<CollectionSummary | null>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { path: string; name: string }): Promise<CollectionSummary>;
+    updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;
+    setCollectionEnabled(collectionId: string, enabled: boolean): Promise<CollectionSummary>;
     validateCollection(collectionId: string): Promise<unknown>;
     removeCollection(collectionId: string): Promise<CollectionSummary>;
     openPath(path: string): Promise<string>;
+    openCollectionConfig(collectionId: string): Promise<string>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;
@@ -120,6 +124,7 @@ interface Window {
     pairingStatus(pairingId: string): Promise<{ status: "pending" | "paired"; connector?: { id: string; name: string } }>;
     accessSnapshot(): Promise<AccessSnapshot>;
     setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
+    renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;
     discoverApplication(manifestUrl: string): Promise<{ application: ApplicationSummary }>;
     createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;

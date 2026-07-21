@@ -174,6 +174,36 @@ function registerIpc(): void {
     if (typeof name !== "string" || name.trim().length === 0) throw new Error("Enter a collection name.");
     return requestReadyAgent("collections.create", { path, name: name.trim() });
   });
+  ipcMain.handle("connect:collections:update-metadata", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid collection metadata.");
+    const collectionId = value.collectionId;
+    const name = value.name;
+    const description = value.description;
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {
+      throw new Error("Collection name must be between 1 and 100 characters.");
+    }
+    if (description !== undefined && (typeof description !== "string" || [...description.trim()].length > 500)) {
+      throw new Error("Collection description must be 500 characters or fewer.");
+    }
+    return requestReadyAgent("collections.update-metadata", {
+      collection_id: collectionId,
+      name: name.trim(),
+      description: typeof description === "string" && description.trim() ? description.trim() : undefined
+    });
+  });
+  ipcMain.handle("connect:collections:set-enabled", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid collection setting.");
+    if (typeof value.collectionId !== "string" || typeof value.enabled !== "boolean") {
+      throw new Error("Invalid collection setting.");
+    }
+    return requestReadyAgent("collections.set-enabled", {
+      collection_id: value.collectionId,
+      enabled: value.enabled
+    });
+  });
   ipcMain.handle("connect:collections:validate", async (event, collectionId: unknown) => {
     trustedIpc(event);
     if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
@@ -196,6 +226,15 @@ function registerIpc(): void {
     )).find((candidate) => candidate.path === path);
     if (!collection) throw new Error("That path is not a registered collection.");
     return shell.openPath(collection.path);
+  });
+  ipcMain.handle("connect:collections:open-config", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    const collection = (await requestReadyAgent<Array<{ id: string; path: string }>>(
+      "collections.list"
+    )).find((candidate) => candidate.id === collectionId);
+    if (!collection) throw new Error("That collection is not registered.");
+    return shell.openPath(join(collection.path, "mdbase.yaml"));
   });
   ipcMain.handle("connect:startup:get", async (event) => {
     trustedIpc(event);
@@ -297,6 +336,13 @@ function registerIpc(): void {
     trustedIpc(event);
     if (typeof paused !== "boolean") throw new Error("Invalid pause setting.");
     return requestReadyAgent("access.pause", { paused }, 10_000);
+  });
+  ipcMain.handle("connect:account:rename-computer", async (event, name: unknown) => {
+    trustedIpc(event);
+    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {
+      throw new Error("Computer name must be between 1 and 100 characters.");
+    }
+    return requestReadyAgent("account.rename-computer", { name: name.trim() }, 10_000);
   });
   ipcMain.handle("connect:apps:discover", async (event, manifestUrl: unknown) => {
     trustedIpc(event);
