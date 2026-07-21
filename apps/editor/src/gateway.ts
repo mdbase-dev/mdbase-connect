@@ -1,0 +1,164 @@
+import {
+  MdbaseConnect,
+  MdbaseConnectError,
+  type CollectionDescription,
+  type MdbaseOperation as CollectionOperation,
+  type JsonObject,
+  type MdbaseDiagnostic,
+  type MdbaseOperationEnvelope,
+  type QueryResult
+} from "@mdbase/connect";
+import { persistedBody, titlePatch } from "./note";
+import type {
+  CollectionGateway,
+  ConnectionSummary,
+  NoteDocument,
+  NoteFrontmatter,
+  NoteSummary,
+  SaveNoteInput
+} from "./model";
+
+export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
+  "describe",
+  "changes",
+  "read",
+  "query",
+  "validate",
+  "create",
+  "update",
+  "delete",
+  "rename"
+];
+
+const PAGE_SIZE = 250;
+
+export class ConnectCollectionGateway implements CollectionGateway {
+  private readonly connect: MdbaseConnect<NoteFrontmatter>;
+
+  constructor(serverUrl = import.meta.env.VITE_MDBASE_CONNECT_URL ?? "https://connect.mdbase.dev") {
+    const appRoot = new URL(import.meta.env.BASE_URL, location.href);
+    this.connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl: new URL(".well-known/mdbase-app.json", appRoot).href,
+      redirectUri: appRoot.href
+    });
+  }
+
+  connection(): ConnectionSummary | null {
+    return this.connect.connection();
+  }
+
+  async authorize(): Promise<void> {
+    await this.connect.authorize(FULL_COLLECTION_OPERATIONS);
+  }
+
+  async completeAuthorization(): Promise<void> {
+    await this.connect.completeAuthorization();
+  }
+
+  disconnect(): void {
+    this.connect.disconnect();
+  }
+
+  describe(): Promise<CollectionDescription> {
+    return this.connect.describe();
+  }
+
+  async list(search = ""): Promise<NoteSummary[]> {
+    const notes: NoteSummary[] = [];
+    let offset = 0;
+    do {
+      const response = await this.connect.query({
+        ...(search.trim() ? { where: searchExpression(search) } : {}),
+        order_by: [{ field: "file.mtime", direction: "desc" }],
+        limit: PAGE_SIZE,
+        offset,
+        include_body: false
+      });
+      const result = validResult(response);
+      notes.push(...result.results);
+      offset += result.results.length;
+      if (!result.meta?.has_more || result.results.length === 0) break;
+    } while (true);
+    return notes;
+  }
+
+  async read(path: string): Promise<NoteDocument> {
+    return validResult(await this.connect.read({ path }));
+  }
+
+  async create(): Promise<NoteDocument> {
+    const suffix = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    return validResult(await this.connect.create({
+      path: `Notes/Untitled ${suffix}.md`,
+      frontmatter: {},
+      body: "# Untitled\n"
+    }));
+  }
+
+  async update(input: SaveNoteInput): Promise<NoteDocument> {
+    return validResult(await this.connect.update({
+      path: input.path,
+      patch: titlePatch(input.title, input.source),
+      body: persistedBody(input.title, input.body, input.source),
+      if_revision: input.revision
+    }));
+  }
+
+  async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
+    return validResult(await this.connect.update({ path, patch, if_revision: revision }));
+  }
+
+  async rename(from: string, to: string, revision: string): Promise<NoteDocument> {
+    return validResult(await this.connect.rename({
+      from,
+      to,
+      if_revision: revision,
+      update_refs: true
+    }));
+  }
+
+  async delete(path: string, revision: string): Promise<void> {
+    validResult(await this.connect.delete({ path, if_revision: revision, check_backlinks: true }));
+  }
+
+  async validate(path: string): Promise<MdbaseDiagnostic[]> {
+    const response = await this.connect.validate({ path });
+    return response.diagnostics;
+  }
+
+  async watch(onChange: () => void, signal: AbortSignal): Promise<void> {
+    for await (const change of this.connect.watch({ signal, pollIntervalMs: 1_500 })) {
+      if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange();
+    }
+  }
+}
+
+export class CollectionOperationError extends Error {
+  constructor(public readonly diagnostics: MdbaseDiagnostic[]) {
+    super(diagnostics.map((item) => item.message).join(" ") || "The collection rejected this change.");
+  }
+}
+
+function validResult<Result>(envelope: MdbaseOperationEnvelope<Result>): Result {
+  if (!envelope.valid) throw new CollectionOperationError(envelope.diagnostics);
+  return envelope.result;
+}
+
+function searchExpression(search: string): string {
+  const literal = JSON.stringify(search.trim().toLocaleLowerCase());
+  return `file.path.lower().contains(${literal}) || file.body.lower().contains(${literal})`;
+}
+
+export function gatewayError(error: unknown): string {
+  if (error instanceof MdbaseConnectError) {
+    if (error.code === "connector_offline") return "The computer holding this collection is offline.";
+    if (error.code === "not_authorized" || error.code === "authorization_expired") {
+      return "This connection has expired. Connect the collection again.";
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "The collection could not be reached.";
+}
+
+export type { QueryResult };

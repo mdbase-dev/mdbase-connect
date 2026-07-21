@@ -1,0 +1,50 @@
+{
+  "name": "mdbase-editor",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.7.0",
+  "scripts": {
+    "dev": "pnpm manifest && vite --host 127.0.0.1",
+    "build": "pnpm manifest && tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "preview": "vite preview --host 127.0.0.1",
+    "manifest": "node scripts/write-manifest.mjs"
+  },
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "^5.2.8",
+    "@fontsource/azeret-mono": "^5.2.8",
+    "@mdbase/connect": "file:vendor/mdbase-connect-0.1.0-alpha.1.tgz",
+    "@mdbase/connect-protocol": "file:vendor/mdbase-connect-protocol-0.1.0-alpha.1.tgz",
+    "@tanstack/react-virtual": "^3.13.12",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.57.0",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^27.2.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.2.0",
+    "vitest": "^4.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "overrides": {
+      "@mdbase/connect": "file:vendor/mdbase-connect-0.1.0-alpha.1.tgz",
+      "@mdbase/connect-protocol": "file:vendor/mdbase-connect-protocol-0.1.0-alpha.1.tgz"
+    }
+  }
+}
