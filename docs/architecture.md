@@ -62,8 +62,10 @@ traversal into other records until the query engine can carry the grant scope
 through link resolution.
 
 `describe` returns the collection's spec version, supported operations, JSON
-Schemas, type metadata, `x-*` extensions, discovered contract declarations,
-and the current change cursor. It does not return the collection path.
+Schemas, collection-relative type paths, complete portable type definitions,
+canonical collection settings, `x-*` type extensions, discovered contract
+declarations, and the current change cursor. It omits absolute paths and
+implementation-specific or extension values from the collection configuration.
 
 ## Change delivery
 

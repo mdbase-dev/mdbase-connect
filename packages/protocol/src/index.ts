@@ -252,6 +252,10 @@ export interface CollectionTypeDescriptor {
   name: string;
   version?: number;
   description?: string;
+  /** Collection-relative source path. */
+  path?: string;
+  /** Complete portable type frontmatter, including extension declarations. */
+  definition?: JsonObject;
   schema: JsonObject;
   collection?: JsonObject;
   lifecycle?: JsonObject;
@@ -275,6 +279,8 @@ export interface CollectionDescription {
   change_cursor: number;
   types: CollectionTypeDescriptor[];
   contracts: CollectionContractDescriptor[];
+  /** Canonical collection settings; extension and implementation-specific values are omitted. */
+  configuration?: JsonObject;
 }
 
 export interface CollectionChange {

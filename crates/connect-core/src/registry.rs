@@ -635,6 +635,7 @@ impl CollectionRegistry {
     ) -> Result<CollectionDescription, ConnectError> {
         let mut types = Vec::new();
         let mut contracts = Vec::new();
+        let mut configuration = None;
         if collection.spec_profile == SpecProfile::V03 {
             let report = mdbase::v03::inspect_collection(Path::new(&registered.path));
             if !report.valid {
@@ -645,6 +646,7 @@ impl CollectionRegistry {
                     .unwrap_or_else(|| "Collection type metadata is invalid".to_string());
                 return Err(ConnectError::CollectionOpen(message));
             }
+            configuration = report.config.as_ref().and_then(portable_configuration);
             for type_file in report.types {
                 let description = type_file
                     .frontmatter
@@ -680,6 +682,12 @@ impl CollectionRegistry {
                     name: type_file.name,
                     version: type_file.version,
                     description,
+                    path: Some(type_file.path),
+                    definition: type_file
+                        .frontmatter
+                        .as_object()
+                        .cloned()
+                        .map(Value::Object),
                     schema: type_file.schema,
                     collection: collection_metadata,
                     lifecycle,
@@ -707,6 +715,7 @@ impl CollectionRegistry {
             change_cursor: self.current_change_cursor(registered.id)?,
             types,
             contracts,
+            configuration,
         })
     }
 
@@ -1188,6 +1197,48 @@ fn parse_registry_uuid(value: &str) -> Result<Uuid, ConnectError> {
     })
 }
 
+fn portable_configuration(configuration: &Value) -> Option<Value> {
+    let source = configuration.as_object()?;
+    let mut result = serde_json::Map::new();
+    if let Some(spec_version) = source.get("spec_version") {
+        result.insert("spec_version".to_string(), spec_version.clone());
+    }
+    if let Some(settings) = select_configuration_fields(
+        source.get("settings"),
+        &[
+            "types_folder",
+            "record_extensions",
+            "validation",
+            "explicit_type_keys",
+            "id_field",
+            "include_subfolders",
+            "exclude",
+        ],
+    ) {
+        result.insert("settings".to_string(), settings);
+    }
+    if let Some(runtime) = select_configuration_fields(
+        source.get("runtime"),
+        &["profile_version", "enabled", "contract_mode", "policy"],
+    ) {
+        result.insert("runtime".to_string(), runtime);
+    }
+    Some(Value::Object(result))
+}
+
+fn select_configuration_fields(value: Option<&Value>, fields: &[&str]) -> Option<Value> {
+    let source = value?.as_object()?;
+    let selected = fields
+        .iter()
+        .filter_map(|field| {
+            source
+                .get(*field)
+                .map(|value| ((*field).to_string(), value.clone()))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    Some(Value::Object(selected))
+}
+
 fn required_string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ConnectError> {
     input.get(key).and_then(Value::as_str).ok_or_else(|| {
         ConnectError::AccessDenied(format!("Scoped operation requires a valid '{key}' value."))
@@ -1591,12 +1642,26 @@ x-tasknotes:
     }
 
     #[test]
-    fn describe_exposes_schema_contracts_without_local_paths() {
+    fn describe_exposes_complete_portable_type_metadata_without_absolute_paths() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
         let root = collection_parent.path().join("tasks");
         let registry = CollectionRegistry::open(state.path()).unwrap();
         let collection = registry.create(&root, Some("Tasks")).unwrap();
+        fs::write(
+            root.join("mdbase.yaml"),
+            r#"spec_version: 0.3.0
+settings:
+  validation: warn
+  x-private: not-for-apps
+runtime:
+  profile_version: 0.1.0
+  enabled: false
+x-private:
+  token: not-for-apps
+"#,
+        )
+        .unwrap();
         fs::write(
             root.join("_types/task.md"),
             r#"---
@@ -1626,9 +1691,27 @@ x-tasknotes:
             description.types[0].schema["properties"]["title"]["type"],
             "string"
         );
+        assert_eq!(description.types[0].path.as_deref(), Some("_types/task.md"));
+        assert_eq!(
+            description.types[0]
+                .definition
+                .as_ref()
+                .and_then(|value| value.pointer("/schema/dialect"))
+                .and_then(Value::as_str),
+            Some("json-schema-2020-12")
+        );
+        assert_eq!(
+            description
+                .configuration
+                .as_ref()
+                .and_then(|value| value.get("spec_version"))
+                .and_then(Value::as_str),
+            Some("0.3.0")
+        );
         assert_eq!(description.contracts[0].id, "tasknotes.task");
         let serialized = serde_json::to_string(&description).unwrap();
         assert!(!serialized.contains(root.to_string_lossy().as_ref()));
+        assert!(!serialized.contains("not-for-apps"));
     }
 
     #[test]

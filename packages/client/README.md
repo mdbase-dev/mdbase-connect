@@ -46,8 +46,9 @@ offers compatible collections and derives the record scope from this declaration
 
 The SDK returns the mdbase operation envelope, carries revision tokens in typed
 record results, and accepts `if_revision` on mutations. `describe()` exposes
-JSON Schemas and optional domain contracts. `watch()` resumes from a local
-collection cursor; the Connect server does not store the change feed.
+JSON Schemas, portable type definitions, canonical collection settings, and
+optional domain contracts. `watch()` resumes from a local collection cursor;
+the Connect server does not store the change feed.
 Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.

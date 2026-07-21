@@ -168,7 +168,8 @@
         "operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/operation" } },
         "change_cursor": { "type": "integer", "minimum": 0 },
         "types": { "type": "array", "items": { "$ref": "#/$defs/collectionType" } },
-        "contracts": { "type": "array", "items": { "$ref": "#/$defs/collectionContract" } }
+        "contracts": { "type": "array", "items": { "$ref": "#/$defs/collectionContract" } },
+        "configuration": { "type": "object", "description": "Canonical portable collection settings. Extension and implementation-specific values are omitted." }
       }
     },
     "collectionType": {
@@ -179,6 +180,8 @@
         "name": { "type": "string", "minLength": 1 },
         "version": { "type": "integer", "minimum": 1 },
         "description": { "type": "string" },
+        "path": { "type": "string", "minLength": 1, "description": "Collection-relative source path." },
+        "definition": { "type": "object", "description": "Complete portable type frontmatter, including extension declarations." },
         "schema": { "type": "object" },
         "collection": { "type": "object" },
         "lifecycle": { "type": "object" },

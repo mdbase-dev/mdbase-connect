@@ -221,6 +221,10 @@ pub struct CollectionTypeDescriptor {
     pub version: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<Value>,
     pub schema: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<Value>,
@@ -248,6 +252,8 @@ pub struct CollectionDescription {
     pub change_cursor: u64,
     pub types: Vec<CollectionTypeDescriptor>,
     pub contracts: Vec<CollectionContractDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -612,6 +618,7 @@ mod tests {
             change_cursor: 0,
             types: vec![],
             contracts: vec![],
+            configuration: None,
         };
         assert_schema(
             "/$defs/collectionDescription",
