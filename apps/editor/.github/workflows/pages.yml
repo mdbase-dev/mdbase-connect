@@ -3,6 +3,7 @@ name: Test and deploy Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,7 @@ jobs:
           if-no-files-found: error
 
   deploy:
+    if: github.event_name == 'push'
     needs: test
     runs-on: ubuntu-latest
     permissions:

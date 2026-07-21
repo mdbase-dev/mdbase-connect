@@ -138,7 +138,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const folders = screen.getByRole("group", { name: "Folders" });
-    const foldersToggle = within(folders).getByRole("button", { name: "Folders" });
+    const foldersToggle = await within(folders).findByRole("button", { name: "Folders" });
     expect(foldersToggle).toHaveAttribute("aria-expanded", "true");
     await user.click(foldersToggle);
     expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
@@ -227,6 +227,7 @@ describe("mdbase editor", () => {
     render(<App gateway={gateway} />);
 
     await screen.findByRole("heading", { name: "Writing" });
+    await screen.findByRole("textbox", { name: "Note title" });
     const listCalls = gateway.listCalls;
     const readCalls = gateway.readCalls;
     await user.click(screen.getByRole("button", { name: "New note" }));
@@ -440,7 +441,10 @@ describe("mdbase editor", () => {
     const disconnected = Object.create(gateway) as CollectionGateway;
     disconnected.connection = () => null;
     render(<App gateway={disconnected} />);
+    expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
+    expect(screen.getByText(/local or hosted mdbase collection/i)).toBeInTheDocument();
     expect(await screen.findByText(/view, create, edit, move, validate, and delete/i)).toBeInTheDocument();
+    expect(screen.getByText(/Hosted collections stay available without your computer/i)).toBeInTheDocument();
   });
 });
 

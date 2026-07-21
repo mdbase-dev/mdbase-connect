@@ -906,8 +906,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <details className="note-actions">
               <summary className="icon-button" aria-label="More note actions"><MoreHorizontal aria-hidden="true" /></summary>
               <div className="action-menu">
-                <button onClick={() => void validateNote()}><Check aria-hidden="true" /> Check note</button>
-                <button className="danger-action" onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" /> Delete note</button>
+                <button onClick={(event) => { closeActionMenu(event.currentTarget); void validateNote(); }}><Check aria-hidden="true" /> Check note</button>
+                <button className="danger-action" onClick={(event) => { closeActionMenu(event.currentTarget); setDeleteOpen(true); }}><Trash2 aria-hidden="true" /> Delete note</button>
               </div>
             </details>
           </header>
@@ -991,7 +991,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 }
 
 function ConnectScreen({ notice, onConnect }: { notice?: string; onConnect: () => void }) {
-  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">Open an mdbase collection and write. Its Markdown stays on your computer.</p><button className="connect-button" onClick={onConnect}>Connect a collection <ChevronRight aria-hidden="true" /></button><p className="access-copy">This editor asks to view, create, edit, move, validate, and delete records and inspect type definitions in one collection. You approve access on the computer that holds it.</p>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
+  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">Open a local or hosted mdbase collection and write.</p><button className="connect-button" onClick={onConnect}>Choose a collection <ChevronRight aria-hidden="true" /></button><p className="access-copy">Choose the collection in mdbase connect, then approve view, create, edit, move, validate, and delete access. Hosted collections stay available without your computer; local collections remain under its connector.</p>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
 }
 
 function OpeningScreen() {
@@ -1168,6 +1168,10 @@ function EmptyEditor({ leadingActions, onCreate }: { leadingActions?: React.Reac
 function PaneControl({ label, action, onClick }: { label: string; action: "show" | "hide"; onClick: () => void }) {
   const Icon = action === "show" ? PanelLeftOpen : PanelLeftClose;
   return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><Icon aria-hidden="true" /></button>;
+}
+
+function closeActionMenu(action: HTMLButtonElement) {
+  action.closest("details")?.removeAttribute("open");
 }
 
 function PaneResizeHandle({ className, label, value, min, max, onChange, onReset, onDragChange }: {
