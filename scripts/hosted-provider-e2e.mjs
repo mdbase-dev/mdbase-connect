@@ -1010,8 +1010,9 @@ async function portalLifecycleE2E(controlUrl) {
 
     await row.getByRole("button", { name: "Add mirror" }).click();
     await row.getByLabel("Mirror name").fill("Browser writable mirror");
-    await row.getByLabel("Local edits").selectOption("read_write");
-    await expect(row).toContainText("never last-write-wins");
+    await expect(row.getByLabel("Local edits")).toHaveCount(0);
+    await expect(row).not.toContainText("Receive only");
+    await expect(row).toContainText("Edits sync in both directions");
     await row.getByRole("button", { name: "Prepare mirror" }).click();
     await expect(row.locator("code").filter({ hasText: "mdbase-mirror init" })).toContainText("--writable");
     await expect(row).toContainText("Save this token now");

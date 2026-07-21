@@ -264,7 +264,6 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
   const [panel, setPanel] = useState<"mirror" | "rename" | null>(null);
   const [name, setName] = useState(collection.display_name);
   const [mirrorName, setMirrorName] = useState("Local mirror");
-  const [mirrorMode, setMirrorMode] = useState<"read_only" | "read_write">("read_only");
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<ReplicaSecret | null>(null);
   const activeReplicas = collection.replicas.filter((replica) => !replica.revoked_at);
@@ -296,9 +295,9 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
         sync_url: string;
       }>(`/v1/hosted/collections/${collection.id}/replicas`, {
         method: "POST",
-        body: JSON.stringify({ name: mirrorName.trim(), mode: mirrorMode, allowed_types: [] })
+        body: JSON.stringify({ name: mirrorName.trim(), mode: "read_write", allowed_types: [] })
       });
-      setSecret({ replicaId: enrollment.replica.id, token: enrollment.token, syncUrl: enrollment.sync_url, mode: mirrorMode });
+      setSecret({ replicaId: enrollment.replica.id, token: enrollment.token, syncUrl: enrollment.sync_url, mode: "read_write" });
       await onChanged();
     } catch (reason) { onError(message(reason)); }
     finally { setBusy(false); }
@@ -349,8 +348,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
     {panel === "mirror" && <div className="hosted-detail">
       {!secret ? <form className="mirror-form" onSubmit={(event) => void addMirror(event)}>
         <label><span>Mirror name</span><input autoFocus maxLength={200} value={mirrorName} onChange={(event) => setMirrorName(event.target.value)} /></label>
-        <label><span>Local edits</span><select value={mirrorMode} onChange={(event) => setMirrorMode(event.target.value as "read_only" | "read_write")}><option value="read_only">Receive only</option><option value="read_write">Sync to hosted</option></select></label>
-        <p>{mirrorMode === "read_only" ? "Local edits never overwrite the hosted source of truth." : "Local edits sync conditionally. Concurrent edits stop for an explicit choice—never last-write-wins."}</p>
+        <p>Edits sync in both directions. Concurrent edits stop for an explicit choice; mdbase never uses last-write-wins.</p>
         <button className="button primary" disabled={busy || !mirrorName.trim()}>{busy ? "Preparing…" : "Prepare mirror"}</button>
       </form> : <MirrorSetup collectionId={collection.id} secret={secret} />}
     </div>}

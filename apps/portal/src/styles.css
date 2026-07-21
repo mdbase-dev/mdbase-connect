@@ -199,7 +199,7 @@ h1 {
 }
 
 .mirror-form {
-  grid-template-columns: minmax(12rem, 0.8fr) minmax(11rem, 0.7fr) minmax(16rem, 1.2fr) auto;
+  grid-template-columns: minmax(12rem, 0.8fr) minmax(20rem, 1.5fr) auto;
 }
 
 .hosted-rename {
