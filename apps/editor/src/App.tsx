@@ -44,6 +44,7 @@ import {
 } from "./layout-preferences";
 import type {
   CollectionGateway,
+  ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
   NoteListProgress,
@@ -105,6 +106,7 @@ interface NoteRowStatus {
 
 export function App({ gateway }: { gateway: CollectionGateway }) {
   const [phase, setPhase] = useState<AppPhase>("starting");
+  const [connection, setConnection] = useState<ConnectionSummary | null>(() => gateway.connection());
   const [description, setDescription] = useState<CollectionDescription>();
   const [allNotes, setAllNotes] = useState<NoteSummary[]>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -144,6 +146,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
+  useEffect(() => gateway.onConnectionChange?.(setConnection), [gateway]);
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", updateViewportWidth);
@@ -381,7 +384,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           history.replaceState({}, "", new URL(import.meta.env.BASE_URL, location.href));
         }
         if (!alive) return;
-        if (gateway.connection()) await start();
+        if (gateway.connection()) {
+          void gateway.checkDirectAccess?.().catch(() => undefined);
+          await start();
+        }
         else setPhase("disconnected");
       } catch (error) {
         if (!alive) return;
@@ -823,6 +829,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
+  async function requestDirectAccess() {
+    if (!gateway.requestDirectAccess) return;
+    try {
+      await gateway.requestDirectAccess();
+    } catch (error) {
+      setNotice(gatewayError(error));
+    }
+  }
+
   if (phase === "starting") return <OpeningScreen />;
   if (phase === "disconnected") return <ConnectScreen notice={notice} onConnect={() => void connectCollection()} />;
   if (phase === "loading" || !description) return <OpeningScreen />;
@@ -871,6 +886,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
+      connection={connection}
+      onRequestDirectAccess={() => void requestDirectAccess()}
       onDisconnect={() => void disconnect()}
       onCollapse={() => setLayout((current) => ({ ...current, collectionCollapsed: true }))}
     />}
@@ -1031,7 +1048,7 @@ function Wordmark() {
   return <div className="wordmark"><span aria-hidden="true" />mdbase <strong>editor</strong></div>;
 }
 
-function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, onFilter, onTypes, onSettings, onDisconnect, onCollapse }: {
+function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connection, onFilter, onTypes, onSettings, onRequestDirectAccess, onDisconnect, onCollapse }: {
   name: string;
   count: number;
   typeCount: number;
@@ -1040,9 +1057,11 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   notes: NoteSummary[];
   foldersLoading: boolean;
   surface: Surface;
+  connection: ConnectionSummary | null;
   onFilter: (filter?: NoteFilter) => void;
   onTypes: () => void;
   onSettings: () => void;
+  onRequestDirectAccess: () => void;
   onDisconnect: () => void;
   onCollapse: () => void;
 }) {
@@ -1061,12 +1080,23 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
       <RailFilterSection label="Types" kind="type" items={typeFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
     </nav>
     <footer className="connection-footer">
-      <p role="status" aria-label="Collection connected"><span className="status-dot" aria-hidden="true" /><span>Connected</span></p>
+      <p role="status" aria-label={connectionLabel(connection)}><span className="status-dot" aria-hidden="true" /><span>{connectionLabel(connection)}</span></p>
+      {connection?.directAccess === "permission_required" && <div className="direct-access-prompt">
+        <p>Use the connector on this computer directly. Your browser will ask for local-network access.</p>
+        <button onClick={onRequestDirectAccess}>Connect directly</button>
+      </div>}
       <button className="disconnect-action" aria-label="Disconnect collection" title="Disconnect collection" onClick={onDisconnect}>
         <LogOut aria-hidden="true" /><span>Disconnect</span>
       </button>
     </footer>
   </aside>;
+}
+
+function connectionLabel(connection: ConnectionSummary | null): string {
+  if (connection?.route === "hosted") return "Hosted collection";
+  if (connection?.route === "direct") return "Connected directly";
+  if (connection?.directAccess === "checking") return "Checking direct access";
+  return "Connected through mdbase";
 }
 
 function RailFilterSection({ label, kind, items, activeFilter, loading, defaultOpen = false, onFilter }: {

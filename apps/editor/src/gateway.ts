@@ -29,7 +29,10 @@ export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
   "create",
   "update",
   "delete",
-  "rename"
+  "rename",
+  "read_type",
+  "create_type",
+  "update_type"
 ];
 
 const FIRST_PAGE_SIZE = 200;
@@ -49,6 +52,18 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   connection(): ConnectionSummary | null {
     return this.connect.connection();
+  }
+
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    return this.connect.onConnectionChange(listener);
+  }
+
+  checkDirectAccess() {
+    return this.connect.checkDirectAccess();
+  }
+
+  requestDirectAccess() {
+    return this.connect.requestDirectAccess();
   }
 
   async authorize(): Promise<void> {

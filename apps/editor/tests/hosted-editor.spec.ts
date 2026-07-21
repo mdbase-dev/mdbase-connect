@@ -121,7 +121,10 @@ class HostedCollectionHarness {
         expires_in: 3_600,
         refresh_expires_in: 2_592_000,
         collection_id: collectionId,
-        operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+        operations: [
+          "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+          "read_type", "create_type", "update_type"
+        ],
         scope: { contracts: [] },
         grant_id: grantId,
         encryption: null,
@@ -148,7 +151,10 @@ class HostedCollectionHarness {
       collection_id: collectionId,
       display_name: "Hosted writing",
       spec_version: "0.3.0",
-      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+      operations: [
+        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+        "read_type", "create_type", "update_type"
+      ],
       change_cursor: this.sequence,
       types: [],
       contracts: [],

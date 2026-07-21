@@ -12,6 +12,16 @@ test("keeps the application geometry visible while a collection opens", async ({
   await expect(opening).not.toBeAttached();
 });
 
+test("requests direct same-computer access only from the quiet user action", async ({ page }) => {
+  await page.goto("?demo=12&direct=prompt");
+  const prompt = page.getByText(/browser will ask for local-network access/i);
+  await expect(prompt).toBeVisible();
+  await expect(page.getByRole("status", { name: "Connected through mdbase" })).toBeVisible();
+  await page.getByRole("button", { name: "Connect directly" }).click();
+  await expect(prompt).not.toBeAttached();
+  await expect(page.getByRole("status", { name: "Connected directly" })).toBeVisible();
+});
+
 test("edits and autosaves a Markdown note", async ({ page }) => {
   await page.goto("?demo=240");
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();

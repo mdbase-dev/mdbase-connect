@@ -40,3 +40,5 @@ toolbar clutter, and permanent technical metadata around the document.
 6. Delay creation until a complete path and type-aware initial record are ready.
 7. Make type and collection metadata inspectable without making routine writing
    feel like schema administration.
+8. Prefer direct same-computer access for local collections after one explicit
+   browser permission action; keep relay fallback automatic and unobtrusive.

@@ -25,7 +25,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
-    expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
+    expect(within(collectionRail).getByRole("status", { name: "Connected through mdbase" })).toBeInTheDocument();
     expect(within(collectionRail).getByRole("button", { name: "Disconnect collection" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
@@ -461,7 +461,50 @@ describe("mdbase editor", () => {
     expect(await screen.findByText(/view, create, edit, move, validate, and delete/i)).toBeInTheDocument();
     expect(screen.getByText(/Hosted collections stay available without your computer/i)).toBeInTheDocument();
   });
+
+  it("requests direct local access only from the explicit connection action", async () => {
+    const gateway = new DirectAccessGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const button = await screen.findByRole("button", { name: "Connect directly" });
+    expect(screen.getByText(/browser will ask for local-network access/i)).toBeInTheDocument();
+    expect(gateway.requests).toBe(0);
+    await user.click(button);
+    expect(gateway.requests).toBe(1);
+    expect(await screen.findByRole("status", { name: "Connected directly" })).toBeInTheDocument();
+  });
 });
+
+class DirectAccessGateway extends DemoCollectionGateway {
+  private connectionListener?: (connection: import("./model").ConnectionSummary | null) => void;
+  requests = 0;
+
+  override connection() {
+    return {
+      collectionId: "demo",
+      operations: ["all"],
+      route: this.requests ? "direct" as const : "relay" as const,
+      directAccess: this.requests ? "available" as const : "permission_required" as const
+    };
+  }
+
+  override onConnectionChange(listener: (connection: import("./model").ConnectionSummary | null) => void) {
+    this.connectionListener = listener;
+    listener(this.connection());
+    return () => { this.connectionListener = undefined; };
+  }
+
+  override async checkDirectAccess() {
+    return "permission_required" as const;
+  }
+
+  override async requestDirectAccess() {
+    this.requests += 1;
+    this.connectionListener?.(this.connection());
+    return "available" as const;
+  }
+}
 
 class RemoteChangeGateway extends DemoCollectionGateway {
   private remote?: NoteDocument;

@@ -18,15 +18,40 @@ export class DemoCollectionGateway implements CollectionGateway {
   private notes: NoteDocument[];
   private sequence = 1;
   private listeners = new Set<() => void>();
+  private connectionListeners = new Set<(connection: ConnectionSummary | null) => void>();
   private readonly openingDelay: number;
+  private readonly directPrompt: boolean;
+  private direct = false;
 
-  constructor(count = 240, openingDelay = 0) {
+  constructor(count = 240, openingDelay = 0, directPrompt = false) {
     this.notes = Array.from({ length: Math.max(1, Math.min(count, 50_000)) }, (_, index) => demoNote(index));
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
+    this.directPrompt = directPrompt;
   }
 
   connection(): ConnectionSummary {
-    return { collectionId: "demo", operations: ["all"] };
+    return {
+      collectionId: "demo",
+      operations: ["all"],
+      route: this.direct ? "direct" : "relay",
+      directAccess: this.direct ? "available" : this.directPrompt ? "permission_required" : "disabled"
+    };
+  }
+
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.connection());
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  async checkDirectAccess() {
+    return this.connection().directAccess!;
+  }
+
+  async requestDirectAccess() {
+    this.direct = true;
+    for (const listener of this.connectionListeners) listener(this.connection());
+    return "available" as const;
   }
 
   async authorize(): Promise<void> {}
@@ -40,7 +65,10 @@ export class DemoCollectionGateway implements CollectionGateway {
       collection_id: "00000000-0000-4000-8000-000000000001",
       display_name: "Writing",
       spec_version: "0.3.0",
-      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+      operations: [
+        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+        "read_type", "create_type", "update_type"
+      ],
       change_cursor: this.sequence,
       types: [{
         name: "note",

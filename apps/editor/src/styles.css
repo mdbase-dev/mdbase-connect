@@ -496,15 +496,15 @@ select:focus-visible {
 
 .collection-rail .connection-footer {
   min-height: 41px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   padding: 12px 1px 0;
   border-top: 1px solid var(--line);
 }
 
-.connection-footer p {
+.connection-footer > p {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -513,6 +513,34 @@ select:focus-visible {
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
+}
+
+.direct-access-prompt {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 6px 0 2px 13px;
+}
+
+.direct-access-prompt p {
+  margin: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.direct-access-prompt button {
+  justify-self: start;
+  padding: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.direct-access-prompt button:hover {
+  color: var(--ink);
 }
 
 .status-dot {

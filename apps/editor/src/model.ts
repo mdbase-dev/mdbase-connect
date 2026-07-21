@@ -2,7 +2,9 @@ import type {
   CollectionDescription,
   CollectionChange,
   CollectionFileMetadata,
+  DirectAccessStatus,
   JsonObject,
+  MdbaseConnectionRoute,
   MdbaseDiagnostic,
   RecordResult,
   RecordSummary
@@ -26,6 +28,8 @@ export interface CollectionSnapshot {
 export interface ConnectionSummary {
   collectionId: string;
   operations: string[];
+  route?: MdbaseConnectionRoute;
+  directAccess?: DirectAccessStatus;
 }
 
 export interface SaveNoteInput {
@@ -63,6 +67,9 @@ export interface NoteListProgress {
 
 export interface CollectionGateway {
   connection(): ConnectionSummary | null;
+  onConnectionChange?(listener: (connection: ConnectionSummary | null) => void): () => void;
+  checkDirectAccess?(): Promise<DirectAccessStatus>;
+  requestDirectAccess?(): Promise<DirectAccessStatus>;
   authorize(): Promise<void>;
   completeAuthorization(): Promise<void>;
   disconnect(): void;
