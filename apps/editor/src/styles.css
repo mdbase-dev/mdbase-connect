@@ -639,8 +639,12 @@ select:focus-visible {
   background: var(--selected);
 }
 
-.note-row.pending:not(.selected) {
+.note-row.busy:not(.selected) {
   background: var(--hover);
+}
+
+.note-row[aria-disabled="true"] {
+  cursor: default;
 }
 
 .note-title {
@@ -676,6 +680,10 @@ select:focus-visible {
   letter-spacing: 0.015em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.note-row.error .note-transition {
+  color: var(--danger);
 }
 
 .list-empty,

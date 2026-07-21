@@ -47,6 +47,7 @@ import {
   safeRenamePath
 } from "./note";
 import { NewNoteComposer } from "./NewNoteComposer";
+import { KeyedOperationQueue } from "./operation-queue";
 import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { SettingsView } from "./SettingsView";
@@ -56,7 +57,7 @@ type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 type SaveState = "saved" | "waiting" | "saving" | "conflict";
 type MobilePane = "collections" | "notes" | "editor";
 type Surface = "notes" | "types" | "settings";
-type NoteNavigationPhase = "saving" | "opening";
+type NoteActivity = "saving" | "properties" | "renaming" | "deleting" | "validating";
 
 interface Draft {
   title: string;
@@ -64,9 +65,23 @@ interface Draft {
   source: TitleSource;
 }
 
-interface PendingNoteNavigation {
-  path: string;
-  phase: NoteNavigationPhase;
+interface NoteSession {
+  document: NoteDocument;
+  draft: Draft;
+  persistedDraft: Draft;
+  saveState: SaveState;
+  activity?: NoteActivity;
+  error?: string;
+  deleted?: boolean;
+  saveAgain?: boolean;
+  savePromise?: Promise<void>;
+}
+
+interface NoteRowStatus {
+  label: string;
+  tone: "quiet" | "busy" | "error";
+  busy: boolean;
+  disabled?: boolean;
 }
 
 export function App({ gateway }: { gateway: CollectionGateway }) {
@@ -79,7 +94,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [document, setDocument] = useState<NoteDocument>();
   const [draft, setDraft] = useState<Draft>();
   const [noteLoading, setNoteLoading] = useState(false);
-  const [pendingNoteNavigation, setPendingNoteNavigation] = useState<PendingNoteNavigation>();
+  const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [creatingNote, setCreatingNote] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -95,18 +110,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
+  const [, setSessionTick] = useState(0);
   const indexGeneration = useRef(0);
   const documentGeneration = useRef(0);
   const navigationGeneration = useRef(0);
-  const baseline = useRef("");
-  const documentRef = useRef<NoteDocument | undefined>(undefined);
-  const draftRef = useRef<Draft | undefined>(undefined);
-  const saving = useRef(false);
-  const queuedSave = useRef(false);
-  const [saveTick, setSaveTick] = useState(0);
+  const currentSession = useRef<NoteSession | undefined>(undefined);
+  const sessions = useRef(new Map<string, NoteSession>());
+  const operationQueue = useRef(new KeyedOperationQueue<NoteSession>());
 
-  useEffect(() => { documentRef.current = document; }, [document]);
-  useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
 
   const loadIndex = useCallback(async () => {
@@ -134,34 +145,64 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return next;
   }, [gateway]);
 
+  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
+    const summary = summaryFromDocument(next);
+    setAllNotes((notes) => [
+      summary,
+      ...notes.filter((note) => note.path !== previousPath && note.path !== summary.path)
+    ]);
+  }, []);
+
+  const touchSession = useCallback((session: NoteSession) => {
+    if (currentSession.current === session) setSaveState(session.activity === "saving" ? "saving" : session.saveState);
+    setSessionTick((value) => value + 1);
+  }, []);
+
+  const activateSession = useCallback((session: NoteSession) => {
+    currentSession.current = session;
+    setSelectedPath(session.document.path);
+    setDocument(session.document);
+    setDraft(session.draft);
+    setPathDraft(session.document.path);
+    setSaveState(session.activity === "saving" ? "saving" : session.saveState);
+    setNoteLoading(false);
+    setPendingNotePath(undefined);
+    setCreatingNote(false);
+    setEditingPath(false);
+    setNotice(session.error);
+    localStorage.setItem("mdbase-editor:last-note", session.document.path);
+  }, []);
+
   const adoptDocument = useCallback((next: NoteDocument) => {
     const nextDraft = editableNote(next);
-    documentRef.current = next;
-    draftRef.current = nextDraft;
-    baseline.current = fingerprint(next.path, nextDraft);
-    setSelectedPath(next.path);
-    setDocument(next);
-    setDraft(nextDraft);
-    setPathDraft(next.path);
-    setSaveState("saved");
-    setNoteLoading(false);
-    setPendingNoteNavigation(undefined);
-    setCreatingNote(false);
-    localStorage.setItem("mdbase-editor:last-note", next.path);
-  }, []);
+    const session: NoteSession = {
+      document: next,
+      draft: nextDraft,
+      persistedDraft: structuredClone(nextDraft),
+      saveState: "saved"
+    };
+    sessions.current.set(next.path, session);
+    activateSession(session);
+  }, [activateSession]);
 
   const openNote = useCallback(async (path: string): Promise<boolean> => {
     const generation = ++documentGeneration.current;
-    setSelectedPath(path);
-    setDocument(undefined);
-    setDraft(undefined);
-    setNoteLoading(true);
+    const cached = sessions.current.get(path);
+    if (cached?.deleted) return false;
     setCreatingNote(false);
     setNotice(undefined);
     setPropertiesError(undefined);
     setPropertiesOpen(false);
     setDeleteOpen(false);
     setMobilePane("editor");
+    if (cached && !cached.deleted) {
+      activateSession(cached);
+      return true;
+    }
+    setSelectedPath(path);
+    setDocument(undefined);
+    setDraft(undefined);
+    setNoteLoading(true);
     try {
       const next = await gateway.read(path);
       if (generation !== documentGeneration.current) return false;
@@ -173,7 +214,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } finally {
       if (generation === documentGeneration.current) setNoteLoading(false);
     }
-  }, [adoptDocument, gateway]);
+  }, [activateSession, adoptDocument, gateway]);
 
   const start = useCallback(async () => {
     setPhase("loading");
@@ -276,107 +317,120 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     };
   }, [gateway, loadIndex, phase, refreshDescription]);
 
-  const updateNoteSummary = useCallback((next: NoteDocument, previousPath = next.path) => {
-    const summary = summaryFromDocument(next);
-    setAllNotes((notes) => [
-      summary,
-      ...notes.filter((note) => note.path !== previousPath && note.path !== summary.path)
-    ]);
-  }, []);
+  const requestSave = useCallback((session: NoteSession): Promise<void> => {
+    if (session.deleted) return Promise.resolve();
+    if (session.savePromise) {
+      if (sessionDirty(session)) session.saveAgain = true;
+      return session.savePromise;
+    }
+    if (!sessionDirty(session)) {
+      session.saveState = "saved";
+      touchSession(session);
+      return Promise.resolve();
+    }
 
-  const runSave = useCallback(async () => {
-    const currentDocument = documentRef.current;
-    const currentDraft = draftRef.current;
-    if (!currentDocument || !currentDraft) return;
-    const currentFingerprint = fingerprint(currentDocument.path, currentDraft);
-    if (currentFingerprint === baseline.current) {
-      setSaveState("saved");
-      return;
-    }
-    if (saving.current) {
-      queuedSave.current = true;
-      return;
-    }
-    saving.current = true;
-    setSaveState("saving");
-    const input: SaveNoteInput = { path: currentDocument.path, revision: currentDocument.revision, ...currentDraft };
-    try {
-      const updated = await gateway.update(input);
-      if (documentRef.current?.path === input.path) {
-        documentRef.current = updated;
-        setDocument(updated);
-        baseline.current = currentFingerprint;
-        setSaveState(fingerprint(updated.path, draftRef.current!) === currentFingerprint ? "saved" : "waiting");
-        updateNoteSummary(updated);
-      }
-    } catch (error) {
-      setSaveState("conflict");
-      setNotice(gatewayError(error));
-      throw error;
-    } finally {
-      saving.current = false;
-      if (queuedSave.current) {
-        queuedSave.current = false;
-        setSaveTick((value) => value + 1);
-      }
-    }
-  }, [gateway, updateNoteSummary]);
+    const promise = operationQueue.current.run(session, async () => {
+      do {
+        session.saveAgain = false;
+        if (!sessionDirty(session) || session.deleted) break;
+        const snapshot = structuredClone(session.draft);
+        const input: SaveNoteInput = {
+          path: session.document.path,
+          revision: session.document.revision,
+          ...snapshot
+        };
+        session.activity = "saving";
+        session.saveState = "saving";
+        touchSession(session);
+        try {
+          const updated = await gateway.update(input);
+          session.document = updated;
+          session.persistedDraft = snapshot;
+          session.error = undefined;
+          session.saveState = sessionDirty(session) ? "waiting" : "saved";
+          updateNoteSummary(updated);
+          if (currentSession.current === session) setDocument(updated);
+          touchSession(session);
+        } catch (error) {
+          const message = gatewayError(error);
+          session.error = message;
+          session.saveState = "conflict";
+          session.activity = undefined;
+          touchSession(session);
+          setNotice(currentSession.current === session
+            ? message
+            : `Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
+          throw error;
+        }
+      } while (session.saveAgain && sessionDirty(session));
+      session.activity = undefined;
+      session.saveState = sessionDirty(session) ? "waiting" : "saved";
+      touchSession(session);
+    });
+    session.savePromise = promise;
+    const finish = () => {
+      if (session.savePromise === promise) session.savePromise = undefined;
+      touchSession(session);
+    };
+    void promise.then(finish, finish);
+    return promise;
+  }, [gateway, touchSession, updateNoteSummary]);
+
+  const flushSession = useCallback(async (session: NoteSession) => {
+    while (!session.deleted && (sessionDirty(session) || session.savePromise)) await requestSave(session);
+    await operationQueue.current.wait(session);
+  }, [requestSave]);
+
+  const saveCurrentInBackground = useCallback(() => {
+    const session = currentSession.current;
+    if (!session || (!sessionDirty(session) && !session.savePromise)) return;
+    void requestSave(session).catch(() => undefined);
+  }, [requestSave]);
 
   useEffect(() => {
-    if (!document || !draft || fingerprint(document.path, draft) === baseline.current) return;
-    setSaveState("waiting");
-    const timer = window.setTimeout(() => void runSave().catch(() => undefined), 650);
-    return () => window.clearTimeout(timer);
-  }, [document, draft, runSave, saveTick]);
-
-  const flushSave = useCallback(async () => {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      while (saving.current) await delay(16);
-      const currentDocument = documentRef.current;
-      const currentDraft = draftRef.current;
-      if (!currentDocument || !currentDraft || fingerprint(currentDocument.path, currentDraft) === baseline.current) return;
-      await runSave();
+    const session = currentSession.current;
+    if (!document || !draft || !session || session.document.path !== document.path || !sessionDirty(session)) return;
+    if (session.saveState !== "saving") {
+      session.saveState = "waiting";
+      setSaveState("waiting");
     }
-    throw new Error("The latest edits are still being saved. Try again in a moment.");
-  }, [runSave]);
+    const timer = window.setTimeout(() => void requestSave(session).catch(() => undefined), 650);
+    return () => window.clearTimeout(timer);
+  }, [document, draft, requestSave]);
 
-  async function navigateToNote(path: string) {
+  function changeActiveDraft(change: (current: Draft) => Draft) {
+    const session = currentSession.current;
+    if (!session || session.deleted) return;
+    const next = change(session.draft);
+    session.draft = next;
+    session.error = undefined;
+    if (session.saveState !== "saving") session.saveState = "waiting";
+    setDraft(next);
+    setSaveState(session.saveState);
+    touchSession(session);
+  }
+
+  function navigateToNote(path: string) {
     const generation = ++navigationGeneration.current;
-    if (path === documentRef.current?.path && !noteLoading) {
-      setPendingNoteNavigation(undefined);
+    if (path === currentSession.current?.document.path && !noteLoading) {
+      setPendingNotePath(undefined);
       setMobilePane("editor");
       return;
     }
-    setPendingNoteNavigation({ path, phase: hasPendingSave() ? "saving" : "opening" });
+    saveCurrentInBackground();
+    setPendingNotePath(path);
     setNotice(undefined);
-    try {
-      await flushSave();
-      if (generation !== navigationGeneration.current) return;
-      setPendingNoteNavigation({ path, phase: "opening" });
-      const opened = await openNote(path);
-      if (generation === navigationGeneration.current && !opened) setPendingNoteNavigation(undefined);
-    } catch (error) {
-      if (generation !== navigationGeneration.current) return;
-      setPendingNoteNavigation(undefined);
-      setNotice(gatewayError(error));
-    }
-  }
-
-  function hasPendingSave(): boolean {
-    const currentDocument = documentRef.current;
-    const currentDraft = draftRef.current;
-    return saving.current || Boolean(
-      currentDocument
-      && currentDraft
-      && fingerprint(currentDocument.path, currentDraft) !== baseline.current
-    );
+    void openNote(path).then((opened) => {
+      if (generation === navigationGeneration.current && !opened) setPendingNotePath(undefined);
+    });
   }
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      const currentDocument = documentRef.current;
-      const currentDraft = draftRef.current;
-      if (currentDocument && currentDraft && fingerprint(currentDocument.path, currentDraft) !== baseline.current) event.preventDefault();
+      if (operationQueue.current.pendingCount > 0
+          || [...sessions.current.values()].some((session) => !session.deleted && sessionDirty(session))) {
+        event.preventDefault();
+      }
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
@@ -394,28 +448,38 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     ? searchedNotes.filter((note) => note.path === folderFilter || note.path.startsWith(`${folderFilter}/`))
     : searchedNotes, [folderFilter, searchedNotes]);
 
+  const runNoteOperation = useCallback(async <Result,>(
+    session: NoteSession,
+    activity: NoteActivity,
+    operation: () => Promise<Result>
+  ): Promise<Result> => operationQueue.current.run(session, async () => {
+    session.activity = activity;
+    touchSession(session);
+    try {
+      return await operation();
+    } finally {
+      if (session.activity === activity) session.activity = undefined;
+      touchSession(session);
+    }
+  }), [touchSession]);
+
   async function connectCollection() {
     setNotice(undefined);
     try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
   }
 
-  async function beginCreate() {
+  function beginCreate() {
     navigationGeneration.current += 1;
-    setPendingNoteNavigation(undefined);
+    setPendingNotePath(undefined);
     setNotice(undefined);
-    try {
-      await flushSave();
-      setSurface("notes");
-      setPropertiesOpen(false);
-      setCreatingNote(true);
-      setMobilePane("editor");
-    } catch (error) {
-      setNotice(gatewayError(error));
-    }
+    saveCurrentInBackground();
+    setSurface("notes");
+    setPropertiesOpen(false);
+    setCreatingNote(true);
+    setMobilePane("editor");
   }
 
   async function createNote(input: CreateNoteInput) {
-    await flushSave();
     const created = await gateway.create(input);
     const summary = summaryFromDocument(created);
     setAllNotes((notes) => [summary, ...notes.filter((note) => note.path !== created.path)]);
@@ -432,111 +496,168 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function renameNote() {
-    const current = documentRef.current;
-    if (!current) return;
+    const session = currentSession.current;
+    if (!session) return;
     const nextPath = safeRenamePath(pathDraft);
     if (!nextPath || !nextPath.toLocaleLowerCase().endsWith(".md")) {
       setNotice("Use a collection-relative path ending in .md.");
       return;
     }
-    if (nextPath === current.path) {
+    if (nextPath === session.document.path) {
       setEditingPath(false);
       return;
     }
+    setEditingPath(false);
     try {
-      await flushSave();
-      const latest = documentRef.current!;
-      const renamed = await gateway.rename(latest.path, nextPath, latest.revision);
-      const currentDraft = draftRef.current!;
-      baseline.current = fingerprint(renamed.path, currentDraft);
-      documentRef.current = renamed;
-      setDocument(renamed);
-      setSelectedPath(renamed.path);
-      setPathDraft(renamed.path);
-      setEditingPath(false);
-      updateNoteSummary(renamed, latest.path);
+      await flushSession(session);
+      const previousPath = session.document.path;
+      const renamed = await runNoteOperation(session, "renaming", () => gateway.rename(
+        session.document.path,
+        nextPath,
+        session.document.revision
+      ));
+      session.document = renamed;
+      session.error = undefined;
+      sessions.current.delete(previousPath);
+      sessions.current.set(renamed.path, session);
+      updateNoteSummary(renamed, previousPath);
+      if (currentSession.current === session) {
+        setDocument(renamed);
+        setSelectedPath(renamed.path);
+        setPathDraft(renamed.path);
+        localStorage.setItem("mdbase-editor:last-note", renamed.path);
+      }
+      touchSession(session);
     } catch (error) {
-      setNotice(gatewayError(error));
+      const message = gatewayError(error);
+      session.error = message;
+      if (currentSession.current === session) setPathDraft(session.document.path);
+      setNotice(currentSession.current === session
+        ? message
+        : `Couldn’t rename “${session.draft.title || session.document.path}”. ${message}`);
+      touchSession(session);
     }
   }
 
   async function saveProperties(next: Record<string, unknown>) {
-    const current = documentRef.current;
-    if (!current) return;
+    const session = currentSession.current;
+    if (!session) return;
     setPropertiesError(undefined);
+    setPropertiesOpen(false);
     try {
-      await flushSave();
-      const latest = documentRef.current!;
-      const updated = await gateway.updateProperties(
-        latest.path,
-        propertyPatch(latest.raw_frontmatter ?? {}, next),
-        latest.revision
-      );
-      documentRef.current = updated;
-      setDocument(updated);
-      const nextDraft = editableNote(updated);
-      draftRef.current = nextDraft;
-      setDraft(nextDraft);
-      baseline.current = fingerprint(updated.path, nextDraft);
-      setSaveState("saved");
+      await flushSession(session);
+      const draftBefore = session.draft;
+      const updated = await runNoteOperation(session, "properties", () => gateway.updateProperties(
+        session.document.path,
+        propertyPatch(session.document.raw_frontmatter ?? {}, next),
+        session.document.revision
+      ));
+      const persistedDraft = editableNote(updated);
+      session.document = updated;
+      session.persistedDraft = persistedDraft;
+      if (draftFingerprint(session.draft) === draftFingerprint(draftBefore)) session.draft = persistedDraft;
+      session.saveState = sessionDirty(session) ? "waiting" : "saved";
+      session.error = undefined;
       updateNoteSummary(updated);
+      if (currentSession.current === session) {
+        setDocument(updated);
+        setDraft(session.draft);
+        setSaveState(session.saveState);
+      }
+      touchSession(session);
     } catch (error) {
-      setPropertiesError(gatewayError(error));
+      const message = gatewayError(error);
+      session.error = message;
+      setPropertiesError(message);
+      setNotice(currentSession.current === session
+        ? message
+        : `Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
+      touchSession(session);
     }
   }
 
   async function validateNote() {
-    if (!document) return;
+    const session = currentSession.current;
+    if (!session) return;
     setNotice(undefined);
     try {
-      await flushSave();
-      const diagnostics = await gateway.validate(document.path);
-      setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : "No validation issues.");
+      await flushSession(session);
+      const diagnostics = await runNoteOperation(
+        session,
+        "validating",
+        () => gateway.validate(session.document.path)
+      );
+      if (currentSession.current === session) {
+        setNotice(diagnostics.length ? diagnostics.map((item) => item.message).join(" ") : "No validation issues.");
+      }
     } catch (error) {
-      setNotice(gatewayError(error));
+      const message = gatewayError(error);
+      setNotice(currentSession.current === session
+        ? message
+        : `Couldn’t check “${session.draft.title || session.document.path}”. ${message}`);
     }
   }
 
-  async function deleteNote() {
-    const current = documentRef.current;
-    if (!current) return;
-    try {
-      await gateway.delete(current.path, current.revision);
-      setDeleteOpen(false);
+  function deleteNote() {
+    const session = currentSession.current;
+    if (!session) return;
+    const path = session.document.path;
+    const next = allNotes.find((note) => note.path !== path);
+    session.deleted = true;
+    setDeleteOpen(false);
+    if (currentSession.current === session) {
+      currentSession.current = undefined;
       setDocument(undefined);
       setDraft(undefined);
       setSelectedPath(undefined);
-      const notes = allNotes.filter((note) => note.path !== current.path);
-      setAllNotes(notes);
-      setCollectionTotal((total) => total === undefined ? undefined : Math.max(0, total - 1));
-      if (notes[0]) await openNote(notes[0].path);
-    } catch (error) {
-      setNotice(gatewayError(error));
+      if (next) void openNote(next.path);
     }
+    void (async () => {
+      try {
+        await runNoteOperation(session, "deleting", () => gateway.delete(
+          session.document.path,
+          session.document.revision
+        ));
+        sessions.current.delete(path);
+        setAllNotes((notes) => notes.filter((note) => note.path !== path));
+        setCollectionTotal((total) => total === undefined ? undefined : Math.max(0, total - 1));
+      } catch (error) {
+        session.deleted = false;
+        session.error = gatewayError(error);
+        setNotice(`Couldn’t delete “${session.draft.title || path}”. ${session.error}`);
+        touchSession(session);
+      }
+    })();
   }
 
-  async function selectSurface(next: Surface) {
+  function selectSurface(next: Surface) {
     navigationGeneration.current += 1;
-    setPendingNoteNavigation(undefined);
+    setPendingNotePath(undefined);
+    saveCurrentInBackground();
+    setSurface(next);
+    setCreatingNote(false);
+    setPropertiesOpen(false);
+    setMobilePane(next === "settings" ? "editor" : "notes");
+  }
+
+  async function disconnect() {
+    navigationGeneration.current += 1;
+    setPendingNotePath(undefined);
     try {
-      await flushSave();
-      setSurface(next);
-      setCreatingNote(false);
-      setPropertiesOpen(false);
-      setMobilePane(next === "settings" ? "editor" : "notes");
+      await Promise.all([...sessions.current.values()]
+        .filter((session) => !session.deleted)
+        .map((session) => flushSession(session)));
+      await operationQueue.current.waitForIdle();
+      gateway.disconnect();
+      currentSession.current = undefined;
+      sessions.current.clear();
+      setPhase("disconnected");
+      setAllNotes([]);
+      setDocument(undefined);
+      setDraft(undefined);
     } catch (error) {
       setNotice(gatewayError(error));
     }
-  }
-
-  function disconnect() {
-    navigationGeneration.current += 1;
-    setPendingNoteNavigation(undefined);
-    gateway.disconnect();
-    setPhase("disconnected");
-    setAllNotes([]);
-    setDocument(undefined);
-    setDraft(undefined);
   }
 
   if (phase === "starting") return <OpeningScreen />;
@@ -544,6 +665,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "loading" || !description) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
+  const noteStatuses = new Map<string, NoteRowStatus>();
+  for (const session of sessions.current.values()) {
+    const status = noteRowStatus(session);
+    if (status) noteStatuses.set(session.document.path, status);
+  }
   return <div className={`app-shell surface-${surface} pane-${mobilePane}${propertiesOpen ? " inspector-visible" : ""}`}>
     <CollectionRail
       name={description.display_name}
@@ -552,10 +678,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       activeFolder={folderFilter}
       notes={allNotes}
       surface={surface}
-      onNotes={(folder) => { setFolderFilter(folder); void selectSurface("notes"); }}
-      onTypes={() => void selectSurface("types")}
-      onSettings={() => void selectSurface("settings")}
-      onDisconnect={disconnect}
+      onNotes={(folder) => { setFolderFilter(folder); selectSurface("notes"); }}
+      onTypes={() => selectSurface("types")}
+      onSettings={() => selectSurface("settings")}
+      onDisconnect={() => void disconnect()}
     />
 
     {surface === "notes" && <>
@@ -564,12 +690,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         loading={listLoading}
         total={folderFilter ? undefined : collectionTotal}
         selectedPath={selectedPath}
-        pendingNavigation={pendingNoteNavigation}
+        pendingPath={pendingNotePath}
+        statuses={noteStatuses}
         search={search}
         collectionName={folderFilter ?? description.display_name}
         onSearch={setSearch}
-        onSelect={(path) => void navigateToNote(path)}
-        onCreate={() => void beginCreate()}
+        onSelect={navigateToNote}
+        onCreate={beginCreate}
         onCollections={() => setMobilePane("collections")}
       />
       {creatingNote ? <NewNoteComposer
@@ -602,11 +729,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           {deleteOpen && <div className="delete-confirm" role="alert"><span>Delete this note from the collection?</span><button onClick={() => setDeleteOpen(false)}>Keep note</button><button className="danger-action" onClick={() => void deleteNote()}>Delete</button></div>}
           <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
             <label className="sr-only" htmlFor="note-title">Note title</label>
-            <input id="note-title" className="title-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Untitled" spellCheck="true" />
+            <input id="note-title" className="title-input" value={draft.title} onChange={(event) => changeActiveDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Untitled" spellCheck="true" />
             <CodeEditor
               key={document.path}
               value={draft.body}
-              onChange={(body) => setDraft((current) => current ? { ...current, body } : current)}
+              onChange={(body) => changeActiveDraft((current) => ({ ...current, body }))}
               label="Note body"
               language="markdown"
               placeholder="Start writing"
@@ -616,7 +743,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               className="body-editor"
             />
           </article>
-        </> : <EmptyEditor onCreate={() => void beginCreate()} />}
+        </> : <EmptyEditor onCreate={beginCreate} />}
       </main>}
       {propertiesOpen && document && <PropertiesPanel key={document.path} note={document} types={description.types} error={propertiesError} onClose={() => setPropertiesOpen(false)} onSave={(value) => void saveProperties(value)} />}
     </>}
@@ -676,10 +803,11 @@ function CollectionRail({ name, count, typeCount, activeFolder, notes, surface, 
   </aside>;
 }
 
-function NoteList({ notes, selectedPath, pendingNavigation, search, collectionName, loading, total, onSearch, onSelect, onCreate, onCollections }: {
+function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, total, onSearch, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
-  pendingNavigation?: PendingNoteNavigation;
+  pendingPath?: string;
+  statuses: Map<string, NoteRowStatus>;
   search: string;
   collectionName: string;
   loading: boolean;
@@ -697,8 +825,10 @@ function NoteList({ notes, selectedPath, pendingNavigation, search, collectionNa
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={loading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const note = notes[virtualRow.index];
-        const pending = pendingNavigation?.path === note.path ? pendingNavigation : undefined;
-        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} aria-busy={pending ? true : undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${pending ? " pending" : ""}`} onClick={() => onSelect(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span>{pending ? <span className="note-transition">{pending.phase === "saving" ? "Saving current note" : "Opening"}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
+        const status: NoteRowStatus | undefined = pendingPath === note.path
+          ? { label: "Opening", tone: "busy", busy: true }
+          : statuses.get(note.path);
+        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onClick={() => { if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span>{status ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
       })}</div> : loading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
@@ -728,8 +858,30 @@ function EmptyEditor({ onCreate }: { onCreate: () => void }) {
   return <div className="empty-editor"><p>Select a note, or start a new one.</p><button onClick={onCreate}>New note</button></div>;
 }
 
-function fingerprint(path: string, draft: Draft): string {
-  return JSON.stringify([path, draft.title, draft.body, draft.source]);
+function draftFingerprint(draft: Draft): string {
+  return JSON.stringify([draft.title, draft.body, draft.source]);
+}
+
+function sessionDirty(session: NoteSession): boolean {
+  return draftFingerprint(session.draft) !== draftFingerprint(session.persistedDraft);
+}
+
+function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
+  if (session.deleted) return { label: "Deleting", tone: "busy", busy: true, disabled: true };
+  if (session.activity) {
+    const labels: Record<NoteActivity, string> = {
+      saving: "Saving",
+      properties: "Updating properties",
+      renaming: "Renaming",
+      deleting: "Deleting",
+      validating: "Checking"
+    };
+    return { label: labels[session.activity], tone: "busy", busy: true };
+  }
+  if (session.saveState === "conflict") return { label: "Save failed", tone: "error", busy: false };
+  if (session.error) return { label: "Needs attention", tone: "error", busy: false };
+  if (session.saveState === "waiting") return { label: "Unsaved", tone: "quiet", busy: false };
+  return undefined;
 }
 
 function summaryFromDocument(document: NoteDocument): NoteSummary {
@@ -755,8 +907,4 @@ function collectSearchValues(value: unknown, values: string[]) {
   if (value && typeof value === "object") {
     for (const item of Object.values(value)) collectSearchValues(item, values);
   }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
