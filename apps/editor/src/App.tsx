@@ -261,6 +261,20 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     applyRemoteDocument(session, next);
   }, [applyRemoteDocument, gateway, touchSession]);
 
+  const refreshChangedNote = useCallback(async (path: string) => {
+    if (sessions.current.has(path)) {
+      await refreshCachedNote(path);
+      return;
+    }
+
+    const next = await gateway.read(path);
+    if (sessions.current.has(path)) {
+      await refreshCachedNote(path);
+      return;
+    }
+    updateNoteSummary(next);
+  }, [gateway, refreshCachedNote, updateNoteSummary]);
+
   const openNote = useCallback(async (path: string): Promise<boolean> => {
     const generation = ++documentGeneration.current;
     const cached = sessions.current.get(path);
@@ -384,19 +398,26 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     let refreshTimer: number | undefined;
     const changedPaths = new Set<string>();
     let typesChanged = false;
+    let indexChanged = false;
     void gateway.watch((change) => {
       if (change?.type === "mdbase.record.modified" && typeof change.payload.path === "string") {
         changedPaths.add(change.payload.path);
+      } else if (change?.type === "mdbase.type.changed") {
+        typesChanged = true;
+        indexChanged = true;
+      } else {
+        indexChanged = true;
       }
-      if (change?.type === "mdbase.type.changed") typesChanged = true;
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         const paths = [...changedPaths];
         changedPaths.clear();
         const shouldRefreshTypes = typesChanged;
         typesChanged = false;
-        void loadIndex();
-        for (const path of paths) void refreshCachedNote(path).catch((error) => {
+        const shouldRefreshIndex = indexChanged;
+        indexChanged = false;
+        if (shouldRefreshIndex) void loadIndex();
+        for (const path of paths) void refreshChangedNote(path).catch((error) => {
           if (!controller.signal.aborted) setNotice(gatewayError(error));
         });
         if (shouldRefreshTypes) void refreshDescription();
@@ -408,7 +429,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       controller.abort();
       window.clearTimeout(refreshTimer);
     };
-  }, [gateway, loadIndex, phase, refreshCachedNote, refreshDescription]);
+  }, [gateway, loadIndex, phase, refreshChangedNote, refreshDescription]);
 
   const requestSave = useCallback((session: NoteSession): Promise<void> => {
     if (session.deleted) return Promise.resolve();

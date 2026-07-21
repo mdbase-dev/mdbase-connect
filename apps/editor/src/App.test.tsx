@@ -63,6 +63,21 @@ describe("mdbase editor", () => {
     expect(saved.body).toContain("A saved sentence.");
   });
 
+  it("does not reload the collection index after saving one note", async () => {
+    const gateway = new SaveCountingGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const body = await screen.findByRole("textbox", { name: "Note body" });
+    await gateway.watchStarted;
+    expect(gateway.listCalls).toBe(1);
+    await user.type(body, "\nA local update.");
+    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument(), { timeout: 2_000 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(gateway.listCalls).toBe(1);
+  });
+
   it("refreshes an open note when it changes through the connector", async () => {
     const gateway = new RemoteChangeGateway();
     render(<App gateway={gateway} />);
@@ -597,6 +612,40 @@ class CountingGateway extends DemoCollectionGateway {
   override async watch(_onChange: () => void, signal: AbortSignal): Promise<void> {
     this.watchCalls += 1;
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  }
+}
+
+class SaveCountingGateway extends DemoCollectionGateway {
+  private listener?: (change?: CollectionChange) => void;
+  private markWatching?: () => void;
+  readonly watchStarted = new Promise<void>((resolve) => { this.markWatching = resolve; });
+  listCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.listCalls += 1;
+    return super.list(onProgress);
+  }
+
+  override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {
+    const updated = await super.update(input);
+    this.listener?.({
+      cursor: 1,
+      type: "mdbase.record.modified",
+      occurred_at: new Date().toISOString(),
+      payload: { path: updated.path, types: updated.types }
+    });
+    return updated;
+  }
+
+  override async watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal): Promise<void> {
+    this.listener = onChange;
+    this.markWatching?.();
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    this.listener = undefined;
   }
 }
 
