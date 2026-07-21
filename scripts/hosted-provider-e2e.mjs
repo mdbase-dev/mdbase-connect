@@ -10,7 +10,10 @@ import { chromium, expect } from "@playwright/test";
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
-const providerBinary = join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider");
+const providerBinary = resolve(
+  process.env.MDBASE_CONNECT_PROVIDER_E2E_BINARY
+    ?? join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider")
+);
 const postgresContainer = `mdbase-connect-provider-e2e-${process.pid}`;
 const databasePassword = `test-${crypto.randomUUID()}`;
 const internalToken = `internal-${crypto.randomUUID()}-${crypto.randomUUID()}`;

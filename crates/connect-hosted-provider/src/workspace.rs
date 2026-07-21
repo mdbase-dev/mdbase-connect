@@ -234,6 +234,14 @@ fn operation_input(
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
             let mut input = mutation.input.clone();
+            // Sync v1 names partial frontmatter updates `patch`. The oldest
+            // supported mdbase v0.3 operation facade names the same input
+            // `fields`; normalize at this versioned protocol boundary so the
+            // production-pinned engine and newer development engines receive
+            // identical semantics.
+            if let Some(patch) = input.remove("patch") {
+                input.insert("fields".to_string(), patch);
+            }
             input.insert("path".to_string(), Value::String(path.to_string()));
             if let Some(revision) = &mutation.base_revision {
                 input.insert("if_revision".to_string(), Value::String(revision.clone()));
@@ -392,6 +400,60 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("title: First"));
+    }
+
+    #[test]
+    fn adapts_sync_update_patches_for_the_supported_v03_engine() {
+        let record_id = Uuid::new_v4();
+        let replica_id = Uuid::new_v4();
+        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+        let created = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Create,
+                record_id,
+                base_revision: None,
+                input: Map::from_iter([
+                    ("path".to_string(), json!("tasks/update.md")),
+                    (
+                        "frontmatter".to_string(),
+                        json!({"type": "task", "title": "Update", "status": "open"}),
+                    ),
+                    ("body".to_string(), json!("")),
+                    ("types".to_string(), json!(["task"])),
+                ]),
+                created_at: "2026-07-21T00:00:00Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+        let revision = created.changed[0].1.as_ref().unwrap().revision.clone();
+
+        let updated = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Update,
+                record_id,
+                base_revision: Some(revision),
+                input: Map::from_iter([("patch".to_string(), json!({"status": "done"}))]),
+                created_at: "2026-07-21T00:00:01Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+
+        assert!(updated.envelope.valid);
+        assert_eq!(
+            updated.changed[0]
+                .1
+                .as_ref()
+                .unwrap()
+                .frontmatter
+                .get("status"),
+            Some(&json!("done"))
+        );
     }
 
     #[test]
