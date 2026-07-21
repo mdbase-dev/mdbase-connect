@@ -10,6 +10,7 @@ const db = await createDatabase();
 const portalDist = process.env.PORTAL_DIST ?? resolve(import.meta.dirname, "../../../apps/portal/dist");
 const { app } = await buildApp({
   db,
+  revision: process.env.RENDER_GIT_COMMIT,
   publicUrl: runtime.publicUrl,
   portalDist,
   devAuth: runtime.devAuth,

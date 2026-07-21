@@ -91,6 +91,7 @@ const syncMutationSchema = z.object({
 
 interface BuildOptions {
   db: DatabasePool;
+  revision?: string;
   devAuth?: boolean;
   tailscaleAuth?: boolean;
   githubAuth?: GitHubAuthConfig;
@@ -129,6 +130,7 @@ export async function buildApp(options: BuildOptions) {
     requestTimeout: 35_000
   });
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
+  const revision = options.revision?.trim() || undefined;
   const registration = options.registration ?? "closed";
   const relay = new RelayHub(options.db);
   if (options.hostedProvider && options.hostedReferenceAuthority) {
@@ -243,7 +245,12 @@ export async function buildApp(options: BuildOptions) {
     return reply.code(500).send(apiError("internal_error", "The request could not be completed."));
   });
 
-  app.get("/health", async () => ({ ok: true, service: "mdbase-connect", protocol_version: 2 }));
+  app.get("/health", async () => ({
+    ok: true,
+    service: "mdbase-connect",
+    protocol_version: 2,
+    ...(revision ? { revision } : {})
+  }));
   app.get("/ready", async (_request, reply) => {
     try {
       await options.db.query("SELECT 1");

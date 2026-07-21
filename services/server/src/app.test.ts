@@ -13,6 +13,28 @@ afterEach(async () => {
 });
 
 describe("mdbase connect server", () => {
+  it("reports the deployed revision when one is configured", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test",
+      revision: "ae3a8d9"
+    });
+    resources.push(() => app.close());
+
+    const health = await app.inject({ method: "GET", url: "/health" });
+
+    expect(health.statusCode).toBe(200);
+    expect(health.json()).toEqual({
+      ok: true,
+      service: "mdbase-connect",
+      protocol_version: 2,
+      revision: "ae3a8d9"
+    });
+  });
+
   it("runs the discovery, consent, token, and offline operation path", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
