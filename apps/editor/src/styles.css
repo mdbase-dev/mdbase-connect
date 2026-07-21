@@ -963,6 +963,16 @@ select:focus-visible {
   border-left-color: var(--ink);
 }
 
+.code-editor.vim-enabled .cm-scroller:not(.cm-vimMode) .cm-cursorLayer:not(.cm-vimCursorLayer) {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+.code-editor.vim-enabled .cm-scroller:not(.cm-vimMode) .cm-cursor {
+  margin-left: -1px;
+  border-left: 2px solid var(--ink);
+}
+
 .code-editor .cm-activeLine,
 .code-editor .cm-activeLineGutter {
   background: transparent;

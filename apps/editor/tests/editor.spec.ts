@@ -71,6 +71,49 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
 });
 
+test("keeps the Vim insert-mode cursor visible", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("mdbase-editor:preferences", JSON.stringify({
+      vim: true,
+      lineWrapping: true,
+      fontSize: 17
+    }));
+  });
+  await page.goto("?demo=12");
+
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.click();
+  await page.keyboard.press("i");
+  await expect(body).toBeFocused();
+
+  const cursor = page.locator(".body-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor-primary");
+  await expect(cursor).toBeAttached();
+  const cursorState = await cursor.evaluate((element) => {
+    const cursorStyle = getComputedStyle(element);
+    const layerStyle = getComputedStyle(element.parentElement!);
+    const scroller = element.closest(".cm-scroller");
+    return {
+      animationName: layerStyle.animationName,
+      borderColor: cursorStyle.borderLeftColor,
+      borderWidth: cursorStyle.borderLeftWidth,
+      cursorDisplay: cursorStyle.display,
+      layerDisplay: layerStyle.display,
+      layerOpacity: layerStyle.opacity,
+      vimNormalMode: scroller?.classList.contains("cm-vimMode")
+    };
+  });
+  expect(cursorState).toMatchObject({
+    animationName: "none",
+    borderWidth: "2px",
+    cursorDisplay: "block",
+    layerDisplay: "block",
+    layerOpacity: "1",
+    vimNormalMode: false
+  });
+  expect(cursorState.borderColor).not.toBe("transparent");
+  expect(cursorState.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+});
+
 test("edits structured frontmatter without exposing an undifferentiated textarea", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click();

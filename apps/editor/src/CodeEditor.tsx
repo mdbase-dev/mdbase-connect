@@ -110,7 +110,7 @@ export function CodeEditor({
     syncing.current = false;
   }, [value]);
 
-  return <div ref={parentRef} className={`code-editor ${className}`.trim()} />;
+  return <div ref={parentRef} className={`code-editor${vimEnabled ? " vim-enabled" : ""} ${className}`.trim()} />;
 }
 
 function languageExtension(language: EditorLanguage): Extension {
