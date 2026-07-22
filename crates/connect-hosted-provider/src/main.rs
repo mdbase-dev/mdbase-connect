@@ -16,8 +16,6 @@ struct Arguments {
     internal_token: String,
     #[arg(long, env = "MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")]
     master_key: String,
-    #[arg(long, env = "MDBASE_CONNECT_HOSTED_PROVIDER_ALLOWED_ORIGINS")]
-    allowed_origins: String,
     #[arg(long, env = "HOST", default_value = "127.0.0.1")]
     host: IpAddr,
     #[arg(long, env = "PORT", default_value_t = 8790)]
@@ -85,13 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_replicas_per_collection: arguments.max_replicas_per_collection,
     };
     let provider = HostedProvider::connect(&arguments.database_url, crypto, limits).await?;
-    let allowed_origins = arguments
-        .allowed_origins
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let state = AppState::new(provider.clone(), &arguments.internal_token, allowed_origins)?;
+    let state = AppState::new(provider.clone(), &arguments.internal_token)?;
     let maintenance = tokio::spawn(maintain_history(
         provider,
         arguments.retain_changes,

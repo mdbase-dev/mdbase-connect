@@ -413,9 +413,22 @@ try {
   const appReplicaId = storedHostedToken.hosted.replicaId;
   const appSync = await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
     method: "POST",
-    token: appToken
+    token: appToken,
+    headers: { origin: manifest.origin }
   });
-  assert.equal(appSync.status, 401);
+  assert.equal(appSync.status, 200);
+  assert.equal(appSync.body.replica_id, appReplicaId);
+  const wrongSyncOrigin = await rawRequest(
+    provider.url,
+    syncPath(genericCollectionId, "sessions"),
+    {
+      method: "POST",
+      token: appToken,
+      headers: { origin: "https://evil.example" }
+    }
+  );
+  assert.equal(wrongSyncOrigin.status, 403);
+  assert.equal(wrongSyncOrigin.body.error.code, "origin_denied");
   const wrongOrigin = await rawRequest(
     provider.url,
     `/v1/hosted/collections/${genericCollectionId}/operations/query`,
@@ -463,6 +476,19 @@ try {
     path: "Writing/Draft.md",
     if_revision: sdkRenamed.result.revision
   })).valid, true);
+  const hostedSync = hostedSdk.hostedSync();
+  assert.ok(hostedSync);
+  const offline = new OfflineReplica(hostedSync.transport, store(hostedSync.replicaId));
+  await offline.initialize();
+  await offline.queueCreate({
+    recordId: crypto.randomUUID(),
+    path: "Offline.md",
+    frontmatter: { title: "Created through application sync" },
+    body: "",
+    types: []
+  });
+  await offline.sync();
+  assert.equal((await offline.records())[0].frontmatter.title, "Created through application sync");
   globalThis.fetch = originalFetch;
   const dashboardWithApp = await controlRequest(controlUrl, "/v1/me", cookie);
   const hostedGrant = dashboardWithApp.grants.find((grant) => grant.collection_id === genericCollectionId);
@@ -499,6 +525,17 @@ try {
   );
   assert.equal(deniedWrite.status, 403);
   assert.equal(deniedWrite.body.error.code, "insufficient_access");
+  const deniedChanges = await rawRequest(
+    provider.url,
+    `${syncPath(genericCollectionId, "changes")}?after=0&limit=10`,
+    {
+      method: "GET",
+      token: appToken,
+      headers: { origin: manifest.origin }
+    }
+  );
+  assert.equal(deniedChanges.status, 403);
+  assert.equal(deniedChanges.body.error.code, "insufficient_access");
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   const revokedApp = await rawRequest(
     provider.url,
@@ -1215,7 +1252,6 @@ async function startProvider(
       DATABASE_URL: databaseUrl,
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: internalToken,
       MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY: providerMasterKey,
-      MDBASE_CONNECT_HOSTED_PROVIDER_ALLOWED_ORIGINS: "http://127.0.0.1",
       HOST: "127.0.0.1",
       PORT: String(port),
       RUST_LOG: "warn",

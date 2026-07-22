@@ -25,8 +25,6 @@ services:
         generateValue: true
       - key: MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY
         generateValue: true
-      - key: MDBASE_CONNECT_HOSTED_PROVIDER_ALLOWED_ORIGINS
-        value: https://connect.mdbase.dev
       - key: MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION
         value: "100000"
       - key: MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION

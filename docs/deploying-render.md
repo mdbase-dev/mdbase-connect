@@ -75,9 +75,10 @@ Attach and verify both DNS names before testing browser OAuth:
 - `mcp.mdbase.dev` → MCP gateway Render hostname
 
 Render terminates TLS. The control plane refuses a non-HTTPS public origin, and
-the provider binds browser capabilities to each application's exact manifest
-origin. CLI mirrors have no `Origin` header and authenticate with their own
-collection-scoped replica credential.
+the provider binds each browser capability to the application's exact manifest
+origin. This binding is stored with the capability, so applications do not need
+to be added to a deployment-wide origin list. CLI mirrors have no `Origin`
+header and authenticate with their own collection-scoped replica credential.
 
 ## Acceptance check
 

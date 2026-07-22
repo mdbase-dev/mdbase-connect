@@ -105,6 +105,7 @@ pub struct ProviderCollection {
 #[derive(Debug, Clone)]
 struct Replica {
     id: Uuid,
+    purpose: ReplicaPurpose,
     mode: SyncReplicaMode,
     allowed_types: Vec<String>,
     allowed_operations: Vec<String>,
@@ -663,9 +664,14 @@ impl HostedProvider {
         Ok(compacted)
     }
 
-    pub async fn open_session(&self, collection_id: Uuid, token: &str) -> ApiResult<SyncSession> {
+    pub async fn open_session(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+    ) -> ApiResult<SyncSession> {
         let replica = self
-            .authenticate_for(collection_id, token, ReplicaPurpose::Mirror)
+            .authenticate_for_sync(collection_id, token, "read", request_origin)
             .await?;
         let row = sqlx::query(
             r#"SELECT head, retained_after, resource_revision, wrapped_data_key, resources_ciphertext
@@ -731,9 +737,10 @@ impl HostedProvider {
         token: &str,
         snapshot_id: Uuid,
         page: Option<&str>,
+        request_origin: Option<&str>,
     ) -> ApiResult<SyncSnapshotPage> {
         let replica = self
-            .authenticate_for(collection_id, token, ReplicaPurpose::Mirror)
+            .authenticate_for_sync(collection_id, token, "read", request_origin)
             .await?;
         let after_record_id = page
             .map(|value| {
@@ -831,9 +838,10 @@ impl HostedProvider {
         token: &str,
         after: u64,
         limit: u32,
+        request_origin: Option<&str>,
     ) -> ApiResult<SyncChangesPage> {
         let replica = self
-            .authenticate_for(collection_id, token, ReplicaPurpose::Mirror)
+            .authenticate_for_sync(collection_id, token, "changes", request_origin)
             .await?;
         let collection = sqlx::query(
             "SELECT head, retained_after, wrapped_data_key FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
@@ -971,8 +979,30 @@ impl HostedProvider {
         collection_id: Uuid,
         token: &str,
         mutation: SyncMutation,
+        request_origin: Option<&str>,
     ) -> ApiResult<SyncMutationReceipt> {
-        self.mutate_for(collection_id, token, mutation, ReplicaPurpose::Mirror)
+        self.mutate_for_sync(collection_id, token, mutation, request_origin)
+            .await
+    }
+
+    async fn mutate_for_sync(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        mutation: SyncMutation,
+        request_origin: Option<&str>,
+    ) -> ApiResult<SyncMutationReceipt> {
+        let mut transaction = self.pool.begin().await?;
+        let required_operation = mutation_operation_name(mutation.operation);
+        let replica = authenticate_in_for_sync(
+            &mut transaction,
+            collection_id,
+            token,
+            required_operation,
+            request_origin,
+        )
+        .await?;
+        self.mutate_in_transaction(transaction, collection_id, mutation, replica)
             .await
     }
 
@@ -985,6 +1015,17 @@ impl HostedProvider {
     ) -> ApiResult<SyncMutationReceipt> {
         let mut transaction = self.pool.begin().await?;
         let replica = authenticate_in(&mut transaction, collection_id, token, purpose).await?;
+        self.mutate_in_transaction(transaction, collection_id, mutation, replica)
+            .await
+    }
+
+    async fn mutate_in_transaction(
+        &self,
+        mut transaction: Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        mutation: SyncMutation,
+        replica: Replica,
+    ) -> ApiResult<SyncMutationReceipt> {
         if mutation.replica_id != replica.id {
             return Err(ApiError::forbidden(
                 "replica_scope_denied",
@@ -2267,6 +2308,29 @@ impl HostedProvider {
         replica_from_row(row)
     }
 
+    async fn authenticate_for_sync(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        required_operation: &str,
+        request_origin: Option<&str>,
+    ) -> ApiResult<Replica> {
+        let row = sqlx::query(
+            r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+                      allowed_origin, scope_epoch
+               FROM hosted_provider_replicas
+               WHERE collection_id = $1 AND token_hash = $2
+                 AND revoked_at IS NULL AND token_expires_at > now()"#,
+        )
+        .bind(collection_id)
+        .bind(token_hash(token))
+        .fetch_optional(&self.pool)
+        .await?;
+        let replica = replica_from_row(row)?;
+        authorize_sync_access(&replica, required_operation, request_origin)?;
+        Ok(replica)
+    }
+
     fn collection_key(&self, collection_id: Uuid, wrapped: &[u8]) -> ApiResult<[u8; 32]> {
         self.crypto
             .unwrap_data_key(wrapped, &collection_key_aad(collection_id))
@@ -2333,6 +2397,30 @@ async fn authenticate_in(
     replica_from_row(row)
 }
 
+async fn authenticate_in_for_sync(
+    transaction: &mut Transaction<'_, Postgres>,
+    collection_id: Uuid,
+    token: &str,
+    required_operation: &str,
+    request_origin: Option<&str>,
+) -> ApiResult<Replica> {
+    let row = sqlx::query(
+        r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+                  allowed_origin, scope_epoch
+           FROM hosted_provider_replicas
+           WHERE collection_id = $1 AND token_hash = $2
+             AND revoked_at IS NULL AND token_expires_at > now()
+           FOR SHARE"#,
+    )
+    .bind(collection_id)
+    .bind(token_hash(token))
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let replica = replica_from_row(row)?;
+    authorize_sync_access(&replica, required_operation, request_origin)?;
+    Ok(replica)
+}
+
 fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
     let row = row.ok_or_else(|| {
         ApiError::unauthorized(
@@ -2347,6 +2435,11 @@ fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
     }
     Ok(Replica {
         id: row.get("id"),
+        purpose: match purpose.as_str() {
+            "mirror" => ReplicaPurpose::Mirror,
+            "application" => ReplicaPurpose::Application,
+            _ => return Err(ApiError::internal("Stored replica purpose is invalid.")),
+        },
         mode: match mode.as_str() {
             "read_only" => SyncReplicaMode::ReadOnly,
             "read_write" => SyncReplicaMode::ReadWrite,
@@ -2622,6 +2715,32 @@ fn authorize_application_operation(
         }
     }
     Ok(())
+}
+
+fn authorize_sync_access(
+    replica: &Replica,
+    required_operation: &str,
+    request_origin: Option<&str>,
+) -> ApiResult<()> {
+    match replica.purpose {
+        ReplicaPurpose::Application => {
+            authorize_application_operation(replica, required_operation, request_origin)
+        }
+        ReplicaPurpose::Mirror if request_origin.is_none() => Ok(()),
+        ReplicaPurpose::Mirror => Err(ApiError::forbidden(
+            "origin_denied",
+            "Mirror credentials cannot be used by browser applications.",
+        )),
+    }
+}
+
+fn mutation_operation_name(operation: SyncMutationOperation) -> &'static str {
+    match operation {
+        SyncMutationOperation::Create => "create",
+        SyncMutationOperation::Update => "update",
+        SyncMutationOperation::Rename => "rename",
+        SyncMutationOperation::Delete => "delete",
+    }
 }
 
 fn result_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
@@ -3070,6 +3189,7 @@ mod tests {
         validate_replica_capability(&capability).unwrap();
         let replica = Replica {
             id: capability.replica_id,
+            purpose: capability.purpose,
             mode: capability.mode,
             allowed_types: capability.allowed_types,
             allowed_operations: capability.allowed_operations,
@@ -3088,6 +3208,59 @@ mod tests {
                 .unwrap_err()
                 .code,
             "origin_denied"
+        );
+        authorize_sync_access(&replica, "query", Some("https://tasks.example")).unwrap();
+        assert_eq!(
+            authorize_sync_access(&replica, "changes", Some("https://tasks.example"))
+                .unwrap_err()
+                .code,
+            "insufficient_access"
+        );
+        assert_eq!(
+            authorize_sync_access(&replica, "query", Some("https://evil.example"))
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+    }
+
+    #[test]
+    fn mirror_sync_credentials_are_not_browser_capabilities() {
+        let replica = Replica {
+            id: Uuid::new_v4(),
+            purpose: ReplicaPurpose::Mirror,
+            mode: SyncReplicaMode::ReadOnly,
+            allowed_types: Vec::new(),
+            allowed_operations: Vec::new(),
+            allowed_origin: None,
+            scope_epoch: 1,
+        };
+        authorize_sync_access(&replica, "read", None).unwrap();
+        assert_eq!(
+            authorize_sync_access(&replica, "read", Some("https://tasks.example"))
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+    }
+
+    #[test]
+    fn sync_mutations_use_their_matching_application_permission() {
+        assert_eq!(
+            mutation_operation_name(SyncMutationOperation::Create),
+            "create"
+        );
+        assert_eq!(
+            mutation_operation_name(SyncMutationOperation::Update),
+            "update"
+        );
+        assert_eq!(
+            mutation_operation_name(SyncMutationOperation::Rename),
+            "rename"
+        );
+        assert_eq!(
+            mutation_operation_name(SyncMutationOperation::Delete),
+            "delete"
         );
     }
 

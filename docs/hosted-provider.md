@@ -16,6 +16,14 @@ control plane does not proxy or persist them. The provider rechecks collection,
 operation, mode, contract scope, scope epoch, expiry, and revocation before it
 opens authoritative state.
 
+Application capabilities also authorize the scoped replication stream used by
+offline caches. Session and snapshot reads require record-read access, change
+pages require change access, and each queued mutation requires its corresponding
+create, update, rename, or delete permission. Browser requests are checked
+against the exact origin stored on that application capability. Mirror
+credentials have no browser origin and are rejected when presented by browser
+JavaScript.
+
 `mdbase-rs` remains the only collection-semantics implementation. The provider
 materializes a collection working set from canonical PostgreSQL documents and
 resources, invokes the normative v0.3 operation facade, captures the resulting

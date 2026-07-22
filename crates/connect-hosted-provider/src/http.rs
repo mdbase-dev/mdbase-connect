@@ -2,7 +2,7 @@ use axum::{
     extract::{DefaultBodyLimit, Path, Query, Request, State},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE, ORIGIN},
-        HeaderMap, HeaderName, HeaderValue, Method, StatusCode,
+        HeaderMap, HeaderName, Method, StatusCode,
     },
     middleware::{self, Next},
     response::Response,
@@ -24,7 +24,6 @@ use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
 };
-use url::Url;
 use uuid::Uuid;
 
 use crate::{
@@ -40,36 +39,20 @@ const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
 pub struct AppState {
     provider: HostedProvider,
     internal_token_hash: [u8; 32],
-    allowed_origins: Vec<HeaderValue>,
     request_slots: Arc<Semaphore>,
 }
 
 impl AppState {
-    pub fn new(
-        provider: HostedProvider,
-        internal_token: &str,
-        allowed_origins: impl IntoIterator<Item = String>,
-    ) -> ApiResult<Self> {
+    pub fn new(provider: HostedProvider, internal_token: &str) -> ApiResult<Self> {
         if internal_token.len() < 32 {
             return Err(ApiError::bad_request(
                 "invalid_internal_token",
                 "The provider internal credential must contain at least 32 characters.",
             ));
         }
-        let allowed_origins = allowed_origins
-            .into_iter()
-            .map(|origin| canonical_origin(&origin))
-            .collect::<ApiResult<Vec<_>>>()?;
-        if allowed_origins.is_empty() {
-            return Err(ApiError::bad_request(
-                "missing_allowed_origins",
-                "At least one browser application origin must be configured.",
-            ));
-        }
         Ok(Self {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
-            allowed_origins,
             request_slots: Arc::new(Semaphore::new(128)),
         })
     }
@@ -85,18 +68,6 @@ impl AppState {
                 "The provider internal credential is invalid.",
             ))
         }
-    }
-
-    fn authorize_sync_origin(&self, headers: &HeaderMap) -> ApiResult<()> {
-        if let Some(origin) = headers.get(ORIGIN) {
-            if !self.allowed_origins.iter().any(|allowed| allowed == origin) {
-                return Err(ApiError::forbidden(
-                    "origin_denied",
-                    "Browser sync is unavailable from this origin.",
-                ));
-            }
-        }
-        Ok(())
     }
 }
 
@@ -198,10 +169,7 @@ pub fn app(state: AppState) -> Router {
             "/v1/hosted/collections/{collection_id}/sync/mutations",
             post(mutate),
         )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_sync_bearer_request,
-        ));
+        .route_layer(middleware::from_fn(require_bearer_request));
     let operations = Router::new()
         .route(
             "/v1/hosted/collections/{collection_id}/operations/{operation}",
@@ -256,16 +224,6 @@ async fn authorize_internal_request(
 
 async fn require_bearer_request(request: Request, next: Next) -> ApiResult<Response> {
     bearer(request.headers())?;
-    Ok(next.run(request).await)
-}
-
-async fn require_sync_bearer_request(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> ApiResult<Response> {
-    bearer(request.headers())?;
-    state.authorize_sync_origin(request.headers())?;
     Ok(next.run(request).await)
 }
 
@@ -394,8 +352,12 @@ async fn open_session(
     Path(collection_id): Path<Uuid>,
 ) -> ApiResult<Json<SyncSession>> {
     let token = bearer(&headers)?;
+    let origin = request_origin(&headers);
     Ok(Json(
-        state.provider.open_session(collection_id, token).await?,
+        state
+            .provider
+            .open_session(collection_id, token, origin)
+            .await?,
     ))
 }
 
@@ -406,6 +368,7 @@ async fn snapshot(
     Query(query): Query<SnapshotQuery>,
 ) -> ApiResult<Json<SyncSnapshotPage>> {
     let token = bearer(&headers)?;
+    let origin = request_origin(&headers);
     Ok(Json(
         state
             .provider
@@ -414,6 +377,7 @@ async fn snapshot(
                 token,
                 query.snapshot_id,
                 query.page.as_deref(),
+                origin,
             )
             .await?,
     ))
@@ -426,11 +390,12 @@ async fn changes(
     Query(query): Query<ChangesQuery>,
 ) -> ApiResult<Json<SyncChangesPage>> {
     let token = bearer(&headers)?;
+    let origin = request_origin(&headers);
     let limit = validate_limit(query.limit)?;
     Ok(Json(
         state
             .provider
-            .changes(collection_id, token, query.after, limit)
+            .changes(collection_id, token, query.after, limit, origin)
             .await?,
     ))
 }
@@ -442,10 +407,11 @@ async fn mutate(
     Json(mutation): Json<SyncMutation>,
 ) -> ApiResult<Json<SyncMutationReceipt>> {
     let token = bearer(&headers)?;
+    let origin = request_origin(&headers);
     Ok(Json(
         state
             .provider
-            .mutate(collection_id, token, mutation)
+            .mutate(collection_id, token, mutation, origin)
             .await?,
     ))
 }
@@ -475,12 +441,16 @@ async fn operation(
     Json(input): Json<Value>,
 ) -> ApiResult<Json<Value>> {
     let token = bearer(&headers)?;
-    let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
+    let origin = request_origin(&headers);
     let result = state
         .provider
         .operation(collection_id, token, &operation, input, origin)
         .await?;
     Ok(Json(json!({ "ok": true, "result": result })))
+}
+
+fn request_origin(headers: &HeaderMap) -> Option<&str> {
+    headers.get(ORIGIN).and_then(|value| value.to_str().ok())
 }
 
 fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
@@ -492,35 +462,6 @@ fn bearer(headers: &HeaderMap) -> ApiResult<&str> {
         .ok_or_else(|| {
             ApiError::unauthorized("missing_bearer_token", "A bearer credential is required.")
         })
-}
-
-fn canonical_origin(value: &str) -> ApiResult<HeaderValue> {
-    let url = Url::parse(value).map_err(|_| {
-        ApiError::bad_request(
-            "invalid_allowed_origin",
-            "Hosted provider allowed origins must be absolute HTTP(S) origins.",
-        )
-    })?;
-    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
-    if !matches!(url.scheme(), "http" | "https")
-        || (url.scheme() != "https" && !loopback)
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.path() != "/"
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(ApiError::bad_request(
-            "invalid_allowed_origin",
-            "Hosted provider origins must be canonical HTTPS origins outside loopback development.",
-        ));
-    }
-    HeaderValue::from_str(url.origin().ascii_serialization().as_str()).map_err(|_| {
-        ApiError::bad_request(
-            "invalid_allowed_origin",
-            "Hosted provider allowed origin is not a valid HTTP header value.",
-        )
-    })
 }
 
 #[cfg(test)]
@@ -543,16 +484,5 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(input.display_name, None);
-    }
-
-    #[test]
-    fn allowed_origins_are_canonical_and_tls_bound() {
-        assert_eq!(
-            canonical_origin("https://app.example/").unwrap(),
-            "https://app.example"
-        );
-        assert!(canonical_origin("http://app.example").is_err());
-        assert!(canonical_origin("https://app.example/path").is_err());
-        assert!(canonical_origin("http://127.0.0.1:5173").is_ok());
     }
 }
