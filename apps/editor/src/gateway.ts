@@ -86,6 +86,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const notes: NoteSummary[] = [];
     const noteIndexes = new Map<string, number>();
     let offset = 0;
+    let snapshot: string | undefined;
 
     // Establish the complete collection shape first. Omitting bodies makes paths,
     // folders, counts, and frontmatter available without waiting for search data.
@@ -95,9 +96,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
         order_by: [{ field: "file.mtime", direction: "desc" }],
         limit,
         offset,
+        ...(snapshot ? { snapshot } : {}),
         include_body: false
       });
       const result = validResult(response);
+      if (!snapshot && typeof result.meta?.snapshot === "string") snapshot = result.meta.snapshot;
       for (const note of result.results) {
         noteIndexes.set(note.path, notes.length);
         notes.push(note);
@@ -121,6 +124,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
         order_by: [{ field: "file.mtime", direction: "desc" }],
         limit,
         offset,
+        ...(snapshot ? { snapshot } : {}),
         include_body: true
       });
       const result = validResult(response);

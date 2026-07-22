@@ -6,14 +6,14 @@ describe("ConnectCollectionGateway collection index", () => {
   it("loads the complete structure before hydrating note bodies", async () => {
     const metadata = [summary("Notes/one.md"), summary("Archive/two.md")];
     const hydrated = metadata.map((note, index) => ({ ...note, body: `Body ${index + 1}` }));
-    const query = vi.fn(async ({ include_body: includeBody, offset }: { include_body: boolean; offset: number }) => {
+    const query = vi.fn(async ({ include_body: includeBody, offset }: { include_body: boolean; offset: number; snapshot?: string }) => {
       const page = includeBody ? hydrated[offset] : metadata[offset];
       return {
         valid: true,
         diagnostics: [],
         result: {
           results: page ? [page] : [],
-          meta: { total_count: 2, has_more: offset === 0 }
+          meta: { total_count: 2, has_more: offset === 0, snapshot: "stable-index" }
         }
       };
     });
@@ -28,6 +28,12 @@ describe("ConnectCollectionGateway collection index", () => {
       [false, 1],
       [true, 0],
       [true, 1]
+    ]);
+    expect(query.mock.calls.map(([input]) => input.snapshot)).toEqual([
+      undefined,
+      "stable-index",
+      "stable-index",
+      "stable-index"
     ]);
     expect(progress[0]).toMatchObject({ structureComplete: false, complete: false, total: 2 });
     expect(progress[0].notes[0].body).toBeUndefined();
