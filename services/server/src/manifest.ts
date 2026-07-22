@@ -1,7 +1,10 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import type { ApplicationProvisions, ApplicationRequirements } from "@mdbase/connect-protocol";
+import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import { z } from "zod";
+
+export { isNativeRedirectUri };
 
 const contractSchema = z.object({
   id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
@@ -107,31 +110,6 @@ function validateManifestOrigins(source: URL, manifest: AppManifest, development
   if (manifest.icon && new URL(manifest.icon).origin !== source.origin) {
     throw new Error("Manifest icons must use the manifest origin.");
   }
-}
-
-/**
- * Native OAuth callbacks use an app-owned reverse-domain scheme. PKCE protects
- * the authorization code if another installed application claims the same
- * scheme, while the manifest keeps the callback bound to the web publisher's
- * identity.
- */
-export function isNativeRedirectUri(url: URL, publisherHostname?: string): boolean {
-  const scheme = url.protocol.slice(0, -1);
-  const publisherPrefix = publisherHostname
-    ?.toLowerCase()
-    .split(".")
-    .reverse()
-    .join(".");
-  return scheme.includes(".")
-    && /^[a-z][a-z0-9+.-]*$/.test(scheme)
-    && !["http", "https", "file", "javascript", "data"].includes(scheme)
-    && (!publisherPrefix
-      || scheme === publisherPrefix
-      || scheme.startsWith(`${publisherPrefix}.`))
-    && url.username === ""
-    && url.password === ""
-    && url.hostname.length > 0
-    && url.hash === "";
 }
 
 async function assertPublicHost(hostname: string, allowPrivate: boolean): Promise<void> {

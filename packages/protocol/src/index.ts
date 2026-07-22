@@ -5,6 +5,30 @@ export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 
+/**
+ * Validate a native OAuth callback against the publisher of its web manifest.
+ * Reverse-domain private-use schemes keep native app identity tied to the
+ * manifest origin; PKCE remains mandatory at the authorization boundary.
+ */
+export function isNativeRedirectUri(url: URL, publisherHostname?: string): boolean {
+  const scheme = url.protocol.slice(0, -1);
+  const publisherPrefix = publisherHostname
+    ?.toLowerCase()
+    .split(".")
+    .reverse()
+    .join(".");
+  return scheme.includes(".")
+    && /^[a-z][a-z0-9+.-]*$/.test(scheme)
+    && !["http", "https", "file", "javascript", "data"].includes(scheme)
+    && (!publisherPrefix
+      || scheme === publisherPrefix
+      || scheme.startsWith(`${publisherPrefix}.`))
+    && url.username === ""
+    && url.password === ""
+    && url.hostname.length > 0
+    && url.hash === "";
+}
+
 export const CONNECT_SCHEMA_IDS = {
   appManifest: "https://mdbase.dev/connect/schemas/mdbase-app.v1.json",
   contractExtension: "https://mdbase.dev/connect/schemas/contract-extension.v1.json",

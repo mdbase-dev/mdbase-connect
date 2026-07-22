@@ -258,6 +258,44 @@ describe("mdbase connect server", () => {
     expect(token.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
     expect(token.json().refresh_token).toMatch(/^ref_/);
 
+    const nativeVerifier = "native-verifier-that-is-long-enough-for-pkce-00001";
+    const nativeAuthorization = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.nativeRedirectUri)}&code_challenge=${pkceChallenge(nativeVerifier)}&code_challenge_method=S256&state=native-state&operations=read`,
+      headers: { cookie }
+    });
+    expect(nativeAuthorization.statusCode).toBe(302);
+    const nativeRequestId = nativeAuthorization.headers.location!.split("/").at(-1)!;
+    const nativeApproved = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authorization-requests/${nativeRequestId}/approve`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { collection_id: localCollectionId, operations: ["read"] }
+    });
+    expect(nativeApproved.statusCode).toBe(200);
+    const nativeStatus = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${nativeRequestId}/status`,
+      headers: { cookie }
+    });
+    const nativeRedirect = new URL(nativeStatus.json().redirect_uri);
+    expect(nativeRedirect.protocol).toBe("localhost.workout:");
+    expect(nativeRedirect.searchParams.get("state")).toBe("native-state");
+    const nativeToken = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: nativeRedirect.searchParams.get("code")!,
+        client_id: applicationId,
+        redirect_uri: manifestServer.nativeRedirectUri,
+        code_verifier: nativeVerifier
+      }).toString()
+    });
+    expect(nativeToken.statusCode).toBe(200);
+    expect(nativeToken.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
+
     const refreshed = await app.inject({
       method: "POST",
       url: "/oauth/token",
@@ -668,18 +706,20 @@ async function startManifestServer(
 ): Promise<{
   manifestUrl: string;
   redirectUri: string;
+  nativeRedirectUri: string;
   close(): Promise<void>;
 }> {
   const server = createServer((request, response) => {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Manifest server is not listening.");
     const origin = `http://localhost:${address.port}`;
+    const nativeRedirectUri = "localhost.workout://auth/mdbase/callback";
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
       name,
       homepage: origin,
-      redirect_uris: [`${origin}/auth/mdbase/callback`],
+      redirect_uris: [`${origin}/auth/mdbase/callback`, nativeRedirectUri],
       requirements,
       ...(provisions ? { provisions } : {})
     }));
@@ -691,6 +731,7 @@ async function startManifestServer(
   return {
     manifestUrl: `${origin}/.well-known/mdbase-app.json`,
     redirectUri: `${origin}/auth/mdbase/callback`,
+    nativeRedirectUri: "localhost.workout://auth/mdbase/callback",
     close: () => new Promise<void>((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
   };
 }

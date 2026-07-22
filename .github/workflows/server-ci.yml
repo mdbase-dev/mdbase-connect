@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: callumalpass/mdbase-rs
-          ref: 66089ba5499aa351ca396b903a6f1c54d2df768f
+          ref: 46ea4776af4111db55bd79bf4e3a2b08486ad2bd
           path: mdbase-rs
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:

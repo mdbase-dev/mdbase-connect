@@ -55,7 +55,7 @@ describe("hosted provider control client", () => {
     await expect(provider.revokeReplica("replica")).rejects.toEqual(
       new HostedProviderResponseError(409, "replica_conflict", "Replica already exists.")
     );
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("secret network detail"));
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("secret network detail"));
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
   });
 

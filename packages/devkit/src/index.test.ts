@@ -59,6 +59,18 @@ describe("canonical developer validation", () => {
       manifest_version: 1,
       name: "Tasks",
       homepage: "https://tasks.example/",
+      redirect_uris: ["example.tasks.desktop://auth/mdbase/callback"]
+    }).valid).toBe(true);
+    expect(validateAppManifest({
+      manifest_version: 1,
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["com.attacker.desktop://auth/mdbase/callback"]
+    }).valid).toBe(false);
+    expect(validateAppManifest({
+      manifest_version: 1,
+      name: "Tasks",
+      homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
       requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
       provisions: {

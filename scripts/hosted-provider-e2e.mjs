@@ -334,6 +334,48 @@ try {
   phase("exercising hosted lifecycle and writable enrollment in a real browser");
   await portalLifecycleE2E(controlUrl);
 
+  phase("creating the first compatible hosted collection inside browser authorization");
+  const emptyLogin = await rawRequest(controlUrl, "/v1/dev/session", {
+    method: "POST",
+    body: { name: "Inline E2E", email: "inline-hosted-e2e@example.com" }
+  });
+  assert.equal(emptyLogin.status, 200);
+  const emptyCookie = emptyLogin.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.ok(emptyCookie);
+  const inlineManifest = await openManifestServer({
+    name: "TaskNotes Inline E2E",
+    requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+  });
+  try {
+    const inlineStorage = memoryStorage();
+    let inlineAuthorizationUrl;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { assign: (value) => { inlineAuthorizationUrl = value; } }
+    });
+    const inlineSdk = new MdbaseConnect({
+      serverUrl: controlUrl,
+      manifestUrl: inlineManifest.manifestUrl,
+      redirectUri: inlineManifest.redirectUri,
+      storage: inlineStorage,
+      keyStore: new MemoryGrantKeyStore()
+    });
+    void inlineSdk.authorize(["describe", "read", "query", "create", "update"]);
+    await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
+    const inlineCallback = await authorizeHostedApplicationByCreating(
+      inlineAuthorizationUrl,
+      emptyCookie,
+      inlineManifest.origin
+    );
+    await inlineSdk.completeAuthorization(inlineCallback);
+    const inlineToken = inlineStorage.token();
+    assert.equal(inlineToken.hosted.providerUrl, provider.url);
+    const inlineDescription = await inlineSdk.describe();
+    assert.equal(inlineDescription.contracts[0]?.id, "tasknotes.task");
+  } finally {
+    await new Promise((resolveClose) => inlineManifest.server.close(resolveClose));
+  }
+
   assert.equal(
     (await rawRequest(provider.url, syncPath(collectionId, "sessions"), { method: "POST" })).status,
     401
@@ -1097,6 +1139,33 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
   }
 }
 
+async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, callbackOrigin) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const separator = cookie.indexOf("=");
+    assert.ok(separator > 0, "Development session cookie is malformed");
+    const context = await browser.newContext();
+    await context.addCookies([{
+      name: cookie.slice(0, separator),
+      value: cookie.slice(separator + 1),
+      url: new URL(authorizationUrl).origin
+    }]);
+    const page = await context.newPage();
+    await page.goto(authorizationUrl);
+    await expect(page.getByRole("heading", { name: "TaskNotes Inline E2E" })).toBeVisible();
+    const collection = page.getByLabel("Collection");
+    await expect(collection.locator("option")).toHaveCount(0);
+    await page.getByRole("button", { name: "Create an mdbase cloud collection" }).click();
+    await expect(collection.locator("option")).toHaveCount(1);
+    await expect(collection.locator("option:checked")).toHaveText("My tasks · mdbase cloud");
+    await page.getByRole("button", { name: "Allow access" }).click();
+    await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
+    return page.url();
+  } finally {
+    await browser.close();
+  }
+}
+
 async function startPostgres() {
   await execute("docker", [
     "run", "--rm", "--detach", "--name", postgresContainer,
@@ -1357,7 +1426,10 @@ async function waitFor(action, message) {
   throw new Error(message);
 }
 
-async function openManifestServer() {
+async function openManifestServer({
+  name = "Hosted SDK E2E",
+  requirements = { contracts: [] }
+} = {}) {
   const server = createServer((_request, response) => {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Manifest server is unavailable");
@@ -1365,10 +1437,10 @@ async function openManifestServer() {
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
-      name: "Hosted SDK E2E",
+      name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts: [] }
+      requirements
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

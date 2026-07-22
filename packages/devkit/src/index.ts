@@ -13,6 +13,7 @@ import type {
   MdbaseOperationEnvelope,
   RecordResult
 } from "@mdbase/connect-protocol";
+import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
 import contractExtensionSchema from "@mdbase/connect-protocol/schemas/contract-extension.v1.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v2.schema.json" with { type: "json" };
@@ -368,11 +369,14 @@ function validateManifestOrigins(value: unknown, allowLocal: boolean): Validatio
     }
     for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
       const url = new URL(String(redirect));
-      if (url.origin !== homepage.origin) {
-        return semanticIssue(`/redirect_uris/${index}`, "must use the homepage origin");
-      }
-      if (!secureOrAllowedLocal(url, allowLocal)) {
+      if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
         return semanticIssue(`/redirect_uris/${index}`, "must use HTTPS (or loopback HTTP in local mode)");
+      }
+      if (url.origin !== homepage.origin && !isNativeRedirectUri(url, homepage.hostname)) {
+        return semanticIssue(
+          `/redirect_uris/${index}`,
+          "must use the homepage origin or a publisher-bound private-use application scheme"
+        );
       }
     }
     if (manifest.icon !== undefined && new URL(String(manifest.icon)).origin !== homepage.origin) {

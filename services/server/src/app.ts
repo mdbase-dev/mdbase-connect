@@ -2022,13 +2022,15 @@ async function approveAuthorization(
 ): Promise<boolean> {
   const authorization = await db.query<{
     application_id: string;
+    application_homepage: string;
     requested_operations: string[];
     requirements: ApplicationRequirements;
     relay_protocol: number | null;
     application_public_key: string | null;
     redirect_uri: string;
   }>(
-    `SELECT ar.application_id, ar.requested_operations, a.requirements,
+    `SELECT ar.application_id, a.homepage AS application_homepage,
+            ar.requested_operations, a.requirements,
             ar.relay_protocol, ar.application_public_key, ar.redirect_uri
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
@@ -2088,7 +2090,7 @@ async function approveAuthorization(
       JSON.stringify(input.operations),
       JSON.stringify(scope),
       encryption ? JSON.stringify(encryption) : null,
-      new URL(pending.redirect_uri).origin
+      applicationOriginForRedirect(pending.redirect_uri, pending.application_homepage)
     ]
   );
   await db.query(
@@ -2180,6 +2182,10 @@ async function approveHostedAuthorization(
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin
       : undefined;
+    const applicationOrigin = applicationOriginForRedirect(
+      pending.redirect_uri,
+      pending.application_homepage
+    );
     replicaId = randomUUID();
     const bootstrapToken = randomToken("hsa");
     await provider.registerReplica(input.collectionId, {
@@ -2219,7 +2225,7 @@ async function approveHostedAuthorization(
         replicaId,
         JSON.stringify(operations),
         JSON.stringify(scope),
-        applicationUrl.origin
+        applicationOrigin
       ]
     );
     await connection.query(
@@ -2272,6 +2278,13 @@ function deniedAuthorizationRedirect(input: { redirect_uri: string; state: strin
   redirect.searchParams.set("error", "access_denied");
   if (input.state) redirect.searchParams.set("state", input.state);
   return redirect.href;
+}
+
+function applicationOriginForRedirect(redirectUri: string, homepage: string): string {
+  const redirect = new URL(redirectUri);
+  return ["http:", "https:"].includes(redirect.protocol)
+    ? redirect.origin
+    : new URL(homepage).origin;
 }
 
 async function createAuthorizationRedirect(
