@@ -337,6 +337,150 @@ describe("actionable SDK errors", () => {
   });
 });
 
+describe("long mutation progress", () => {
+  const renameInput = {
+    from: "Notes/source.md",
+    to: "Archive/source.md",
+    update_refs: true,
+    if_revision: "sha256:source"
+  };
+  const renamePreview = {
+    from: renameInput.from,
+    to: renameInput.to,
+    dry_run: true as const,
+    would_rename: true as const,
+    references_affected: [
+      { path: "Notes/one.md", location: "body" },
+      { path: "Notes/one.md", field: "related" },
+      { path: "Notes/two.md", location: "body" }
+    ],
+    warnings: [{ path: "Notes/ambiguous.md", message: "Ambiguous link" }]
+  };
+
+  it("reports authoritative phases and estimates without repeating a supplied preflight", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const preflight = vi.spyOn(connect, "preflightRename");
+    vi.spyOn(connect, "rename").mockResolvedValue({
+      valid: true,
+      diagnostics: [],
+      result: {
+        from: renameInput.from,
+        to: renameInput.to,
+        path: renameInput.to,
+        revision: "sha256:renamed",
+        frontmatter: {},
+        types: []
+      }
+    });
+    const progress: Array<Record<string, unknown>> = [];
+
+    const result = await connect.renameWithProgress(renameInput, {
+      preflight: renamePreview,
+      onProgress: (event) => progress.push(event as unknown as Record<string, unknown>)
+    });
+
+    expect(result.result.path).toBe(renameInput.to);
+    expect(preflight).not.toHaveBeenCalled();
+    expect(progress.map(({ state }) => state)).toEqual([
+      "preflighting",
+      "ready",
+      "applying",
+      "completed"
+    ]);
+    expect(progress[1]).toMatchObject({
+      cancellable: true,
+      resumed: false,
+      completedUnits: 0,
+      estimate: { affectedRecords: 2, totalUnits: 4, warnings: 1 }
+    });
+    expect(progress.at(-1)).toMatchObject({
+      cancellable: false,
+      completedUnits: 4
+    });
+  });
+
+  it("cancels between preflight and apply without dispatching the mutation", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const rename = vi.spyOn(connect, "rename");
+    const controller = new AbortController();
+    const states: string[] = [];
+
+    await expect(connect.renameWithProgress(renameInput, {
+      preflight: renamePreview,
+      signal: controller.signal,
+      onProgress: (progress) => {
+        states.push(progress.state);
+        if (progress.state === "ready") controller.abort("user cancelled");
+      }
+    })).rejects.toMatchObject({
+      code: "operation_cancelled",
+      outcomeUnknown: false,
+      recovery: "none"
+    });
+
+    expect(rename).not.toHaveBeenCalled();
+    expect(states).toEqual(["preflighting", "ready", "cancelled"]);
+  });
+
+  it("rejects a reused preflight for a different mutation", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const rename = vi.spyOn(connect, "rename");
+
+    await expect(connect.renameWithProgress(
+      { ...renameInput, to: "Archive/different.md" },
+      { preflight: renamePreview }
+    )).rejects.toMatchObject({ code: "invalid_preflight", recovery: "fix_request" });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("does not estimate reference updates for a rename-only move", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    vi.spyOn(connect, "rename").mockResolvedValue({
+      valid: true,
+      diagnostics: [],
+      result: {
+        from: renameInput.from,
+        to: renameInput.to,
+        path: renameInput.to,
+        revision: "sha256:moved",
+        frontmatter: {},
+        types: []
+      }
+    });
+    const progress: Array<{ state: string; estimate?: { affectedRecords: number; totalUnits: number } }> = [];
+
+    await connect.renameWithProgress({ ...renameInput, update_refs: false }, {
+      preflight: renamePreview,
+      onProgress: (event) => progress.push(event)
+    });
+
+    expect(progress.find(({ state }) => state === "ready")?.estimate).toMatchObject({
+      affectedRecords: 0,
+      totalUnits: 1
+    });
+  });
+});
+
 describe("authorization renewal", () => {
   it("uses injected navigation for native authorization", async () => {
     const storage = new MemoryStorage();
@@ -615,9 +759,58 @@ schema:
     await expect(fixture.connect.create({
       frontmatter: { title: "Only once" },
       path: "one.md"
-    })).rejects.toEqual(expect.objectContaining({ code: "connector_offline" }));
+    })).rejects.toEqual(expect.objectContaining({ code: "direct_outcome_unknown" }));
     expect(requests[2].body).toBe(requests[0].body);
-    expect(requests[3].body).toBe(requests[0].body);
+  });
+
+  it("keeps an exact encrypted mutation resumable when waiting is cancelled after dispatch", async () => {
+    const fixture = await encryptedConnection();
+    const controller = new AbortController();
+    const input = { path: "cancelled.md", frontmatter: { title: "Cancelled wait" } };
+    const requests: Array<{ url: string; body: string }> = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (request, init) => {
+      requests.push({ url: String(request), body: String(init?.body) });
+      controller.abort("stop waiting");
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await expect(fixture.connect.operation("create", input, {
+      signal: controller.signal
+    })).rejects.toMatchObject({
+      code: "operation_cancelled",
+      outcomeUnknown: true,
+      recovery: "resolve_outcome"
+    });
+    expect(fixture.connect.pendingMutation()).toMatchObject({
+      operation: "create",
+      resumable: true
+    });
+
+    fetchMock
+      .mockImplementationOnce(async (request, init) => {
+        requests.push({ url: String(request), body: String(init?.body) });
+        return new Response(JSON.stringify({
+          error: { code: "upgrade_required", message: "Use the relay." }
+        }), { status: 426, headers: { "content-type": "application/json" } });
+      })
+      .mockImplementationOnce(async (request, init) => {
+        requests.push({ url: String(request), body: String(init?.body) });
+        return new Response(JSON.stringify({
+          error: { code: "connector_offline", message: "Connector offline." }
+        }), { status: 503, headers: { "content-type": "application/json" } });
+      });
+
+    await expect(fixture.connect.resumePendingMutation(input)).rejects.toMatchObject({
+      code: "direct_outcome_unknown",
+      outcomeUnknown: true
+    });
+    expect(requests.map(({ url }) => url)).toEqual([
+      "http://127.0.0.1:28485/v1/operations",
+      "http://127.0.0.1:28485/v1/operations",
+      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/create`
+    ]);
+    expect(new Set(requests.map(({ body }) => body))).toHaveLength(1);
+    expect(fixture.connect.pendingMutation()).toMatchObject({ operation: "create" });
   });
 
   it("does not bypass an explicit rejection from the local authorization boundary", async () => {

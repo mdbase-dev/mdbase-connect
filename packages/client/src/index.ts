@@ -163,6 +163,51 @@ export interface QueryPage<Record extends JsonObject = JsonObject> {
   snapshot?: string;
 }
 
+export interface OperationRequestOptions {
+  signal?: AbortSignal;
+}
+
+export interface MutationEstimate {
+  /** Records whose links may be affected, excluding the record being mutated. */
+  affectedRecords: number;
+  /** Estimated atomic changes: the mutation itself plus known reference updates. */
+  totalUnits: number;
+  warnings: number;
+}
+
+export type MutationProgressState = "preflighting" | "ready" | "applying" | "completed" | "cancelled";
+
+export interface MutationProgress {
+  operation: "rename" | "delete";
+  state: MutationProgressState;
+  elapsedMs: number;
+  cancellable: boolean;
+  resumed: boolean;
+  completedUnits: number;
+  estimate?: MutationEstimate;
+}
+
+export interface MutationProgressOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: MutationProgress) => void;
+}
+
+export interface RenameProgressOptions extends MutationProgressOptions {
+  /** Reuse an authoritative preview already shown to the user. */
+  preflight?: RenamePreflightResult;
+}
+
+export interface DeleteProgressOptions extends MutationProgressOptions {
+  /** Reuse an authoritative preview already shown to the user. */
+  preflight?: DeletePreflightResult;
+}
+
+export interface PendingMutationSummary {
+  operation: CollectionOperation;
+  createdAt: number;
+  resumable: true;
+}
+
 export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   path?: string;
   type?: string;
@@ -277,7 +322,7 @@ export type WatchStatus =
 
 /** Provider-neutral operation transport used by the typed collection client. */
 export interface MdbaseCollectionTransport {
-  operation<Result>(operation: CollectionOperation, input: unknown): Promise<Result>;
+  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result>;
 }
 
 /**
@@ -289,24 +334,24 @@ export interface MdbaseCollectionTransport {
 export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject> {
   constructor(private readonly transport: MdbaseCollectionTransport) {}
 
-  operation<Result>(operation: CollectionOperation, input: unknown): Promise<Result> {
-    return this.transport.operation(operation, input);
+  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result> {
+    return this.transport.operation(operation, input, options);
   }
 
   describe(): Promise<CollectionDescription> {
     return this.operation("describe", {});
   }
 
-  changes(input: ChangesInput = {}): Promise<CollectionChangesPage> {
-    return this.operation("changes", input);
+  changes(input: ChangesInput = {}, options?: OperationRequestOptions): Promise<CollectionChangesPage> {
+    return this.operation("changes", input, options);
   }
 
   read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
     return this.operation("read", input);
   }
 
-  query(input: QueryInput = {}): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
-    return this.operation("query", input);
+  query(input: QueryInput = {}, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
+    return this.operation("query", input, options);
   }
 
   async *queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
@@ -329,7 +374,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         offset,
         limit: pageNumber === 0 ? firstPageSize : pageSize,
         ...(snapshot ? { snapshot } : {})
-      }));
+      }, { signal: options.signal }));
       const returnedSnapshot = result.meta?.snapshot;
       if (snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
         throw new MdbaseConnectError(
@@ -392,20 +437,20 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.operation("update", input);
   }
 
-  delete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeleteResult>> {
-    return this.operation("delete", input);
+  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeleteResult>> {
+    return this.operation("delete", input, options);
   }
 
-  preflightDelete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
-    return this.operation("delete", { ...input, check_backlinks: true, dry_run: true });
+  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
+    return this.operation("delete", { ...input, check_backlinks: true, dry_run: true }, options);
   }
 
-  rename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenameResult>> {
-    return this.operation("rename", input);
+  rename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenameResult>> {
+    return this.operation("rename", input, options);
   }
 
-  preflightRename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
-    return this.operation("rename", { ...input, dry_run: true });
+  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
+    return this.operation("rename", { ...input, dry_run: true }, options);
   }
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
@@ -433,8 +478,8 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     options.onStatus?.({ state: "connecting", ...(cursor === undefined ? {} : { cursor }) });
     while (!options.signal?.aborted) {
       try {
-        if (cursor === undefined) cursor = (await this.changes()).cursor;
-        const page = await this.changes({ after: cursor, limit: 200 });
+        if (cursor === undefined) cursor = (await this.changes({}, { signal: options.signal })).cursor;
+        const page = await this.changes({ after: cursor, limit: 200 }, { signal: options.signal });
         if (page.reset) {
           const error = new MdbaseConnectError(
             "change_cursor_reset",
@@ -534,13 +579,21 @@ interface StoredToken {
   };
 }
 
-interface PendingDirectMutation {
+interface PendingEncryptedMutation {
   grantId: string;
   keyId: string;
   operation: CollectionOperation;
   inputFingerprint: string;
   envelope: EncryptedRelayOperationRequest;
   createdAt: number;
+}
+
+interface OperationAttempt {
+  response: Response;
+  encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
+  directDeliveryUncertain?: boolean;
+  pendingMutation?: boolean;
+  resumingMutation?: boolean;
 }
 
 const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
@@ -578,7 +631,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
     this.navigate = options.navigate;
     this.collectionClient = new MdbaseCollectionClient({
-      operation: (operation, input) => this.performOperation(operation, input)
+      operation: (operation, input, requestOptions) => this.performOperation(operation, input, requestOptions)
     });
   }
 
@@ -786,16 +839,16 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.describe();
   }
 
-  changes(input: ChangesInput = {}): Promise<CollectionChangesPage> {
-    return this.collectionClient.changes(input);
+  changes(input: ChangesInput = {}, options?: OperationRequestOptions): Promise<CollectionChangesPage> {
+    return this.collectionClient.changes(input, options);
   }
 
   read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
     return this.collectionClient.read(input);
   }
 
-  query(input: QueryInput = {}): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
-    return this.collectionClient.query(input);
+  query(input: QueryInput = {}, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
+    return this.collectionClient.query(input, options);
   }
 
   queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
@@ -822,20 +875,122 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.update(input);
   }
 
-  delete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeleteResult>> {
-    return this.collectionClient.delete(input);
+  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeleteResult>> {
+    return this.collectionClient.delete(input, options);
   }
 
-  preflightDelete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
-    return this.collectionClient.preflightDelete(input);
+  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
+    return this.collectionClient.preflightDelete(input, options);
   }
 
-  rename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenameResult>> {
-    return this.collectionClient.rename(input);
+  rename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenameResult>> {
+    return this.collectionClient.rename(input, options);
   }
 
-  preflightRename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
-    return this.collectionClient.preflightRename(input);
+  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
+    return this.collectionClient.preflightRename(input, options);
+  }
+
+  async renameWithProgress(
+    input: RenameInput,
+    options: RenameProgressOptions = {}
+  ): Promise<MdbaseOperationEnvelope<RenameResult>> {
+    const started = Date.now();
+    const resumed = this.pendingMutation()?.operation === "rename";
+    let estimate: MutationEstimate | undefined;
+    const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
+      options.onProgress?.({
+        operation: "rename",
+        state,
+        elapsedMs: Date.now() - started,
+        cancellable,
+        resumed,
+        completedUnits,
+        ...(estimate ? { estimate } : {})
+      });
+    };
+    try {
+      throwIfCancelled(options.signal);
+      emit("preflighting", true);
+      const preview = options.preflight ?? unwrapOperation(await this.preflightRename(input, {
+        signal: options.signal
+      }));
+      assertRenamePreview(input, preview);
+      estimate = renameEstimate(input, preview);
+      emit("ready", true);
+      throwIfCancelled(options.signal);
+      const cancellable = this.hasResumableMutationTransport();
+      emit("applying", cancellable);
+      const result = await this.rename(input, cancellable ? { signal: options.signal } : undefined);
+      emit("completed", false, estimate.totalUnits);
+      return result;
+    } catch (error) {
+      if (isCancellation(error, options.signal)) emit("cancelled", false);
+      throw error;
+    }
+  }
+
+  async deleteWithProgress(
+    input: DeleteInput,
+    options: DeleteProgressOptions = {}
+  ): Promise<MdbaseOperationEnvelope<DeleteResult>> {
+    const started = Date.now();
+    const resumed = this.pendingMutation()?.operation === "delete";
+    let estimate: MutationEstimate | undefined;
+    const emit = (state: MutationProgressState, cancellable: boolean, completedUnits = 0) => {
+      options.onProgress?.({
+        operation: "delete",
+        state,
+        elapsedMs: Date.now() - started,
+        cancellable,
+        resumed,
+        completedUnits,
+        ...(estimate ? { estimate } : {})
+      });
+    };
+    try {
+      throwIfCancelled(options.signal);
+      emit("preflighting", true);
+      const preview = options.preflight ?? unwrapOperation(await this.preflightDelete(input, {
+        signal: options.signal
+      }));
+      assertDeletePreview(input, preview);
+      estimate = deleteEstimate(preview);
+      emit("ready", true);
+      throwIfCancelled(options.signal);
+      const cancellable = this.hasResumableMutationTransport();
+      emit("applying", cancellable);
+      const result = await this.delete(input, cancellable ? { signal: options.signal } : undefined);
+      emit("completed", false, estimate.totalUnits);
+      return result;
+    } catch (error) {
+      if (isCancellation(error, options.signal)) emit("cancelled", false);
+      throw error;
+    }
+  }
+
+  pendingMutation(): PendingMutationSummary | null {
+    const pending = parseStored<PendingEncryptedMutation>(this.storage.getItem(this.pendingMutationKey()));
+    const token = this.currentToken();
+    if (!pending || !token?.grantId || !token.encryption
+        || pending.grantId !== token.grantId
+        || pending.keyId !== token.encryption.key_id) return null;
+    return { operation: pending.operation, createdAt: pending.createdAt, resumable: true };
+  }
+
+  async resumePendingMutation<Result>(
+    input: unknown,
+    options?: OperationRequestOptions
+  ): Promise<Result> {
+    const pending = this.pendingMutation();
+    if (!pending) {
+      throw new MdbaseConnectError(
+        "no_pending_mutation",
+        "There is no interrupted mutation to resume.",
+        { recovery: "none" }
+      );
+    }
+    return this.performOperation<Result>(pending.operation, input, options);
   }
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
@@ -858,29 +1013,41 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     yield* this.collectionClient.watch(options);
   }
 
-  async operation<Result>(operation: CollectionOperation, input: unknown): Promise<Result> {
-    return this.collectionClient.operation(operation, input);
+  async operation<Result>(
+    operation: CollectionOperation,
+    input: unknown,
+    options?: OperationRequestOptions
+  ): Promise<Result> {
+    return this.collectionClient.operation(operation, input, options);
   }
 
-  private async performOperation<Result>(operation: CollectionOperation, input: unknown): Promise<Result> {
+  private async performOperation<Result>(
+    operation: CollectionOperation,
+    input: unknown,
+    options: OperationRequestOptions = {}
+  ): Promise<Result> {
+    throwIfCancelled(options.signal);
     let token = this.currentToken();
     if (!token) throw new MdbaseConnectError("not_authorized", "Connect this application before accessing a collection.");
     if (!token.operations.includes(operation)) {
       throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`);
     }
-    let tryDirect = isMutation(operation, input) && this.storage.getItem(this.pendingMutationKey()) !== null
-      ? true
-      : await this.shouldAttemptDirect(token);
+    let tryDirect = await this.shouldAttemptDirect(token);
     if (!tryDirect) {
       token = await this.authorizedToken();
       if (!token) throw new MdbaseConnectError("not_authorized", "Reconnect this application to continue.");
     }
-    let attempt = await this.sendOperation<Result>(token, operation, input, tryDirect);
+    let attempt: OperationAttempt;
+    try {
+      attempt = await this.sendOperation(token, operation, input, tryDirect, options);
+    } catch (error) {
+      throw operationTransportError(error, options.signal, isMutation(operation, input) && this.pendingMutation() !== null);
+    }
     let response = attempt.response;
     const staleBinding = response.status === 409
       && (await response.clone().json().catch(() => null))?.error?.code === "encryption_binding_stale";
     if ((response.status === 401 || staleBinding) && token.refreshToken) {
-      if (attempt.pendingMutation && attempt.directDeliveryUncertain) {
+      if (attempt.pendingMutation && (attempt.directDeliveryUncertain || attempt.resumingMutation)) {
         throw new MdbaseConnectError(
           "direct_outcome_unknown",
           "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change."
@@ -889,16 +1056,20 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       if (attempt.pendingMutation) this.clearPendingMutation();
       token = await this.refreshAuthorization();
       tryDirect = await this.shouldAttemptDirect(token);
-      attempt = await this.sendOperation<Result>(token, operation, input, tryDirect);
+      try {
+        attempt = await this.sendOperation(token, operation, input, tryDirect, options);
+      } catch (error) {
+        throw operationTransportError(error, options.signal, isMutation(operation, input) && this.pendingMutation() !== null);
+      }
       response = attempt.response;
     }
     const body = await response.json();
     if (!response.ok) {
       const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
-      if (attempt.pendingMutation && attempt.directDeliveryUncertain) {
+      if (attempt.pendingMutation && (attempt.directDeliveryUncertain || attempt.resumingMutation)) {
         throw uncertainDirectMutation(error);
       }
-      if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
+      if (attempt.pendingMutation && !attempt.directDeliveryUncertain && !attempt.resumingMutation) {
         this.clearPendingMutation();
       }
       throw error;
@@ -988,28 +1159,25 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     );
   }
 
-  private async sendOperation<Result>(
+  private async sendOperation(
     token: StoredToken,
     operation: CollectionOperation,
     input: unknown,
-    tryDirect: boolean
-  ): Promise<{
-    response: Response;
-    encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
-    directDeliveryUncertain?: boolean;
-    pendingMutation?: boolean;
-  }> {
+    tryDirect: boolean,
+    options: OperationRequestOptions = {}
+  ): Promise<OperationAttempt> {
     let body: unknown = input ?? {};
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
     let pendingMutation = false;
+    let resumingMutation = false;
     if (token.encryption && !token.hosted) {
       if (!token.grantId || !token.keyHandle) {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
       try {
-        if (tryDirect && isMutation(operation, input)) {
+        if (isMutation(operation, input)) {
           const inputFingerprint = await operationFingerprint(operation, input);
-          const pending = parseStored<PendingDirectMutation>(
+          const pending = parseStored<PendingEncryptedMutation>(
             this.storage.getItem(this.pendingMutationKey())
           );
           if (pending) {
@@ -1023,6 +1191,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
               );
             }
             encryptedRequest = pending.envelope;
+            resumingMutation = true;
           } else {
             encryptedRequest = await encryptRelayRequest(
               this.keyStore,
@@ -1038,7 +1207,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
               inputFingerprint,
               envelope: encryptedRequest,
               createdAt: Date.now()
-            } satisfies PendingDirectMutation));
+            } satisfies PendingEncryptedMutation));
           }
           pendingMutation = true;
         } else {
@@ -1062,18 +1231,20 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         const response = await fetch(`${this.loopbackUrl}/v1/operations`, loopbackRequest({
           method: "POST",
           headers: { "content-type": "application/mdbase-connect+json" },
-          body: JSON.stringify(encryptedRequest)
+          body: JSON.stringify(encryptedRequest),
+          signal: options.signal
         }));
         if (!directFallbackStatus(response.status)) {
           if (response.ok) {
             this.markDirectAvailable();
             this.setRoute("direct");
           }
-          return { response, encryptedRequest, pendingMutation };
+          return { response, encryptedRequest, pendingMutation, resumingMutation };
         }
         directDeliveryUncertain = response.status >= 500;
         this.markDirectUnavailable();
-      } catch {
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
         directDeliveryUncertain = true;
         if ((await localNetworkPermission()) === "denied") this.setDirectStatus("denied");
         else this.markDirectUnavailable();
@@ -1084,7 +1255,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
           ? token
           : await this.refreshAuthorization();
       } catch (error) {
-        if (pendingMutation && directDeliveryUncertain) throw uncertainDirectMutation(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw uncertainDirectMutation(error);
         throw error;
       }
       let response: Response;
@@ -1097,15 +1268,16 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
             authorization: `Bearer ${relayToken.accessToken}`,
             "content-type": "application/json"
           },
-          body: JSON.stringify(encryptedRequest)
+          body: JSON.stringify(encryptedRequest),
+          signal: options.signal
           }
         );
       } catch (error) {
-        if (pendingMutation && directDeliveryUncertain) throw uncertainDirectMutation(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw uncertainDirectMutation(error);
         throw error;
       }
       if (response.ok) this.setRoute("relay");
-      return { response, encryptedRequest, directDeliveryUncertain, pendingMutation };
+      return { response, encryptedRequest, directDeliveryUncertain, pendingMutation, resumingMutation };
     }
     const operationUrl = token.hosted
       ? `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`
@@ -1116,10 +1288,11 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
           authorization: `Bearer ${token.hosted?.accessToken ?? token.accessToken}`,
           "content-type": "application/json"
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: options.signal
       });
     if (response.ok) this.setRoute(token.hosted ? "hosted" : "relay");
-    return { response, encryptedRequest };
+    return { response, encryptedRequest, pendingMutation, resumingMutation };
   }
 
   private directCapable(token: StoredToken | null): boolean {
@@ -1129,6 +1302,11 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         && token.applicationOrigin
         && token.applicationOrigin !== location.origin) return false;
     return true;
+  }
+
+  private hasResumableMutationTransport(): boolean {
+    const token = this.currentToken();
+    return Boolean(token?.encryption && !token.hosted && token.grantId && token.keyHandle);
   }
 
   private directEligible(token: StoredToken | null): token is StoredToken {
@@ -1464,6 +1642,86 @@ function isMutation(operation: CollectionOperation, input?: unknown): boolean {
     || operation === "rename"
     || operation === "create_type"
     || operation === "update_type";
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new MdbaseConnectError(
+    "operation_cancelled",
+    "The operation was cancelled before it changed the collection.",
+    { recovery: "none", cause: signal.reason }
+  );
+}
+
+function operationTransportError(
+  error: unknown,
+  signal: AbortSignal | undefined,
+  outcomeUnknown: boolean
+): Error {
+  if (signal?.aborted) {
+    return new MdbaseConnectError(
+      "operation_cancelled",
+      outcomeUnknown
+        ? "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result."
+        : "The operation was cancelled before it changed the collection.",
+      {
+        outcomeUnknown,
+        recovery: outcomeUnknown ? "resolve_outcome" : "none",
+        cause: error
+      }
+    );
+  }
+  if (outcomeUnknown) {
+    if (error instanceof MdbaseConnectError && error.outcomeUnknown) return error;
+    return uncertainDirectMutation(error);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function isCancellation(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true
+    || (error instanceof MdbaseConnectError && error.code === "operation_cancelled");
+}
+
+function assertRenamePreview(input: RenameInput, preview: RenamePreflightResult): void {
+  if (preview.dry_run !== true || preview.would_rename !== true
+      || preview.from !== input.from || preview.to !== input.to) {
+    throw new MdbaseConnectError(
+      "invalid_preflight",
+      "The rename preview does not match this mutation. Run the preview again.",
+      { recovery: "fix_request" }
+    );
+  }
+}
+
+function assertDeletePreview(input: DeleteInput, preview: DeletePreflightResult): void {
+  if (preview.dry_run !== true || preview.would_delete !== true || preview.path !== input.path) {
+    throw new MdbaseConnectError(
+      "invalid_preflight",
+      "The delete preview does not match this mutation. Run the preview again.",
+      { recovery: "fix_request" }
+    );
+  }
+}
+
+function renameEstimate(input: RenameInput, preview: RenamePreflightResult): MutationEstimate {
+  if (input.update_refs === false) {
+    return { affectedRecords: 0, totalUnits: 1, warnings: 0 };
+  }
+  const references = preview.references_affected ?? [];
+  return {
+    affectedRecords: new Set(references.map((reference) => reference.path)).size,
+    totalUnits: 1 + references.length,
+    warnings: preview.warnings?.length ?? 0
+  };
+}
+
+function deleteEstimate(preview: DeletePreflightResult): MutationEstimate {
+  return {
+    affectedRecords: new Set((preview.broken_links ?? []).map((reference) => reference.path)).size,
+    totalUnits: 1,
+    warnings: 0
+  };
 }
 
 async function operationFingerprint(

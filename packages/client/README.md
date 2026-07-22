@@ -29,6 +29,20 @@ const preview = await connect.preflightRename({
 });
 console.log(preview.result.references_affected);
 
+const controller = new AbortController();
+await connect.renameWithProgress({
+  from: "workouts/monday.md",
+  to: "archive/monday.md",
+  update_refs: true,
+  if_revision: workouts.result.results[0].revision
+}, {
+  preflight: preview.result,
+  signal: controller.signal,
+  onProgress: ({ state, estimate, cancellable }) => {
+    console.log(state, estimate?.affectedRecords, cancellable);
+  }
+});
+
 for await (const change of connect.watch()) {
   console.log(change.type, change.payload.path);
 }
@@ -140,6 +154,14 @@ the Connect server does not store the change feed.
 `preflightRename()` and `preflightDelete()` run the canonical collection
 operation without changing records or advancing the change cursor, so an app
 can show authoritative reference impact before asking for confirmation.
+`renameWithProgress()` and `deleteWithProgress()` expose preflight, ready,
+applying, completed, and cancelled phases with an impact estimate. Cancellation
+remains available during an encrypted local/relay mutation because the SDK
+persists its exact encrypted request before dispatch. If waiting is cancelled
+after dispatch, `pendingMutation()` reports the interruption and
+`resumePendingMutation()` safely recovers the connector's durable receipt using
+the exact same input. Other providers are cancellable until apply begins and
+then run to a definitive response.
 Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.
