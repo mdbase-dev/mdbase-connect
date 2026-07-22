@@ -50,6 +50,7 @@ export interface DashboardData {
     application_id: string;
     application_name: string;
     homepage: string;
+    application_origin: string;
     icon: string | null;
   }>;
   pending_authorizations: PendingAuthorization[];

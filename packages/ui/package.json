@@ -3,7 +3,11 @@
   "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --test access.test.ts"
+  },
   "exports": {
+    "./access": "./access.ts",
     "./styles.css": "./styles.css"
   }
 }

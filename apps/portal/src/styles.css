@@ -126,7 +126,8 @@ h1 {
 .hosted-list,
 .account-rows,
 .request-list,
-.portal-grant-list {
+.portal-grant-list,
+.portal-application-list {
   border-top: 1px solid var(--line);
 }
 
@@ -398,30 +399,33 @@ h1 {
   cursor: not-allowed;
 }
 
-.portal-grant {
+.portal-application-access {
   border-bottom: 1px solid var(--line);
 }
 
-.portal-grant summary {
+.portal-application-access > summary {
   display: grid;
   grid-template-columns: minmax(10rem, 1fr) minmax(10rem, 1fr) auto auto;
   align-items: center;
   gap: 1.25rem;
-  min-height: 4.5rem;
+  min-height: 4.8rem;
   cursor: pointer;
   list-style: none;
 }
 
+.portal-application-access > summary::-webkit-details-marker,
 .portal-grant summary::-webkit-details-marker {
   display: none;
 }
 
+.portal-application-access > summary > div,
 .portal-grant summary > div {
   display: grid;
   gap: 0.2rem;
   min-width: 0;
 }
 
+.portal-application-access > summary strong,
 .portal-grant summary strong {
   overflow: hidden;
   font-size: 0.82rem;
@@ -429,6 +433,8 @@ h1 {
   white-space: nowrap;
 }
 
+.portal-application-access > summary small,
+.portal-application-access > summary > span,
 .portal-grant summary small,
 .portal-grant summary > span {
   overflow: hidden;
@@ -438,10 +444,12 @@ h1 {
   white-space: nowrap;
 }
 
+.portal-application-access > summary small,
 .portal-grant summary small {
   font-family: var(--mono);
 }
 
+.portal-application-access > summary b,
 .portal-grant summary b {
   color: var(--ink-soft);
   font-family: var(--mono);
@@ -449,13 +457,38 @@ h1 {
   font-weight: 600;
 }
 
+.portal-application-access > summary b::after,
 .portal-grant summary b::after {
   content: " +";
   color: var(--ink-muted);
 }
 
+.portal-application-access[open] > summary b::after,
 .portal-grant[open] summary b::after {
   content: " −";
+}
+
+.portal-application-body {
+  padding: 0 0 1.2rem 1.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.portal-application-body .portal-grant-list {
+  border-top: 0;
+}
+
+.portal-grant {
+  border-bottom: 1px solid var(--line);
+}
+
+.portal-grant summary {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto auto;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 4rem;
+  cursor: pointer;
+  list-style: none;
 }
 
 .portal-grant-detail {
@@ -463,6 +496,19 @@ h1 {
   grid-template-columns: minmax(16rem, 1.2fr) minmax(13rem, 0.8fr);
   gap: 1.4rem 2.5rem;
   padding: 0.2rem 0 1.4rem;
+}
+
+.application-access-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.9rem;
+}
+
+.application-access-actions > span {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
 }
 
 .detail-label {
@@ -497,6 +543,12 @@ h1 {
   font-size: 0.72rem;
   font-weight: 400;
   line-height: 1.45;
+}
+
+.grant-context .mono-detail {
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 0.66rem;
 }
 
 .grant-actions {
@@ -953,20 +1005,31 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .portal-application-access > summary,
   .portal-grant summary {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.55rem 1rem;
     padding: 0.8rem 0;
   }
 
-  .portal-grant summary > div:nth-child(2),
+  .portal-application-access > summary > span,
   .portal-grant summary > span {
     grid-column: 1;
   }
 
+  .portal-application-access > summary > b,
   .portal-grant summary > b {
     grid-column: 2;
     grid-row: 1;
+  }
+
+  .portal-application-body {
+    padding-left: 0.75rem;
+  }
+
+  .application-access-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .availability {

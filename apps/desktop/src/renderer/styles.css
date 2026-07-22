@@ -69,6 +69,21 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 
 .collection-section, .activity-section { margin-top: 30px; }
 .collection-list, .grant-list, .activity-list { display: grid; margin-top: 10px; }
+.application-access-list { margin-top: 10px; border-top: 1px solid var(--line); }
+.application-grant-group { border-bottom: 1px solid var(--line); }
+.application-grant-group > summary { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; align-items: center; gap: 20px; min-height: 72px; cursor: pointer; list-style: none; }
+.application-grant-group > summary::-webkit-details-marker { display: none; }
+.application-grant-group > summary > div { display: grid; gap: 3px; min-width: 0; }
+.application-grant-group > summary strong { overflow: hidden; font-size: var(--type-row-title); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.application-grant-group > summary code, .application-grant-group > summary > span { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; white-space: nowrap; }
+.application-grant-group > summary b { color: var(--ink); font-family: var(--mono); font-size: var(--type-action); font-weight: 500; }
+.application-grant-group > summary b::after { content: " +"; color: var(--muted); }
+.application-grant-group[open] > summary b::after { content: " −"; }
+.application-grant-body { padding: 0 0 16px 20px; border-top: 1px solid var(--line); }
+.application-grant-body .grant-list { margin-top: 0; }
+.application-grant-body .grant-row:first-child { border-top: 0; }
+.application-grant-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 12px; }
+.application-grant-actions small { color: var(--muted); font-size: var(--type-action); }
 .collection-card { border-bottom: 1px solid var(--line); }
 .collection-card:first-child { border-top: 1px solid var(--line); }
 .collection-summary { display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; align-items: center; gap: 18px; min-height: 68px; padding: 10px 0; }
@@ -177,6 +192,8 @@ fieldset legend { margin-bottom: 6px; }
 @media (max-width: 1000px) {
   .request-panel { grid-template-columns: minmax(130px, 0.7fr) minmax(280px, 1.3fr); }
   .decision-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+  .application-grant-group > summary { grid-template-columns: minmax(150px, 1fr) auto auto; }
+  .application-grant-group > summary > span:last-of-type { display: none; }
   .grant-row { grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1.3fr); }
   .grant-row .row-actions { grid-column: 1 / -1; }
   .manual-grant { grid-template-columns: 1fr 1fr; }
@@ -186,6 +203,11 @@ fieldset legend { margin-bottom: 6px; }
 @media (max-width: 780px) {
   .content { padding-inline: 24px; }
   .readiness-panel, .pairing-panel { grid-template-columns: 1fr; gap: 24px; }
+  .application-grant-group > summary { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 10px 0; }
+  .application-grant-group > summary > span { grid-column: 1; }
+  .application-grant-group > summary > b { grid-column: 2; grid-row: 1; }
+  .application-grant-body { padding-left: 12px; }
+  .application-grant-actions { align-items: flex-start; flex-direction: column; }
   .overview-row { grid-template-columns: 95px minmax(0, 1fr) auto; }
   .pairing-form { grid-template-columns: 1fr; }
   .pairing-form .button { grid-column: 1; }

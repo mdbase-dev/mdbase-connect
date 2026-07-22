@@ -3,6 +3,7 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
+import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -263,6 +264,8 @@ function Dashboard() {
     return () => window.clearInterval(timer);
   }, []);
   if (!data) return <Loading error={error} />;
+  const activeGrants = data.grants.filter((grant) => !grant.revoked_at);
+  const applicationAccess = groupApplicationAccess(activeGrants);
 
   return (
     <div className="account-shell">
@@ -308,14 +311,19 @@ function Dashboard() {
           <HostedCollections collections={data.hosted_collections} onChanged={refresh} onError={setError} />
         </section>
         <section id="permissions">
-          <SectionHeading title="Application access" note="Review exact permissions, narrow them, or revoke access immediately." count={data.grants.filter((grant) => !grant.revoked_at).length} />
-          {data.grants.every((grant) => grant.revoked_at) ? (
+          <SectionHeading title="Application access" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
+          {applicationAccess.length === 0 ? (
             <Empty title="No applications connected" text="Approved website connections will appear here." />
           ) : (
-            <div className="portal-grant-list">{data.grants.filter((grant) => !grant.revoked_at).map((grant) => {
-              const collection = data.collections.find((candidate) => candidate.id === grant.collection_id);
-              return <PortalGrant key={grant.id} grant={grant} connectorName={grant.collection_kind === "hosted" ? "Hosted by mdbase" : collection?.connector_name ?? "Unknown computer"} onChanged={refresh} onError={setError} />;
-            })}</div>
+            <div className="portal-application-list">{applicationAccess.map((group) => (
+              <PortalApplicationAccess
+                key={group.applicationId}
+                group={group}
+                collections={data.collections}
+                onChanged={refresh}
+                onError={setError}
+              />
+            ))}</div>
           )}
         </section>
         <section id="computers">
@@ -566,9 +574,61 @@ function ComputerRow({ connector, collectionCount, availableCount, onChanged, on
   </div>;
 }
 
-function PortalGrant({ grant, connectorName, onChanged, onError }: {
+type PortalGrantRecord = DashboardData["grants"][number];
+
+function PortalApplicationAccess({ group, collections, onChanged, onError }: {
+  group: ApplicationAccessGroup<PortalGrantRecord>;
+  collections: DashboardData["collections"];
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const identity = group.grants[0];
+
+  async function revokeApplication() {
+    const collectionLabel = pluralLabel(group.collectionCount, "collection", "collections");
+    if (!window.confirm(`Revoke all ${group.applicationName} access across ${collectionLabel}?`)) return;
+    setBusy(true);
+    try {
+      for (const grant of group.grants) {
+        await api(`/v1/grants/${grant.id}`, { method: "DELETE" });
+      }
+      await onChanged();
+    } catch (reason) {
+      await onChanged().catch(() => undefined);
+      onError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <details className="portal-application-access">
+    <summary>
+      <div className="application-access-identity"><strong>{group.applicationName}</strong><small>{host(identity.homepage)}</small></div>
+      <span>{pluralLabel(group.collectionCount, "collection", "collections")}</span>
+      <span>{pluralLabel(group.grants.length, "access record", "access records")}</span>
+      <b>Review</b>
+    </summary>
+    <div className="portal-application-body">
+      <div className="portal-grant-list">{group.grants.map((grant) => {
+        const collection = collections.find((candidate) => candidate.id === grant.collection_id);
+        const connectorName = grant.collection_kind === "hosted"
+          ? "Hosted by mdbase"
+          : collection?.connector_name ?? "Unknown computer";
+        return <PortalGrant key={grant.id} grant={grant} connectorName={connectorName} disabled={busy} onChanged={onChanged} onError={onError} />;
+      })}</div>
+      <div className="application-access-actions">
+        <span>Revokes every active access record for this application.</span>
+        <button className="quiet-danger" disabled={busy} onClick={() => void revokeApplication()}>Revoke application</button>
+      </div>
+    </div>
+  </details>;
+}
+
+function PortalGrant({ grant, connectorName, disabled, onChanged, onError }: {
   grant: DashboardData["grants"][number];
   connectorName: string;
+  disabled?: boolean;
   onChanged(): Promise<void>;
   onError(value: string): void;
 }) {
@@ -580,6 +640,7 @@ function PortalGrant({ grant, connectorName, onChanged, onError }: {
     ...grant.operations.filter((operation) => !allOperations.includes(operation))
   ];
   const changed = orderedOperations.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
+  const inactive = busy || disabled;
 
   function toggle(operation: string) {
     setOperations((current) => {
@@ -618,15 +679,15 @@ function PortalGrant({ grant, connectorName, onChanged, onError }: {
 
   return <details className="portal-grant">
     <summary>
-      <div><strong>{grant.application_name}</strong><small>{host(grant.homepage)}</small></div>
       <div><strong>{grant.collection_name}</strong><small>{connectorName}</small></div>
       <span>{grant.operations.length} {grant.operations.length === 1 ? "permission" : "permissions"}</span>
+      <span>{relativeTime(grant.created_at)}</span>
       <b>Review</b>
     </summary>
     <div className="portal-grant-detail">
-      <div><p className="detail-label">Allowed actions</p><div className="permission-options grant-permissions">{orderedOperations.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} disabled={busy} onChange={() => toggle(operation)} /><span>{operationLabel(operation)}</span></label>)}</div></div>
-      <div className="grant-context"><p><span>Scope</span><strong>{grant.scope.contracts.length ? scopeDescription(grant.scope.contracts) : "All record types in this collection."}</strong></p><p><span>Connected</span><strong>{relativeTime(grant.created_at)}</strong></p></div>
-      <div className="grant-actions"><button className="button secondary" disabled={busy || !changed || operations.size === 0} onClick={() => void save()}>Save narrower access</button><button className="quiet-danger" disabled={busy} onClick={() => void revoke()}>Revoke access</button></div>
+      <div><p className="detail-label">Allowed actions</p><div className="permission-options grant-permissions">{orderedOperations.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} disabled={inactive} onChange={() => toggle(operation)} /><span>{operationLabel(operation)}</span></label>)}</div></div>
+      <div className="grant-context"><p><span>Scope</span><strong>{grant.scope.contracts.length ? scopeDescription(grant.scope.contracts) : "All record types in this collection."}</strong></p><p><span>Application origin</span><strong className="mono-detail">{grant.application_origin}</strong></p><p><span>Connected</span><strong>{relativeTime(grant.created_at)}</strong></p></div>
+      <div className="grant-actions"><button className="button secondary" disabled={inactive || !changed || operations.size === 0} onClick={() => void save()}>Save narrower access</button><button className="quiet-danger" disabled={inactive} onClick={() => void revoke()}>Revoke access</button></div>
     </div>
   </details>;
 }
@@ -869,6 +930,7 @@ function Loading({ error = "" }: { error?: string }) { return <main className="l
 function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
+function pluralLabel(count: number, singular: string, pluralValue: string) { return `${count} ${count === 1 ? singular : pluralValue}`; }
 function operationLabel(operation: string) {
   return ({
     query: "Search and query",

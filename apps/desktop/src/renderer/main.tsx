@@ -3,6 +3,7 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
+import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -372,6 +373,7 @@ function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingCo
   onNotice(value: string): void;
   onPairingComplete(): void;
 }) {
+  const applicationAccess = useMemo(() => groupApplicationAccess(access.grants), [access.grants]);
   if (!cloud.configured) return <PairingPanel onComplete={onPairingComplete} />;
   return (
     <div className="workspace-stack">
@@ -387,16 +389,52 @@ function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingCo
       </section>
 
       <section>
-        <SectionHeading title="Connected applications" note="Change allowed operations or revoke access immediately." count={access.grants.length} />
-        {access.grants.length === 0 ? (
+        <SectionHeading title="Connected applications" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
+        {applicationAccess.length === 0 ? (
           <Empty title="No applications connected" text="Connect from an mdbase-enabled website, or inspect a published application manifest below." />
         ) : (
-          <div className="grant-list">{access.grants.map((grant) => <GrantEditor key={grant.id} grant={grant} busy={busy} onAct={onAct} onNotice={onNotice} />)}</div>
+          <div className="application-access-list">{applicationAccess.map((group) => (
+            <ApplicationGrantGroup key={group.applicationId} group={group} busy={busy} onAct={onAct} onNotice={onNotice} />
+          ))}</div>
         )}
       </section>
 
       <ManualApplication collections={collections} busy={busy} onAct={onAct} onNotice={onNotice} />
     </div>
+  );
+}
+
+function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
+  group: ApplicationAccessGroup<GrantSummary>;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const identity = group.grants[0];
+  return (
+    <details className="application-grant-group">
+      <summary>
+        <div><strong>{group.applicationName}</strong><code>{host(identity.application_homepage)}</code></div>
+        <span>{group.collectionCount} {plural(group.collectionCount, "collection", "collections")}</span>
+        <span>{group.grants.length} {plural(group.grants.length, "access record", "access records")}</span>
+        <b>Review</b>
+      </summary>
+      <div className="application-grant-body">
+        <div className="grant-list">{group.grants.map((grant) => (
+          <GrantEditor key={grant.id} grant={grant} busy={busy} onAct={onAct} onNotice={onNotice} />
+        ))}</div>
+        <div className="application-grant-actions">
+          <small>Revokes this application from every collection on this computer.</small>
+          <button className="quiet-action danger" disabled={busy} onClick={() => {
+            if (!window.confirm(`Revoke all ${group.applicationName} access from this computer?`)) return;
+            void onAct(async () => {
+              for (const grant of group.grants) await window.mdbaseConnect.revokeGrant(grant.id);
+              onNotice(`${group.applicationName} access from this computer was revoked.`);
+            });
+          }}>Revoke from this computer</button>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -452,8 +490,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   return (
     <article className="grant-row">
-      <div className="identity-mark">{initials(grant.application_name)}</div>
-      <div className="grant-identity"><strong>{grant.application_name}</strong><code>{host(grant.application_homepage)}</code><small>{grant.collection_name}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
+      <div className="grant-identity"><strong>{grant.collection_name}</strong><code>{host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
       <OperationChoices allowed={allowedOperations} selected={operations} onChange={setOperations} compact />
       <div className="row-actions">
         <button className="quiet-action" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations }); onNotice(`${grant.application_name} permissions were updated.`); })}>Save</button>
