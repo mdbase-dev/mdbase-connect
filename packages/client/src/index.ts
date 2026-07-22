@@ -221,7 +221,24 @@ export interface WatchOptions {
   cursor?: number;
   pollIntervalMs?: number;
   signal?: AbortSignal;
+  /** Set to false to surface transient transport failures immediately. */
+  retry?: false | WatchRetryOptions;
+  onStatus?: (status: WatchStatus) => void;
 }
+
+export interface WatchRetryOptions {
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  multiplier?: number;
+  /** Number of consecutive transient failures. Omit to keep reconnecting. */
+  maxAttempts?: number;
+}
+
+export type WatchStatus =
+  | { state: "connecting"; cursor?: number }
+  | { state: "connected"; cursor: number; recovered: boolean }
+  | { state: "reconnecting"; cursor?: number; attempt: number; retryInMs: number; error: unknown }
+  | { state: "reset_required"; cursor: number; error: MdbaseConnectError };
 
 /** Provider-neutral operation transport used by the typed collection client. */
 export interface MdbaseCollectionTransport {
@@ -299,21 +316,68 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
     let cursor = options.cursor;
-    if (cursor === undefined) cursor = (await this.changes()).cursor;
     const pollInterval = Math.max(100, options.pollIntervalMs ?? 1_000);
+    const retry = watchRetryPolicy(options.retry);
+    let failures = 0;
+    let connected = false;
+    options.onStatus?.({ state: "connecting", ...(cursor === undefined ? {} : { cursor }) });
     while (!options.signal?.aborted) {
-      const page = await this.changes({ after: cursor, limit: 200 });
-      if (page.reset) {
-        throw new MdbaseConnectError(
-          "change_cursor_reset",
-          "The collection change cursor expired. Refresh collection state before subscribing again."
+      try {
+        if (cursor === undefined) cursor = (await this.changes()).cursor;
+        const page = await this.changes({ after: cursor, limit: 200 });
+        if (page.reset) {
+          const error = new MdbaseConnectError(
+            "change_cursor_reset",
+            "The collection change cursor expired. Refresh collection state before subscribing again."
+          );
+          options.onStatus?.({ state: "reset_required", cursor, error });
+          throw error;
+        }
+        const recovered = failures > 0;
+        failures = 0;
+        if (!connected || recovered) options.onStatus?.({ state: "connected", cursor, recovered });
+        connected = true;
+        for (const event of page.events) yield event;
+        cursor = page.cursor;
+        if (!page.has_more) await abortableDelay(pollInterval, options.signal);
+      } catch (error) {
+        if (options.signal?.aborted) return;
+        if (!retry || !isRetryableConnectError(error)) throw error;
+        connected = false;
+        failures += 1;
+        if (retry.maxAttempts !== undefined && failures > retry.maxAttempts) throw error;
+        const retryInMs = Math.min(
+          retry.maxDelayMs,
+          Math.round(retry.initialDelayMs * retry.multiplier ** (failures - 1))
         );
+        options.onStatus?.({
+          state: "reconnecting",
+          ...(cursor === undefined ? {} : { cursor }),
+          attempt: failures,
+          retryInMs,
+          error
+        });
+        await abortableDelay(retryInMs, options.signal);
       }
-      for (const event of page.events) yield event;
-      cursor = page.cursor;
-      if (!page.has_more) await abortableDelay(pollInterval, options.signal);
     }
   }
+}
+
+interface ResolvedWatchRetryOptions {
+  initialDelayMs: number;
+  maxDelayMs: number;
+  multiplier: number;
+  maxAttempts?: number;
+}
+
+function watchRetryPolicy(options: WatchOptions["retry"]): ResolvedWatchRetryOptions | undefined {
+  if (options === false) return undefined;
+  return {
+    initialDelayMs: Math.max(0, options?.initialDelayMs ?? 500),
+    maxDelayMs: Math.max(0, options?.maxDelayMs ?? 15_000),
+    multiplier: Math.max(1, options?.multiplier ?? 2),
+    ...(options?.maxAttempts === undefined ? {} : { maxAttempts: Math.max(0, options.maxAttempts) })
+  };
 }
 
 interface Application {

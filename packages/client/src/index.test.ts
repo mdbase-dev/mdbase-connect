@@ -85,15 +85,76 @@ describe("provider-neutral collection client", () => {
   });
 
   it("surfaces cursor resets from any transport", async () => {
+    const statuses: string[] = [];
     const client = new MdbaseCollectionClient({
       async operation<Result>() {
         return { events: [], cursor: 10, has_more: false, reset: true } as Result;
       }
     });
-    const iterator = client.watch({ cursor: 1, pollIntervalMs: 100 });
+    const iterator = client.watch({
+      cursor: 1,
+      pollIntervalMs: 100,
+      onStatus: (status) => statuses.push(status.state)
+    });
     await expect(iterator.next()).rejects.toEqual(expect.objectContaining({
-      code: "change_cursor_reset"
+      code: "change_cursor_reset",
+      recovery: "refresh"
     }));
+    expect(statuses).toEqual(["connecting", "reset_required"]);
+  });
+
+  it("retries transient watch failures without losing the last cursor", async () => {
+    const calls: unknown[] = [];
+    let call = 0;
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        calls.push(input);
+        call += 1;
+        if (call === 1) return { events: [], cursor: 5, has_more: false } as Result;
+        if (call === 2) throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+        return {
+          events: [{ cursor: 6, type: "mdbase.record.modified", occurred_at: "2026-07-23T00:00:00Z", payload: { path: "notes/one.md" } }],
+          cursor: 6,
+          has_more: false
+        } as Result;
+      }
+    });
+    const statuses: Array<{ state: string; cursor?: number; recovered?: boolean }> = [];
+    const iterator = client.watch({
+      pollIntervalMs: 100,
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      onStatus: (status) => statuses.push(status)
+    });
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { cursor: 6, type: "mdbase.record.modified" },
+      done: false
+    });
+    await iterator.return(undefined);
+
+    expect(calls).toEqual([
+      {},
+      { after: 5, limit: 200 },
+      { after: 5, limit: 200 }
+    ]);
+    expect(statuses).toMatchObject([
+      { state: "connecting" },
+      { state: "reconnecting", cursor: 5 },
+      { state: "connected", cursor: 5, recovered: true }
+    ]);
+  });
+
+  it("can opt out of automatic watch retries", async () => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+      }
+    });
+    const statuses: string[] = [];
+    const iterator = client.watch({ retry: false, onStatus: (status) => statuses.push(status.state) });
+
+    await expect(iterator.next()).rejects.toMatchObject({ code: "connector_offline" });
+    expect(statuses).toEqual(["connecting"]);
   });
 
   it("requires browser-dependent defaults only when callers omit them", () => {
