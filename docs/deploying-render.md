@@ -23,8 +23,8 @@ Create a GitHub OAuth app with:
 Keep the client secret out of the repository. The private-preview allowlist
 uses immutable numeric GitHub account IDs rather than usernames.
 
-The hosted container intentionally builds against the pinned, published
-`mdbase-rs` revision in `Dockerfile.hosted-provider`. Update that SHA only after
+The hosted container and CI intentionally build against the pinned, published
+`mdbase-rs` revision in `deploy/docker/mdbase-rs-revision`. Update that SHA only after
 running its conformance suite and `pnpm e2e:provider:stress` against the new
 revision. Regenerate `deploy/docker/Cargo.lock.hosted-provider` against that
 clean revision at the same time. The repository-root lock remains the local
