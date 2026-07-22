@@ -106,6 +106,14 @@ export interface MdbaseConnection {
   directAccess: DirectAccessStatus;
 }
 
+export interface MdbaseAuthorizationCapabilities {
+  authorized: boolean;
+  sufficient: boolean;
+  collectionId?: string;
+  grantedOperations: CollectionOperation[];
+  missingOperations: CollectionOperation[];
+}
+
 export interface MdbaseHostedSyncTransport<Frontmatter extends JsonObject = JsonObject> {
   openSession(): Promise<SyncSession>;
   snapshot(snapshotId: string, page?: string): Promise<SyncSnapshotPage<Frontmatter>>;
@@ -692,6 +700,39 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return new Promise<never>(() => undefined);
   }
 
+  authorizationCapabilities(
+    requiredOperations: CollectionOperation[] = DEFAULT_OPERATIONS
+  ): MdbaseAuthorizationCapabilities {
+    const connection = this.connection();
+    const grantedOperations = connection?.operations ?? [];
+    const missingOperations = uniqueOperations(requiredOperations)
+      .filter((operation) => !grantedOperations.includes(operation));
+    return {
+      authorized: connection !== null,
+      sufficient: connection !== null && missingOperations.length === 0,
+      ...(connection ? { collectionId: connection.collectionId } : {}),
+      grantedOperations: [...grantedOperations],
+      missingOperations
+    };
+  }
+
+  hasOperations(requiredOperations: CollectionOperation[]): boolean {
+    return this.authorizationCapabilities(requiredOperations).sufficient;
+  }
+
+  /**
+   * Request only the additional capabilities an app needs while retaining the
+   * exact operations already present on a replacement grant.
+   */
+  async requestOperations(requiredOperations: CollectionOperation[]): Promise<void> {
+    const capabilities = this.authorizationCapabilities(requiredOperations);
+    if (capabilities.sufficient) return;
+    await this.authorize(uniqueOperations([
+      ...capabilities.grantedOperations,
+      ...capabilities.missingOperations
+    ]));
+  }
+
   async completeAuthorization(callbackUrl = defaultCallbackUrl()): Promise<{
     collectionId: string;
     operations: CollectionOperation[];
@@ -1030,7 +1071,15 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     let token = this.currentToken();
     if (!token) throw new MdbaseConnectError("not_authorized", "Connect this application before accessing a collection.");
     if (!token.operations.includes(operation)) {
-      throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`);
+      throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`, {
+        requiresAuthorization: true,
+        recovery: "reauthorize",
+        details: {
+          requiredOperations: [operation],
+          grantedOperations: [...token.operations],
+          missingOperations: [operation]
+        }
+      });
     }
     let tryDirect = await this.shouldAttemptDirect(token);
     if (!tryDirect) {
@@ -1642,6 +1691,10 @@ function isMutation(operation: CollectionOperation, input?: unknown): boolean {
     || operation === "rename"
     || operation === "create_type"
     || operation === "update_type";
+}
+
+function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {
+  return [...new Set(operations)];
 }
 
 function throwIfCancelled(signal?: AbortSignal): void {

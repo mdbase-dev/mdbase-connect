@@ -48,6 +48,25 @@ for await (const change of connect.watch()) {
 }
 ```
 
+Before opening a feature, inspect its exact authorization gap instead of
+waiting for an operation to fail:
+
+```ts
+const required = ["read", "query", "update"] as const;
+const capabilities = connect.authorizationCapabilities([...required]);
+if (!capabilities.sufficient) {
+  console.log("Needs", capabilities.missingOperations);
+  await connect.requestOperations([...required]);
+}
+```
+
+`requestOperations()` is a no-op when the current grant is sufficient. When a
+replacement grant is needed, it requests the least-privilege union of the
+already granted operations and the missing requirements. An
+`insufficient_access` error carries the same `grantedOperations`,
+`missingOperations`, and `requiredOperations` metadata with a `reauthorize`
+recovery action.
+
 Applications with full collection access can also register and maintain type
 definitions. Type source is returned with a revision token so updates cannot
 silently overwrite a definition changed by another application:

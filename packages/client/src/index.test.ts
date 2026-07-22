@@ -482,6 +482,84 @@ describe("long mutation progress", () => {
 });
 
 describe("authorization renewal", () => {
+  it("reports capability gaps and requests only the least-privilege union", async () => {
+    const storage = new MemoryStorage();
+    const navigate = vi.fn();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_current",
+      refreshToken: "ref_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query", "read"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000,
+      refreshExpiresAt: Date.now() + 120_000
+    }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "TaskNotes",
+        homepage: "https://tasks.example"
+      }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      storage,
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    expect(connect.authorizationCapabilities(["read", "update", "update"])).toEqual({
+      authorized: true,
+      sufficient: false,
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      grantedOperations: ["query", "read"],
+      missingOperations: ["update"]
+    });
+    expect(connect.hasOperations(["query", "read"])).toBe(true);
+    await connect.requestOperations(["read"]);
+    expect(navigate).not.toHaveBeenCalled();
+
+    void connect.requestOperations(["read", "update"]);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(new URL(navigate.mock.calls[0][0]).searchParams.get("operations")).toBe("query,read,update");
+  });
+
+  it("attaches the exact capability gap to insufficient-access errors", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000
+    }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    await expect(connect.read({ path: "Notes/example.md" })).rejects.toMatchObject({
+      code: "insufficient_access",
+      requiresAuthorization: true,
+      recovery: "reauthorize",
+      details: {
+        requiredOperations: ["read"],
+        grantedOperations: ["query"],
+        missingOperations: ["read"]
+      }
+    });
+  });
+
   it("uses injected navigation for native authorization", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
