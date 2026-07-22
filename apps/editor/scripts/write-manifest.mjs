@@ -14,7 +14,10 @@ await writeFile(target, `${JSON.stringify({
   name: "mdbase editor",
   homepage: appUrl,
   redirect_uris: [appUrl],
-  requirements: { contracts: [] }
+  requirements: {
+    contracts: [],
+    access: "full_collection"
+  }
 }, null, 2)}\n`);
 
 function normalizeBasePath(value) {

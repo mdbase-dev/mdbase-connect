@@ -6,6 +6,7 @@
     "https://callumalpass.github.io/mdbase-editor/"
   ],
   "requirements": {
-    "contracts": []
+    "contracts": [],
+    "access": "full_collection"
   }
 }

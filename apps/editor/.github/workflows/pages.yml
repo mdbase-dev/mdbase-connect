@@ -58,4 +58,4 @@ jobs:
           MANIFEST_URL: https://callumalpass.github.io/mdbase-editor/.well-known/mdbase-app.json?commit=${{ github.sha }}
         run: |
           curl --fail --silent --show-error --retry 5 --retry-all-errors "$MANIFEST_URL" --output "$RUNNER_TEMP/mdbase-app.json"
-          node -e 'const manifest = require(process.env.RUNNER_TEMP + "/mdbase-app.json"); if (manifest.name !== "mdbase editor") process.exit(1)'
+          node -e 'const manifest = require(process.env.RUNNER_TEMP + "/mdbase-app.json"); if (manifest.name !== "mdbase editor" || manifest.requirements?.access !== "full_collection") process.exit(1)'
