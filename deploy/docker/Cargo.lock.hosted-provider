@@ -1592,6 +1592,7 @@ dependencies = [
 name = "mdbase-connect-core"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "clap",
  "directories",
  "mdbase",
  "mdbase-connect-protocol",
