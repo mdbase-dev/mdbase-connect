@@ -4,6 +4,7 @@ import {
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
+  isRetryableConnectError,
   MemoryGrantKeyStore
 } from "./index.js";
 import type { GrantEncryption } from "@mdbase/connect-protocol";
@@ -104,6 +105,56 @@ describe("provider-neutral collection client", () => {
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     })).not.toThrow();
+  });
+});
+
+describe("actionable SDK errors", () => {
+  it("classifies retry, authorization, refresh, and uncertain-outcome recovery", () => {
+    const offline = new MdbaseConnectError("connector_offline", "Connector offline.", { status: 503 });
+    expect(offline).toMatchObject({
+      name: "MdbaseConnectError",
+      status: 503,
+      retryable: true,
+      requiresAuthorization: false,
+      outcomeUnknown: false,
+      recovery: "retry"
+    });
+    expect(isRetryableConnectError(offline)).toBe(true);
+    expect(isRetryableConnectError(new TypeError("network unavailable"))).toBe(true);
+
+    expect(new MdbaseConnectError("authorization_expired", "Reconnect.")).toMatchObject({
+      retryable: false,
+      requiresAuthorization: true,
+      recovery: "reauthorize"
+    });
+    expect(new MdbaseConnectError("change_cursor_reset", "Refresh.")).toMatchObject({
+      retryable: false,
+      recovery: "refresh"
+    });
+    expect(new MdbaseConnectError("direct_outcome_unknown", "Check the write.")).toMatchObject({
+      retryable: false,
+      outcomeUnknown: true,
+      recovery: "resolve_outcome"
+    });
+  });
+
+  it("keeps server status and diagnostic details on operation failures", async () => {
+    const fixture = await encryptedConnection();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        code: "connector_offline",
+        message: "The connector is asleep.",
+        details: { computer: "Studio" }
+      }
+    }), { status: 503, headers: { "content-type": "application/json" } }));
+
+    await expect(fixture.connect.query()).rejects.toMatchObject({
+      code: "connector_offline",
+      status: 503,
+      retryable: true,
+      recovery: "retry",
+      details: { computer: "Studio" }
+    });
   });
 });
 

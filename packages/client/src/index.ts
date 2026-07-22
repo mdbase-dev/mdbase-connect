@@ -408,7 +408,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       body: JSON.stringify({ manifest_url: this.manifestUrl })
     });
     const body = await response.json();
-    if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.");
+    if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
     this.application = body.application;
     return this.application!;
   }
@@ -481,7 +481,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       })
     });
     const body = await response.json();
-    if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.");
+    if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.", response.status);
     if (pending.relayEncryption === "required" && !body.hosted && (
       !body.encryption
       || !pending.keyHandle
@@ -696,7 +696,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     }
     const body = await response.json();
     if (!response.ok) {
-      const error = apiError(body, "operation_failed", "Collection operation failed.");
+      const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
       if (attempt.pendingMutation && attempt.directDeliveryUncertain) {
         throw uncertainDirectMutation(error);
       }
@@ -763,7 +763,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       response = await this.sendHostedSyncRequest(token, collectionId, method, path, input);
     }
     const body = await response.json();
-    if (!response.ok) throw apiError(body, "sync_failed", "Hosted collection synchronization failed.");
+    if (!response.ok) throw apiError(body, "sync_failed", "Hosted collection synchronization failed.", response.status);
     return body as Result;
   }
 
@@ -1086,7 +1086,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
         this.storage.removeItem(this.tokenKey());
       }
-      throw apiError(body, "authorization_expired", "Reconnect this application to continue.");
+      throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
     }
     return this.storeTokenResponse(body, current.clientId, current.keyHandle);
   }
@@ -1135,10 +1135,82 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 }
 
+export type MdbaseRecoveryAction = "retry" | "reauthorize" | "refresh" | "resolve_outcome" | "fix_request" | "none";
+
+export interface MdbaseConnectErrorOptions {
+  status?: number;
+  retryable?: boolean;
+  requiresAuthorization?: boolean;
+  outcomeUnknown?: boolean;
+  recovery?: MdbaseRecoveryAction;
+  details?: unknown;
+  cause?: unknown;
+}
+
 export class MdbaseConnectError extends Error {
-  constructor(public readonly code: string, message: string) {
+  readonly status?: number;
+  readonly retryable: boolean;
+  readonly requiresAuthorization: boolean;
+  readonly outcomeUnknown: boolean;
+  readonly recovery: MdbaseRecoveryAction;
+  readonly details?: unknown;
+
+  constructor(public readonly code: string, message: string, options: MdbaseConnectErrorOptions = {}) {
     super(message);
+    this.name = "MdbaseConnectError";
+    const classification = classifyConnectError(code, options.status);
+    this.status = options.status;
+    this.retryable = options.retryable ?? classification.retryable;
+    this.requiresAuthorization = options.requiresAuthorization ?? classification.requiresAuthorization;
+    this.outcomeUnknown = options.outcomeUnknown ?? classification.outcomeUnknown;
+    this.recovery = options.recovery ?? classification.recovery;
+    this.details = options.details;
+    if (options.cause !== undefined) Object.defineProperty(this, "cause", { value: options.cause, configurable: true });
   }
+}
+
+/** True only when repeating a read/poll is safe without asking the user. */
+export function isRetryableConnectError(error: unknown): boolean {
+  if (error instanceof MdbaseConnectError) return error.retryable && !error.outcomeUnknown;
+  return error instanceof TypeError;
+}
+
+function classifyConnectError(code: string, status?: number): Required<Pick<
+  MdbaseConnectErrorOptions,
+  "retryable" | "requiresAuthorization" | "outcomeUnknown" | "recovery"
+>> {
+  const authorizationCodes = new Set([
+    "authorization_expired",
+    "encryption_required",
+    "insufficient_access",
+    "missing_grant_key",
+    "not_authorized",
+    "relay_authorization_expired"
+  ]);
+  const outcomeUnknown = code === "direct_outcome_unknown" || code === "pending_mutation_unresolved";
+  const requiresAuthorization = authorizationCodes.has(code) || status === 401;
+  const retryableCodes = new Set([
+    "connector_offline",
+    "discovery_failed",
+    "relay_unavailable",
+    "sync_failed",
+    "temporarily_unavailable",
+    "timeout"
+  ]);
+  const retryableStatus = status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500);
+  const retryable = !outcomeUnknown && !requiresAuthorization && (retryableCodes.has(code) || retryableStatus);
+  const recovery: MdbaseRecoveryAction = outcomeUnknown
+    ? "resolve_outcome"
+    : requiresAuthorization
+      ? "reauthorize"
+      : code === "change_cursor_reset"
+        ? "refresh"
+        : retryable
+          ? "retry"
+          : status !== undefined && status >= 400 && status < 500
+            ? "fix_request"
+            : "none";
+  return { retryable, requiresAuthorization, outcomeUnknown, recovery };
 }
 
 type LoopbackRequestInit = RequestInit & {
@@ -1201,12 +1273,11 @@ function sortJson(value: unknown): unknown {
 }
 
 function uncertainDirectMutation(cause: unknown): MdbaseConnectError {
-  const error = new MdbaseConnectError(
+  return new MdbaseConnectError(
     "direct_outcome_unknown",
-    "The direct write may have completed, and mdbase could not recover its receipt through the relay. Retry the exact same write to recover safely."
+    "The direct write may have completed, and mdbase could not recover its receipt through the relay. Retry the exact same write to recover safely.",
+    { cause }
   );
-  Object.defineProperty(error, "cause", { value: cause, configurable: true });
-  return error;
 }
 
 function canonicalLoopbackUrl(value: string): string {
@@ -1232,10 +1303,11 @@ export async function createPkce(): Promise<{ verifier: string; challenge: strin
   return { verifier, challenge: bytesToBase64Url(new Uint8Array(digest)) };
 }
 
-function apiError(body: any, fallbackCode: string, fallbackMessage: string): MdbaseConnectError {
+function apiError(body: any, fallbackCode: string, fallbackMessage: string, status?: number): MdbaseConnectError {
   return new MdbaseConnectError(
     body?.error?.code ?? fallbackCode,
-    body?.error?.message ?? fallbackMessage
+    body?.error?.message ?? fallbackMessage,
+    { status, details: body?.error?.details }
   );
 }
 
