@@ -1,16 +1,20 @@
 # Private Render deployment
 
-The Render Blueprint provisions two public services in Singapore:
+The Render Blueprint provisions three public services in Singapore:
 
 - `mdbase-connect`, the account/control plane and transient encrypted relay;
 - `mdbase-connect-hosted-provider`, the Rust hosted data plane at
   `sync.mdbase.dev`.
+- `mdbase-mcp`, the remote MCP resource and OAuth server at
+  `mcp.mdbase.dev`.
 
-Each service has its own paid, private PostgreSQL database. Hosted record
+Each stateful boundary has its own paid, private PostgreSQL database. Hosted record
 payloads never pass through or persist in the control-plane database. The data
 plane database stores encrypted canonical records and change payloads; record
 paths use keyed lookup tokens. Render-generated 256-bit secrets bind the two
-services and protect the provider's wrapped per-collection data keys.
+services and protect the provider's wrapped per-collection data keys. The MCP
+database stores OAuth metadata plus encrypted Connect tokens and private grant
+keys; it never stores collection records or operation results.
 
 ## Before creating the Blueprint
 
@@ -47,10 +51,15 @@ empty Google allowlist rejects all Google accounts and logs the verified
 subject needed to bootstrap the first invitation. Leaving both unset keeps the
 existing GitHub-only preview unchanged.
 
-The Blueprint generates the provider internal token and master key. Do not
+The Blueprint generates the provider internal token, provider master key, and
+MCP master key. Do not
 replace the master key on an existing provider database: startup deliberately
 fails if it cannot decrypt the durable key check. Key rotation must rewrap every
 collection data key transactionally before the old key is retired.
+
+Do not replace `MDBASE_MCP_MASTER_KEY` on an existing MCP database either.
+Current gateway credentials are encrypted under that value; changing it forces
+every host connection and collection grant to be authorized again.
 
 Both databases deny public network connections. The hosted database uses paid
 PostgreSQL 18 with storage autoscaling and point-in-time recovery. Automatic
@@ -63,6 +72,7 @@ Attach and verify both DNS names before testing browser OAuth:
 
 - `connect.mdbase.dev` → control-plane Render hostname
 - `sync.mdbase.dev` → hosted-provider Render hostname
+- `mcp.mdbase.dev` → MCP gateway Render hostname
 
 Render terminates TLS. The control plane refuses a non-HTTPS public origin, and
 the provider binds browser capabilities to each application's exact manifest
@@ -73,7 +83,7 @@ collection-scoped replica credential.
 
 Before any invitation:
 
-1. Confirm `/health` and `/ready` on both services.
+1. Confirm `/health` and `/ready` on all three services.
 2. Sign in through GitHub and create a hosted mdbase collection.
 3. Authorize the current `mdbase-editor` build and perform create, read, query,
    update, rename, and delete operations.

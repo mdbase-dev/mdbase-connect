@@ -36,6 +36,9 @@ application and contract adapter—not a collection kind or platform default.
   activity, tray operation, and launch-at-login.
 - `services/server`: Fastify control plane and transient relay backed by
   PostgreSQL.
+- `services/mcp`: separately deployed remote MCP gateway for Claude, ChatGPT,
+  and other OAuth-capable hosts. It maps one host connection to independently
+  approved collection grants and keeps its credentials in a separate database.
 - `crates/connect-hosted-provider`: encrypted PostgreSQL authority for hosted
   collections, with direct app operations and the versioned sync data plane.
 - `apps/portal`: deliberately small account, computer management, secure
@@ -133,6 +136,12 @@ The private hosted relay is defined by [`render.yaml`](render.yaml). See
 deployment, DNS, and verification checklist, and
 [`docs/google-auth.md`](docs/google-auth.md) for Google sign-in setup.
 
+The hosted MCP endpoint is `https://mcp.mdbase.dev/mcp`; users add that URL as
+a remote/custom connector and authorize their first collection through mdbase
+connect. The `add_connection` tool creates a short-lived approval link for each
+additional collection. See [`docs/mcp-gateway.md`](docs/mcp-gateway.md) for the
+trust boundary, development workflow, tools, and production checklist.
+
 ## Security status
 
 The local connector is the final authorization boundary: the server cannot
@@ -141,6 +150,12 @@ tokens are stored encrypted by Electron, and cloud tokens are hashed at rest.
 New SDK authorizations require encrypted relay protocol 3 by default. Operation
 inputs and results remain ciphertext at the control plane; identifiers,
 operation names, timing, and sizes remain visible.
+
+The MCP gateway is an authorized application endpoint, not part of the blind
+control plane. It decrypts local relay responses in memory so it can return
+them to the MCP host. It does not persist record payloads, local filesystem
+paths, or operation results. Its upstream tokens and P-256 private keys are
+encrypted under a deployment master key in a separate database.
 
 The same envelopes protect direct loopback operations. The connector requires
 the grant's exact browser origin, an exact loopback `Host`, non-simple JSON, and

@@ -2323,6 +2323,7 @@ async function issueApplicationTokens(
   expires_in: number;
   refresh_expires_in: number;
   collection_id: string;
+  collection_name: string;
   operations: string[];
   scope: GrantScope;
   grant_id: string;
@@ -2336,6 +2337,7 @@ async function issueApplicationTokens(
 }> {
   const grant = await db.query<{
     collection_id: string;
+    collection_name: string;
     hosted_collection_id: string | null;
     hosted_replica_id: string | null;
     provider_url: string | null;
@@ -2345,12 +2347,14 @@ async function issueApplicationTokens(
     application_origin: string;
   }>(
     `SELECT COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
+            COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
      JOIN applications app ON app.id = g.application_id
+     LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL`,
     [grantId]
@@ -2388,6 +2392,7 @@ async function issueApplicationTokens(
     expires_in: 3600,
     refresh_expires_in: 30 * 24 * 60 * 60,
     collection_id: grant.rows[0].collection_id,
+    collection_name: grant.rows[0].collection_name,
     operations: grant.rows[0].operations,
     scope: grant.rows[0].scope,
     grant_id: grantId,

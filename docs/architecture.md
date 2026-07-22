@@ -8,13 +8,16 @@ applications. Domain packages such as `@mdbase/tasknotes` interpret optional
 type extensions without adding TaskNotes behavior to the mdbase specification
 or the relay.
 
-Four trust zones make up the local-hosted path:
+Five trust zones make up the local-hosted path:
 
 1. An independently hosted frontend application.
 2. A hosted or self-hosted Connect control plane and transient relay.
 3. A user-owned connector agent with a browser-only loopback service and
    outbound network connections.
 4. User-owned mdbase collections on the local filesystem.
+5. Optional application gateways, such as the hosted MCP service, which act as
+   authorized Connect applications and translate an external protocol without
+   weakening the connector's exact grant.
 
 The connector is the authority for local data and policy. The server routes a
 request only when its access token and grant allow the operation. The connector
@@ -31,6 +34,9 @@ checks its local policy copy again before it opens a collection.
   control socket.
 - `connect-server` owns accounts, pairing, app discovery, grants, token
   issuance, audit metadata, and transient request routing.
+- `connect-mcp` owns MCP host OAuth sessions and encrypted upstream Connect
+  credentials. It uses one exact Connect grant per approved collection and
+  never shares a collection grant across MCP connection sets.
 - `@mdbase/connect` provides OAuth with PKCE, typed operation envelopes,
   collection discovery, end-to-end encrypted relay operations, and cursor-based
   subscriptions.

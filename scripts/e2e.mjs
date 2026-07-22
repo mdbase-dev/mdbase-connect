@@ -17,6 +17,11 @@ import { MdbaseConnect } from "../packages/client/dist/index.js";
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
+const loopbackPort = Number(process.env.MDBASE_CONNECT_E2E_LOOPBACK_PORT ?? 28_485);
+if (!Number.isInteger(loopbackPort) || loopbackPort < 1 || loopbackPort > 65_535) {
+  throw new Error("MDBASE_CONNECT_E2E_LOOPBACK_PORT must be a valid TCP port");
+}
+const loopbackUrl = `http://127.0.0.1:${loopbackPort}`;
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const database = await createDatabase("memory");
@@ -192,13 +197,13 @@ secret: connector scope test
       encryption: token.body.encryption
     }
   };
-  const hostileReady = await fetch("http://127.0.0.1:28485/v1/ready", {
+  const hostileReady = await fetch(`${loopbackUrl}/v1/ready`, {
     headers: { origin: "https://hostile.example" }
   });
   if (hostileReady.status !== 403 || hostileReady.headers.has("access-control-allow-origin")) {
     throw new Error("Hostile origin could read loopback readiness");
   }
-  const directReady = await fetch("http://127.0.0.1:28485/v1/ready", {
+  const directReady = await fetch(`${loopbackUrl}/v1/ready`, {
     headers: { origin: directOrigin }
   });
   const directReadyBody = await directReady.json();
@@ -238,11 +243,12 @@ secret: connector scope test
     manifestUrl: manifest.manifestUrl,
     redirectUri: manifest.redirectUri,
     storage: sdkStorage,
-    keyStore: applicationKeyStore
+    keyStore: applicationKeyStore,
+    loopbackUrl
   });
   const browserFetch = globalThis.fetch;
   globalThis.fetch = (input, init = {}) => {
-    if (!String(input).startsWith("http://127.0.0.1:28485/")) return browserFetch(input, init);
+    if (!String(input).startsWith(`${loopbackUrl}/`)) return browserFetch(input, init);
     const headers = new Headers(init.headers);
     headers.set("origin", directOrigin);
     return browserFetch(input, { ...init, headers });
@@ -323,6 +329,7 @@ secret: connector scope test
       serverUrl,
       manifestUrl: manifest.browserManifestUrl,
       redirectUri: manifest.browserRedirectUri,
+      loopbackUrl,
       token: {
         accessToken: browserToken.body.access_token,
         refreshToken: browserToken.body.refresh_token,
@@ -539,7 +546,11 @@ async function cliJson(args) {
 }
 
 function startAgent(extraArgs) {
-  const child = spawn(agentBinary, ["--state-dir", stateDir, ...extraArgs], {
+  const child = spawn(agentBinary, [
+    "--state-dir", stateDir,
+    "--loopback-port", String(loopbackPort),
+    ...extraArgs
+  ], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -600,7 +611,7 @@ async function rawEncryptedEnvelope(collectionId, operation, accessToken, envelo
 
 async function rawDirectEnvelope(envelope) {
   if (!directOrigin) throw new Error("Direct origin is unavailable");
-  return fetch("http://127.0.0.1:28485/v1/operations", {
+  return fetch(`${loopbackUrl}/v1/operations`, {
     method: "POST",
     headers: {
       origin: directOrigin,
@@ -711,7 +722,8 @@ async function openApplicationServer(name, contracts) {
         serverUrl: config.serverUrl,
         manifestUrl: config.manifestUrl,
         redirectUri: config.redirectUri,
-        keyStore
+        keyStore,
+        loopbackUrl: config.loopbackUrl
       });
       const status = await connect.requestDirectAccess();
       const description = await connect.describe();

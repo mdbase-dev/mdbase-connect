@@ -29,9 +29,12 @@ import {
 } from "./crypto.js";
 
 export {
+  decryptRelayResponse,
+  encryptRelayRequest,
   IndexedDbGrantKeyStore,
   MemoryGrantKeyStore,
   RelayCryptoError,
+  type RelayBinding,
   type GrantKeyRecord,
   type GrantKeyStore
 } from "./crypto.js";

@@ -1,0 +1,32 @@
+FROM node:24-bookworm-slim AS build
+
+RUN corepack enable
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/client/package.json packages/client/package.json
+COPY services/mcp/package.json services/mcp/package.json
+
+RUN pnpm install --frozen-lockfile --filter @mdbase/connect-mcp...
+
+COPY packages/protocol packages/protocol
+COPY packages/client packages/client
+COPY services/mcp services/mcp
+
+RUN pnpm --filter @mdbase/connect-protocol build \
+ && pnpm --filter @mdbase/connect build \
+ && pnpm --filter @mdbase/connect-mcp build
+
+FROM node:24-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=8790
+
+WORKDIR /app
+COPY --from=build /app /app
+
+EXPOSE 8790
+USER node
+CMD ["node", "services/mcp/dist/index.js"]

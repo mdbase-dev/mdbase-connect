@@ -92,6 +92,39 @@ services:
       - key: MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS
         value: "0"
 
+  - type: web
+    name: mdbase-mcp
+    runtime: docker
+    repo: https://github.com/mdbase-dev/mdbase-connect
+    branch: main
+    plan: starter
+    region: singapore
+    dockerfilePath: ./deploy/docker/Dockerfile.mcp
+    dockerContext: .
+    preDeployCommand: node services/mcp/dist/migrate.js
+    healthCheckPath: /ready
+    maxShutdownDelaySeconds: 60
+    autoDeployTrigger: checksPass
+    domains:
+      - mcp.mdbase.dev
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PUBLIC_URL
+        value: https://mcp.mdbase.dev
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mdbase-mcp-db
+          property: connectionString
+      - key: MDBASE_CONNECT_URL
+        value: https://connect.mdbase.dev
+      - key: MDBASE_MCP_MASTER_KEY
+        generateValue: true
+      - key: MDBASE_MCP_TRUST_PROXY
+        value: "1"
+
 databases:
   - name: mdbase-connect-hosted-db
     region: singapore
@@ -109,4 +142,12 @@ databases:
     postgresMajorVersion: "17"
     databaseName: mdbase_connect
     user: mdbase_connect
+    ipAllowList: []
+
+  - name: mdbase-mcp-db
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+    databaseName: mdbase_mcp
+    user: mdbase_mcp
     ipAllowList: []
