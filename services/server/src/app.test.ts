@@ -97,6 +97,7 @@ describe("mdbase connect server", () => {
     connectorKey.generateKeys();
     const localCollectionId = "125cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const incompatibleLocalCollectionId = "225cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
+    const legacyLocalCollectionId = "525cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const synchronized = await app.inject({
       method: "POST",
       url: "/v1/connectors/sync",
@@ -115,6 +116,12 @@ describe("mdbase connect server", () => {
           spec_version: "0.3.0",
           enabled: true,
           contracts: []
+        }, {
+          id: legacyLocalCollectionId,
+          display_name: "Legacy workouts",
+          spec_version: "0.2.0",
+          enabled: true,
+          contracts: [{ id: "workout.record", version: 1 }]
         }]
       }
     });
@@ -191,6 +198,18 @@ describe("mdbase connect server", () => {
     });
     expect(incompatibleGrant.statusCode).toBe(409);
     expect(incompatibleGrant.json().error.code).toBe("incompatible_collection");
+    const legacyGrant = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/grants",
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: {
+        application_id: applicationId,
+        collection_id: legacyLocalCollectionId,
+        operations: ["read"]
+      }
+    });
+    expect(legacyGrant.statusCode).toBe(409);
+    expect(legacyGrant.json().error.message).toContain("Upgrade a copy to mdbase 0.3");
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
@@ -209,6 +228,24 @@ describe("mdbase connect server", () => {
     });
     expect(pending.statusCode).toBe(200);
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
+    expect(pending.json().collections).toContainEqual(expect.objectContaining({
+      display_name: "Legacy workouts",
+      spec_version: "0.2.0"
+    }));
+
+    const legacyApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: synchronized.json().collections[2].id,
+        operations: ["read", "query"]
+      }
+    });
+    expect(legacyApproval.statusCode).toBe(400);
+    expect(legacyApproval.json().error.message).toBe(
+      "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
+    );
 
     const localControl = await app.inject({
       method: "GET",

@@ -17,6 +17,7 @@ import {
   type PendingAuthorization,
   type TypeProvision
 } from "./api";
+import { collectionCompatibility } from "./compatibility";
 import "./styles.css";
 
 const allOperations = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"];
@@ -289,9 +290,7 @@ function Dashboard() {
                 <RequestIdentity request={request} />
                 <ApprovalForm
                   request={request}
-                  collections={compatibleCollections(
-                  request,
-                  [
+                  collections={[
                     ...data.collections.filter((collection) => collection.enabled)
                       .map((collection) => ({ ...collection, kind: "local" as const })),
                     ...data.hosted_collections.map((collection) => ({
@@ -299,8 +298,7 @@ function Dashboard() {
                       kind: "hosted" as const,
                       connector_name: "Hosted by mdbase"
                     }))
-                  ]
-                  )}
+                  ]}
                   onDecision={refresh}
                   onCollectionCreated={() => void refresh()}
                 />
@@ -777,7 +775,7 @@ function Authorization({ requestId }: { requestId: string }) {
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
-            collections={compatibleCollections(authorization, request.collections)}
+            collections={request.collections}
             onDecision={(decision) => setStatus(decision)}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
@@ -823,18 +821,30 @@ function ApprovalForm({
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
-  const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
+  const choices = useMemo(() => collections.map((collection) => ({
+    collection,
+    compatibility: collectionCompatibility(request, collection)
+  })), [collections, request]);
+  const compatible = useMemo(
+    () => choices.filter((choice) => choice.compatibility.compatible),
+    [choices]
+  );
+  const unavailable = useMemo(
+    () => choices.filter((choice) => !choice.compatibility.compatible),
+    [choices]
+  );
+  const [collectionId, setCollectionId] = useState(compatible[0]?.collection.id ?? "");
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [error, setError] = useState("");
-  const selected = collections.find((collection) => collection.id === collectionId);
+  const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
 
   useEffect(() => {
-    if (!collections.some((collection) => collection.id === collectionId)) {
-      setCollectionId(collections[0]?.id ?? "");
+    if (!compatible.some((choice) => choice.collection.id === collectionId)) {
+      setCollectionId(compatible[0]?.collection.id ?? "");
     }
-  }, [collectionId, collections]);
+  }, [collectionId, compatible]);
 
   function toggleOperation(operation: string) {
     setOperations((current) => {
@@ -895,11 +905,16 @@ function ApprovalForm({
     <div className="approval-form" aria-busy={submitting !== null}>
       <label className="collection-field" htmlFor={`collection-${request.id}`}>
         <span>Collection</span>
-        <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || collections.length === 0}>
-          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}{neededProvisions(request, collection).length ? " · setup required" : ""}</option>)}
+        <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || compatible.length === 0}>
+          {compatible.length === 0 && <option value="">No compatible collection</option>}
+          {choices.map(({ collection, compatibility }) => <option value={collection.id} key={collection.id} disabled={!compatibility.compatible}>{collection.display_name} · {collection.connector_name}{compatibility.compatible ? (neededProvisions(request, collection).length ? " · setup required" : "") : ` · ${compatibility.label}`}</option>)}
         </select>
       </label>
-      {collections.length === 0 && <div className="authorization-empty-collection">
+      {unavailable.length > 0 && <div className="collection-compatibility" aria-label="Unavailable collections">
+        <strong>{unavailable.length} {unavailable.length === 1 ? "collection needs attention" : "collections need attention"}</strong>
+        <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
+      </div>}
+      {compatible.length === 0 && <div className="authorization-empty-collection">
         <p className="field-note">No compatible collection is ready.</p>
         <button
           className="button secondary"
@@ -946,23 +961,6 @@ function operationLabel(operation: string) {
     update_type: "Change type definitions"
   } as Record<string, string>)[operation] ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`;
 }
-function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
-  request: PendingAuthorization,
-  collections: Array<T & { kind?: "local" | "hosted" }>
-): T[] {
-  const candidates = request.requirements.collection_kind === "hosted"
-    ? collections.filter((collection) => collection.kind === "hosted")
-    : collections;
-  const required = request.requirements.contracts;
-  if (required.length === 0) return candidates;
-  return candidates.filter((collection) => required.every((requirement) =>
-    hasContract(collection.contracts, requirement)
-    || (collection.kind === "hosted" && request.provisions.types.some((provision) =>
-      provision.provides.some((provided) => sameContract(provided, requirement))
-    ))
-  ));
-}
-
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
   collection: Pick<AvailableCollection, "contracts">

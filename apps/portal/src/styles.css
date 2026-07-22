@@ -916,6 +916,40 @@ select {
   padding-top: 0.25rem;
 }
 
+.collection-compatibility {
+  padding: 0.72rem 0.8rem;
+  border-left: 2px solid var(--warning, #a96f18);
+  background: color-mix(in srgb, var(--paper) 88%, #c99038);
+}
+
+.collection-compatibility > strong {
+  color: var(--ink);
+  font-size: 0.74rem;
+}
+
+.collection-compatibility ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection-compatibility li {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.collection-compatibility li span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.collection-compatibility li small {
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
 .desktop-alternative {
   display: flex;
   align-items: center;
