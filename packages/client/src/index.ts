@@ -146,6 +146,23 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
   [key: string]: unknown;
 }
 
+export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
+  firstPageSize?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
+  onProgress?: (page: QueryPage<Record>) => void;
+}
+
+export interface QueryPage<Record extends JsonObject = JsonObject> {
+  results: QueryResult<Record>["results"];
+  meta?: QueryResult<Record>["meta"];
+  page: number;
+  offset: number;
+  loaded: number;
+  complete: boolean;
+  snapshot?: string;
+}
+
 export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   path?: string;
   type?: string;
@@ -275,6 +292,73 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.operation("query", input);
   }
 
+  async *queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
+    const {
+      offset: requestedOffset,
+      limit: requestedLimit,
+      snapshot: requestedSnapshot,
+      ...criteria
+    } = input;
+    let offset = nonNegativeInteger(requestedOffset, 0);
+    const firstPageSize = positiveInteger(options.firstPageSize ?? requestedLimit, 200);
+    const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
+    let snapshot = requestedSnapshot;
+    let loaded = 0;
+    let pageNumber = 0;
+
+    while (!options.signal?.aborted) {
+      const result = unwrapOperation(await this.query({
+        ...criteria,
+        offset,
+        limit: pageNumber === 0 ? firstPageSize : pageSize,
+        ...(snapshot ? { snapshot } : {})
+      }));
+      const returnedSnapshot = result.meta?.snapshot;
+      if (snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
+        throw new MdbaseConnectError(
+          "query_snapshot_changed",
+          "The collection query snapshot changed while paging. Refresh the query before continuing.",
+          { recovery: "refresh" }
+        );
+      }
+      if (!snapshot && returnedSnapshot) snapshot = returnedSnapshot;
+      loaded += result.results.length;
+      const complete = !result.meta?.has_more || result.results.length === 0;
+      const page: QueryPage<Frontmatter> = {
+        results: result.results,
+        ...(result.meta ? { meta: result.meta } : {}),
+        page: pageNumber,
+        offset,
+        loaded,
+        complete,
+        ...(snapshot ? { snapshot } : {})
+      };
+      options.onProgress?.(page);
+      yield page;
+      if (complete) return;
+      offset += result.results.length;
+      pageNumber += 1;
+    }
+  }
+
+  async queryAll(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): Promise<QueryResult<Frontmatter>> {
+    const results: QueryResult<Frontmatter>["results"] = [];
+    let finalPage: QueryPage<Frontmatter> | undefined;
+    for await (const page of this.queryPages(input, options)) {
+      results.push(...page.results);
+      finalPage = page;
+    }
+    return {
+      results,
+      meta: {
+        ...(finalPage?.meta ?? {}),
+        total_count: finalPage?.meta?.total_count ?? results.length,
+        has_more: finalPage ? !finalPage.complete : false,
+        ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
+      }
+    };
+  }
+
   listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {
     return this.operation("list_views", {});
   }
@@ -379,6 +463,14 @@ function watchRetryPolicy(options: WatchOptions["retry"]): ResolvedWatchRetryOpt
     multiplier: Math.max(1, options?.multiplier ?? 2),
     ...(options?.maxAttempts === undefined ? {} : { maxAttempts: Math.max(0, options.maxAttempts) })
   };
+}
+
+function nonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
 interface Application {
@@ -679,6 +771,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   query(input: QueryInput = {}): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
     return this.collectionClient.query(input);
+  }
+
+  queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
+    return this.collectionClient.queryPages(input, options);
+  }
+
+  queryAll(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): Promise<QueryResult<Frontmatter>> {
+    return this.collectionClient.queryAll(input, options);
   }
 
   listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {

@@ -86,6 +86,67 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("pages a query with one stable snapshot and reports exact progress", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const records = ["one.md", "two.md", "three.md"].map((path) => ({ path, frontmatter: {}, types: [] }));
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as { offset: number; limit: number; snapshot?: string };
+        calls.push(query);
+        const results = records.slice(query.offset, query.offset + query.limit);
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results,
+            meta: {
+              total_count: records.length,
+              has_more: query.offset + results.length < records.length,
+              snapshot: "stable-query"
+            }
+          }
+        } as Result;
+      }
+    });
+    const progress: Array<{ loaded: number; complete: boolean }> = [];
+    const loaded: string[] = [];
+
+    for await (const page of client.queryPages(
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }] },
+      { firstPageSize: 1, pageSize: 2, onProgress: ({ loaded, complete }) => progress.push({ loaded, complete }) }
+    )) {
+      loaded.push(...page.results.map((record) => record.path));
+    }
+
+    expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
+    expect(progress).toEqual([{ loaded: 1, complete: false }, { loaded: 3, complete: true }]);
+    expect(calls).toEqual([
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 0, limit: 1 },
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 1, limit: 2, snapshot: "stable-query" }
+    ]);
+  });
+
+  it("rejects a changed snapshot instead of mixing query generations", async () => {
+    let call = 0;
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        call += 1;
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{ path: `${call}.md`, frontmatter: {}, types: [] }],
+            meta: { total_count: 2, has_more: call === 1, snapshot: `snapshot-${call}` }
+          }
+        } as Result;
+      }
+    });
+    const iterator = client.queryPages({}, { firstPageSize: 1, pageSize: 1 });
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { snapshot: "snapshot-1" } });
+    await expect(iterator.next()).rejects.toMatchObject({ code: "query_snapshot_changed", recovery: "refresh" });
+  });
+
   it("surfaces cursor resets from any transport", async () => {
     const statuses: string[] = [];
     const client = new MdbaseCollectionClient({
