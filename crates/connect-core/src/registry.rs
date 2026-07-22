@@ -1932,7 +1932,8 @@ fn operation_invalidation(
     input: &Value,
     output: &Value,
 ) -> CollectionInvalidation {
-    if !is_collection_mutation(operation)
+    if input.get("dry_run").and_then(Value::as_bool) == Some(true)
+        || !is_collection_mutation(operation)
         || output.get("valid").and_then(Value::as_bool) == Some(false)
         || output.get("error").is_some()
     {
@@ -2014,6 +2015,14 @@ mod tests {
                 "update",
                 &json!({"path": "private.md"}),
                 &json!({"valid": false}),
+            ),
+            CollectionInvalidation::None,
+        );
+        assert_eq!(
+            operation_invalidation(
+                "rename",
+                &json!({"from": "old.md", "to": "new.md", "dry_run": true}),
+                &json!({"valid": true, "result": {"would_rename": true}}),
             ),
             CollectionInvalidation::None,
         );

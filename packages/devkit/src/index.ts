@@ -272,12 +272,20 @@ implements MdbaseCollectionTransport {
     if (!current) return invalid("file_not_found", `File not found: ${path}`, path);
     const revisionError = checkRevision(input, current);
     if (revisionError) return revisionError;
+    if (input.dry_run === true) {
+      return envelope({
+        path,
+        deleted: false,
+        dry_run: true,
+        would_delete: true
+      });
+    }
     this.records.delete(path);
     this.append("mdbase.record.deleted", current, { path, previous_types: current.types });
     return envelope({ path, deleted: true });
   }
 
-  private rename(input: JsonObject): MdbaseOperationEnvelope<RecordResult<Frontmatter> & JsonObject> {
+  private rename(input: JsonObject): MdbaseOperationEnvelope<JsonObject> {
     const from = string(input.from, "from");
     const to = string(input.to, "to");
     assertSafePath(to);
@@ -286,6 +294,14 @@ implements MdbaseCollectionTransport {
     const revisionError = checkRevision(input, current);
     if (revisionError) return revisionError;
     if (this.records.has(to)) return invalid("path_conflict", `File already exists: ${to}`, to);
+    if (input.dry_run === true) {
+      return envelope({
+        from,
+        to,
+        dry_run: true,
+        would_rename: true
+      });
+    }
     this.records.delete(from);
     const record = this.storedRecord({ ...current, path: to });
     this.records.set(to, record);

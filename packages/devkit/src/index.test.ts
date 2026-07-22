@@ -181,6 +181,38 @@ describe("developer sandbox", () => {
     expect(second.events.map((event) => event.payload.path)).toEqual(["tasks/d.md"]);
   });
 
+  it("preflights rename and delete without mutating sandbox state", async () => {
+    const { client, transport } = createSandbox({
+      records: [
+        { path: "target.md", frontmatter: { title: "Target" }, body: "Target body" },
+        { path: "ref.md", frontmatter: { title: "Ref" }, body: "See [[target]]." }
+      ]
+    });
+    const target = await client.read({ path: "target.md" });
+
+    const rename = await client.preflightRename({
+      from: "target.md",
+      to: "Archive/target.md",
+      update_refs: true,
+      if_revision: target.result.revision
+    });
+    expect(rename.result).toMatchObject({
+      dry_run: true,
+      would_rename: true
+    });
+    const deletion = await client.preflightDelete({
+      path: "target.md",
+      if_revision: target.result.revision
+    });
+    expect(deletion.result).toMatchObject({
+      deleted: false,
+      dry_run: true,
+      would_delete: true
+    });
+    expect(transport.snapshot().map((record) => record.path).sort()).toEqual(["ref.md", "target.md"]);
+    expect(await client.changes()).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
+  });
+
   it("rejects semantic approximations and unsafe paths explicitly", async () => {
     const { client } = createSandbox();
     await expect(client.query({ where: "status == 'open'" })).rejects.toMatchObject({

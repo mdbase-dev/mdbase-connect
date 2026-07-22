@@ -178,6 +178,12 @@ impl WorkingSet {
             "list_views" => Ok(operations.list_views(input)),
             "execute_view" => Ok(operations.execute_view(input)),
             "validate" => Ok(operations.validate(input)),
+            "delete" if input.get("dry_run").and_then(Value::as_bool) == Some(true) => {
+                Ok(operations.delete(input))
+            }
+            "rename" if input.get("dry_run").and_then(Value::as_bool) == Some(true) => {
+                Ok(operations.rename(input))
+            }
             _ => Err(ApiError::bad_request(
                 "unsupported_operation",
                 "The hosted provider does not support that read operation.",
@@ -579,6 +585,76 @@ mod tests {
                 .frontmatter
                 .get("status"),
             Some(&json!("done"))
+        );
+    }
+
+    #[test]
+    fn mutation_preflights_leave_the_hosted_working_set_unchanged() {
+        let workspace = WorkingSet::materialize(
+            resources(),
+            [
+                StoredDocument {
+                    record_id: Uuid::new_v4(),
+                    path: "tasks/target.md".to_string(),
+                    document: "---\ntype: task\ntitle: Target\nstatus: open\n---\nTarget body.\n"
+                        .to_string(),
+                },
+                StoredDocument {
+                    record_id: Uuid::new_v4(),
+                    path: "tasks/ref.md".to_string(),
+                    document:
+                        "---\ntype: task\ntitle: Ref\nstatus: open\n---\nSee [[tasks/target]].\n"
+                            .to_string(),
+                },
+            ],
+        )
+        .unwrap();
+
+        let rename = workspace
+            .read_operation(
+                "rename",
+                &json!({
+                    "from": "tasks/target.md",
+                    "to": "archive/target.md",
+                    "update_refs": true,
+                    "dry_run": true
+                }),
+            )
+            .unwrap();
+        assert!(rename.valid, "{:?}", rename.diagnostics);
+        assert_eq!(rename.result["would_rename"], json!(true));
+        assert_eq!(
+            rename.result["references_affected"][0]["path"],
+            json!("tasks/ref.md")
+        );
+
+        let deletion = workspace
+            .read_operation(
+                "delete",
+                &json!({
+                    "path": "tasks/target.md",
+                    "check_backlinks": true,
+                    "dry_run": true
+                }),
+            )
+            .unwrap();
+        assert!(deletion.valid, "{:?}", deletion.diagnostics);
+        assert_eq!(deletion.result["deleted"], json!(false));
+        assert_eq!(
+            deletion.result["broken_links"][0]["path"],
+            json!("tasks/ref.md")
+        );
+        assert!(
+            workspace
+                .read_operation("read", &json!({"path": "tasks/target.md"}))
+                .unwrap()
+                .valid
+        );
+        assert!(
+            !workspace
+                .read_operation("read", &json!({"path": "archive/target.md"}))
+                .unwrap()
+                .valid
         );
     }
 

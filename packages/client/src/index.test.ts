@@ -59,6 +59,35 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("provides typed mutation preflights without changing normal mutation inputs", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return { valid: true, result: {}, diagnostics: [] } as Result;
+      }
+    });
+
+    await client.preflightRename({ from: "old.md", to: "new.md", update_refs: true, if_revision: "revision:1" });
+    await client.preflightDelete({ path: "old.md", if_revision: "revision:1" });
+    await client.rename({ from: "old.md", to: "new.md", update_refs: false, if_revision: "revision:1" });
+
+    expect(calls).toEqual([
+      {
+        operation: "rename",
+        input: { from: "old.md", to: "new.md", update_refs: true, if_revision: "revision:1", dry_run: true }
+      },
+      {
+        operation: "delete",
+        input: { path: "old.md", if_revision: "revision:1", check_backlinks: true, dry_run: true }
+      },
+      {
+        operation: "rename",
+        input: { from: "old.md", to: "new.md", update_refs: false, if_revision: "revision:1" }
+      }
+    ]);
+  });
+
   it("exposes provider-neutral saved-view discovery and execution", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({

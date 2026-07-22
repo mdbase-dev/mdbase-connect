@@ -202,6 +202,14 @@ export interface DeleteResult {
   broken_links?: Array<{ path: string }>;
 }
 
+export interface DeletePreflightResult {
+  path: string;
+  deleted: false;
+  dry_run: true;
+  would_delete: true;
+  broken_links?: Array<{ path: string }>;
+}
+
 export interface RenameInput {
   from: string;
   to: string;
@@ -213,6 +221,15 @@ export interface RenameResult extends RecordResult {
   from: string;
   to: string;
   references_updated?: JsonObject[];
+}
+
+export interface RenamePreflightResult {
+  from: string;
+  to: string;
+  dry_run: true;
+  would_rename: true;
+  references_affected?: Array<{ path: string; field?: string; location?: string }>;
+  warnings?: Array<{ path: string; message: string }>;
 }
 
 export interface ReadTypeInput {
@@ -379,8 +396,16 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.operation("delete", input);
   }
 
+  preflightDelete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
+    return this.operation("delete", { ...input, check_backlinks: true, dry_run: true });
+  }
+
   rename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenameResult>> {
     return this.operation("rename", input);
+  }
+
+  preflightRename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
+    return this.operation("rename", { ...input, dry_run: true });
   }
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
@@ -801,8 +826,16 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.delete(input);
   }
 
+  preflightDelete(input: DeleteInput): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
+    return this.collectionClient.preflightDelete(input);
+  }
+
   rename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenameResult>> {
     return this.collectionClient.rename(input);
+  }
+
+  preflightRename(input: RenameInput): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
+    return this.collectionClient.preflightRename(input);
   }
 
   validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
@@ -835,7 +868,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     if (!token.operations.includes(operation)) {
       throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`);
     }
-    let tryDirect = isMutation(operation) && this.storage.getItem(this.pendingMutationKey()) !== null
+    let tryDirect = isMutation(operation, input) && this.storage.getItem(this.pendingMutationKey()) !== null
       ? true
       : await this.shouldAttemptDirect(token);
     if (!tryDirect) {
@@ -974,7 +1007,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
       try {
-        if (tryDirect && isMutation(operation)) {
+        if (tryDirect && isMutation(operation, input)) {
           const inputFingerprint = await operationFingerprint(operation, input);
           const pending = parseStored<PendingDirectMutation>(
             this.storage.getItem(this.pendingMutationKey())
@@ -1422,7 +1455,9 @@ function directFallbackStatus(status: number): boolean {
   return status === 404 || status === 405 || status === 426 || status >= 500;
 }
 
-function isMutation(operation: CollectionOperation): boolean {
+function isMutation(operation: CollectionOperation, input?: unknown): boolean {
+  if (input && typeof input === "object" && !Array.isArray(input)
+      && (input as Record<string, unknown>).dry_run === true) return false;
   return operation === "create"
     || operation === "update"
     || operation === "delete"

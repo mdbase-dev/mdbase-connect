@@ -1960,6 +1960,18 @@ impl HostedProvider {
                         "The requested record is outside this application's record scope.",
                     ));
                 }
+                if !replica.allowed_types.is_empty() {
+                    if operation == "delete" {
+                        operation_input.insert("check_backlinks".to_string(), Value::Bool(false));
+                    } else if operation == "rename"
+                        && operation_input.get("update_refs").and_then(Value::as_bool) == Some(true)
+                    {
+                        return Err(ApiError::forbidden(
+                            "scope_denied",
+                            "Reference updates can affect records outside this application's scope.",
+                        ));
+                    }
+                }
                 let current_revision: String = current.get("revision");
                 let requested_revision = operation_input
                     .get("if_revision")
@@ -1993,6 +2005,16 @@ impl HostedProvider {
             }
             _ => unreachable!(),
         };
+        if operation_input.get("dry_run").and_then(Value::as_bool) == Some(true) {
+            let result = self
+                .execute_read_operation(collection_id, operation, &Value::Object(operation_input))
+                .await?;
+            return serde_json::to_value(result).map_err(|error| {
+                ApiError::internal(format!(
+                    "Hosted operation preflight could not serialize: {error}"
+                ))
+            });
+        }
         let mutation = SyncMutation {
             mutation_id: Uuid::new_v4(),
             replica_id: replica.id,

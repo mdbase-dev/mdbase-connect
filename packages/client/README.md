@@ -21,6 +21,14 @@ await connect.update({
   if_revision: workouts.result.results[0].revision
 });
 
+const preview = await connect.preflightRename({
+  from: "workouts/monday.md",
+  to: "archive/monday.md",
+  update_refs: true,
+  if_revision: workouts.result.results[0].revision
+});
+console.log(preview.result.references_affected);
+
 for await (const change of connect.watch()) {
   console.log(change.type, change.payload.path);
 }
@@ -129,6 +137,9 @@ record results, and accepts `if_revision` on mutations. `describe()` exposes
 JSON Schemas, portable type definitions, canonical collection settings, and
 optional domain contracts. `watch()` resumes from a local collection cursor;
 the Connect server does not store the change feed.
+`preflightRename()` and `preflightDelete()` run the canonical collection
+operation without changing records or advancing the change cursor, so an app
+can show authoritative reference impact before asking for confirmation.
 Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.
