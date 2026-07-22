@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+clap.workspace = true
 directories.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }

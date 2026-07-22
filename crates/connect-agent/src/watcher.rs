@@ -1,5 +1,5 @@
 use mdbase::watch::CollectionWatcher;
-use mdbase_connect_core::CollectionRegistry;
+use mdbase_connect_core::{CollectionInvalidation, CollectionRegistry};
 use mdbase_connect_protocol::CollectionSummary;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,13 +15,18 @@ pub struct CollectionWatchService {
 
 enum WatchCommand {
     Refresh(Vec<CollectionSummary>, mpsc::SyncSender<()>),
-    Rescan(Uuid, mpsc::SyncSender<()>),
+    Synchronize(Uuid, CollectionInvalidation, mpsc::SyncSender<()>),
 }
 
 struct WatchWorker {
     stop: mpsc::Sender<()>,
-    rescan: mpsc::Sender<mpsc::SyncSender<()>>,
+    synchronize: mpsc::Sender<SynchronizeRequest>,
     worker: thread::JoinHandle<()>,
+}
+
+enum SynchronizeRequest {
+    All(mpsc::SyncSender<()>),
+    Paths(Vec<PathBuf>, mpsc::SyncSender<()>),
 }
 
 impl CollectionWatchService {
@@ -54,11 +59,19 @@ impl CollectionWatchService {
     }
 
     pub fn rescan(&self, collection_id: Uuid) {
+        self.synchronize(collection_id, &CollectionInvalidation::All);
+    }
+
+    pub fn synchronize(&self, collection_id: Uuid, invalidation: &CollectionInvalidation) {
+        if matches!(invalidation, CollectionInvalidation::None) {
+            return;
+        }
         let (ready, receiver) = mpsc::sync_channel(0);
-        if let Err(error) = self
-            .commands
-            .send(WatchCommand::Rescan(collection_id, ready))
-        {
+        if let Err(error) = self.commands.send(WatchCommand::Synchronize(
+            collection_id,
+            invalidation.clone(),
+            ready,
+        )) {
             tracing::warn!(%error, "collection watcher is unavailable");
             return;
         }
@@ -76,10 +89,28 @@ fn watch_supervisor(registry: CollectionRegistry, commands: mpsc::Receiver<Watch
                 refresh_workers(&registry, &mut workers, collections);
                 let _ = ready.send(());
             }
-            WatchCommand::Rescan(collection_id, ready) => {
+            WatchCommand::Synchronize(collection_id, invalidation, ready) => {
                 if let Some(worker) = workers.get(&collection_id) {
-                    if let Err(error) = worker.rescan.send(ready) {
-                        let _ = error.0.send(());
+                    let request = match invalidation {
+                        CollectionInvalidation::None => {
+                            let _ = ready.send(());
+                            continue;
+                        }
+                        CollectionInvalidation::All => SynchronizeRequest::All(ready),
+                        CollectionInvalidation::Records(paths) => SynchronizeRequest::Paths(
+                            paths.into_iter().map(PathBuf::from).collect(),
+                            ready,
+                        ),
+                    };
+                    if let Err(error) = worker.synchronize.send(request) {
+                        match error.0 {
+                            SynchronizeRequest::All(ready)
+                            | SynchronizeRequest::Paths(_, ready) => {
+                                let _ = ready.send(());
+                            }
+                        }
+                    } else {
+                        worker.worker.thread().unpark();
                     }
                 } else {
                     let _ = ready.send(());
@@ -137,7 +168,7 @@ fn start_worker(
         }
     };
     let (stop, stop_rx) = mpsc::channel();
-    let (rescan, rescan_rx) = mpsc::channel::<mpsc::SyncSender<()>>();
+    let (synchronize, synchronize_rx) = mpsc::channel::<SynchronizeRequest>();
     let worker = thread::Builder::new()
         .name(format!("mdbase-connect-watch-{collection_id}"))
         .spawn(move || {
@@ -145,8 +176,14 @@ fn start_worker(
                 if stop_rx.try_recv().is_ok() {
                     return;
                 }
-                while let Ok(ready) = rescan_rx.try_recv() {
-                    if let Err(error) = watcher.rescan() {
+                while let Ok(request) = synchronize_rx.try_recv() {
+                    let (result, ready) = match request {
+                        SynchronizeRequest::All(ready) => (watcher.rescan(), ready),
+                        SynchronizeRequest::Paths(paths, ready) => {
+                            (watcher.rescan_paths(paths), ready)
+                        }
+                    };
+                    if let Err(error) = result {
                         tracing::warn!(collection_id = %collection_id, %error, "collection rescan failed");
                     }
                     while let Ok(Some(event)) = watcher.recv_timeout(Duration::ZERO) {
@@ -154,20 +191,26 @@ fn start_worker(
                     }
                     let _ = ready.send(());
                 }
-                match watcher.recv_timeout(Duration::from_millis(100)) {
-                    Ok(Some(event)) => persist_event(&registry, collection_id, &event),
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(collection_id = %collection_id, %error, "collection watcher stopped");
-                        return;
+                loop {
+                    match watcher.recv_timeout(Duration::ZERO) {
+                        Ok(Some(event)) => persist_event(&registry, collection_id, &event),
+                        Ok(None) => break,
+                        Err(error) => {
+                            tracing::warn!(collection_id = %collection_id, %error, "collection watcher stopped");
+                            return;
+                        }
                     }
                 }
+                // External filesystem events may wait up to this interval;
+                // explicit mutation synchronization unparks the worker and is
+                // processed immediately without a polling tax.
+                thread::park_timeout(Duration::from_millis(100));
             }
         })
         .expect("failed to start collection watcher thread");
     Some(WatchWorker {
         stop,
-        rescan,
+        synchronize,
         worker,
     })
 }
@@ -186,5 +229,6 @@ fn persist_event(
 
 fn stop_worker(worker: WatchWorker) {
     let _ = worker.stop.send(());
+    worker.worker.thread().unpark();
     let _ = worker.worker.join();
 }

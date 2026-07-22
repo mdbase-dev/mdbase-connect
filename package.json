@@ -11,6 +11,8 @@
     "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",
     "e2e:oracle": "pnpm build && cargo build --workspace && node scripts/oracle-e2e.mjs",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
+    "profile:connect": "cargo run --release -p mdbase-connect-core --bin connect-profile --",
+    "profile:rs": "cargo run --release --manifest-path ../mdbase-rs/Cargo.toml --bin mdb-profile -- --scenario queries",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

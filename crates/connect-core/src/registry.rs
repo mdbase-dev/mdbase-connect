@@ -120,6 +120,16 @@ pub enum EncryptedRequestClaim {
     InProgress,
 }
 
+/// Filesystem state that must be synchronized after a successful operation.
+/// Record paths come from mdbase's canonical operation envelope; collection
+/// metadata and type mutations intentionally request a full watcher reload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CollectionInvalidation {
+    None,
+    Records(BTreeSet<String>),
+    All,
+}
+
 pub fn encrypted_request_fingerprint(
     envelope: &EncryptedRelayEnvelope,
 ) -> Result<String, ConnectError> {
@@ -518,18 +528,38 @@ impl CollectionRegistry {
         operation: &str,
         input: &Value,
     ) -> Result<Value, ConnectError> {
+        self.operation_synchronized(id, operation, input, |_| {})
+    }
+
+    pub fn operation_synchronized(
+        &self,
+        id: Uuid,
+        operation: &str,
+        input: &Value,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
         if operation == "changes" {
             return serde_json::to_value(self.changes(id, input)?).map_err(ConnectError::from);
         }
         let provider = self.provider_for(&registered)?;
-        provider.with_collection(|collection| {
+        let execute = |collection: &Collection| {
             if operation == "describe" {
                 return serde_json::to_value(self.describe_loaded(&registered, collection)?)
                     .map_err(ConnectError::from);
             }
             execute_loaded(collection, operation, input)
-        })
+        };
+        if is_collection_mutation(operation) {
+            provider.with_collection(|collection| {
+                let result = execute(collection)?;
+                let invalidation = operation_invalidation(operation, input, &result);
+                synchronize(&invalidation);
+                Ok(result)
+            })
+        } else {
+            provider.with_collection_read(execute)
+        }
     }
 
     pub fn is_compatible(
@@ -628,6 +658,17 @@ impl CollectionRegistry {
         input: &Value,
         scope: &GrantScope,
     ) -> Result<Value, ConnectError> {
+        self.scoped_operation_synchronized(id, operation, input, scope, |_| {})
+    }
+
+    pub fn scoped_operation_synchronized(
+        &self,
+        id: Uuid,
+        operation: &str,
+        input: &Value,
+        scope: &GrantScope,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -635,9 +676,19 @@ impl CollectionRegistry {
             ));
         }
         let provider = self.provider_for(&registered)?;
-        provider.with_collection(|collection| {
+        let execute = |collection: &Collection| {
             self.scoped_operation_loaded(&registered, collection, operation, input, scope)
-        })
+        };
+        if is_collection_mutation(operation) {
+            provider.with_collection(|collection| {
+                let result = execute(collection)?;
+                let invalidation = operation_invalidation(operation, input, &result);
+                synchronize(&invalidation);
+                Ok(result)
+            })
+        } else {
+            provider.with_collection_read(execute)
+        }
     }
 
     fn scoped_operation_loaded(
@@ -840,7 +891,7 @@ impl CollectionRegistry {
     pub fn describe(&self, id: Uuid) -> Result<CollectionDescription, ConnectError> {
         let registered = self.get(id)?;
         let provider = self.provider_for(&registered)?;
-        provider.with_collection(|collection| self.describe_loaded(&registered, collection))
+        provider.with_collection_read(|collection| self.describe_loaded(&registered, collection))
     }
 
     fn describe_loaded(
@@ -1863,6 +1914,44 @@ fn execute_loaded(
     })
 }
 
+fn is_collection_mutation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "create" | "update" | "delete" | "rename" | "create_type" | "update_type"
+    )
+}
+
+fn operation_invalidation(
+    operation: &str,
+    input: &Value,
+    output: &Value,
+) -> CollectionInvalidation {
+    if !is_collection_mutation(operation)
+        || output.get("valid").and_then(Value::as_bool) == Some(false)
+        || output.get("error").is_some()
+    {
+        return CollectionInvalidation::None;
+    }
+    if matches!(operation, "create_type" | "update_type") {
+        return CollectionInvalidation::All;
+    }
+
+    let Ok(kind) = operation.parse::<mdbase::runtime::OperationKind>() else {
+        return CollectionInvalidation::All;
+    };
+    let Ok(result) = serde_json::from_value::<mdbase::v03::OperationResult>(output.clone()) else {
+        // Legacy profiles do not expose the portable operation envelope. The
+        // operation is still valid, but a full reload is the only safe hint.
+        return CollectionInvalidation::All;
+    };
+    let paths = mdbase::runtime::OperationRequest::new(kind, input.clone()).affected_paths(&result);
+    if paths.is_empty() {
+        CollectionInvalidation::All
+    } else {
+        CollectionInvalidation::Records(paths)
+    }
+}
+
 fn supported_operations() -> &'static [&'static str] {
     &[
         "describe",
@@ -1886,6 +1975,45 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
     use tempfile::tempdir;
+
+    #[test]
+    fn portable_mutation_results_produce_targeted_invalidations() {
+        let output = serde_json::to_value(mdbase::v03::OperationResult {
+            valid: true,
+            result: json!({
+                "from": "old.md",
+                "to": "new.md",
+                "references_updated": [{"path": "linked.md"}],
+            }),
+            diagnostics: vec![],
+        })
+        .unwrap();
+        assert_eq!(
+            operation_invalidation(
+                "rename",
+                &json!({"from": "old.md", "to": "new.md"}),
+                &output,
+            ),
+            CollectionInvalidation::Records(
+                ["linked.md", "new.md", "old.md"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect()
+            )
+        );
+        assert_eq!(
+            operation_invalidation(
+                "update",
+                &json!({"path": "private.md"}),
+                &json!({"valid": false}),
+            ),
+            CollectionInvalidation::None,
+        );
+        assert_eq!(
+            operation_invalidation("update_type", &json!({}), &json!({"valid": true})),
+            CollectionInvalidation::All,
+        );
+    }
 
     #[test]
     fn create_register_list_and_remove_collection() {

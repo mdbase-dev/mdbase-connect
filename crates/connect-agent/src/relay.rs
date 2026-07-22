@@ -40,6 +40,8 @@ async fn connect_once(
     );
     let (socket, _) = connect_async(request).await?;
     let (mut writer, mut reader) = socket.split();
+    let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
+    let operation_slots = Arc::new(tokio::sync::Semaphore::new(16));
     state.set_connection_state(AgentConnectionState::Connected);
     tracing::info!(server = server_url, "connected to cloud relay");
     let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
@@ -51,12 +53,28 @@ async fn connect_once(
                 match message? {
                     Message::Text(text) => {
                         let relay_message: RelayMessage = serde_json::from_str(text.as_ref())?;
-                        let state_for_operation = state.clone();
-                        let response = tokio::task::spawn_blocking(move || {
-                            state_for_operation.handle_relay_message(relay_message)
-                        }).await?;
-                        if let Some(response) = response {
-                            writer.send(Message::Text(serde_json::to_string(&response)?.into())).await?;
+                        if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
+                            // Apply policy in receive order so every subsequently
+                            // accepted operation sees the latest local grant state.
+                            state.handle_relay_message(relay_message);
+                        } else {
+                            let state_for_operation = state.clone();
+                            let responses = responses.clone();
+                            let operation_slots = operation_slots.clone();
+                            tokio::spawn(async move {
+                                let Ok(_permit) = operation_slots.acquire_owned().await else {
+                                    return;
+                                };
+                                match tokio::task::spawn_blocking(move || {
+                                    state_for_operation.handle_relay_message(relay_message)
+                                }).await {
+                                    Ok(Some(response)) => {
+                                        let _ = responses.send(response).await;
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => tracing::warn!(%error, "relay operation task failed"),
+                                }
+                            });
                         }
                     }
                     Message::Ping(payload) => writer.send(Message::Pong(payload)).await?,
@@ -64,8 +82,27 @@ async fn connect_once(
                     _ => {}
                 }
             }
+            response = response_rx.recv() => {
+                let Some(response) = response else {
+                    return Err("relay response channel closed".into());
+                };
+                writer.send(Message::Text(serde_json::to_string(&response)?.into())).await?;
+            }
             _ = sync_interval.tick() => {
-                sync_collections(client, server_url, connector_token, &state).await?;
+                let client = client.clone();
+                let server_url = server_url.to_string();
+                let connector_token = connector_token.to_string();
+                let state = state.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = sync_collections(
+                        &client,
+                        &server_url,
+                        &connector_token,
+                        &state,
+                    ).await {
+                        tracing::warn!(%error, "collection sync failed");
+                    }
+                });
             }
         }
     }

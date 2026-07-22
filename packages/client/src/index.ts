@@ -114,6 +114,8 @@ export interface QueryInput {
   order_by?: unknown;
   limit?: number;
   offset?: number;
+  /** Opaque token returned by the first metadata page for consistent, fast pagination. */
+  snapshot?: string;
   include_body?: boolean;
   [key: string]: unknown;
 }
@@ -123,6 +125,7 @@ export interface QueryResult<Record extends JsonObject = JsonObject> {
   meta?: {
     total_count: number;
     has_more: boolean;
+    snapshot?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;

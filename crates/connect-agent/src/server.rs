@@ -12,6 +12,7 @@ use mdbase_connect_protocol::{
 };
 use std::io;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub struct AgentState {
@@ -96,6 +97,50 @@ impl AgentState {
                     .iter()
                     .any(|grant| grant.application_origin == origin && grant.encryption.is_some())
             })
+    }
+
+    fn scoped_operation(
+        &self,
+        transport: &'static str,
+        collection_id: uuid::Uuid,
+        operation: &str,
+        input: &serde_json::Value,
+        scope: &mdbase_connect_protocol::GrantScope,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let started = Instant::now();
+        let synchronize_us = std::cell::Cell::new(0_u64);
+        let result = self.registry.scoped_operation_synchronized(
+            collection_id,
+            operation,
+            input,
+            scope,
+            |invalidation| {
+                let synchronize_started = Instant::now();
+                self.watcher.synchronize(collection_id, invalidation);
+                synchronize_us.set(elapsed_us(synchronize_started));
+            },
+        );
+        profile_operation(transport, operation, started, synchronize_us.get(), &result);
+        result
+    }
+
+    fn local_operation(
+        &self,
+        collection_id: uuid::Uuid,
+        operation: &str,
+        input: &serde_json::Value,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let started = Instant::now();
+        let synchronize_us = std::cell::Cell::new(0_u64);
+        let result =
+            self.registry
+                .operation_synchronized(collection_id, operation, input, |invalidation| {
+                    let synchronize_started = Instant::now();
+                    self.watcher.synchronize(collection_id, invalidation);
+                    synchronize_us.set(elapsed_us(synchronize_started));
+                });
+        profile_operation("control", operation, started, synchronize_us.get(), &result);
+        result
     }
 
     pub fn handle_direct_encrypted_operation(
@@ -187,7 +232,8 @@ impl AgentState {
                         && grant.operations.iter().any(|allowed| allowed == &operation)
                 });
                 let result = if authorized {
-                    self.registry.scoped_operation(
+                    self.scoped_operation(
+                        "relay",
                         collection_id,
                         &operation,
                         &input,
@@ -216,9 +262,6 @@ impl AgentState {
                         }),
                     });
                 };
-                if result.is_ok() && is_mutation(&operation) {
-                    self.watcher.rescan(collection_id);
-                }
                 let (outcome, detail) = match &result {
                     Ok(_) => ("succeeded", None),
                     Err(error) => ("failed", Some(error.to_string())),
@@ -361,16 +404,14 @@ impl AgentState {
                 "Remote access is paused on this computer.".to_string(),
             ))
         } else {
-            self.registry.scoped_operation(
+            self.scoped_operation(
+                "encrypted",
                 context.collection_id,
                 &envelope.operation,
                 &input,
                 &context.scope,
             )
         };
-        if result.is_ok() && is_mutation(&envelope.operation) {
-            self.watcher.rescan(context.collection_id);
-        }
         let (outcome, detail) = match &result {
             Ok(_) => ("succeeded", None),
             Err(error) if paused => ("denied", Some(error.to_string())),
@@ -500,13 +541,7 @@ impl AgentState {
                 self.registry.validate(params.collection_id)
             }
             ControlCommand::CollectionOperation(params) => {
-                let result =
-                    self.registry
-                        .operation(params.collection_id, &params.operation, &params.input);
-                if result.is_ok() && is_mutation(&params.operation) {
-                    self.watcher.rescan(params.collection_id);
-                }
-                result
+                self.local_operation(params.collection_id, &params.operation, &params.input)
             }
             ControlCommand::AccessSnapshot => self.access_snapshot().await,
             ControlCommand::AccessPause(params) => self
@@ -699,11 +734,39 @@ fn requirements_can_be_provisioned(
     })
 }
 
-fn is_mutation(operation: &str) -> bool {
-    matches!(
+fn profile_operation(
+    transport: &str,
+    operation: &str,
+    started: Instant,
+    synchronize_us: u64,
+    result: &Result<serde_json::Value, ConnectError>,
+) {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let enabled = ENABLED.get_or_init(|| {
+        std::env::var("MDBASE_CONNECT_PROFILE")
+            .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+    });
+    if !enabled {
+        return;
+    }
+    let total_us = elapsed_us(started);
+    let execute_us = total_us.saturating_sub(synchronize_us);
+    let error_code = result.as_ref().err().map(ConnectError::code);
+    tracing::info!(
+        target: "mdbase_connect::profile",
+        transport,
         operation,
-        "create" | "update" | "delete" | "rename" | "create_type" | "update_type"
-    )
+        execute_us,
+        synchronize_us,
+        total_us,
+        ok = result.is_ok(),
+        error_code,
+        "collection operation profile"
+    );
+}
+
+fn elapsed_us(started: Instant) -> u64 {
+    started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
 }
 
 fn encrypted_rejection(request_id: uuid::Uuid) -> RelayMessage {
