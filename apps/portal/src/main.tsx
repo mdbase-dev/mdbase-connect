@@ -741,6 +741,9 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
         {request.requirements.contracts.length > 0 && (
           <small>{scopeDescription(request.requirements.contracts)}</small>
         )}
+        {request.requirements.collection_kind === "hosted" && (
+          <small>Requires an mdbase cloud collection</small>
+        )}
       </div>
     </div>
   );
@@ -881,9 +884,12 @@ function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
   request: PendingAuthorization,
   collections: Array<T & { kind?: "local" | "hosted" }>
 ): T[] {
+  const candidates = request.requirements.collection_kind === "hosted"
+    ? collections.filter((collection) => collection.kind === "hosted")
+    : collections;
   const required = request.requirements.contracts;
-  if (required.length === 0) return collections;
-  return collections.filter((collection) => required.every((requirement) =>
+  if (required.length === 0) return candidates;
+  return candidates.filter((collection) => required.every((requirement) =>
     hasContract(collection.contracts, requirement)
     || (collection.kind === "hosted" && request.provisions.types.some((provision) =>
       provision.provides.some((provided) => sameContract(provided, requirement))

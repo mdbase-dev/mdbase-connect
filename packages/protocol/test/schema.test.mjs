@@ -41,7 +41,10 @@ test("application manifests declare connector-controlled type provisioning", () 
     name: "Tasks",
     homepage: "https://tasks.example/",
     redirect_uris: ["https://tasks.example/callback"],
-    requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+    requirements: {
+      collection_kind: "hosted",
+      contracts: [{ id: "tasknotes.task", version: 1 }]
+    },
     provisions: {
       types: [{
         name: "Task",
@@ -52,6 +55,10 @@ test("application manifests declare connector-controlled type provisioning", () 
   };
   assert.equal(validate(manifest), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...manifest, manifest_version: 2 }), false);
+  assert.equal(validate({
+    ...manifest,
+    requirements: { ...manifest.requirements, collection_kind: "local" }
+  }), false);
   assert.equal(validate({ ...manifest, provisions: { types: [{ ...manifest.provisions.types[0], provides: [] }] } }), false);
 });
 

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { createECDH } from "node:crypto";
+import type { ApplicationRequirements } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
@@ -481,6 +482,30 @@ describe("mdbase connect server", () => {
     });
     const setCookie = session.headers["set-cookie"]!;
     const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const connectorResponse = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Writing computer" }
+    });
+    const connector = connectorResponse.json();
+    const localCollectionId = "32f95339-c600-427f-a187-85758dc2662e";
+    const synchronized = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/sync",
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: {
+        collections: [{
+          id: localCollectionId,
+          display_name: "Local writing",
+          spec_version: "0.3.0",
+          enabled: true,
+          contracts: []
+        }]
+      }
+    });
+    expect(synchronized.statusCode).toBe(200);
+    const localControlCollectionId = synchronized.json().collections[0].id as string;
     const collection = await app.inject({
       method: "POST",
       url: "/v1/hosted/collections",
@@ -489,7 +514,10 @@ describe("mdbase connect server", () => {
     });
     const collectionId = collection.json().collection.id as string;
 
-    const manifestServer = await startManifestServer({ contracts: [] }, "Writing Editor");
+    const manifestServer = await startManifestServer(
+      { contracts: [], collection_kind: "hosted" },
+      "Writing Editor"
+    );
     resources.push(manifestServer.close);
     const discovered = await app.inject({
       method: "POST",
@@ -504,6 +532,37 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
+    const pending = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie }
+    });
+    expect(pending.json().authorization.requirements).toEqual({
+      contracts: [],
+      collection_kind: "hosted"
+    });
+    expect(pending.json().collections).toEqual([
+      expect.objectContaining({ id: collectionId, kind: "hosted" })
+    ]);
+    const connectorControl = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(connectorControl.json().pending_authorizations).toEqual([]);
+    const localApproval = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: localControlCollectionId,
+        operations: ["describe", "query", "create", "update"]
+      }
+    });
+    expect(localApproval.statusCode).toBe(400);
+    expect(localApproval.json().error.message).toBe(
+      "This application requires an mdbase cloud collection."
+    );
     const approved = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${requestId}/approve`,
@@ -693,7 +752,9 @@ describe("mdbase connect server", () => {
 });
 
 async function startManifestServer(
-  requirements = { contracts: [{ id: "workout.record", version: 1 }] },
+  requirements: ApplicationRequirements = {
+    contracts: [{ id: "workout.record", version: 1 }]
+  },
   name = "Workout Tracker",
   provisions?: {
     types: Array<{

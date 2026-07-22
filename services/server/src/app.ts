@@ -838,6 +838,7 @@ export async function buildApp(options: BuildOptions) {
         application_origin: new URL(grant.application_origin).origin
       })),
       pending_authorizations: pendingAuthorizations.rows
+        .filter((authorization) => !requiresHostedCollection(authorization.requirements))
     };
   });
 
@@ -899,6 +900,12 @@ export async function buildApp(options: BuildOptions) {
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (requiresHostedCollection(application.rows[0].requirements)) {
+      return reply.code(409).send(apiError(
+        "incompatible_collection",
+        "This application requires an mdbase cloud collection."
+      ));
+    }
     const scope = scopeForRequirements(application.rows[0].requirements);
     if (!contractsSatisfy(collection.rows[0].contracts, scope.contracts)) {
       return reply.code(409).send(apiError(
@@ -1314,6 +1321,12 @@ export async function buildApp(options: BuildOptions) {
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (requiresHostedCollection(application.rows[0].requirements)) {
+      return reply.code(409).send(apiError(
+        "incompatible_collection",
+        "This application requires an mdbase cloud collection."
+      ));
+    }
     const scope = scopeForRequirements(application.rows[0].requirements);
     if (!contractsSatisfy(ownership.rows[0].contracts, scope.contracts)) {
       return reply.code(409).send(apiError(
@@ -1518,18 +1531,21 @@ export async function buildApp(options: BuildOptions) {
           [user.id]
         )
       : { rows: [] };
+    const availableCollections = [
+      ...collections.rows.map((collection) => ({ ...collection, kind: "local" as const })),
+      ...hosted.rows.map((collection) => ({
+        ...collection,
+        kind: "hosted" as const,
+        connector_name: "Hosted by mdbase",
+        spec_version: "0.3.0",
+        contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template))
+      }))
+    ];
     return {
       authorization: authorization.rows[0],
-      collections: [
-        ...collections.rows.map((collection) => ({ ...collection, kind: "local" })),
-        ...hosted.rows.map((collection) => ({
-          ...collection,
-          kind: "hosted",
-          connector_name: "Hosted by mdbase",
-          spec_version: "0.3.0",
-          contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template))
-        }))
-      ]
+      collections: requiresHostedCollection(authorization.rows[0].requirements)
+        ? availableCollections.filter((collection) => collection.kind === "hosted")
+        : availableCollections
     };
   });
 
@@ -1928,7 +1944,10 @@ async function reconcileApplicationGrants(
     const availableContracts = grant.template
       ? contractRequirements(hostedDescriptors)
       : grant.local_contracts ?? [];
-    const collectionCompatible = contractsSatisfy(availableContracts, desiredScope.contracts);
+    const collectionKindCompatible = !requiresHostedCollection(application.requirements)
+      || grant.template !== null;
+    const collectionCompatible = collectionKindCompatible
+      && contractsSatisfy(availableContracts, desiredScope.contracts);
     const scopeMatches = scopesEqual(grant.scope, desiredScope);
     const desiredAllowedTypes = grant.template
       ? typesForContracts(hostedDescriptors, desiredScope.contracts)
@@ -2039,6 +2058,9 @@ async function approveAuthorization(
   );
   const pending = authorization.rows[0];
   if (!pending) return false;
+  if (requiresHostedCollection(pending.requirements)) {
+    throw new RequestValidationError("This application requires an mdbase cloud collection.");
+  }
   if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
     throw new RequestValidationError("Approved operations must be requested by the application.");
   }
@@ -2410,6 +2432,12 @@ function scopeForRequirements(requirements: ApplicationRequirements | null | und
       contract
     ])).values()]
   };
+}
+
+function requiresHostedCollection(
+  requirements: ApplicationRequirements | null | undefined
+): boolean {
+  return requirements?.collection_kind === "hosted";
 }
 
 function matchesGrantEncryption(

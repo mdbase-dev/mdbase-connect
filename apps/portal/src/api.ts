@@ -103,6 +103,7 @@ export interface ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  collection_kind?: "hosted";
 }
 
 export interface TypeProvision {

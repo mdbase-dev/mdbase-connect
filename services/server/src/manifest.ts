@@ -14,7 +14,10 @@ const contractsSchema = z.array(contractSchema).max(20).refine(
   (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
   "Contracts must be unique."
 );
-const requirementsSchema = z.object({ contracts: contractsSchema }).strict().default({ contracts: [] });
+const requirementsSchema = z.object({
+  contracts: contractsSchema,
+  collection_kind: z.literal("hosted").optional()
+}).strict().default({ contracts: [] });
 const manifestSchema = z.object({
   manifest_version: z.literal(1),
   name: z.string().trim().min(1).max(100),

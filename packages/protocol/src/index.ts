@@ -68,6 +68,8 @@ export interface ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  /** Restrict authorization to durable provider-backed collections. */
+  collection_kind?: "hosted";
 }
 
 export interface TypeProvision {
