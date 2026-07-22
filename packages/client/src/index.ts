@@ -66,6 +66,7 @@ export type {
   SavedViewExecution,
   SavedViewList,
   SavedViewPresentation,
+  SavedViewProperty,
   SavedViewSource,
   ExecuteViewInput,
   TypeProvision

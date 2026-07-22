@@ -86,7 +86,12 @@ try {
     `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["TaskNotes/Views/**/*.base"]\n`
   );
   await mkdir(join(collectionPath, "TaskNotes", "Views"), { recursive: true });
-  await writeFile(join(collectionPath, "TaskNotes", "Views", "tasks.base"), `views:
+  await writeFile(join(collectionPath, "TaskNotes", "Views", "tasks.base"), `formulas:
+  lane: if(status == "open", "Ready", "Other")
+properties:
+  formula.lane:
+    displayName: Lane
+views:
   - type: tasknotesKanban
     name: Open tasks
     filters:
@@ -95,7 +100,10 @@ try {
     groupBy:
       property: status
       direction: ASC
-    order: [status, file.name]
+    order: [status, formula.lane, file.name]
+    sort:
+      - property: file.path
+        direction: ASC
 `);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
   await writeFile(join(collectionPath, "_types", "task.md"), `---
@@ -823,11 +831,15 @@ schema:
         listedView: views.valid
           && views.result.views.some((document) =>
             document.source.path === "TaskNotes/Views/tasks.base"
-              && document.views.some((view) => view.id === "open-tasks")
+              && document.views.some((view) => view.id === "open-tasks"
+                && view.properties[1].key === "formula.lane"
+                && view.properties[1].label === "Lane")
           ),
         executedView: executedView.valid
           && executedView.result.results.length === 1000
-          && executedView.result.meta.groups[0].values.status === "open",
+          && executedView.result.meta.groups[0].values.status === "open"
+          && executedView.result.results[0].values["formula.lane"] === "Ready"
+          && !("file.path" in executedView.result.results[0].values),
         changed: changed.events.length > 0,
         deleted: deleted.result.deleted
       };

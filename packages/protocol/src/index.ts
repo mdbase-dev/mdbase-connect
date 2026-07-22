@@ -302,7 +302,16 @@ export interface SavedViewSource {
 export interface SavedNamedView {
   id: string;
   name: string;
+  properties: SavedViewProperty[];
   presentation?: SavedViewPresentation;
+}
+
+export interface SavedViewProperty {
+  key: string;
+  label?: string;
+  description?: string;
+  format?: string;
+  hidden?: boolean;
 }
 
 export interface SavedViewDocument {

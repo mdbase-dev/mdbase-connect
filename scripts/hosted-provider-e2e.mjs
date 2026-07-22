@@ -500,11 +500,17 @@ schema:
       id: "writing.views",
       version: 1,
       name: "Writing views",
-      query: { where: 'file.path != "Views/writing.md"' },
+      properties: {
+        "projection.display_title": { label: "Display title" }
+      },
+      query: {
+        where: 'file.path != "Views/writing.md"',
+        projections: { display_title: { expr: 'title + "!"' } }
+      },
       views: [{
         id: "all",
         name: "All writing",
-        select: ["title"]
+        select: ["title", "projection.display_title"]
       }]
     }
   });
@@ -512,6 +518,10 @@ schema:
   const listedViews = await hostedSdk.listViews();
   assert.equal(listedViews.valid, true);
   assert.equal(listedViews.result.views[0].views[0].id, "all");
+  assert.deepEqual(listedViews.result.views[0].views[0].properties[1], {
+    key: "display_title",
+    label: "Display title"
+  });
   const executedView = await hostedSdk.executeView({
     path: "Views/writing.md",
     view: "all"
@@ -520,6 +530,10 @@ schema:
   assert.deepEqual(
     executedView.result.results.map((record) => record.path),
     ["Writing/Draft.md"]
+  );
+  assert.equal(
+    executedView.result.results[0].values.display_title,
+    "Updated through hosted SDK!"
   );
   assert.equal((await hostedSdk.delete({
     path: "Views/writing.md",

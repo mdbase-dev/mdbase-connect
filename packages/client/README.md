@@ -115,6 +115,10 @@ Set `access` to `full_collection` when the application needs collection-level
 features such as saved views. Required contracts still determine compatibility
 and are provisioned during approval.
 
+`listViews()` returns each named view's selected result properties in display
+order. Property descriptors retain source labels for projected and computed
+values. `executeView()` returns their values on each result row.
+
 Provisioning is part of the approval flow. The connector validates and
 installs only the missing type definitions, verifies that they expose the
 declared contracts, and creates the scoped grant afterward. The application is
