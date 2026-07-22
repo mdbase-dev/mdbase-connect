@@ -11,6 +11,7 @@ import type {
   GrantEncryption,
   GrantScope,
   JsonObject,
+  MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordSummary,
   RecordResult,
@@ -1231,6 +1232,26 @@ export class MdbaseConnectError extends Error {
     this.details = options.details;
     if (options.cause !== undefined) Object.defineProperty(this, "cause", { value: options.cause, configurable: true });
   }
+}
+
+export class MdbaseOperationValidationError<Result = unknown> extends Error {
+  readonly code = "operation_invalid";
+
+  constructor(
+    public readonly diagnostics: MdbaseDiagnostic[],
+    public readonly result: Result
+  ) {
+    super(diagnostics.filter((item) => item.severity === "error").map((item) => item.message).join(" ")
+      || diagnostics.map((item) => item.message).join(" ")
+      || "The collection rejected this operation.");
+    this.name = "MdbaseOperationValidationError";
+  }
+}
+
+/** Return a valid operation result or throw while preserving every diagnostic. */
+export function unwrapOperation<Result>(envelope: MdbaseOperationEnvelope<Result>): Result {
+  if (!envelope.valid) throw new MdbaseOperationValidationError(envelope.diagnostics, envelope.result);
+  return envelope.result;
 }
 
 /** True only when repeating a read/poll is safe without asking the user. */

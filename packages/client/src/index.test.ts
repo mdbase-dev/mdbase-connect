@@ -4,8 +4,10 @@ import {
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
+  MdbaseOperationValidationError,
   isRetryableConnectError,
-  MemoryGrantKeyStore
+  MemoryGrantKeyStore,
+  unwrapOperation
 } from "./index.js";
 import type { GrantEncryption } from "@mdbase/connect-protocol";
 
@@ -197,6 +199,32 @@ describe("actionable SDK errors", () => {
       outcomeUnknown: true,
       recovery: "resolve_outcome"
     });
+  });
+
+  it("unwraps valid envelopes and preserves rejected diagnostics and partial results", () => {
+    expect(unwrapOperation({ valid: true, result: { path: "notes/one.md" }, diagnostics: [] }))
+      .toEqual({ path: "notes/one.md" });
+
+    const envelope = {
+      valid: false,
+      result: { path: "notes/one.md", inspected: true },
+      diagnostics: [
+        { severity: "warning" as const, code: "deprecated", message: "A legacy field is present." },
+        { severity: "error" as const, code: "missing_required", message: "Title is required.", field: "title" }
+      ]
+    };
+    try {
+      unwrapOperation(envelope);
+      throw new Error("Expected unwrapOperation to throw.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MdbaseOperationValidationError);
+      expect(error).toMatchObject({
+        code: "operation_invalid",
+        message: "Title is required.",
+        diagnostics: envelope.diagnostics,
+        result: envelope.result
+      });
+    }
   });
 
   it("keeps server status and diagnostic details on operation failures", async () => {
