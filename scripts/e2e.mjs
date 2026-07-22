@@ -17,7 +17,10 @@ import { MdbaseConnect } from "../packages/client/dist/index.js";
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "..");
-const loopbackPort = Number(process.env.MDBASE_CONNECT_E2E_LOOPBACK_PORT ?? 28_485);
+const configuredLoopbackPort = process.env.MDBASE_CONNECT_E2E_LOOPBACK_PORT;
+const loopbackPort = configuredLoopbackPort === undefined
+  ? await availableTcpPort()
+  : Number(configuredLoopbackPort);
 if (!Number.isInteger(loopbackPort) || loopbackPort < 1 || loopbackPort > 65_535) {
   throw new Error("MDBASE_CONNECT_E2E_LOOPBACK_PORT must be a valid TCP port");
 }
@@ -41,8 +44,6 @@ const collectionPath = join(scratch, "workouts");
 const extension = process.platform === "win32" ? ".exe" : "";
 const agentBinary = join(repoRoot, "target", "debug", `mdbase-connect-agent${extension}`);
 const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
-const loopbackPort = Number(process.env.MDBASE_CONNECT_LOOPBACK_PORT ?? 28_485);
-const loopbackUrl = `http://127.0.0.1:${loopbackPort}`;
 let agent;
 let manifestServer;
 let browserManifestServer;
@@ -673,6 +674,20 @@ async function poll(action, failureMessage) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   throw new Error(failureMessage);
+}
+
+async function availableTcpPort() {
+  const server = createServer();
+  await new Promise((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve an end-to-end loopback port");
+  }
+  await new Promise((resolveClose) => server.close(resolveClose));
+  return address.port;
 }
 
 async function openManifestServer() {
