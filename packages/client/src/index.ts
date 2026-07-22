@@ -617,6 +617,11 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly loopbackUrl: string;
   private readonly navigate?: (url: string) => void | Promise<void>;
   private application: Application | null = null;
+  private authorizationCompletionPromise: Promise<{
+    collectionId: string;
+    operations: CollectionOperation[];
+    scope: GrantScope;
+  }> | null = null;
   private refreshPromise: Promise<StoredToken> | null = null;
   private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
   private directStatus: DirectAccessStatus;
@@ -733,7 +738,23 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     ]));
   }
 
-  async completeAuthorization(callbackUrl = defaultCallbackUrl()): Promise<{
+  completeAuthorization(callbackUrl = defaultCallbackUrl()): Promise<{
+    collectionId: string;
+    operations: CollectionOperation[];
+    scope: GrantScope;
+  }> {
+    if (this.authorizationCompletionPromise) return this.authorizationCompletionPromise;
+    const completion = this.performAuthorizationCompletion(callbackUrl);
+    const shared = completion.finally(() => {
+      if (this.authorizationCompletionPromise === shared) {
+        this.authorizationCompletionPromise = null;
+      }
+    });
+    this.authorizationCompletionPromise = shared;
+    return shared;
+  }
+
+  private async performAuthorizationCompletion(callbackUrl: string): Promise<{
     collectionId: string;
     operations: CollectionOperation[];
     scope: GrantScope;

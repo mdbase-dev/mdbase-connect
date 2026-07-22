@@ -482,6 +482,48 @@ describe("long mutation progress", () => {
 });
 
 describe("authorization renewal", () => {
+  it("coalesces concurrent authorization completion into one code exchange", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:pending:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      verifier: "pkce-verifier",
+      state: "callback-state",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled"
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      access_token: "mdb_authorized",
+      refresh_token: "ref_authorized",
+      expires_in: 3600,
+      refresh_expires_in: 2_592_000,
+      collection_id: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled"
+    });
+    const callback = "https://tasks.example/callback?code=single-use-code&state=callback-state";
+
+    const [first, second] = await Promise.all([
+      connect.completeAuthorization(callback),
+      connect.completeAuthorization(callback)
+    ]);
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"]
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("reports capability gaps and requests only the least-privilege union", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
