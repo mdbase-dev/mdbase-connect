@@ -23,6 +23,49 @@ describe("hosted collection profiles", () => {
 });
 
 describe("persisted hosted authority", () => {
+  it("allows full-collection TaskNotes replicas to store supporting Markdown records", async () => {
+    database = await createDatabase("memory");
+    const userId = randomUUID();
+    const collectionId = randomUUID();
+    const replicaId = randomUUID();
+    await database.query("INSERT INTO users (id, email, name) VALUES ($1, $2, $3)", [
+      userId,
+      "templates@example.com",
+      "Templates"
+    ]);
+    await database.query(
+      "INSERT INTO hosted_collections (id, user_id, display_name, template) VALUES ($1, $2, $3, $4)",
+      [collectionId, userId, "Tasks", "tasknotes"]
+    );
+    const registry = new HostedAuthorityRegistry(database);
+    await registry.create(collectionId, "tasknotes");
+    await registry.registerReplica(collectionId, {
+      id: replicaId,
+      name: "Full collection app",
+      mode: "read_write",
+      allowedTypes: []
+    });
+    const transport = await registry.transport(collectionId, replicaId);
+    const receipt = await transport.mutate({
+      mutation_id: randomUUID(),
+      replica_id: replicaId,
+      scope_epoch: 1,
+      operation: "create",
+      record_id: randomUUID(),
+      input: {
+        path: "Templates/Task.md",
+        frontmatter: { purpose: "task-template" },
+        body: "Template body for {{title}}",
+        types: []
+      },
+      created_at: new Date().toISOString()
+    });
+    expect(receipt).toMatchObject({
+      status: "applied",
+      record: { path: "Templates/Task.md", types: [] }
+    });
+  });
+
   it("survives registry restart, preserves idempotency, and serializes stale writers", async () => {
     database = await createDatabase("memory");
     const userId = randomUUID();

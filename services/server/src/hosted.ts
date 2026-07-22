@@ -184,7 +184,7 @@ function authorityOptions(resources: SyncCollectionResources) {
 }
 
 function validateTasknotes(record: { types: string[]; frontmatter: JsonObject }): void {
-  if (!record.types.includes("task")) throw new SyncError("scope_denied", "The TaskNotes collection accepts task records only.");
+  if (!record.types.includes("task")) return;
   if (record.frontmatter.type !== "task" || typeof record.frontmatter.title !== "string" || !record.frontmatter.title.trim()) {
     throw new SyncError("validation_failed", "Task records require type: task and a non-empty title.");
   }
