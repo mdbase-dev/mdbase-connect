@@ -1492,12 +1492,14 @@ impl HostedProvider {
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await?;
         authorize_application_operation(&replica, operation, request_origin)?;
-        if matches!(operation, "read_type" | "create_type" | "update_type")
-            && !replica.allowed_types.is_empty()
+        if matches!(
+            operation,
+            "read_type" | "create_type" | "update_type" | "list_views" | "execute_view"
+        ) && !replica.allowed_types.is_empty()
         {
             return Err(ApiError::forbidden(
                 "scope_denied",
-                "Type definitions can only be managed with full collection access.",
+                "This operation requires full collection access.",
             ));
         }
         match operation {
@@ -1506,7 +1508,7 @@ impl HostedProvider {
                 self.changes_operation(collection_id, &replica, &input)
                     .await
             }
-            "read" | "query" | "validate" | "read_type" => {
+            "read" | "query" | "validate" | "read_type" | "list_views" | "execute_view" => {
                 let scoped_input = scope_read_input(operation, input, &replica.allowed_types)?;
                 let result = self
                     .execute_read_operation(collection_id, operation, &scoped_input)
@@ -3058,6 +3060,8 @@ fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResul
         "read_type",
         "create_type",
         "update_type",
+        "list_views",
+        "execute_view",
     ];
     const WRITES: &[&str] = &[
         "create",
@@ -3181,7 +3185,11 @@ mod tests {
             purpose: ReplicaPurpose::Application,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: vec!["task".to_string()],
-            allowed_operations: vec!["query".to_string()],
+            allowed_operations: vec![
+                "query".to_string(),
+                "list_views".to_string(),
+                "execute_view".to_string(),
+            ],
             allowed_origin: Some("https://tasks.example".to_string()),
             token: "x".repeat(40),
             token_ttl_seconds: Some(3600),
@@ -3197,6 +3205,10 @@ mod tests {
             scope_epoch: 1,
         };
         authorize_application_operation(&replica, "query", Some("https://tasks.example")).unwrap();
+        authorize_application_operation(&replica, "list_views", Some("https://tasks.example"))
+            .unwrap();
+        authorize_application_operation(&replica, "execute_view", Some("https://tasks.example"))
+            .unwrap();
         assert_eq!(
             authorize_application_operation(&replica, "create", None)
                 .unwrap_err()

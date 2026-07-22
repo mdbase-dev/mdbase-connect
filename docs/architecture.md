@@ -50,7 +50,7 @@ checks its local policy copy again before it opens a collection.
 Connect protocol 2 exposes these grantable operations:
 
 - `describe`, `changes`
-- `read`, `query`, `validate`
+- `read`, `query`, `validate`, `list_views`, `execute_view`
 - `create`, `update`, `delete`, `rename`
 
 mdbase operations retain the canonical `{ valid, result, diagnostics }`
@@ -58,16 +58,16 @@ envelope. Reads and successful writes carry opaque revisions. Mutations accept
 `if_revision`, which allows clients to prevent lost updates without knowing
 how a provider constructs its revision token.
 
-An application manifest may require exact domain contract versions. Approval
-turns those requirements into a grant scope. The connector resolves each
-contract to its current local type and applies the scope to discovery, queries,
-direct record access, mutations, and change delivery. Query type filters are
-constrained locally; direct paths are checked against matched record types; and
-updates and renames are checked against their prospective type membership
-before writing. Collection-wide validation and cross-record reference rewriting
-are unavailable to a contract-scoped grant. Scoped queries reject link
-traversal into other records until the query engine can carry the grant scope
-through link resolution.
+An application manifest may require exact domain contract versions. These
+requirements determine collection compatibility and provisioning. Access is
+contract-scoped by default: the connector resolves each contract to its current
+local type and applies that scope to discovery, queries, direct record access,
+mutations, and change delivery. Applications that need collection-level
+features such as saved views may declare `requirements.access` as
+`full_collection`; their contract requirements continue to govern compatibility
+and setup. Query type filters are constrained locally for contract-scoped
+grants; direct paths are checked against matched record types; and updates and
+renames are checked against their prospective type membership before writing.
 
 An application manifest may pair required contracts with portable type provisions.
 A collection is then either ready, provisionable, or incompatible. During

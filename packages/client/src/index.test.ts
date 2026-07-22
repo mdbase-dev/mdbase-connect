@@ -56,6 +56,33 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("exposes provider-neutral saved-view discovery and execution", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return { valid: true, result: {}, diagnostics: [] } as Result;
+      }
+    });
+    await client.listViews();
+    await client.executeView({
+      path: "TaskNotes/Views/tasks.base",
+      view: "kanban-board",
+      limit: 50
+    });
+    expect(calls).toEqual([
+      { operation: "list_views", input: {} },
+      {
+        operation: "execute_view",
+        input: {
+          path: "TaskNotes/Views/tasks.base",
+          view: "kanban-board",
+          limit: 50
+        }
+      }
+    ]);
+  });
+
   it("surfaces cursor resets from any transport", async () => {
     const client = new MdbaseCollectionClient({
       async operation<Result>() {
@@ -528,7 +555,7 @@ async function encryptedConnection() {
     clientId: "01922222-2222-7222-8222-222222222222",
     collectionId,
     operations: [
-      "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
+      "describe", "changes", "read", "query", "list_views", "execute_view", "validate", "create", "update", "delete", "rename",
       "read_type", "create_type", "update_type"
     ],
     scope: { contracts: [] },

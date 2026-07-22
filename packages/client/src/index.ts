@@ -7,12 +7,15 @@ import type {
   CollectionTypeDocument,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
+  ExecuteViewInput,
   GrantEncryption,
   GrantScope,
   JsonObject,
   MdbaseOperationEnvelope,
   RecordSummary,
   RecordResult,
+  SavedViewExecution,
+  SavedViewList,
   SyncChangesPage,
   SyncMutation,
   SyncMutationReceipt,
@@ -58,6 +61,13 @@ export type {
   MdbaseOperationEnvelope,
   RecordResult,
   RecordSummary,
+  SavedNamedView,
+  SavedViewDocument,
+  SavedViewExecution,
+  SavedViewList,
+  SavedViewPresentation,
+  SavedViewSource,
+  ExecuteViewInput,
   TypeProvision
 } from "@mdbase/connect-protocol";
 
@@ -244,6 +254,14 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   query(input: QueryInput = {}): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
     return this.operation("query", input);
+  }
+
+  listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {
+    return this.operation("list_views", {});
+  }
+
+  executeView(input: ExecuteViewInput): Promise<MdbaseOperationEnvelope<SavedViewExecution<Frontmatter>>> {
+    return this.operation("execute_view", input);
   }
 
   create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
@@ -595,6 +613,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   query(input: QueryInput = {}): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
     return this.collectionClient.query(input);
+  }
+
+  listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {
+    return this.collectionClient.listViews();
+  }
+
+  executeView(input: ExecuteViewInput): Promise<MdbaseOperationEnvelope<SavedViewExecution<Frontmatter>>> {
+    return this.collectionClient.executeView(input);
   }
 
   create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {

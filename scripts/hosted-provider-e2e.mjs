@@ -382,7 +382,9 @@ try {
   );
 
   phase("authorizing the browser SDK directly against the hosted data plane");
-  const manifest = await openManifestServer();
+  const manifest = await openManifestServer({
+    requirements: { contracts: [], access: "full_collection" }
+  });
   manifestServer = manifest.server;
   const storage = memoryStorage();
   let authorizationUrl;
@@ -397,7 +399,10 @@ try {
     storage,
     keyStore: new MemoryGrantKeyStore()
   });
-  void hostedSdk.authorize(["describe", "changes", "read", "query", "create", "update", "delete", "rename"]);
+  void hostedSdk.authorize([
+    "describe", "changes", "read", "query", "list_views", "execute_view",
+    "create", "update", "delete", "rename", "create_type"
+  ]);
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   const callbackUrl = await authorizeHostedApplication(
     authorizationUrl,
@@ -472,6 +477,54 @@ try {
   });
   assert.equal(sdkRenamed.valid, true);
   assert.equal((await hostedSdk.query()).result.results[0].path, "Writing/Draft.md");
+  const viewType = await hostedSdk.createType({
+    document: `---
+kind: mdbase.type
+name: view
+version: 1
+match:
+  where:
+    type: view
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+---
+`
+  });
+  assert.equal(viewType.valid, true);
+  const viewRecord = await hostedSdk.create({
+    path: "Views/writing.md",
+    frontmatter: {
+      type: "view",
+      id: "writing.views",
+      version: 1,
+      name: "Writing views",
+      query: { where: 'file.path != "Views/writing.md"' },
+      views: [{
+        id: "all",
+        name: "All writing",
+        select: ["title"]
+      }]
+    }
+  });
+  assert.equal(viewRecord.valid, true);
+  const listedViews = await hostedSdk.listViews();
+  assert.equal(listedViews.valid, true);
+  assert.equal(listedViews.result.views[0].views[0].id, "all");
+  const executedView = await hostedSdk.executeView({
+    path: "Views/writing.md",
+    view: "all"
+  });
+  assert.equal(executedView.valid, true);
+  assert.deepEqual(
+    executedView.result.results.map((record) => record.path),
+    ["Writing/Draft.md"]
+  );
+  assert.equal((await hostedSdk.delete({
+    path: "Views/writing.md",
+    if_revision: viewRecord.result.revision
+  })).valid, true);
   assert.equal((await hostedSdk.delete({
     path: "Writing/Draft.md",
     if_revision: sdkRenamed.result.revision
@@ -1169,7 +1222,15 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     await collection.selectOption(collectionId);
     await expect(collection.locator("option:checked")).toHaveText("Hosted writing · Hosted by mdbase");
     await page.getByRole("button", { name: "Allow access" }).click();
-    await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
+    const outcome = await Promise.race([
+      page.waitForURL(
+        (url) => url.origin === callbackOrigin && url.searchParams.has("code")
+      ).then(() => "approved"),
+      page.locator(".message.error").waitFor({ state: "visible" }).then(() => "error")
+    ]);
+    if (outcome === "error") {
+      throw new Error(`Hosted authorization failed: ${await page.locator(".message.error").innerText()}`);
+    }
     return page.url();
   } finally {
     await browser.close();

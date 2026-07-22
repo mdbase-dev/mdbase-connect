@@ -175,6 +175,8 @@ impl WorkingSet {
             // the hosted build, so only the common legacy envelope is adapted
             // at this storage boundary.
             "query" => Ok(query_result(&collection, input)),
+            "list_views" => Ok(operations.list_views(input)),
+            "execute_view" => Ok(operations.execute_view(input)),
             "validate" => Ok(operations.validate(input)),
             _ => Err(ApiError::bad_request(
                 "unsupported_operation",

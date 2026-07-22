@@ -42,6 +42,8 @@ export type CollectionOperation =
   | "changes"
   | "read"
   | "query"
+  | "list_views"
+  | "execute_view"
   | "validate"
   | "create"
   | "update"
@@ -68,6 +70,8 @@ export interface ContractRequirement {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  /** Access boundary requested after compatibility and provisioning checks. */
+  access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */
   collection_kind?: "hosted";
 }
@@ -279,6 +283,62 @@ export interface MdbaseOperationEnvelope<Result = JsonObject> {
   valid: boolean;
   result: Result;
   diagnostics: MdbaseDiagnostic[];
+}
+
+export interface SavedViewPresentation extends JsonObject {
+  type: string;
+  fallback?: string;
+  mappings?: Record<string, string>;
+  options?: JsonObject;
+}
+
+export interface SavedViewSource {
+  path: string;
+  format: string;
+  revision: string;
+  writable: boolean;
+}
+
+export interface SavedNamedView {
+  id: string;
+  name: string;
+  presentation?: SavedViewPresentation;
+}
+
+export interface SavedViewDocument {
+  id: string;
+  name: string;
+  source: SavedViewSource;
+  views: SavedNamedView[];
+}
+
+export interface SavedViewList {
+  views: SavedViewDocument[];
+  meta: { total_count: number };
+}
+
+export interface ExecuteViewInput {
+  path: string;
+  view: string;
+  context?: { path: string } | null;
+  limit?: number;
+  offset?: number;
+  render?: boolean;
+}
+
+export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject> {
+  results: Array<RecordSummary<Frontmatter> & { values?: JsonObject }>;
+  meta: {
+    total_count: number;
+    has_more: boolean;
+    view: { path: string; id: string };
+    context?: { path: string };
+    groups?: Array<{
+      values: JsonObject;
+      count: number;
+      summaries: JsonObject;
+    }>;
+  };
 }
 
 export interface CollectionFileMetadata extends JsonObject {

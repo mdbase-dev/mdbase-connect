@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -19,6 +20,7 @@ const agentBinary = join(repoRoot, "target", "debug", `mdbase-connect-agent${ext
 const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
 const benchmarkIterations = parseBenchmarkIterations(process.env.MDBASE_CONNECT_BENCHMARK_ITERATIONS);
 const encryptedRelay = process.env.MDBASE_CONNECT_ORACLE_ENCRYPTION === "required";
+const loopbackPort = await availableTcpPort();
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-oracle-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "tasks");
@@ -324,13 +326,31 @@ async function cliJson(args) {
 }
 
 function startAgent(extraArgs) {
-  const child = spawn(agentBinary, ["--state-dir", stateDir, ...extraArgs], {
+  const child = spawn(agentBinary, [
+    "--state-dir", stateDir,
+    "--loopback-port", String(loopbackPort),
+    ...extraArgs
+  ], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout.on("data", (chunk) => process.stderr.write(`[oracle-agent] ${chunk}`));
   child.stderr.on("data", (chunk) => process.stderr.write(`[oracle-agent] ${chunk}`));
   return child;
+}
+
+async function availableTcpPort() {
+  const server = createServer();
+  await new Promise((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve an Oracle connector loopback port");
+  }
+  await new Promise((resolveClose) => server.close(resolveClose));
+  return address.port;
 }
 
 async function stopAgent(child) {

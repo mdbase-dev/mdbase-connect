@@ -481,6 +481,15 @@ pub struct ContractRequirement {
 pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<ApplicationAccess>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationAccess {
+    Contract,
+    FullCollection,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

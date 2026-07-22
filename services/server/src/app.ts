@@ -56,7 +56,22 @@ import {
 } from "./google-auth.js";
 import type { RegistrationMode } from "./runtime-config.js";
 
-const OPERATIONS = ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"] as const;
+const OPERATIONS = [
+  "describe",
+  "changes",
+  "read",
+  "query",
+  "validate",
+  "list_views",
+  "execute_view",
+  "create",
+  "update",
+  "delete",
+  "rename",
+  "read_type",
+  "create_type",
+  "update_type"
+] as const;
 const operationSchema = z.enum(OPERATIONS);
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -907,7 +922,10 @@ export async function buildApp(options: BuildOptions) {
       ));
     }
     const scope = scopeForRequirements(application.rows[0].requirements);
-    if (!contractsSatisfy(collection.rows[0].contracts, scope.contracts)) {
+    if (!contractsSatisfy(
+      collection.rows[0].contracts,
+      requiredContractsForRequirements(application.rows[0].requirements)
+    )) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
         "This collection does not provide the contracts required by the application."
@@ -1328,7 +1346,10 @@ export async function buildApp(options: BuildOptions) {
       ));
     }
     const scope = scopeForRequirements(application.rows[0].requirements);
-    if (!contractsSatisfy(ownership.rows[0].contracts, scope.contracts)) {
+    if (!contractsSatisfy(
+      ownership.rows[0].contracts,
+      requiredContractsForRequirements(application.rows[0].requirements)
+    )) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
         "This collection does not provide the contracts required by the application."
@@ -1913,6 +1934,7 @@ async function reconcileApplicationGrants(
   application: { id: string; requirements: ApplicationRequirements }
 ): Promise<void> {
   const desiredScope = scopeForRequirements(application.requirements);
+  const requiredContracts = requiredContractsForRequirements(application.requirements);
   const grants = await db.query<{
     id: string;
     user_id: string;
@@ -1947,10 +1969,10 @@ async function reconcileApplicationGrants(
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
     const collectionCompatible = collectionKindCompatible
-      && contractsSatisfy(availableContracts, desiredScope.contracts);
+      && contractsSatisfy(availableContracts, requiredContracts);
     const scopeMatches = scopesEqual(grant.scope, desiredScope);
     const desiredAllowedTypes = grant.template
-      ? typesForContracts(hostedDescriptors, desiredScope.contracts)
+      ? allowedTypesForRequirements(hostedDescriptors, application.requirements)
       : [];
     const replicaScopeMatches = !grant.hosted_replica_id
       || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
@@ -2075,7 +2097,10 @@ async function approveAuthorization(
     [input.collectionId, input.connectorId]
   );
   const scope = scopeForRequirements(pending.requirements);
-  if (!collection.rows[0] || !contractsSatisfy(collection.rows[0].contracts, scope.contracts)) {
+  if (!collection.rows[0] || !contractsSatisfy(
+    collection.rows[0].contracts,
+    requiredContractsForRequirements(pending.requirements)
+  )) {
     throw new RequestValidationError(
       "This collection does not provide the contracts required by the application."
     );
@@ -2175,9 +2200,10 @@ async function approveHostedAuthorization(
       throw new RequestValidationError("Approved operations must be requested by the application.");
     }
     const scope = scopeForRequirements(pending.requirements);
+    const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
     let availableContracts = contractRequirements(availableDescriptors);
-    if (!contractsSatisfy(availableContracts, scope.contracts)) {
+    if (!contractsSatisfy(availableContracts, requiredContracts)) {
       const provisions = requiredTypeProvisions(pending.requirements, pending.provisions, availableContracts);
       if (!provisions) {
         throw new RequestValidationError(
@@ -2191,12 +2217,15 @@ async function approveHostedAuthorization(
         [input.collectionId, JSON.stringify(availableDescriptors)]
       );
     }
-    if (!contractsSatisfy(availableContracts, scope.contracts)) {
+    if (!contractsSatisfy(availableContracts, requiredContracts)) {
       throw new RequestValidationError(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    const allowedTypes = typesForContracts(availableDescriptors, scope.contracts);
+    const allowedTypes = allowedTypesForRequirements(
+      availableDescriptors,
+      pending.requirements
+    );
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
@@ -2425,6 +2454,7 @@ async function issueApplicationTokens(
 }
 
 function scopeForRequirements(requirements: ApplicationRequirements | null | undefined): GrantScope {
+  if (requirements?.access === "full_collection") return { contracts: [] };
   const contracts = requirements?.contracts ?? [];
   return {
     contracts: [...new Map(contracts.map((contract) => [
@@ -2432,6 +2462,25 @@ function scopeForRequirements(requirements: ApplicationRequirements | null | und
       contract
     ])).values()]
   };
+}
+
+function requiredContractsForRequirements(
+  requirements: ApplicationRequirements | null | undefined
+): ContractRequirement[] {
+  const contracts = requirements?.contracts ?? [];
+  return [...new Map(contracts.map((contract) => [
+    `${contract.id}@${contract.version}`,
+    contract
+  ])).values()];
+}
+
+function allowedTypesForRequirements(
+  descriptors: CollectionContractDescriptor[],
+  requirements: ApplicationRequirements
+): string[] {
+  return requirements.access === "full_collection"
+    ? []
+    : typesForContracts(descriptors, requiredContractsForRequirements(requirements));
 }
 
 function requiresHostedCollection(

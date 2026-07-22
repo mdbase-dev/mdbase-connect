@@ -605,7 +605,7 @@ describe("mdbase connect server", () => {
     expect(reconciled.rows[0].allowed_types).toEqual([]);
   });
 
-  it("provisions missing hosted types before creating a contract-scoped grant", async () => {
+  it("provisions required types before creating a full-collection grant", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const contract = {
@@ -653,7 +653,10 @@ describe("mdbase connect server", () => {
     const collectionId = collection.json().collection.id as string;
     const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n";
     const manifestServer = await startManifestServer(
-      { contracts: [{ id: "workout.record", version: 1 }] },
+      {
+        contracts: [{ id: "workout.record", version: 1 }],
+        access: "full_collection"
+      },
       "Workout Tracker",
       { types: [{
         name: "Workout",
@@ -696,8 +699,13 @@ describe("mdbase connect server", () => {
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
-      expect.objectContaining({ allowedTypes: ["workout"] })
+      expect.objectContaining({ allowedTypes: [] })
     );
+    const grant = await db.query<{ scope: { contracts: unknown[] } }>(
+      "SELECT scope FROM grants WHERE hosted_collection_id = $1",
+      [collectionId]
+    );
+    expect(grant.rows[0].scope.contracts).toEqual([]);
     const stored = await db.query<{ contracts: unknown[] }>(
       "SELECT contracts FROM hosted_collections WHERE id = $1",
       [collectionId]

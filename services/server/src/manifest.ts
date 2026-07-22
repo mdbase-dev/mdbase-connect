@@ -16,6 +16,7 @@ const contractsSchema = z.array(contractSchema).max(20).refine(
 );
 const requirementsSchema = z.object({
   contracts: contractsSchema,
+  access: z.enum(["contract", "full_collection"]).optional(),
   collection_kind: z.literal("hosted").optional()
 }).strict().default({ contracts: [] });
 const manifestSchema = z.object({

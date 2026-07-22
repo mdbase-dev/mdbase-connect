@@ -54,8 +54,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["contracts"],
-      "properties": {
-        "collection_kind": {
+    "properties": {
+      "access": {
+        "enum": ["contract", "full_collection"],
+        "description": "Access boundary requested after compatibility and provisioning checks."
+      },
+      "collection_kind": {
           "const": "hosted",
           "description": "Require a durable provider-backed collection with direct sync support."
         },

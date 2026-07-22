@@ -81,6 +81,22 @@ try {
     "collection", "create", collectionPath,
     "--name", "Workouts"
   ]);
+  await writeFile(
+    join(collectionPath, "mdbase.yaml"),
+    `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["TaskNotes/Views/**/*.base"]\n`
+  );
+  await mkdir(join(collectionPath, "TaskNotes", "Views"), { recursive: true });
+  await writeFile(join(collectionPath, "TaskNotes", "Views", "tasks.base"), `views:
+  - type: tasknotesKanban
+    name: Open tasks
+    filters:
+      and:
+        - 'status == "open"'
+    groupBy:
+      property: status
+      direction: ASC
+    order: [status, file.name]
+`);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
   await writeFile(join(collectionPath, "_types", "task.md"), `---
 kind: mdbase.type
@@ -287,7 +303,7 @@ secret: connector scope test
     const browserChallenge = createHash("sha256").update(browserVerifier).digest("base64url");
     const browserOperations = [
       "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
-      "read_type", "create_type", "update_type"
+      "read_type", "create_type", "update_type", "list_views", "execute_view"
     ];
     const browserAuthorize = await fetch(
       `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=3&application_public_key=${encodeURIComponent(browserPublicKey)}`,
@@ -360,6 +376,8 @@ secret: connector scope test
         || !browserResult.createdType
         || !browserResult.readType
         || !browserResult.updatedType
+        || !browserResult.listedView
+        || !browserResult.executedView
         || !browserResult.changed
         || !browserResult.deleted) {
       throw new Error(`Real browser direct-operation matrix failed: ${JSON.stringify(browserResult)}`);
@@ -695,7 +713,7 @@ async function openManifestServer() {
     "MVP Workout App",
     [{ id: "tasknotes.task", version: 1 }]
   );
-  const browser = await openApplicationServer("Browser direct E2E", []);
+  const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {
     server: primary.server,
     browserServer: browser.server,
@@ -708,7 +726,7 @@ async function openManifestServer() {
   };
 }
 
-async function openApplicationServer(name, contracts) {
+async function openApplicationServer(name, contracts, access) {
   const server = createServer(async (request, response) => {
     const address = server.address();
     const origin = `http://localhost:${address.port}`;
@@ -784,6 +802,11 @@ schema:
         document: typeDocument.replace("Browser note", "Updated browser note"),
         if_revision: readType.result.revision
       });
+      const views = await connect.listViews();
+      const executedView = await connect.executeView({
+        path: "TaskNotes/Views/tasks.base",
+        view: "open-tasks"
+      });
       const changed = await connect.changes({ after: description.change_cursor });
       const deleted = await connect.delete({ path: "browser/renamed.md" });
       return {
@@ -797,6 +820,14 @@ schema:
         createdType: createdType.valid && createdType.result.path === "_types/browsernote.md",
         readType: readType.valid && readType.result.document.includes("Browser note"),
         updatedType: updatedType.valid && updatedType.result.document.includes("Updated browser note"),
+        listedView: views.valid
+          && views.result.views.some((document) =>
+            document.source.path === "TaskNotes/Views/tasks.base"
+              && document.views.some((view) => view.id === "open-tasks")
+          ),
+        executedView: executedView.valid
+          && executedView.result.results.length === 1000
+          && executedView.result.meta.groups[0].values.status === "open",
         changed: changed.events.length > 0,
         deleted: deleted.result.deleted
       };
@@ -811,7 +842,7 @@ schema:
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements: { contracts }
+      requirements: { contracts, ...(access ? { access } : {}) }
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

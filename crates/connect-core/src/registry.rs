@@ -735,6 +735,10 @@ impl CollectionRegistry {
                 ensure_query_stays_within_record(&input)?;
                 execute_loaded(collection, operation, &input)
             }
+            "list_views" | "execute_view" => Err(ConnectError::AccessDenied(
+                "Saved views require full collection access because their source may select any record type."
+                    .to_string(),
+            )),
             "read" => {
                 let result = execute_loaded(collection, operation, input)?;
                 ensure_result_in_scope(&result, &allowed_types)?;
@@ -1890,6 +1894,8 @@ fn execute_loaded(
         let result = match operation {
             "read" => operations.read(input),
             "query" => operations.query(input),
+            "list_views" => operations.list_views(input),
+            "execute_view" => operations.execute_view(input),
             "validate" => operations.validate(input),
             "create" => operations.create(input),
             "update" => operations.update(input),
@@ -1958,6 +1964,8 @@ fn supported_operations() -> &'static [&'static str] {
         "changes",
         "read",
         "query",
+        "list_views",
+        "execute_view",
         "validate",
         "create",
         "update",
@@ -2201,6 +2209,7 @@ schema:
                 id: "workout.record".to_string(),
                 version: 1,
             }],
+            ..Default::default()
         };
         let provision = TypeProvision {
             name: "Workout".to_string(),
@@ -2486,7 +2495,8 @@ schema:
             .is_compatible(
                 collection.id,
                 &ApplicationRequirements {
-                    contracts: scope.contracts.clone()
+                    contracts: scope.contracts.clone(),
+                    ..Default::default()
                 }
             )
             .unwrap());
@@ -2506,6 +2516,19 @@ schema:
                 collection.id,
                 "read",
                 &json!({ "path": "private/one.md" }),
+                &scope
+            ),
+            Err(ConnectError::AccessDenied(_))
+        ));
+        assert!(matches!(
+            registry.scoped_operation(collection.id, "list_views", &json!({}), &scope),
+            Err(ConnectError::AccessDenied(_))
+        ));
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "execute_view",
+                &json!({ "path": "views/tasks.md", "view": "all" }),
                 &scope
             ),
             Err(ConnectError::AccessDenied(_))
@@ -2606,6 +2629,85 @@ schema:
             .unwrap();
         assert_eq!(changes["events"].as_array().unwrap().len(), 2);
         assert_eq!(changes["events"][0]["payload"]["path"], "tasks/changed.md");
+    }
+
+    #[test]
+    fn full_collection_scope_lists_and_executes_saved_views() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("views");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Views")).unwrap();
+        fs::write(
+            root.join("_types/view.md"),
+            r#"---
+kind: mdbase.type
+name: view
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value: { type: object }
+---
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("_types/task.md"),
+            r#"---
+kind: mdbase.type
+name: task
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value: { type: object }
+---
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("tasks")).unwrap();
+        fs::create_dir_all(root.join("views")).unwrap();
+        fs::write(
+            root.join("tasks/one.md"),
+            "---\ntype: task\ntitle: One\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("views/tasks.md"),
+            r#"---
+type: view
+id: task.views
+version: 1
+name: Task views
+query:
+  types: [task]
+views:
+  - id: all
+    name: All tasks
+    select: [title]
+    presentation:
+      type: tasknotes.task-list
+---
+"#,
+        )
+        .unwrap();
+
+        let listed = registry
+            .operation(collection.id, "list_views", &json!({}))
+            .unwrap();
+        assert_eq!(listed["valid"], true, "{listed}");
+        assert_eq!(listed["result"]["meta"]["total_count"], 1);
+        assert_eq!(listed["result"]["views"][0]["id"], "task.views");
+
+        let executed = registry
+            .operation(
+                collection.id,
+                "execute_view",
+                &json!({ "path": "views/tasks.md", "view": "all" }),
+            )
+            .unwrap();
+        assert_eq!(executed["valid"], true, "{executed}");
+        assert_eq!(executed["result"]["meta"]["total_count"], 1);
+        assert_eq!(executed["result"]["results"][0]["path"], "tasks/one.md");
     }
 
     #[test]
