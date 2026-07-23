@@ -168,6 +168,16 @@ describe("public runtime configuration", () => {
       "nats://relay-b:4222"
     ]);
 
+    const renderHost = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_RELAY_NATS_URL: "mdbase-connect-relay-broker",
+      MDBASE_CONNECT_RELAY_NATS_TOKEN: "x".repeat(40)
+    });
+    expect(renderHost.relayBroker?.servers).toEqual([
+      "nats://mdbase-connect-relay-broker:4222"
+    ]);
+
     expect(() => runtimeConfigFromEnv({
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",

@@ -122,9 +122,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  const normalizedRelayBrokerServers = relayBrokerServers.map((value) => (
-    value.includes("://") ? value : `nats://${value}`
-  ));
+  const normalizedRelayBrokerServers = relayBrokerServers.map(normalizeRelayBrokerServer);
   const relayBrokerToken = env.MDBASE_CONNECT_RELAY_NATS_TOKEN?.trim() ?? "";
   if ((relayBrokerServers.length > 0) !== Boolean(relayBrokerToken)) {
     throw new Error(
@@ -180,4 +178,10 @@ function validateRelayBrokerServer(server: string): void {
       || !url.port) {
     throw new Error("Relay broker servers must be nats:// or tls:// host-and-port URLs without credentials.");
   }
+}
+
+function normalizeRelayBrokerServer(value: string): string {
+  const url = new URL(value.includes("://") ? value : `nats://${value}`);
+  if (!url.port) url.port = "4222";
+  return url.toString();
 }

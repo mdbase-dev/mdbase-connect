@@ -14,8 +14,6 @@ services:
     maxShutdownDelaySeconds: 30
     autoDeployTrigger: checksPass
     envVars:
-      - key: PORT
-        value: "4222"
       - key: NATS_AUTH_TOKEN
         generateValue: true
 
@@ -111,7 +109,7 @@ services:
         fromService:
           type: pserv
           name: mdbase-connect-relay-broker
-          property: hostport
+          property: host
       - key: MDBASE_CONNECT_RELAY_NATS_TOKEN
         fromService:
           type: pserv
