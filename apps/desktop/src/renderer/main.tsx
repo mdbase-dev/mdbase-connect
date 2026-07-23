@@ -4,6 +4,7 @@ import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -469,7 +470,7 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{host(request.application_homepage)}</code><small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
       <div className="request-fields">
         <label><span>Collection</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{request.provisionable_collection_ids.includes(collection.id) ? " · setup required" : ""}</option>)}</select></label>
-        {available.length === 0 && <small>No registered collection provides the required contracts and the app cannot install them.</small>}
+        {available.length === 0 && <small>No registered collection supports all requested operations and contracts.</small>}
         {setup.length > 0 && <small>Allowing access will add {provisionNames(setup)} to this collection.</small>}
         <fieldset><legend>Requested operations</legend><OperationChoices allowed={request.requested_operations} selected={operations} onChange={setOperations} /></fieldset>
       </div>
@@ -609,6 +610,16 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
           />
         </div>
       </section>
+      <section>
+        <SectionHeading title="Appearance" note="Use the system setting or keep a theme on this computer." />
+        <div className="settings-rows">
+          <div className="setting-row">
+            <span>Theme</span>
+            <div><strong>Color theme</strong><small>System follows your operating system appearance</small></div>
+            <ThemeSelect />
+          </div>
+        </div>
+      </section>
       <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Same-computer apps connect directly when allowed; remote operations remain end-to-end encrypted through the relay.</p></div></section>
     </div>
   );
@@ -636,6 +647,23 @@ function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
 
 function SettingRow({ label, value, detail, mono = false }: { label: string; value: string; detail: string; mono?: boolean }) {
   return <div className="setting-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong><small>{detail}</small></div></div>;
+}
+
+function ThemeSelect() {
+  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => {
+    applyThemePreference(preference);
+    if (preference !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyThemePreference("system");
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [preference]);
+  return <select className="theme-select" aria-label="Color theme" value={preference} onChange={(event) => {
+    const next = event.target.value as ThemePreference;
+    setPreference(next);
+    saveThemePreference(next);
+  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
 }
 
 function PairingPanel({ onComplete }: { onComplete(): void }) {

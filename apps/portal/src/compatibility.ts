@@ -14,7 +14,7 @@ export type CollectionCompatibility =
     };
 
 export function collectionCompatibility(
-  request: Pick<PendingAuthorization, "requirements" | "provisions">,
+  request: Pick<PendingAuthorization, "requirements" | "provisions" | "requested_operations">,
   collection: AvailableCollection
 ): CollectionCompatibility {
   if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted") {
@@ -25,7 +25,7 @@ export function collectionCompatibility(
       detail: "This application needs a collection hosted by mdbase."
     };
   }
-  if (!supportsMdbase03(collection.spec_version)) {
+  if (requiresMdbase03(request.requested_operations) && !supportsMdbase03(collection.spec_version)) {
     return {
       compatible: false,
       code: "legacy_spec",
@@ -52,6 +52,19 @@ export function collectionCompatibility(
 
 export function supportsMdbase03(specVersion: string): boolean {
   return /^0\.3(?:\.|$)/.test(specVersion.trim());
+}
+
+const PORTABLE_PROFILE_OPERATIONS = new Set([
+  "query",
+  "list_views",
+  "execute_view",
+  "read_type",
+  "create_type",
+  "update_type"
+]);
+
+function requiresMdbase03(operations: readonly string[]): boolean {
+  return operations.some((operation) => PORTABLE_PROFILE_OPERATIONS.has(operation));
 }
 
 function hasContract(contracts: ContractRequirement[], required: ContractRequirement): boolean {
