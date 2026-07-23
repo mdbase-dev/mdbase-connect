@@ -29,9 +29,10 @@ Connect process, give every process the same PostgreSQL database and NATS
 cluster URLs and token. The broker uses request/reply only: JetStream is not
 enabled, there is no relay stream, and operation payloads are not persisted.
 The included broker image listens for NATS clients on 4222 and serves monitoring
-on `PORT` (10000 in Docker Compose). Its 4222 front door also turns platform
-`HEAD` and `GET` probes into monitoring requests; normal NATS clients remain
-authenticated and restricted to relay and reply subjects.
+on `PORT` (10000 in Docker Compose). Normal NATS clients remain authenticated
+and restricted to relay and reply subjects. The entrypoint suppresses only the
+exact parser diagnostic produced by Render's loopback HTTP port discovery;
+all other NATS logs pass through unchanged.
 
 Every connector WebSocket acquires a monotonically increasing generation in
 PostgreSQL. Requests are addressed to that exact generation, so an older

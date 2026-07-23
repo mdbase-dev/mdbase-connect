@@ -29,23 +29,39 @@ MDBASE_NATS_HTTP_ADDR="0.0.0.0:${port}"
 export MDBASE_NATS_PASSWORD MDBASE_NATS_HTTP_ADDR
 
 nats-server -t -c /etc/nats/mdbase-connect.conf
-haproxy -c -f /etc/haproxy/mdbase-connect.cfg
 
-nats-server -c /etc/nats/mdbase-connect.conf &
+# Render's port discovery sends a delayed HTTP HEAD request to every listening
+# port, including non-HTTP private-service ports. NATS correctly rejects that
+# request but reports it as a parser error every second. Filter only that exact
+# loopback discovery diagnostic; preserve every other NATS log line.
+log_pipe="/tmp/mdbase-connect-nats-log.$$"
+mkfifo "$log_pipe"
+filter_logs() {
+  while IFS= read -r line; do
+    case "$line" in
+      *"[ERR] 127.0.0.1:"*"Client parser ERROR"*"EAD / HTTP/1.1"*"Host: mdbase-con"*) ;;
+      *"[ERR] [::1]:"*"Client parser ERROR"*"EAD / HTTP/1.1"*"Host: mdbase-con"*) ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$log_pipe"
+}
+
+filter_logs &
+filter_pid=$!
+nats-server -c /etc/nats/mdbase-connect.conf > "$log_pipe" 2>&1 &
 nats_pid=$!
-haproxy -db -f /etc/haproxy/mdbase-connect.cfg &
-proxy_pid=$!
 
 shutdown() {
   trap - INT TERM
-  kill -TERM "$proxy_pid" "$nats_pid" 2>/dev/null || true
-  wait "$proxy_pid" 2>/dev/null || true
+  kill -TERM "$nats_pid" 2>/dev/null || true
   wait "$nats_pid" 2>/dev/null || true
+  wait "$filter_pid" 2>/dev/null || true
+  rm -f "$log_pipe"
   exit 0
 }
 trap shutdown INT TERM
 
-while kill -0 "$nats_pid" 2>/dev/null && kill -0 "$proxy_pid" 2>/dev/null; do
+while kill -0 "$nats_pid" 2>/dev/null && kill -0 "$filter_pid" 2>/dev/null; do
   sleep 1
 done
 
@@ -53,10 +69,11 @@ status=1
 if ! kill -0 "$nats_pid" 2>/dev/null; then
   wait "$nats_pid" || status=$?
 fi
-if ! kill -0 "$proxy_pid" 2>/dev/null; then
-  wait "$proxy_pid" || status=$?
+if ! kill -0 "$filter_pid" 2>/dev/null; then
+  wait "$filter_pid" || status=$?
 fi
-kill -TERM "$proxy_pid" "$nats_pid" 2>/dev/null || true
-wait "$proxy_pid" 2>/dev/null || true
+kill -TERM "$nats_pid" "$filter_pid" 2>/dev/null || true
 wait "$nats_pid" 2>/dev/null || true
+wait "$filter_pid" 2>/dev/null || true
+rm -f "$log_pipe"
 exit "$status"

@@ -12,10 +12,10 @@ in Singapore:
 
 The broker keeps authenticated NATS traffic on port 4222 and exposes NATS's
 HTTP monitoring server on Render's `PORT` solely for platform health checks.
-Render probes every detected port with HTTP, so a small HAProxy front door on
-4222 recognizes `HEAD` and `GET` probes and sends only those to monitoring;
-all other connections reach the loopback-only NATS listener. This prevents
-platform probes from polluting NATS authentication and protocol logs.
+Render's port discovery also sends a delayed HTTP `HEAD` request directly to
+every non-HTTP listener. The broker entrypoint filters only that exact loopback
+discovery diagnostic from NATS output; all other broker warnings and errors
+remain visible.
 
 Each stateful boundary has its own paid, private PostgreSQL database. Hosted record
 payloads never pass through or persist in the control-plane database. The data
