@@ -1,26 +1,148 @@
 :root {
-  color: oklch(21% 0.018 255);
-  background: oklch(99.4% 0.003 245);
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--canvas);
   font-family: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --canvas: oklch(99.4% 0.003 245);
-  --white: oklch(100% 0.002 245);
-  --ink: oklch(21% 0.018 255);
-  --muted: oklch(51% 0.014 255);
-  --faint: oklch(52% 0.01 255);
-  --line: oklch(92.5% 0.006 255);
-  --line-strong: oklch(84% 0.009 255);
-  --hover: oklch(97.7% 0.006 245);
-  --selected: oklch(96.4% 0.016 238);
-  --accent: oklch(47% 0.1 238);
-  --accent-strong: oklch(41% 0.1 238);
-  --accent-soft: oklch(93.5% 0.035 238);
-  --success: oklch(44% 0.085 153);
-  --danger: oklch(50% 0.11 28);
-  --danger-soft: oklch(97% 0.018 28);
-  --skeleton: oklch(95.5% 0.004 255);
+  --color-canvas: oklch(99.4% 0.003 245);
+  --color-surface: oklch(100% 0.002 245);
+  --color-surface-subtle: oklch(97.7% 0.006 245);
+  --color-text: oklch(21% 0.018 255);
+  --color-text-soft: oklch(51% 0.014 255);
+  --color-text-muted: oklch(52% 0.01 255);
+  --color-border: oklch(92.5% 0.006 255);
+  --color-border-strong: oklch(84% 0.009 255);
+  --color-selected: oklch(96.4% 0.016 238);
+  --color-accent: oklch(47% 0.1 238);
+  --color-accent-strong: oklch(41% 0.1 238);
+  --color-accent-soft: oklch(93.5% 0.035 238);
+  --color-on-accent: oklch(98% 0.004 245);
+  --color-success: oklch(44% 0.085 153);
+  --color-success-ring: oklch(44% 0.085 153 / 0.1);
+  --color-danger: oklch(50% 0.11 28);
+  --color-danger-soft: oklch(97% 0.018 28);
+  --color-warning-border: oklch(83% 0.055 82);
+  --color-warning-surface: oklch(98% 0.018 86);
+  --color-warning-text: oklch(43% 0.055 69);
+  --color-warning-strong: oklch(36% 0.052 67);
+  --color-diff-local: oklch(98% 0.012 28);
+  --color-diff-local-mark: oklch(91% 0.04 28);
+  --color-diff-remote: oklch(98% 0.014 153);
+  --color-diff-remote-mark: oklch(91% 0.045 153);
+  --color-editor-text: oklch(28% 0.014 255);
+  --color-placeholder: oklch(78% 0.007 255);
+  --color-skeleton: oklch(95.5% 0.004 255);
+  --color-shadow: oklch(20% 0.02 255 / 0.1);
+  --color-shadow-strong: oklch(20% 0.02 255 / 0.18);
+  --color-scrim: oklch(21% 0.018 255 / 0.18);
+  --syntax-comment: oklch(58% 0.012 255);
+  --syntax-keyword: oklch(42% 0.09 294);
+  --syntax-string: oklch(39% 0.075 153);
+  --syntax-number: oklch(43% 0.1 45);
+  --syntax-link: oklch(43% 0.1 238);
+  --syntax-heading: var(--ink);
+  --canvas: var(--color-canvas);
+  --white: var(--color-surface);
+  --ink: var(--color-text);
+  --muted: var(--color-text-soft);
+  --faint: var(--color-text-muted);
+  --line: var(--color-border);
+  --line-strong: var(--color-border-strong);
+  --hover: var(--color-surface-subtle);
+  --selected: var(--color-selected);
+  --accent: var(--color-accent);
+  --accent-strong: var(--color-accent-strong);
+  --accent-soft: var(--color-accent-soft);
+  --success: var(--color-success);
+  --danger: var(--color-danger);
+  --danger-soft: var(--color-danger-soft);
+  --skeleton: var(--color-skeleton);
   --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: oklch(17.5% 0.012 255);
+  --color-surface: oklch(19.5% 0.012 255);
+  --color-surface-subtle: oklch(23.5% 0.014 255);
+  --color-text: oklch(92% 0.008 255);
+  --color-text-soft: oklch(72% 0.012 255);
+  --color-text-muted: oklch(61% 0.011 255);
+  --color-border: oklch(29% 0.012 255);
+  --color-border-strong: oklch(40% 0.014 255);
+  --color-selected: oklch(27% 0.035 238);
+  --color-accent: oklch(73% 0.105 238);
+  --color-accent-strong: oklch(65% 0.105 238);
+  --color-accent-soft: oklch(31% 0.045 238);
+  --color-on-accent: oklch(17% 0.012 255);
+  --color-success: oklch(72% 0.09 153);
+  --color-success-ring: oklch(72% 0.09 153 / 0.18);
+  --color-danger: oklch(72% 0.115 28);
+  --color-danger-soft: oklch(25% 0.03 28);
+  --color-warning-border: oklch(48% 0.06 82);
+  --color-warning-surface: oklch(25% 0.026 82);
+  --color-warning-text: oklch(78% 0.07 82);
+  --color-warning-strong: oklch(86% 0.065 82);
+  --color-diff-local: oklch(24% 0.025 28);
+  --color-diff-local-mark: oklch(67% 0.09 28);
+  --color-diff-remote: oklch(24% 0.025 153);
+  --color-diff-remote-mark: oklch(70% 0.085 153);
+  --color-editor-text: oklch(88% 0.009 255);
+  --color-placeholder: oklch(56% 0.01 255);
+  --color-skeleton: oklch(25% 0.012 255);
+  --color-shadow: oklch(5% 0.01 255 / 0.38);
+  --color-shadow-strong: oklch(5% 0.01 255 / 0.52);
+  --color-scrim: oklch(5% 0.01 255 / 0.58);
+  --syntax-comment: oklch(62% 0.012 255);
+  --syntax-keyword: oklch(76% 0.09 294);
+  --syntax-string: oklch(75% 0.08 153);
+  --syntax-number: oklch(78% 0.1 65);
+  --syntax-link: oklch(77% 0.1 238);
+  --syntax-heading: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-canvas: oklch(17.5% 0.012 255);
+    --color-surface: oklch(19.5% 0.012 255);
+    --color-surface-subtle: oklch(23.5% 0.014 255);
+    --color-text: oklch(92% 0.008 255);
+    --color-text-soft: oklch(72% 0.012 255);
+    --color-text-muted: oklch(61% 0.011 255);
+    --color-border: oklch(29% 0.012 255);
+    --color-border-strong: oklch(40% 0.014 255);
+    --color-selected: oklch(27% 0.035 238);
+    --color-accent: oklch(73% 0.105 238);
+    --color-accent-strong: oklch(65% 0.105 238);
+    --color-accent-soft: oklch(31% 0.045 238);
+    --color-on-accent: oklch(17% 0.012 255);
+    --color-success: oklch(72% 0.09 153);
+    --color-success-ring: oklch(72% 0.09 153 / 0.18);
+    --color-danger: oklch(72% 0.115 28);
+    --color-danger-soft: oklch(25% 0.03 28);
+    --color-warning-border: oklch(48% 0.06 82);
+    --color-warning-surface: oklch(25% 0.026 82);
+    --color-warning-text: oklch(78% 0.07 82);
+    --color-warning-strong: oklch(86% 0.065 82);
+    --color-diff-local: oklch(24% 0.025 28);
+    --color-diff-local-mark: oklch(67% 0.09 28);
+    --color-diff-remote: oklch(24% 0.025 153);
+    --color-diff-remote-mark: oklch(70% 0.085 153);
+    --color-editor-text: oklch(88% 0.009 255);
+    --color-placeholder: oklch(56% 0.01 255);
+    --color-skeleton: oklch(25% 0.012 255);
+    --color-shadow: oklch(5% 0.01 255 / 0.38);
+    --color-shadow-strong: oklch(5% 0.01 255 / 0.52);
+    --color-scrim: oklch(5% 0.01 255 / 0.58);
+    --syntax-comment: oklch(62% 0.012 255);
+    --syntax-keyword: oklch(76% 0.09 294);
+    --syntax-string: oklch(75% 0.08 153);
+    --syntax-number: oklch(78% 0.1 65);
+    --syntax-link: oklch(77% 0.1 238);
+    --syntax-heading: var(--ink);
+  }
 }
 
 * {
@@ -549,7 +671,7 @@ select:focus-visible {
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 0 3px oklch(44% 0.085 153 / 0.1);
+  box-shadow: 0 0 0 3px var(--color-success-ring);
 }
 
 .collection-rail .disconnect-action {
@@ -1126,12 +1248,12 @@ select:focus-visible {
 .notice .notice-actions .primary-notice-action {
   border-color: var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .notice .notice-actions .primary-notice-action:hover {
   background: var(--accent-strong);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .delete-confirm {
@@ -1177,7 +1299,7 @@ select:focus-visible {
 }
 
 .title-input::placeholder {
-  color: oklch(78% 0.007 255);
+  color: var(--color-placeholder);
 }
 
 .body-editor {
@@ -1191,7 +1313,7 @@ select:focus-visible {
 .code-editor .cm-editor {
   height: 100%;
   background: transparent;
-  color: oklch(28% 0.014 255);
+  color: var(--color-editor-text);
 }
 
 .code-editor .cm-editor.cm-focused {
@@ -1210,7 +1332,7 @@ select:focus-visible {
 .body-editor .cm-content {
   min-height: 100%;
   padding: 0;
-  color: oklch(28% 0.014 255);
+  color: var(--color-editor-text);
   caret-color: var(--ink);
   font-family: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: var(--editor-font-size, 17px);
@@ -1237,7 +1359,7 @@ select:focus-visible {
   border: 1px solid var(--line-strong);
   border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 10px 28px oklch(20% 0.02 255 / 0.09);
+  box-shadow: 0 10px 28px var(--color-shadow);
 }
 
 .code-editor .cm-tooltip-autocomplete > ul {
@@ -1334,7 +1456,7 @@ select:focus-visible {
 .skeleton-document span {
   display: block;
   border-radius: 2px;
-  background: oklch(95.5% 0.004 255);
+  background: var(--skeleton);
   animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
 }
 
@@ -1589,7 +1711,7 @@ select:focus-visible {
 
 .property-row > input:is([type="date"], [type="datetime-local"]),
 .new-note-fields input:is([type="date"], [type="datetime-local"]) {
-  color-scheme: light;
+  color-scheme: inherit;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2077,7 +2199,7 @@ select:focus-visible {
 }
 
 .new-note-title input::placeholder {
-  color: oklch(78% 0.007 255);
+  color: var(--color-placeholder);
 }
 
 .new-note-fields {

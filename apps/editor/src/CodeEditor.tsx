@@ -2,8 +2,10 @@ import { autocompletion, startCompletion, type Completion, type CompletionContex
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, placeholder as editorPlaceholder } from "@codemirror/view";
+import { tags } from "@lezer/highlight";
 import { minimalSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
@@ -63,6 +65,7 @@ export function CodeEditor({
         extensions: [
           vimMode.current.of([]),
           minimalSetup,
+          syntaxHighlighting(mdbaseHighlightStyle),
           languageExtension(language),
           wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
           completions.current.of(language === "markdown" ? linkAutocomplete(
@@ -139,6 +142,17 @@ export function CodeEditor({
 
   return <div ref={parentRef} className={`code-editor${vimEnabled ? " vim-enabled" : ""} ${className}`.trim()} />;
 }
+
+const mdbaseHighlightStyle = HighlightStyle.define([
+  { tag: [tags.comment, tags.meta], color: "var(--syntax-comment)" },
+  { tag: [tags.keyword, tags.operatorKeyword, tags.modifier, tags.typeName, tags.bool, tags.null], color: "var(--syntax-keyword)" },
+  { tag: [tags.string, tags.special(tags.string), tags.regexp, tags.escape], color: "var(--syntax-string)" },
+  { tag: [tags.number, tags.atom, tags.annotation, tags.namespace], color: "var(--syntax-number)" },
+  { tag: [tags.link, tags.url], color: "var(--syntax-link)", textDecoration: "underline" },
+  { tag: [tags.heading, tags.strong], color: "var(--syntax-heading)", fontWeight: "700" },
+  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.invalid, color: "var(--danger)" }
+]);
 
 function languageExtension(language: EditorLanguage): Extension {
   if (language === "markdown") return markdown();

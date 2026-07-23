@@ -1,7 +1,8 @@
 import { ArrowLeft } from "lucide-react";
 import type { CollectionDescription } from "@mdbase/connect";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { EditorPreferences } from "./preferences";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
 export function SettingsView({ description, noteCount, preferences, leadingActions, onChange, onBack }: {
   description: CollectionDescription;
@@ -31,6 +32,9 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
             <option value="16">Compact</option><option value="17">Comfortable</option><option value="19">Large</option>
           </select>
         </SettingRow>
+        <SettingRow title="Color theme" description="Follow the system appearance or keep a theme in this browser.">
+          <ThemeSelect />
+        </SettingRow>
       </section>
 
       <section>
@@ -51,6 +55,23 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
       </section>
     </div>
   </main>;
+}
+
+function ThemeSelect() {
+  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => {
+    applyThemePreference(preference);
+    if (preference !== "system" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyThemePreference("system");
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [preference]);
+  return <select aria-label="Color theme" value={preference} onChange={(event) => {
+    const next = event.target.value as ThemePreference;
+    setPreference(next);
+    saveThemePreference(next);
+  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
 }
 
 function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

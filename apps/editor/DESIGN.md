@@ -2,9 +2,10 @@
 
 ## Direction
 
-A bright laptop in ordinary daylight, used for long-form writing. The interface
-is an almost-white sheet divided by fine rules into a collection rail, a note
-list, and a generous editor. There are no floating cards and almost no chrome.
+A laptop used for long-form writing in daylight or a dim room. Light mode is an
+almost-white sheet; dark mode is a low-glare blue-black writing surface. Both
+are divided by fine rules into a collection rail, a note list, and a generous
+editor. There are no floating cards and almost no chrome.
 
 ## Color
 
@@ -18,6 +19,20 @@ list, and a generous editor. There are no floating cards and almost no chrome.
 - Selected: `oklch(96.4% 0.016 238)`
 - Accent: `oklch(47% 0.1 238)`
 - Danger: `oklch(50% 0.11 28)`
+
+Dark mode uses canvas `oklch(17.5% 0.012 255)`, writing surface
+`oklch(19.5% 0.012 255)`, ink `oklch(92% 0.008 255)`, muted ink
+`oklch(72% 0.012 255)`, line `oklch(29% 0.012 255)`, and accent
+`oklch(73% 0.105 238)`. Syntax, diff, warning, selection, skeleton, and conflict
+colors have theme-specific semantic roles.
+
+## Theme contract
+
+The editor offers System, Light, and Dark in Settings. System follows
+`prefers-color-scheme`; an explicit choice is stored locally as `mdbase:theme`
+and applied before first paint. Components consume canvas, surface,
+surface-subtle, text, text-soft, text-muted, border, border-strong, accent,
+success, warning, and danger roles rather than fixed palette values.
 
 ## Typography
 
