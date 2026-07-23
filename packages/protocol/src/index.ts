@@ -44,6 +44,10 @@ export type CollectionOperation =
   | "query"
   | "list_views"
   | "execute_view"
+  | "read_view_source"
+  | "create_view_source"
+  | "update_view_source"
+  | "delete_view_source"
   | "validate"
   | "create"
   | "update"
@@ -324,6 +328,40 @@ export interface SavedViewDocument {
 export interface SavedViewList {
   views: SavedViewDocument[];
   meta: { total_count: number };
+}
+
+export interface SavedViewSourceDocument {
+  path: string;
+  format: string;
+  revision: string;
+  document: string;
+}
+
+export interface ReadViewSourceInput {
+  path: string;
+}
+
+export interface CreateViewSourceInput {
+  document: string;
+  path?: string;
+  format?: string;
+  name?: string;
+}
+
+export interface UpdateViewSourceInput {
+  path: string;
+  document: string;
+  if_revision?: string;
+}
+
+export interface DeleteViewSourceInput {
+  path: string;
+  if_revision?: string;
+}
+
+export interface DeleteViewSourceResult {
+  path: string;
+  deleted: boolean;
 }
 
 export interface ExecuteViewInput {

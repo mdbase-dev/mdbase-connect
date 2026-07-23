@@ -735,7 +735,12 @@ impl CollectionRegistry {
                 ensure_query_stays_within_record(&input)?;
                 execute_loaded(collection, operation, &input)
             }
-            "list_views" | "execute_view" => Err(ConnectError::AccessDenied(
+            "list_views"
+            | "execute_view"
+            | "read_view_source"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source" => Err(ConnectError::AccessDenied(
                 "Saved views require full collection access because their source may select any record type."
                     .to_string(),
             )),
@@ -1896,6 +1901,10 @@ fn execute_loaded(
             "query" => operations.query(input),
             "list_views" => operations.list_views(input),
             "execute_view" => operations.execute_view(input),
+            "read_view_source" => operations.read_view_source(input),
+            "create_view_source" => operations.create_view_source(input),
+            "update_view_source" => operations.update_view_source(input),
+            "delete_view_source" => operations.delete_view_source(input),
             "validate" => operations.validate(input),
             "create" => operations.create(input),
             "update" => operations.update(input),
@@ -1923,7 +1932,15 @@ fn execute_loaded(
 fn is_collection_mutation(operation: &str) -> bool {
     matches!(
         operation,
-        "create" | "update" | "delete" | "rename" | "create_type" | "update_type"
+        "create"
+            | "update"
+            | "delete"
+            | "rename"
+            | "create_type"
+            | "update_type"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source"
     )
 }
 
@@ -1938,7 +1955,14 @@ fn operation_invalidation(
     {
         return CollectionInvalidation::None;
     }
-    if matches!(operation, "create_type" | "update_type") {
+    if matches!(
+        operation,
+        "create_type"
+            | "update_type"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source"
+    ) {
         return CollectionInvalidation::All;
     }
 
@@ -1966,6 +1990,10 @@ fn supported_operations() -> &'static [&'static str] {
         "query",
         "list_views",
         "execute_view",
+        "read_view_source",
+        "create_view_source",
+        "update_view_source",
+        "delete_view_source",
         "validate",
         "create",
         "update",
@@ -2708,6 +2736,37 @@ views:
         assert_eq!(executed["valid"], true, "{executed}");
         assert_eq!(executed["result"]["meta"]["total_count"], 1);
         assert_eq!(executed["result"]["results"][0]["path"], "tasks/one.md");
+
+        let source = registry
+            .operation(
+                collection.id,
+                "read_view_source",
+                &json!({ "path": "views/tasks.md" }),
+            )
+            .unwrap();
+        let changed = source["result"]["document"]
+            .as_str()
+            .unwrap()
+            .replace("All tasks", "Every task");
+        let updated = registry
+            .operation(
+                collection.id,
+                "update_view_source",
+                &json!({
+                    "path": "views/tasks.md",
+                    "if_revision": source["result"]["revision"],
+                    "document": changed,
+                }),
+            )
+            .unwrap();
+        assert_eq!(updated["valid"], true, "{updated}");
+        let listed = registry
+            .operation(collection.id, "list_views", &json!({}))
+            .unwrap();
+        assert_eq!(
+            listed["result"]["views"][0]["views"][0]["name"],
+            "Every task"
+        );
     }
 
     #[test]

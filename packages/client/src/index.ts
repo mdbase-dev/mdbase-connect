@@ -5,6 +5,9 @@ import type {
   CollectionFileMetadata,
   CollectionOperation,
   CollectionTypeDocument,
+  CreateViewSourceInput,
+  DeleteViewSourceInput,
+  DeleteViewSourceResult,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   ExecuteViewInput,
@@ -14,13 +17,16 @@ import type {
   MdbaseOperationEnvelope,
   RecordSummary,
   RecordResult,
+  ReadViewSourceInput,
   SavedViewExecution,
   SavedViewList,
+  SavedViewSourceDocument,
   SyncChangesPage,
   SyncMutation,
   SyncMutationReceipt,
   SyncSession,
-  SyncSnapshotPage
+  SyncSnapshotPage,
+  UpdateViewSourceInput
 } from "@mdbase/connect-protocol";
 import { DEFAULT_LOOPBACK_PORT } from "@mdbase/connect-protocol";
 import {
@@ -68,6 +74,12 @@ export type {
   SavedViewPresentation,
   SavedViewProperty,
   SavedViewSource,
+  SavedViewSourceDocument,
+  ReadViewSourceInput,
+  CreateViewSourceInput,
+  UpdateViewSourceInput,
+  DeleteViewSourceInput,
+  DeleteViewSourceResult,
   ExecuteViewInput,
   TypeProvision
 } from "@mdbase/connect-protocol";
@@ -263,6 +275,22 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   executeView(input: ExecuteViewInput): Promise<MdbaseOperationEnvelope<SavedViewExecution<Frontmatter>>> {
     return this.operation("execute_view", input);
+  }
+
+  readViewSource(input: ReadViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.operation("read_view_source", input);
+  }
+
+  createViewSource(input: CreateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.operation("create_view_source", input);
+  }
+
+  updateViewSource(input: UpdateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.operation("update_view_source", input);
+  }
+
+  deleteViewSource(input: DeleteViewSourceInput): Promise<MdbaseOperationEnvelope<DeleteViewSourceResult>> {
+    return this.operation("delete_view_source", input);
   }
 
   create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
