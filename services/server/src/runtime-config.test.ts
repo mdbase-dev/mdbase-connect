@@ -179,5 +179,11 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_RELAY_NATS_URL: "https://relay.example:4222",
       MDBASE_CONNECT_RELAY_NATS_TOKEN: "x".repeat(40)
     })).toThrow(/nats:\/\//);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_RELAY_NATS_URL: "nats://relay:4222",
+      MDBASE_CONNECT_RELAY_NATS_TOKEN: `unsafe ${"x".repeat(40)}`
+    })).toThrow(/unsupported characters/);
   });
 });

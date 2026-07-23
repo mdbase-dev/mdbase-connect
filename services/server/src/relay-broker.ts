@@ -137,7 +137,8 @@ export class NatsRelayBroker implements RelayBroker {
   static async connect(config: RelayBrokerConfig): Promise<NatsRelayBroker> {
     const connection = await connect({
       servers: config.servers,
-      token: config.token,
+      user: "mdbase-connect",
+      pass: `mdbase_${config.token}`,
       name: `mdbase-connect-${process.pid}`,
       waitOnFirstConnect: true,
       maxReconnectAttempts: -1,

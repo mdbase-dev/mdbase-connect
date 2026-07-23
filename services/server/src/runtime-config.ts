@@ -87,6 +87,9 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     if (config.relayBroker.token.length < 32) {
       throw new Error("The relay broker token must contain at least 32 characters.");
     }
+    if (!/^[A-Za-z0-9_+=./-]+$/.test(config.relayBroker.token)) {
+      throw new Error("The relay broker token contains unsupported characters.");
+    }
     for (const server of config.relayBroker.servers) validateRelayBrokerServer(server);
     if (config.relayBroker.servers.length === 0) {
       throw new Error("At least one relay broker server must be configured.");

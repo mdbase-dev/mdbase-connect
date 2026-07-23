@@ -268,11 +268,11 @@ function startNats() {
     "--name", natsName,
     "-e", "PORT=4222",
     "-e", `NATS_AUTH_TOKEN=${natsToken}`,
+    "-e", `MDBASE_NATS_PASSWORD=mdbase_${natsToken}`,
     "-p", `127.0.0.1:${natsPort}:4222`,
     "-v", `${natsConfig}:/etc/nats/mdbase-connect.conf:ro`,
     "nats:2.12.7-alpine",
-    "-c", "/etc/nats/mdbase-connect.conf",
-    "--auth", natsToken
+    "-c", "/etc/nats/mdbase-connect.conf"
   ], "nats");
 }
 
