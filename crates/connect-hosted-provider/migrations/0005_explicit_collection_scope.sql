@@ -1,5 +1,5 @@
 ALTER TABLE hosted_provider_replicas
-  ADD COLUMN full_collection boolean;
+ADD COLUMN full_collection boolean;
 
 -- Preserve the meaning of application capabilities issued before this field
 -- existed. Mirror replicas do not use this authorization bit.

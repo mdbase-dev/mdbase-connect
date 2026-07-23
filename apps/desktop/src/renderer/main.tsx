@@ -12,7 +12,7 @@ import "./styles.css";
 
 type Route = "overview" | "collections" | "access" | "activity" | "settings";
 
-const allOperations = ["read", "query", "create", "update", "rename", "delete", "validate", "read_type", "create_type", "update_type"];
+const allOperations = ["read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type"];
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
     eyebrow: "This computer",
@@ -769,7 +769,7 @@ function SettingSwitch({ className, label, description, checked, disabled, state
 }
 
 function operationDescription(operation: string) {
-  return ({ read: "Open individual records", query: "Find and filter records", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility" } as Record<string, string>)[operation] ?? operation;
+  return ({ read: "Open individual records", query: "Find and filter records", list_views: "See saved views", execute_view: "Run saved views", read_view_source: "Inspect saved-view definitions", create_view_source: "Create saved views", update_view_source: "Change saved views", delete_view_source: "Delete saved views", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility" } as Record<string, string>)[operation] ?? operation;
 }
 
 function availableCollections(

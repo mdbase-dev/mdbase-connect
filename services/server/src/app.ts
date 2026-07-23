@@ -65,6 +65,10 @@ const OPERATIONS = [
   "validate",
   "list_views",
   "execute_view",
+  "read_view_source",
+  "create_view_source",
+  "update_view_source",
+  "delete_view_source",
   "create",
   "update",
   "delete",
@@ -1431,7 +1435,7 @@ export async function buildApp(options: BuildOptions) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source"].includes(operation));
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         mode: write ? "read_write" : "read_only",
         allowedTypes: typesForContracts(
@@ -2019,7 +2023,7 @@ async function reconcileApplicationGrants(
     if ((scopeMatches || mayNarrow) && collectionCompatible) {
       if (grant.hosted_replica_id) {
         if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
-        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
+        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source"].includes(operation));
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
@@ -2279,7 +2283,7 @@ async function approveHostedAuthorization(
     );
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
-    const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type"].includes(operation));
+    const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source"].includes(operation));
     const applicationUrl = new URL(pending.redirect_uri);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin

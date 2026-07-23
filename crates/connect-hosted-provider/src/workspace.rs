@@ -177,6 +177,7 @@ impl WorkingSet {
             "query" => Ok(query_result(&collection, input)),
             "list_views" => Ok(operations.list_views(input)),
             "execute_view" => Ok(operations.execute_view(input)),
+            "read_view_source" => Ok(operations.read_view_source(input)),
             "validate" => Ok(operations.validate(input)),
             "delete" if input.get("dry_run").and_then(Value::as_bool) == Some(true) => {
                 Ok(operations.delete(input))
@@ -187,6 +188,33 @@ impl WorkingSet {
             _ => Err(ApiError::bad_request(
                 "unsupported_operation",
                 "The hosted provider does not support that read operation.",
+            )),
+        }
+    }
+
+    pub fn view_source_operation(
+        &self,
+        operation: &str,
+        input: &Value,
+    ) -> ApiResult<OperationResult> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error}"
+            ))
+        })?;
+        let operations = collection.v03_operations().map_err(|diagnostic| {
+            ApiError::internal(format!(
+                "The hosted collection could not open: {}",
+                diagnostic.message
+            ))
+        })?;
+        match operation {
+            "create_view_source" => Ok(operations.create_view_source(input)),
+            "update_view_source" => Ok(operations.update_view_source(input)),
+            "delete_view_source" => Ok(operations.delete_view_source(input)),
+            _ => Err(ApiError::bad_request(
+                "unsupported_operation",
+                "The hosted provider does not support that saved-view source operation.",
             )),
         }
     }
@@ -716,5 +744,56 @@ mod tests {
         assert!(created.valid, "{:?}", created.diagnostics);
         let (types, _) = workspace.type_resources().unwrap();
         assert!(types.iter().any(|definition| definition.name == "project"));
+    }
+
+    #[test]
+    fn reads_creates_updates_and_deletes_saved_view_resources() {
+        let workspace = WorkingSet::materialize(resources(), []).unwrap();
+        let document = r#"---
+type: view
+id: task.views
+version: 1
+name: Task views
+query: {}
+views:
+  - id: all
+    name: All tasks
+---
+"#;
+        let created = workspace
+            .view_source_operation(
+                "create_view_source",
+                &json!({ "path": "views/tasks.md", "document": document }),
+            )
+            .unwrap();
+        assert!(created.valid, "{:?}", created.diagnostics);
+        let revision = created.result["revision"].as_str().unwrap();
+
+        let read = workspace
+            .read_operation("read_view_source", &json!({ "path": "views/tasks.md" }))
+            .unwrap();
+        assert_eq!(read.result["document"], document);
+
+        let updated = workspace
+            .view_source_operation(
+                "update_view_source",
+                &json!({
+                    "path": "views/tasks.md",
+                    "if_revision": revision,
+                    "document": document.replace("All tasks", "Open tasks"),
+                }),
+            )
+            .unwrap();
+        assert!(updated.valid, "{:?}", updated.diagnostics);
+        let deleted = workspace
+            .view_source_operation(
+                "delete_view_source",
+                &json!({
+                    "path": "views/tasks.md",
+                    "if_revision": updated.result["revision"],
+                }),
+            )
+            .unwrap();
+        assert!(deleted.valid, "{:?}", deleted.diagnostics);
     }
 }

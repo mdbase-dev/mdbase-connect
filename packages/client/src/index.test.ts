@@ -88,7 +88,7 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
-  it("exposes provider-neutral saved-view discovery and execution", async () => {
+  it("exposes provider-neutral saved-view execution and source editing", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({
       async operation<Result>(operation: string, input: unknown) {
@@ -102,6 +102,20 @@ describe("provider-neutral collection client", () => {
       view: "kanban-board",
       limit: 50
     });
+    await client.readViewSource({ path: "TaskNotes/Views/tasks.base" });
+    await client.createViewSource({
+      path: "TaskNotes/Views/new.base",
+      document: "views: []\n"
+    });
+    await client.updateViewSource({
+      path: "TaskNotes/Views/tasks.base",
+      if_revision: "sha256:one",
+      document: "views: []\n"
+    });
+    await client.deleteViewSource({
+      path: "TaskNotes/Views/tasks.base",
+      if_revision: "sha256:two"
+    });
     expect(calls).toEqual([
       { operation: "list_views", input: {} },
       {
@@ -110,6 +124,32 @@ describe("provider-neutral collection client", () => {
           path: "TaskNotes/Views/tasks.base",
           view: "kanban-board",
           limit: 50
+        }
+      },
+      {
+        operation: "read_view_source",
+        input: { path: "TaskNotes/Views/tasks.base" }
+      },
+      {
+        operation: "create_view_source",
+        input: {
+          path: "TaskNotes/Views/new.base",
+          document: "views: []\n"
+        }
+      },
+      {
+        operation: "update_view_source",
+        input: {
+          path: "TaskNotes/Views/tasks.base",
+          if_revision: "sha256:one",
+          document: "views: []\n"
+        }
+      },
+      {
+        operation: "delete_view_source",
+        input: {
+          path: "TaskNotes/Views/tasks.base",
+          if_revision: "sha256:two"
         }
       }
     ]);
