@@ -34,6 +34,28 @@ describe("new note schema fields", () => {
       }
     });
   });
+
+  it("creates a folder through a normalized first-note path", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer purpose="folder" types={[]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    const create = screen.getByRole("button", { name: "Create folder" });
+    expect(create).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "Folder name" }), "/Research/Ideas/");
+    await user.type(screen.getByRole("textbox", { name: "First note" }), "Reading list");
+    expect(create).toBeEnabled();
+    await user.click(create);
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "Reading list",
+      path: "Research/Ideas/Reading list.md",
+      type: undefined,
+      titleField: undefined,
+      properties: {}
+    });
+  });
 });
 
 const eventType: CollectionTypeDescriptor = {

@@ -38,7 +38,5 @@ toolbar clutter, and permanent technical metadata around the document.
 4. Keep collection-wide powers explicit during connection and destructive work.
 5. Stay responsive with thousands of records and long Markdown documents.
 6. Delay creation until a complete path and type-aware initial record are ready.
-7. Make type and collection metadata inspectable without making routine writing
-   feel like schema administration.
-8. Prefer direct same-computer access for local collections after one explicit
-   browser permission action; keep relay fallback automatic and unobtrusive.
+7. Keep type definitions inspectable and editable in a dedicated workspace,
+   with compatibility risk visible before users save collection-wide changes.

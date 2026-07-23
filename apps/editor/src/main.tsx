@@ -14,9 +14,8 @@ const demoCount = import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO
 const demoDelay = demoCount > 0
   ? Number(new URL(location.href).searchParams.get("delay") ?? 0)
   : 0;
-const demoDirectPrompt = new URL(location.href).searchParams.get("direct") === "prompt";
 const gateway = demoCount > 0
-  ? new DemoCollectionGateway(demoCount, demoDelay, demoDirectPrompt)
+  ? new DemoCollectionGateway(demoCount, demoDelay)
   : new ConnectCollectionGateway();
 
 createRoot(document.getElementById("root")!).render(

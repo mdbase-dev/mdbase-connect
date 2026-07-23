@@ -12,16 +12,6 @@ test("keeps the application geometry visible while a collection opens", async ({
   await expect(opening).not.toBeAttached();
 });
 
-test("requests direct same-computer access only from the quiet user action", async ({ page }) => {
-  await page.goto("?demo=12&direct=prompt");
-  const prompt = page.getByText(/browser will ask for local-network access/i);
-  await expect(prompt).toBeVisible();
-  await expect(page.getByRole("status", { name: "Connected through mdbase" })).toBeVisible();
-  await page.getByRole("button", { name: "Connect directly" }).click();
-  await expect(prompt).not.toBeAttached();
-  await expect(page.getByRole("status", { name: "Connected directly" })).toBeVisible();
-});
-
 test("edits and autosaves a Markdown note", async ({ page }) => {
   await page.goto("?demo=240");
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
@@ -130,11 +120,44 @@ test("creates a note only after the creation form is complete", async ({ page })
   await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
 });
 
+test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+
+  await page.keyboard.press("Control+k");
+  const quickOpen = page.getByRole("dialog", { name: "Quick open" });
+  await expect(quickOpen).toBeVisible();
+  await quickOpen.getByRole("combobox", { name: "Find a note" }).fill("qstn kpng");
+  await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Questions worth keeping 7");
+});
+
+test("creates a folder with its first note", async ({ page }) => {
+  await page.goto("?demo=4");
+  const folders = page.getByRole("group", { name: "Folders" });
+  await folders.getByRole("button", { name: "New folder" }).click();
+
+  const create = page.getByRole("button", { name: "Create folder" });
+  await expect(create).toBeDisabled();
+  await page.getByRole("textbox", { name: "Folder name" }).fill("Research");
+  await page.getByRole("textbox", { name: "First note" }).fill("Reading list");
+  await expect(page.getByText("Research/Reading list.md")).toBeVisible();
+  await create.click();
+
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
+  await expect(folders.getByRole("button", { name: /Research/ })).toBeVisible();
+});
+
 test("inspects type definitions and persists editor settings", async ({ page }) => {
   await page.goto("?demo=12");
-  await page.getByRole("button", { name: /Schemas/ }).click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "note" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+  await page.getByRole("button", { name: "YAML" }).click();
   await expect(page.getByRole("textbox", { name: "note type YAML" })).toContainText("kind: mdbase.type");
+  await expect(page.getByText("Compatibility warning")).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
@@ -151,6 +174,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
   await collectionResize.focus();
@@ -183,6 +207,27 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   await expect(page.getByRole("separator", { name: "Resize collections sidebar" })).toHaveAttribute("aria-valuenow", "184");
   const restored = await page.locator(".note-list-pane").evaluate((element) => element.getBoundingClientRect().width);
   expect(restored).toBeCloseTo(after, 0);
+});
+
+test("keeps dense collection counts and footer controls inside the minimum rail", async ({ page }) => {
+  await page.goto("?demo=10000");
+  await expect(page.getByText("10,000 notes")).toBeVisible();
+
+  const rail = page.getByRole("complementary", { name: "Collection navigation" });
+  const counts = rail.locator(".rail-filter-items small");
+  await expect(counts.first()).toBeVisible();
+  expect(await counts.evaluateAll((elements) => elements.every((element) => {
+    const count = element.getBoundingClientRect();
+    const container = element.closest(".collection-rail")?.getBoundingClientRect();
+    return Boolean(container) && count.right <= container.right && element.scrollWidth <= element.clientWidth;
+  }))).toBe(true);
+
+  const statusLabel = rail.locator(".connection-footer p > span:last-child");
+  const shortcuts = rail.getByRole("button", { name: "Keyboard shortcuts" });
+  const [statusBox, shortcutBox] = await Promise.all([statusLabel.boundingBox(), shortcuts.boundingBox()]);
+  if (!statusBox || !shortcutBox) throw new Error("Collection footer controls are not visible.");
+  expect(statusBox.x + statusBox.width).toBeLessThanOrEqual(shortcutBox.x);
+  await expect(rail.locator(".disconnect-action > span")).toBeHidden();
 });
 
 test("keeps the Vim insert-mode cursor visible", async ({ page }) => {
@@ -287,9 +332,74 @@ test("uses one navigable pane at mobile width", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toBeVisible();
 });
 
-test("has no automatically detectable accessibility violations", async ({ page }) => {
+test("keeps every editor action reachable at the minimum mobile width", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("?demo=12");
+  await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+
+  const bounds = await page.locator(".editor-pane").evaluate((pane) => {
+    const action = pane.querySelector<HTMLElement>(".note-actions");
+    const surface = pane.querySelector<HTMLElement>(".writing-surface");
+    if (!action || !surface) throw new Error("The note editor is incomplete.");
+    return {
+      paneRight: pane.getBoundingClientRect().right,
+      actionRight: action.getBoundingClientRect().right,
+      surfaceRight: surface.getBoundingClientRect().right,
+      viewportWidth: window.innerWidth
+    };
+  });
+
+  expect(bounds.paneRight).toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.actionRight).toBeLessThanOrEqual(bounds.viewportWidth);
+  expect(bounds.surfaceRight).toBeLessThanOrEqual(bounds.viewportWidth);
+  await page.getByLabel("More note actions").click();
+  await expect(page.getByRole("button", { name: "Check note" })).toBeVisible();
+});
+
+test("keeps type editing usable at the minimum mobile width", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Back to notes" }).click();
+  await page.getByRole("button", { name: "Collections" }).click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("option", { name: /note/ }).click();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+  await page.getByRole("button", { name: "YAML" }).click();
+  const typeEditor = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(typeEditor).toBeVisible();
+  await expect(typeEditor).toHaveAttribute("tabindex", "0");
+
+  const rightEdges = await page.locator(".type-inspector").evaluate((inspector) => ({
+    inspector: inspector.getBoundingClientRect().right,
+    source: inspector.querySelector<HTMLElement>(".type-source")!.getBoundingClientRect().right,
+    actions: inspector.querySelector<HTMLElement>(".type-editor-actions")!.getBoundingClientRect().right,
+    viewport: window.innerWidth
+  }));
+  expect(rightEdges.inspector).toBeLessThanOrEqual(rightEdges.viewport);
+  expect(rightEdges.source).toBeLessThanOrEqual(rightEdges.viewport);
+  expect(rightEdges.actions).toBeLessThanOrEqual(rightEdges.viewport);
+
+  await page.getByRole("button", { name: "Back to types" }).click();
+  await page.getByRole("button", { name: "New type" }).click();
+  await expect(page.getByText("New", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
+});
+
+test("has no automatically detectable accessibility violations across editor surfaces", async ({ page }) => {
   await page.goto("?demo=80");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.getByRole("button", { name: "New note" }).click();
+  await expect(page.getByRole("main", { name: "Create note" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("main", { name: "Editor settings" })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });

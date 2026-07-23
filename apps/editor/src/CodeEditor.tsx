@@ -77,6 +77,7 @@ export function CodeEditor({
           EditorView.contentAttributes.of({
             "aria-label": label,
             "aria-multiline": "true",
+            tabindex: "0",
             spellcheck: language === "markdown" ? "true" : "false"
           }),
           placeholder ? editorPlaceholder(placeholder) : [],

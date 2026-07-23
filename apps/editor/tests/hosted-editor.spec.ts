@@ -121,10 +121,7 @@ class HostedCollectionHarness {
         expires_in: 3_600,
         refresh_expires_in: 2_592_000,
         collection_id: collectionId,
-        operations: [
-          "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
-          "read_type", "create_type", "update_type"
-        ],
+        operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
         scope: { contracts: [] },
         grant_id: grantId,
         encryption: null,
@@ -151,10 +148,7 @@ class HostedCollectionHarness {
       collection_id: collectionId,
       display_name: "Hosted writing",
       spec_version: "0.3.0",
-      operations: [
-        "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
-        "read_type", "create_type", "update_type"
-      ],
+      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
       change_cursor: this.sequence,
       types: [],
       contracts: [],
@@ -201,6 +195,15 @@ class HostedCollectionHarness {
     if (operation === "rename") {
       const from = String(input.from);
       const current = this.record(from);
+      if (input.dry_run === true) {
+        return providerResult(route, envelope({
+          from,
+          to: String(input.to),
+          dry_run: true,
+          would_rename: true,
+          references_affected: []
+        }));
+      }
       const record = this.document(String(input.to), current.body, current.frontmatter);
       this.records.delete(from);
       this.records.set(record.path, record);
@@ -209,6 +212,15 @@ class HostedCollectionHarness {
     if (operation === "delete") {
       const path = String(input.path);
       this.record(path);
+      if (input.dry_run === true) {
+        return providerResult(route, envelope({
+          path,
+          deleted: false,
+          dry_run: true,
+          would_delete: true,
+          broken_links: []
+        }));
+      }
       this.records.delete(path);
       return providerResult(route, envelope({ path, deleted: true, broken_links: [] }));
     }

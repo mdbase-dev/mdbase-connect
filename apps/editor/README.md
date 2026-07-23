@@ -8,16 +8,16 @@ same editor works against either storage provider.
 
 The editor includes a CodeMirror Markdown surface with optional Vim keys,
 `@` and `[[` object-link completion, backlinks, structured and JSON frontmatter
-views, deliberate note creation, collection settings, and read-only inspection
-of type definitions. Use `@/type/query` to scope the object picker to a declared
-mdbase type. Type definitions are not currently editable: changing the
-collection schema needs a separately permissioned management API in mdbase
-connect.
+views, deliberate note creation, collection settings, and a dedicated workspace
+for inspecting and editing type definitions. Use `@/type/query` to scope the
+object picker to a declared mdbase type. Type changes use mdbase connect's
+explicitly permissioned collection-management operations.
 
 The application requests `describe`, `changes`, `read`, `query`, `validate`,
-`create`, `update`, `delete`, and `rename` for one selected collection. Its
-manifest declares no domain contract, so the local connector treats the grant
-as collection-wide access.
+`create`, `update`, `delete`, `rename`, `read_type`, `create_type`, and
+`update_type` for one selected collection. Its manifest explicitly requests
+`full_collection` access because these operations span records and collection
+type definitions rather than one domain contract.
 
 ## Development
 

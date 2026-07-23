@@ -1,10 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { CollectionChange, JsonObject } from "@mdbase/connect";
+import { MdbaseConnectError, type CollectionChange, type JsonObject, type WatchStatus } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionGateway, NoteDocument, NoteListProgress, NoteSummary } from "./model";
+import type { CollectionGateway, MutationOperationOptions, NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) =>
@@ -25,7 +25,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
-    expect(within(collectionRail).getByRole("status", { name: "Connected through mdbase" })).toBeInTheDocument();
+    expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
     expect(within(collectionRail).getByRole("button", { name: "Disconnect collection" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
@@ -103,6 +103,11 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
     expect((body as HTMLTextAreaElement).value).toContain("A local sentence.");
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    await user.click(screen.getByText("Review differences"));
+    const diff = screen.getByRole("table", { name: "Body differences" });
+    expect(within(diff).getByText(/A local sentence/)).toBeInTheDocument();
+    expect(within(diff).getByText("The remote version is current.")).toBeInTheDocument();
+    expect(screen.getByText("Changed on another device")).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 750));
     expect(gateway.updateCalls).toBe(0);
 
@@ -147,6 +152,25 @@ describe("mdbase editor", () => {
     expect((await gateway.read("Root note.md")).types).toEqual([]);
   });
 
+  it("creates a new folder with its first note", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const folderNavigation = screen.getByRole("group", { name: "Folders" });
+    await user.click(within(folderNavigation).getByRole("button", { name: "New folder" }));
+
+    await user.type(screen.getByRole("textbox", { name: "Folder name" }), "Research");
+    await user.type(screen.getByRole("textbox", { name: "First note" }), "Reading list");
+    expect(screen.getByText("Research/Reading list.md")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
+    expect(await gateway.read("Research/Reading list.md")).toBeDefined();
+    expect(within(folderNavigation).getByRole("button", { name: /Research/ })).toBeInTheDocument();
+  });
+
   it("collapses collection facets, filters notes, and follows backlinks", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(12)} />);
@@ -183,6 +207,43 @@ describe("mdbase editor", () => {
     expect(within(backlinks).getByText("1 note link here")).toBeInTheDocument();
     await user.click(within(backlinks).getByRole("button", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+  });
+
+  it("edits existing types and creates new ones with a compatibility warning", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const collection = screen.getByRole("complementary", { name: "Collection navigation" });
+    await user.click(within(collection).getByRole("button", { name: "Types (1)" }));
+
+    const description = await screen.findByRole("textbox", { name: "Description" });
+    expect(screen.getByText("Compatibility warning")).toBeInTheDocument();
+    await user.clear(description);
+    await user.type(description, "A durable general note.");
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    const addedField = screen.getByDisplayValue("field").closest<HTMLElement>(".visual-field-row")!;
+    await user.click(within(addedField).getByRole("checkbox", { name: "Required" }));
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(screen.getByRole("heading", { name: "Update this type?" })).toBeInTheDocument();
+    expect(screen.getByText(/1 note is missing required field/)).toHaveTextContent("field");
+    await user.click(screen.getByRole("button", { name: "Confirm update" }));
+    await waitFor(() => expect(screen.getByText("Saved", { selector: ".type-inspector-bar small" })).toBeInTheDocument());
+    expect((await gateway.readType("note")).document).toContain("A durable general note.");
+
+    await user.click(screen.getByRole("button", { name: "YAML" }));
+    expect((await screen.findByRole("textbox", { name: "note type YAML" }) as HTMLTextAreaElement).value).toContain("kind: mdbase.type");
+
+    await user.click(screen.getByRole("button", { name: "New type" }));
+    const newTypeName = await screen.findByRole("textbox", { name: "Name" });
+    await user.clear(newTypeName);
+    await user.type(newTypeName, "project");
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    await user.click(screen.getByRole("button", { name: "Create type" }));
+
+    expect(await screen.findByRole("heading", { name: "project" })).toBeInTheDocument();
+    expect((await gateway.describe()).types.map((type) => type.name)).toContain("project");
   });
 
   it("keeps the note frame stable while a note is loading", async () => {
@@ -236,6 +297,39 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
   });
 
+  it("hydrates full text only when a search needs it and reports real progress", async () => {
+    const gateway = new DemandContentGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    expect(await screen.findByText("3 notes · full text on demand")).toBeInTheDocument();
+    expect(gateway.hydrateCalls).toBe(0);
+    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+
+    expect(await screen.findByText(/full text 1 of 3/)).toBeInTheDocument();
+    expect(gateway.hydrateCalls).toBe(1);
+    expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
+    gateway.releaseContent();
+
+    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    expect(screen.getByText("1 note")).toBeInTheDocument();
+  });
+
+  it("keeps a failed full-text search actionable and retries it", async () => {
+    const gateway = new RetryingContentGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByText("3 notes · full text on demand");
+    await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
+    const retry = await screen.findByRole("button", { name: "Retry full text" });
+    expect(retry).toHaveAttribute("title", "The full-text index could not be read.");
+    await user.click(retry);
+
+    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    expect(gateway.hydrateCalls).toBe(2);
+  });
+
   it("uses the create response without re-listing or re-reading the new note", async () => {
     const gateway = new CountingGateway();
     const user = userEvent.setup();
@@ -251,8 +345,24 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByDisplayValue("Fast note")).toBeInTheDocument();
     expect(gateway.createCalls).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     expect(gateway.listCalls).toBe(listCalls);
     expect(gateway.readCalls).toBe(readCalls);
+
+    await user.click(screen.getByRole("button", { name: "Fast note.md" }));
+    const path = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(path);
+    await user.type(path, "Adversarial/Fast note.md{Enter}");
+    expect(await screen.findByRole("button", { name: "Adversarial/Fast note.md" })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(gateway.listCalls).toBe(listCalls);
+
+    await user.click(screen.getByLabelText("More note actions"));
+    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(await screen.findByRole("button", { name: /^Delete$/ }));
+    await waitFor(() => expect(gateway.deleteCalls).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(gateway.listCalls).toBe(listCalls);
   });
 
   it("searches note content in the loaded index without another query or watcher", async () => {
@@ -269,6 +379,46 @@ describe("mdbase editor", () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
     expect(gateway.listCalls).toBe(listCalls);
     expect(gateway.watchCalls).toBe(1);
+  });
+
+  it("fuzzy-searches titles and paths and quick-opens recent notes", async () => {
+    const gateway = new DemoCollectionGateway(12);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    const search = await screen.findByRole("textbox", { name: "Search every note" });
+    await user.type(search, "shp usfl");
+    expect((await screen.findAllByRole("option", { name: /The shape of useful tools/ })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("option", { name: /Garden notes 2/ })).not.toBeInTheDocument();
+    await user.clear(search);
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const quickOpen = await screen.findByRole("dialog", { name: "Quick open" });
+    expect(within(quickOpen).getByText("Recent notes")).toBeInTheDocument();
+    const finder = within(quickOpen).getByRole("combobox", { name: "Find a note" });
+    await user.type(finder, "qstn kpng");
+    expect(within(quickOpen).getByRole("option", { name: /Questions worth keeping 7/ })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("Questions worth keeping 7");
+  });
+
+  it("navigates notes and reveals keyboard help without leaving the editor", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    fireEvent.keyDown(window, { key: "j", altKey: true });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    fireEvent.keyDown(window, { key: "k", altKey: true });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools"));
+
+    await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    const help = screen.getByRole("dialog", { name: "Shortcuts" });
+    expect(help).toHaveTextContent("Quick open");
+    expect(help).toHaveTextContent("Next or previous note");
+    await user.click(within(help).getByRole("button", { name: "Close keyboard shortcuts" }));
+    expect(screen.queryByRole("dialog", { name: "Shortcuts" })).not.toBeInTheDocument();
   });
 
   it("opens other notes while the current note saves in the background", async () => {
@@ -386,7 +536,7 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   });
 
-  it("orders rename behind a note save without returning to that note", async () => {
+  it("orders rename preflight and mutation behind an active note save", async () => {
     const gateway = new SlowUpdateGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -397,15 +547,76 @@ describe("mdbase editor", () => {
     const path = screen.getByRole("textbox", { name: "Markdown path" });
     await user.clear(path);
     await user.type(path, "Notes/renamed-in-background.md{Enter}");
+    expect(gateway.events).not.toContain("preflight:rename");
+    gateway.releaseUpdate();
+    await user.click(await screen.findByRole("button", { name: "Rename and update links" }));
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
 
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
-    expect(gateway.events).not.toContain("rename");
-    gateway.releaseUpdate();
     await waitFor(() => expect(gateway.events).toContain("rename"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("preflight:rename"));
+    expect(gateway.events.indexOf("preflight:rename")).toBeLessThan(gateway.events.indexOf("rename"));
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("rename"));
     expect((await gateway.list()).some((note) => note.path === "Notes/renamed-in-background.md")).toBe(true);
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  });
+
+  it("shows long-running link updates beside the open note", async () => {
+    const gateway = new SlowRenameGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.click(await screen.findByRole("button", { name: "Notes/the-shape-of-useful-tools.md" }));
+    const path = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(path);
+    await user.type(path, "Notes/renamed-with-links.md{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Rename and update links" }));
+    await gateway.renameStarted;
+
+    expect(screen.getAllByText("Updating 1 linked note", { exact: true })).toHaveLength(2);
+    gateway.releaseRename();
+    await waitFor(() => expect(screen.getByText("Saved", { exact: true })).toBeInTheDocument());
+  });
+
+  it("cancels a resumable rename without losing its recovery action", async () => {
+    const gateway = new CancellableRenameGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.click(await screen.findByRole("button", { name: "Notes/the-shape-of-useful-tools.md" }));
+    const path = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(path);
+    await user.type(path, "Notes/resumable-rename.md{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Rename and update links" }));
+    await gateway.renameStarted;
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText(/authoritative result/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Markdown path" })).toHaveValue("Notes/resumable-rename.md");
+
+    await user.click(screen.getByRole("button", { name: "Resume rename" }));
+    await waitFor(() => expect(gateway.renameCalls).toBe(2));
+    expect(await screen.findByRole("button", { name: "Notes/resumable-rename.md" })).toBeInTheDocument();
+  });
+
+  it("preflights linked renames and can undo a rename-only move", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await user.click(await screen.findByRole("button", { name: "Notes/the-shape-of-useful-tools.md" }));
+    const path = screen.getByRole("textbox", { name: "Markdown path" });
+    await user.clear(path);
+    await user.type(path, "Archive/useful-tools.md{Enter}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("1 note contains links that will change");
+    await user.click(screen.getByRole("button", { name: "Rename only" }));
+    expect(await screen.findByRole("button", { name: "Archive/useful-tools.md" })).toBeInTheDocument();
+    expect((await gateway.read("Journal/garden-notes-2.md")).body).toContain("Notes/the-shape-of-useful-tools");
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("button", { name: "Notes/the-shape-of-useful-tools.md" })).toBeInTheDocument();
+    expect((await gateway.read("Journal/garden-notes-2.md")).body).toContain("Notes/the-shape-of-useful-tools");
   });
 
   it("orders validation behind a note save without blocking navigation", async () => {
@@ -426,7 +637,7 @@ describe("mdbase editor", () => {
     expect(screen.queryByText("No validation issues.")).not.toBeInTheDocument();
   });
 
-  it("leaves a deleted note immediately and deletes it after its active save", async () => {
+  it("preflights and deletes a note after its active save", async () => {
     const gateway = new SlowUpdateGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -434,21 +645,37 @@ describe("mdbase editor", () => {
     await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nDiscard with note.");
     await gateway.updateStarted;
     await user.click(screen.getByRole("button", { name: "Delete note" }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(gateway.events).not.toContain("preflight:delete");
+    gateway.releaseUpdate();
+    const confirmation = await screen.findByRole("alert");
+    expect(confirmation).toHaveTextContent("1 note will keep a broken link");
+    await user.click(within(confirmation).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
-    expect(gateway.events).not.toContain("delete");
-    const deleting = screen.getByRole("option", { name: /The shape of useful tools.*Deleting/ });
-    expect(deleting).toHaveAttribute("aria-busy", "true");
-    expect(deleting).toHaveAttribute("aria-disabled", "true");
-    await user.click(deleting);
-    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
-    gateway.releaseUpdate();
-
     await waitFor(() => expect(gateway.events).toContain("delete"));
+    expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("preflight:delete"));
+    expect(gateway.events.indexOf("preflight:delete")).toBeLessThan(gateway.events.indexOf("delete"));
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("delete"));
     await waitFor(() => expect(screen.queryByRole("option", { name: /The shape of useful tools/ })).not.toBeInTheDocument());
     expect((await gateway.list()).some((note) => note.path === "Notes/the-shape-of-useful-tools.md")).toBe(false);
+  });
+
+  it("restores a deleted note without reloading the collection", async () => {
+    const gateway = new CountingGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("textbox", { name: "Note title" });
+    const listCalls = gateway.listCalls;
+    await user.click(screen.getByLabelText("More note actions"));
+    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByRole("option", { name: /The shape of useful tools/ })).toBeInTheDocument();
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Good tools leave room");
+    expect(gateway.listCalls).toBe(listCalls);
   });
 
   it("renders an explicit full-access explanation before authorization", async () => {
@@ -458,51 +685,195 @@ describe("mdbase editor", () => {
     render(<App gateway={disconnected} />);
     expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
     expect(screen.getByText(/local or hosted mdbase collection/i)).toBeInTheDocument();
-    expect(await screen.findByText(/view, create, edit, move, validate, and delete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/inspect and manage type definitions/i)).toBeInTheDocument();
     expect(screen.getByText(/Hosted collections stay available without your computer/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Collection not listed?"));
+    expect(screen.getByText(/upgrade a copy, verify that copy/i)).toBeInTheDocument();
+    expect(screen.getByText(/original files can stay untouched/i)).toBeInTheDocument();
   });
 
-  it("requests direct local access only from the explicit connection action", async () => {
-    const gateway = new DirectAccessGateway();
+  it("explains and requests only capabilities missing from an existing connection", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const partial = Object.create(gateway) as CollectionGateway;
+    const authorize = vi.fn(async () => undefined);
+    partial.connection = () => ({
+      collectionId: "partial",
+      operations: ["describe", "read", "query"],
+      missingOperations: ["update", "rename", "read_type"]
+    });
+    partial.authorize = authorize;
+    render(<App gateway={partial} />);
+
+    expect(await screen.findByRole("button", { name: "Update access" })).toBeInTheDocument();
+    expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
+    expect(screen.getByText(/ask only for the missing capabilities/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Update access" }));
+    expect(authorize).toHaveBeenCalledOnce();
+  });
+
+  it("keeps note editing available when only optional type access is missing", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const partial = Object.create(gateway) as CollectionGateway;
+    const authorize = vi.fn(async () => undefined);
+    partial.connection = () => ({
+      collectionId: "notes-only",
+      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
+      missingOperations: ["read_type", "create_type", "update_type"]
+    });
+    partial.authorize = authorize;
+    render(<App gateway={partial} />);
+
+    expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Note body" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Types (1)" }));
+    expect(await screen.findByRole("heading", { name: "Type access needed" })).toBeInTheDocument();
+    expect(screen.getByText(/Notes are ready/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Update access" }));
+    expect(authorize).toHaveBeenCalledOnce();
+  });
+
+  it("shows a dropped connection and offers an immediate retry", async () => {
+    const gateway = new ReconnectingGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    const button = await screen.findByRole("button", { name: "Connect directly" });
-    expect(screen.getByText(/browser will ask for local-network access/i)).toBeInTheDocument();
-    expect(gateway.requests).toBe(0);
-    await user.click(button);
-    expect(gateway.requests).toBe(1);
-    expect(await screen.findByRole("status", { name: "Connected directly" })).toBeInTheDocument();
+    const reconnecting = await screen.findByRole("status", { name: "Collection reconnecting" });
+    expect(reconnecting).toHaveAttribute("title", "The test connection dropped.");
+    await user.click(screen.getByRole("button", { name: "Retry connection" }));
+
+    expect(await screen.findByRole("status", { name: "Collection connected" }, { timeout: 2_000 })).toBeInTheDocument();
+    expect(gateway.watchCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refreshes collection state before recovering from an expired change cursor", async () => {
+    const gateway = new ResettingCursorGateway();
+    render(<App gateway={gateway} />);
+
+    expect(await screen.findByRole("status", { name: "Collection connected" })).toBeInTheDocument();
+    await waitFor(() => expect(gateway.listCalls).toBe(2));
+    await waitFor(() => expect(gateway.watchCalls).toBe(2));
+  });
+
+  it("keeps an index failure visible and lets the user retry it", async () => {
+    const gateway = new RetryingListGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The note index could not be read.");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("textbox", { name: "Note title" })).toBeInTheDocument();
+    expect(gateway.listCalls).toBe(2);
   });
 });
 
-class DirectAccessGateway extends DemoCollectionGateway {
-  private connectionListener?: (connection: import("./model").ConnectionSummary | null) => void;
-  requests = 0;
+class RetryingListGateway extends DemoCollectionGateway {
+  listCalls = 0;
 
-  override connection() {
-    return {
-      collectionId: "demo",
-      operations: ["all"],
-      route: this.requests ? "direct" as const : "relay" as const,
-      directAccess: this.requests ? "available" as const : "permission_required" as const
-    };
+  constructor() {
+    super(3);
   }
 
-  override onConnectionChange(listener: (connection: import("./model").ConnectionSummary | null) => void) {
-    this.connectionListener = listener;
-    listener(this.connection());
-    return () => { this.connectionListener = undefined; };
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.listCalls += 1;
+    if (this.listCalls === 1) throw new Error("The note index could not be read.");
+    return super.list(onProgress);
+  }
+}
+
+class DemandContentGateway extends DemoCollectionGateway {
+  private fullNotes: NoteSummary[] = [];
+  private release?: () => void;
+  hydrateCalls = 0;
+
+  constructor() {
+    super(3);
   }
 
-  override async checkDirectAccess() {
-    return "permission_required" as const;
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.fullNotes = await super.list();
+    const structure = this.fullNotes.map(({ body: _body, ...note }) => note);
+    onProgress?.({ notes: structure, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
+    return structure;
   }
 
-  override async requestDirectAccess() {
-    this.requests += 1;
-    this.connectionListener?.(this.connection());
-    return "available" as const;
+  override async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.hydrateCalls += 1;
+    onProgress?.({ notes: this.fullNotes.slice(0, 1), structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: this.fullNotes.length });
+    await new Promise<void>((resolve) => { this.release = resolve; });
+    onProgress?.({ notes: this.fullNotes, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
+    return this.fullNotes;
+  }
+
+  releaseContent() {
+    this.release?.();
+  }
+}
+
+class RetryingContentGateway extends DemoCollectionGateway {
+  private fullNotes: NoteSummary[] = [];
+  hydrateCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.fullNotes = await super.list();
+    const structure = this.fullNotes.map(({ body: _body, ...note }) => note);
+    onProgress?.({ notes: structure, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
+    return structure;
+  }
+
+  override async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.hydrateCalls += 1;
+    if (this.hydrateCalls === 1) throw new Error("The full-text index could not be read.");
+    onProgress?.({ notes: this.fullNotes, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
+    return this.fullNotes;
+  }
+}
+
+class ReconnectingGateway extends DemoCollectionGateway {
+  watchCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async watch(_onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void> {
+    this.watchCalls += 1;
+    onStatus?.({ state: "connecting" });
+    if (this.watchCalls === 1) {
+      onStatus?.({ state: "reconnecting", cursor: 1, attempt: 1, retryInMs: 500, error: new Error("The test connection dropped.") });
+    } else {
+      onStatus?.({ state: "connected", cursor: 1, recovered: false });
+    }
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  }
+}
+
+class ResettingCursorGateway extends DemoCollectionGateway {
+  listCalls = 0;
+  watchCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+    this.listCalls += 1;
+    return super.list(onProgress);
+  }
+
+  override async watch(_onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void> {
+    this.watchCalls += 1;
+    onStatus?.({ state: "connecting" });
+    if (this.watchCalls === 1) {
+      const error = new MdbaseConnectError("change_cursor_reset", "Refresh collection state.");
+      onStatus?.({ state: "reset_required", cursor: 1, error });
+      throw error;
+    }
+    onStatus?.({ state: "connected", cursor: 2, recovered: false });
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
   }
 }
 
@@ -628,9 +999,11 @@ class ProgressiveListGateway extends DemoCollectionGateway {
 }
 
 class CountingGateway extends DemoCollectionGateway {
+  private listener?: (change?: CollectionChange) => void;
   listCalls = 0;
   readCalls = 0;
   createCalls = 0;
+  deleteCalls = 0;
   watchCalls = 0;
 
   constructor() {
@@ -649,12 +1022,43 @@ class CountingGateway extends DemoCollectionGateway {
 
   override async create(input: Parameters<DemoCollectionGateway["create"]>[0]): Promise<NoteDocument> {
     this.createCalls += 1;
-    return super.create(input);
+    const created = await super.create(input);
+    this.listener?.({
+      cursor: 1,
+      type: "mdbase.record.created",
+      occurred_at: new Date().toISOString(),
+      payload: { path: created.path, types: created.types }
+    });
+    return created;
   }
 
-  override async watch(_onChange: () => void, signal: AbortSignal): Promise<void> {
+  override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    const renamed = await super.rename(from, to, revision, updateRefs, options);
+    this.listener?.({
+      cursor: 2,
+      type: "mdbase.record.renamed",
+      occurred_at: new Date().toISOString(),
+      payload: { from, to, types: renamed.types }
+    });
+    return renamed;
+  }
+
+  override async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
+    await super.delete(path, revision, options);
+    this.deleteCalls += 1;
+    this.listener?.({
+      cursor: 3,
+      type: "mdbase.record.deleted",
+      occurred_at: new Date().toISOString(),
+      payload: { path, previous_types: [] }
+    });
+  }
+
+  override async watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal): Promise<void> {
     this.watchCalls += 1;
+    this.listener = onChange;
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    this.listener = undefined;
   }
 }
 
@@ -725,9 +1129,14 @@ class SlowUpdateGateway extends DemoCollectionGateway {
     return super.updateProperties(path, patch, revision);
   }
 
-  override async rename(from: string, to: string, revision: string): Promise<NoteDocument> {
+  override async preflightRename(from: string, to: string, revision: string) {
+    this.events.push("preflight:rename");
+    return super.preflightRename(from, to, revision);
+  }
+
+  override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
     this.events.push("rename");
-    return super.rename(from, to, revision);
+    return super.rename(from, to, revision, updateRefs, options);
   }
 
   override async validate(): Promise<[]> {
@@ -735,13 +1144,80 @@ class SlowUpdateGateway extends DemoCollectionGateway {
     return [];
   }
 
-  override async delete(path: string, revision: string): Promise<void> {
+  override async preflightDelete(path: string, revision: string) {
+    this.events.push("preflight:delete");
+    return super.preflightDelete(path, revision);
+  }
+
+  override async delete(path: string, revision: string, options: MutationOperationOptions = {}): Promise<void> {
     this.events.push("delete");
-    return super.delete(path, revision);
+    return super.delete(path, revision, options);
   }
 
   releaseUpdate() {
     this.release?.();
+  }
+}
+
+class SlowRenameGateway extends DemoCollectionGateway {
+  private release?: () => void;
+  private markStarted?: () => void;
+  private readonly blockedRename = new Promise<void>((resolve) => { this.release = resolve; });
+  readonly renameStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
+
+  constructor() {
+    super(3);
+  }
+
+  override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    options.onProgress?.({
+      operation: "rename",
+      state: "applying",
+      elapsedMs: 0,
+      cancellable: false,
+      resumed: false,
+      completedUnits: 0,
+      estimate: { affectedRecords: updateRefs ? 1 : 0, totalUnits: updateRefs ? 2 : 1, warnings: 0 }
+    });
+    this.markStarted?.();
+    await this.blockedRename;
+    return super.rename(from, to, revision, updateRefs, options);
+  }
+
+  releaseRename() {
+    this.release?.();
+  }
+}
+
+class CancellableRenameGateway extends DemoCollectionGateway {
+  private markStarted?: () => void;
+  readonly renameStarted = new Promise<void>((resolve) => { this.markStarted = resolve; });
+  renameCalls = 0;
+
+  constructor() {
+    super(3);
+  }
+
+  override async rename(from: string, to: string, revision: string, updateRefs = true, options: MutationOperationOptions = {}): Promise<NoteDocument> {
+    this.renameCalls += 1;
+    if (this.renameCalls === 1) {
+      options.onProgress?.({
+        operation: "rename",
+        state: "applying",
+        elapsedMs: 0,
+        cancellable: true,
+        resumed: false,
+        completedUnits: 0,
+        estimate: { affectedRecords: updateRefs ? 1 : 0, totalUnits: updateRefs ? 2 : 1, warnings: 0 }
+      });
+      this.markStarted?.();
+      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new MdbaseConnectError(
+        "operation_cancelled",
+        "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result.",
+        { outcomeUnknown: true, recovery: "resolve_outcome" }
+      )), { once: true }));
+    }
+    return super.rename(from, to, revision, updateRefs, options);
   }
 }
 

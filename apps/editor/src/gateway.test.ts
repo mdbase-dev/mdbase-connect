@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { MdbaseCollectionClient, MdbaseOperationValidationError } from "@mdbase/connect";
 import { ConnectCollectionGateway } from "./gateway";
-import type { NoteListProgress, NoteSummary } from "./model";
+import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
 describe("ConnectCollectionGateway collection index", () => {
-  it("loads the complete structure before hydrating note bodies", async () => {
+  it("loads the complete structure before hydrating note bodies on demand", async () => {
     const metadata = [summary("Notes/one.md"), summary("Archive/two.md")];
     const hydrated = metadata.map((note, index) => ({ ...note, body: `Body ${index + 1}` }));
     const query = vi.fn(async ({ include_body: includeBody, offset }: { include_body: boolean; offset: number; snapshot?: string }) => {
@@ -17,11 +18,29 @@ describe("ConnectCollectionGateway collection index", () => {
         }
       };
     });
-    const gateway = Object.create(ConnectCollectionGateway.prototype) as ConnectCollectionGateway;
-    Object.defineProperty(gateway, "connect", { value: { query } });
-    const progress: NoteListProgress[] = [];
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    Object.defineProperty(gateway, "connect", {
+      value: new MdbaseCollectionClient({
+        async operation<Result>(_operation: string, input: unknown) {
+          return await query(input as { include_body: boolean; offset: number; snapshot?: string }) as Result;
+        }
+      })
+    });
+    const structureProgress: NoteListProgress[] = [];
+    const contentProgress: NoteListProgress[] = [];
 
-    const notes = await gateway.list((update) => progress.push(update));
+    const structure = await gateway.list((update) => structureProgress.push(update));
+
+    expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
+      [false, 0],
+      [false, 1]
+    ]);
+    expect(structureProgress[0]).toMatchObject({ structureComplete: false, complete: false, contentComplete: false, total: 2 });
+    expect(structureProgress[1]).toMatchObject({ structureComplete: true, complete: true, contentComplete: false, total: 2 });
+    expect(structure.map((note) => note.path)).toEqual(["Notes/one.md", "Archive/two.md"]);
+    expect(structure.every((note) => note.body === undefined)).toBe(true);
+
+    const notes = await gateway.hydrateContent((update) => contentProgress.push(update));
 
     expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
       [false, 0],
@@ -35,12 +54,106 @@ describe("ConnectCollectionGateway collection index", () => {
       "stable-index",
       "stable-index"
     ]);
-    expect(progress[0]).toMatchObject({ structureComplete: false, complete: false, total: 2 });
-    expect(progress[0].notes[0].body).toBeUndefined();
-    expect(progress[1]).toMatchObject({ structureComplete: true, complete: false, total: 2 });
-    expect(progress[1].notes.map((note) => note.path)).toEqual(["Notes/one.md", "Archive/two.md"]);
-    expect(progress.at(-1)).toMatchObject({ structureComplete: true, complete: true, total: 2 });
+    expect(contentProgress[0]).toMatchObject({ structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: 2 });
+    expect(contentProgress.at(-1)).toMatchObject({ structureComplete: true, complete: true, contentComplete: true, contentLoaded: 2, total: 2 });
     expect(notes.map((note) => note.body)).toEqual(["Body 1", "Body 2"]);
+  });
+});
+
+describe("ConnectCollectionGateway recovery operations", () => {
+  it("uses SDK capability gaps and envelope validation", async () => {
+    const requestOperations = vi.fn(async () => undefined);
+    const read = vi.fn(async () => ({
+      valid: false,
+      diagnostics: [{ severity: "error", code: "invalid_record", message: "The note is invalid." }],
+      result: { path: "Notes/invalid.md", frontmatter: {}, types: [], revision: "invalid" }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    Object.defineProperty(gateway, "connect", { value: {
+      connection: () => ({ collectionId: "collection", operations: ["read"], scope: { contracts: [] } }),
+      authorizationCapabilities: () => ({ missingOperations: ["update"] }),
+      requestOperations,
+      read
+    } });
+
+    expect(gateway.connection()).toEqual({
+      collectionId: "collection",
+      operations: ["read"],
+      missingOperations: ["update"]
+    });
+    await gateway.authorize();
+    expect(requestOperations).toHaveBeenCalledWith(expect.arrayContaining(["describe", "read", "update", "rename"]));
+    await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(MdbaseOperationValidationError);
+    await expect(gateway.read("Notes/invalid.md")).rejects.toMatchObject({
+      diagnostics: [{ code: "invalid_record" }],
+      result: { path: "Notes/invalid.md" }
+    });
+  });
+
+  it("restores exact Markdown content and lets callers opt out of backlink updates", async () => {
+    const document: NoteDocument = {
+      path: "Notes/restored.md",
+      frontmatter: { title: "Resolved title" },
+      raw_frontmatter: { title: "Original title", custom: true },
+      body: "# Restored\n\nExact body.\n",
+      types: ["note"],
+      revision: "before-delete"
+    };
+    const create = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
+    const renameWithProgress = vi.fn(async () => ({ valid: true, diagnostics: [], result: { ...document, from: document.path, to: "Archive/restored.md", path: "Archive/restored.md" } }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    Object.defineProperty(gateway, "connect", { value: { create, renameWithProgress } });
+
+    await gateway.restore(document);
+    await gateway.rename(document.path, "Archive/restored.md", document.revision, false);
+
+    expect(create).toHaveBeenCalledWith({
+      path: document.path,
+      frontmatter: document.raw_frontmatter,
+      body: document.body
+    });
+    expect(renameWithProgress).toHaveBeenCalledWith({
+      from: document.path,
+      to: "Archive/restored.md",
+      if_revision: document.revision,
+      update_refs: false
+    }, {});
+  });
+
+  it("maps canonical mutation preflight impact to editor-safe paths", async () => {
+    const preflightRename = vi.fn(async () => ({
+      valid: true,
+      diagnostics: [],
+      result: {
+        references_affected: [
+          { path: "Notes/linking.md", location: "body" },
+          { path: "Notes/linking.md", field: "related" }
+        ],
+        warnings: [{ path: "Notes/ambiguous.md", message: "Ambiguous link was not updated" }]
+      }
+    }));
+    const preflightDelete = vi.fn(async () => ({
+      valid: true,
+      diagnostics: [],
+      result: { broken_links: [{ path: "Notes/linking.md" }, { path: "Notes/linking.md" }] }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    Object.defineProperty(gateway, "connect", { value: { preflightRename, preflightDelete } });
+
+    await expect(gateway.preflightRename("Notes/source.md", "Archive/source.md", "revision:1")).resolves.toMatchObject({
+      affectedPaths: ["Notes/linking.md"],
+      warnings: ["Ambiguous link was not updated"]
+    });
+    await expect(gateway.preflightDelete("Notes/source.md", "revision:1")).resolves.toMatchObject({
+      brokenLinkPaths: ["Notes/linking.md"]
+    });
+    expect(preflightRename).toHaveBeenCalledWith({
+      from: "Notes/source.md",
+      to: "Archive/source.md",
+      if_revision: "revision:1",
+      update_refs: true
+    });
+    expect(preflightDelete).toHaveBeenCalledWith({ path: "Notes/source.md", if_revision: "revision:1" });
   });
 });
 

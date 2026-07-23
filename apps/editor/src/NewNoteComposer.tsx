@@ -6,14 +6,17 @@ import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 
-export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate, onCancel }: {
+export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadingActions, onCreate, onCancel }: {
   types: CollectionTypeDescriptor[];
   defaultFolder?: string;
+  purpose?: "note" | "folder";
   leadingActions?: ReactNode;
   onCreate: (input: CreateNoteInput) => Promise<void>;
   onCancel: () => void;
 }) {
+  const folderCreation = purpose === "folder";
   const [title, setTitle] = useState("");
+  const [folderName, setFolderName] = useState("");
   const [typeName, setTypeName] = useState("");
   const [path, setPath] = useState(() => suggestedPath("", defaultFolder));
   const [pathEdited, setPathEdited] = useState(false);
@@ -24,7 +27,13 @@ export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate
   const schema = schemaShape(type);
   const titleField = ["title", "name", "subject"].find((field) => field in schema.properties);
   const required = schema.required.filter((field) => field !== "type" && field !== titleField && !schemaSuppliesValue(schema.properties[field]));
-  const complete = Boolean(title.trim() && validPath(path) && required.every((field) => hasValue(properties[field])));
+  const resolvedPath = folderCreation ? suggestedPath(title, normalizedFolder(folderName)) : path;
+  const complete = Boolean(
+    title.trim()
+    && validPath(resolvedPath)
+    && (!folderCreation || validFolder(folderName))
+    && required.every((field) => hasValue(properties[field]))
+  );
 
   const defaults = useMemo(() => schemaDefaults(type), [type]);
 
@@ -51,7 +60,7 @@ export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate
     try {
       await onCreate({
         title: title.trim(),
-        path: safeRenamePath(path),
+        path: safeRenamePath(resolvedPath),
         type: typeName || undefined,
         titleField,
         properties: nextProperties
@@ -62,22 +71,28 @@ export function NewNoteComposer({ types, defaultFolder, leadingActions, onCreate
     }
   }
 
-  return <main className="new-note-composer" aria-label="Create note">
-    <header className="editor-bar"><button className="mobile-back icon-button" aria-label="Cancel new note" onClick={onCancel}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>New note</span></header>
+  return <main className="new-note-composer" aria-label={folderCreation ? "Create folder" : "Create note"}>
+    <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? "Cancel new folder" : "Cancel new note"} onClick={onCancel}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? "New folder" : "New note"}</span></header>
     <form onSubmit={(event) => void submit(event)}>
-      <p className="eyebrow">New Markdown record</p>
-      <label className="new-note-title"><span className="sr-only">Title</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
+      <p className="eyebrow">{folderCreation ? "New folder with its first note" : "New Markdown record"}</p>
+      {folderCreation
+        ? <label className="new-note-title"><span className="sr-only">Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Folder name" spellCheck="false" /></label>
+        : <label className="new-note-title"><span className="sr-only">Title</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>}
       <div className="new-note-fields">
-        <label><span>Path</span><input value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /></label>
+        {folderCreation
+          ? <label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
+          : <label><span>Path</span><input value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /></label>}
         <label><span>Type</span><select value={typeName} onChange={(event) => selectType(event.target.value)}>
           <option value="">No explicit type</option>
           {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
         </select></label>
+        {folderCreation && <label className="new-folder-path"><span>Path</span><output>{resolvedPath}</output></label>}
         {required.map((field) => <RequiredField key={`${typeName}:${field}`} name={field} schema={schema.properties[field]} value={properties[field]} onChange={(value) => setProperties((current) => ({ ...current, [field]: value }))} />)}
       </div>
+      {folderCreation && <p className="new-folder-help">Folders are created when their first note is saved.</p>}
       {type?.description && <p className="new-note-type-help">{type.description}</p>}
       {error && <p className="new-note-error" role="alert">{error}</p>}
-      <div className="new-note-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="create-note-button" disabled={!complete || creating}>{creating ? "Creating" : "Create note"}</button></div>
+      <div className="new-note-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="create-note-button" disabled={!complete || creating}>{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}</button></div>
     </form>
   </main>;
 }
@@ -165,6 +180,15 @@ function slug(value: string): string {
 function validPath(path: string): boolean {
   const value = safeRenamePath(path);
   return Boolean(value && value.toLocaleLowerCase().endsWith(".md") && !value.split("/").includes(".."));
+}
+
+function normalizedFolder(folder: string): string {
+  return safeRenamePath(folder).replace(/\/+$/g, "");
+}
+
+function validFolder(folder: string): boolean {
+  const value = normalizedFolder(folder);
+  return Boolean(value && value.split("/").every((part) => part && part !== "." && part !== ".."));
 }
 
 function hasValue(value: unknown): boolean {
