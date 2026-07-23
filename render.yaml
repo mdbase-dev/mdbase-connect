@@ -61,6 +61,7 @@ services:
     repo: https://github.com/mdbase-dev/mdbase-connect
     branch: main
     plan: starter
+    numInstances: 2
     region: singapore
     dockerfilePath: ./deploy/docker/Dockerfile.server
     dockerContext: .
