@@ -652,6 +652,22 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.executeView(input);
   }
 
+  readViewSource(input: ReadViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.collectionClient.readViewSource(input);
+  }
+
+  createViewSource(input: CreateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.collectionClient.createViewSource(input);
+  }
+
+  updateViewSource(input: UpdateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
+    return this.collectionClient.updateViewSource(input);
+  }
+
+  deleteViewSource(input: DeleteViewSourceInput): Promise<MdbaseOperationEnvelope<DeleteViewSourceResult>> {
+    return this.collectionClient.deleteViewSource(input);
+  }
+
   create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
     return this.collectionClient.create(input);
   }
