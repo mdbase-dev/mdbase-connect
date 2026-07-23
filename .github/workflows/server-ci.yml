@@ -75,4 +75,5 @@ jobs:
       # dependencies from making a clean checkout unreproducible.
       - run: cargo test --locked --workspace
       - run: cargo build --locked -p mdbase-connect-hosted-provider
+      - run: node scripts/relay-e2e.mjs
       - run: node scripts/hosted-provider-e2e.mjs
