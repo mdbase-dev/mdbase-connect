@@ -14,6 +14,8 @@ services:
     maxShutdownDelaySeconds: 30
     autoDeployTrigger: checksPass
     envVars:
+      - key: PORT
+        value: "10000"
       - key: NATS_AUTH_TOKEN
         generateValue: true
 
