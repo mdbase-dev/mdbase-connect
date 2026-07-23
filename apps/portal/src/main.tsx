@@ -4,6 +4,7 @@ import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -68,7 +69,7 @@ function Login() {
   if (!config) return <Loading error={error} />;
   if (config.provider === "tailscale") return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <section className="auth-panel">
         <p className="eyebrow">Tailnet identity</p>
         <h1>Open this through Tailscale.</h1>
@@ -85,7 +86,7 @@ function Login() {
       : [];
   if (providers.length > 0) return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <section className="auth-panel">
         <p className="eyebrow">{config.registration === "open" ? "Account access" : "Private preview"}</p>
         <h1>Sign in to mdbase connect</h1>
@@ -109,7 +110,7 @@ function Login() {
 
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <form className="auth-panel" onSubmit={(event) => void signIn(event)}>
         <p className="eyebrow">Development session</p>
         <h1>Open your account</h1>
@@ -273,6 +274,7 @@ function Dashboard() {
         <div className="product-header-inner">
           <Brand productLabel />
           <div className="product-header-meta">
+            <ThemeSelect />
             <div className="product-header-meta-copy"><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div>
             <span className="product-avatar" aria-hidden="true">{initials(data.user.name)}</span>
           </div>
@@ -716,7 +718,7 @@ function Pairing({ pairingId }: { pairingId: string }) {
   if (!pairing) return <Loading error={error} />;
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>Computer pairing</span></div>
+      <PageBrand label="Computer pairing" />
       <section className="decision-panel">
         {deepLink ? <><p className="eyebrow">Computer approved</p><h1>Return to mdbase connect.</h1><p>The desktop app will finish securely. No connector token was displayed or copied.</p><a className="button primary link-button" href={deepLink}>Open mdbase connect</a></> : <><p className="eyebrow">New computer</p><h1>{pairing.connector_name}</h1><p>Allow this computer to connect to your account. It will publish collection names and route application requests, but not local folder paths.</p>{error && <div className="message error">{error}</div>}<div className="decision-actions"><a className="button secondary link-button" href="/">Cancel</a><button className="button primary" onClick={() => void approve()}>Approve computer</button></div></>}
       </section>
@@ -769,7 +771,7 @@ function Authorization({ requestId }: { requestId: string }) {
   const authorization = request.authorization;
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>Application request</span></div>
+      <PageBrand label="Application request" />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
         {status === "pending" ? <>
@@ -900,7 +902,9 @@ function ApprovalForm({
         </select>
       </label>
       {collections.length === 0 && <div className="authorization-empty-collection">
-        <p className="field-note">No compatible collection is ready.</p>
+        <p className="field-note">{request.requested_operations.some((operation) => PORTABLE_PROFILE_OPERATIONS.has(operation))
+          ? "No compatible mdbase 0.3 collection is ready for the requested query or type operations."
+          : "No collection supports all of the requested operations and contracts."}</p>
         <button
           className="button secondary"
           type="button"
@@ -928,6 +932,23 @@ function ApprovalForm({
 }
 
 function AccountRow({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) { return <div className="account-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong>{detail && <small>{detail}</small>}</div></div>; }
+function ThemeSelect() {
+  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => {
+    applyThemePreference(preference);
+    if (preference !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyThemePreference("system");
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [preference]);
+  return <select className="theme-select" aria-label="Color theme" value={preference} onChange={(event) => {
+    const next = event.target.value as ThemePreference;
+    setPreference(next);
+    saveThemePreference(next);
+  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
+}
+function PageBrand({ label }: { label: string }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div><ThemeSelect /></div>; }
 function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
@@ -948,11 +969,15 @@ function operationLabel(operation: string) {
 }
 function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
   request: PendingAuthorization,
-  collections: Array<T & { kind?: "local" | "hosted" }>
+  collections: Array<T & { kind?: "local" | "hosted"; spec_version: string }>
 ): T[] {
-  const candidates = request.requirements.collection_kind === "hosted"
+  const candidates = (request.requirements.collection_kind === "hosted"
     ? collections.filter((collection) => collection.kind === "hosted")
-    : collections;
+    : collections)
+    .filter((collection) => collectionSupportsOperations(
+      collection.spec_version,
+      request.requested_operations
+    ));
   const required = request.requirements.contracts;
   if (required.length === 0) return candidates;
   return candidates.filter((collection) => required.every((requirement) =>
@@ -961,6 +986,20 @@ function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
       provision.provides.some((provided) => sameContract(provided, requirement))
     ))
   ));
+}
+
+const PORTABLE_PROFILE_OPERATIONS = new Set([
+  "query",
+  "list_views",
+  "execute_view",
+  "read_type",
+  "create_type",
+  "update_type"
+]);
+
+function collectionSupportsOperations(specVersion: string, operations: readonly string[]) {
+  return /^0\.3(?:\.|$)/.test(specVersion)
+    || operations.every((operation) => !PORTABLE_PROFILE_OPERATIONS.has(operation));
 }
 
 function neededProvisions(

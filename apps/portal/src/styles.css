@@ -23,6 +23,18 @@ body,
   font-size: 0.7rem;
 }
 
+.page-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page-brand-row .page-brand {
+  width: auto;
+  margin: 0;
+}
+
 .account-shell {
   min-height: 100vh;
 }
@@ -803,13 +815,13 @@ select {
   background: var(--paper);
 }
 
-.page-brand,
+.page-brand-row,
 .auth-panel,
 .decision-panel {
   width: min(32rem, 100%);
 }
 
-.page-brand {
+.page-brand-row {
   margin-bottom: 3rem;
 }
 
@@ -960,6 +972,10 @@ select {
 }
 
 @media (max-width: 760px) {
+  .account-header .product-header-meta-copy {
+    display: none;
+  }
+
   .account-main {
     padding: 2.5rem 1.5rem 4rem;
   }
@@ -1048,8 +1064,15 @@ select {
     padding: 2rem 1.25rem;
   }
 
-  .page-brand {
+  .page-brand-row {
     margin-bottom: 2.3rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .page-brand-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
