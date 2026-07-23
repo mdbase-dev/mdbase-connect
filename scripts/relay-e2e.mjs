@@ -17,15 +17,17 @@ const { tokenHash } = await import("../services/server/dist/security.js");
 
 const postgresPort = await availableTcpPort();
 const natsPort = await availableTcpPort();
+const natsMonitorPort = await availableTcpPort();
 const suffix = `${process.pid}-${randomBytes(4).toString("hex")}`;
 const postgresName = `mdbase-connect-relay-pg-${suffix}`;
 const natsName = `mdbase-connect-relay-nats-${suffix}`;
 const postgresPassword = randomBytes(24).toString("base64url");
 const natsToken = randomBytes(32).toString("base64url");
-const natsConfig = resolve(repoRoot, "deploy/nats/nats.conf");
+const natsImage = `mdbase-connect-nats-e2e-${suffix}`;
 
 let postgresProcess;
 let natsProcess;
+let natsImageBuilt = false;
 let database;
 let appA;
 let appB;
@@ -61,8 +63,21 @@ try {
     }
   }, "PostgreSQL did not become ready after initialization", 100, 100);
 
+  await run("docker", [
+    "build",
+    "--file", "deploy/docker/Dockerfile.nats",
+    "--tag", natsImage,
+    "."
+  ], { cwd: repoRoot });
+  natsImageBuilt = true;
   natsProcess = startNats();
   await waitForTcp(natsPort, "NATS did not become ready");
+  await poll(async () => {
+    const response = await fetch(`http://127.0.0.1:${natsMonitorPort}/healthz`);
+    return response.ok ? true : null;
+  }, "NATS monitoring did not become ready");
+  const renderProbe = await fetch(`http://127.0.0.1:${natsPort}/`, { method: "HEAD" });
+  assert(renderProbe.ok, `Render-style HTTP probe on the NATS port returned ${renderProbe.status}`);
 
   database = await createDatabase(
     `postgres://mdbase:${postgresPassword}@127.0.0.1:${postgresPort}/mdbase_connect`
@@ -261,19 +276,21 @@ try {
   if (database) await database.end();
   if (natsProcess) await stopContainer(natsName, natsProcess);
   if (postgresProcess) await stopContainer(postgresName, postgresProcess);
+  if (natsImageBuilt) {
+    await removeImage(natsImage).catch((error) => {
+      process.stderr.write(`[relay-e2e:nats] could not remove temporary image: ${error.message}\n`);
+    });
+  }
 }
 
 function startNats() {
   return startContainer([
     "--name", natsName,
-    "-e", "PORT=8222",
+    "-e", "PORT=10000",
     "-e", `NATS_AUTH_TOKEN=${natsToken}`,
-    "-e", `MDBASE_NATS_PASSWORD=mdbase_${natsToken}`,
-    "-e", "MDBASE_NATS_HTTP_ADDR=0.0.0.0:8222",
     "-p", `127.0.0.1:${natsPort}:4222`,
-    "-v", `${natsConfig}:/etc/nats/mdbase-connect.conf:ro`,
-    "nats:2.12.7-alpine",
-    "-c", "/etc/nats/mdbase-connect.conf"
+    "-p", `127.0.0.1:${natsMonitorPort}:10000`,
+    natsImage
   ], "nats");
 }
 
@@ -290,7 +307,7 @@ function startContainer(args, label) {
 async function stopContainer(name, child) {
   if (child.exitCode !== null) return;
   try {
-    await run("docker", ["stop", "--time", "5", name]);
+    await run("docker", ["stop", "--timeout", "5", name]);
   } catch {
     // The container may already have exited and removed itself.
   }
@@ -299,6 +316,18 @@ async function stopContainer(name, child) {
       new Promise((resolveExit) => child.once("exit", resolveExit)),
       new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000))
     ]);
+  }
+}
+
+async function removeImage(image) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await run("docker", ["image", "rm", "--force", image]);
+      return;
+    } catch (error) {
+      if (attempt === 19) throw error;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    }
   }
 }
 

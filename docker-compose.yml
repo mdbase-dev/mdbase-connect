@@ -18,7 +18,7 @@ services:
       context: .
       dockerfile: deploy/docker/Dockerfile.nats
     environment:
-      PORT: 8222
+      PORT: 10000
       NATS_AUTH_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
     ports:
       - "4222:4222"
@@ -28,7 +28,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:10000/healthz"]
       interval: 5s
       timeout: 3s
       retries: 12

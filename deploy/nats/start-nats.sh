@@ -27,4 +27,36 @@ esac
 MDBASE_NATS_PASSWORD="mdbase_${token}"
 MDBASE_NATS_HTTP_ADDR="0.0.0.0:${port}"
 export MDBASE_NATS_PASSWORD MDBASE_NATS_HTTP_ADDR
-exec nats-server -c /etc/nats/mdbase-connect.conf
+
+nats-server -t -c /etc/nats/mdbase-connect.conf
+haproxy -c -f /etc/haproxy/mdbase-connect.cfg
+
+nats-server -c /etc/nats/mdbase-connect.conf &
+nats_pid=$!
+haproxy -db -f /etc/haproxy/mdbase-connect.cfg &
+proxy_pid=$!
+
+shutdown() {
+  trap - INT TERM
+  kill -TERM "$proxy_pid" "$nats_pid" 2>/dev/null || true
+  wait "$proxy_pid" 2>/dev/null || true
+  wait "$nats_pid" 2>/dev/null || true
+  exit 0
+}
+trap shutdown INT TERM
+
+while kill -0 "$nats_pid" 2>/dev/null && kill -0 "$proxy_pid" 2>/dev/null; do
+  sleep 1
+done
+
+status=1
+if ! kill -0 "$nats_pid" 2>/dev/null; then
+  wait "$nats_pid" || status=$?
+fi
+if ! kill -0 "$proxy_pid" 2>/dev/null; then
+  wait "$proxy_pid" || status=$?
+fi
+kill -TERM "$proxy_pid" "$nats_pid" 2>/dev/null || true
+wait "$proxy_pid" 2>/dev/null || true
+wait "$nats_pid" 2>/dev/null || true
+exit "$status"
