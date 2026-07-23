@@ -180,7 +180,10 @@ describe("mdbase connect server", () => {
     );
     expect(reconciled.rows.find((grant) => grant.id === legacyCompatibleGrantId)).toEqual(
       expect.objectContaining({
-        scope: { contracts: [{ id: "workout.record", version: 1 }] },
+        scope: {
+          access: "contract",
+          contracts: [{ id: "workout.record", version: 1 }]
+        },
         revoked_at: null
       })
     );
@@ -208,8 +211,15 @@ describe("mdbase connect server", () => {
         operations: ["read"]
       }
     });
-    expect(legacyGrant.statusCode).toBe(409);
-    expect(legacyGrant.json().error.message).toContain("Upgrade a copy to mdbase 0.3");
+    expect(legacyGrant.statusCode).toBe(201);
+
+    const overbroadAuthorization = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("view-scope-verifier-that-is-long-enough-000001")}&code_challenge_method=S256&operations=list_views,execute_view`,
+      headers: { cookie }
+    });
+    expect(overbroadAuthorization.statusCode).toBe(400);
+    expect(overbroadAuthorization.json().error.message).toContain("full collection access");
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
@@ -233,7 +243,7 @@ describe("mdbase connect server", () => {
       spec_version: "0.2.0"
     }));
 
-    const legacyApproval = await app.inject({
+    const portalLegacyApproval = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${requestId}/approve`,
       headers: { cookie },
@@ -242,10 +252,8 @@ describe("mdbase connect server", () => {
         operations: ["read", "query"]
       }
     });
-    expect(legacyApproval.statusCode).toBe(400);
-    expect(legacyApproval.json().error.message).toBe(
-      "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
-    );
+    expect(portalLegacyApproval.statusCode).toBe(400);
+    expect(portalLegacyApproval.json().error.message).toContain("does not support the query operation");
 
     const localControl = await app.inject({
       method: "GET",
@@ -257,6 +265,15 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
       contracts: [{ id: "workout.record", version: 1 }]
     });
+
+    const connectorLegacyApproval = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authorization-requests/${requestId}/approve`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { collection_id: legacyLocalCollectionId, operations: ["read", "query"] }
+    });
+    expect(connectorLegacyApproval.statusCode).toBe(400);
+    expect(connectorLegacyApproval.json().error.message).toContain("does not support the query operation");
 
     const approved = await app.inject({
       method: "POST",
@@ -292,7 +309,10 @@ describe("mdbase connect server", () => {
     expect(token.statusCode).toBe(200);
     expect(token.json().collection_id).toBe(collectionId);
     expect(token.json().operations).toEqual(["read", "query"]);
-    expect(token.json().scope).toEqual({ contracts: [{ id: "workout.record", version: 1 }] });
+    expect(token.json().scope).toEqual({
+      access: "contract",
+      contracts: [{ id: "workout.record", version: 1 }]
+    });
     expect(token.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
     expect(token.json().refresh_token).toMatch(/^ref_/);
 
@@ -552,7 +572,7 @@ describe("mdbase connect server", () => {
     const collectionId = collection.json().collection.id as string;
 
     const manifestServer = await startManifestServer(
-      { contracts: [], collection_kind: "hosted" },
+      { contracts: [], access: "full_collection", collection_kind: "hosted" },
       "Writing Editor"
     );
     resources.push(manifestServer.close);
@@ -576,6 +596,7 @@ describe("mdbase connect server", () => {
     });
     expect(pending.json().authorization.requirements).toEqual({
       contracts: [],
+      access: "full_collection",
       collection_kind: "hosted"
     });
     expect(pending.json().collections).toEqual([
@@ -612,7 +633,11 @@ describe("mdbase connect server", () => {
     expect(approved.statusCode).toBe(200);
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
-      expect.objectContaining({ purpose: "application", allowedTypes: [] })
+      expect.objectContaining({
+        purpose: "application",
+        allowedTypes: [],
+        fullCollection: true
+      })
     );
 
     const provisioned = await db.query<{ id: string; allowed_types: string[] }>(
@@ -633,7 +658,7 @@ describe("mdbase connect server", () => {
     expect(rediscovered.statusCode).toBe(200);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
       provisioned.rows[0].id,
-      expect.objectContaining({ allowedTypes: [] })
+      expect.objectContaining({ allowedTypes: [], fullCollection: true })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
       "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
@@ -736,13 +761,14 @@ describe("mdbase connect server", () => {
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
-      expect.objectContaining({ allowedTypes: [] })
+      expect.objectContaining({ allowedTypes: [], fullCollection: true })
     );
-    const grant = await db.query<{ scope: { contracts: unknown[] } }>(
+    const grant = await db.query<{ scope: { access: string; contracts: unknown[] } }>(
       "SELECT scope FROM grants WHERE hosted_collection_id = $1",
       [collectionId]
     );
     expect(grant.rows[0].scope.contracts).toEqual([]);
+    expect(grant.rows[0].scope.access).toBe("full_collection");
     const stored = await db.query<{ contracts: unknown[] }>(
       "SELECT contracts FROM hosted_collections WHERE id = $1",
       [collectionId]

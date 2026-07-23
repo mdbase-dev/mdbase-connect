@@ -74,6 +74,9 @@ jobs:
       # by the production provider image. This keeps path-only developer
       # dependencies from making a clean checkout unreproducible.
       - run: cargo test --locked --workspace
-      - run: cargo build --locked -p mdbase-connect-hosted-provider
+      - run: cargo build --locked --workspace
+      # Exercise the local connector/browser request path in normal CI as well
+      # as the durable hosted-provider path below.
+      - run: node scripts/e2e.mjs
       - run: node scripts/relay-e2e.mjs
       - run: node scripts/hosted-provider-e2e.mjs

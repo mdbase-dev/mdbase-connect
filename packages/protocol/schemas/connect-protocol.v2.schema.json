@@ -30,6 +30,7 @@
       "additionalProperties": false,
       "required": ["contracts"],
       "properties": {
+        "access": { "enum": ["contract", "full_collection"] },
         "contracts": {
           "type": "array",
           "maxItems": 20,

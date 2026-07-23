@@ -42,6 +42,7 @@ struct Args {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Scenario {
     Query,
+    Views,
     Editor,
     Concurrent,
     All,
@@ -126,6 +127,33 @@ fn run() -> Result<(), String> {
         summary.requests_per_iteration = Some(((1 + pages_after_first) * 2) as usize);
         operations.push(summary);
     }
+    if matches!(args.scenario, Scenario::Views | Scenario::All) {
+        let listed = registry
+            .operation(registered.id, "list_views", &json!({}))
+            .map_err(|error| error.to_string())?;
+        ensure_output_success(&listed)?;
+        let targets = view_targets(&listed);
+        if matches!(args.scenario, Scenario::Views) && targets.is_empty() {
+            return Err("the collection does not expose any saved views".to_string());
+        }
+        operations.push(run_samples("view_list", args.iterations, || {
+            ensure_success(registry.operation(registered.id, "list_views", &json!({})))
+        })?);
+        for (format, path, view) in targets {
+            let name = if format == "obsidian.base" {
+                "view_execute_obsidian"
+            } else {
+                "view_execute_canonical"
+            };
+            operations.push(run_samples(name, args.iterations, || {
+                ensure_success(registry.operation(
+                    registered.id,
+                    "execute_view",
+                    &json!({"path": path, "view": view, "limit": 200}),
+                ))
+            })?);
+        }
+    }
     if matches!(args.scenario, Scenario::Concurrent | Scenario::All) {
         let mut samples = Vec::with_capacity(args.iterations);
         for _ in 0..args.iterations {
@@ -160,6 +188,7 @@ fn run() -> Result<(), String> {
         version: env!("CARGO_PKG_VERSION"),
         scenario: match args.scenario {
             Scenario::Query => "query",
+            Scenario::Views => "views",
             Scenario::Editor => "editor",
             Scenario::Concurrent => "concurrent",
             Scenario::All => "all",
@@ -195,6 +224,37 @@ fn run() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn view_targets(output: &Value) -> Vec<(String, String, String)> {
+    let mut targets = Vec::new();
+    for format in ["mdbase.view", "obsidian.base"] {
+        let Some(document) = output
+            .pointer("/result/views")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|document| {
+                document.pointer("/source/format").and_then(Value::as_str) == Some(format)
+            })
+        else {
+            continue;
+        };
+        let Some(path) = document.pointer("/source/path").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(view) = document
+            .get("views")
+            .and_then(Value::as_array)
+            .and_then(|views| views.first())
+            .and_then(|view| view.get("id"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        targets.push((format.to_string(), path.to_string(), view.to_string()));
+    }
+    targets
 }
 
 fn query(

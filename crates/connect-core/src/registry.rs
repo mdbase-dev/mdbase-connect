@@ -868,8 +868,15 @@ impl CollectionRegistry {
         collection: &Collection,
         scope: &GrantScope,
     ) -> Result<Option<BTreeSet<String>>, ConnectError> {
-        if scope.contracts.is_empty() {
+        if scope.access == Some(mdbase_connect_protocol::ApplicationAccess::FullCollection)
+            || (scope.access.is_none() && scope.contracts.is_empty())
+        {
             return Ok(None);
+        }
+        if scope.contracts.is_empty() {
+            return Err(ConnectError::AccessDenied(
+                "Contract-scoped grants must declare at least one required contract.".to_string(),
+            ));
         }
         let description = self.describe_loaded(registered, collection)?;
         let mut type_names = BTreeSet::new();
@@ -978,7 +985,7 @@ impl CollectionRegistry {
             collection_id: registered.id,
             display_name: registered.display_name.clone(),
             spec_version: registered.spec_version.clone(),
-            operations: supported_operations()
+            operations: supported_operations(collection.spec_profile)
                 .iter()
                 .map(|value| (*value).to_string())
                 .collect(),
@@ -1959,7 +1966,12 @@ fn operation_invalidation(
     }
 }
 
-fn supported_operations() -> &'static [&'static str] {
+fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
+    if profile != SpecProfile::V03 {
+        return &[
+            "describe", "changes", "read", "validate", "create", "update", "delete", "rename",
+        ];
+    }
     &[
         "describe",
         "changes",
@@ -2108,7 +2120,10 @@ mod tests {
                 created.id,
                 "describe",
                 &json!({}),
-                &GrantScope { contracts: vec![] }
+                &GrantScope {
+                    contracts: vec![],
+                    access: Some(mdbase_connect_protocol::ApplicationAccess::FullCollection),
+                }
             ),
             Err(ConnectError::AccessDenied(message)) if message.contains("disabled")
         ));
@@ -2141,6 +2156,24 @@ mod tests {
             .unwrap();
         assert_eq!(read["valid"], true);
         assert_eq!(read["result"]["frontmatter"]["title"], "Hello");
+    }
+
+    #[test]
+    fn legacy_description_only_advertises_executable_operations() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("legacy");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.1\n").unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.add(&root).unwrap();
+
+        let description = registry.describe(collection.id).unwrap();
+
+        assert!(description.operations.contains(&"read".to_string()));
+        assert!(description.operations.contains(&"validate".to_string()));
+        assert!(!description.operations.contains(&"query".to_string()));
+        assert!(!description.operations.contains(&"read_type".to_string()));
     }
 
     #[test]
@@ -2194,6 +2227,7 @@ schema:
                 id: "some.app".to_string(),
                 version: 1,
             }],
+            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
         };
         assert!(matches!(
             registry.scoped_operation(
@@ -2305,6 +2339,7 @@ x-tasknotes:
                 id: "tasknotes.task".to_string(),
                 version: 1,
             }],
+            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
         };
         let barrier = Arc::new(Barrier::new(3));
 
@@ -2498,7 +2533,30 @@ schema:
                 id: "tasknotes.task".to_string(),
                 version: 1,
             }],
+            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
         };
+
+        let empty_contract_scope = GrantScope {
+            contracts: vec![],
+            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
+        };
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "query",
+                &json!({}),
+                &empty_contract_scope
+            ),
+            Err(ConnectError::AccessDenied(message)) if message.contains("at least one")
+        ));
+        let legacy_full_scope = GrantScope::default();
+        let legacy_query = registry
+            .scoped_operation(collection.id, "query", &json!({}), &legacy_full_scope)
+            .unwrap();
+        assert_eq!(
+            legacy_query["result"]["results"].as_array().unwrap().len(),
+            2
+        );
 
         assert!(registry
             .is_compatible(

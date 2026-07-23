@@ -11,6 +11,7 @@ export interface HostedReplicaEnrollment {
   purpose?: "mirror" | "application";
   mode: "read_only" | "read_write";
   allowedTypes: string[];
+  fullCollection?: boolean;
   allowedOperations?: string[];
   allowedOrigin?: string;
   token: string;
@@ -72,6 +73,7 @@ export class HostedProviderClient {
         purpose: replica.purpose ?? "mirror",
         mode: replica.mode,
         allowed_types: replica.allowedTypes,
+        full_collection: replica.fullCollection ?? false,
         allowed_operations: replica.allowedOperations ?? [],
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         token: replica.token,
@@ -93,6 +95,7 @@ export class HostedProviderClient {
     policy: {
       mode: "read_only" | "read_write";
       allowedTypes: string[];
+      fullCollection: boolean;
       allowedOperations: string[];
     }
   ): Promise<void> {
@@ -102,6 +105,7 @@ export class HostedProviderClient {
       {
         mode: policy.mode,
         allowed_types: policy.allowedTypes,
+        full_collection: policy.fullCollection,
         allowed_operations: policy.allowedOperations
       }
     );

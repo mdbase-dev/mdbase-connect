@@ -512,6 +512,9 @@ pub struct TypeProvision {
 pub struct GrantScope {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
+    /// Explicit collection boundary. `None` is retained for legacy grants only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<ApplicationAccess>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -37,6 +37,7 @@ describe("hosted provider control client", () => {
           purpose: "mirror",
           mode: "read_only",
           allowed_types: ["task"],
+          full_collection: false,
           allowed_operations: [],
           token: "replica-secret"
         })
@@ -70,6 +71,7 @@ describe("hosted provider control client", () => {
     await provider.updateApplicationReplica("replica", {
       mode: "read_only",
       allowedTypes: ["task"],
+      fullCollection: false,
       allowedOperations: ["read", "query"]
     });
     await provider.rotateReplicaToken("replica", "new-token", 3600);
@@ -80,6 +82,7 @@ describe("hosted provider control client", () => {
         JSON.stringify({
           mode: "read_only",
           allowed_types: ["task"],
+          full_collection: false,
           allowed_operations: ["read", "query"]
         })
       ],

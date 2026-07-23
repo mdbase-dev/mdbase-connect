@@ -70,6 +70,8 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub allowed_types: Vec<String>,
     #[serde(default)]
+    pub full_collection: bool,
+    #[serde(default)]
     pub allowed_operations: Vec<String>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
@@ -83,6 +85,8 @@ pub struct UpdateApplicationReplica {
     pub mode: SyncReplicaMode,
     #[serde(default)]
     pub allowed_types: Vec<String>,
+    #[serde(default)]
+    pub full_collection: bool,
     pub allowed_operations: Vec<String>,
 }
 
@@ -108,6 +112,7 @@ struct Replica {
     purpose: ReplicaPurpose,
     mode: SyncReplicaMode,
     allowed_types: Vec<String>,
+    full_collection: bool,
     allowed_operations: Vec<String>,
     allowed_origin: Option<String>,
     scope_epoch: u64,
@@ -390,7 +395,7 @@ impl HostedProvider {
         })?;
         let max_replicas = number(collection.get::<i64, _>("max_replicas"), "replica quota")?;
         if let Some(existing) = sqlx::query(
-            r#"SELECT collection_id, name, purpose, mode, allowed_types,
+            r#"SELECT collection_id, name, purpose, mode, allowed_types, full_collection,
                       allowed_operations, allowed_origin, token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
@@ -404,6 +409,7 @@ impl HostedProvider {
                 && existing.get::<String, _>("purpose") == purpose
                 && existing.get::<String, _>("mode") == mode
                 && existing.get::<Vec<String>, _>("allowed_types") == input.allowed_types
+                && existing.get::<bool, _>("full_collection") == input.full_collection
                 && existing.get::<Vec<String>, _>("allowed_operations") == input.allowed_operations
                 && existing
                     .get::<Option<String>, _>("allowed_origin")
@@ -437,10 +443,10 @@ impl HostedProvider {
         }
         let result = sqlx::query(
             r#"INSERT INTO hosted_provider_replicas
-                 (id, collection_id, name, purpose, mode, allowed_types,
+                 (id, collection_id, name, purpose, mode, allowed_types, full_collection,
                   allowed_operations, allowed_origin, token_hash, token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                       now() + ($10 * interval '1 second'))"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                       now() + ($11 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -448,6 +454,7 @@ impl HostedProvider {
         .bind(purpose)
         .bind(mode)
         .bind(input.allowed_types)
+        .bind(input.full_collection)
         .bind(input.allowed_operations)
         .bind(input.allowed_origin)
         .bind(requested_token_hash)
@@ -526,21 +533,29 @@ impl HostedProvider {
                 "Application capabilities require at least one operation.",
             ));
         }
+        validate_collection_scope(
+            input.full_collection,
+            &input.allowed_types,
+            &input.allowed_operations,
+        )?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET scope_epoch = scope_epoch + CASE
                      WHEN mode IS DISTINCT FROM $2
                        OR allowed_types IS DISTINCT FROM $3
-                       OR allowed_operations IS DISTINCT FROM $4
+                       OR full_collection IS DISTINCT FROM $4
+                       OR allowed_operations IS DISTINCT FROM $5
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
-                   allowed_operations = $4
+                   full_collection = $4,
+                   allowed_operations = $5
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
         .bind(replica_mode(input.mode))
         .bind(input.allowed_types)
+        .bind(input.full_collection)
         .bind(input.allowed_operations)
         .execute(&self.pool)
         .await?;
@@ -1492,11 +1507,7 @@ impl HostedProvider {
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await?;
         authorize_application_operation(&replica, operation, request_origin)?;
-        if matches!(
-            operation,
-            "read_type" | "create_type" | "update_type" | "list_views" | "execute_view"
-        ) && !replica.allowed_types.is_empty()
-        {
+        if is_full_collection_operation(operation) && !replica.full_collection {
             return Err(ApiError::forbidden(
                 "scope_denied",
                 "This operation requires full collection access.",
@@ -2318,7 +2329,7 @@ impl HostedProvider {
         purpose: ReplicaPurpose,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
                       allowed_origin, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -2340,7 +2351,7 @@ impl HostedProvider {
         request_origin: Option<&str>,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
                       allowed_origin, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
@@ -2406,7 +2417,7 @@ async fn authenticate_in(
     purpose: ReplicaPurpose,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
                   allowed_origin, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -2429,7 +2440,7 @@ async fn authenticate_in_for_sync(
     request_origin: Option<&str>,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
                   allowed_origin, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2
@@ -2470,6 +2481,7 @@ fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
             _ => return Err(ApiError::internal("Stored replica mode is invalid.")),
         },
         allowed_types: row.get("allowed_types"),
+        full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
         allowed_origin: row.get("allowed_origin"),
         scope_epoch: number(row.get::<i64, _>("scope_epoch"), "scope epoch")?,
@@ -3028,7 +3040,10 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
     validate_operations(&input.allowed_operations, input.mode)?;
     match input.purpose {
         ReplicaPurpose::Mirror => {
-            if !input.allowed_operations.is_empty() || input.allowed_origin.is_some() {
+            if !input.allowed_operations.is_empty()
+                || input.allowed_origin.is_some()
+                || input.full_collection
+            {
                 return Err(ApiError::bad_request(
                     "invalid_mirror_capability",
                     "Mirror replicas cannot contain browser application policy.",
@@ -3042,6 +3057,11 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                     "Application capabilities require at least one operation.",
                 ));
             }
+            validate_collection_scope(
+                input.full_collection,
+                &input.allowed_types,
+                &input.allowed_operations,
+            )?;
             if let Some(origin) = input.allowed_origin.as_deref() {
                 let url = url::Url::parse(origin).map_err(|_| {
                     ApiError::bad_request(
@@ -3066,6 +3086,37 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
         }
     }
     Ok(())
+}
+
+fn validate_collection_scope(
+    full_collection: bool,
+    allowed_types: &[String],
+    operations: &[String],
+) -> ApiResult<()> {
+    if full_collection != allowed_types.is_empty() {
+        return Err(ApiError::bad_request(
+            "invalid_application_scope",
+            "Full collection access requires no type restrictions; contract access requires at least one allowed type.",
+        ));
+    }
+    if !full_collection
+        && operations
+            .iter()
+            .any(|operation| is_full_collection_operation(operation))
+    {
+        return Err(ApiError::bad_request(
+            "invalid_application_scope",
+            "Saved views, collection-wide validation, and type definitions require full collection access.",
+        ));
+    }
+    Ok(())
+}
+
+fn is_full_collection_operation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "validate" | "read_type" | "create_type" | "update_type" | "list_views" | "execute_view"
+    )
 }
 
 fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResult<()> {
@@ -3206,7 +3257,8 @@ mod tests {
             name: "Tasks app".to_string(),
             purpose: ReplicaPurpose::Application,
             mode: SyncReplicaMode::ReadOnly,
-            allowed_types: vec!["task".to_string()],
+            allowed_types: Vec::new(),
+            full_collection: true,
             allowed_operations: vec![
                 "query".to_string(),
                 "list_views".to_string(),
@@ -3217,11 +3269,20 @@ mod tests {
             token_ttl_seconds: Some(3600),
         };
         validate_replica_capability(&capability).unwrap();
+        let mut contract_capability = capability.clone();
+        contract_capability.full_collection = false;
+        assert_eq!(
+            validate_replica_capability(&contract_capability)
+                .unwrap_err()
+                .code,
+            "invalid_application_scope"
+        );
         let replica = Replica {
             id: capability.replica_id,
             purpose: capability.purpose,
             mode: capability.mode,
             allowed_types: capability.allowed_types,
+            full_collection: capability.full_collection,
             allowed_operations: capability.allowed_operations,
             allowed_origin: capability.allowed_origin,
             scope_epoch: 1,
@@ -3265,6 +3326,7 @@ mod tests {
             purpose: ReplicaPurpose::Mirror,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: Vec::new(),
+            full_collection: false,
             allowed_operations: Vec::new(),
             allowed_origin: None,
             scope_epoch: 1,
@@ -3306,6 +3368,7 @@ mod tests {
             purpose: ReplicaPurpose::Application,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: vec!["task".to_string()],
+            full_collection: false,
             allowed_operations: vec!["create".to_string()],
             allowed_origin: Some("https://tasks.example".to_string()),
             token: "x".repeat(40),

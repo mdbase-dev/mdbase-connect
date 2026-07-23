@@ -611,6 +611,17 @@ impl AgentState {
             .ok_or_else(|| {
                 ConnectError::Cloud("The authorization request is no longer available.".to_string())
             })?;
+        let description = self.registry.describe(params.collection_id)?;
+        if let Some(operation) = params
+            .operations
+            .iter()
+            .find(|operation| !description.operations.contains(operation))
+        {
+            return Err(ConnectError::AccessDenied(format!(
+                "{} does not support the requested {operation} operation.",
+                description.display_name
+            )));
+        }
         let contracts = self
             .ensure_application_types(
                 cloud,
@@ -695,9 +706,23 @@ impl AgentState {
                 .iter()
                 .filter(|collection| collection.enabled)
                 .filter_map(|collection| {
-                    self.registry
-                        .is_compatible(collection.id, &pending.requirements)
+                    let supports_operations =
+                        self.registry
+                            .describe(collection.id)
+                            .is_ok_and(|description| {
+                                pending
+                                    .requested_operations
+                                    .iter()
+                                    .all(|operation| description.operations.contains(operation))
+                            });
+                    supports_operations
+                        .then(|| {
+                            self.registry
+                                .is_compatible(collection.id, &pending.requirements)
+                        })
+                        .transpose()
                         .ok()
+                        .flatten()
                         .filter(|compatible| *compatible)
                         .map(|_| collection.id)
                 })
@@ -706,6 +731,20 @@ impl AgentState {
                 .iter()
                 .filter(|collection| collection.enabled)
                 .filter(|collection| !pending.compatible_collection_ids.contains(&collection.id))
+                .filter(|collection| {
+                    self.registry
+                        .describe(collection.id)
+                        .is_ok_and(|description| {
+                            description
+                                .operations
+                                .iter()
+                                .any(|operation| operation == "create_type")
+                                && pending
+                                    .requested_operations
+                                    .iter()
+                                    .all(|operation| description.operations.contains(operation))
+                        })
+                })
                 .filter(|collection| {
                     requirements_can_be_provisioned(
                         &pending.requirements,

@@ -913,12 +913,6 @@ export async function buildApp(options: BuildOptions) {
       [connector.id, input.collection_id]
     );
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
-    if (!supportsMdbase03(collection.rows[0].spec_version)) {
-      return reply.code(409).send(apiError(
-        "incompatible_collection",
-        "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
-      ));
-    }
     const application = await options.db.query<{
       id: string;
       homepage: string;
@@ -934,6 +928,8 @@ export async function buildApp(options: BuildOptions) {
         "This application requires an mdbase cloud collection."
       ));
     }
+    assertOperationsAllowedByRequirements(input.operations, application.rows[0].requirements);
+    assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
     const scope = scopeForRequirements(application.rows[0].requirements);
     if (!contractsSatisfy(
       collection.rows[0].contracts,
@@ -965,6 +961,17 @@ export async function buildApp(options: BuildOptions) {
     if (!connector) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
     const input = z.object({ operations: z.array(operationSchema).min(1) }).parse(request.body);
+    const current = await options.db.query<{ requirements: ApplicationRequirements; spec_version: string }>(
+      `SELECT a.requirements, col.spec_version FROM grants g
+       JOIN applications a ON a.id = g.application_id
+       JOIN collections col ON col.id = g.collection_id
+       WHERE g.id = $1 AND g.revoked_at IS NULL AND g.collection_id IN
+         (SELECT id FROM collections WHERE connector_id = $2)`,
+      [grantId, connector.id]
+    );
+    if (!current.rows[0]) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
+    assertOperationsAllowedByRequirements(input.operations, current.rows[0].requirements);
+    assertCollectionSupportsOperations(current.rows[0].spec_version, input.operations);
     const grant = await options.db.query(
       `UPDATE grants SET operations = $3::jsonb
        WHERE id = $1 AND revoked_at IS NULL AND collection_id IN
@@ -1343,12 +1350,6 @@ export async function buildApp(options: BuildOptions) {
       [input.collection_id, user.id]
     );
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
-    if (!supportsMdbase03(ownership.rows[0].spec_version)) {
-      return reply.code(409).send(apiError(
-        "incompatible_collection",
-        "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
-      ));
-    }
     const application = await options.db.query<{
       id: string;
       homepage: string;
@@ -1364,6 +1365,8 @@ export async function buildApp(options: BuildOptions) {
         "This application requires an mdbase cloud collection."
       ));
     }
+    assertOperationsAllowedByRequirements(input.operations, application.rows[0].requirements);
+    assertCollectionSupportsOperations(ownership.rows[0].spec_version, input.operations);
     const scope = scopeForRequirements(application.rows[0].requirements);
     if (!contractsSatisfy(
       ownership.rows[0].contracts,
@@ -1401,12 +1404,14 @@ export async function buildApp(options: BuildOptions) {
       operations: string[];
       encryption: GrantEncryption | null;
       scope: GrantScope;
+      requirements: ApplicationRequirements;
       template: string | null;
       hosted_contracts: CollectionContractDescriptor[] | null;
     }>(
-      `SELECT g.id, g.operations, g.encryption, g.scope, col.connector_id,
+      `SELECT g.id, g.operations, g.encryption, g.scope, a.requirements, col.connector_id,
               g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
+       JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
        WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
@@ -1421,6 +1426,7 @@ export async function buildApp(options: BuildOptions) {
         "Existing access can be narrowed here, but broader access requires a new application request."
       ));
     }
+    assertOperationsAllowedByRequirements(operations, current.requirements);
     if (current.hosted_replica_id) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
@@ -1432,6 +1438,7 @@ export async function buildApp(options: BuildOptions) {
           effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
           current.scope.contracts
         ),
+        fullCollection: scopeAccess(current.scope) === "full_collection",
         allowedOperations: operations
       });
     }
@@ -1504,8 +1511,12 @@ export async function buildApp(options: BuildOptions) {
         "Encrypted relay authorization requires protocol 3 and a valid P-256 public key."
       ));
     }
-    const application = await options.db.query<{ id: string; redirect_uris: string[] }>(
-      "SELECT id, redirect_uris FROM applications WHERE id = $1",
+    const application = await options.db.query<{
+      id: string;
+      redirect_uris: string[];
+      requirements: ApplicationRequirements;
+    }>(
+      "SELECT id, redirect_uris, requirements FROM applications WHERE id = $1",
       [query.client_id]
     );
     if (!application.rows[0] || !application.rows[0].redirect_uris.includes(query.redirect_uri)) {
@@ -1517,6 +1528,7 @@ export async function buildApp(options: BuildOptions) {
       return reply.redirect(`/login?return_to=${encodeURIComponent(returnTo)}`);
     }
     const requestedOperations = [...new Set(query.operations.split(","))].map((value) => operationSchema.parse(value));
+    assertOperationsAllowedByRequirements(requestedOperations, application.rows[0].requirements);
     const authorizationId = randomUUID();
     await options.db.query(
       `INSERT INTO authorization_requests
@@ -1961,13 +1973,14 @@ async function reconcileApplicationGrants(
     hosted_replica_id: string | null;
     operations: string[];
     local_contracts: ContractRequirement[] | null;
+    spec_version: string | null;
     hosted_contracts: CollectionContractDescriptor[] | null;
     template: string | null;
     allowed_types: string[] | null;
     scope: GrantScope;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_replica_id,
-            g.operations, col.contracts AS local_contracts,
+            g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
             replica.allowed_types, g.scope
      FROM grants g
@@ -1988,7 +2001,11 @@ async function reconcileApplicationGrants(
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
     const collectionCompatible = collectionKindCompatible
-      && contractsSatisfy(availableContracts, requiredContracts);
+      && contractsSatisfy(availableContracts, requiredContracts)
+      && (grant.template !== null
+        || (grant.spec_version !== null
+          && collectionSupportsOperations(grant.spec_version, grant.operations)))
+      && operationsAllowedByRequirements(grant.operations, application.requirements);
     const scopeMatches = scopesEqual(grant.scope, desiredScope);
     const desiredAllowedTypes = grant.template
       ? allowedTypesForRequirements(hostedDescriptors, application.requirements)
@@ -2006,6 +2023,7 @@ async function reconcileApplicationGrants(
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
+          fullCollection: application.requirements.access === "full_collection",
           allowedOperations: grant.operations
         });
         await db.query(
@@ -2049,8 +2067,13 @@ async function reconcileApplicationGrants(
 }
 
 function scopesEqual(left: GrantScope, right: GrantScope): boolean {
-  return isContractSubset(left.contracts, right.contracts)
+  return scopeAccess(left) === scopeAccess(right)
+    && isContractSubset(left.contracts, right.contracts)
     && isContractSubset(right.contracts, left.contracts);
+}
+
+function scopeAccess(scope: GrantScope): "contract" | "full_collection" {
+  return scope.access ?? (scope.contracts.length === 0 ? "full_collection" : "contract");
 }
 
 function isContractSubset(
@@ -2066,10 +2089,6 @@ function sameStrings(left: string[], right: string[]): boolean {
   const rightValues = new Set(right);
   return leftValues.size === rightValues.size
     && [...leftValues].every((value) => rightValues.has(value));
-}
-
-function supportsMdbase03(specVersion: string): boolean {
-  return /^0\.3(?:\.|$)/.test(specVersion.trim());
 }
 
 async function approveAuthorization(
@@ -2109,6 +2128,7 @@ async function approveAuthorization(
   if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
     throw new RequestValidationError("Approved operations must be requested by the application.");
   }
+  assertOperationsAllowedByRequirements(input.operations, pending.requirements);
   const collection = await db.query<{
     contracts: ContractRequirement[];
     local_id: string;
@@ -2126,11 +2146,7 @@ async function approveAuthorization(
       "This collection does not provide the contracts required by the application."
     );
   }
-  if (!supportsMdbase03(collection.rows[0].spec_version)) {
-    throw new RequestValidationError(
-      "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
-    );
-  }
+  assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
   if (!contractsSatisfy(
     collection.rows[0].contracts,
     requiredContractsForRequirements(pending.requirements)
@@ -2233,6 +2249,7 @@ async function approveHostedAuthorization(
     if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
       throw new RequestValidationError("Approved operations must be requested by the application.");
     }
+    assertOperationsAllowedByRequirements(input.operations, pending.requirements);
     const scope = scopeForRequirements(pending.requirements);
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
@@ -2279,6 +2296,7 @@ async function approveHostedAuthorization(
       purpose: "application",
       mode: write ? "read_write" : "read_only",
       allowedTypes,
+      fullCollection: pending.requirements.access === "full_collection",
       allowedOperations: operations,
       allowedOrigin,
       token: bootstrapToken,
@@ -2488,14 +2506,75 @@ async function issueApplicationTokens(
 }
 
 function scopeForRequirements(requirements: ApplicationRequirements | null | undefined): GrantScope {
-  if (requirements?.access === "full_collection") return { contracts: [] };
+  if (requirements?.access === "full_collection") {
+    return { access: "full_collection", contracts: [] };
+  }
   const contracts = requirements?.contracts ?? [];
   return {
+    access: "contract",
     contracts: [...new Map(contracts.map((contract) => [
       `${contract.id}@${contract.version}`,
       contract
     ])).values()]
   };
+}
+
+const FULL_COLLECTION_OPERATIONS = new Set([
+  "validate",
+  "list_views",
+  "execute_view",
+  "read_type",
+  "create_type",
+  "update_type"
+]);
+
+const PORTABLE_PROFILE_OPERATIONS = new Set([
+  "query",
+  "list_views",
+  "execute_view",
+  "read_type",
+  "create_type",
+  "update_type"
+]);
+
+function collectionSupportsOperations(specVersion: string, operations: readonly string[]): boolean {
+  return /^0\.3(?:\.|$)/.test(specVersion)
+    || operations.every((operation) => !PORTABLE_PROFILE_OPERATIONS.has(operation));
+}
+
+function assertCollectionSupportsOperations(specVersion: string, operations: readonly string[]): void {
+  const unsupported = operations.find((operation) =>
+    PORTABLE_PROFILE_OPERATIONS.has(operation) && !/^0\.3(?:\.|$)/.test(specVersion)
+  );
+  if (unsupported) {
+    throw new RequestValidationError(
+      `This collection uses mdbase ${specVersion} and does not support the ${unsupported} operation.`
+    );
+  }
+}
+
+function operationsAllowedByRequirements(
+  operations: readonly string[],
+  requirements: ApplicationRequirements | null | undefined
+): boolean {
+  return requirements?.access === "full_collection"
+    || operations.every((operation) => !FULL_COLLECTION_OPERATIONS.has(operation));
+}
+
+function assertOperationsAllowedByRequirements(
+  operations: readonly string[],
+  requirements: ApplicationRequirements | null | undefined
+): void {
+  if (requirements?.access !== "full_collection" && (requirements?.contracts?.length ?? 0) === 0) {
+    throw new RequestValidationError(
+      "Contract-scoped application manifests must declare at least one required contract; use full_collection for collection-wide access."
+    );
+  }
+  if (!operationsAllowedByRequirements(operations, requirements)) {
+    throw new RequestValidationError(
+      "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+    );
+  }
 }
 
 function requiredContractsForRequirements(
