@@ -15,11 +15,27 @@ Never expose that mode to the public internet.
 
 The stack consists of:
 
-- one long-running Connect server serving the portal, HTTP API, OAuth
-  endpoints, and WebSocket relay;
+- one or more Connect servers serving the portal, HTTP API, OAuth endpoints,
+  and WebSocket relay;
 - PostgreSQL for accounts, connector metadata, discovered applications,
   grants, tokens, and audit metadata;
+- Core NATS for transient cross-instance relay delivery;
 - no storage for collection paths or record contents.
+
+Core NATS is optional. A small self-host can omit
+`MDBASE_CONNECT_RELAY_NATS_URL` and `MDBASE_CONNECT_RELAY_NATS_TOKEN`; Connect
+then uses an in-process relay with no additional service. To run more than one
+Connect process, give every process the same PostgreSQL database and NATS
+cluster URLs and token. The broker uses request/reply only: JetStream is not
+enabled, there is no relay stream, and operation payloads are not persisted.
+
+Every connector WebSocket acquires a monotonically increasing generation in
+PostgreSQL. Requests are addressed to that exact generation, so an older
+instance cannot receive new work after a reconnect even if its socket takes
+time to close. Core NATS can itself be clustered by supplying comma-separated
+URLs. A single NATS process removes the Connect scaling constraint but remains
+an availability dependency; use a three-node NATS cluster when broker failover
+is required.
 
 The server applies security headers, a global request limit, a 2 MiB request
 body limit, and public-address checks for application manifest discovery.

@@ -2,6 +2,23 @@ previews:
   generation: "off"
 
 services:
+  - type: pserv
+    name: mdbase-connect-relay-broker
+    runtime: docker
+    repo: https://github.com/mdbase-dev/mdbase-connect
+    branch: main
+    plan: starter
+    region: singapore
+    dockerfilePath: ./deploy/docker/Dockerfile.nats
+    dockerContext: .
+    maxShutdownDelaySeconds: 30
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PORT
+        value: "4222"
+      - key: NATS_AUTH_TOKEN
+        generateValue: true
+
   - type: web
     name: mdbase-connect-hosted-provider
     runtime: docker
@@ -89,6 +106,16 @@ services:
         value: "1"
       - key: MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS
         value: "0"
+      - key: MDBASE_CONNECT_RELAY_NATS_URL
+        fromService:
+          type: pserv
+          name: mdbase-connect-relay-broker
+          property: hostport
+      - key: MDBASE_CONNECT_RELAY_NATS_TOKEN
+        fromService:
+          type: pserv
+          name: mdbase-connect-relay-broker
+          envVarKey: NATS_AUTH_TOKEN
 
   - type: web
     name: mdbase-mcp

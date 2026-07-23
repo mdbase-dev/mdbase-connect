@@ -80,6 +80,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name text NOT NULL,
       token_hash text NOT NULL UNIQUE,
+      relay_generation bigint NOT NULL DEFAULT 0,
       last_seen_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -238,6 +239,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "ALTER TABLE grants ADD COLUMN scope jsonb NOT NULL DEFAULT '{\"contracts\":[]}'::jsonb"
   );
   await ensureColumn(db, "connectors", "relay_public_key", "ALTER TABLE connectors ADD COLUMN relay_public_key text");
+  await ensureColumn(
+    db,
+    "connectors",
+    "relay_generation",
+    "ALTER TABLE connectors ADD COLUMN relay_generation bigint NOT NULL DEFAULT 0"
+  );
   await ensureColumn(db, "grants", "encryption", "ALTER TABLE grants ADD COLUMN encryption jsonb");
   await ensureColumn(
     db,

@@ -28,6 +28,7 @@ import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { fetchManifest } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
+import type { RelayBroker } from "./relay-broker.js";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 import {
   asSyncMutation,
@@ -119,6 +120,7 @@ interface BuildOptions {
   portalDist?: string;
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
+  relayBroker?: RelayBroker;
 }
 
 interface User {
@@ -147,7 +149,7 @@ export async function buildApp(options: BuildOptions) {
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
   const revision = options.revision?.trim() || undefined;
   const registration = options.registration ?? "closed";
-  const relay = new RelayHub(options.db);
+  const relay = new RelayHub(options.db, options.relayBroker);
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -189,6 +191,10 @@ export async function buildApp(options: BuildOptions) {
   await app.register(formbody);
   await app.register(cors, { origin: true, credentials: false });
   await app.register(websocket);
+
+  app.addHook("onClose", async () => {
+    await relay.close();
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (!options.hostedCollections && request.url.startsWith("/v1/hosted/")) {
@@ -269,6 +275,7 @@ export async function buildApp(options: BuildOptions) {
   app.get("/ready", async (_request, reply) => {
     try {
       await options.db.query("SELECT 1");
+      await relay.ready();
       if (options.hostedCollections && options.hostedProvider) {
         await options.hostedProvider.ready();
       }

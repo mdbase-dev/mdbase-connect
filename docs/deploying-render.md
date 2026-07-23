@@ -1,12 +1,14 @@
 # Private Render deployment
 
-The Render Blueprint provisions three public services in Singapore:
+The Render Blueprint provisions three public services and one private service
+in Singapore:
 
 - `mdbase-connect`, the account/control plane and transient encrypted relay;
 - `mdbase-connect-hosted-provider`, the Rust hosted data plane at
   `sync.mdbase.dev`.
 - `mdbase-mcp`, the remote MCP resource and OAuth server at
   `mcp.mdbase.dev`.
+- `mdbase-connect-relay-broker`, a private Core NATS request/reply transport.
 
 Each stateful boundary has its own paid, private PostgreSQL database. Hosted record
 payloads never pass through or persist in the control-plane database. The data
@@ -51,8 +53,9 @@ empty Google allowlist rejects all Google accounts and logs the verified
 subject needed to bootstrap the first invitation. Leaving both unset keeps the
 existing GitHub-only preview unchanged.
 
-The Blueprint generates the provider internal token, provider master key, and
-MCP master key. Do not
+The Blueprint generates the provider internal token, provider master key, MCP
+master key, and relay broker token. The broker has no public endpoint and runs
+without JetStream or a persistent disk. Do not
 replace the master key on an existing provider database: startup deliberately
 fails if it cannot decrypt the durable key check. Key rotation must rewrap every
 collection data key transactionally before the old key is retired.
@@ -61,10 +64,11 @@ Do not replace `MDBASE_MCP_MASTER_KEY` on an existing MCP database either.
 Current gateway credentials are encrypted under that value; changing it forces
 every host connection and collection grant to be authorized again.
 
-Both databases deny public network connections. The hosted database uses paid
+All databases deny public network connections. The hosted database uses paid
 PostgreSQL 18 with storage autoscaling and point-in-time recovery. Automatic
-deploys wait for GitHub checks, and both services use `/ready` as a database-aware
-health check.
+deploys wait for GitHub checks. Public services use `/ready`; the control-plane
+readiness check verifies PostgreSQL, the hosted provider, and NATS. Render
+applies a TCP health check to the private broker.
 
 ## Domains
 
@@ -116,9 +120,17 @@ snapshot reset; it does not prevent retention indefinitely. Tune
 `MDBASE_CONNECT_HOSTED_RETAIN_CHANGES` only after measuring database growth and
 reset frequency in the production region.
 
-The relay still coordinates live WebSockets and in-flight requests in process,
-so keep the control plane at one instance until relay routing moves to shared
-infrastructure. Hosted data-plane scaling does not change that constraint.
+The control plane is horizontally correct. PostgreSQL allocates a generation
+for every connector session, and Core NATS routes transient requests to the
+instance holding that exact WebSocket. A newer connection fences and closes
+older sessions across instances. Policy snapshots use the same route, while
+the connector remains the final authorization boundary.
+
+The Blueprint starts with one broker instance. That is enough to scale the
+control plane but makes new relay operations dependent on that broker. For
+higher availability, run three clustered NATS private services and provide all
+three addresses in `MDBASE_CONNECT_RELAY_NATS_URL`. Keep JetStream disabled:
+relay request and response bodies must remain transient.
 
 Provider logs include request IDs, routes, statuses, durations, and internal
 errors through structured tracing. They must never log authorization headers,

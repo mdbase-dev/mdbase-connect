@@ -34,8 +34,8 @@ application and contract adapter—not a collection kind or platform default.
 - `apps/desktop`: Electron controller for collection registration, application
   metadata and availability, application access, browser pairing, local
   activity, tray operation, and launch-at-login.
-- `services/server`: Fastify control plane and transient relay backed by
-  PostgreSQL.
+- `services/server`: Fastify control plane and transient, horizontally scalable
+  relay backed by PostgreSQL and optional Core NATS request/reply.
 - `services/mcp`: separately deployed remote MCP gateway for Claude, ChatGPT,
   and other OAuth-capable hosts. It maps one host connection to independently
   approved collection grants and keeps its credentials in a separate database.
@@ -72,6 +72,7 @@ pnpm build
 pnpm typecheck
 pnpm test
 pnpm e2e
+pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider
 ```
@@ -88,6 +89,13 @@ rejected. It also crosses the JavaScript/Rust encryption boundary and verifies
 tamper and plaintext-downgrade rejection. It also proves that an identical
 direct-to-relay retry returns a durable encrypted receipt without executing a
 mutation twice.
+
+`pnpm e2e:relay` runs two control-plane instances against disposable real
+PostgreSQL and Core NATS containers. It verifies cross-instance operations and
+policy delivery, generation-fenced socket replacement, concurrent and large
+payloads, fail-closed broker readiness, subscription recovery after a broker
+restart, connector reconnects, and the absence of payloads in control-plane
+audit storage.
 
 `pnpm e2e:sync` exercises the hosted TaskNotes vertical slice through the real
 HTTP server, including offline writes, two-client convergence, idempotency,

@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "e2e": "pnpm build && cargo build --workspace && node scripts/e2e.mjs",
+    "e2e:relay": "pnpm build && node scripts/relay-e2e.mjs",
     "e2e:sync": "pnpm build && node scripts/sync-e2e.mjs",
     "e2e:provider": "pnpm build && cargo build -p mdbase-connect-hosted-provider && node scripts/hosted-provider-e2e.mjs",
     "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",

@@ -13,12 +13,35 @@ services:
       timeout: 3s
       retries: 12
 
+  relay-broker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.nats
+    environment:
+      PORT: 4222
+      NATS_AUTH_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
+    ports:
+      - "4222:4222"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
   connect:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile.server
     depends_on:
       postgres:
+        condition: service_healthy
+      relay-broker:
         condition: service_healthy
     environment:
       HOST: 0.0.0.0
@@ -36,6 +59,8 @@ services:
       MDBASE_CONNECT_HOSTED_COLLECTIONS: ${MDBASE_CONNECT_HOSTED_COLLECTIONS:-0}
       MDBASE_CONNECT_TRUST_PROXY: ${MDBASE_CONNECT_TRUST_PROXY:-0}
       MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: ${MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS:-0}
+      MDBASE_CONNECT_RELAY_NATS_URL: nats://relay-broker:4222
+      MDBASE_CONNECT_RELAY_NATS_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
     ports:
       - "8787:8787"
     init: true
