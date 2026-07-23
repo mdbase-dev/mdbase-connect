@@ -2,14 +2,15 @@
 
 ## Direction
 
-mdbase connect is a desktop utility used in ordinary daylight at a personal
-computer while the user is making a consequential access decision. The theme is
-minimal, precise, and almost entirely white. Portal and desktop share a compact
-product header, visual tokens, and core controls. Desktop views sit in a quiet
-horizontal tab row below that header; the compact portal overview needs no
-section navigation. Content remains an uninterrupted white canvas. Hierarchy
-comes from typography, spacing, and alignment rather than tinted surfaces,
-boxes, or decoration.
+mdbase connect is a desktop utility used at a personal computer while the user
+is making a consequential access decision. The theme is minimal and precise in
+both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
+deep blue-black surfaces without turning the product into terminal cosplay.
+Portal and desktop share a compact product header, visual tokens, and core
+controls. Desktop views sit in a quiet horizontal tab row below that header;
+the compact portal overview needs no section navigation. Content remains an
+uninterrupted canvas. Hierarchy comes from typography, spacing, and alignment
+rather than tinted boxes or decoration.
 
 ## Color
 
@@ -25,11 +26,27 @@ boxes, or decoration.
 - Danger red: `oklch(50% 0.11 28)`
 - Muted text: `oklch(54% 0.014 255)`
 
-Use a light monochrome strategy. Paper is the only major surface. Controls stay
-on paper and use fine grey outlines rather than dark fills. Green indicates verified
-connection or completion. Amber indicates pending attention. Red indicates
-revocation, disconnection, or destructive local administration. Semantic color
-should occupy as little space as possible.
+Dark mode uses canvas `oklch(17.5% 0.012 255)`, surface
+`oklch(19.5% 0.012 255)`, ink `oklch(92% 0.008 255)`, muted ink
+`oklch(68% 0.012 255)`, line `oklch(29% 0.012 255)`, and accent
+`oklch(73% 0.105 238)`. Success, warning, and danger colors increase in
+lightness for equivalent contrast.
+
+Use a restrained monochrome strategy in both themes. The canvas is the only
+major surface. Controls stay on that surface and use fine neutral outlines
+rather than contrasting fills. Green indicates verified connection or
+completion. Amber indicates pending attention. Red indicates revocation,
+disconnection, or destructive local administration. Semantic color should
+occupy as little space as possible.
+
+## Theme contract
+
+Every surface offers System, Light, and Dark. System follows
+`prefers-color-scheme`; an explicit choice is stored locally as `mdbase:theme`
+and applied before first paint. The shared semantic roles are canvas, surface,
+surface-subtle, text, text-soft, text-muted, border, border-strong, accent,
+success, warning, and danger. Components consume roles rather than palette
+values so both themes preserve the same hierarchy.
 
 ## Typography
 
@@ -64,9 +81,9 @@ label.
 ## Components
 
 - Buttons: 4px radius, 34 to 36px height. Primary and secondary actions remain
-  white with different grey border emphasis; quiet and danger actions are text
-  led. No dark fills or shadows. All include hover, focus, disabled, and busy
-  states.
+  on the current surface with different border emphasis; quiet and danger
+  actions are text led. No contrasting fills or shadows. All include hover,
+  focus, disabled, and busy states.
 - Status: pair a colored dot with a text label. Never show a dot alone.
 - Direct access: explain the browser's local-network prompt beside one quiet,
   user-initiated action. Afterward, show only `Connected directly` or

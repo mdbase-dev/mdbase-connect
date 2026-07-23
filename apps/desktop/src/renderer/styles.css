@@ -17,7 +17,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .lede { max-width: 600px; margin: 8px 0 0; color: var(--muted); font-size: var(--type-body); line-height: 1.5; }
 .message { margin: 18px 0 0; padding: 10px 0; border-bottom: 1px solid; font-size: var(--type-supporting); }
 .error-message { color: var(--danger); border-color: color-mix(in oklch, var(--danger) 34%, var(--line)); }
-.notice-message { color: oklch(0.43 0.1 158); border-color: color-mix(in oklch, var(--connected) 34%, var(--line)); }
+.notice-message { color: var(--connected); border-color: color-mix(in oklch, var(--connected) 34%, var(--line)); }
 .workspace-stack { display: grid; gap: 56px; margin-top: 32px; }
 
 .button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); font-family: var(--mono); font-size: var(--type-supporting); font-weight: 600; cursor: pointer; transition: color 160ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease); }
@@ -181,7 +181,7 @@ fieldset legend { margin-bottom: 6px; }
 .pairing-wait { display: grid; grid-template-columns: 7px 1fr auto; align-items: center; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .pairing-wait div { display: grid; gap: 4px; min-width: 0; }
 .pairing-wait strong { font-size: var(--type-body); font-weight: 700; }
-.modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 30px; background: oklch(0.2 0.006 250 / 0.22); z-index: 20; }
+.modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 30px; background: var(--color-scrim); z-index: 20; }
 .modal { width: min(460px, 100%); padding: 28px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--paper); }
 .modal h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.025em; }
 .modal > p:not(.eyebrow) { margin: 8px 0 20px; color: var(--muted); font-size: var(--type-body); line-height: 1.5; }

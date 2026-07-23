@@ -23,6 +23,18 @@ body,
   font-size: 0.7rem;
 }
 
+.page-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page-brand-row .page-brand {
+  width: auto;
+  margin: 0;
+}
+
 .account-shell {
   min-height: 100vh;
 }
@@ -803,13 +815,13 @@ select {
   background: var(--paper);
 }
 
-.page-brand,
+.page-brand-row,
 .auth-panel,
 .decision-panel {
   width: min(32rem, 100%);
 }
 
-.page-brand {
+.page-brand-row {
   margin-bottom: 3rem;
 }
 
@@ -916,6 +928,40 @@ select {
   padding-top: 0.25rem;
 }
 
+.collection-compatibility {
+  padding: 0.72rem 0.8rem;
+  border-left: 2px solid var(--warning, #a96f18);
+  background: color-mix(in srgb, var(--paper) 88%, #c99038);
+}
+
+.collection-compatibility > strong {
+  color: var(--ink);
+  font-size: 0.74rem;
+}
+
+.collection-compatibility ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection-compatibility li {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.collection-compatibility li span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.collection-compatibility li small {
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
 .desktop-alternative {
   display: flex;
   align-items: center;
@@ -960,6 +1006,10 @@ select {
 }
 
 @media (max-width: 760px) {
+  .account-header .product-header-meta-copy {
+    display: none;
+  }
+
   .account-main {
     padding: 2.5rem 1.5rem 4rem;
   }
@@ -1048,8 +1098,15 @@ select {
     padding: 2rem 1.25rem;
   }
 
-  .page-brand {
+  .page-brand-row {
     margin-bottom: 2.3rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .page-brand-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

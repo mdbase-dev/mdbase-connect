@@ -4,6 +4,7 @@ import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
+import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -17,6 +18,7 @@ import {
   type PendingAuthorization,
   type TypeProvision
 } from "./api";
+import { collectionCompatibility } from "./compatibility";
 import "./styles.css";
 
 const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type"];
@@ -68,7 +70,7 @@ function Login() {
   if (!config) return <Loading error={error} />;
   if (config.provider === "tailscale") return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <section className="auth-panel">
         <p className="eyebrow">Tailnet identity</p>
         <h1>Open this through Tailscale.</h1>
@@ -85,7 +87,7 @@ function Login() {
       : [];
   if (providers.length > 0) return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <section className="auth-panel">
         <p className="eyebrow">{config.registration === "open" ? "Account access" : "Private preview"}</p>
         <h1>Sign in to mdbase connect</h1>
@@ -109,7 +111,7 @@ function Login() {
 
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>connect</span></div>
+      <PageBrand label="connect" />
       <form className="auth-panel" onSubmit={(event) => void signIn(event)}>
         <p className="eyebrow">Development session</p>
         <h1>Open your account</h1>
@@ -273,6 +275,7 @@ function Dashboard() {
         <div className="product-header-inner">
           <Brand productLabel />
           <div className="product-header-meta">
+            <ThemeSelect />
             <div className="product-header-meta-copy"><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div>
             <span className="product-avatar" aria-hidden="true">{initials(data.user.name)}</span>
           </div>
@@ -289,9 +292,7 @@ function Dashboard() {
                 <RequestIdentity request={request} />
                 <ApprovalForm
                   request={request}
-                  collections={compatibleCollections(
-                  request,
-                  [
+                  collections={[
                     ...data.collections.filter((collection) => collection.enabled)
                       .map((collection) => ({ ...collection, kind: "local" as const })),
                     ...data.hosted_collections.map((collection) => ({
@@ -299,8 +300,7 @@ function Dashboard() {
                       kind: "hosted" as const,
                       connector_name: "Hosted by mdbase"
                     }))
-                  ]
-                  )}
+                  ]}
                   onDecision={refresh}
                   onCollectionCreated={() => void refresh()}
                 />
@@ -716,7 +716,7 @@ function Pairing({ pairingId }: { pairingId: string }) {
   if (!pairing) return <Loading error={error} />;
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>Computer pairing</span></div>
+      <PageBrand label="Computer pairing" />
       <section className="decision-panel">
         {deepLink ? <><p className="eyebrow">Computer approved</p><h1>Return to mdbase connect.</h1><p>The desktop app will finish securely. No connector token was displayed or copied.</p><a className="button primary link-button" href={deepLink}>Open mdbase connect</a></> : <><p className="eyebrow">New computer</p><h1>{pairing.connector_name}</h1><p>Allow this computer to connect to your account. It will publish collection names and route application requests, but not local folder paths.</p>{error && <div className="message error">{error}</div>}<div className="decision-actions"><a className="button secondary link-button" href="/">Cancel</a><button className="button primary" onClick={() => void approve()}>Approve computer</button></div></>}
       </section>
@@ -769,7 +769,7 @@ function Authorization({ requestId }: { requestId: string }) {
   const authorization = request.authorization;
   return (
     <main className="center-page">
-      <div className="page-brand"><Brand /><span>Application request</span></div>
+      <PageBrand label="Application request" />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
         {status === "pending" ? <>
@@ -777,7 +777,7 @@ function Authorization({ requestId }: { requestId: string }) {
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
-            collections={compatibleCollections(authorization, request.collections)}
+            collections={request.collections}
             onDecision={(decision) => setStatus(decision)}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
@@ -823,18 +823,30 @@ function ApprovalForm({
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
-  const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
+  const choices = useMemo(() => collections.map((collection) => ({
+    collection,
+    compatibility: collectionCompatibility(request, collection)
+  })), [collections, request]);
+  const compatible = useMemo(
+    () => choices.filter((choice) => choice.compatibility.compatible),
+    [choices]
+  );
+  const unavailable = useMemo(
+    () => choices.filter((choice) => !choice.compatibility.compatible),
+    [choices]
+  );
+  const [collectionId, setCollectionId] = useState(compatible[0]?.collection.id ?? "");
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [error, setError] = useState("");
-  const selected = collections.find((collection) => collection.id === collectionId);
+  const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
 
   useEffect(() => {
-    if (!collections.some((collection) => collection.id === collectionId)) {
-      setCollectionId(collections[0]?.id ?? "");
+    if (!compatible.some((choice) => choice.collection.id === collectionId)) {
+      setCollectionId(compatible[0]?.collection.id ?? "");
     }
-  }, [collectionId, collections]);
+  }, [collectionId, compatible]);
 
   function toggleOperation(operation: string) {
     setOperations((current) => {
@@ -895,11 +907,16 @@ function ApprovalForm({
     <div className="approval-form" aria-busy={submitting !== null}>
       <label className="collection-field" htmlFor={`collection-${request.id}`}>
         <span>Collection</span>
-        <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || collections.length === 0}>
-          {collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.display_name} · {collection.connector_name}{neededProvisions(request, collection).length ? " · setup required" : ""}</option>)}
+        <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || compatible.length === 0}>
+          {compatible.length === 0 && <option value="">No compatible collection</option>}
+          {choices.map(({ collection, compatibility }) => <option value={collection.id} key={collection.id} disabled={!compatibility.compatible}>{collection.display_name} · {collection.connector_name}{compatibility.compatible ? (neededProvisions(request, collection).length ? " · setup required" : "") : ` · ${compatibility.label}`}</option>)}
         </select>
       </label>
-      {collections.length === 0 && <div className="authorization-empty-collection">
+      {unavailable.length > 0 && <div className="collection-compatibility" aria-label="Unavailable collections">
+        <strong>{unavailable.length} {unavailable.length === 1 ? "collection needs attention" : "collections need attention"}</strong>
+        <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
+      </div>}
+      {compatible.length === 0 && <div className="authorization-empty-collection">
         <p className="field-note">No compatible collection is ready.</p>
         <button
           className="button secondary"
@@ -928,6 +945,23 @@ function ApprovalForm({
 }
 
 function AccountRow({ label, value, detail, mono = false }: { label: string; value: string; detail?: string; mono?: boolean }) { return <div className="account-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong>{detail && <small>{detail}</small>}</div></div>; }
+function ThemeSelect() {
+  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  useEffect(() => {
+    applyThemePreference(preference);
+    if (preference !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyThemePreference("system");
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [preference]);
+  return <select className="theme-select" aria-label="Color theme" value={preference} onChange={(event) => {
+    const next = event.target.value as ThemePreference;
+    setPreference(next);
+    saveThemePreference(next);
+  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
+}
+function PageBrand({ label }: { label: string }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div><ThemeSelect /></div>; }
 function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
@@ -950,23 +984,6 @@ function operationLabel(operation: string) {
     update_type: "Change type definitions"
   } as Record<string, string>)[operation] ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`;
 }
-function compatibleCollections<T extends { contracts: ContractRequirement[] }>(
-  request: PendingAuthorization,
-  collections: Array<T & { kind?: "local" | "hosted" }>
-): T[] {
-  const candidates = request.requirements.collection_kind === "hosted"
-    ? collections.filter((collection) => collection.kind === "hosted")
-    : collections;
-  const required = request.requirements.contracts;
-  if (required.length === 0) return candidates;
-  return candidates.filter((collection) => required.every((requirement) =>
-    hasContract(collection.contracts, requirement)
-    || (collection.kind === "hosted" && request.provisions.types.some((provision) =>
-      provision.provides.some((provided) => sameContract(provided, requirement))
-    ))
-  ));
-}
-
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
   collection: Pick<AvailableCollection, "contracts">

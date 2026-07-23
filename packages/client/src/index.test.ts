@@ -4,7 +4,10 @@ import {
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
-  MemoryGrantKeyStore
+  MdbaseOperationValidationError,
+  isRetryableConnectError,
+  MemoryGrantKeyStore,
+  unwrapOperation
 } from "./index.js";
 import type { GrantEncryption } from "@mdbase/connect-protocol";
 
@@ -53,6 +56,35 @@ describe("provider-neutral collection client", () => {
       "read_type",
       "create_type",
       "update_type"
+    ]);
+  });
+
+  it("provides typed mutation preflights without changing normal mutation inputs", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return { valid: true, result: {}, diagnostics: [] } as Result;
+      }
+    });
+
+    await client.preflightRename({ from: "old.md", to: "new.md", update_refs: true, if_revision: "revision:1" });
+    await client.preflightDelete({ path: "old.md", if_revision: "revision:1" });
+    await client.rename({ from: "old.md", to: "new.md", update_refs: false, if_revision: "revision:1" });
+
+    expect(calls).toEqual([
+      {
+        operation: "rename",
+        input: { from: "old.md", to: "new.md", update_refs: true, if_revision: "revision:1", dry_run: true }
+      },
+      {
+        operation: "delete",
+        input: { path: "old.md", if_revision: "revision:1", check_backlinks: true, dry_run: true }
+      },
+      {
+        operation: "rename",
+        input: { from: "old.md", to: "new.md", update_refs: false, if_revision: "revision:1" }
+      }
     ]);
   });
 
@@ -123,16 +155,138 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("pages a query with one stable snapshot and reports exact progress", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const records = ["one.md", "two.md", "three.md"].map((path) => ({ path, frontmatter: {}, types: [] }));
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        const query = input as { offset: number; limit: number; snapshot?: string };
+        calls.push(query);
+        const results = records.slice(query.offset, query.offset + query.limit);
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results,
+            meta: {
+              total_count: records.length,
+              has_more: query.offset + results.length < records.length,
+              snapshot: "stable-query"
+            }
+          }
+        } as Result;
+      }
+    });
+    const progress: Array<{ loaded: number; complete: boolean }> = [];
+    const loaded: string[] = [];
+
+    for await (const page of client.queryPages(
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }] },
+      { firstPageSize: 1, pageSize: 2, onProgress: ({ loaded, complete }) => progress.push({ loaded, complete }) }
+    )) {
+      loaded.push(...page.results.map((record) => record.path));
+    }
+
+    expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
+    expect(progress).toEqual([{ loaded: 1, complete: false }, { loaded: 3, complete: true }]);
+    expect(calls).toEqual([
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 0, limit: 1 },
+      { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }], offset: 1, limit: 2, snapshot: "stable-query" }
+    ]);
+  });
+
+  it("rejects a changed snapshot instead of mixing query generations", async () => {
+    let call = 0;
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        call += 1;
+        return {
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{ path: `${call}.md`, frontmatter: {}, types: [] }],
+            meta: { total_count: 2, has_more: call === 1, snapshot: `snapshot-${call}` }
+          }
+        } as Result;
+      }
+    });
+    const iterator = client.queryPages({}, { firstPageSize: 1, pageSize: 1 });
+
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { snapshot: "snapshot-1" } });
+    await expect(iterator.next()).rejects.toMatchObject({ code: "query_snapshot_changed", recovery: "refresh" });
+  });
+
   it("surfaces cursor resets from any transport", async () => {
+    const statuses: string[] = [];
     const client = new MdbaseCollectionClient({
       async operation<Result>() {
         return { events: [], cursor: 10, has_more: false, reset: true } as Result;
       }
     });
-    const iterator = client.watch({ cursor: 1, pollIntervalMs: 100 });
+    const iterator = client.watch({
+      cursor: 1,
+      pollIntervalMs: 100,
+      onStatus: (status) => statuses.push(status.state)
+    });
     await expect(iterator.next()).rejects.toEqual(expect.objectContaining({
-      code: "change_cursor_reset"
+      code: "change_cursor_reset",
+      recovery: "refresh"
     }));
+    expect(statuses).toEqual(["connecting", "reset_required"]);
+  });
+
+  it("retries transient watch failures without losing the last cursor", async () => {
+    const calls: unknown[] = [];
+    let call = 0;
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        calls.push(input);
+        call += 1;
+        if (call === 1) return { events: [], cursor: 5, has_more: false } as Result;
+        if (call === 2) throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+        return {
+          events: [{ cursor: 6, type: "mdbase.record.modified", occurred_at: "2026-07-23T00:00:00Z", payload: { path: "notes/one.md" } }],
+          cursor: 6,
+          has_more: false
+        } as Result;
+      }
+    });
+    const statuses: Array<{ state: string; cursor?: number; recovered?: boolean }> = [];
+    const iterator = client.watch({
+      pollIntervalMs: 100,
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      onStatus: (status) => statuses.push(status)
+    });
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { cursor: 6, type: "mdbase.record.modified" },
+      done: false
+    });
+    await iterator.return(undefined);
+
+    expect(calls).toEqual([
+      {},
+      { after: 5, limit: 200 },
+      { after: 5, limit: 200 }
+    ]);
+    expect(statuses).toMatchObject([
+      { state: "connecting" },
+      { state: "reconnecting", cursor: 5 },
+      { state: "connected", cursor: 5, recovered: true }
+    ]);
+  });
+
+  it("can opt out of automatic watch retries", async () => {
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+      }
+    });
+    const statuses: string[] = [];
+    const iterator = client.watch({ retry: false, onStatus: (status) => statuses.push(status.state) });
+
+    await expect(iterator.next()).rejects.toMatchObject({ code: "connector_offline" });
+    expect(statuses).toEqual(["connecting"]);
   });
 
   it("requires browser-dependent defaults only when callers omit them", () => {
@@ -147,7 +301,347 @@ describe("provider-neutral collection client", () => {
   });
 });
 
+describe("actionable SDK errors", () => {
+  it("classifies retry, authorization, refresh, and uncertain-outcome recovery", () => {
+    const offline = new MdbaseConnectError("connector_offline", "Connector offline.", { status: 503 });
+    expect(offline).toMatchObject({
+      name: "MdbaseConnectError",
+      status: 503,
+      retryable: true,
+      requiresAuthorization: false,
+      outcomeUnknown: false,
+      recovery: "retry"
+    });
+    expect(isRetryableConnectError(offline)).toBe(true);
+    expect(isRetryableConnectError(new TypeError("network unavailable"))).toBe(true);
+
+    expect(new MdbaseConnectError("authorization_expired", "Reconnect.")).toMatchObject({
+      retryable: false,
+      requiresAuthorization: true,
+      recovery: "reauthorize"
+    });
+    expect(new MdbaseConnectError("change_cursor_reset", "Refresh.")).toMatchObject({
+      retryable: false,
+      recovery: "refresh"
+    });
+    expect(new MdbaseConnectError("direct_outcome_unknown", "Check the write.")).toMatchObject({
+      retryable: false,
+      outcomeUnknown: true,
+      recovery: "resolve_outcome"
+    });
+  });
+
+  it("unwraps valid envelopes and preserves rejected diagnostics and partial results", () => {
+    expect(unwrapOperation({ valid: true, result: { path: "notes/one.md" }, diagnostics: [] }))
+      .toEqual({ path: "notes/one.md" });
+
+    const envelope = {
+      valid: false,
+      result: { path: "notes/one.md", inspected: true },
+      diagnostics: [
+        { severity: "warning" as const, code: "deprecated", message: "A legacy field is present." },
+        { severity: "error" as const, code: "missing_required", message: "Title is required.", field: "title" }
+      ]
+    };
+    try {
+      unwrapOperation(envelope);
+      throw new Error("Expected unwrapOperation to throw.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MdbaseOperationValidationError);
+      expect(error).toMatchObject({
+        code: "operation_invalid",
+        message: "Title is required.",
+        diagnostics: envelope.diagnostics,
+        result: envelope.result
+      });
+    }
+  });
+
+  it("keeps server status and diagnostic details on operation failures", async () => {
+    const fixture = await encryptedConnection();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        code: "connector_offline",
+        message: "The connector is asleep.",
+        details: { computer: "Studio" }
+      }
+    }), { status: 503, headers: { "content-type": "application/json" } }));
+
+    await expect(fixture.connect.query()).rejects.toMatchObject({
+      code: "connector_offline",
+      status: 503,
+      retryable: true,
+      recovery: "retry",
+      details: { computer: "Studio" }
+    });
+  });
+});
+
+describe("long mutation progress", () => {
+  const renameInput = {
+    from: "Notes/source.md",
+    to: "Archive/source.md",
+    update_refs: true,
+    if_revision: "sha256:source"
+  };
+  const renamePreview = {
+    from: renameInput.from,
+    to: renameInput.to,
+    dry_run: true as const,
+    would_rename: true as const,
+    references_affected: [
+      { path: "Notes/one.md", location: "body" },
+      { path: "Notes/one.md", field: "related" },
+      { path: "Notes/two.md", location: "body" }
+    ],
+    warnings: [{ path: "Notes/ambiguous.md", message: "Ambiguous link" }]
+  };
+
+  it("reports authoritative phases and estimates without repeating a supplied preflight", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const preflight = vi.spyOn(connect, "preflightRename");
+    vi.spyOn(connect, "rename").mockResolvedValue({
+      valid: true,
+      diagnostics: [],
+      result: {
+        from: renameInput.from,
+        to: renameInput.to,
+        path: renameInput.to,
+        revision: "sha256:renamed",
+        frontmatter: {},
+        types: []
+      }
+    });
+    const progress: Array<Record<string, unknown>> = [];
+
+    const result = await connect.renameWithProgress(renameInput, {
+      preflight: renamePreview,
+      onProgress: (event) => progress.push(event as unknown as Record<string, unknown>)
+    });
+
+    expect(result.result.path).toBe(renameInput.to);
+    expect(preflight).not.toHaveBeenCalled();
+    expect(progress.map(({ state }) => state)).toEqual([
+      "preflighting",
+      "ready",
+      "applying",
+      "completed"
+    ]);
+    expect(progress[1]).toMatchObject({
+      cancellable: true,
+      resumed: false,
+      completedUnits: 0,
+      estimate: { affectedRecords: 2, totalUnits: 4, warnings: 1 }
+    });
+    expect(progress.at(-1)).toMatchObject({
+      cancellable: false,
+      completedUnits: 4
+    });
+  });
+
+  it("cancels between preflight and apply without dispatching the mutation", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const rename = vi.spyOn(connect, "rename");
+    const controller = new AbortController();
+    const states: string[] = [];
+
+    await expect(connect.renameWithProgress(renameInput, {
+      preflight: renamePreview,
+      signal: controller.signal,
+      onProgress: (progress) => {
+        states.push(progress.state);
+        if (progress.state === "ready") controller.abort("user cancelled");
+      }
+    })).rejects.toMatchObject({
+      code: "operation_cancelled",
+      outcomeUnknown: false,
+      recovery: "none"
+    });
+
+    expect(rename).not.toHaveBeenCalled();
+    expect(states).toEqual(["preflighting", "ready", "cancelled"]);
+  });
+
+  it("rejects a reused preflight for a different mutation", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    const rename = vi.spyOn(connect, "rename");
+
+    await expect(connect.renameWithProgress(
+      { ...renameInput, to: "Archive/different.md" },
+      { preflight: renamePreview }
+    )).rejects.toMatchObject({ code: "invalid_preflight", recovery: "fix_request" });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("does not estimate reference updates for a rename-only move", async () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifestUrl: "https://tasks.example/manifest.json",
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage()
+    });
+    vi.spyOn(connect, "rename").mockResolvedValue({
+      valid: true,
+      diagnostics: [],
+      result: {
+        from: renameInput.from,
+        to: renameInput.to,
+        path: renameInput.to,
+        revision: "sha256:moved",
+        frontmatter: {},
+        types: []
+      }
+    });
+    const progress: Array<{ state: string; estimate?: { affectedRecords: number; totalUnits: number } }> = [];
+
+    await connect.renameWithProgress({ ...renameInput, update_refs: false }, {
+      preflight: renamePreview,
+      onProgress: (event) => progress.push(event)
+    });
+
+    expect(progress.find(({ state }) => state === "ready")?.estimate).toMatchObject({
+      affectedRecords: 0,
+      totalUnits: 1
+    });
+  });
+});
+
 describe("authorization renewal", () => {
+  it("coalesces concurrent authorization completion into one code exchange", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:pending:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      verifier: "pkce-verifier",
+      state: "callback-state",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled"
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      access_token: "mdb_authorized",
+      refresh_token: "ref_authorized",
+      expires_in: 3600,
+      refresh_expires_in: 2_592_000,
+      collection_id: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled"
+    });
+    const callback = "https://tasks.example/callback?code=single-use-code&state=callback-state";
+
+    const [first, second] = await Promise.all([
+      connect.completeAuthorization(callback),
+      connect.completeAuthorization(callback)
+    ]);
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"]
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports capability gaps and requests only the least-privilege union", async () => {
+    const storage = new MemoryStorage();
+    const navigate = vi.fn();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_current",
+      refreshToken: "ref_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query", "read"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000,
+      refreshExpiresAt: Date.now() + 120_000
+    }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "TaskNotes",
+        homepage: "https://tasks.example"
+      }
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      storage,
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    expect(connect.authorizationCapabilities(["read", "update", "update"])).toEqual({
+      authorized: true,
+      sufficient: false,
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      grantedOperations: ["query", "read"],
+      missingOperations: ["update"]
+    });
+    expect(connect.hasOperations(["query", "read"])).toBe(true);
+    await connect.requestOperations(["read"]);
+    expect(navigate).not.toHaveBeenCalled();
+
+    void connect.requestOperations(["read", "update"]);
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(new URL(navigate.mock.calls[0][0]).searchParams.get("operations")).toBe("query,read,update");
+  });
+
+  it("attaches the exact capability gap to insufficient-access errors", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+      accessToken: "mdb_current",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000
+    }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    await expect(connect.read({ path: "Notes/example.md" })).rejects.toMatchObject({
+      code: "insufficient_access",
+      requiresAuthorization: true,
+      recovery: "reauthorize",
+      details: {
+        requiredOperations: ["read"],
+        grantedOperations: ["query"],
+        missingOperations: ["read"]
+      }
+    });
+  });
+
   it("uses injected navigation for native authorization", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
@@ -425,9 +919,58 @@ schema:
     await expect(fixture.connect.create({
       frontmatter: { title: "Only once" },
       path: "one.md"
-    })).rejects.toEqual(expect.objectContaining({ code: "connector_offline" }));
+    })).rejects.toEqual(expect.objectContaining({ code: "direct_outcome_unknown" }));
     expect(requests[2].body).toBe(requests[0].body);
-    expect(requests[3].body).toBe(requests[0].body);
+  });
+
+  it("keeps an exact encrypted mutation resumable when waiting is cancelled after dispatch", async () => {
+    const fixture = await encryptedConnection();
+    const controller = new AbortController();
+    const input = { path: "cancelled.md", frontmatter: { title: "Cancelled wait" } };
+    const requests: Array<{ url: string; body: string }> = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (request, init) => {
+      requests.push({ url: String(request), body: String(init?.body) });
+      controller.abort("stop waiting");
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await expect(fixture.connect.operation("create", input, {
+      signal: controller.signal
+    })).rejects.toMatchObject({
+      code: "operation_cancelled",
+      outcomeUnknown: true,
+      recovery: "resolve_outcome"
+    });
+    expect(fixture.connect.pendingMutation()).toMatchObject({
+      operation: "create",
+      resumable: true
+    });
+
+    fetchMock
+      .mockImplementationOnce(async (request, init) => {
+        requests.push({ url: String(request), body: String(init?.body) });
+        return new Response(JSON.stringify({
+          error: { code: "upgrade_required", message: "Use the relay." }
+        }), { status: 426, headers: { "content-type": "application/json" } });
+      })
+      .mockImplementationOnce(async (request, init) => {
+        requests.push({ url: String(request), body: String(init?.body) });
+        return new Response(JSON.stringify({
+          error: { code: "connector_offline", message: "Connector offline." }
+        }), { status: 503, headers: { "content-type": "application/json" } });
+      });
+
+    await expect(fixture.connect.resumePendingMutation(input)).rejects.toMatchObject({
+      code: "direct_outcome_unknown",
+      outcomeUnknown: true
+    });
+    expect(requests.map(({ url }) => url)).toEqual([
+      "http://127.0.0.1:28485/v1/operations",
+      "http://127.0.0.1:28485/v1/operations",
+      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/create`
+    ]);
+    expect(new Set(requests.map(({ body }) => body))).toHaveLength(1);
+    expect(fixture.connect.pendingMutation()).toMatchObject({ operation: "create" });
   });
 
   it("does not bypass an explicit rejection from the local authorization boundary", async () => {

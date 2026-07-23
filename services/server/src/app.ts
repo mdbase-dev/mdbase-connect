@@ -28,6 +28,7 @@ import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { fetchManifest } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
+import type { RelayBroker } from "./relay-broker.js";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 import {
   asSyncMutation,
@@ -123,6 +124,7 @@ interface BuildOptions {
   portalDist?: string;
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
+  relayBroker?: RelayBroker;
 }
 
 interface User {
@@ -151,7 +153,7 @@ export async function buildApp(options: BuildOptions) {
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
   const revision = options.revision?.trim() || undefined;
   const registration = options.registration ?? "closed";
-  const relay = new RelayHub(options.db);
+  const relay = new RelayHub(options.db, options.relayBroker);
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -193,6 +195,10 @@ export async function buildApp(options: BuildOptions) {
   await app.register(formbody);
   await app.register(cors, { origin: true, credentials: false });
   await app.register(websocket);
+
+  app.addHook("onClose", async () => {
+    await relay.close();
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     if (!options.hostedCollections && request.url.startsWith("/v1/hosted/")) {
@@ -273,6 +279,7 @@ export async function buildApp(options: BuildOptions) {
   app.get("/ready", async (_request, reply) => {
     try {
       await options.db.query("SELECT 1");
+      await relay.ready();
       if (options.hostedCollections && options.hostedProvider) {
         await options.hostedProvider.ready();
       }
@@ -905,11 +912,17 @@ export async function buildApp(options: BuildOptions) {
         [connector.id, input.collection_id, JSON.stringify(input.contracts)]
       );
     }
-    const collection = await options.db.query<{ id: string; contracts: ContractRequirement[] }>(
-      `SELECT id, contracts FROM collections WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+    const collection = await options.db.query<{ id: string; contracts: ContractRequirement[]; spec_version: string }>(
+      `SELECT id, contracts, spec_version FROM collections WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
       [connector.id, input.collection_id]
     );
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
+    if (!supportsMdbase03(collection.rows[0].spec_version)) {
+      return reply.code(409).send(apiError(
+        "incompatible_collection",
+        "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
+      ));
+    }
     const application = await options.db.query<{
       id: string;
       homepage: string;
@@ -1327,13 +1340,19 @@ export async function buildApp(options: BuildOptions) {
       collection_id: z.uuid(),
       operations: z.array(operationSchema).min(1)
     }).parse(request.body);
-    const ownership = await options.db.query<{ connector_id: string; contracts: ContractRequirement[] }>(
-      `SELECT col.connector_id, col.contracts FROM collections col
+    const ownership = await options.db.query<{ connector_id: string; contracts: ContractRequirement[]; spec_version: string }>(
+      `SELECT col.connector_id, col.contracts, col.spec_version FROM collections col
        JOIN connectors c ON c.id = col.connector_id
        WHERE col.id = $1 AND c.user_id = $2`,
       [input.collection_id, user.id]
     );
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
+    if (!supportsMdbase03(ownership.rows[0].spec_version)) {
+      return reply.code(409).send(apiError(
+        "incompatible_collection",
+        "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
+      ));
+    }
     const application = await options.db.query<{
       id: string;
       homepage: string;
@@ -2053,6 +2072,10 @@ function sameStrings(left: string[], right: string[]): boolean {
     && [...leftValues].every((value) => rightValues.has(value));
 }
 
+function supportsMdbase03(specVersion: string): boolean {
+  return /^0\.3(?:\.|$)/.test(specVersion.trim());
+}
+
 async function approveAuthorization(
   db: DatabasePool,
   relay: RelayHub,
@@ -2094,14 +2117,25 @@ async function approveAuthorization(
     contracts: ContractRequirement[];
     local_id: string;
     relay_public_key: string | null;
+    spec_version: string;
   }>(
-    `SELECT col.contracts, col.local_id, con.relay_public_key
+    `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
      FROM collections col JOIN connectors con ON con.id = col.connector_id
      WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true`,
     [input.collectionId, input.connectorId]
   );
   const scope = scopeForRequirements(pending.requirements);
-  if (!collection.rows[0] || !contractsSatisfy(
+  if (!collection.rows[0]) {
+    throw new RequestValidationError(
+      "This collection does not provide the contracts required by the application."
+    );
+  }
+  if (!supportsMdbase03(collection.rows[0].spec_version)) {
+    throw new RequestValidationError(
+      "This collection uses an older mdbase format. Upgrade a copy to mdbase 0.3 before granting access."
+    );
+  }
+  if (!contractsSatisfy(
     collection.rows[0].contracts,
     requiredContractsForRequirements(pending.requirements)
   )) {

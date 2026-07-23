@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build --file deploy/docker/Dockerfile.server --tag mdbase-connect-server:test .
       - run: docker build --file deploy/docker/Dockerfile.hosted-provider --tag mdbase-connect-hosted-provider:test .
+      - run: docker build --file deploy/docker/Dockerfile.nats --tag mdbase-connect-nats:test .
 
   hosted-provider:
     runs-on: ubuntu-latest
@@ -74,4 +75,5 @@ jobs:
       # dependencies from making a clean checkout unreproducible.
       - run: cargo test --locked --workspace
       - run: cargo build --locked -p mdbase-connect-hosted-provider
+      - run: node scripts/relay-e2e.mjs
       - run: node scripts/hosted-provider-e2e.mjs

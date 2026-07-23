@@ -3,10 +3,12 @@ import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { runtimeConfigFromEnv } from "./runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
+import { createRelayBroker } from "./relay-broker.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
 const db = await createDatabase();
+const relayBroker = await createRelayBroker(runtime.relayBroker);
 const portalDist = process.env.PORTAL_DIST ?? resolve(import.meta.dirname, "../../../apps/portal/dist");
 const { app } = await buildApp({
   db,
@@ -23,7 +25,8 @@ const { app } = await buildApp({
     ? new HostedProviderClient(runtime.hostedProvider)
     : undefined,
   trustProxy: runtime.trustProxy,
-  allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1"
+  allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
+  relayBroker
 });
 
 await app.listen({ port, host: runtime.host });

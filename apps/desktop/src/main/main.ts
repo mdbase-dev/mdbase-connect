@@ -5,6 +5,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   safeStorage,
   shell,
   Tray
@@ -581,7 +582,7 @@ function createWindow(): void {
     minWidth: 820,
     minHeight: 580,
     show: false,
-    backgroundColor: "#ffffff",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1e24" : "#fcfcfd",
     title: "mdbase connect",
     webPreferences: {
       preload: join(__dirname, "preload.js"),

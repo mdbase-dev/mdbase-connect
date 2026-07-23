@@ -1,6 +1,7 @@
 import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import type { HostedProviderConfig } from "./hosted-provider.js";
+import type { RelayBrokerConfig } from "./relay-broker.js";
 
 export type RegistrationMode = "closed" | "open";
 
@@ -15,6 +16,7 @@ export interface RuntimeConfig {
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   trustProxy: boolean;
+  relayBroker: RelayBrokerConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -81,6 +83,18 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     }
     hostedProvider = { ...hostedProvider, url: providerUrl.origin };
   }
+  if (config.relayBroker) {
+    if (config.relayBroker.token.length < 32) {
+      throw new Error("The relay broker token must contain at least 32 characters.");
+    }
+    if (!/^[A-Za-z0-9_+=./-]+$/.test(config.relayBroker.token)) {
+      throw new Error("The relay broker token contains unsupported characters.");
+    }
+    for (const server of config.relayBroker.servers) validateRelayBrokerServer(server);
+    if (config.relayBroker.servers.length === 0) {
+      throw new Error("At least one relay broker server must be configured.");
+    }
+  }
   return { ...config, publicUrl: publicUrl.origin, hostedProvider };
 }
 
@@ -104,6 +118,17 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const hostedProviderInternalToken =
     env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
   const hostedProviderConfigured = Boolean(hostedProviderUrl || hostedProviderInternalToken);
+  const relayBrokerServers = (env.MDBASE_CONNECT_RELAY_NATS_URL ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const normalizedRelayBrokerServers = relayBrokerServers.map(normalizeRelayBrokerServer);
+  const relayBrokerToken = env.MDBASE_CONNECT_RELAY_NATS_TOKEN?.trim() ?? "";
+  if ((relayBrokerServers.length > 0) !== Boolean(relayBrokerToken)) {
+    throw new Error(
+      "MDBASE_CONNECT_RELAY_NATS_URL and MDBASE_CONNECT_RELAY_NATS_TOKEN must be configured together."
+    );
+  }
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
@@ -118,7 +143,10 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     hostedProvider: hostedProviderConfigured
       ? { url: hostedProviderUrl, internalToken: hostedProviderInternalToken }
       : null,
-    trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1"
+    trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1",
+    relayBroker: normalizedRelayBrokerServers.length > 0
+      ? { servers: normalizedRelayBrokerServers, token: relayBrokerToken }
+      : null
   });
 }
 
@@ -136,4 +164,24 @@ function registrationMode(value: string | undefined): RegistrationMode {
 
 function isLoopback(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+function validateRelayBrokerServer(server: string): void {
+  const url = new URL(server);
+  if ((url.protocol !== "nats:" && url.protocol !== "tls:")
+      || url.username
+      || url.password
+      || url.pathname !== ""
+      || url.search
+      || url.hash
+      || !url.hostname
+      || !url.port) {
+    throw new Error("Relay broker servers must be nats:// or tls:// host-and-port URLs without credentials.");
+  }
+}
+
+function normalizeRelayBrokerServer(value: string): string {
+  const url = new URL(value.includes("://") ? value : `nats://${value}`);
+  if (!url.port) url.port = "4222";
+  return url.toString();
 }
