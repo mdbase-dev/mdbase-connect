@@ -6,12 +6,12 @@ use axum::{
     },
     middleware::{self, Next},
     response::Response,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
 use mdbase_connect_protocol::{
-    SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage,
-    TypeProvision,
+    GrantSummary, SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession,
+    SyncSnapshotPage, TypeProvision,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -138,6 +138,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/collections/{collection_id}/types/provision",
             post(provision_types),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/notification-grants/{grant_id}",
+            put(upsert_notification_grant).delete(revoke_notification_grant),
         )
         .route(
             "/internal/v1/replicas/{replica_id}/token",
@@ -268,6 +272,32 @@ async fn rename_collection(
         .rename_collection(collection_id, &input.display_name)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn upsert_notification_grant(
+    State(state): State<AppState>,
+    Path((collection_id, grant_id)): Path<(Uuid, Uuid)>,
+    Json(grant): Json<GrantSummary>,
+) -> ApiResult<Json<Value>> {
+    if grant.id != grant_id {
+        return Err(ApiError::bad_request(
+            "notification_grant_mismatch",
+            "The notification grant ID does not match the request path.",
+        ));
+    }
+    state
+        .provider
+        .upsert_notification_grant(collection_id, grant)
+        .await?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn revoke_notification_grant(
+    State(state): State<AppState>,
+    Path((_collection_id, grant_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<Value>> {
+    state.provider.revoke_notification_grant(grant_id).await?;
+    Ok(Json(json!({"ok": true})))
 }
 
 async fn delete_collection(

@@ -801,6 +801,7 @@ mod tests {
                 application_origin: origin.clone(),
                 application_icon: None,
                 collection_name: "Direct notes".to_string(),
+                notification_criteria: Vec::new(),
                 created_at: "2026-07-22T00:00:00Z".to_string(),
                 encryption: Some(encryption.clone()),
             }])

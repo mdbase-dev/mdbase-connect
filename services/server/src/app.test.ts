@@ -519,6 +519,8 @@ describe("mdbase connect server", () => {
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
       rotateReplicaToken: vi.fn(),
       compactThrough: vi.fn()
     } as unknown as HostedProviderClient;
@@ -687,6 +689,8 @@ describe("mdbase connect server", () => {
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
       rotateReplicaToken: vi.fn(),
       compactThrough: vi.fn()
     } as unknown as HostedProviderClient;

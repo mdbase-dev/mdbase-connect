@@ -129,8 +129,40 @@
         "application_origin": { "type": "string", "format": "uri" },
         "application_icon": { "type": "string" },
         "collection_name": { "type": "string", "minLength": 1 },
+        "notification_criteria": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/notificationCriterion" }
+        },
         "created_at": { "type": "string", "format": "date-time" },
         "encryption": { "$ref": "#/$defs/grantEncryption" }
+      }
+    },
+    "notificationCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "presentation"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$" },
+        "event": { "$ref": "#/$defs/contractRequirement" },
+        "if": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["$expr"],
+          "properties": { "$expr": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+        },
+        "debounce": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
+        "minimum_interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "body": { "type": "string", "maxLength": 160 },
+            "tag": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        }
       }
     },
     "grantEncryption": {

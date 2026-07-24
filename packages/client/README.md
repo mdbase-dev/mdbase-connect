@@ -48,6 +48,37 @@ for await (const change of connect.watch()) {
 }
 ```
 
+Manifest version 2 applications can declare runtime notification criteria.
+Register a service worker from a user gesture to receive standards-based Web
+Push while the app is closed:
+
+```ts
+const worker = await navigator.serviceWorker.register("/service-worker.js");
+await connect.registerNotifications({
+  serviceWorker: worker,
+  criteria: ["workout.reminder"]
+});
+```
+
+In the service worker:
+
+```ts
+import { showMdbasePushNotification } from "@mdbase/connect";
+
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    showMdbasePushNotification(self.registration, event.data?.json())
+  );
+});
+```
+
+Pushes contain an opaque signal and cursor plus static manifest presentation,
+never record paths or content. Treat them as a wake-up hint and read current
+authorized state after opening. Registration atomically replaces the selected
+criteria for that installation. See the
+[runtime notifications guide](../../docs/notifications.md) for manifest and
+deployment examples.
+
 Before opening a feature, inspect its exact authorization gap instead of
 waiting for an operation to fail:
 

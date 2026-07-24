@@ -8,7 +8,7 @@ use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
     CollectionChange, CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
-    SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
+    GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
     SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
     SyncResourceDocument, SyncSession, SyncSnapshotPage, TypeProvision, CONTROL_PROTOCOL_VERSION,
     SYNC_PROTOCOL_VERSION,
@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::{
     crypto::ProviderCrypto,
     error::{ApiError, ApiResult},
+    notifications::{HostedNotificationConfig, HostedNotificationRuntime},
     template,
     workspace::{StoredDocument, WorkingSet},
 };
@@ -58,6 +59,7 @@ pub struct HostedProvider {
     crypto: ProviderCrypto,
     limits: ProviderLimits,
     working_sets: WorkingSetRegistry,
+    notifications: Option<HostedNotificationRuntime>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +139,7 @@ impl HostedProvider {
         database_url: &str,
         crypto: ProviderCrypto,
         limits: ProviderLimits,
+        notification_config: Option<HostedNotificationConfig>,
     ) -> ApiResult<Self> {
         let started = Instant::now();
         let mut retry_delay = Duration::from_millis(100);
@@ -153,12 +156,17 @@ impl HostedProvider {
                 Ok(pool) => match sqlx::migrate!("./migrations").run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
+                            let notifications = notification_config
+                                .clone()
+                                .map(|config| HostedNotificationRuntime::new(pool.clone(), config))
+                                .transpose()?;
                             return Ok(Self {
                                 pool,
                                 crypto,
                                 limits,
                                 working_sets: Arc::new(Mutex::new(HashMap::new())),
-                            })
+                                notifications,
+                            });
                         }
                         Err(DatabaseKeyError::Invalid(error)) => {
                             pool.close().await;
@@ -206,6 +214,35 @@ impl HostedProvider {
     pub async fn ready(&self) -> ApiResult<()> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
+    }
+
+    pub async fn upsert_notification_grant(
+        &self,
+        collection_id: Uuid,
+        grant: GrantSummary,
+    ) -> ApiResult<()> {
+        let Some(notifications) = &self.notifications else {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "notifications_unavailable",
+                "Hosted notification execution is not configured.",
+            ));
+        };
+        notifications.upsert_grant(collection_id, grant).await
+    }
+
+    pub async fn revoke_notification_grant(&self, grant_id: Uuid) -> ApiResult<()> {
+        let Some(notifications) = &self.notifications else {
+            return Ok(());
+        };
+        notifications.revoke_grant(grant_id).await
+    }
+
+    pub async fn recover_notifications(&self, limit: usize) -> ApiResult<usize> {
+        let Some(notifications) = &self.notifications else {
+            return Ok(0);
+        };
+        notifications.recover(limit).await
     }
 
     pub async fn create_collection(
@@ -1364,6 +1401,19 @@ impl HostedProvider {
             .await;
         }
 
+        let notification_runtime_active = if self.notifications.is_some() {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(
+                    SELECT 1 FROM hosted_provider_notification_grants
+                    WHERE collection_id = $1
+                 )",
+            )
+            .bind(collection_id)
+            .fetch_one(&mut *transaction)
+            .await?
+        } else {
+            false
+        };
         let mut primary = None;
         for (record_id, after, document) in execution.changed {
             head = head.checked_add(1).ok_or_else(|| {
@@ -1373,6 +1423,8 @@ impl HostedProvider {
                 .records
                 .get(&record_id)
                 .map(|value| value.record.clone());
+            let notification_event = notification_runtime_active
+                .then(|| application_change(before.as_ref(), after.as_ref()));
             let revision = if let Some(record) = &after {
                 persist_live_record(
                     &mut transaction,
@@ -1445,6 +1497,20 @@ impl HostedProvider {
             .bind(revision)
             .execute(&mut *transaction)
             .await?;
+            if let Some((event_type, payload)) = notification_event {
+                sqlx::query(
+                    "INSERT INTO hosted_provider_runtime_outbox
+                        (collection_id, sequence, event_type, payload)
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT(collection_id, sequence) DO NOTHING",
+                )
+                .bind(collection_id)
+                .bind(to_i64(head, "runtime event sequence")?)
+                .bind(event_type)
+                .bind(payload)
+                .execute(&mut *transaction)
+                .await?;
+            }
             if let Some(record) = after {
                 cached.records.insert(
                     record_id,
@@ -1492,6 +1558,14 @@ impl HostedProvider {
         .await?;
         transaction.commit().await?;
         cached.head = Some(head);
+        if notification_runtime_active {
+            let provider = self.clone();
+            tokio::spawn(async move {
+                if let Err(error) = provider.recover_notifications(100).await {
+                    tracing::warn!(%error, "hosted notification recovery deferred");
+                }
+            });
+        }
         Ok(receipt)
     }
 

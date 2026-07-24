@@ -4,6 +4,7 @@ import { createDatabase } from "./db.js";
 import { runtimeConfigFromEnv } from "./runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
+import { WebPushTransport } from "./web-push.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -26,7 +27,13 @@ const { app } = await buildApp({
     : undefined,
   trustProxy: runtime.trustProxy,
   allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
-  relayBroker
+  relayBroker,
+  notifications: runtime.vapid
+    ? {
+        publicKey: runtime.vapid.publicKey,
+        transport: new WebPushTransport(runtime.vapid)
+      }
+    : undefined
 });
 
 await app.listen({ port, host: runtime.host });

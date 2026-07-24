@@ -469,6 +469,8 @@ pub struct ApplicationSummary {
     pub requirements: ApplicationRequirements,
     #[serde(default)]
     pub provisions: ApplicationProvisions,
+    #[serde(default)]
+    pub notifications: ApplicationNotifications,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,6 +511,40 @@ pub struct TypeProvision {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationNotifications {
+    #[serde(default)]
+    pub criteria: Vec<NotificationCriterion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationCriterion {
+    pub id: String,
+    pub event: ContractRequirement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#if: Option<RuntimeExpression>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debounce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_interval: Option<String>,
+    pub presentation: NotificationPresentation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeExpression {
+    #[serde(rename = "$expr")]
+    pub expression: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationPresentation {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrantScope {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
@@ -533,6 +569,8 @@ pub struct GrantSummary {
     pub operations: Vec<String>,
     #[serde(default)]
     pub scope: GrantScope,
+    #[serde(default)]
+    pub notification_criteria: Vec<NotificationCriterion>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encryption: Option<GrantEncryption>,
@@ -609,6 +647,8 @@ pub struct GrantPolicy {
     pub application_icon: Option<String>,
     #[serde(default = "default_collection_name")]
     pub collection_name: String,
+    #[serde(default)]
+    pub notification_criteria: Vec<NotificationCriterion>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -822,6 +862,7 @@ mod tests {
                     application_origin: "https://tasks.example".to_string(),
                     application_icon: None,
                     collection_name: "My tasks".to_string(),
+                    notification_criteria: Vec::new(),
                     created_at: "2026-07-21T00:00:00Z".to_string(),
                     encryption: None,
                 }],

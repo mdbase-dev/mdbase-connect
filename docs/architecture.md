@@ -28,8 +28,10 @@ checks its local policy copy again before it opens a collection.
 - `mdbase-rs` owns collection loading, validation, querying, mutation,
   revisions, and normalized filesystem events.
 - `connect-agent` owns collection registration, local policy enforcement, the
-  local change journal, activity, browser loopback access, and outbound relay
-  connectivity.
+  local change journal, local runtime authority, activity, browser loopback
+  access, and outbound relay connectivity.
+- `connect-runtime` translates manifest criteria and exact grants into
+  provider-neutral runtime contracts without owning collection semantics.
 - `connect-cli` and the Electron controller use the agent's versioned local
   control socket.
 - `connect-server` owns accounts, pairing, app discovery, grants, token
@@ -38,8 +40,8 @@ checks its local policy copy again before it opens a collection.
   credentials. It uses one exact Connect grant per approved collection and
   never shares a collection grant across MCP connection sets.
 - `@mdbase/connect` provides OAuth with PKCE, typed operation envelopes,
-  collection discovery, end-to-end encrypted relay operations, and cursor-based
-  subscriptions.
+  collection discovery, end-to-end encrypted relay operations, cursor-based
+  subscriptions, and Web Push installation registration.
 - `@mdbase/connect-sync` defines hosted replication and supplies offline replica
   stores, an HTTP transport, and a receive-only Markdown mirror.
 - Domain adapters consume collection contracts. `@mdbase/tasknotes` is the
@@ -101,6 +103,23 @@ The local journal stores paths, event kinds, revisions, matched types, and
 changed-field names. Record snapshots are removed before persistence. The
 hosted relay does not persist change events or operation payloads.
 
+## Runtime notifications
+
+An application manifest may declare notification criteria over canonical
+runtime events. The local connector or hosted collection provider—not the
+control plane—journals each event, evaluates CEL, applies debounce and
+minimum-interval rules, and rechecks the exact current grant immediately before
+dispatch. Durable one-shot timers use the same path and wake after authority
+restart.
+
+The authority sends only an idempotent signal ID, grant ID, criterion ID, and
+opaque cursor to the control plane. The control plane maps that signal to
+registered Web Push installations and retries delivery through a leased
+outbox. Static manifest presentation is added there. Paths, record payloads,
+runtime event payloads, and collection contents never cross this boundary.
+Applications treat a push as a wake-up hint and read current authorized state
+after opening. See [Runtime-backed notifications](./notifications.md).
+
 ## Domain contracts
 
 A type may declare an optional domain contract in an extension such as
@@ -110,10 +129,10 @@ collection's configured field names.
 
 The TaskNotes adapter implements listing, creation, and completion through
 generic mdbase operations. Completion reads the latest revision and submits a
-conditional update. This path works while Obsidian is closed. Behaviors that
-need a richer runtime, including recurrence expansion and timers, will use
-explicit provider actions in a later Connect protocol revision. Generic record
-access does not pretend those actions are available.
+conditional update. This path works while Obsidian is closed. Runtime-backed
+notification criteria and one-shot timers are available without adding
+TaskNotes semantics to Connect; richer recurrence expansion remains an explicit
+domain provider action.
 
 ## Application identity and authorization
 
@@ -197,12 +216,10 @@ Every collection has one write authority:
 
 The hosted vertical slice implements stable IDs, pinned snapshots, ordered
 scoped changes, conditional replay-safe mutations, offline caches, conflicts,
-cursor reset, revocation, versioned type and contract discovery, and a one-way
-Markdown mirror. Its TypeScript
-authority and versioned PostgreSQL state document are a reference
-implementation for the protocol. The production hosted authority will move
-mdbase behavior into a Rust provider backed by normalized transactional
-storage. A bidirectional filesystem mirror still requires outbound document
+cursor reset, revocation, versioned type and contract discovery, runtime-backed
+notification evaluation, and a one-way Markdown mirror. The Rust provider is
+the production authority over normalized transactional storage. A
+bidirectional filesystem mirror still requires outbound document
 replacement, watcher echo suppression, and user-facing conflict handling.
 
 The detailed hosted-provider, offline-cache, and filesystem-replication design

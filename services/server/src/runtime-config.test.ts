@@ -14,6 +14,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     hostedProvider: null,
     trustProxy: false,
     relayBroker: null,
+    vapid: null,
     ...overrides
   };
 }

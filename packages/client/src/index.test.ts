@@ -7,6 +7,8 @@ import {
   MdbaseOperationValidationError,
   isRetryableConnectError,
   MemoryGrantKeyStore,
+  parseMdbasePushPayload,
+  showMdbasePushNotification,
   unwrapOperation
 } from "./index.js";
 import type { GrantEncryption } from "@mdbase/connect-protocol";
@@ -374,6 +376,161 @@ describe("actionable SDK errors", () => {
       recovery: "retry",
       details: { computer: "Studio" }
     });
+  });
+});
+
+describe("mobile notifications", () => {
+  const serverUrl = "https://connect.example";
+  const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestUrl}`;
+
+  it("registers the selected criteria atomically for one browser installation", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "mdb_notifications",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000
+    }));
+    const subscribe = vi.fn().mockResolvedValue({
+      toJSON: () => ({
+        endpoint: "https://push.example/subscription",
+        expirationTime: null,
+        keys: { p256dh: "p256dh-key-material", auth: "auth-key-material" }
+      })
+    });
+    const serviceWorker = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(null),
+        subscribe
+      }
+    } as unknown as ServiceWorkerRegistration;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/discover")) {
+        return jsonResponse({
+          application: {
+            id: "00000000-0000-0000-0000-000000000001",
+            name: "TaskNotes",
+            homepage: "https://tasks.example",
+            notifications: {
+              criteria: [{ id: "task.ready" }, { id: "task.overdue" }]
+            }
+          }
+        });
+      }
+      if (url.endsWith("/v1/notifications/vapid-public-key")) {
+        return jsonResponse({ public_key: "AQID" });
+      }
+      if (url.endsWith("/v1/notifications/channels") && init?.method === "POST") {
+        return jsonResponse({
+          channel_id: "00000000-0000-0000-0000-000000000003",
+          criteria: ["task.ready"]
+        }, 201);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    const registration = await connect.registerNotifications({
+      serviceWorker,
+      criteria: ["task.ready"],
+      installationId: "installation-0000000001"
+    });
+
+    expect(registration).toEqual({
+      channelId: "00000000-0000-0000-0000-000000000003",
+      installationId: "installation-0000000001",
+      criteria: ["task.ready"]
+    });
+    expect(subscribe).toHaveBeenCalledWith({
+      userVisibleOnly: true,
+      applicationServerKey: new Uint8Array([1, 2, 3])
+    });
+    const channelRequest = fetchMock.mock.calls.find(
+      ([request]) => String(request).endsWith("/v1/notifications/channels")
+    );
+    expect(JSON.parse(String(channelRequest?.[1]?.body))).toMatchObject({
+      installation_id: "installation-0000000001",
+      criteria: ["task.ready"],
+      subscription: { endpoint: "https://push.example/subscription" }
+    });
+    expect((channelRequest?.[1]?.headers as Record<string, string>).authorization)
+      .toBe("Bearer mdb_notifications");
+  });
+
+  it("rejects undeclared criteria before asking the browser for push permission", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "mdb_notifications",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000
+    }));
+    const getSubscription = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "TaskNotes",
+        homepage: "https://tasks.example",
+        notifications: { criteria: [{ id: "task.ready" }] }
+      }
+    }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    await expect(connect.registerNotifications({
+      serviceWorker: {
+        pushManager: { getSubscription }
+      } as unknown as ServiceWorkerRegistration,
+      criteria: ["task.private"]
+    })).rejects.toMatchObject({ code: "notification_criterion_not_declared" });
+    expect(getSubscription).not.toHaveBeenCalled();
+  });
+
+  it("validates and displays the privacy-minimal service-worker payload", async () => {
+    const showNotification = vi.fn().mockResolvedValue(undefined);
+    const payload = {
+      type: "mdbase.notification",
+      version: 1,
+      signal_id: "inv_opaque",
+      criterion_id: "task.ready",
+      cursor: "42",
+      presentation: {
+        title: "A task is ready",
+        body: "Open TaskNotes to review it.",
+        tag: "task-ready"
+      }
+    };
+
+    expect(parseMdbasePushPayload(payload)).toEqual(payload);
+    await showMdbasePushNotification({ showNotification }, payload);
+    expect(showNotification).toHaveBeenCalledWith("A task is ready", {
+      body: "Open TaskNotes to review it.",
+      tag: "task-ready",
+      data: {
+        type: "mdbase.notification",
+        signal_id: "inv_opaque",
+        criterion_id: "task.ready",
+        cursor: "42"
+      }
+    });
+    expect(JSON.stringify(showNotification.mock.calls[0])).not.toContain("path");
+    expect(() => parseMdbasePushPayload({ ...payload, cursor: 42 }))
+      .toThrowError(MdbaseConnectError);
   });
 });
 
@@ -1173,4 +1330,11 @@ class MemoryStorage implements Storage {
   key(index: number) { return [...this.values.keys()][index] ?? null; }
   removeItem(key: string) { this.values.delete(key); }
   setItem(key: string, value: string) { this.values.set(key, value); }
+}
+
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
 }

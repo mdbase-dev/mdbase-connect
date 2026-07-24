@@ -26,6 +26,7 @@ let postgresStarted = false;
 let controlApp;
 let controlDatabase;
 let manifestServer;
+let notificationCallbackServer;
 
 const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
   await import("../packages/sync/dist/index.js");
@@ -105,6 +106,124 @@ try {
   await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
     method: "DELETE"
   });
+
+  phase("running a hosted mutation through the durable notification runtime");
+  const notificationSignals = [];
+  const notificationRequests = [];
+  const callbackPort = await availablePort();
+  notificationCallbackServer = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    assert.equal(request.headers.authorization, `Bearer ${internalToken}`);
+    const signal = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    notificationRequests.push(signal);
+    if (notificationRequests.length === 1) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "temporarily_unavailable" } }));
+      return;
+    }
+    notificationSignals.push(signal);
+    response.writeHead(202, { "content-type": "application/json" });
+    response.end(JSON.stringify({ accepted: true, duplicate: false }));
+  });
+  await new Promise((resolveListen, reject) => {
+    notificationCallbackServer.once("error", reject);
+    notificationCallbackServer.listen(callbackPort, "127.0.0.1", resolveListen);
+  });
+  const notificationProvider = await startProvider(databaseUrl, 0, masterKey, {
+    MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
+    MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1"
+  });
+  const notificationCollectionId = crypto.randomUUID();
+  const notificationReplicaId = crypto.randomUUID();
+  const notificationToken = `notification-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  const notificationGrantId = crypto.randomUUID();
+  await internalRequest(notificationProvider.url, "/internal/v1/collections", {
+    method: "POST",
+    body: {
+      collection_id: notificationCollectionId,
+      template: "tasknotes",
+      display_name: "Notification tasks"
+    }
+  });
+  await internalRequest(
+    notificationProvider.url,
+    `/internal/v1/collections/${notificationCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: notificationReplicaId,
+        name: "Notification writer",
+        mode: "read_write",
+        allowed_types: ["task"],
+        token: notificationToken
+      }
+    }
+  );
+  await internalRequest(
+    notificationProvider.url,
+    `/internal/v1/collections/${notificationCollectionId}/notification-grants/${notificationGrantId}`,
+    {
+      method: "PUT",
+      body: {
+        id: notificationGrantId,
+        application_id: crypto.randomUUID(),
+        application_name: "Tasks",
+        application_homepage: "https://tasks.example",
+        application_origin: "https://tasks.example",
+        collection_id: notificationCollectionId,
+        collection_name: "Notification tasks",
+        operations: ["changes"],
+        scope: { contracts: [], access: "full_collection" },
+        notification_criteria: [{
+          id: "task.created",
+          event: { id: "mdbase.record.created", version: 1 },
+          presentation: { title: "A task was created" }
+        }],
+        created_at: new Date().toISOString()
+      }
+    }
+  );
+  const notificationReceipt = await new HttpSyncTransport(
+    notificationProvider.url,
+    notificationCollectionId,
+    notificationToken
+  ).mutate(createMutation(
+    notificationReplicaId,
+    crypto.randomUUID(),
+    "tasks/private-notification.md",
+    "Private notification title"
+  ));
+  assert.equal(notificationReceipt.status, "applied");
+  const secondNotificationReceipt = await new HttpSyncTransport(
+    notificationProvider.url,
+    notificationCollectionId,
+    notificationToken
+  ).mutate(createMutation(
+    notificationReplicaId,
+    crypto.randomUUID(),
+    "tasks/second-private-notification.md",
+    "Second private notification title"
+  ));
+  assert.equal(secondNotificationReceipt.status, "applied");
+  await waitFor(
+    () => notificationSignals.length === 2,
+    "Hosted runtime did not retry and emit both notification signals",
+    600
+  );
+  assert.equal(notificationSignals[0].grant_id, notificationGrantId);
+  assert.equal(notificationSignals[0].criterion_id, "task.created");
+  assert.match(notificationSignals[0].signal_id, /^inv_/);
+  assert.equal(JSON.stringify(notificationSignals[0]).includes("private-notification"), false);
+  assert.equal(JSON.stringify(notificationSignals[0]).includes("Private notification title"), false);
+  assert.equal(notificationRequests.length, 3);
+  assert.deepEqual(notificationRequests[0], notificationRequests[1]);
+  assert.equal(notificationSignals[1].criterion_id, "task.created");
+  assert.equal(Number(notificationSignals[0].cursor) < Number(notificationSignals[1].cursor), true);
+  assert.notEqual(notificationSignals[0].signal_id, notificationSignals[1].signal_id);
+  await stopProvider(notificationProvider);
+  await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
+  notificationCallbackServer = undefined;
 
   phase("enforcing durable collection, document, and replica quotas");
   const quotaProvider = await startProvider(databaseUrl, 0, masterKey, {
@@ -1151,6 +1270,9 @@ schema:
   process.stdout.write("mdbase PostgreSQL hosted provider e2e passed\n");
 } finally {
   delete globalThis.location;
+  if (notificationCallbackServer) {
+    await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
+  }
   if (manifestServer) await new Promise((resolveClose) => manifestServer.close(resolveClose));
   if (controlApp) await controlApp.close();
   if (controlDatabase) await controlDatabase.end();
@@ -1294,7 +1416,7 @@ async function startPostgres() {
   const { stdout } = await execute("docker", ["port", postgresContainer, "5432/tcp"]);
   const port = stdout.trim().match(/:(\d+)$/)?.[1];
   if (!port) throw new Error(`Could not resolve PostgreSQL port from ${stdout}`);
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     const ready = await execute(
       "docker",
       ["exec", postgresContainer, "pg_isready", "--username", "mdbase", "--dbname", "mdbase"]
@@ -1302,7 +1424,9 @@ async function startPostgres() {
     if (ready) return `postgres://mdbase:${databasePassword}@127.0.0.1:${port}/mdbase`;
     await delay(250);
   }
-  throw new Error("PostgreSQL did not become ready");
+  const { stdout: logs = "" } = await execute("docker", ["logs", postgresContainer])
+    .catch(() => ({ stdout: "" }));
+  throw new Error(`PostgreSQL did not become ready\n${logs}`);
 }
 
 async function availablePort() {
@@ -1531,8 +1655,8 @@ function percentile(values, quantile) {
   return Number(ordered[Math.min(ordered.length - 1, Math.floor(ordered.length * quantile))].toFixed(2));
 }
 
-async function waitFor(action, message) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitFor(action, message, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = await action();
     if (value) return value;
     await delay(25);

@@ -132,6 +132,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "async-trait"
+version = "0.1.91"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae36dc4177970ef04fde5178d3e2429882def40e57a451f919c098f72baa6cec"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.2",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -826,6 +837,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -898,6 +924,7 @@ version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa"
 dependencies = [
+ "futures-channel",
  "futures-core",
  "futures-io",
  "futures-macro",
@@ -1569,15 +1596,20 @@ dependencies = [
 name = "mdbase-connect-agent"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "async-trait",
  "axum",
+ "chrono",
  "clap",
  "futures-util",
  "mdbase",
  "mdbase-connect-core",
  "mdbase-connect-protocol",
+ "mdbase-connect-runtime",
+ "mdbase-runtime",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tower",
@@ -1612,6 +1644,7 @@ name = "mdbase-connect-hosted-provider"
 version = "0.1.0-alpha.1"
 dependencies = [
  "aes-gcm",
+ "async-trait",
  "axum",
  "base64",
  "chrono",
@@ -1619,6 +1652,8 @@ dependencies = [
  "hmac 0.12.1",
  "mdbase",
  "mdbase-connect-protocol",
+ "mdbase-connect-runtime",
+ "mdbase-runtime",
  "rand_core 0.6.4",
  "reqwest",
  "serde",
@@ -1652,6 +1687,37 @@ dependencies = [
  "tempfile",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "mdbase-connect-runtime"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "mdbase",
+ "mdbase-connect-protocol",
+ "mdbase-runtime",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "mdbase-runtime"
+version = "0.1.0-rc.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "mdbase",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "ulid",
 ]
 
 [[package]]

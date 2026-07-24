@@ -1,4 +1,9 @@
-import type { CollectionContractDescriptor, TypeProvision } from "@mdbase/connect-protocol";
+import type {
+  CollectionContractDescriptor,
+  GrantPolicy,
+  TypeProvision
+} from "@mdbase/connect-protocol";
+import { safeEqual } from "./security.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -29,6 +34,10 @@ export class HostedProviderClient {
 
   async ready(): Promise<void> {
     await this.request("GET", "/ready", undefined, false);
+  }
+
+  authorizesInternalToken(candidate: string | null): boolean {
+    return candidate !== null && safeEqual(candidate, this.internalToken);
   }
 
   async createCollection(collectionId: string, template: string, displayName: string): Promise<void> {
@@ -113,6 +122,21 @@ export class HostedProviderClient {
 
   async revokeReplica(replicaId: string): Promise<void> {
     await this.request("DELETE", `/internal/v1/replicas/${encodeURIComponent(replicaId)}`);
+  }
+
+  async upsertNotificationGrant(collectionId: string, grant: GrantPolicy): Promise<void> {
+    await this.request(
+      "PUT",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/notification-grants/${encodeURIComponent(grant.id)}`,
+      grant
+    );
+  }
+
+  async revokeNotificationGrant(collectionId: string, grantId: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/notification-grants/${encodeURIComponent(grantId)}`
+    );
   }
 
   async compactThrough(collectionId: string, through: number): Promise<void> {

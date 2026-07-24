@@ -12,10 +12,12 @@ import rateLimit from "@fastify/rate-limit";
 import type {
   ApplicationProvisions,
   ApplicationRequirements,
+  ApplicationNotifications,
   CollectionContractDescriptor,
   ContractRequirement,
   EncryptedRelayOperationRequest,
   GrantEncryption,
+  GrantPolicy,
   GrantScope,
   TypeProvision
 } from "@mdbase/connect-protocol";
@@ -56,6 +58,11 @@ import {
   type GoogleAuthConfig
 } from "./google-auth.js";
 import type { RegistrationMode } from "./runtime-config.js";
+import {
+  activeGrantForToken,
+  NotificationService,
+  type PushTransport
+} from "./notifications.js";
 
 const OPERATIONS = [
   "describe",
@@ -125,6 +132,11 @@ interface BuildOptions {
   allowInsecureManifests?: boolean;
   trustProxy?: boolean;
   relayBroker?: RelayBroker;
+  notifications?: {
+    publicKey: string;
+    transport: PushTransport;
+    pollIntervalMs?: number;
+  };
 }
 
 interface User {
@@ -154,6 +166,14 @@ export async function buildApp(options: BuildOptions) {
   const revision = options.revision?.trim() || undefined;
   const registration = options.registration ?? "closed";
   const relay = new RelayHub(options.db, options.relayBroker);
+  const notifications = options.notifications
+    ? new NotificationService(
+        options.db,
+        options.notifications.transport,
+        options.notifications.pollIntervalMs,
+        (error) => app.log.error({ err: error }, "notification delivery worker failed")
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -197,8 +217,10 @@ export async function buildApp(options: BuildOptions) {
   await app.register(websocket);
 
   app.addHook("onClose", async () => {
+    await notifications?.close();
     await relay.close();
   });
+  notifications?.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (!options.hostedCollections && request.url.startsWith("/v1/hosted/")) {
@@ -836,7 +858,8 @@ export async function buildApp(options: BuildOptions) {
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
               col.local_id AS collection_id, col.display_name AS collection_name,
-              g.operations, g.scope, g.encryption, g.created_at
+              g.operations, g.scope, g.encryption, g.created_at,
+              a.notifications->'criteria' AS notification_criteria
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        JOIN collections col ON col.id = g.collection_id
@@ -886,7 +909,7 @@ export async function buildApp(options: BuildOptions) {
     if (!connector) return;
     const { applicationId } = z.object({ applicationId: z.uuid() }).parse(request.params);
     const application = await options.db.query(
-      `SELECT id, name, homepage, icon, requirements, provisions
+      `SELECT id, name, homepage, icon, requirements, provisions, notifications
        FROM applications WHERE id = $1`,
       [applicationId]
     );
@@ -1466,9 +1489,10 @@ export async function buildApp(options: BuildOptions) {
     const active = await options.db.query<{
       id: string;
       connector_id: string | null;
+      hosted_collection_id: string | null;
       hosted_replica_id: string | null;
     }>(
-      `SELECT g.id, col.connector_id, g.hosted_replica_id FROM grants g
+      `SELECT g.id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
        WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
       [grantId, user.id]
@@ -1479,6 +1503,12 @@ export async function buildApp(options: BuildOptions) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
       await options.hostedProvider.revokeReplica(active.rows[0].hosted_replica_id);
+      if (active.rows[0].hosted_collection_id) {
+        await options.hostedProvider.revokeNotificationGrant(
+          active.rows[0].hosted_collection_id,
+          grantId
+        );
+      }
       await options.db.query(
         "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
         [active.rows[0].hosted_replica_id]
@@ -1765,6 +1795,255 @@ export async function buildApp(options: BuildOptions) {
     return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
   });
 
+  app.get("/v1/notifications/vapid-public-key", async (_request, reply) => {
+    if (!options.notifications) {
+      return reply.code(404).send(apiError("notifications_unavailable", "Push notifications are not configured."));
+    }
+    return { public_key: options.notifications.publicKey };
+  });
+
+  app.post("/v1/notifications/channels", async (request, reply) => {
+    if (!notifications) {
+      return reply.code(503).send(apiError("notifications_unavailable", "Push notifications are not configured."));
+    }
+    const bearer = bearerToken(request);
+    if (!bearer) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
+    const input = z.object({
+      installation_id: z.string().min(16).max(200),
+      criteria: z.array(z.string().min(1).max(100)).min(1).max(100),
+      subscription: z.object({
+        endpoint: z.url().refine((value) => new URL(value).protocol === "https:", "Push endpoint must use HTTPS."),
+        expirationTime: z.number().int().positive().nullable().optional(),
+        keys: z.object({
+          p256dh: z.string().min(16).max(512),
+          auth: z.string().min(8).max(256)
+        }).strict()
+      }).strict()
+    }).strict().parse(request.body);
+    const criteria = [...new Set(input.criteria)];
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const grant = await activeGrantForToken(connection, tokenHash(bearer));
+      if (!grant) {
+        await connection.query("ROLLBACK");
+        return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
+      }
+      const application = await connection.query<{ notifications: ApplicationNotifications }>(
+        `SELECT a.notifications
+         FROM grants g
+         JOIN applications a ON a.id = g.application_id
+         WHERE g.id = $1 AND g.revoked_at IS NULL`,
+        [grant.grant_id]
+      );
+      const declared = new Set(
+        application.rows[0]?.notifications.criteria.map((criterion) => criterion.id) ?? []
+      );
+      const undeclared = criteria.find((criterion) => !declared.has(criterion));
+      if (undeclared) {
+        await connection.query("ROLLBACK");
+        return reply.code(400).send(apiError(
+          "notification_criterion_not_declared",
+          `The application manifest does not declare notification criterion ${undeclared}.`
+        ));
+      }
+      const channel = await connection.query<{ id: string }>(
+        `INSERT INTO push_channels
+           (id, grant_id, installation_id, endpoint, endpoint_hash, p256dh, auth, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT(grant_id, installation_id) DO UPDATE SET
+           endpoint = excluded.endpoint,
+           endpoint_hash = excluded.endpoint_hash,
+           p256dh = excluded.p256dh,
+           auth = excluded.auth,
+           expires_at = excluded.expires_at,
+           disabled_at = NULL,
+           updated_at = now()
+         RETURNING id`,
+        [
+          randomUUID(),
+          grant.grant_id,
+          input.installation_id,
+          input.subscription.endpoint,
+          tokenHash(input.subscription.endpoint),
+          input.subscription.keys.p256dh,
+          input.subscription.keys.auth,
+          input.subscription.expirationTime
+            ? new Date(input.subscription.expirationTime).toISOString()
+            : null
+        ]
+      );
+      await connection.query(
+        "DELETE FROM notification_subscriptions WHERE channel_id = $1 AND NOT (criterion_id = ANY($2::text[]))",
+        [channel.rows[0].id, criteria]
+      );
+      for (const criterion of criteria) {
+        await connection.query(
+          `INSERT INTO notification_subscriptions (id, grant_id, channel_id, criterion_id)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT(channel_id, criterion_id) DO NOTHING`,
+          [randomUUID(), grant.grant_id, channel.rows[0].id, criterion]
+        );
+      }
+      await connection.query("COMMIT");
+      return reply.code(201).send({ channel_id: channel.rows[0].id, criteria });
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+
+  app.put("/v1/notifications/subscriptions/:criterionId", async (request, reply) => {
+    if (!notifications) {
+      return reply.code(503).send(apiError("notifications_unavailable", "Push notifications are not configured."));
+    }
+    const params = z.object({ criterionId: z.string().min(1).max(100) }).parse(request.params);
+    const input = z.object({ channel_id: z.uuid() }).strict().parse(request.body);
+    const bearer = bearerToken(request);
+    if (!bearer) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
+    const grant = await activeGrantForToken(options.db, tokenHash(bearer));
+    if (!grant) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
+    const application = await options.db.query<{
+      notifications: ApplicationNotifications;
+      channel_id: string | null;
+    }>(
+      `SELECT a.notifications, pc.id AS channel_id
+       FROM grants g
+       JOIN applications a ON a.id = g.application_id
+       LEFT JOIN push_channels pc
+         ON pc.grant_id = g.id AND pc.id = $2 AND pc.disabled_at IS NULL
+       WHERE g.id = $1 AND g.revoked_at IS NULL`,
+      [grant.grant_id, input.channel_id]
+    );
+    const row = application.rows[0];
+    if (!row?.channel_id) {
+      return reply.code(404).send(apiError("channel_not_found", "The push channel is not active for this grant."));
+    }
+    if (!row.notifications.criteria.some((criterion) => criterion.id === params.criterionId)) {
+      return reply.code(400).send(apiError(
+        "notification_criterion_not_declared",
+        "The application manifest does not declare this notification criterion."
+      ));
+    }
+    const subscription = await options.db.query<{ id: string }>(
+      `INSERT INTO notification_subscriptions (id, grant_id, channel_id, criterion_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT(channel_id, criterion_id) DO UPDATE SET criterion_id = excluded.criterion_id
+       RETURNING id`,
+      [randomUUID(), grant.grant_id, input.channel_id, params.criterionId]
+    );
+    return { subscription_id: subscription.rows[0].id };
+  });
+
+  app.delete("/v1/notifications/channels/:channelId", async (request, reply) => {
+    const params = z.object({ channelId: z.uuid() }).parse(request.params);
+    const bearer = bearerToken(request);
+    if (!bearer) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
+    const grant = await activeGrantForToken(options.db, tokenHash(bearer));
+    if (!grant) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
+    const removed = await options.db.query(
+      "DELETE FROM push_channels WHERE id = $1 AND grant_id = $2 RETURNING id",
+      [params.channelId, grant.grant_id]
+    );
+    if (!removed.rows[0]) {
+      return reply.code(404).send(apiError("channel_not_found", "The push channel was not found."));
+    }
+    return reply.code(204).send();
+  });
+
+  app.post("/internal/v1/hosted/notification-signals", async (request, reply) => {
+    if (!notifications) {
+      return reply.code(503).send(apiError("notifications_unavailable", "Push notifications are not configured."));
+    }
+    const bearer = bearerToken(request);
+    if (!options.hostedProvider?.authorizesInternalToken(bearer)) {
+      return reply.code(401).send(apiError("invalid_internal_token", "Hosted provider credential is invalid."));
+    }
+    const input = z.object({
+      signal_id: z.string().min(16).max(200),
+      grant_id: z.uuid(),
+      criterion_id: z.string().min(1).max(100),
+      cursor: z.string().min(1).max(200)
+    }).strict().parse(request.body);
+    const authorization = await options.db.query<{
+      notifications: ApplicationNotifications;
+    }>(
+      `SELECT a.notifications
+       FROM grants g
+       JOIN applications a ON a.id = g.application_id
+       WHERE g.id = $1 AND g.hosted_collection_id IS NOT NULL
+         AND g.revoked_at IS NULL`,
+      [input.grant_id]
+    );
+    const authorized = authorization.rows[0]?.notifications.criteria.some(
+      (criterion) => criterion.id === input.criterion_id
+    );
+    if (!authorized) {
+      return reply.code(403).send(apiError(
+        "notification_signal_denied",
+        "The hosted grant does not authorize this notification criterion."
+      ));
+    }
+    const outcome = await notifications.enqueue({
+      signalId: input.signal_id,
+      grantId: input.grant_id,
+      criterionId: input.criterion_id,
+      cursor: input.cursor
+    });
+    return reply.code(outcome.duplicate ? 200 : 202).send({
+      accepted: true,
+      duplicate: outcome.duplicate,
+      deliveries: outcome.deliveries
+    });
+  });
+
+  app.post("/v1/connectors/notification-signals", async (request, reply) => {
+    if (!notifications) {
+      return reply.code(503).send(apiError("notifications_unavailable", "Push notifications are not configured."));
+    }
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const input = z.object({
+      signal_id: z.string().min(16).max(200),
+      grant_id: z.uuid(),
+      criterion_id: z.string().min(1).max(100),
+      cursor: z.string().min(1).max(200)
+    }).strict().parse(request.body);
+    const authorization = await options.db.query<{
+      notifications: ApplicationNotifications;
+    }>(
+      `SELECT a.notifications
+       FROM grants g
+       JOIN collections c ON c.id = g.collection_id
+       JOIN applications a ON a.id = g.application_id
+       WHERE g.id = $1 AND c.connector_id = $2
+         AND g.revoked_at IS NULL AND c.enabled = true`,
+      [input.grant_id, connector.id]
+    );
+    const authorized = authorization.rows[0]?.notifications.criteria.some(
+      (criterion) => criterion.id === input.criterion_id
+    );
+    if (!authorized) {
+      return reply.code(403).send(apiError(
+        "notification_signal_denied",
+        "The local grant does not authorize this notification criterion."
+      ));
+    }
+    const outcome = await notifications.enqueue({
+      signalId: input.signal_id,
+      grantId: input.grant_id,
+      criterionId: input.criterion_id,
+      cursor: input.cursor
+    });
+    return reply.code(outcome.duplicate ? 200 : 202).send({
+      accepted: true,
+      duplicate: outcome.duplicate,
+      deliveries: outcome.deliveries
+    });
+  });
+
   app.post("/v1/collections/:collectionId/operations/:operation", async (request, reply) => {
     const params = z.object({ collectionId: z.uuid(), operation: operationSchema }).parse(request.params);
     const bearer = bearerToken(request);
@@ -1875,6 +2154,7 @@ async function upsertApplication(
   canonical_identity: string;
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
+  notifications: ApplicationNotifications;
 }> {
   const application = await db.query<{
     id: string;
@@ -1885,30 +2165,37 @@ async function upsertApplication(
     canonical_identity: string;
     requirements: ApplicationRequirements;
     provisions: ApplicationProvisions;
+    notifications: ApplicationNotifications;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_url, name, homepage, icon, redirect_uris, requirements, provisions)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb)
+       (id, canonical_identity, manifest_url, manifest_version, name, homepage, icon,
+        redirect_uris, requirements, provisions, notifications)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        manifest_url = excluded.manifest_url,
+       manifest_version = excluded.manifest_version,
        name = excluded.name,
        homepage = excluded.homepage,
        icon = excluded.icon,
        redirect_uris = excluded.redirect_uris,
        requirements = excluded.requirements,
        provisions = excluded.provisions,
+       notifications = excluded.notifications,
        updated_at = now()
-     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements, provisions`,
+     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements,
+               provisions, notifications`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
       discovered.manifestUrl,
+      discovered.manifest.manifest_version,
       discovered.manifest.name,
       discovered.manifest.homepage,
       discovered.manifest.icon ?? null,
       JSON.stringify(discovered.manifest.redirect_uris),
       JSON.stringify(discovered.manifest.requirements),
-      JSON.stringify(discovered.manifest.provisions)
+      JSON.stringify(discovered.manifest.provisions),
+      JSON.stringify(discovered.manifest.notifications)
     ]
   );
   return application.rows[0];
@@ -1962,6 +2249,62 @@ async function createOrUpdateGrant(
   return grant.rows[0];
 }
 
+async function syncHostedNotificationGrant(
+  db: DatabaseQueryable,
+  provider: HostedProviderClient,
+  grantId: string
+): Promise<void> {
+  const result = await db.query<{
+    id: string;
+    application_id: string;
+    application_name: string;
+    application_homepage: string;
+    application_origin: string;
+    application_icon: string | null;
+    collection_id: string;
+    collection_name: string;
+    operations: string[];
+    scope: GrantScope;
+    notifications: ApplicationNotifications;
+    created_at: string | Date;
+  }>(
+    `SELECT g.id, g.application_id, a.name AS application_name,
+            a.homepage AS application_homepage,
+            CASE WHEN g.application_origin = '' THEN a.homepage
+                 ELSE g.application_origin END AS application_origin,
+            a.icon AS application_icon,
+            g.hosted_collection_id AS collection_id,
+            hosted.display_name AS collection_name,
+            g.operations, g.scope, a.notifications, g.created_at
+     FROM grants g
+     JOIN applications a ON a.id = g.application_id
+     JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+     WHERE g.id = $1 AND g.revoked_at IS NULL`,
+    [grantId]
+  );
+  const row = result.rows[0];
+  if (!row) return;
+  if (row.notifications.criteria.length === 0) {
+    await provider.revokeNotificationGrant(row.collection_id, row.id);
+    return;
+  }
+  const grant: GrantPolicy = {
+    id: row.id,
+    application_id: row.application_id,
+    collection_id: row.collection_id,
+    operations: row.operations as GrantPolicy["operations"],
+    scope: row.scope,
+    application_name: row.application_name,
+    application_homepage: row.application_homepage,
+    application_origin: row.application_origin,
+    ...(row.application_icon ? { application_icon: row.application_icon } : {}),
+    collection_name: row.collection_name,
+    notification_criteria: row.notifications.criteria,
+    created_at: new Date(row.created_at).toISOString()
+  };
+  await provider.upsertNotificationGrant(row.collection_id, grant);
+}
+
 async function reconcileApplicationGrants(
   db: DatabasePool,
   relay: RelayHub,
@@ -1974,6 +2317,7 @@ async function reconcileApplicationGrants(
     id: string;
     user_id: string;
     connector_id: string | null;
+    hosted_collection_id: string | null;
     hosted_replica_id: string | null;
     operations: string[];
     local_contracts: ContractRequirement[] | null;
@@ -1983,7 +2327,7 @@ async function reconcileApplicationGrants(
     allowed_types: string[] | null;
     scope: GrantScope;
   }>(
-    `SELECT g.id, g.user_id, col.connector_id, g.hosted_replica_id,
+    `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
             g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
             replica.allowed_types, g.scope
@@ -1996,6 +2340,12 @@ async function reconcileApplicationGrants(
   );
   const changedConnectors = new Set<string>();
   for (const grant of grants.rows) {
+    if (grant.hosted_replica_id) {
+      if (!hostedProvider) {
+        throw new Error("Hosted provider unavailable during notification reconciliation.");
+      }
+      await syncHostedNotificationGrant(db, hostedProvider, grant.id);
+    }
     const hostedDescriptors = grant.template
       ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
       : [];
@@ -2052,6 +2402,9 @@ async function reconcileApplicationGrants(
       if (grant.hosted_replica_id) {
         if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
         await hostedProvider.revokeReplica(grant.hosted_replica_id);
+        if (grant.hosted_collection_id) {
+          await hostedProvider.revokeNotificationGrant(grant.hosted_collection_id, grant.id);
+        }
         await db.query("UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1", [
           grant.hosted_replica_id
         ]);
@@ -2224,6 +2577,7 @@ async function approveHostedAuthorization(
 ): Promise<boolean> {
   const connection = await db.connect();
   let replicaId: string | null = null;
+  let notificationGrantId: string | null = null;
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
@@ -2307,6 +2661,7 @@ async function approveHostedAuthorization(
       tokenTtlSeconds: 3_600
     });
     const grantId = randomUUID();
+    notificationGrantId = grantId;
     await connection.query(
       `INSERT INTO hosted_replicas
          (id, collection_id, name, purpose, mode, allowed_types, token_hash)
@@ -2346,10 +2701,16 @@ async function approveHostedAuthorization(
       scope,
       source: "portal"
     });
+    await syncHostedNotificationGrant(connection, provider, grantId);
     await connection.query("COMMIT");
     return true;
   } catch (error) {
     await connection.query("ROLLBACK");
+    if (notificationGrantId) {
+      await provider
+        .revokeNotificationGrant(input.collectionId, notificationGrantId)
+        .catch(() => undefined);
+    }
     if (replicaId) await provider.revokeReplica(replicaId).catch(() => undefined);
     throw error;
   } finally {

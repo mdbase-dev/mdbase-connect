@@ -1,6 +1,7 @@
 mod cloud;
 mod loopback;
 mod relay;
+mod runtime_notifications;
 mod server;
 mod watcher;
 
@@ -56,8 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| default_control_endpoint(&state_dir));
     let registry = CollectionRegistry::open(&state_dir)?;
     let relay_identity = RelayIdentity::load_or_create(&state_dir)?;
-    let watcher = CollectionWatchService::start(registry.clone());
-
     let cloud = match (args.server_url.clone(), args.connector_token.clone()) {
         (Some(server_url), Some(connector_token)) => {
             Some(CloudControlClient::new(server_url, connector_token))
@@ -69,6 +68,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         }
     };
+    let (runtime_events, runtime_event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let watcher =
+        CollectionWatchService::start_with_runtime_events(registry.clone(), Some(runtime_events));
+    let _runtime_notifications = runtime_notifications::start(
+        &state_dir,
+        registry.clone(),
+        cloud.clone(),
+        runtime_event_rx,
+    );
     let state = Arc::new(AgentState::with_identity(
         registry.clone(),
         watcher.clone(),

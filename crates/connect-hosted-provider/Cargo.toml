@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 aes-gcm.workspace = true
+async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 clap.workspace = true
@@ -14,7 +15,10 @@ chrono.workspace = true
 hmac.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
+mdbase-connect-runtime = { path = "../connect-runtime" }
+mdbase-runtime = { workspace = true, features = ["postgres"] }
 rand_core.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -30,4 +34,3 @@ uuid.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-reqwest.workspace = true

@@ -54,6 +54,10 @@ services:
         value: "10000"
       - key: MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS
         value: "300"
+      - key: MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS
+        value: "5"
+      - key: MDBASE_CONNECT_CONTROL_PLANE_URL
+        value: https://connect.mdbase.dev
 
   - type: web
     name: mdbase-connect
@@ -117,6 +121,12 @@ services:
           type: pserv
           name: mdbase-connect-relay-broker
           envVarKey: NATS_AUTH_TOKEN
+      - key: MDBASE_CONNECT_VAPID_SUBJECT
+        sync: false
+      - key: MDBASE_CONNECT_VAPID_PUBLIC_KEY
+        sync: false
+      - key: MDBASE_CONNECT_VAPID_PRIVATE_KEY
+        sync: false
 
   - type: web
     name: mdbase-mcp

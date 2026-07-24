@@ -7,6 +7,7 @@ use mdbase_connect_protocol::{
 use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct CloudControlClient {
@@ -159,6 +160,26 @@ impl CloudControlClient {
         .await
     }
 
+    pub async fn emit_notification_signal(
+        &self,
+        signal_id: &str,
+        grant_id: uuid::Uuid,
+        criterion_id: &str,
+        cursor: &str,
+    ) -> Result<Value, ConnectError> {
+        self.json(
+            Method::POST,
+            "/v1/connectors/notification-signals",
+            Some(serde_json::json!({
+                "signal_id": signal_id,
+                "grant_id": grant_id,
+                "criterion_id": criterion_id,
+                "cursor": cursor,
+            })),
+        )
+        .await
+    }
+
     async fn json<T: DeserializeOwned>(
         &self,
         method: Method,
@@ -168,6 +189,7 @@ impl CloudControlClient {
         let mut request = self
             .client
             .request(method, format!("{}{}", self.server_url, path))
+            .timeout(Duration::from_secs(15))
             .bearer_auth(&self.connector_token);
         if let Some(body) = body {
             request = request.json(&body);

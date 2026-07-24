@@ -984,6 +984,7 @@ mod tests {
                 application_origin: "https://example.test".to_string(),
                 application_icon: None,
                 collection_name: "Encrypted notes".to_string(),
+                notification_criteria: Vec::new(),
                 created_at: "2026-07-21T00:00:00Z".to_string(),
                 encryption: Some(encryption.clone()),
             }])

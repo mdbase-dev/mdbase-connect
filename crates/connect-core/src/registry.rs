@@ -180,6 +180,7 @@ impl CollectionRegistry {
                 application_origin TEXT NOT NULL DEFAULT '',
                 application_icon TEXT,
                 collection_name TEXT NOT NULL DEFAULT 'Collection',
+                notification_criteria TEXT NOT NULL DEFAULT '[]',
                 encryption TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -239,6 +240,7 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
+            "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE collections ADD COLUMN description TEXT",
             "ALTER TABLE grant_crypto_state ADD COLUMN reorder_floor TEXT",
             "ALTER TABLE grant_crypto_requests ADD COLUMN counter TEXT",
@@ -1172,8 +1174,8 @@ impl CollectionRegistry {
                 "INSERT INTO grants
                    (id, application_id, collection_id, operations, scope, application_name,
                     application_homepage, application_origin, application_icon, collection_name,
-                    created_at, encryption)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    created_at, encryption, notification_criteria)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -1193,6 +1195,7 @@ impl CollectionRegistry {
                         .as_ref()
                         .map(serde_json::to_string)
                         .transpose()?,
+                    serde_json::to_string(&grant.notification_criteria)?,
                 ])?;
             }
         }
@@ -1248,6 +1251,7 @@ impl CollectionRegistry {
                     application_origin: grant.application_origin.clone(),
                     application_icon: grant.application_icon.clone(),
                     collection_name: grant.collection_name.clone(),
+                    notification_criteria: grant.notification_criteria.clone(),
                     created_at: grant.created_at.clone(),
                     encryption: grant.encryption.clone(),
                 })
@@ -1260,7 +1264,7 @@ impl CollectionRegistry {
         let mut statement = connection.prepare(
             "SELECT id, application_id, application_name, application_homepage,
                     application_origin, application_icon, collection_id, collection_name,
-                    operations, scope, created_at, encryption
+                    operations, scope, created_at, encryption, notification_criteria
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -1277,6 +1281,7 @@ impl CollectionRegistry {
                 row.get::<_, String>(9)?,
                 row.get::<_, String>(10)?,
                 row.get::<_, Option<String>>(11)?,
+                row.get::<_, String>(12)?,
             ))
         })?;
         rows.map(|row| {
@@ -1293,6 +1298,7 @@ impl CollectionRegistry {
                 scope,
                 created_at,
                 encryption,
+                notification_criteria,
             ) = row?;
             Ok(GrantSummary {
                 id: parse_registry_uuid(&id)?,
@@ -1305,6 +1311,7 @@ impl CollectionRegistry {
                 collection_name,
                 operations: serde_json::from_str(&operations)?,
                 scope: serde_json::from_str(&scope)?,
+                notification_criteria: serde_json::from_str(&notification_criteria)?,
                 created_at,
                 encryption: encryption
                     .as_deref()
@@ -2885,6 +2892,7 @@ views:
             application_origin: "https://workouts.example".to_string(),
             application_icon: None,
             collection_name: "Workouts".to_string(),
+            notification_criteria: Vec::new(),
             created_at: "2026-07-19T00:00:00Z".to_string(),
             encryption: None,
         };
@@ -3092,6 +3100,7 @@ views:
             application_origin: "https://app.example".to_string(),
             application_icon: None,
             collection_name: "Collection".to_string(),
+            notification_criteria: Vec::new(),
             created_at: "2026-07-21T00:00:00Z".to_string(),
             encryption: Some(mdbase_connect_protocol::GrantEncryption {
                 protocol_version: 3,

@@ -28,14 +28,17 @@ application and contract adapter—not a collection kind or platform default.
 ## What is here
 
 - `crates/connect-agent`: Rust background connector, local policy enforcement,
-  a hardened browser loopback API, filesystem watching, and outbound WebSocket
-  relay.
+  a hardened browser loopback API, filesystem watching, local runtime execution,
+  and outbound WebSocket relay.
+- `crates/connect-runtime`: the small Connect adapter that compiles exact grant
+  criteria into provider-neutral `mdbase-runtime` workflows.
 - `crates/connect-cli`: local administration and operation CLI.
 - `apps/desktop`: Electron controller for collection registration, application
   metadata and availability, application access, browser pairing, local
   activity, tray operation, and launch-at-login.
 - `services/server`: Fastify control plane and transient, horizontally scalable
-  relay backed by PostgreSQL and optional Core NATS request/reply.
+  relay backed by PostgreSQL and optional Core NATS request/reply. It also owns
+  Web Push installations and a durable, privacy-minimal delivery outbox.
 - `services/mcp`: separately deployed remote MCP gateway for Claude, ChatGPT,
   and other OAuth-capable hosts. It maps one host connection to independently
   approved collection grants and keeps its credentials in a separate database.
@@ -107,7 +110,9 @@ PostgreSQL 18. It includes a real Chromium portal flow, direct OAuth SDK
 operations, encrypted-at-rest checks, two provider instances racing one write,
 pinned snapshots, writable filesystem mirroring, durable retry receipts,
 compaction, restart recovery, logical backup restoration into a fresh database,
-credential rotation, quotas, and ciphertext tamper detection.
+credential rotation, quotas, ciphertext tamper detection, and a private
+mutation flowing through the hosted runtime into an opaque notification
+callback.
 `pnpm e2e:provider:stress` repeats the path with 10,000 records and enforces the
 documented latency budgets.
 
@@ -180,7 +185,8 @@ abuse-response operations remain release gates.
 
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/mvp.md`](docs/mvp.md), [`docs/sync.md`](docs/sync.md), and
-[`docs/encryption.md`](docs/encryption.md), and
+[`docs/encryption.md`](docs/encryption.md),
+[`docs/notifications.md`](docs/notifications.md), and
 [`docs/hosted-provider.md`](docs/hosted-provider.md) for the trust model, acceptance path,
 implemented protocol boundaries, and remaining replication and encryption
 work.

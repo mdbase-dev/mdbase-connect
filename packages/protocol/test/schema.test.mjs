@@ -9,6 +9,7 @@ import addFormats from "ajv-formats";
 const here = dirname(fileURLToPath(import.meta.url));
 const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protocol.v2.schema.json"), "utf8"));
 const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.schema.json"), "utf8"));
+const manifestV2Schema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.v2.schema.json"), "utf8"));
 const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/contract-extension.v1.schema.json"), "utf8"));
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v3.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
@@ -16,6 +17,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: true });
 addFormats(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(manifestSchema);
+ajv.addSchema(manifestV2Schema);
 ajv.addSchema(contractSchema);
 ajv.addSchema(encryptedRelaySchema);
 ajv.addSchema(syncSchema);
@@ -29,9 +31,48 @@ function validator(reference) {
 test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(schema.$id));
   assert.ok(validator(manifestSchema.$id));
+  assert.ok(validator(manifestV2Schema.$id));
   assert.ok(validator(contractSchema.$id));
   assert.ok(validator(encryptedRelaySchema.$id));
   assert.ok(validator(syncSchema.$id));
+});
+
+test("v2 application manifests declare authority-evaluated notification criteria", () => {
+  const validate = validator(manifestV2Schema.$id);
+  const manifest = {
+    manifest_version: 2,
+    name: "Tasks",
+    homepage: "https://tasks.example/",
+    redirect_uris: ["https://tasks.example/callback"],
+    notifications: {
+      criteria: [{
+        id: "task.ready",
+        event: { id: "mdbase.record.modified", version: 1 },
+        if: { $expr: "event.payload.changed_fields.exists(field, field == 'status')" },
+        debounce: "2s",
+        minimum_interval: "1m",
+        presentation: {
+          title: "A task changed",
+          body: "Open Tasks to see the latest update.",
+          tag: "task-change"
+        }
+      }]
+    }
+  };
+  assert.equal(validate(manifest), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...manifest, manifest_version: 1 }), false);
+  assert.equal(validate({
+    ...manifest,
+    notifications: {
+      criteria: [{ ...manifest.notifications.criteria[0], presentation: { title: "${event.payload.path}" } }]
+    }
+  }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...manifest,
+    notifications: {
+      criteria: [{ ...manifest.notifications.criteria[0], event: { id: "../private", version: 1 } }]
+    }
+  }), false);
 });
 
 test("application manifests declare connector-controlled type provisioning", () => {

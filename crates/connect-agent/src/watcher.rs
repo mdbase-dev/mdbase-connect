@@ -8,6 +8,13 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
+pub struct CollectionRuntimeEvent {
+    pub collection_id: Uuid,
+    pub cursor: u64,
+    pub event: mdbase::watch::WatchEvent,
+}
+
 #[derive(Clone)]
 pub struct CollectionWatchService {
     commands: mpsc::Sender<WatchCommand>,
@@ -30,11 +37,19 @@ enum SynchronizeRequest {
 }
 
 impl CollectionWatchService {
+    #[cfg(test)]
     pub fn start(registry: CollectionRegistry) -> Self {
+        Self::start_with_runtime_events(registry, None)
+    }
+
+    pub fn start_with_runtime_events(
+        registry: CollectionRegistry,
+        runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
+    ) -> Self {
         let (commands, receiver) = mpsc::channel();
         thread::Builder::new()
             .name("mdbase-connect-watch-supervisor".to_string())
-            .spawn(move || watch_supervisor(registry, receiver))
+            .spawn(move || watch_supervisor(registry, receiver, runtime_events))
             .expect("failed to start collection watcher supervisor");
         Self { commands }
     }
@@ -81,12 +96,16 @@ impl CollectionWatchService {
     }
 }
 
-fn watch_supervisor(registry: CollectionRegistry, commands: mpsc::Receiver<WatchCommand>) {
+fn watch_supervisor(
+    registry: CollectionRegistry,
+    commands: mpsc::Receiver<WatchCommand>,
+    runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
+) {
     let mut workers: HashMap<Uuid, WatchWorker> = HashMap::new();
     while let Ok(command) = commands.recv() {
         match command {
             WatchCommand::Refresh(collections, ready) => {
-                refresh_workers(&registry, &mut workers, collections);
+                refresh_workers(&registry, &mut workers, collections, runtime_events.clone());
                 let _ = ready.send(());
             }
             WatchCommand::Synchronize(collection_id, invalidation, ready) => {
@@ -127,6 +146,7 @@ fn refresh_workers(
     registry: &CollectionRegistry,
     workers: &mut HashMap<Uuid, WatchWorker>,
     collections: Vec<CollectionSummary>,
+    runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
     let requested = collections
         .iter()
@@ -148,6 +168,7 @@ fn refresh_workers(
                 registry.clone(),
                 collection.id,
                 PathBuf::from(collection.path),
+                runtime_events.clone(),
             ) {
                 entry.insert(worker);
             }
@@ -159,6 +180,7 @@ fn start_worker(
     registry: CollectionRegistry,
     collection_id: Uuid,
     root: PathBuf,
+    runtime_events: Option<tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) -> Option<WatchWorker> {
     let watcher = match CollectionWatcher::open(&root, Duration::from_millis(120)) {
         Ok(watcher) => watcher,
@@ -187,13 +209,15 @@ fn start_worker(
                         tracing::warn!(collection_id = %collection_id, %error, "collection rescan failed");
                     }
                     while let Ok(Some(event)) = watcher.recv_timeout(Duration::ZERO) {
-                        persist_event(&registry, collection_id, &event);
+                        persist_event(&registry, collection_id, &event, runtime_events.as_ref());
                     }
                     let _ = ready.send(());
                 }
                 loop {
                     match watcher.recv_timeout(Duration::ZERO) {
-                        Ok(Some(event)) => persist_event(&registry, collection_id, &event),
+                        Ok(Some(event)) => {
+                            persist_event(&registry, collection_id, &event, runtime_events.as_ref())
+                        }
                         Ok(None) => break,
                         Err(error) => {
                             tracing::warn!(collection_id = %collection_id, %error, "collection watcher stopped");
@@ -219,11 +243,22 @@ fn persist_event(
     registry: &CollectionRegistry,
     collection_id: Uuid,
     event: &mdbase::watch::WatchEvent,
+    runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
-    if let Err(error) = registry.append_change(collection_id, event) {
-        tracing::warn!(collection_id = %collection_id, %error, "failed to persist collection change");
-    } else {
-        tracing::debug!(collection_id = %collection_id, event_type = %event.event_type, sequence = event.sequence, "collection change recorded");
+    match registry.append_change(collection_id, event) {
+        Err(error) => {
+            tracing::warn!(collection_id = %collection_id, %error, "failed to persist collection change");
+        }
+        Ok(cursor) => {
+            if let Some(runtime_events) = runtime_events {
+                let _ = runtime_events.send(CollectionRuntimeEvent {
+                    collection_id,
+                    cursor,
+                    event: event.clone(),
+                });
+            }
+            tracing::debug!(collection_id = %collection_id, event_type = %event.event_type, sequence = event.sequence, cursor, "collection change recorded");
+        }
     }
 }
 

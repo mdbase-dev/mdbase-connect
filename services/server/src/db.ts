@@ -119,12 +119,14 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       canonical_identity text NOT NULL UNIQUE,
       manifest_url text NOT NULL,
+      manifest_version integer NOT NULL DEFAULT 1,
       name text NOT NULL,
       homepage text NOT NULL,
       icon text,
       redirect_uris jsonb NOT NULL,
       requirements jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
       provisions jsonb NOT NULL DEFAULT '{"types":[]}'::jsonb,
+      notifications jsonb NOT NULL DEFAULT '{"criteria":[]}'::jsonb,
       first_seen_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     );
@@ -203,6 +205,54 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS push_channels (
+      id uuid PRIMARY KEY,
+      grant_id uuid NOT NULL REFERENCES grants(id) ON DELETE CASCADE,
+      installation_id text NOT NULL,
+      endpoint text NOT NULL,
+      endpoint_hash text NOT NULL,
+      p256dh text NOT NULL,
+      auth text NOT NULL,
+      expires_at timestamptz,
+      disabled_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(grant_id, installation_id),
+      UNIQUE(grant_id, endpoint_hash)
+    );
+    CREATE TABLE IF NOT EXISTS notification_subscriptions (
+      id uuid PRIMARY KEY,
+      grant_id uuid NOT NULL REFERENCES grants(id) ON DELETE CASCADE,
+      channel_id uuid NOT NULL REFERENCES push_channels(id) ON DELETE CASCADE,
+      criterion_id text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(channel_id, criterion_id)
+    );
+    CREATE TABLE IF NOT EXISTS notification_signals (
+      id uuid PRIMARY KEY,
+      signal_id text NOT NULL UNIQUE,
+      grant_id uuid NOT NULL REFERENCES grants(id) ON DELETE CASCADE,
+      criterion_id text NOT NULL,
+      cursor text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id uuid PRIMARY KEY,
+      signal_id uuid NOT NULL REFERENCES notification_signals(id) ON DELETE CASCADE,
+      subscription_id uuid NOT NULL REFERENCES notification_subscriptions(id) ON DELETE CASCADE,
+      status text NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'sending', 'retry', 'sent', 'discarded')),
+      attempts integer NOT NULL DEFAULT 0,
+      available_at timestamptz NOT NULL DEFAULT now(),
+      lease_token text,
+      leased_until timestamptz,
+      last_error text,
+      delivered_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(signal_id, subscription_id)
+    );
+    CREATE INDEX IF NOT EXISTS notification_deliveries_ready_idx
+      ON notification_deliveries(status, available_at);
   `);
   const authorizationColumns = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
@@ -219,6 +269,18 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "collections",
     "contracts",
     "ALTER TABLE collections ADD COLUMN contracts jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "applications",
+    "manifest_version",
+    "ALTER TABLE applications ADD COLUMN manifest_version integer NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
+    "applications",
+    "notifications",
+    "ALTER TABLE applications ADD COLUMN notifications jsonb NOT NULL DEFAULT '{\"criteria\":[]}'::jsonb"
   );
   await ensureColumn(
     db,

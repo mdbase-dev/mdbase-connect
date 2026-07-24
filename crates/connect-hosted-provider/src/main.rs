@@ -2,7 +2,7 @@ use std::{net::IpAddr, time::Duration};
 
 use clap::Parser;
 use mdbase_connect_hosted_provider::{
-    app, AppState, HostedProvider, ProviderCrypto, ProviderLimits,
+    app, AppState, HostedNotificationConfig, HostedProvider, ProviderCrypto, ProviderLimits,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -16,6 +16,8 @@ struct Arguments {
     internal_token: String,
     #[arg(long, env = "MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")]
     master_key: String,
+    #[arg(long, env = "MDBASE_CONNECT_CONTROL_PLANE_URL")]
+    control_plane_url: Option<String>,
     #[arg(long, env = "HOST", default_value = "127.0.0.1")]
     host: IpAddr,
     #[arg(long, env = "PORT", default_value_t = 8790)]
@@ -56,6 +58,12 @@ struct Arguments {
         default_value_t = 300
     )]
     maintenance_interval_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS",
+        default_value_t = 5
+    )]
+    notification_interval_seconds: u64,
 }
 
 #[tokio::main]
@@ -65,6 +73,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "hosted maintenance interval must be greater than zero",
+        )
+        .into());
+    }
+    if arguments.notification_interval_seconds == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "hosted notification interval must be greater than zero",
         )
         .into());
     }
@@ -82,12 +97,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_bytes_per_document: arguments.max_bytes_per_document,
         max_replicas_per_collection: arguments.max_replicas_per_collection,
     };
-    let provider = HostedProvider::connect(&arguments.database_url, crypto, limits).await?;
+    let notification_config =
+        arguments
+            .control_plane_url
+            .map(|control_plane_url| HostedNotificationConfig {
+                control_plane_url,
+                internal_token: arguments.internal_token.clone(),
+            });
+    let provider =
+        HostedProvider::connect(&arguments.database_url, crypto, limits, notification_config)
+            .await?;
     let state = AppState::new(provider.clone(), &arguments.internal_token)?;
     let maintenance = tokio::spawn(maintain_history(
-        provider,
+        provider.clone(),
         arguments.retain_changes,
         Duration::from_secs(arguments.maintenance_interval_seconds),
+    ));
+    let notification_recovery = tokio::spawn(maintain_notifications(
+        provider,
+        Duration::from_secs(arguments.notification_interval_seconds),
     ));
     let listener = TcpListener::bind((arguments.host, arguments.port)).await?;
     let address = listener.local_addr()?;
@@ -99,6 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     maintenance.abort();
     let _ = maintenance.await;
+    notification_recovery.abort();
+    let _ = notification_recovery.await;
     result?;
     Ok(())
 }
@@ -114,6 +144,17 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
                 tracing::info!(collections, retain_changes, "compacted hosted history")
             }
             Err(error) => tracing::error!(%error, "hosted history maintenance failed"),
+        }
+    }
+}
+
+async fn maintain_notifications(provider: HostedProvider, period: Duration) {
+    let mut interval = tokio::time::interval(period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        if let Err(error) = provider.recover_notifications(1_000).await {
+            tracing::error!(%error, "hosted notification recovery failed");
         }
     }
 }

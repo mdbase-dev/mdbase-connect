@@ -52,6 +52,7 @@ export {
 export type {
   ApplicationProvisions,
   ApplicationRequirements,
+  ApplicationNotifications,
   CollectionChange,
   CollectionChangesPage,
   CollectionContractDescriptor,
@@ -64,6 +65,7 @@ export type {
   GrantScope,
   JsonObject,
   MdbaseAppManifest,
+  NotificationCriterion,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordResult,
@@ -137,6 +139,70 @@ export interface MdbaseHostedSyncConnection<Frontmatter extends JsonObject = Jso
   collectionId: string;
   replicaId: string;
   transport: MdbaseHostedSyncTransport<Frontmatter>;
+}
+
+export interface MdbaseNotificationRegistrationOptions {
+  serviceWorker: ServiceWorkerRegistration;
+  /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
+  criteria?: string[];
+  /** Stable per-installation ID. The SDK persists one when omitted. */
+  installationId?: string;
+}
+
+export interface MdbaseNotificationRegistration {
+  channelId: string;
+  installationId: string;
+  criteria: string[];
+}
+
+export interface MdbasePushPayload {
+  type: "mdbase.notification";
+  version: 1;
+  signal_id: string;
+  criterion_id: string;
+  cursor: string;
+  presentation: {
+    title: string;
+    body?: string;
+    tag?: string;
+  };
+}
+
+export function parseMdbasePushPayload(value: unknown): MdbasePushPayload {
+  if (!value || typeof value !== "object") {
+    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an object.");
+  }
+  const payload = value as Partial<MdbasePushPayload>;
+  if (
+    payload.type !== "mdbase.notification"
+    || payload.version !== 1
+    || typeof payload.signal_id !== "string"
+    || typeof payload.criterion_id !== "string"
+    || typeof payload.cursor !== "string"
+    || !payload.presentation
+    || typeof payload.presentation.title !== "string"
+  ) {
+    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an mdbase notification.");
+  }
+  return payload as MdbasePushPayload;
+}
+
+/** Display a validated mdbase push from a service worker `push` handler. */
+export function showMdbasePushNotification(
+  registration: Pick<ServiceWorkerRegistration, "showNotification">,
+  value: unknown
+): Promise<void> {
+  const payload = parseMdbasePushPayload(value);
+  return registration.showNotification(payload.presentation.title, {
+    ...(payload.presentation.body ? { body: payload.presentation.body } : {}),
+    ...(payload.presentation.tag ? { tag: payload.presentation.tag } : {}),
+    data: {
+      type: payload.type,
+      signal_id: payload.signal_id,
+      criterion_id: payload.criterion_id,
+      cursor: payload.cursor
+    }
+  });
 }
 
 export interface ReadInput {
@@ -583,6 +649,9 @@ interface Application {
   id: string;
   name: string;
   homepage: string;
+  notifications?: {
+    criteria: Array<{ id: string }>;
+  };
 }
 
 interface StoredAuthorization {
@@ -910,6 +979,125 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         )
       }
     };
+  }
+
+  /**
+   * Register this browser installation for manifest-declared Web Push.
+   *
+   * Criteria are evaluated by the collection authority. Push payloads contain
+   * only an opaque cursor and static presentation copy.
+   */
+  async registerNotifications(
+    options: MdbaseNotificationRegistrationOptions
+  ): Promise<MdbaseNotificationRegistration> {
+    const token = await this.authorizedToken();
+    if (!token) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "Connect this application before enabling notifications."
+      );
+    }
+    const application = await this.discover();
+    const declared = application.notifications?.criteria.map((criterion) => criterion.id) ?? [];
+    const criteria = [...new Set(options.criteria ?? declared)];
+    const undeclared = criteria.find((criterion) => !declared.includes(criterion));
+    if (undeclared) {
+      throw new MdbaseConnectError(
+        "notification_criterion_not_declared",
+        `The application manifest does not declare notification criterion ${undeclared}.`
+      );
+    }
+    if (criteria.length === 0) {
+      throw new MdbaseConnectError(
+        "notifications_not_declared",
+        "This application manifest does not declare any notification criteria."
+      );
+    }
+    const keyResponse = await fetch(`${this.serverUrl}/v1/notifications/vapid-public-key`);
+    const keyBody = await keyResponse.json();
+    if (!keyResponse.ok) {
+      throw apiError(keyBody, "notifications_unavailable", "Push notifications are unavailable.", keyResponse.status);
+    }
+    let pushSubscription = await options.serviceWorker.pushManager.getSubscription();
+    if (!pushSubscription) {
+      pushSubscription = await options.serviceWorker.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlBytes(keyBody.public_key)
+      });
+    }
+    const serialized = pushSubscription.toJSON();
+    if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) {
+      throw new MdbaseConnectError(
+        "invalid_push_subscription",
+        "The browser returned an incomplete push subscription."
+      );
+    }
+    const previous = parseStored<MdbaseNotificationRegistration>(
+      this.storage.getItem(this.notificationKey())
+    );
+    const installationId = options.installationId
+      ?? previous?.installationId
+      ?? randomBase64Url(24);
+    const channelResponse = await fetch(`${this.serverUrl}/v1/notifications/channels`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token.accessToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        installation_id: installationId,
+        criteria,
+        subscription: {
+          endpoint: serialized.endpoint,
+          expirationTime: serialized.expirationTime ?? null,
+          keys: serialized.keys
+        }
+      })
+    });
+    const channelBody = await channelResponse.json();
+    if (!channelResponse.ok) {
+      throw apiError(channelBody, "notification_registration_failed", "Could not register push notifications.", channelResponse.status);
+    }
+    if (previous?.channelId && previous.channelId !== channelBody.channel_id) {
+      void fetch(`${this.serverUrl}/v1/notifications/channels/${previous.channelId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token.accessToken}` }
+      }).catch(() => undefined);
+    }
+    const registration = {
+      channelId: channelBody.channel_id,
+      installationId,
+      criteria
+    };
+    this.storage.setItem(this.notificationKey(), JSON.stringify(registration));
+    return registration;
+  }
+
+  async unregisterNotifications(
+    serviceWorker?: ServiceWorkerRegistration
+  ): Promise<void> {
+    const registration = parseStored<MdbaseNotificationRegistration>(
+      this.storage.getItem(this.notificationKey())
+    );
+    const token = await this.authorizedToken();
+    if (registration?.channelId && token) {
+      const response = await fetch(`${this.serverUrl}/v1/notifications/channels/${registration.channelId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token.accessToken}` }
+      });
+      if (!response.ok && response.status !== 404) {
+        const body = await response.json();
+        throw apiError(
+          body,
+          "notification_unregistration_failed",
+          "Could not unregister push notifications.",
+          response.status
+        );
+      }
+    }
+    this.storage.removeItem(this.notificationKey());
+    const subscription = await serviceWorker?.pushManager.getSubscription();
+    await subscription?.unsubscribe();
   }
 
   disconnect(): void {
@@ -1614,6 +1802,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestUrl}`; }
   private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestUrl}`; }
+  private notificationKey() {
+    return `mdbase-connect:notifications:${this.serverUrl}:${this.manifestUrl}`;
+  }
   private pendingMutationKey() {
     return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestUrl}`;
   }
@@ -1917,6 +2108,17 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function parseStored<T>(value: string | null): T | null {

@@ -7,11 +7,15 @@ repository.workspace = true
 
 [dependencies]
 axum.workspace = true
+async-trait.workspace = true
 clap.workspace = true
+chrono.workspace = true
 futures-util.workspace = true
 mdbase.workspace = true
+mdbase-runtime.workspace = true
 mdbase-connect-core = { path = "../connect-core" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
+mdbase-connect-runtime = { path = "../connect-runtime" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -24,4 +28,5 @@ uuid.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }

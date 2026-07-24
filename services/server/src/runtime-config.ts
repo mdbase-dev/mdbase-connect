@@ -2,6 +2,7 @@ import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import type { HostedProviderConfig } from "./hosted-provider.js";
 import type { RelayBrokerConfig } from "./relay-broker.js";
+import type { VapidConfig } from "./web-push.js";
 
 export type RegistrationMode = "closed" | "open";
 
@@ -17,6 +18,7 @@ export interface RuntimeConfig {
   hostedProvider: HostedProviderConfig | null;
   trustProxy: boolean;
   relayBroker: RelayBrokerConfig | null;
+  vapid: VapidConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -95,6 +97,14 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       throw new Error("At least one relay broker server must be configured.");
     }
   }
+  if (config.vapid) {
+    if (!/^(mailto:|https:\/\/)/.test(config.vapid.subject)) {
+      throw new Error("MDBASE_CONNECT_VAPID_SUBJECT must be a mailto: or HTTPS URI.");
+    }
+    if (!config.vapid.publicKey || !config.vapid.privateKey) {
+      throw new Error("Web Push requires both VAPID public and private keys.");
+    }
+  }
   return { ...config, publicUrl: publicUrl.origin, hostedProvider };
 }
 
@@ -124,6 +134,15 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     .filter(Boolean);
   const normalizedRelayBrokerServers = relayBrokerServers.map(normalizeRelayBrokerServer);
   const relayBrokerToken = env.MDBASE_CONNECT_RELAY_NATS_TOKEN?.trim() ?? "";
+  const vapidSubject = env.MDBASE_CONNECT_VAPID_SUBJECT?.trim() ?? "";
+  const vapidPublicKey = env.MDBASE_CONNECT_VAPID_PUBLIC_KEY?.trim() ?? "";
+  const vapidPrivateKey = env.MDBASE_CONNECT_VAPID_PRIVATE_KEY?.trim() ?? "";
+  const vapidConfigured = Boolean(vapidSubject || vapidPublicKey || vapidPrivateKey);
+  if (vapidConfigured && !(vapidSubject && vapidPublicKey && vapidPrivateKey)) {
+    throw new Error(
+      "MDBASE_CONNECT_VAPID_SUBJECT, MDBASE_CONNECT_VAPID_PUBLIC_KEY, and MDBASE_CONNECT_VAPID_PRIVATE_KEY must be configured together."
+    );
+  }
   if ((relayBrokerServers.length > 0) !== Boolean(relayBrokerToken)) {
     throw new Error(
       "MDBASE_CONNECT_RELAY_NATS_URL and MDBASE_CONNECT_RELAY_NATS_TOKEN must be configured together."
@@ -146,6 +165,9 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1",
     relayBroker: normalizedRelayBrokerServers.length > 0
       ? { servers: normalizedRelayBrokerServers, token: relayBrokerToken }
+      : null,
+    vapid: vapidConfigured
+      ? { subject: vapidSubject, publicKey: vapidPublicKey, privateKey: vapidPrivateKey }
       : null
   });
 }

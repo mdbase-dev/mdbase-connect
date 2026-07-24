@@ -1,6 +1,10 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import type { ApplicationProvisions, ApplicationRequirements } from "@mdbase/connect-protocol";
+import type {
+  ApplicationNotifications,
+  ApplicationProvisions,
+  ApplicationRequirements
+} from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import { z } from "zod";
 
@@ -19,8 +23,7 @@ const requirementsSchema = z.object({
   access: z.enum(["contract", "full_collection"]).optional(),
   collection_kind: z.literal("hosted").optional()
 }).strict().default({ contracts: [] });
-const manifestSchema = z.object({
-  manifest_version: z.literal(1),
+const manifestFields = {
   name: z.string().trim().min(1).max(100),
   homepage: z.url(),
   icon: z.url().optional(),
@@ -34,7 +37,37 @@ const manifestSchema = z.object({
       provides: contractsSchema.refine((contracts) => contracts.length > 0, "A provision must provide at least one contract.")
     }).strict()).max(20)
   }).strict().default({ types: [] })
-}).strict().superRefine((manifest, context) => {
+} as const;
+const manifestV1Schema = z.object({
+  manifest_version: z.literal(1),
+  ...manifestFields
+}).strict();
+const notificationCriterionSchema = z.object({
+  id: contractSchema.shape.id,
+  event: contractSchema,
+  if: z.object({ $expr: z.string().min(1).max(4_096) }).strict().optional(),
+  debounce: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),
+  minimum_interval: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),
+  presentation: z.object({
+    title: z.string().min(1).max(80),
+    body: z.string().max(160).optional(),
+    tag: z.string().min(1).max(80).optional()
+  }).strict()
+}).strict();
+const manifestV2Schema = z.object({
+  manifest_version: z.literal(2),
+  ...manifestFields,
+  notifications: z.object({
+    criteria: z.array(notificationCriterionSchema).max(50).refine(
+      (criteria) => new Set(criteria.map((criterion) => criterion.id)).size === criteria.length,
+      "Notification criterion IDs must be unique."
+    )
+  }).strict().default({ criteria: [] })
+}).strict();
+const manifestSchema = z.discriminatedUnion("manifest_version", [
+  manifestV1Schema,
+  manifestV2Schema
+]).superRefine((manifest, context) => {
   const required = new Set(manifest.requirements.contracts.map((contract) => `${contract.id}@${contract.version}`));
   for (const [typeIndex, provision] of manifest.provisions.types.entries()) {
     for (const provided of provision.provides) {
@@ -50,13 +83,14 @@ const manifestSchema = z.object({
 });
 
 export interface AppManifest {
-  manifest_version: 1;
+  manifest_version: 1 | 2;
   name: string;
   homepage: string;
   icon?: string;
   redirect_uris: string[];
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
+  notifications: ApplicationNotifications;
 }
 
 export async function fetchManifest(source: string, allowInsecure = false): Promise<{
@@ -84,7 +118,13 @@ export async function fetchManifest(source: string, allowInsecure = false): Prom
     if (length > 524_288) throw new Error("Application manifest is too large.");
     const sourceText = await response.text();
     if (sourceText.length > 524_288) throw new Error("Application manifest is too large.");
-    const manifest: AppManifest = manifestSchema.parse(JSON.parse(sourceText));
+    const parsed = manifestSchema.parse(JSON.parse(sourceText));
+    const manifest: AppManifest = {
+      ...parsed,
+      notifications: parsed.manifest_version === 2
+        ? parsed.notifications
+        : { criteria: [] }
+    };
     validateManifestOrigins(url, manifest, developmentOrigin);
     return {
       manifest,

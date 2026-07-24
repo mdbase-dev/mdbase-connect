@@ -51,6 +51,13 @@ In Render, create a Blueprint from `mdbase-dev/mdbase-connect` and
 - `MDBASE_CONNECT_GITHUB_CLIENT_ID`
 - `MDBASE_CONNECT_GITHUB_CLIENT_SECRET`
 - `MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS`
+- `MDBASE_CONNECT_VAPID_SUBJECT`
+- `MDBASE_CONNECT_VAPID_PUBLIC_KEY`
+- `MDBASE_CONNECT_VAPID_PRIVATE_KEY`
+
+Generate the VAPID keypair once with a standards-compliant Web Push tool. Keep
+the private key secret and retain the pair across deployments; replacing it
+invalidates existing browser subscriptions.
 
 Google sign-in can be enabled alongside GitHub after creating the production
 web client described in [Google authentication](./google-auth.md). Set both
@@ -109,6 +116,9 @@ Before any invitation:
    snapshots. Record recovery time and the tested recovery point.
 7. Run an external uptime check against both `/ready` endpoints and alert on
    sustained 5xx responses or database exhaustion.
+8. Register an installed PWA for a manifest notification criterion, perform a
+   matching hosted mutation while the app is closed, receive the push, and
+   confirm the control-plane database contains only opaque signal metadata.
 
 Render provides continuous PITR for paid PostgreSQL. PITR is not a substitute
 for the restore drill: recovery creates another database and the service must be
