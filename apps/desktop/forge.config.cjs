@@ -32,27 +32,17 @@ const macSigning =
       }
     : {};
 
-const windowsSigning =
-  process.platform === "win32" &&
-  process.env.WINDOWS_CERTIFICATE_FILE &&
-  process.env.WINDOWS_CERTIFICATE_PASSWORD
+const windowsSign =
+  process.platform === "win32" && process.env.WINDOWS_SIGN_WITH_PARAMS
     ? {
-        windowsSign: {
-          certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
-          certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD
-        }
+        hashes: ["sha256"],
+        signWithParams: process.env.WINDOWS_SIGN_WITH_PARAMS,
+        timestampServer: "http://ts.ssl.com"
       }
-    : {};
+    : undefined;
 
-const squirrelSigning =
-  process.platform === "win32" &&
-  process.env.WINDOWS_CERTIFICATE_FILE &&
-  process.env.WINDOWS_CERTIFICATE_PASSWORD
-    ? {
-        certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
-        certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD
-      }
-    : {};
+const windowsSigning = windowsSign ? { windowsSign } : {};
+const squirrelSigning = windowsSign ? { windowsSign } : {};
 
 module.exports = {
   packagerConfig: {

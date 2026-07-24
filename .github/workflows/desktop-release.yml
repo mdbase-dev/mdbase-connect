@@ -17,6 +17,7 @@ concurrency:
 jobs:
   build:
     name: ${{ matrix.label }}
+    environment: desktop-release
     strategy:
       fail-fast: false
       matrix:
@@ -126,26 +127,94 @@ jobs:
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
 
-      - name: Prepare Windows signing certificate
+      - name: Configure SSL.com eSigner
         if: matrix.platform == 'windows'
         shell: pwsh
         env:
-          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_ESIGNER_USERNAME: ${{ secrets.WINDOWS_ESIGNER_USERNAME }}
+          WINDOWS_ESIGNER_PASSWORD: ${{ secrets.WINDOWS_ESIGNER_PASSWORD }}
+          WINDOWS_ESIGNER_TOTP_SECRET: ${{ secrets.WINDOWS_ESIGNER_TOTP_SECRET }}
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE_PFX_BASE64) {
-            throw "WINDOWS_CERTIFICATE_PFX_BASE64 is not configured"
+          foreach ($name in @(
+            "WINDOWS_ESIGNER_USERNAME",
+            "WINDOWS_ESIGNER_PASSWORD",
+            "WINDOWS_ESIGNER_TOTP_SECRET"
+          )) {
+            if (-not (Get-Item "env:$name").Value) {
+              throw "$name is not configured"
+            }
           }
-          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "WINDOWS_CERTIFICATE_PASSWORD is not configured"
+
+          $archive = Join-Path $env:RUNNER_TEMP "SSL.COM-eSigner-CKA_1.0.6.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "esigner-cka-unpacked"
+          $installDir = Join-Path $env:RUNNER_TEMP "esigner-cka"
+          $masterKey = Join-Path $installDir "master.key"
+          $downloadUrl = "https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.6/SSL.COM-eSigner-CKA_1.0.6.zip"
+          $expectedSha256 = "e4971440e4ebed94328492cf36e18999554c5c657c856f1cb14a6072c8b1c263"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          $actualSha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Unexpected eSigner CKA archive checksum: $actualSha256"
           }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "mdbase-connect-signing.pfx"
-          [IO.File]::WriteAllBytes(
-            $certificatePath,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX_BASE64)
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+          $installer = Get-ChildItem $unpacked -Recurse -File -Filter "*.exe" |
+            Where-Object { $_.Name -match "eSigner.*CKA" } |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "eSigner CKA installer is missing from the verified archive"
+          }
+
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          $install = Start-Process `
+            -FilePath $installer.FullName `
+            -ArgumentList @(
+              "/CURRENTUSER",
+              "/VERYSILENT",
+              "/SUPPRESSMSGBOXES",
+              "/DIR=$installDir"
+            ) `
+            -Wait `
+            -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "eSigner CKA installation failed with exit code $($install.ExitCode)"
+          }
+
+          $cka = Join-Path $installDir "eSignerCKATool.exe"
+          if (-not (Test-Path $cka)) {
+            throw "eSignerCKATool.exe is missing after installation"
+          }
+
+          & $cka config `
+            -mode product `
+            -user $env:WINDOWS_ESIGNER_USERNAME `
+            -pass $env:WINDOWS_ESIGNER_PASSWORD `
+            -totp $env:WINDOWS_ESIGNER_TOTP_SECRET `
+            -key $masterKey `
+            -r
+          if ($LASTEXITCODE -ne 0) {
+            throw "eSigner CKA configuration failed"
+          }
+
+          & $cka unload
+          & $cka load
+          if ($LASTEXITCODE -ne 0) {
+            throw "eSigner CKA certificate loading failed"
+          }
+
+          $certificates = @(
+            Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+              Where-Object { $_.NotAfter -gt (Get-Date) }
           )
-          "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "WINDOWS_CERTIFICATE_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if ($certificates.Count -ne 1) {
+            throw "Expected exactly one current eSigner code-signing certificate, found $($certificates.Count)"
+          }
+
+          $thumbprint = $certificates[0].Thumbprint
+          $signParams = "/sha1 $thumbprint"
+          "WINDOWS_SIGN_WITH_PARAMS=$signParams" |
+            Out-File -FilePath $env:GITHUB_ENV -Append
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build

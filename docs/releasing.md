@@ -41,8 +41,8 @@ downloads. Release automation should receive signing material from the CI
 secret store, never repository files or developer environment files.
 
 The `Desktop Release` workflow builds, verifies, attests, and publishes the
-installers for a version tag. Configure these GitHub Actions secrets before
-creating a tag:
+installers for a version tag. Configure these secrets in the
+`desktop-release` GitHub Actions environment before creating a tag:
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
   certificate and private key in PKCS#12 format;
@@ -50,9 +50,16 @@ creating a tag:
 - `APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API key;
 - `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`: API key identifiers used for
   notarization;
-- `WINDOWS_CERTIFICATE_PFX_BASE64`: base64-encoded Authenticode certificate and
-  private key in PFX format;
-- `WINDOWS_CERTIFICATE_PASSWORD`: password for that PFX file.
+- `WINDOWS_ESIGNER_USERNAME`: SSL.com account username for the eSigner-enrolled
+  Windows code-signing certificate;
+- `WINDOWS_ESIGNER_PASSWORD`: SSL.com account password;
+- `WINDOWS_ESIGNER_TOTP_SECRET`: automation TOTP secret issued by eSigner.
+
+Windows releases use SSL.com eSigner Cloud Key Adapter on the ephemeral GitHub
+Actions runner. The workflow downloads a pinned CKA release, verifies its
+SHA-256 checksum, loads the cloud-held certificate into the runner certificate
+store, and signs both the application and Squirrel installer through
+`signtool.exe`. Exportable PFX files and physical USB tokens are unsupported.
 
 The tag must exactly match the root and desktop package version:
 
