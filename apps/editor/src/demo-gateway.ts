@@ -40,8 +40,13 @@ export class DemoCollectionGateway implements CollectionGateway {
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
-  connection(): ConnectionSummary {
+  connection(): ConnectionSummary | null {
     return { collectionId: "demo", operations: ["all"], missingOperations: [] };
+  }
+
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    listener(this.connection());
+    return () => undefined;
   }
 
   async authorize(): Promise<void> {}

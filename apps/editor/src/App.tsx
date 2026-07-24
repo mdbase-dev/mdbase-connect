@@ -203,6 +203,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { allNotesRef.current = allNotes; }, [allNotes]);
+  useEffect(() => gateway.onConnectionChange((connection) => {
+    if (!connection) {
+      setPhase((current) => current === "starting" ? current : "disconnected");
+    }
+  }), [gateway]);
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", updateViewportWidth);

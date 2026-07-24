@@ -1,10 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, type CollectionChange, type JsonObject, type WatchStatus } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionGateway, MutationOperationOptions, NoteDocument, NoteListProgress, NoteSummary } from "./model";
+import type {
+  CollectionGateway,
+  ConnectionSummary,
+  MutationOperationOptions,
+  NoteDocument,
+  NoteListProgress,
+  NoteSummary
+} from "./model";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) =>
@@ -692,6 +699,16 @@ describe("mdbase editor", () => {
     expect(screen.getByText(/original files can stay untouched/i)).toBeInTheDocument();
   });
 
+  it("returns to collection authorization when the SDK invalidates a stale grant", async () => {
+    const gateway = new RevokedAuthorizationGateway();
+    render(<App gateway={gateway} />);
+    expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
+
+    act(() => gateway.rejectAuthorization());
+
+    expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
+  });
+
   it("explains and requests only capabilities missing from an existing connection", async () => {
     const gateway = new DemoCollectionGateway(1);
     const partial = Object.create(gateway) as CollectionGateway;
@@ -765,6 +782,26 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(2);
   });
 });
+
+class RevokedAuthorizationGateway extends DemoCollectionGateway {
+  private connected = true;
+  private readonly connectionListeners = new Set<(connection: ConnectionSummary | null) => void>();
+
+  override connection(): ConnectionSummary | null {
+    return this.connected ? super.connection() : null;
+  }
+
+  override onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.connection());
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  rejectAuthorization(): void {
+    this.connected = false;
+    for (const listener of this.connectionListeners) listener(null);
+  }
+}
 
 class RetryingListGateway extends DemoCollectionGateway {
   listCalls = 0;

@@ -86,6 +86,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     };
   }
 
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    return this.connect.onConnectionChange(() => listener(this.connection()));
+  }
+
   async authorize(): Promise<void> {
     await this.connect.requestOperations(FULL_COLLECTION_OPERATIONS);
   }
@@ -285,8 +289,8 @@ function mutationKey(from: string, to: string, revision: string): string {
 export function gatewayError(error: unknown): string {
   if (error instanceof MdbaseConnectError) {
     if (error.code === "connector_offline") return "The computer holding this collection is offline.";
-    if (error.code === "not_authorized" || error.code === "authorization_expired") {
-      return "This connection has expired. Connect the collection again.";
+    if (error.requiresAuthorization) {
+      return "This collection needs authorization again. Choose the collection to continue.";
     }
   }
   if (error instanceof Error) return error.message;

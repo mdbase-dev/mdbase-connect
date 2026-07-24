@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseCollectionClient, MdbaseOperationValidationError } from "@mdbase/connect";
-import { ConnectCollectionGateway } from "./gateway";
+import { MdbaseCollectionClient, MdbaseConnectError, MdbaseOperationValidationError } from "@mdbase/connect";
+import { ConnectCollectionGateway, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
 describe("ConnectCollectionGateway collection index", () => {
@@ -61,6 +61,14 @@ describe("ConnectCollectionGateway collection index", () => {
 });
 
 describe("ConnectCollectionGateway recovery operations", () => {
+  it("turns stale connector grants into a clear authorization action", () => {
+    expect(gatewayError(new MdbaseConnectError(
+      "direct_operation_rejected",
+      "The local connector rejected this operation.",
+      { status: 403 }
+    ))).toBe("This collection needs authorization again. Choose the collection to continue.");
+  });
+
   it("uses SDK capability gaps and envelope validation", async () => {
     const requestOperations = vi.fn(async () => undefined);
     const read = vi.fn(async () => ({

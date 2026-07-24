@@ -87,6 +87,7 @@ export interface NoteListProgress {
 
 export interface CollectionGateway {
   connection(): ConnectionSummary | null;
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void;
   authorize(): Promise<void>;
   completeAuthorization(): Promise<void>;
   disconnect(): void;
