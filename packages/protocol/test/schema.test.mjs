@@ -10,6 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protocol.v2.schema.json"), "utf8"));
 const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.schema.json"), "utf8"));
 const manifestV2Schema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.v2.schema.json"), "utf8"));
+const manifestV3Schema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.v3.schema.json"), "utf8"));
 const notificationWebhookSchema = JSON.parse(readFileSync(resolve(here, "../schemas/notification-webhook.v1.schema.json"), "utf8"));
 const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/contract-extension.v1.schema.json"), "utf8"));
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v3.schema.json"), "utf8"));
@@ -19,6 +20,7 @@ addFormats(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(manifestSchema);
 ajv.addSchema(manifestV2Schema);
+ajv.addSchema(manifestV3Schema);
 ajv.addSchema(notificationWebhookSchema);
 ajv.addSchema(contractSchema);
 ajv.addSchema(encryptedRelaySchema);
@@ -34,10 +36,34 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(schema.$id));
   assert.ok(validator(manifestSchema.$id));
   assert.ok(validator(manifestV2Schema.$id));
+  assert.ok(validator(manifestV3Schema.$id));
   assert.ok(validator(notificationWebhookSchema.$id));
   assert.ok(validator(contractSchema.$id));
   assert.ok(validator(encryptedRelaySchema.$id));
   assert.ok(validator(syncSchema.$id));
+});
+
+test("v3 application declarations carry a stable reverse-domain id", () => {
+  const validate = validator(manifestV3Schema.$id);
+  const declaration = {
+    manifest_version: 3,
+    id: "dev.mdbase.tasks",
+    name: "Tasks",
+    homepage: "https://tasks.example/",
+    redirect_uris: [
+      "https://tasks.example/auth/mdbase/callback",
+      "dev.mdbase.tasks://auth/mdbase/callback"
+    ],
+    requirements: {
+      contracts: [{ id: "tasknotes.task", version: 1 }]
+    },
+    notifications: {
+      criteria: []
+    }
+  };
+  assert.equal(validate(declaration), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...declaration, id: "tasks" }), false);
+  assert.equal(validate({ ...declaration, manifest_version: 2 }), false);
 });
 
 test("notification webhooks carry only an opaque wake-up signal", () => {

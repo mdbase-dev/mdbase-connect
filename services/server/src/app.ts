@@ -30,7 +30,11 @@ import {
 import { z, ZodError } from "zod";
 import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
-import { fetchManifest } from "./manifest.js";
+import {
+  ApplicationManifestError,
+  fetchManifest,
+  registerBundledManifest
+} from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import type { RelayBroker } from "./relay-broker.js";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
@@ -255,6 +259,9 @@ export async function buildApp(options: BuildOptions) {
   });
 
   app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ApplicationManifestError) {
+      return reply.code(400).send(apiError("invalid_application_manifest", error.message));
+    }
     if (error instanceof ZodError) {
       return reply.code(400).send(apiError("invalid_request", error.issues[0]?.message ?? "Invalid request."));
     }
@@ -1663,6 +1670,16 @@ export async function buildApp(options: BuildOptions) {
     const discovered = await fetchManifest(input.manifest_url, options.allowInsecureManifests);
     const application = await upsertApplication(options.db, discovered);
     await reconcileApplicationGrants(options.db, relay, options.hostedProvider, application);
+    return { application };
+  });
+
+  app.post("/v1/apps/register", async (request) => {
+    const input = z.object({ manifest: z.unknown() }).strict().parse(request.body);
+    const registered = registerBundledManifest(
+      input.manifest,
+      options.allowInsecureManifests
+    );
+    const application = await upsertApplication(options.db, registered);
     return { application };
   });
 

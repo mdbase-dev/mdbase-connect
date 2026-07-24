@@ -12,7 +12,10 @@ import {
   showMdbasePushNotification,
   unwrapOperation
 } from "./index.js";
-import type { GrantEncryption } from "@mdbase/connect-protocol";
+import type {
+  GrantEncryption,
+  MdbaseAppManifestV3
+} from "@mdbase/connect-protocol";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -301,6 +304,70 @@ describe("provider-neutral collection client", () => {
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     })).not.toThrow();
+  });
+
+  it("registers a bundled application declaration inline", async () => {
+    const manifest: MdbaseAppManifestV3 = {
+      manifest_version: 3,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["https://tasks.example/auth/mdbase/callback"]
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "Tasks",
+        homepage: "https://tasks.example/"
+      }
+    }));
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest,
+      redirectUri: manifest.redirect_uris[0],
+      storage: new MemoryStorage()
+    });
+
+    await expect(connect.discover()).resolves.toMatchObject({ name: "Tasks" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://connect.example/v1/apps/register"
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      manifest
+    });
+  });
+
+  it("loads a bundled declaration locally before registering it", async () => {
+    const manifestUrl = "capacitor://localhost/.well-known/mdbase-app.json";
+    const manifest = {
+      manifest_version: 3,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: ["dev.mdbase.tasks://auth/mdbase/callback"]
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(manifest))
+      .mockResolvedValueOnce(jsonResponse({
+        application: {
+          id: "00000000-0000-0000-0000-000000000001",
+          name: "Tasks",
+          homepage: "https://tasks.example/"
+        }
+      }));
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: manifestUrl,
+      redirectUri: manifest.redirect_uris[0],
+      storage: new MemoryStorage()
+    });
+
+    await connect.discover();
+    expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
+      manifestUrl,
+      "https://connect.example/v1/apps/register"
+    ]);
   });
 });
 

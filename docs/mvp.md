@@ -5,7 +5,7 @@ The MVP is complete when a user can:
 1. Install mdbase connect and launch it automatically at login.
 2. Create a v0.3 collection or register an existing one.
 3. Pair the connector through a signed-in browser without copying a token.
-4. Open an unrelated website that publishes an mdbase app manifest.
+4. Open an unrelated application that bundles an mdbase app declaration.
 5. See the pending request in the local controller, choose a collection, and
    approve exact operations and its contract-derived record scope there.
 6. Discover its schemas and optional domain contracts without exposing its

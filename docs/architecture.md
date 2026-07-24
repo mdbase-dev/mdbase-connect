@@ -155,18 +155,22 @@ registration admits only configured provider subjects. Local development can
 use an explicitly enabled unverified email session; public origins refuse that
 mode.
 
-Web applications are identified by the exact origin of an HTTPS manifest at
-`/.well-known/mdbase-app.json`. Authorization uses short-lived codes and PKCE;
-browser applications have no client secret. The user approves concrete
-operations and the manifest-derived record scope for one named collection.
+Applications bundle a version 3 declaration and send it inline during
+registration. Connect canonicalizes the declaration and identifies that exact
+version by its SHA-256 digest; the reverse-domain application ID and other
+presentation fields are explicitly not publisher authentication. Authorization
+uses short-lived codes and PKCE; browser and native applications have no client
+secret. The user approves concrete operations and the declaration-derived
+record scope for one named collection.
 Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when
 cloud policy is stale.
 
-Manifest rediscovery reconciles older active grants. A newly declared contract
-scope may narrow a collection-wide grant when the collection is compatible;
-incompatible grants are revoked. A manifest change never broadens an existing
-grant without another approval.
+Changing a declaration creates a new application version and never mutates an
+older grant. The previous installation credential remains bound to its exact
+approved version; authorizing the changed version requires another explicit
+decision. Legacy version 1 and 2 clients may still use server-fetched manifest
+discovery during migration.
 
 Authorization codes issue a one-hour access token and a rotating 30-day refresh
 token. Refresh tokens are single-use, bound to the application and grant, and

@@ -14,13 +14,14 @@ combination of:
 - a signed developer webhook that sends through the application's own
   notification infrastructure.
 
-## Application manifest
+## Bundled application declaration
 
-Notifications require application manifest version 2:
+Notifications require bundled application declaration version 3:
 
 ```json
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
+  "id": "dev.mdbase.tasks",
   "name": "TaskNotes",
   "homepage": "https://tasks.example",
   "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
@@ -243,9 +244,9 @@ underlying record may no longer match.
 The authority journals the triggering event and runtime run atomically. Action
 invocation IDs become signal IDs, making retries idempotent. Connect uses
 durable delivery rows, leases, bounded exponential backoff, and permanent
-endpoint disabling. Revoking a grant disables both evaluation and delivery. A
-manifest rediscovery may narrow or remove criteria, but never broadens an
-existing grant's collection access.
+endpoint disabling. Revoking a grant disables both evaluation and delivery.
+Registering a changed declaration creates a new exact application version and
+never broadens or rewrites an existing grant.
 
 ## Control-plane deployment
 

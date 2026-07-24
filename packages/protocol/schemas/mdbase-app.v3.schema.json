@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/connect/schemas/mdbase-app.v3.json",
+  "title": "mdbase connect bundled application declaration v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "id", "name", "homepage", "redirect_uris"],
+  "properties": {
+    "manifest_version": { "const": 3 },
+    "id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 150,
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*){2,}$",
+      "description": "Stable reverse-domain application identifier. This is presentation metadata, not publisher authentication."
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "homepage": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "icon": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "redirect_uris": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uri",
+        "description": "An HTTPS URI on the homepage origin or a private-use scheme derived from the application ID."
+      }
+    },
+    "requirements": {
+      "$ref": "https://mdbase.dev/connect/schemas/mdbase-app.v2.json#/$defs/requirements"
+    },
+    "provisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["types"],
+      "properties": {
+        "types": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "https://mdbase.dev/connect/schemas/mdbase-app.v2.json#/$defs/typeProvision"
+          }
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criteria"],
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "https://mdbase.dev/connect/schemas/mdbase-app.v2.json#/$defs/notificationCriterion"
+          }
+        },
+        "native_delivery": {
+          "$ref": "https://mdbase.dev/connect/schemas/mdbase-app.v2.json#/$defs/nativeNotificationDelivery"
+        }
+      }
+    }
+  }
+}

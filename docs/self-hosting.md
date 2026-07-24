@@ -43,9 +43,10 @@ an availability dependency; use a three-node NATS cluster when broker failover
 is required.
 
 The server applies security headers, a global request limit, a 2 MiB request
-body limit, and public-address checks for application manifest discovery.
-`MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1` also allows private-network
-manifest hosts and is intended only for local or tailnet staging.
+body limit, and public-address checks for legacy application manifest
+discovery. `MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1` also permits loopback
+origins in bundled development declarations and private-network legacy
+manifest hosts. It is intended only for local staging.
 
 The process refuses development authentication on a non-loopback public URL and
 refuses to start unless exactly one authentication mode is enabled. An external
@@ -65,7 +66,7 @@ the resulting connector credential securely. The credential is never rendered
 in the portal or copied through the clipboard.
 
 Once paired, use the local app to create or register collections, inspect app
-manifests, approve pending requests, edit or revoke grants, pause all remote
+declarations, approve pending requests, edit or revoke grants, pause all remote
 access, and review local activity. The portal remains available for account
 state, computer naming and revocation, remote grant review, narrowing, and
 revocation.

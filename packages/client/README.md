@@ -5,7 +5,7 @@ Browser SDK for dynamically discovered mdbase connect applications.
 ```ts
 const connect = new MdbaseConnect({
   serverUrl: "https://connect.mdbase.dev",
-  manifestUrl: "https://workouts.example/.well-known/mdbase-app.json",
+  manifest: new URL(".well-known/mdbase-app.json", location.href).href,
   redirectUri: "https://workouts.example/auth/mdbase/callback"
 });
 
@@ -48,7 +48,7 @@ for await (const change of connect.watch()) {
 }
 ```
 
-Manifest version 2 applications can declare runtime notification criteria.
+Bundled declaration version 3 applications can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web
 Push while the app is closed:
 
@@ -72,14 +72,14 @@ self.addEventListener("push", (event) => {
 });
 ```
 
-Pushes contain an opaque signal and cursor plus static manifest presentation,
+Pushes contain an opaque signal and cursor plus static declaration presentation,
 never record paths or content. Treat them as a wake-up hint and read current
 authorized state after opening. Registration atomically replaces the selected
 criteria for that installation. See the
-[runtime notifications guide](../../docs/notifications.md) for manifest and
+[runtime notifications guide](../../docs/notifications.md) for declaration and
 deployment examples.
 
-Native shells can use one FCM token for Android and iOS when the manifest
+Native shells can use one FCM token for Android and iOS when the declaration
 declares `notifications.native_delivery.mode` as `managed_fcm`:
 
 ```ts
@@ -93,13 +93,13 @@ Re-register when Firebase rotates the token. Parse the string-valued
 notification data with `parseMdbaseNativeNotificationData()`, refresh current
 collection state, and call `unregisterNativeNotifications()` before deleting
 the token on opt-out. The public Firebase project ID is read from the
-application manifest; service credentials are never embedded in the app.
+application declaration; service credentials are never embedded in the app.
 
 Connect-managed FCM makes Connect a trusted sender for the application's
 Firebase project. It suits single-owner deployments; applications with a
 broader audience should normally declare signed webhook delivery and keep
 their Apple/Firebase credentials in their own backend. The notifications guide
-documents both threat models. New or changed manifest criteria never silently
+documents both threat models. New or changed declaration criteria never silently
 broaden an existing grant: handle `notification_reauthorization_required` by
 running authorization again before retrying registration.
 
@@ -180,17 +180,22 @@ retried before a later mutation can overtake it. Set
 `directAccess: "disabled"` only when an embedding environment cannot use
 loopback requests.
 
-Application identity is derived from the manifest's exact origin. No developer
-account or manually issued client secret is required.
+The SDK loads a version 3 declaration from the application's own bundle and
+posts it inline to Connect. Connect identifies the exact canonical declaration
+by its digest. The declared reverse-domain ID and name are presentation
+metadata, not proof of a publisher; grants remain bound to the authorization
+completed by that installation. No developer account, public manifest host, or
+manually issued client secret is required.
 
-Applications declare required domain contracts in their manifest. Connect only
+Applications declare required domain contracts in their bundled declaration. Connect only
 offers collections that are compatible or can be configured safely, then derives
-the record scope from this declaration. The manifest may include portable
+the record scope from this declaration. It may include portable
 type definitions for the connector to install during approval:
 
 ```json
 {
-  "manifest_version": 1,
+  "manifest_version": 3,
+  "id": "dev.mdbase.tasknotes",
   "name": "TaskNotes",
   "homepage": "https://tasks.example",
   "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
@@ -249,9 +254,10 @@ allows a host to choose another persistence boundary.
 
 Native shells can pass `navigate` to open the authorization URL in the system
 browser and list a reverse-domain callback such as
-`dev.tasknotes.app://auth/mdbase/callback` in the public manifest. PKCE remains
-mandatory. Call `completeAuthorization(callbackUrl)` when the application
-receives the deep link.
+`dev.mdbase.tasknotes://auth/mdbase/callback` in the bundled declaration. Its
+scheme must match the declaration ID. PKCE remains mandatory. Call
+`completeAuthorization(callbackUrl)` when the application receives the deep
+link.
 
 New authorizations require encrypted relay protocol 3 by default. The SDK keeps
 a non-extractable per-authorization P-256 key and atomic message counter in
@@ -261,7 +267,7 @@ protocol-2 migration; an encrypted grant never falls back to plaintext.
 
 For a hosted collection, the same authorization exchange returns a short-lived,
 grant-bound provider capability. The SDK routes operations directly to the
-hosted Rust data plane, binds browser requests to the manifest origin, and does
+hosted Rust data plane, binds browser requests to the approved callback origin, and does
 not send record payloads through the Connect control plane. Refresh rotation,
 permission narrowing, and revocation keep the same public SDK behavior across
 local and hosted authorities.

@@ -1,6 +1,9 @@
 import { createServer } from "node:http";
 import { createECDH } from "node:crypto";
-import type { ApplicationRequirements } from "@mdbase/connect-protocol";
+import type {
+  ApplicationRequirements,
+  MdbaseAppManifestV3
+} from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
@@ -34,6 +37,81 @@ describe("mdbase connect server", () => {
       protocol_version: 2,
       revision: "ae3a8d9"
     });
+  });
+
+  it("registers exact bundled declarations as immutable application identities", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const manifest: MdbaseAppManifestV3 = {
+      manifest_version: 3,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: [
+        "https://tasks.example/auth/mdbase/callback",
+        "dev.mdbase.tasks://auth/mdbase/callback"
+      ],
+      requirements: {
+        contracts: [{ id: "tasknotes.task", version: 1 }]
+      }
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    const repeated = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    const changed = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest: { ...manifest, name: "Tasks Next" } }
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(repeated.json().application.id).toBe(first.json().application.id);
+    expect(first.json().application.canonical_identity)
+      .toMatch(/^bundle:dev\.mdbase\.tasks:sha256:[a-f0-9]{64}$/);
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().application.id).not.toBe(first.json().application.id);
+  });
+
+  it("rejects bundled declarations with callbacks outside their declared identity", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: {
+        manifest: {
+          manifest_version: 3,
+          id: "dev.mdbase.tasks",
+          name: "Tasks",
+          homepage: "https://tasks.example/",
+          redirect_uris: ["com.example.impostor://auth/mdbase/callback"]
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("invalid_application_manifest");
   });
 
   it("runs the discovery, consent, token, and offline operation path", async () => {

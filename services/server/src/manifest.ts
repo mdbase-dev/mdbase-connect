@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import type {
@@ -14,6 +15,13 @@ const contractSchema = z.object({
   id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
   version: z.number().int().positive()
 }).strict();
+const applicationIdSchema = z.string()
+  .min(5)
+  .max(150)
+  .regex(
+    /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}$/,
+    "Application IDs must use a lower-case reverse-domain identifier."
+  );
 const contractsSchema = z.array(contractSchema).max(20).refine(
   (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
   "Contracts must be unique."
@@ -78,10 +86,31 @@ const manifestV2Schema = z.object({
     native_delivery: nativeNotificationDeliverySchema.optional()
   }).strict().default({ criteria: [] })
 }).strict();
-const manifestSchema = z.discriminatedUnion("manifest_version", [
+const manifestV3Schema = z.object({
+  manifest_version: z.literal(3),
+  id: applicationIdSchema,
+  ...manifestFields,
+  notifications: z.object({
+    criteria: z.array(notificationCriterionSchema).max(50).refine(
+      (criteria) => new Set(criteria.map((criterion) => criterion.id)).size === criteria.length,
+      "Notification criterion IDs must be unique."
+    ),
+    native_delivery: nativeNotificationDeliverySchema.optional()
+  }).strict().default({ criteria: [] })
+}).strict();
+const hostedManifestSchema = z.discriminatedUnion("manifest_version", [
   manifestV1Schema,
   manifestV2Schema
-]).superRefine((manifest, context) => {
+]).superRefine(validateProvisionContracts);
+const bundledManifestSchema = manifestV3Schema.superRefine(validateProvisionContracts);
+
+function validateProvisionContracts(
+  manifest: {
+    requirements: ApplicationRequirements;
+    provisions: ApplicationProvisions;
+  },
+  context: z.RefinementCtx
+): void {
   const required = new Set(manifest.requirements.contracts.map((contract) => `${contract.id}@${contract.version}`));
   for (const [typeIndex, provision] of manifest.provisions.types.entries()) {
     for (const provided of provision.provides) {
@@ -94,10 +123,11 @@ const manifestSchema = z.discriminatedUnion("manifest_version", [
       }
     }
   }
-});
+}
 
 export interface AppManifest {
-  manifest_version: 1 | 2;
+  manifest_version: 1 | 2 | 3;
+  id?: string;
   name: string;
   homepage: string;
   icon?: string;
@@ -107,7 +137,26 @@ export interface AppManifest {
   notifications: ApplicationNotifications;
 }
 
+export class ApplicationManifestError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ApplicationManifestError";
+  }
+}
+
 export async function fetchManifest(source: string, allowInsecure = false): Promise<{
+  manifest: AppManifest;
+  manifestUrl: string;
+  canonicalIdentity: string;
+}> {
+  try {
+    return await fetchHostedManifest(source, allowInsecure);
+  } catch (error) {
+    throw asManifestError(error, "Application manifest could not be loaded by Connect.");
+  }
+}
+
+async function fetchHostedManifest(source: string, allowInsecure: boolean): Promise<{
   manifest: AppManifest;
   manifestUrl: string;
   canonicalIdentity: string;
@@ -132,7 +181,7 @@ export async function fetchManifest(source: string, allowInsecure = false): Prom
     if (length > 524_288) throw new Error("Application manifest is too large.");
     const sourceText = await response.text();
     if (sourceText.length > 524_288) throw new Error("Application manifest is too large.");
-    const parsed = manifestSchema.parse(JSON.parse(sourceText));
+    const parsed = hostedManifestSchema.parse(JSON.parse(sourceText));
     const manifest: AppManifest = {
       ...parsed,
       notifications: parsed.manifest_version === 2
@@ -147,6 +196,33 @@ export async function fetchManifest(source: string, allowInsecure = false): Prom
     };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+export function registerBundledManifest(value: unknown, allowInsecure = false): {
+  manifest: AppManifest;
+  manifestUrl: string;
+  canonicalIdentity: string;
+} {
+  try {
+    const sourceText = JSON.stringify(value);
+    if (sourceText.length > 524_288) {
+      throw new ApplicationManifestError("Application declaration is too large.");
+    }
+    const parsed = bundledManifestSchema.parse(value);
+    validateBundledManifest(parsed, allowInsecure);
+    const manifest: AppManifest = parsed;
+    const digest = createHash("sha256")
+      .update(JSON.stringify(manifest))
+      .digest("hex");
+    const identity = `bundle:${parsed.id}:sha256:${digest}`;
+    return {
+      manifest,
+      manifestUrl: identity,
+      canonicalIdentity: identity
+    };
+  } catch (error) {
+    throw asManifestError(error, "Application declaration is invalid.");
   }
 }
 
@@ -168,6 +244,68 @@ function validateManifestOrigins(source: URL, manifest: AppManifest, development
   if (manifest.icon && new URL(manifest.icon).origin !== source.origin) {
     throw new Error("Manifest icons must use the manifest origin.");
   }
+}
+
+function validateBundledManifest(
+  manifest: z.infer<typeof manifestV3Schema>,
+  allowInsecure: boolean
+): void {
+  const homepage = new URL(manifest.homepage);
+  const developmentOrigin = allowInsecure
+    && homepage.protocol === "http:"
+    && isLoopbackName(homepage.hostname);
+  if (homepage.protocol !== "https:" && !developmentOrigin) {
+    throw new ApplicationManifestError("Application homepages must use HTTPS.");
+  }
+  if (manifest.icon && new URL(manifest.icon).origin !== homepage.origin) {
+    throw new ApplicationManifestError("Application icons must use the homepage origin.");
+  }
+  for (const redirect of manifest.redirect_uris) {
+    const redirectUrl = new URL(redirect);
+    if (["http:", "https:"].includes(redirectUrl.protocol)) {
+      if (redirectUrl.origin !== homepage.origin) {
+        throw new ApplicationManifestError(
+          "Web redirect URIs must use the application homepage origin."
+        );
+      }
+      if (redirectUrl.protocol !== "https:" && !developmentOrigin) {
+        throw new ApplicationManifestError("Web redirect URIs must use HTTPS.");
+      }
+      continue;
+    }
+    const scheme = redirectUrl.protocol.slice(0, -1);
+    if (
+      !isNativeRedirectUri(redirectUrl)
+      || (scheme !== manifest.id && !scheme.startsWith(`${manifest.id}.`))
+    ) {
+      throw new ApplicationManifestError(
+        "Native redirect URI schemes must match the bundled application ID."
+      );
+    }
+  }
+}
+
+function asManifestError(error: unknown, fallback: string): ApplicationManifestError {
+  if (error instanceof ApplicationManifestError) return error;
+  if (error instanceof z.ZodError) {
+    return new ApplicationManifestError(
+      error.issues[0]?.message
+        ? `Application declaration is invalid: ${error.issues[0].message}`
+        : fallback,
+      { cause: error }
+    );
+  }
+  if (error instanceof SyntaxError) {
+    return new ApplicationManifestError("Application manifest is not valid JSON.", {
+      cause: error
+    });
+  }
+  if (error instanceof Error && error.message.startsWith("Manifest ")) {
+    return new ApplicationManifestError(error.message, { cause: error });
+  }
+  return new ApplicationManifestError(fallback, {
+    cause: error instanceof Error ? error : undefined
+  });
 }
 
 async function assertPublicHost(hostname: string, allowPrivate: boolean): Promise<void> {
