@@ -42,7 +42,7 @@ const manifestFields = {
       name: z.string().trim().min(1).max(100),
       path: z.string().trim().min(1).max(240).optional(),
       document: z.string().min(1).max(131_072),
-      provides: contractsSchema.refine((contracts) => contracts.length > 0, "A provision must provide at least one contract.")
+      provides: contractsSchema
     }).strict()).max(20)
   }).strict().default({ types: [] })
 } as const;

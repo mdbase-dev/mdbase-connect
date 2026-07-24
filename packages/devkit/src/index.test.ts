@@ -97,6 +97,37 @@ describe("canonical developer validation", () => {
     }).valid).toBe(false);
   });
 
+  it("validates bundled v3 declarations with auxiliary provisioned types", () => {
+    const manifest = {
+      manifest_version: 3,
+      id: "dev.mdbase.tasks",
+      name: "Tasks",
+      homepage: "https://tasks.example/",
+      redirect_uris: [
+        "https://tasks.example/callback",
+        "dev.mdbase.tasks://auth/mdbase/callback"
+      ],
+      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      provisions: {
+        types: [{
+          name: "Task",
+          document: "---\nkind: mdbase.type\nname: task\n---\n",
+          provides: [{ id: "tasknotes.task", version: 1 }]
+        }, {
+          name: "Task comment",
+          document: "---\nkind: mdbase.type\nname: task_comment\n---\n",
+          provides: []
+        }]
+      }
+    };
+
+    expect(validateAppManifest(manifest)).toEqual({ valid: true, issues: [] });
+    expect(validateAppManifest({
+      ...manifest,
+      redirect_uris: ["com.attacker.app://auth/mdbase/callback"]
+    }).valid).toBe(false);
+  });
+
   it("defines extension contracts without erasing application-specific fields", () => {
     const contract = defineContract({
       contract: "tasknotes.task",

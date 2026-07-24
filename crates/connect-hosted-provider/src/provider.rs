@@ -1673,51 +1673,50 @@ impl HostedProvider {
         collection_id: Uuid,
         provisions: Vec<TypeProvision>,
     ) -> ApiResult<Vec<CollectionContractDescriptor>> {
-        let mut contracts = self.collection_contracts(collection_id).await?;
+        let mut resources = self.collection_resources(collection_id).await?;
         for provision in provisions {
-            if provision.provides.iter().all(|provided| {
-                contracts.iter().any(|available| {
-                    available.id == provided.id && available.version == provided.version
-                })
-            }) {
-                continue;
-            }
-            let mut input = json!({ "document": provision.document });
-            if let Some(path) = provision.path {
-                input["path"] = json!(path);
-            }
-            let result = self
-                .write_type_operation(collection_id, "create_type", input)
-                .await?;
-            if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                let detail = result
-                    .pointer("/diagnostics/0/message")
+            let type_exists = resources
+                .types
+                .iter()
+                .any(|existing| existing.name.eq_ignore_ascii_case(&provision.name));
+            if !type_exists {
+                let mut input = json!({ "document": provision.document });
+                if let Some(path) = provision.path {
+                    input["path"] = json!(path);
+                }
+                let result = self
+                    .write_type_operation(collection_id, "create_type", input)
+                    .await?;
+                if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                    let detail = result
+                        .pointer("/diagnostics/0/message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("the type definition was rejected");
+                    return Err(ApiError::bad_request(
+                        "type_provision_failed",
+                        format!(
+                            "The {} type could not be installed: {detail}",
+                            provision.name
+                        ),
+                    ));
+                }
+                if result
+                    .pointer("/result/name")
                     .and_then(Value::as_str)
-                    .unwrap_or("the type definition was rejected");
-                return Err(ApiError::bad_request(
-                    "type_provision_failed",
-                    format!(
-                        "The {} type could not be installed: {detail}",
-                        provision.name
-                    ),
-                ));
+                    .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
+                {
+                    return Err(ApiError::bad_request(
+                        "type_provision_failed",
+                        format!(
+                            "The installed type did not match the declared {} type.",
+                            provision.name
+                        ),
+                    ));
+                }
+                resources = self.collection_resources(collection_id).await?;
             }
-            if result
-                .pointer("/result/name")
-                .and_then(Value::as_str)
-                .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
-            {
-                return Err(ApiError::bad_request(
-                    "type_provision_failed",
-                    format!(
-                        "The installed type did not match the declared {} type.",
-                        provision.name
-                    ),
-                ));
-            }
-            contracts = self.collection_contracts(collection_id).await?;
             if provision.provides.iter().any(|provided| {
-                !contracts.iter().any(|available| {
+                !resources.contracts.iter().any(|available| {
                     available.id == provided.id && available.version == provided.version
                 })
             }) {
@@ -1730,13 +1729,13 @@ impl HostedProvider {
                 ));
             }
         }
-        Ok(contracts)
+        Ok(resources.contracts)
     }
 
-    async fn collection_contracts(
+    async fn collection_resources(
         &self,
         collection_id: Uuid,
-    ) -> ApiResult<Vec<CollectionContractDescriptor>> {
+    ) -> ApiResult<SyncCollectionResources> {
         let row = sqlx::query(
             r#"SELECT wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections WHERE id = $1 AND state = 'active'"#,
@@ -1751,12 +1750,11 @@ impl HostedProvider {
             )
         })?;
         let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
-        let resources: SyncCollectionResources = self.crypto.decrypt_json(
+        self.crypto.decrypt_json(
             &data_key,
             row.get("resources_ciphertext"),
             &resources_aad(collection_id),
-        )?;
-        Ok(resources.contracts)
+        )
     }
 
     async fn describe_operation(&self, collection_id: Uuid, replica: &Replica) -> ApiResult<Value> {

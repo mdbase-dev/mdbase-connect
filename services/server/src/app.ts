@@ -3060,13 +3060,17 @@ async function approveHostedAuthorization(
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
     let availableContracts = contractRequirements(availableDescriptors);
-    if (!contractsSatisfy(availableContracts, requiredContracts)) {
-      const provisions = requiredTypeProvisions(pending.requirements, pending.provisions, availableContracts);
-      if (!provisions) {
-        throw new RequestValidationError(
-          "This hosted collection does not provide the contracts required by the application."
-        );
-      }
+    const provisions = requiredTypeProvisions(
+      pending.requirements,
+      pending.provisions,
+      availableContracts
+    );
+    if (!provisions) {
+      throw new RequestValidationError(
+        "This hosted collection does not provide the contracts required by the application."
+      );
+    }
+    if (provisions.length > 0) {
       availableDescriptors = await provider.provisionTypes(input.collectionId, provisions);
       availableContracts = contractRequirements(availableDescriptors);
       await connection.query(
@@ -3511,9 +3515,14 @@ function requiredTypeProvisions(
   if (missing.some((required) => !provisions.types.some((provision) =>
     provision.provides.some((provided) => provided.id === required.id && provided.version === required.version)
   ))) return null;
-  return provisions.types.filter((provision) => provision.provides.some((provided) =>
-    missing.some((required) => required.id === provided.id && required.version === provided.version)
-  ));
+  return provisions.types.filter((provision) =>
+    provision.provides.length === 0
+    || provision.provides.some((provided) =>
+      missing.some((required) =>
+        required.id === provided.id && required.version === provided.version
+      )
+    )
+  );
 }
 
 class RequestValidationError extends Error {}

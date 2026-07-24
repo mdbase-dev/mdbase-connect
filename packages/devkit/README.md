@@ -30,13 +30,15 @@ mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json --allow-
 mdbase-connect-dev validate-contract tasknotes-contract.json
 ```
 
-Application manifests support connector-controlled type provisioning. Put the
-complete portable type document in `provisions.types`, declare the contracts it
-provides, and list the same contracts under `requirements.contracts`. The
-validator rejects provisions for contracts the application does not require.
+Bundled application declarations support connector-controlled type
+provisioning. Put each complete portable type document in `provisions.types`,
+declare any contracts it provides, and list those contracts under
+`requirements.contracts`. Auxiliary types installed with the same approved set
+use an empty `provides` array. The validator rejects provisions that claim
+contracts the application does not require.
 
 Native applications may add a reverse-domain private-use callback scheme that
-is bound to the manifest publisher, such as
-`example.tasks.desktop://auth/mdbase/callback` for a manifest hosted at
-`tasks.example`. Native authorization still uses PKCE and should open the
-authorization URL in the system browser.
+matches the version 3 application ID, such as
+`example.tasks.desktop://auth/mdbase/callback` for
+`id: "example.tasks.desktop"`. Native authorization still uses PKCE and should
+open the authorization URL in the system browser.

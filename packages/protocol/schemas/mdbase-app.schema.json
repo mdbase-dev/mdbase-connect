@@ -81,7 +81,6 @@
         "document": { "type": "string", "minLength": 1, "maxLength": 131072 },
         "provides": {
           "type": "array",
-          "minItems": 1,
           "maxItems": 20,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/contract" }

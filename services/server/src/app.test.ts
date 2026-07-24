@@ -59,6 +59,17 @@ describe("mdbase connect server", () => {
       ],
       requirements: {
         contracts: [{ id: "tasknotes.task", version: 1 }]
+      },
+      provisions: {
+        types: [{
+          name: "task",
+          document: "---\nkind: mdbase.type\nname: task\n---\n",
+          provides: [{ id: "tasknotes.task", version: 1 }]
+        }, {
+          name: "task_comment",
+          document: "---\nkind: mdbase.type\nname: task_comment\n---\n",
+          provides: []
+        }]
       }
     };
 
@@ -82,6 +93,7 @@ describe("mdbase connect server", () => {
     expect(repeated.json().application.id).toBe(first.json().application.id);
     expect(first.json().application.canonical_identity)
       .toMatch(/^bundle:dev\.mdbase\.tasks:sha256:[a-f0-9]{64}$/);
+    expect(first.json().application.provisions.types).toHaveLength(2);
     expect(changed.statusCode).toBe(200);
     expect(changed.json().application.id).not.toBe(first.json().application.id);
   });
@@ -802,11 +814,18 @@ describe("mdbase connect server", () => {
         access: "full_collection"
       },
       "Workout Tracker",
-      { types: [{
-        name: "Workout",
-        document: typeDocument,
-        provides: [{ id: "workout.record", version: 1 }]
-      }] }
+      { types: [
+        {
+          name: "Workout",
+          document: typeDocument,
+          provides: [{ id: "workout.record", version: 1 }]
+        },
+        {
+          name: "workout_note",
+          document: "---\nkind: mdbase.type\nname: workout_note\n---\n",
+          provides: []
+        }
+      ] }
     );
     resources.push(manifestServer.close);
     const discovered = await app.inject({
@@ -839,7 +858,10 @@ describe("mdbase connect server", () => {
     expect(approved.statusCode).toBe(200);
     expect(hostedProvider.provisionTypes).toHaveBeenCalledWith(
       collectionId,
-      [expect.objectContaining({ name: "Workout", document: typeDocument })]
+      [
+        expect.objectContaining({ name: "Workout", document: typeDocument }),
+        expect.objectContaining({ name: "workout_note", provides: [] })
+      ]
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,

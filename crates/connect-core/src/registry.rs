@@ -586,16 +586,13 @@ impl CollectionRegistry {
         requirements: &ApplicationRequirements,
         provisions: &[TypeProvision],
     ) -> Result<Vec<ContractRequirement>, ConnectError> {
-        let mut available = self.describe(id)?.contracts;
+        let mut description = self.describe(id)?;
         let missing = requirements
             .contracts
             .iter()
-            .filter(|required| !has_contract(&available, required))
+            .filter(|required| !has_contract(&description.contracts, required))
             .cloned()
             .collect::<Vec<_>>();
-        if missing.is_empty() {
-            return Ok(contract_requirements(&available));
-        }
         if missing.iter().any(|required| {
             !provisions
                 .iter()
@@ -608,49 +605,58 @@ impl CollectionRegistry {
         }
 
         for provision in provisions {
-            if !provision
+            let type_exists = description
+                .types
+                .iter()
+                .any(|existing| existing.name.eq_ignore_ascii_case(&provision.name));
+            if !type_exists {
+                let mut input = json!({ "document": provision.document });
+                if let Some(path) = &provision.path {
+                    input["path"] = json!(path);
+                }
+                let result = self.operation(id, "create_type", &input)?;
+                if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                    return Err(ConnectError::AccessDenied(format!(
+                        "The {} type could not be installed: {}",
+                        provision.name,
+                        error_message(&result, "the type definition was rejected")
+                    )));
+                }
+                if result
+                    .pointer("/result/name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
+                {
+                    return Err(ConnectError::AccessDenied(format!(
+                        "The installed type did not match the declared {} type.",
+                        provision.name
+                    )));
+                }
+                description = self.describe(id)?;
+            }
+            if provision
                 .provides
                 .iter()
-                .any(|provided| missing.contains(provided) && !has_contract(&available, provided))
-            {
-                continue;
-            }
-            let mut input = json!({ "document": provision.document });
-            if let Some(path) = &provision.path {
-                input["path"] = json!(path);
-            }
-            let result = self.operation(id, "create_type", &input)?;
-            if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                return Err(ConnectError::AccessDenied(format!(
-                    "The {} type could not be installed: {}",
-                    provision.name,
-                    error_message(&result, "the type definition was rejected")
-                )));
-            }
-            if result
-                .pointer("/result/name")
-                .and_then(Value::as_str)
-                .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
+                .any(|provided| !has_contract(&description.contracts, provided))
             {
                 return Err(ConnectError::AccessDenied(format!(
-                    "The installed type did not match the declared {} type.",
+                    "The {} type did not provide every contract declared by the application.",
                     provision.name
                 )));
             }
-            available = self.describe(id)?.contracts;
         }
 
         if requirements
             .contracts
             .iter()
-            .any(|required| !has_contract(&available, required))
+            .any(|required| !has_contract(&description.contracts, required))
         {
             return Err(ConnectError::AccessDenied(
                 "The installed type definitions did not provide every required contract."
                     .to_string(),
             ));
         }
-        Ok(contract_requirements(&available))
+        Ok(contract_requirements(&description.contracts))
     }
 
     pub fn scoped_operation(
@@ -2310,18 +2316,34 @@ x-workout:
             .to_string(),
             provides: requirements.contracts.clone(),
         };
+        let auxiliary = TypeProvision {
+            name: "workout_note".to_string(),
+            path: None,
+            document: r#"---
+kind: mdbase.type
+name: workout_note
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      type: { const: workout_note }
+---
+"#
+            .to_string(),
+            provides: Vec::new(),
+        };
+        let provisions = [provision, auxiliary];
 
         let contracts = registry
-            .provision_types(
-                collection.id,
-                &requirements,
-                std::slice::from_ref(&provision),
-            )
+            .provision_types(collection.id, &requirements, &provisions)
             .unwrap();
         assert!(contracts.contains(&requirements.contracts[0]));
         assert!(root.join("_types/workout.md").is_file());
+        assert!(root.join("_types/workout_note.md").is_file());
         registry
-            .provision_types(collection.id, &requirements, &[provision])
+            .provision_types(collection.id, &requirements, &provisions)
             .unwrap();
     }
 

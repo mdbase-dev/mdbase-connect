@@ -15,6 +15,8 @@ import type {
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
+import appManifestV2Schema from "@mdbase/connect-protocol/schemas/mdbase-app.v2.schema.json" with { type: "json" };
+import appManifestV3Schema from "@mdbase/connect-protocol/schemas/mdbase-app.v3.schema.json" with { type: "json" };
 import contractExtensionSchema from "@mdbase/connect-protocol/schemas/contract-extension.v1.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v2.schema.json" with { type: "json" };
 
@@ -35,10 +37,14 @@ const ajv = new Ajv2020({
   formats: { "date-time": true, uri: true }
 });
 ajv.addSchema(appManifestSchema);
+ajv.addSchema(appManifestV2Schema);
+ajv.addSchema(appManifestV3Schema);
 ajv.addSchema(contractExtensionSchema);
 ajv.addSchema(connectProtocolSchema);
 
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
+const appManifestV2Validator = requiredValidator(String(appManifestV2Schema.$id));
+const appManifestV3Validator = requiredValidator(String(appManifestV3Schema.$id));
 const contractValidator = requiredValidator(String(contractExtensionSchema.$id));
 
 export interface ManifestValidationOptions {
@@ -51,7 +57,13 @@ export function validateAppManifest(
   options: ManifestValidationOptions = {}
 ): ValidationResult {
   const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
-  const schemaResult = validationResult(appManifestValidator, candidate);
+  const version = asObject(value).manifest_version;
+  const validator = version === 3
+    ? appManifestV3Validator
+    : version === 2
+      ? appManifestV2Validator
+      : appManifestValidator;
+  const schemaResult = validationResult(validator, candidate);
   if (!schemaResult.valid) return schemaResult;
   const originResult = validateManifestOrigins(value, options.allowLocal === true);
   if (!originResult.valid) return originResult;
@@ -388,10 +400,15 @@ function validateManifestOrigins(value: unknown, allowLocal: boolean): Validatio
       if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
         return semanticIssue(`/redirect_uris/${index}`, "must use HTTPS (or loopback HTTP in local mode)");
       }
-      if (url.origin !== homepage.origin && !isNativeRedirectUri(url, homepage.hostname)) {
+      const nativeAllowed = manifest.manifest_version === 3
+        ? nativeRedirectMatchesApplication(url, String(manifest.id))
+        : isNativeRedirectUri(url, homepage.hostname);
+      if (url.origin !== homepage.origin && !nativeAllowed) {
         return semanticIssue(
           `/redirect_uris/${index}`,
-          "must use the homepage origin or a publisher-bound private-use application scheme"
+          manifest.manifest_version === 3
+            ? "must use the homepage origin or a private-use scheme matching the application ID"
+            : "must use the homepage origin or a publisher-bound private-use application scheme"
         );
       }
     }
@@ -402,6 +419,12 @@ function validateManifestOrigins(value: unknown, allowLocal: boolean): Validatio
   } catch {
     return semanticIssue("/", "contains an invalid URL");
   }
+}
+
+function nativeRedirectMatchesApplication(url: URL, applicationId: string): boolean {
+  const scheme = url.protocol.slice(0, -1);
+  return isNativeRedirectUri(url)
+    && (scheme === applicationId || scheme.startsWith(`${applicationId}.`));
 }
 
 function validateProvisionRequirements(value: unknown): ValidationResult {

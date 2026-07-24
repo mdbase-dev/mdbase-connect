@@ -200,7 +200,16 @@ test("application manifests declare connector-controlled type provisioning", () 
     ...manifest,
     requirements: { ...manifest.requirements, access: "everything" }
   }), false);
-  assert.equal(validate({ ...manifest, provisions: { types: [{ ...manifest.provisions.types[0], provides: [] }] } }), false);
+  assert.equal(
+    validate({
+      ...manifest,
+      provisions: {
+        types: [{ ...manifest.provisions.types[0], provides: [] }]
+      }
+    }),
+    true,
+    JSON.stringify(validate.errors)
+  );
 });
 
 test("sync wire objects are independently addressable", () => {

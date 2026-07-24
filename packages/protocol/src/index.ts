@@ -198,7 +198,10 @@ export interface TypeProvision {
   path?: string;
   /** Complete portable mdbase type document. */
   document: string;
-  /** Contracts expected to be exposed after this type is installed. */
+  /**
+   * Contracts expected to be exposed after this type is installed. Auxiliary
+   * types that belong to the approved provision set may use an empty array.
+   */
   provides: ContractRequirement[];
 }
 

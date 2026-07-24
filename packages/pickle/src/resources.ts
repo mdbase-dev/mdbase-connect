@@ -171,11 +171,13 @@ export const PICKLE_PROVISION_TYPES = [
   {
     name: "pickle_response_approval",
     path: "_types/pickle_response_approval.md",
-    document: PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT
+    document: PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
+    provides: []
   },
   {
     name: "pickle_response_ack",
     path: "_types/pickle_response_ack.md",
-    document: PICKLE_ACK_RESPONSE_TYPE_DOCUMENT
+    document: PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
+    provides: []
   }
 ] as const;
