@@ -157,7 +157,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
   await page.getByRole("button", { name: "YAML" }).click();
   await expect(page.getByRole("textbox", { name: "note type YAML" })).toContainText("kind: mdbase.type");
-  await expect(page.getByText("Compatibility warning")).toBeVisible();
+  await expect(page.getByText("Collection-wide change")).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });

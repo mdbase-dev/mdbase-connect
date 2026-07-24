@@ -91,8 +91,8 @@
   --color-editor-text: oklch(88% 0.009 255);
   --color-placeholder: oklch(56% 0.01 255);
   --color-skeleton: oklch(25% 0.012 255);
-  --color-shadow: oklch(5% 0.01 255 / 0.38);
-  --color-shadow-strong: oklch(5% 0.01 255 / 0.52);
+  --color-shadow: oklch(5% 0.01 255 / 0.22);
+  --color-shadow-strong: oklch(5% 0.01 255 / 0.32);
   --color-scrim: oklch(5% 0.01 255 / 0.58);
   --syntax-comment: oklch(62% 0.012 255);
   --syntax-keyword: oklch(76% 0.09 294);
@@ -133,8 +133,8 @@
     --color-editor-text: oklch(88% 0.009 255);
     --color-placeholder: oklch(56% 0.01 255);
     --color-skeleton: oklch(25% 0.012 255);
-    --color-shadow: oklch(5% 0.01 255 / 0.38);
-    --color-shadow-strong: oklch(5% 0.01 255 / 0.52);
+    --color-shadow: oklch(5% 0.01 255 / 0.22);
+    --color-shadow-strong: oklch(5% 0.01 255 / 0.32);
     --color-scrim: oklch(5% 0.01 255 / 0.58);
     --syntax-comment: oklch(62% 0.012 255);
     --syntax-keyword: oklch(76% 0.09 294);
@@ -2674,19 +2674,17 @@ kbd {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 11px;
-  border: 1px solid oklch(83% 0.055 82);
-  border-radius: 4px;
-  background: oklch(98% 0.018 86);
-  color: oklch(43% 0.055 69);
+  padding: 2px 0;
+  color: var(--faint);
 }
 
 .type-compatibility-warning svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   margin-top: 1px;
-  stroke-width: 1.8;
+  color: var(--muted);
+  stroke-width: 1.7;
 }
 
 .type-compatibility-warning p {
@@ -2698,8 +2696,8 @@ kbd {
 
 .type-compatibility-warning strong {
   display: block;
-  margin-bottom: 3px;
-  color: oklch(36% 0.052 67);
+  margin-bottom: 2px;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -3527,7 +3525,7 @@ kbd {
   }
 
   .type-compatibility-warning {
-    padding: 9px 10px;
+    padding: 2px 0;
   }
 
   .type-editor-actions {

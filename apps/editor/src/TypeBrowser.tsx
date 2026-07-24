@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleAlert, FileCode2, FilePlus2, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, FileCode2, FilePlus2, Info, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
@@ -137,8 +137,8 @@ export function TypeInspector({ type, document, source, notes, creating, loading
           <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
         </div>
         <div className="type-compatibility-warning" role="note">
-          <CircleAlert aria-hidden="true" />
-          <p><strong>Compatibility warning</strong>Changing a type may make existing notes invalid or prevent applications from working with this collection.</p>
+          <Info aria-hidden="true" />
+          <p><strong>Collection-wide change</strong>Review checks existing notes before saving. Connected apps may also rely on this type’s current shape.</p>
         </div>
         {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
         <div className="type-editor-actions">

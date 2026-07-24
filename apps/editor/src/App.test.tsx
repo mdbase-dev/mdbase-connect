@@ -219,7 +219,7 @@ describe("mdbase editor", () => {
     await user.click(within(collection).getByRole("button", { name: "Types (1)" }));
 
     const description = await screen.findByRole("textbox", { name: "Description" });
-    expect(screen.getByText("Compatibility warning")).toBeInTheDocument();
+    expect(screen.getByText("Collection-wide change")).toBeInTheDocument();
     await user.clear(description);
     await user.type(description, "A durable general note.");
     await user.click(screen.getByRole("button", { name: "Add field" }));
