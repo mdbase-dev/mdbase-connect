@@ -1537,6 +1537,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       if (attempt.pendingMutation && !attempt.directDeliveryUncertain && !attempt.resumingMutation) {
         this.clearPendingMutation();
       }
+      if (error.code === "direct_operation_rejected" && error.status === 403) {
+        this.invalidateRejectedAuthorization(token);
+      }
       throw error;
     }
     if (attempt.encryptedRequest) {
@@ -1853,6 +1856,17 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     for (const listener of this.connectionListeners) listener(connection);
   }
 
+  private invalidateRejectedAuthorization(rejected: StoredToken): void {
+    const current = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
+    if (!current || !sameAuthorization(current, rejected)) return;
+    if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
+    this.storage.removeItem(this.tokenKey());
+    this.clearPendingMutation();
+    this.route = "relay";
+    this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
+    this.emitConnection();
+  }
+
   private currentToken(): StoredToken | null {
     const token = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
     if (!token) return null;
@@ -2067,6 +2081,7 @@ function classifyConnectError(code: string, status?: number): Required<Pick<
 >> {
   const authorizationCodes = new Set([
     "authorization_expired",
+    "direct_operation_rejected",
     "encryption_required",
     "insufficient_access",
     "missing_grant_key",
@@ -2136,6 +2151,15 @@ function isMutation(operation: CollectionOperation, input?: unknown): boolean {
 
 function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {
   return [...new Set(operations)];
+}
+
+function sameAuthorization(left: StoredToken, right: StoredToken): boolean {
+  if (left.grantId || right.grantId) {
+    return left.grantId === right.grantId
+      && left.keyHandle === right.keyHandle
+      && left.encryption?.key_id === right.encryption?.key_id;
+  }
+  return left.accessToken === right.accessToken;
 }
 
 function throwIfCancelled(signal?: AbortSignal): void {

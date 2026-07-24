@@ -122,6 +122,13 @@ already granted operations and the missing requirements. An
 `missingOperations`, and `requiredOperations` metadata with a `reauthorize`
 recovery action.
 
+When the local connector definitively rejects an encrypted grant, the SDK does
+not bypass that decision through the relay. It classifies the error as requiring
+authorization, removes only the matching stale credential, and emits a `null`
+connection through `onConnectionChange()`. A subsequent
+`requestOperations()` call therefore starts authorization instead of trusting
+the stale cached capability list.
+
 Applications with full collection access can also register and maintain type
 definitions. Type source is returned with a revision token so updates cannot
 silently overwrite a definition changed by another application:

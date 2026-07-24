@@ -1251,15 +1251,54 @@ schema:
 
   it("does not bypass an explicit rejection from the local authorization boundary", async () => {
     const fixture = await encryptedConnection();
+    const connectionChanges: Array<ReturnType<typeof fixture.connect.connection>> = [];
+    fixture.connect.onConnectionChange((connection) => connectionChanges.push(connection));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       error: { code: "direct_operation_rejected", message: "Rejected locally." }
     }), { status: 403, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.query()).rejects.toEqual(expect.objectContaining({
-      code: "direct_operation_rejected"
+    await expect(fixture.connect.query()).rejects.toMatchObject({
+      code: "direct_operation_rejected",
+      status: 403,
+      requiresAuthorization: true,
+      outcomeUnknown: false,
+      recovery: "reauthorize"
+    });
+    expect(connectionChanges[0]).toEqual(expect.objectContaining({
+      collectionId: fixture.collectionId
     }));
+    expect(connectionChanges.at(-1)).toBeNull();
+    expect(connectionChanges.filter((connection) => connection === null)).toHaveLength(1);
+    expect(fixture.connect.connection()).toBeNull();
+    expect(fixture.storage.getItem(fixture.tokenKey)).toBeNull();
+    await expect(fixture.keyStore.get("grant-key")).resolves.toBeNull();
+    expect(fixture.connect.authorizationCapabilities(["query"])).toMatchObject({
+      authorized: false,
+      sufficient: false,
+      missingOperations: ["query"]
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:28485/v1/operations");
+  });
+
+  it("clears a definitively rejected write without reporting an unknown outcome", async () => {
+    const fixture = await encryptedConnection();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "direct_operation_rejected", message: "Rejected locally." }
+    }), { status: 403, headers: { "content-type": "application/json" } }));
+
+    await expect(fixture.connect.create({
+      path: "rejected.md",
+      frontmatter: {},
+      body: ""
+    })).rejects.toMatchObject({
+      code: "direct_operation_rejected",
+      requiresAuthorization: true,
+      outcomeUnknown: false,
+      recovery: "reauthorize"
+    });
+    expect(fixture.connect.pendingMutation()).toBeNull();
+    expect(fixture.connect.connection()).toBeNull();
   });
 
   it("backs off an unavailable loopback route while keeping relay operations usable", async () => {
@@ -1375,7 +1414,7 @@ schema:
     }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:28485/v1/operations");
-    expect(fixture.storage.getItem(tokenKey)).not.toBeNull();
+    expect(fixture.storage.getItem(tokenKey)).toBeNull();
   });
 
   it("rejects loopback overrides that could escape the local machine", () => {
@@ -1408,7 +1447,8 @@ async function encryptedConnection() {
     application_public_key: application.publicKey,
     connector_public_key: connector.publicKey
   };
-  storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestUrl}`;
+  storage.setItem(tokenKey, JSON.stringify({
     accessToken: "mdb_current",
     refreshToken: "ref_current",
     clientId: "01922222-2222-7222-8222-222222222222",
@@ -1431,6 +1471,8 @@ async function encryptedConnection() {
     manifestUrl,
     collectionId,
     storage,
+    tokenKey,
+    keyStore,
     connect: new MdbaseConnect({
       serverUrl,
       manifestUrl,
