@@ -30,7 +30,8 @@ x-tasknotes:
 `;
 await mkdir(resolve(target, ".."), { recursive: true });
 await writeFile(target, JSON.stringify({
-  manifest_version: 1,
+  manifest_version: 3,
+  id: "dev.mdbase.tasknotes-demo",
   name: "TaskNotes",
   homepage: origin,
   redirect_uris: [`${origin}/`],
