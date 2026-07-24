@@ -139,6 +139,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       hosted_replica_id uuid REFERENCES hosted_replicas(id) ON DELETE SET NULL,
       operations jsonb NOT NULL,
       scope jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
+      notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb,
       encryption jsonb,
       application_origin text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -223,12 +224,17 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       grant_id uuid NOT NULL REFERENCES grants(id) ON DELETE CASCADE,
       installation_id text NOT NULL,
-      endpoint text NOT NULL,
-      endpoint_hash text NOT NULL,
-      p256dh text NOT NULL,
-      auth text NOT NULL,
+      kind text NOT NULL DEFAULT 'web_push',
+      endpoint text,
+      endpoint_hash text,
+      p256dh text,
+      auth text,
+      fcm_project_id text,
+      fcm_token text,
+      fcm_token_hash text,
       expires_at timestamptz,
       disabled_at timestamptz,
+      last_seen_at timestamptz NOT NULL DEFAULT now(),
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(grant_id, installation_id),
@@ -267,6 +273,22 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS notification_deliveries_ready_idx
       ON notification_deliveries(status, available_at);
+    CREATE TABLE IF NOT EXISTS notification_webhook_deliveries (
+      id uuid PRIMARY KEY,
+      signal_id uuid NOT NULL UNIQUE REFERENCES notification_signals(id) ON DELETE CASCADE,
+      url text NOT NULL,
+      status text NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'sending', 'retry', 'sent', 'discarded')),
+      attempts integer NOT NULL DEFAULT 0,
+      available_at timestamptz NOT NULL DEFAULT now(),
+      lease_token text,
+      leased_until timestamptz,
+      last_error text,
+      delivered_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS notification_webhook_deliveries_ready_idx
+      ON notification_webhook_deliveries(status, available_at);
   `);
   const authorizationColumns = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
@@ -313,6 +335,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "grants",
     "scope",
     "ALTER TABLE grants ADD COLUMN scope jsonb NOT NULL DEFAULT '{\"contracts\":[]}'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "grants",
+    "notification_criteria",
+    "ALTER TABLE grants ADD COLUMN notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb"
   );
   await ensureColumn(db, "connectors", "relay_public_key", "ALTER TABLE connectors ADD COLUMN relay_public_key text");
   await ensureColumn(
@@ -364,6 +392,43 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "hosted_replicas",
     "purpose",
     "ALTER TABLE hosted_replicas ADD COLUMN purpose text NOT NULL DEFAULT 'mirror'"
+  );
+  await ensureColumn(
+    db,
+    "push_channels",
+    "kind",
+    "ALTER TABLE push_channels ADD COLUMN kind text NOT NULL DEFAULT 'web_push'"
+  );
+  await ensureColumn(
+    db,
+    "push_channels",
+    "fcm_project_id",
+    "ALTER TABLE push_channels ADD COLUMN fcm_project_id text"
+  );
+  await ensureColumn(
+    db,
+    "push_channels",
+    "fcm_token",
+    "ALTER TABLE push_channels ADD COLUMN fcm_token text"
+  );
+  await ensureColumn(
+    db,
+    "push_channels",
+    "fcm_token_hash",
+    "ALTER TABLE push_channels ADD COLUMN fcm_token_hash text"
+  );
+  await ensureColumn(
+    db,
+    "push_channels",
+    "last_seen_at",
+    "ALTER TABLE push_channels ADD COLUMN last_seen_at timestamptz NOT NULL DEFAULT now()"
+  );
+  await ensureNullable(db, "push_channels", "endpoint");
+  await ensureNullable(db, "push_channels", "endpoint_hash");
+  await ensureNullable(db, "push_channels", "p256dh");
+  await ensureNullable(db, "push_channels", "auth");
+  await db.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS push_channels_fcm_target_idx ON push_channels(grant_id, fcm_token_hash)"
   );
   const grantCollection = await db.query<{ is_nullable: string }>(
     `SELECT is_nullable FROM information_schema.columns

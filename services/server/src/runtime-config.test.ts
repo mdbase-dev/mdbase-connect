@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { runtimeConfigFromEnv, validateRuntimeConfig } from "./runtime-config.js";
 
@@ -196,5 +197,33 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_RELAY_NATS_URL: "nats://relay:4222",
       MDBASE_CONNECT_RELAY_NATS_TOKEN: `unsafe ${"x".repeat(40)}`
     })).toThrow(/unsupported characters/);
+  });
+
+  it("loads FCM credentials and a rotatable webhook signing keyring", () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const old = {
+      ...publicKey.export({ format: "jwk" }),
+      kid: "connect-old",
+      alg: "EdDSA",
+      use: "sig"
+    };
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_FCM_ENABLED: "1",
+      MDBASE_CONNECT_FCM_CREDENTIALS_JSON: JSON.stringify({
+        client_email: "sender@example.test"
+      }),
+      MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID: "connect-current",
+      MDBASE_CONNECT_WEBHOOK_SIGNING_PRIVATE_KEY: privateKey.export({
+        format: "pem",
+        type: "pkcs8"
+      }).toString(),
+      MDBASE_CONNECT_WEBHOOK_PREVIOUS_PUBLIC_KEYS_JSON: JSON.stringify([old])
+    });
+    expect(value.fcm?.credentials).toMatchObject({
+      client_email: "sender@example.test"
+    });
+    expect(value.webhookSigning?.previousPublicKeys).toEqual([old]);
   });
 });

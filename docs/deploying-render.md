@@ -54,10 +54,29 @@ In Render, create a Blueprint from `mdbase-dev/mdbase-connect` and
 - `MDBASE_CONNECT_VAPID_SUBJECT`
 - `MDBASE_CONNECT_VAPID_PUBLIC_KEY`
 - `MDBASE_CONNECT_VAPID_PRIVATE_KEY`
+- `MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID`
+- `MDBASE_CONNECT_WEBHOOK_SIGNING_PRIVATE_KEY`
 
 Generate the VAPID keypair once with a standards-compliant Web Push tool. Keep
 the private key secret and retain the pair across deployments; replacing it
 invalidates existing browser subscriptions.
+
+Generate a stable Ed25519 webhook-signing key and a human-readable rotation ID.
+Keep the private key secret. During a rotation, put the prior public JWK in
+`MDBASE_CONNECT_WEBHOOK_PREVIOUS_PUBLIC_KEYS_JSON` until every delivery made
+before the rotation has expired. Webhook consumers discover the current and
+retained public keys at `/v1/notifications/webhook-signing-keys`.
+
+Connect-managed native delivery is off by default. To enable it, set
+`MDBASE_CONNECT_FCM_ENABLED=1` and provide
+`MDBASE_CONNECT_FCM_CREDENTIALS_JSON`, or configure Google Application Default
+Credentials in the service environment. Grant that sender identity only
+`cloudmessaging.messages.create` in each participating application's Firebase
+project. Do not upload an application's APNs key to Connect; the application
+owner uploads it directly to Firebase. See
+[Runtime-backed notifications](./notifications.md) for the managed-sender
+security tradeoff and the recommended signed-webhook boundary for third-party
+applications.
 
 Google sign-in can be enabled alongside GitHub after creating the production
 web client described in [Google authentication](./google-auth.md). Set both
@@ -120,6 +139,13 @@ Before any invitation:
 8. Register an installed PWA for a manifest notification criterion, perform a
    matching hosted mutation while the app is closed, receive the push, and
    confirm the control-plane database contains only opaque signal metadata.
+9. Send one signed notification webhook to a verifier using
+   `@mdbase/connect-webhooks`; confirm a modified body and an expired timestamp
+   are rejected, retry the same delivery ID, and confirm the consumer processes
+   it only once.
+10. When managed FCM is enabled, register one Android and one iOS installation,
+    rotate an FCM token, and confirm only the current token receives a
+    content-free wake-up notification.
 
 Render provides continuous PITR for paid PostgreSQL. PITR is not a substitute
 for the restore drill: recovery creates another database and the service must be

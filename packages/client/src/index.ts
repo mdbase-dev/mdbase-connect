@@ -1,4 +1,5 @@
 import type {
+  ApplicationNotifications,
   CollectionChange,
   CollectionChangesPage,
   CollectionDescription,
@@ -155,6 +156,28 @@ export interface MdbaseNotificationRegistration {
   criteria: string[];
 }
 
+export interface MdbaseNativeNotificationRegistrationOptions {
+  /** Current FCM registration token. Refresh by calling this method again. */
+  token: string;
+  /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
+  criteria?: string[];
+  /** Stable per-installation ID. The SDK persists one when omitted. */
+  installationId?: string;
+}
+
+export interface MdbaseNativeNotificationRegistration
+  extends MdbaseNotificationRegistration {
+  transport: "fcm";
+}
+
+export interface MdbaseNativeNotificationData {
+  type: "mdbase.notification";
+  version: 1;
+  signal_id: string;
+  criterion_id: string;
+  cursor: string;
+}
+
 export interface MdbasePushPayload {
   type: "mdbase.notification";
   version: 1;
@@ -185,6 +208,38 @@ export function parseMdbasePushPayload(value: unknown): MdbasePushPayload {
     throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an mdbase notification.");
   }
   return payload as MdbasePushPayload;
+}
+
+/** Parse the string-valued data attached to an APNs/FCM notification. */
+export function parseMdbaseNativeNotificationData(
+  value: unknown
+): MdbaseNativeNotificationData {
+  if (!value || typeof value !== "object") {
+    throw new MdbaseConnectError(
+      "invalid_push_payload",
+      "The native notification data is not an object."
+    );
+  }
+  const data = value as Record<string, unknown>;
+  if (
+    data.type !== "mdbase.notification"
+    || (data.version !== 1 && data.version !== "1")
+    || typeof data.signal_id !== "string"
+    || typeof data.criterion_id !== "string"
+    || typeof data.cursor !== "string"
+  ) {
+    throw new MdbaseConnectError(
+      "invalid_push_payload",
+      "The native notification data is not an mdbase notification."
+    );
+  }
+  return {
+    type: "mdbase.notification",
+    version: 1,
+    signal_id: data.signal_id,
+    criterion_id: data.criterion_id,
+    cursor: data.cursor
+  };
 }
 
 /** Display a validated mdbase push from a service worker `push` handler. */
@@ -649,9 +704,7 @@ interface Application {
   id: string;
   name: string;
   homepage: string;
-  notifications?: {
-    criteria: Array<{ id: string }>;
-  };
+  notifications?: ApplicationNotifications;
 }
 
 interface StoredAuthorization {
@@ -1073,6 +1126,110 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return registration;
   }
 
+  /**
+   * Register an iOS or Android installation for Connect-managed FCM.
+   *
+   * The application manifest selects the Firebase project. Re-register the
+   * same installation whenever Firebase refreshes its token.
+   */
+  async registerNativeNotifications(
+    options: MdbaseNativeNotificationRegistrationOptions
+  ): Promise<MdbaseNativeNotificationRegistration> {
+    const token = await this.authorizedToken();
+    if (!token) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "Connect this application before enabling notifications."
+      );
+    }
+    const application = await this.discover();
+    if (application.notifications?.native_delivery?.mode !== "managed_fcm") {
+      throw new MdbaseConnectError(
+        "managed_fcm_not_declared",
+        "This application does not declare Connect-managed native notifications."
+      );
+    }
+    const declared = application.notifications.criteria.map(
+      (criterion) => criterion.id
+    );
+    const criteria = [...new Set(options.criteria ?? declared)];
+    const undeclared = criteria.find((criterion) => !declared.includes(criterion));
+    if (undeclared) {
+      throw new MdbaseConnectError(
+        "notification_criterion_not_declared",
+        `The application manifest does not declare notification criterion ${undeclared}.`
+      );
+    }
+    if (criteria.length === 0) {
+      throw new MdbaseConnectError(
+        "notifications_not_declared",
+        "This application manifest does not declare any notification criteria."
+      );
+    }
+    const storageKey = this.notificationKey("fcm");
+    const previous = parseStored<MdbaseNativeNotificationRegistration>(
+      this.storage.getItem(storageKey)
+    );
+    const installationId = options.installationId
+      ?? previous?.installationId
+      ?? randomBase64Url(24);
+    const response = await fetch(`${this.serverUrl}/v1/notifications/channels`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token.accessToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        installation_id: installationId,
+        criteria,
+        transport: "fcm",
+        token: options.token
+      })
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw apiError(
+        body,
+        "notification_registration_failed",
+        "Could not register native notifications.",
+        response.status
+      );
+    }
+    if (previous?.channelId && previous.channelId !== body.channel_id) {
+      void this.deleteNotificationChannel(previous.channelId, token.accessToken)
+        .catch(() => undefined);
+    }
+    const registration: MdbaseNativeNotificationRegistration = {
+      channelId: body.channel_id,
+      installationId,
+      transport: "fcm",
+      criteria
+    };
+    this.storage.setItem(storageKey, JSON.stringify(registration));
+    return registration;
+  }
+
+  async unregisterNativeNotifications(): Promise<void> {
+    const storageKey = this.notificationKey("fcm");
+    const registration = parseStored<MdbaseNativeNotificationRegistration>(
+      this.storage.getItem(storageKey)
+    );
+    const token = await this.authorizedToken();
+    if (registration?.channelId && !token) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "Reconnect this application before disabling native notifications."
+      );
+    }
+    if (registration?.channelId && token) {
+      await this.deleteNotificationChannel(
+        registration.channelId,
+        token.accessToken
+      );
+    }
+    this.storage.removeItem(storageKey);
+  }
+
   async unregisterNotifications(
     serviceWorker?: ServiceWorkerRegistration
   ): Promise<void> {
@@ -1080,6 +1237,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       this.storage.getItem(this.notificationKey())
     );
     const token = await this.authorizedToken();
+    if (registration?.channelId && !token) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "Reconnect this application before disabling push notifications."
+      );
+    }
     if (registration?.channelId && token) {
       const response = await fetch(`${this.serverUrl}/v1/notifications/channels/${registration.channelId}`, {
         method: "DELETE",
@@ -1802,8 +1965,30 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestUrl}`; }
   private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestUrl}`; }
-  private notificationKey() {
-    return `mdbase-connect:notifications:${this.serverUrl}:${this.manifestUrl}`;
+  private notificationKey(transport: "web_push" | "fcm" = "web_push") {
+    const base = `mdbase-connect:notifications:${this.serverUrl}:${this.manifestUrl}`;
+    return transport === "web_push" ? base : `${base}:${transport}`;
+  }
+  private async deleteNotificationChannel(
+    channelId: string,
+    accessToken: string
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.serverUrl}/v1/notifications/channels/${channelId}`,
+      {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${accessToken}` }
+      }
+    );
+    if (!response.ok && response.status !== 404) {
+      const body = await response.json();
+      throw apiError(
+        body,
+        "notification_unregistration_failed",
+        "Could not unregister push notifications.",
+        response.status
+      );
+    }
   }
   private pendingMutationKey() {
     return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestUrl}`;

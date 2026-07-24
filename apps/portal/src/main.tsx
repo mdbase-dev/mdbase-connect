@@ -1010,11 +1010,32 @@ function ApprovalForm({
           </label>
         ))}</div>
       </fieldset>
+      <NotificationAccess notifications={request.notifications} />
       {error && <div className="message error compact">{error}</div>}
       <div className="approval-actions">
         <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
         <button className="button primary" type="button" disabled={submitting !== null || !collectionId || operations.size === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : "Allow access"}</button>
       </div>
+    </div>
+  );
+}
+
+function NotificationAccess({ notifications }: {
+  notifications: PendingAuthorization["notifications"];
+}) {
+  if (notifications.criteria.length === 0) return null;
+  return (
+    <div className="notification-access">
+      <div>
+        <strong>Change notifications</strong>
+        <small>If you turn these on in the app, rules run inside the collection and pushes contain no record content.</small>
+      </div>
+      <ul>{notifications.criteria.map((criterion) => (
+        <li key={criterion.id}>
+          <span>{criterion.presentation.title}</span>
+          <code>{criterion.event.id} v{criterion.event.version}</code>
+        </li>
+      ))}</ul>
     </div>
   );
 }

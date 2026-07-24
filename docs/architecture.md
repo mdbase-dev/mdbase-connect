@@ -113,12 +113,20 @@ dispatch. Durable one-shot timers use the same path and wake after authority
 restart.
 
 The authority sends only an idempotent signal ID, grant ID, criterion ID, and
-opaque cursor to the control plane. The control plane maps that signal to
-registered Web Push installations and retries delivery through a leased
-outbox. Static manifest presentation is added there. Paths, record payloads,
-runtime event payloads, and collection contents never cross this boundary.
-Applications treat a push as a wake-up hint and read current authorized state
-after opening. See [Runtime-backed notifications](./notifications.md).
+opaque cursor to the control plane. The control plane adds static manifest
+presentation and retries delivery through a leased outbox. Delivery can target
+registered Web Push installations, registered FCM tokens when the application
+opts into Connect-managed sending, or one signed application webhook. Paths,
+record payloads, runtime event payloads, and collection contents never cross
+this boundary. Applications treat a notification as a wake-up hint and read
+current authorized state after opening. See
+[Runtime-backed notifications](./notifications.md).
+
+Notification criteria are snapshotted into the grant at approval. Manifest
+rediscovery can retain exactly equivalent criteria or remove changed ones, but
+cannot add evaluation logic to an existing grant. Changed criteria therefore
+require explicit reauthorization before the authority receives an updated
+policy.
 
 ## Domain contracts
 

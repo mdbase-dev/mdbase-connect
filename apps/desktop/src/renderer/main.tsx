@@ -473,12 +473,29 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
         {available.length === 0 && <small>No registered collection supports all requested operations and contracts.</small>}
         {setup.length > 0 && <small>Allowing access will add {provisionNames(setup)} to this collection.</small>}
         <fieldset><legend>Requested operations</legend><OperationChoices allowed={request.requested_operations} selected={operations} onChange={setOperations} /></fieldset>
+        <NotificationAccess notifications={request.notifications} />
       </div>
       <div className="decision-actions">
         <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
         <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations }); onNotice(`${request.application_name} can now use the selected operations.`); })}>Allow access</button>
       </div>
     </article>
+  );
+}
+
+function NotificationAccess({ notifications }: { notifications: ApplicationNotifications }) {
+  if (notifications.criteria.length === 0) return null;
+  return (
+    <div className="notification-request">
+      <strong>Change notifications</strong>
+      <small>If enabled in the app, these rules run inside the collection and pushes contain no record content.</small>
+      <ul>{notifications.criteria.map((criterion) => (
+        <li key={criterion.id}>
+          <span>{criterion.presentation.title}</span>
+          <code>{criterion.event.id} v{criterion.event.version}</code>
+        </li>
+      ))}</ul>
+    </div>
   );
 }
 
@@ -536,6 +553,7 @@ function ManualApplication({ collections, busy, onAct, onNotice }: { collections
               <label><span>Collection</span><select value={collectionId} disabled={compatible.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{compatible.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{neededProvisions(application.requirements, application.provisions, collection).length ? " · setup required" : ""}</option>)}</select></label>
               {compatible.length === 0 && <small>No registered collection provides the required contracts and the app cannot install them.</small>}
               {setup.length > 0 && <small>Connecting will add {provisionNames(setup)} to this collection.</small>}
+              <NotificationAccess notifications={application.notifications} />
               <fieldset><legend>Allow</legend><OperationChoices allowed={allOperations} selected={operations} onChange={setOperations} compact /></fieldset>
               <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.createGrant({ applicationId: application.id, collectionId, operations }); onNotice(`${application.name} is connected.`); setApplication(null); setManifestUrl(""); setExpanded(false); })}>Connect app</button>
             </div>

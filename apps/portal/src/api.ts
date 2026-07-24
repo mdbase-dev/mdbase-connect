@@ -92,6 +92,7 @@ export interface PendingAuthorization {
   icon: string | null;
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
+  notifications: ApplicationNotifications;
 }
 
 export interface AvailableCollection {
@@ -123,6 +124,23 @@ export interface TypeProvision {
 
 export interface ApplicationProvisions {
   types: TypeProvision[];
+}
+
+export interface NotificationCriterion {
+  id: string;
+  event: ContractRequirement;
+  if?: { $expr: string };
+  debounce?: string;
+  minimum_interval?: string;
+  presentation: {
+    title: string;
+    body?: string;
+    tag?: string;
+  };
+}
+
+export interface ApplicationNotifications {
+  criteria: NotificationCriterion[];
 }
 
 export interface GrantScope {

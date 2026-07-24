@@ -281,7 +281,7 @@ implements MdbaseCollectionTransport {
       });
     }
     this.records.delete(path);
-    this.append("mdbase.record.deleted", current, { path, previous_types: current.types });
+    this.append("mdbase.record.deleted", current, { path, types: current.types });
     return envelope({ path, deleted: true });
   }
 

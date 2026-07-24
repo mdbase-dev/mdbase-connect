@@ -6,6 +6,7 @@
     "contract_extension": "./contract-extension.v1.schema.json",
     "connect_protocol": "./connect-protocol.v2.schema.json",
     "encrypted_relay": "./encrypted-relay.v3.schema.json",
+    "notification_webhook": "./notification-webhook.v1.schema.json",
     "sync": "./sync.v1.schema.json"
   }
 }

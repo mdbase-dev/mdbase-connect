@@ -184,7 +184,7 @@ export class RelayHub {
       operations: string[];
       scope: { contracts: Array<{ id: string; version: number }> };
       encryption: unknown | null;
-      notifications: { criteria?: unknown[] };
+      notification_criteria: unknown[];
       created_at: string;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
@@ -193,7 +193,7 @@ export class RelayHub {
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
-              g.encryption, a.notifications, g.created_at
+              g.encryption, g.notification_criteria, g.created_at
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
@@ -216,7 +216,7 @@ export class RelayHub {
         application_origin: new URL(grant.application_origin).origin,
         application_icon: grant.application_icon,
         collection_name: grant.collection_name,
-        notification_criteria: grant.notifications.criteria ?? [],
+        notification_criteria: grant.notification_criteria,
         created_at: grant.created_at,
         ...(grant.encryption ? { encryption: grant.encryption } : {})
       }))

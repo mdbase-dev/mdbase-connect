@@ -7,6 +7,7 @@ import {
   MdbaseOperationValidationError,
   isRetryableConnectError,
   MemoryGrantKeyStore,
+  parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
   showMdbasePushNotification,
   unwrapOperation
@@ -531,6 +532,124 @@ describe("mobile notifications", () => {
     expect(JSON.stringify(showNotification.mock.calls[0])).not.toContain("path");
     expect(() => parseMdbasePushPayload({ ...payload, cursor: 42 }))
       .toThrowError(MdbaseConnectError);
+  });
+
+  it("registers an FCM installation without accepting a client-selected project", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "mdb_notifications",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: "00000000-0000-0000-0000-000000000002",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (request, init) => {
+        const url = String(request);
+        if (url.endsWith("/v1/apps/discover")) {
+          return jsonResponse({
+            application: {
+              id: "00000000-0000-0000-0000-000000000001",
+              name: "TaskNotes",
+              homepage: "https://tasks.example",
+              notifications: {
+                native_delivery: {
+                  mode: "managed_fcm",
+                  firebase_project_id: "tasks-production"
+                },
+                criteria: [{ id: "task.ready" }]
+              }
+            }
+          });
+        }
+        if (
+          url.endsWith("/v1/notifications/channels")
+          && init?.method === "POST"
+        ) {
+          return jsonResponse({
+            channel_id: "00000000-0000-0000-0000-000000000004",
+            transport: "fcm",
+            criteria: ["task.ready"]
+          }, 201);
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }
+    );
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      storage
+    });
+
+    const registration = await connect.registerNativeNotifications({
+      token: "fcm_registration_token_012345678901234567890123",
+      installationId: "native-installation-0001"
+    });
+
+    expect(registration).toEqual({
+      channelId: "00000000-0000-0000-0000-000000000004",
+      installationId: "native-installation-0001",
+      transport: "fcm",
+      criteria: ["task.ready"]
+    });
+    const request = fetchMock.mock.calls.find(
+      ([value]) => String(value).endsWith("/v1/notifications/channels")
+    );
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+      installation_id: "native-installation-0001",
+      criteria: ["task.ready"],
+      transport: "fcm",
+      token: "fcm_registration_token_012345678901234567890123"
+    });
+    expect(String(request?.[1]?.body)).not.toContain("tasks-production");
+  });
+
+  it("keeps a native channel recoverable when authorization is unavailable during opt-out", async () => {
+    const storage = new MemoryStorage();
+    const registrationKey =
+      `mdbase-connect:notifications:${serverUrl}:${manifestUrl}:fcm`;
+    storage.setItem(registrationKey, JSON.stringify({
+      channelId: "00000000-0000-0000-0000-000000000004",
+      installationId: "native-installation-0001",
+      transport: "fcm",
+      criteria: ["task.ready"]
+    }));
+    const connect = new MdbaseConnect({
+      serverUrl,
+      manifestUrl,
+      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      storage
+    });
+
+    await expect(connect.unregisterNativeNotifications()).rejects.toMatchObject({
+      code: "not_authorized"
+    });
+    expect(storage.getItem(registrationKey)).not.toBeNull();
+  });
+
+  it("normalizes string-valued native delivery data", () => {
+    expect(parseMdbaseNativeNotificationData({
+      type: "mdbase.notification",
+      version: "1",
+      signal_id: "signal_opaque",
+      criterion_id: "task.ready",
+      cursor: "42"
+    })).toEqual({
+      type: "mdbase.notification",
+      version: 1,
+      signal_id: "signal_opaque",
+      criterion_id: "task.ready",
+      cursor: "42"
+    });
+    expect(() => parseMdbaseNativeNotificationData({
+      type: "mdbase.notification",
+      version: "1",
+      signal_id: "signal_opaque",
+      criterion_id: "task.ready",
+      cursor: 42
+    })).toThrowError(MdbaseConnectError);
   });
 });
 

@@ -32,6 +32,7 @@ export function isNativeRedirectUri(url: URL, publisherHostname?: string): boole
 export const CONNECT_SCHEMA_IDS = {
   appManifest: "https://mdbase.dev/connect/schemas/mdbase-app.v1.json",
   appManifestV2: "https://mdbase.dev/connect/schemas/mdbase-app.v2.json",
+  notificationWebhook: "https://mdbase.dev/connect/schemas/notification-webhook.v1.json",
   contractExtension: "https://mdbase.dev/connect/schemas/contract-extension.v1.json",
   protocol: "https://mdbase.dev/connect/schemas/connect-protocol.v2.json",
   encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v3.json",
@@ -85,8 +86,28 @@ export interface NotificationCriterion {
   };
 }
 
+export type NativeNotificationDelivery =
+  | {
+      /**
+       * Connect sends through FCM using revocable, least-privilege authority
+       * granted by the application's Firebase project.
+       */
+      mode: "managed_fcm";
+      firebase_project_id: string;
+    }
+  | {
+      /**
+       * Connect sends a signed, content-free signal to infrastructure operated
+       * by the application developer. That infrastructure owns APNs/FCM.
+       */
+      mode: "webhook";
+      url: string;
+    };
+
 export interface ApplicationNotifications {
   criteria: NotificationCriterion[];
+  /** Optional native delivery route. Web Push registration remains independent. */
+  native_delivery?: NativeNotificationDelivery;
 }
 
 export interface MdbaseAppManifestV2 {
@@ -109,6 +130,30 @@ export interface NotificationSignal {
   criterion_id: string;
   /** Opaque authority cursor used by the app to retrieve current state after waking. */
   cursor: string;
+}
+
+export interface NotificationPresentation {
+  title: string;
+  body?: string;
+  tag?: string;
+}
+
+export interface MdbaseNotification {
+  type: "mdbase.notification";
+  version: 1;
+  signal_id: string;
+  criterion_id: string;
+  cursor: string;
+  presentation: NotificationPresentation;
+}
+
+export interface NotificationWebhook {
+  type: "mdbase.notification.webhook";
+  version: 1;
+  delivery_id: string;
+  /** Opaque application grant reference returned during authorization. */
+  connection_id: string;
+  notification: MdbaseNotification;
 }
 
 export interface ContractRequirement {
@@ -180,7 +225,7 @@ export interface GrantPolicy {
   application_origin?: string;
   application_icon?: string;
   collection_name: string;
-  /** Manifest-declared criteria evaluated only by this collection authority. */
+  /** Approval-time criterion snapshot evaluated only by this collection authority. */
   notification_criteria?: NotificationCriterion[];
   created_at: string;
   encryption?: GrantEncryption;

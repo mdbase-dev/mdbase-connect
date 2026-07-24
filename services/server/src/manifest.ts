@@ -54,6 +54,19 @@ const notificationCriterionSchema = z.object({
     tag: z.string().min(1).max(80).optional()
   }).strict()
 }).strict();
+const nativeNotificationDeliverySchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("managed_fcm"),
+    firebase_project_id: z.string()
+      .min(6)
+      .max(63)
+      .regex(/^[a-z][a-z0-9-]*[a-z0-9]$/)
+  }).strict(),
+  z.object({
+    mode: z.literal("webhook"),
+    url: z.url().refine((value) => new URL(value).protocol === "https:", "Webhook URL must use HTTPS.")
+  }).strict()
+]);
 const manifestV2Schema = z.object({
   manifest_version: z.literal(2),
   ...manifestFields,
@@ -61,7 +74,8 @@ const manifestV2Schema = z.object({
     criteria: z.array(notificationCriterionSchema).max(50).refine(
       (criteria) => new Set(criteria.map((criterion) => criterion.id)).size === criteria.length,
       "Notification criterion IDs must be unique."
-    )
+    ),
+    native_delivery: nativeNotificationDeliverySchema.optional()
   }).strict().default({ criteria: [] })
 }).strict();
 const manifestSchema = z.discriminatedUnion("manifest_version", [

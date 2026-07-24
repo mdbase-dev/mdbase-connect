@@ -213,6 +213,27 @@ describe("developer sandbox", () => {
     expect(await client.changes()).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
   });
 
+  it("preserves deleted record types in the canonical event field", async () => {
+    const { client } = createSandbox({
+      records: [
+        {
+          path: "tasks/deleted.md",
+          types: ["task"],
+          frontmatter: { type: "task", title: "Deleted" }
+        }
+      ]
+    });
+    const deleted = await client.delete({ path: "tasks/deleted.md" });
+    expect(deleted.valid).toBe(true);
+    const changes = await client.changes({ after: 0 });
+    expect(changes.events).toHaveLength(1);
+    expect(changes.events[0]).toMatchObject({
+      type: "mdbase.record.deleted",
+      payload: { path: "tasks/deleted.md", types: ["task"] }
+    });
+    expect(changes.events[0]?.payload).not.toHaveProperty("previous_types");
+  });
+
   it("rejects semantic approximations and unsafe paths explicitly", async () => {
     const { client } = createSandbox();
     await expect(client.query({ where: "status == 'open'" })).rejects.toMatchObject({

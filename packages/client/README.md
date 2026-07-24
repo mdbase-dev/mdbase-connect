@@ -79,6 +79,30 @@ criteria for that installation. See the
 [runtime notifications guide](../../docs/notifications.md) for manifest and
 deployment examples.
 
+Native shells can use one FCM token for Android and iOS when the manifest
+declares `notifications.native_delivery.mode` as `managed_fcm`:
+
+```ts
+await connect.registerNativeNotifications({
+  token: await nativeMessaging.getToken(),
+  criteria: ["workout.reminder"]
+});
+```
+
+Re-register when Firebase rotates the token. Parse the string-valued
+notification data with `parseMdbaseNativeNotificationData()`, refresh current
+collection state, and call `unregisterNativeNotifications()` before deleting
+the token on opt-out. The public Firebase project ID is read from the
+application manifest; service credentials are never embedded in the app.
+
+Connect-managed FCM makes Connect a trusted sender for the application's
+Firebase project. It suits single-owner deployments; applications with a
+broader audience should normally declare signed webhook delivery and keep
+their Apple/Firebase credentials in their own backend. The notifications guide
+documents both threat models. New or changed manifest criteria never silently
+broaden an existing grant: handle `notification_reauthorization_required` by
+running authorization again before retrying registration.
+
 Before opening a feature, inspect its exact authorization gap instead of
 waiting for an operation to fail:
 

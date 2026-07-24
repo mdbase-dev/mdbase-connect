@@ -5,6 +5,8 @@ import { runtimeConfigFromEnv } from "./runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
 import { WebPushTransport } from "./web-push.js";
+import { FcmTransport } from "./fcm.js";
+import { SignedWebhookTransport } from "./webhook.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -28,10 +30,24 @@ const { app } = await buildApp({
   trustProxy: runtime.trustProxy,
   allowInsecureManifests: process.env.MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS === "1",
   relayBroker,
-  notifications: runtime.vapid
+  notifications: runtime.vapid || runtime.fcm || runtime.webhookSigning
     ? {
-        publicKey: runtime.vapid.publicKey,
-        transport: new WebPushTransport(runtime.vapid)
+        ...(runtime.vapid ? { publicKey: runtime.vapid.publicKey } : {}),
+        transports: {
+          ...(runtime.vapid
+            ? { webPush: new WebPushTransport(runtime.vapid) }
+            : {}),
+          ...(runtime.fcm
+            ? { fcm: new FcmTransport({
+                ...(runtime.fcm.credentials
+                  ? { credentials: runtime.fcm.credentials }
+                  : {})
+              }) }
+            : {}),
+          ...(runtime.webhookSigning
+            ? { webhook: new SignedWebhookTransport(runtime.webhookSigning) }
+            : {})
+        }
       }
     : undefined
 });

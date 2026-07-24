@@ -732,6 +732,54 @@ select {
   grid-column: 1 / -1;
 }
 
+.notification-access {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.9fr) minmax(15rem, 1.2fr) auto;
+  grid-column: 1 / -1;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-access > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.notification-access strong {
+  font-size: 0.76rem;
+}
+
+.notification-access small {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.notification-access ul {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-access li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+}
+
+.notification-access code {
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
 .field-note {
   margin: -0.35rem 0 0;
   color: var(--ink-muted);
@@ -1105,6 +1153,14 @@ select {
 
   .approval-form {
     grid-template-columns: 1fr;
+  }
+
+  .notification-access {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-access ul {
+    grid-column: 1;
   }
 
   .approval-actions {

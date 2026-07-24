@@ -31,6 +31,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@mdbase/connect-webhooks": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.20.0",
     "@types/web-push": "^3.6.4",

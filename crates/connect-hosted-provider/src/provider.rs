@@ -3161,7 +3161,7 @@ fn application_change(
         ),
         (Some(record), None) => (
             "mdbase.record.deleted",
-            json!({ "path": record.path, "previous_types": record.types }),
+            json!({ "path": record.path, "types": record.types }),
         ),
         (Some(before), Some(after)) if before.path != after.path => (
             "mdbase.record.renamed",
@@ -3510,6 +3510,25 @@ pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleted_record_events_use_the_portable_types_field() {
+        let record = SyncRecord {
+            record_id: Uuid::new_v4(),
+            path: "tasks/deleted.md".to_string(),
+            revision: "sha256:deleted".to_string(),
+            frontmatter: Default::default(),
+            body: String::new(),
+            types: vec!["task".to_string()],
+        };
+        assert_eq!(
+            application_change(Some(&record), None),
+            (
+                "mdbase.record.deleted",
+                json!({ "path": "tasks/deleted.md", "types": ["task"] }),
+            )
+        );
+    }
 
     #[test]
     fn scopes_resources_and_records_consistently() {

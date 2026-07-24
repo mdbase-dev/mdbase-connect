@@ -37,6 +37,23 @@ interface ApplicationProvisions {
   types: TypeProvision[];
 }
 
+interface NotificationCriterion {
+  id: string;
+  event: ContractRequirement;
+  if?: { $expr: string };
+  debounce?: string;
+  minimum_interval?: string;
+  presentation: {
+    title: string;
+    body?: string;
+    tag?: string;
+  };
+}
+
+interface ApplicationNotifications {
+  criteria: NotificationCriterion[];
+}
+
 interface GrantScope {
   contracts: ContractRequirement[];
 }
@@ -65,6 +82,7 @@ interface ApplicationSummary {
   icon?: string;
   requirements: ApplicationRequirements;
   provisions?: ApplicationProvisions;
+  notifications: ApplicationNotifications;
 }
 
 interface GrantSummary {
@@ -90,6 +108,7 @@ interface PendingAuthorization {
   requested_operations: string[];
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
+  notifications: ApplicationNotifications;
   compatible_collection_ids: string[];
   provisionable_collection_ids: string[];
   expires_at: string;

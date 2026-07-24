@@ -10,6 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protocol.v2.schema.json"), "utf8"));
 const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.schema.json"), "utf8"));
 const manifestV2Schema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.v2.schema.json"), "utf8"));
+const notificationWebhookSchema = JSON.parse(readFileSync(resolve(here, "../schemas/notification-webhook.v1.schema.json"), "utf8"));
 const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/contract-extension.v1.schema.json"), "utf8"));
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v3.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
@@ -18,6 +19,7 @@ addFormats(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(manifestSchema);
 ajv.addSchema(manifestV2Schema);
+ajv.addSchema(notificationWebhookSchema);
 ajv.addSchema(contractSchema);
 ajv.addSchema(encryptedRelaySchema);
 ajv.addSchema(syncSchema);
@@ -32,9 +34,40 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(schema.$id));
   assert.ok(validator(manifestSchema.$id));
   assert.ok(validator(manifestV2Schema.$id));
+  assert.ok(validator(notificationWebhookSchema.$id));
   assert.ok(validator(contractSchema.$id));
   assert.ok(validator(encryptedRelaySchema.$id));
   assert.ok(validator(syncSchema.$id));
+});
+
+test("notification webhooks carry only an opaque wake-up signal", () => {
+  const validate = validator(notificationWebhookSchema.$id);
+  const webhook = {
+    type: "mdbase.notification.webhook",
+    version: 1,
+    delivery_id: "01911111-1111-7111-8111-111111111111",
+    connection_id: "01922222-2222-7222-8222-222222222222",
+    notification: {
+      type: "mdbase.notification",
+      version: 1,
+      signal_id: "signal_opaque",
+      criterion_id: "task.changed",
+      cursor: "42",
+      presentation: {
+        title: "Tasks changed",
+        body: "Open TaskNotes to refresh.",
+        tag: "task-change"
+      }
+    }
+  };
+  assert.equal(validate(webhook), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...webhook,
+    notification: {
+      ...webhook.notification,
+      path: "private/task.md"
+    }
+  }), false);
 });
 
 test("v2 application manifests declare authority-evaluated notification criteria", () => {
@@ -45,6 +78,10 @@ test("v2 application manifests declare authority-evaluated notification criteria
     homepage: "https://tasks.example/",
     redirect_uris: ["https://tasks.example/callback"],
     notifications: {
+      native_delivery: {
+        mode: "managed_fcm",
+        firebase_project_id: "tasks-production"
+      },
       criteria: [{
         id: "task.ready",
         event: { id: "mdbase.record.modified", version: 1 },
@@ -64,13 +101,45 @@ test("v2 application manifests declare authority-evaluated notification criteria
   assert.equal(validate({
     ...manifest,
     notifications: {
+      ...manifest.notifications,
       criteria: [{ ...manifest.notifications.criteria[0], presentation: { title: "${event.payload.path}" } }]
     }
   }), true, JSON.stringify(validate.errors));
   assert.equal(validate({
     ...manifest,
     notifications: {
+      ...manifest.notifications,
       criteria: [{ ...manifest.notifications.criteria[0], event: { id: "../private", version: 1 } }]
+    }
+  }), false);
+  assert.equal(validate({
+    ...manifest,
+    notifications: {
+      ...manifest.notifications,
+      native_delivery: {
+        mode: "webhook",
+        url: "https://hooks.tasks.example/mdbase"
+      }
+    }
+  }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...manifest,
+    notifications: {
+      ...manifest.notifications,
+      native_delivery: {
+        mode: "managed_fcm",
+        firebase_project_id: "../other-project"
+      }
+    }
+  }), false);
+  assert.equal(validate({
+    ...manifest,
+    notifications: {
+      ...manifest.notifications,
+      native_delivery: {
+        mode: "webhook",
+        url: "http://127.0.0.1/private"
+      }
     }
   }), false);
 });

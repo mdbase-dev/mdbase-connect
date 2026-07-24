@@ -3,7 +3,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { HostedProviderClient } from "./hosted-provider.js";
-import type { PushSubscriptionTarget, PushTransport } from "./notifications.js";
+import type {
+  FcmPushTarget,
+  FcmPushTransport,
+  NotificationSigningKey,
+  PushSubscriptionTarget,
+  PushTransport,
+  WebhookDeliveryTarget,
+  WebhookDeliveryTransport
+} from "./notifications.js";
 import { tokenHash } from "./security.js";
 
 class RecordingPushTransport implements PushTransport {
@@ -11,6 +19,31 @@ class RecordingPushTransport implements PushTransport {
 
   async send(target: PushSubscriptionTarget, payload: string): Promise<void> {
     this.deliveries.push({ target, payload });
+  }
+}
+
+class RecordingFcmTransport implements FcmPushTransport {
+  readonly deliveries: Array<{ target: FcmPushTarget; payload: string }> = [];
+
+  async send(target: FcmPushTarget, payload: string): Promise<void> {
+    this.deliveries.push({ target, payload });
+  }
+}
+
+class RecordingWebhookTransport implements WebhookDeliveryTransport {
+  readonly deliveries: Array<{ target: WebhookDeliveryTarget; payload: string }> = [];
+
+  async send(target: WebhookDeliveryTarget, payload: string): Promise<void> {
+    this.deliveries.push({ target, payload });
+  }
+
+  publicKeys(): NotificationSigningKey[] {
+    return [{
+      kty: "OKP",
+      crv: "Ed25519",
+      x: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      kid: "connect-test"
+    }];
   }
 }
 
@@ -104,6 +137,61 @@ describe("Web Push notifications", () => {
     });
     expect(undeclared.statusCode).toBe(403);
 
+    await fixture.db.query(
+      `UPDATE applications
+       SET notifications = $2::jsonb
+       WHERE id = (SELECT application_id FROM grants WHERE id = $1)`,
+      [
+        fixture.grantId,
+        JSON.stringify({
+          criteria: [
+            {
+              id: "task.ready",
+              event: { id: "mdbase.record.modified", version: 1 },
+              presentation: { title: "A task changed" }
+            },
+            {
+              id: "private.exfiltrate",
+              event: { id: "mdbase.record.modified", version: 1 },
+              presentation: { title: "Newly declared" }
+            }
+          ]
+        })
+      ]
+    );
+    const silentlyBroadened = await fixture.app.inject({
+      method: "POST",
+      url: "/v1/connectors/notification-signals",
+      headers: { authorization: `Bearer ${fixture.connectorToken}` },
+      payload: {
+        signal_id: "signal_manifest_broadened_012345",
+        grant_id: fixture.grantId,
+        criterion_id: "private.exfiltrate",
+        cursor: "2"
+      }
+    });
+    expect(silentlyBroadened.statusCode).toBe(403);
+    const registration = await fixture.app.inject({
+      method: "POST",
+      url: "/v1/notifications/channels",
+      headers: { authorization: `Bearer ${fixture.applicationToken}` },
+      payload: {
+        installation_id: "installation_broadening_012345",
+        criteria: ["private.exfiltrate"],
+        subscription: {
+          endpoint: "https://push.example/subscription/broadened",
+          keys: {
+            p256dh: "p256dh_012345678901234567890123456789",
+            auth: "auth_0123456789012345"
+          }
+        }
+      }
+    });
+    expect(registration.statusCode).toBe(400);
+    expect(registration.json().error.code).toBe(
+      "notification_reauthorization_required"
+    );
+
     await fixture.db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [fixture.grantId]);
     const revoked = await fixture.app.inject({
       method: "POST",
@@ -167,11 +255,112 @@ describe("Web Push notifications", () => {
       cursor: "77"
     });
   });
+
+  it("registers a managed FCM installation against the manifest project", async () => {
+    const fixture = await notificationFixture(false, {
+      nativeDelivery: {
+        mode: "managed_fcm",
+        firebase_project_id: "tasks-production"
+      }
+    });
+    const registered = await fixture.app.inject({
+      method: "POST",
+      url: "/v1/notifications/channels",
+      headers: { authorization: `Bearer ${fixture.applicationToken}` },
+      payload: {
+        installation_id: "native_installation_012345",
+        criteria: ["task.ready"],
+        transport: "fcm",
+        token: "fcm_registration_token_012345678901234567890123"
+      }
+    });
+    expect(registered.statusCode, registered.body).toBe(201);
+    expect(registered.json()).toMatchObject({
+      transport: "fcm",
+      criteria: ["task.ready"]
+    });
+
+    const accepted = await fixture.app.inject({
+      method: "POST",
+      url: "/v1/connectors/notification-signals",
+      headers: { authorization: `Bearer ${fixture.connectorToken}` },
+      payload: {
+        signal_id: "managed_fcm_signal_0123456789",
+        grant_id: fixture.grantId,
+        criterion_id: "task.ready",
+        cursor: "88"
+      }
+    });
+    expect(accepted.statusCode, accepted.body).toBe(202);
+    await eventually(() => fixture.fcm.deliveries.length === 1);
+    expect(fixture.fcm.deliveries[0].target).toEqual({
+      projectId: "tasks-production",
+      token: "fcm_registration_token_012345678901234567890123"
+    });
+    expect(JSON.parse(fixture.fcm.deliveries[0].payload)).toMatchObject({
+      signal_id: "managed_fcm_signal_0123456789",
+      cursor: "88"
+    });
+  });
+
+  it("delivers one signed-webhook route without requiring a device channel", async () => {
+    const fixture = await notificationFixture(false, {
+      nativeDelivery: {
+        mode: "webhook",
+        url: "https://hooks.tasks.example/mdbase"
+      }
+    });
+    const accepted = await fixture.app.inject({
+      method: "POST",
+      url: "/v1/connectors/notification-signals",
+      headers: { authorization: `Bearer ${fixture.connectorToken}` },
+      payload: {
+        signal_id: "webhook_signal_012345678901",
+        grant_id: fixture.grantId,
+        criterion_id: "task.ready",
+        cursor: "99"
+      }
+    });
+    expect(accepted.statusCode, accepted.body).toBe(202);
+    expect(accepted.json().deliveries).toBe(1);
+    await eventually(() => fixture.webhook.deliveries.length === 1);
+    const delivery = fixture.webhook.deliveries[0];
+    expect(delivery.target.url).toBe("https://hooks.tasks.example/mdbase");
+    expect(JSON.parse(delivery.payload)).toEqual({
+      type: "mdbase.notification.webhook",
+      version: 1,
+      delivery_id: delivery.target.deliveryId,
+      connection_id: fixture.grantId,
+      notification: {
+        type: "mdbase.notification",
+        version: 1,
+        signal_id: "webhook_signal_012345678901",
+        criterion_id: "task.ready",
+        cursor: "99",
+        presentation: {
+          title: "A task changed",
+          body: "Open Tasks to see the latest update.",
+          tag: "task-change"
+        }
+      }
+    });
+    expect(delivery.payload).not.toContain("path");
+    expect(delivery.payload).not.toContain("frontmatter");
+  });
 });
 
-async function notificationFixture(hosted = false) {
+async function notificationFixture(
+  hosted = false,
+  options: {
+    nativeDelivery?:
+      | { mode: "managed_fcm"; firebase_project_id: string }
+      | { mode: "webhook"; url: string };
+  } = {}
+) {
   const db = await createDatabase("memory");
   const transport = new RecordingPushTransport();
+  const fcm = new RecordingFcmTransport();
+  const webhook = new RecordingWebhookTransport();
   const hostedInternalToken = "hosted_internal_token_012345678901234567890123";
   const built = await buildApp({
     db,
@@ -187,7 +376,7 @@ async function notificationFixture(hosted = false) {
       : {}),
     notifications: {
       publicKey: "public_vapid_key",
-      transport,
+      transports: { webPush: transport, fcm, webhook },
       pollIntervalMs: 10
     }
   });
@@ -236,6 +425,9 @@ async function notificationFixture(hosted = false) {
       "https://tasks.example/",
       JSON.stringify(["https://tasks.example/callback"]),
       JSON.stringify({
+        ...(options.nativeDelivery
+          ? { native_delivery: options.nativeDelivery }
+          : {}),
         criteria: [{
           id: "task.ready",
           event: { id: "mdbase.record.modified", version: 1 },
@@ -251,8 +443,8 @@ async function notificationFixture(hosted = false) {
   await db.query(
     `INSERT INTO grants
        (id, user_id, application_id, ${hosted ? "hosted_collection_id" : "collection_id"},
-        operations, scope, application_origin)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)`,
+        operations, scope, application_origin, notification_criteria)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)`,
     [
       grantId,
       userId,
@@ -260,7 +452,16 @@ async function notificationFixture(hosted = false) {
       collectionId,
       JSON.stringify(["changes", "read"]),
       JSON.stringify({ contracts: [] }),
-      "https://tasks.example"
+      "https://tasks.example",
+      JSON.stringify([{
+        id: "task.ready",
+        event: { id: "mdbase.record.modified", version: 1 },
+        presentation: {
+          title: "A task changed",
+          body: "Open Tasks to see the latest update.",
+          tag: "task-change"
+        }
+      }])
     ]
   );
   await db.query(
@@ -277,6 +478,8 @@ async function notificationFixture(hosted = false) {
     app: built.app,
     db,
     transport,
+    fcm,
+    webhook,
     grantId,
     connectorToken,
     applicationToken,

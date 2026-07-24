@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/connect/schemas/notification-webhook.v1.json",
+  "title": "mdbase notification webhook v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "version",
+    "delivery_id",
+    "connection_id",
+    "notification"
+  ],
+  "properties": {
+    "type": { "const": "mdbase.notification.webhook" },
+    "version": { "const": 1 },
+    "delivery_id": { "type": "string", "format": "uuid" },
+    "connection_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Opaque application grant reference returned during authorization."
+    },
+    "notification": { "$ref": "#/$defs/notification" }
+  },
+  "$defs": {
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "signal_id",
+        "criterion_id",
+        "cursor",
+        "presentation"
+      ],
+      "properties": {
+        "type": { "const": "mdbase.notification" },
+        "version": { "const": 1 },
+        "signal_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "criterion_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "cursor": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "body": { "type": "string", "maxLength": 160 },
+            "tag": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        }
+      }
+    }
+  }
+}

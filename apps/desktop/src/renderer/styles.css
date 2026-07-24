@@ -121,6 +121,12 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 label > span, fieldset > legend { color: var(--muted); font-size: var(--type-supporting); font-weight: 700; }
 input, select { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--ink); background: var(--paper); font-size: var(--type-body); }
 .request-fields > label, .manual-app label, .manual-grant > label, .pairing-form label { display: grid; gap: 5px; }
+.notification-request { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(130px, 0.65fr) minmax(190px, 1.35fr); gap: 4px 16px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.notification-request > strong { font-size: var(--type-supporting); }
+.notification-request > small { color: var(--muted); font-size: var(--type-supporting); line-height: 1.45; }
+.notification-request ul { display: grid; grid-column: 2; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; }
+.notification-request li { display: flex; justify-content: space-between; gap: 8px; font-size: var(--type-supporting); }
+.notification-request li code { color: var(--muted); font-size: var(--type-action); white-space: nowrap; }
 fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 fieldset legend { margin-bottom: 6px; }
 .operation-choices { display: grid; grid-template-columns: repeat(2, minmax(105px, 1fr)); gap: 5px 10px; }

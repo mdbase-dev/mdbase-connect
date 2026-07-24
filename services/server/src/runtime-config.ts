@@ -3,6 +3,7 @@ import type { GoogleAuthConfig } from "./google-auth.js";
 import type { HostedProviderConfig } from "./hosted-provider.js";
 import type { RelayBrokerConfig } from "./relay-broker.js";
 import type { VapidConfig } from "./web-push.js";
+import type { WebhookSigningConfig } from "./webhook.js";
 
 export type RegistrationMode = "closed" | "open";
 
@@ -19,6 +20,8 @@ export interface RuntimeConfig {
   trustProxy: boolean;
   relayBroker: RelayBrokerConfig | null;
   vapid: VapidConfig | null;
+  fcm: { credentials?: Record<string, unknown> } | null;
+  webhookSigning: WebhookSigningConfig | null;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -105,6 +108,32 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       throw new Error("Web Push requires both VAPID public and private keys.");
     }
   }
+  if (config.webhookSigning) {
+    if (!/^[A-Za-z0-9._-]{1,100}$/.test(config.webhookSigning.keyId)) {
+      throw new Error("MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID is invalid.");
+    }
+    if (!config.webhookSigning.privateKeyPem.includes("PRIVATE KEY")) {
+      throw new Error("Webhook signing requires a PEM-encoded Ed25519 private key.");
+    }
+    const keyIds = new Set([config.webhookSigning.keyId]);
+    for (const key of config.webhookSigning.previousPublicKeys ?? []) {
+      if (
+        key.kty !== "OKP"
+        || key.crv !== "Ed25519"
+        || key.alg !== "EdDSA"
+        || typeof key.x !== "string"
+        || !key.x
+        || typeof key.kid !== "string"
+        || !/^[A-Za-z0-9._-]{1,100}$/.test(key.kid)
+      ) {
+        throw new Error("Previous webhook verification keys must be Ed25519 public JWKs.");
+      }
+      if (keyIds.has(key.kid)) {
+        throw new Error("Webhook signing key IDs must be unique.");
+      }
+      keyIds.add(key.kid);
+    }
+  }
   return { ...config, publicUrl: publicUrl.origin, hostedProvider };
 }
 
@@ -138,6 +167,21 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const vapidPublicKey = env.MDBASE_CONNECT_VAPID_PUBLIC_KEY?.trim() ?? "";
   const vapidPrivateKey = env.MDBASE_CONNECT_VAPID_PRIVATE_KEY?.trim() ?? "";
   const vapidConfigured = Boolean(vapidSubject || vapidPublicKey || vapidPrivateKey);
+  const fcmCredentialsSource = env.MDBASE_CONNECT_FCM_CREDENTIALS_JSON?.trim() ?? "";
+  const fcmEnabled = env.MDBASE_CONNECT_FCM_ENABLED === "1" || Boolean(fcmCredentialsSource);
+  const fcmCredentials = fcmCredentialsSource
+    ? parseJsonObject(fcmCredentialsSource, "MDBASE_CONNECT_FCM_CREDENTIALS_JSON")
+    : undefined;
+  const webhookKeyId = env.MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID?.trim() ?? "";
+  const webhookPrivateKey = env.MDBASE_CONNECT_WEBHOOK_SIGNING_PRIVATE_KEY?.trim() ?? "";
+  const webhookPreviousKeysSource =
+    env.MDBASE_CONNECT_WEBHOOK_PREVIOUS_PUBLIC_KEYS_JSON?.trim() ?? "";
+  const webhookPreviousPublicKeys = webhookPreviousKeysSource
+    ? parseWebhookPublicKeys(webhookPreviousKeysSource)
+    : [];
+  const webhookConfigured = Boolean(
+    webhookKeyId || webhookPrivateKey || webhookPreviousKeysSource
+  );
   if (vapidConfigured && !(vapidSubject && vapidPublicKey && vapidPrivateKey)) {
     throw new Error(
       "MDBASE_CONNECT_VAPID_SUBJECT, MDBASE_CONNECT_VAPID_PUBLIC_KEY, and MDBASE_CONNECT_VAPID_PRIVATE_KEY must be configured together."
@@ -146,6 +190,11 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   if ((relayBrokerServers.length > 0) !== Boolean(relayBrokerToken)) {
     throw new Error(
       "MDBASE_CONNECT_RELAY_NATS_URL and MDBASE_CONNECT_RELAY_NATS_TOKEN must be configured together."
+    );
+  }
+  if (webhookConfigured && !(webhookKeyId && webhookPrivateKey)) {
+    throw new Error(
+      "MDBASE_CONNECT_WEBHOOK_SIGNING_KEY_ID and MDBASE_CONNECT_WEBHOOK_SIGNING_PRIVATE_KEY must be configured together."
     );
   }
   return validateRuntimeConfig({
@@ -168,8 +217,48 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       : null,
     vapid: vapidConfigured
       ? { subject: vapidSubject, publicKey: vapidPublicKey, privateKey: vapidPrivateKey }
+      : null,
+    fcm: fcmEnabled ? { ...(fcmCredentials ? { credentials: fcmCredentials } : {}) } : null,
+    webhookSigning: webhookConfigured
+      ? {
+          keyId: webhookKeyId,
+          privateKeyPem: webhookPrivateKey,
+          previousPublicKeys: webhookPreviousPublicKeys
+        }
       : null
   });
+}
+
+function parseWebhookPublicKeys(
+  value: string
+): NonNullable<WebhookSigningConfig["previousPublicKeys"]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(
+      "MDBASE_CONNECT_WEBHOOK_PREVIOUS_PUBLIC_KEYS_JSON must be valid JSON."
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      "MDBASE_CONNECT_WEBHOOK_PREVIOUS_PUBLIC_KEYS_JSON must contain an array."
+    );
+  }
+  return parsed as NonNullable<WebhookSigningConfig["previousPublicKeys"]>;
+}
+
+function parseJsonObject(value: string, name: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${name} must be valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${name} must contain a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function commaSeparatedSet(value: string | undefined): Set<string> {

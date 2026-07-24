@@ -43,7 +43,8 @@
           "type": "array",
           "maxItems": 50,
           "items": { "$ref": "#/$defs/notificationCriterion" }
-        }
+        },
+        "native_delivery": { "$ref": "#/$defs/nativeNotificationDelivery" }
       }
     }
   },
@@ -133,6 +134,37 @@
           }
         }
       }
+    },
+    "nativeNotificationDelivery": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "firebase_project_id"],
+          "properties": {
+            "mode": { "const": "managed_fcm" },
+            "firebase_project_id": {
+              "type": "string",
+              "minLength": 6,
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "url"],
+          "properties": {
+            "mode": { "const": "webhook" },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://"
+            }
+          }
+        }
+      ]
     }
   }
 }

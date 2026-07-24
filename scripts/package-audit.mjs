@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
-const packages = ["protocol", "client", "devkit", "sync", "tasknotes"];
+const packages = ["protocol", "client", "devkit", "sync", "tasknotes", "webhooks"];
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-packages-"));
 
 try {
