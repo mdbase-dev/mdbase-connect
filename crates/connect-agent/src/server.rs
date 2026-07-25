@@ -542,6 +542,13 @@ impl AgentState {
                 }
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
+            ControlCommand::CollectionAddCopy(params) => {
+                let result = self.registry.add_copy(params.path);
+                if result.is_ok() {
+                    self.refresh_watchers();
+                }
+                result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
+            }
             ControlCommand::CollectionCreate(params) => {
                 let result = self.registry.create(params.path, params.name.as_deref());
                 if result.is_ok() {

@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
-import { requestAgent } from "./control-client";
+import { AgentControlError, requestAgent } from "./control-client";
 import { relaunchAfterAgentStops } from "./agent-lifecycle";
 
 let mainWindow: BrowserWindow | null = null;
@@ -162,7 +162,22 @@ function registerIpc(): void {
     trustedIpc(event);
     const path = await chooseFolder();
     if (!path) return null;
-    return requestReadyAgent("collections.add", { path });
+    try {
+      return {
+        status: "added",
+        collection: await requestReadyAgent("collections.add", { path })
+      };
+    } catch (error) {
+      if (error instanceof AgentControlError && error.code === "duplicate_collection_identity") {
+        return { status: "copy_requires_new_identity", path };
+      }
+      throw error;
+    }
+  });
+  ipcMain.handle("connect:collections:add-copy", async (event, path: unknown) => {
+    trustedIpc(event);
+    if (typeof path !== "string" || path.length === 0) throw new Error("Choose a folder.");
+    return requestReadyAgent("collections.add-copy", { path });
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);

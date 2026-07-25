@@ -79,6 +79,9 @@ enum CollectionCommand {
     Add {
         path: PathBuf,
     },
+    AddCopy {
+        path: PathBuf,
+    },
     Create {
         path: PathBuf,
         #[arg(long)]
@@ -105,6 +108,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Collection(CollectionCommand::List) => ControlCommand::CollectionList,
         Command::Collection(CollectionCommand::Add { path }) => {
             ControlCommand::CollectionAdd(CollectionPathParams {
+                path: path.to_string_lossy().to_string(),
+            })
+        }
+        Command::Collection(CollectionCommand::AddCopy { path }) => {
+            ControlCommand::CollectionAddCopy(CollectionPathParams {
                 path: path.to_string_lossy().to_string(),
             })
         }

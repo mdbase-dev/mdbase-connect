@@ -38,6 +38,8 @@ pub enum ControlCommand {
     CollectionList,
     #[serde(rename = "collections.add")]
     CollectionAdd(CollectionPathParams),
+    #[serde(rename = "collections.add-copy")]
+    CollectionAddCopy(CollectionPathParams),
     #[serde(rename = "collections.create")]
     CollectionCreate(CollectionCreateParams),
     #[serde(rename = "collections.update-metadata")]
@@ -820,6 +822,24 @@ mod tests {
             serde_json::json!({
                 "id": "00000000-0000-0000-0000-000000000000",
                 "method": "collections.list"
+            })
+        );
+    }
+
+    #[test]
+    fn copied_collection_registration_has_an_explicit_wire_command() {
+        let request = ControlRequest {
+            id: Uuid::nil(),
+            command: ControlCommand::CollectionAddCopy(CollectionPathParams {
+                path: "/collections/notes-copy".to_string(),
+            }),
+        };
+        assert_eq!(
+            serde_json::to_value(request).unwrap(),
+            serde_json::json!({
+                "id": "00000000-0000-0000-0000-000000000000",
+                "method": "collections.add-copy",
+                "params": { "path": "/collections/notes-copy" }
             })
         );
     }

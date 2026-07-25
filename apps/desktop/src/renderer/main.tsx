@@ -62,6 +62,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [copiedCollectionPath, setCopiedCollectionPath] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newPath, setNewPath] = useState("");
 
@@ -117,8 +118,21 @@ function App() {
 
   async function addExisting() {
     await act(async () => {
-      const added = await window.mdbaseConnect.addCollection();
-      if (added) setNotice(`${added.display_name} is now available to mdbase connect.`);
+      const result = await window.mdbaseConnect.addCollection();
+      if (result?.status === "added") {
+        setNotice(`${result.collection.display_name} is now available to mdbase connect.`);
+      } else if (result?.status === "copy_requires_new_identity") {
+        setCopiedCollectionPath(result.path);
+      }
+    });
+  }
+
+  async function registerCopiedCollection() {
+    if (!copiedCollectionPath) return;
+    await act(async () => {
+      const added = await window.mdbaseConnect.addCopiedCollection(copiedCollectionPath);
+      setCopiedCollectionPath(null);
+      setNotice(`${added.display_name} was registered as an independent collection.`);
     });
   }
 
@@ -200,8 +214,11 @@ function App() {
           <Collections
             collections={collections}
             busy={busy}
+            copiedCollectionPath={copiedCollectionPath}
             onAdd={() => void addExisting()}
+            onCancelCopy={() => setCopiedCollectionPath(null)}
             onCreate={() => setCreateOpen(true)}
+            onRegisterCopy={() => void registerCopiedCollection()}
             onAct={act}
             onNotice={setNotice}
           />
@@ -302,11 +319,14 @@ function OverviewRow({ label, value, detail, action, onClick }: { label: string;
   return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
 }
 
-function Collections({ collections, busy, onAdd, onCreate, onAct, onNotice }: {
+function Collections({ collections, busy, copiedCollectionPath, onAdd, onCancelCopy, onCreate, onRegisterCopy, onAct, onNotice }: {
   collections: CollectionSummary[];
   busy: boolean;
+  copiedCollectionPath: string | null;
   onAdd(): void;
+  onCancelCopy(): void;
   onCreate(): void;
+  onRegisterCopy(): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
@@ -316,6 +336,21 @@ function Collections({ collections, busy, onAdd, onCreate, onAct, onNotice }: {
         <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
         <button className="button primary" disabled={busy} onClick={onCreate}>Create collection</button>
       </SectionHeading>
+      {copiedCollectionPath && (
+        <section className="copy-registration" aria-labelledby="copy-title">
+          <div>
+            <p className="eyebrow">Copied collection</p>
+            <h2 id="copy-title">Register this copy independently?</h2>
+            <p>This folder has the same Connect identity as a registered collection. Continuing writes a new identity only to the selected copy’s <code>mdbase.yaml</code>. The original is not changed.</p>
+            <code>{copiedCollectionPath}</code>
+            <small>Apps will treat the copy as a separate collection with its own links and access approvals.</small>
+          </div>
+          <div className="copy-registration-actions">
+            <button className="button secondary" disabled={busy} onClick={onCancelCopy}>Cancel</button>
+            <button className="button primary" disabled={busy} onClick={onRegisterCopy}>Register copy</button>
+          </div>
+        </section>
+      )}
       {collections.length === 0 ? (
         <Empty title="No collections registered" text="Add a folder with an existing mdbase.yaml, or create a new collection." action="Create the first collection" onAction={onCreate} />
       ) : (

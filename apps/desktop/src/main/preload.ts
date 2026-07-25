@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
+  addCopiedCollection: (path: string) =>
+    ipcRenderer.invoke("connect:collections:add-copy", path),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
   createCollection: (input: { path: string; name: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),

@@ -38,7 +38,11 @@ The identity follows the folder when it is moved or renamed; absolute paths are
 never identities and never leave the connector. If a copied folder presents
 the same ID while the original remains registered, the connector rejects the
 copy and asks the user to establish a distinct identity instead of silently
-aliasing two authorities.
+aliasing two authorities. The desktop's explicit **Register copy** action, or
+`mdbase-connect collection add-copy PATH`, writes a new random ID only after
+the connector has proved that the selected path is a copy of a different,
+still-registered folder. It refuses the registered original, a moved folder,
+and a collection that can be registered normally.
 
 The browser SDK is multi-collection by default. `MdbaseConnect` manages the
 saved authorization set and `MdbaseConnection` is permanently bound to one

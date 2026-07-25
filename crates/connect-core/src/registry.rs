@@ -38,6 +38,13 @@ pub enum ConnectError {
     CollectionInit(String),
     #[error("Collection failed to open: {0}")]
     CollectionOpen(String),
+    #[error("Collection identity {collection_id} is already registered at {existing_path}")]
+    DuplicateCollectionIdentity {
+        collection_id: Uuid,
+        existing_path: String,
+    },
+    #[error("The selected folder is not a registered collection copy: {0}")]
+    NotARegisteredCollectionCopy(String),
     #[error("Unsupported collection operation: {0}")]
     UnsupportedOperation(String),
     #[error("Application access denied: {0}")]
@@ -71,6 +78,8 @@ impl ConnectError {
             Self::CollectionNotFound(_) => "collection_not_found",
             Self::CollectionInit(_) => "collection_init_failed",
             Self::CollectionOpen(_) => "collection_open_failed",
+            Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
+            Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::AccessDenied(_) => "access_denied",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
@@ -386,10 +395,10 @@ impl CollectionRegistry {
             .optional()?;
         if let Some(existing_path) = existing_path.as_deref() {
             if existing_path != path_string && Path::new(existing_path).exists() {
-                return Err(ConnectError::CollectionOpen(format!(
-                    "Collection identity {id} is already registered at {existing_path}. \
-                     Give copied collections a new {CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID}."
-                )));
+                return Err(ConnectError::DuplicateCollectionIdentity {
+                    collection_id: id,
+                    existing_path: existing_path.to_string(),
+                });
             }
         }
 
@@ -417,6 +426,55 @@ impl CollectionRegistry {
             .insert(id, provider);
 
         self.get(id)
+    }
+
+    pub fn add_copy(&self, path: impl AsRef<Path>) -> Result<CollectionSummary, ConnectError> {
+        let requested_path = path.as_ref();
+        if !requested_path.exists() {
+            return Err(ConnectError::PathNotFound(
+                requested_path.display().to_string(),
+            ));
+        }
+        let path = requested_path.canonicalize()?;
+        if !path.join("mdbase.yaml").is_file() {
+            return Err(ConnectError::NotACollection(path.display().to_string()));
+        }
+        FilesystemProvider::open(&path)?;
+
+        let copied_id = read_collection_id(&path)?.ok_or_else(|| {
+            ConnectError::NotARegisteredCollectionCopy(
+                "The collection has no existing Connect identity; register it normally."
+                    .to_string(),
+            )
+        })?;
+        let existing_path = self
+            .connection()?
+            .query_row(
+                "SELECT path FROM collections WHERE id = ?1",
+                [copied_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(existing_path) = existing_path else {
+            return Err(ConnectError::NotARegisteredCollectionCopy(
+                "Its identity is not registered on this computer; register it normally."
+                    .to_string(),
+            ));
+        };
+        if existing_path == path.to_string_lossy() {
+            return Err(ConnectError::NotARegisteredCollectionCopy(
+                "The selected folder is the registered original.".to_string(),
+            ));
+        }
+        if !Path::new(&existing_path).exists() {
+            return Err(ConnectError::NotARegisteredCollectionCopy(
+                "The registered path no longer exists; register this folder normally to record its move."
+                    .to_string(),
+            ));
+        }
+
+        write_collection_id(&path, Uuid::new_v4())?;
+        self.add(path)
     }
 
     pub fn create(
@@ -1877,10 +1935,19 @@ struct CollectionMetadata {
 }
 
 fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
+    if let Some(id) = read_collection_id(root)? {
+        return Ok(id);
+    }
+    let id = Uuid::new_v4();
+    write_collection_id(root, id)?;
+    Ok(id)
+}
+
+fn read_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     let config_path = root.join("mdbase.yaml");
     let source = fs::read_to_string(&config_path)?;
-    let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
-    let mapping = config.as_mapping_mut().ok_or_else(|| {
+    let config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+    let mapping = config.as_mapping().ok_or_else(|| {
         ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
     })?;
     let extension_key = serde_yaml::Value::String(CONNECT_EXTENSION.to_string());
@@ -1896,14 +1963,24 @@ fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
                 "{CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID} must be a UUID string."
             ))
         })?;
-        return Uuid::parse_str(value).map_err(|_| {
+        return Uuid::parse_str(value).map(Some).map_err(|_| {
             ConnectError::CollectionOpen(format!(
                 "{CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID} must be a valid UUID."
             ))
         });
     }
+    Ok(None)
+}
 
-    let id = Uuid::new_v4();
+fn write_collection_id(root: &Path, id: Uuid) -> Result<(), ConnectError> {
+    let config_path = root.join("mdbase.yaml");
+    let source = fs::read_to_string(&config_path)?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+    let mapping = config.as_mapping_mut().ok_or_else(|| {
+        ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
+    })?;
+    let extension_key = serde_yaml::Value::String(CONNECT_EXTENSION.to_string());
+    let collection_id_key = serde_yaml::Value::String(CONNECT_COLLECTION_ID.to_string());
     let extension = mapping
         .entry(extension_key)
         .or_insert_with(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
@@ -1921,7 +1998,7 @@ fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
     temporary
         .persist(&config_path)
         .map_err(|error| ConnectError::Io(error.error))?;
-    Ok(id)
+    Ok(())
 }
 
 fn read_collection_metadata(root: &Path) -> Result<CollectionMetadata, ConnectError> {
@@ -2240,10 +2317,53 @@ mod tests {
 
         assert!(matches!(
             registry.add(&copy),
-            Err(ConnectError::CollectionOpen(message))
-                if message.contains(&created.id.to_string())
-                    && message.contains(CONNECT_COLLECTION_ID)
+            Err(ConnectError::DuplicateCollectionIdentity {
+                collection_id,
+                existing_path,
+            }) if collection_id == created.id
+                && Path::new(&existing_path) == original.canonicalize().unwrap()
         ));
+    }
+
+    #[test]
+    fn copied_collection_can_be_registered_with_a_new_identity() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let original = collection_parent.path().join("notes");
+        let copy = collection_parent.path().join("notes-copy");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+
+        let created = registry.create(&original, Some("Notes")).unwrap();
+        fs::create_dir_all(&copy).unwrap();
+        fs::copy(original.join("mdbase.yaml"), copy.join("mdbase.yaml")).unwrap();
+        fs::create_dir_all(copy.join("_types")).unwrap();
+
+        let registered_copy = registry.add_copy(&copy).unwrap();
+        assert_ne!(registered_copy.id, created.id);
+        assert_eq!(registry.get(created.id).unwrap().id, created.id);
+        assert_eq!(
+            read_collection_id(&original).unwrap(),
+            Some(created.id),
+            "registering the copy must never rewrite the original"
+        );
+        assert_eq!(read_collection_id(&copy).unwrap(), Some(registered_copy.id));
+        assert_eq!(registry.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn new_identity_command_refuses_the_registered_original() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let original = collection_parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let created = registry.create(&original, Some("Notes")).unwrap();
+
+        assert!(matches!(
+            registry.add_copy(&original),
+            Err(ConnectError::NotARegisteredCollectionCopy(message))
+                if message.contains("registered original")
+        ));
+        assert_eq!(read_collection_id(&original).unwrap(), Some(created.id));
     }
 
     #[test]
