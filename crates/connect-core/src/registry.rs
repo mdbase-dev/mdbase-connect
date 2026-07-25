@@ -53,6 +53,10 @@ pub enum ConnectError {
     Serialization(#[from] serde_json::Error),
     #[error("Cloud control error: {0}")]
     Cloud(String),
+    #[error("Invalid timer operation: {0}")]
+    InvalidTimer(String),
+    #[error("Timer authority error: {0}")]
+    TimerRuntime(String),
     #[error(transparent)]
     Provider(#[from] mdbase::runtime::ProviderError),
 }
@@ -74,6 +78,8 @@ impl ConnectError {
             Self::Config(_) => "invalid_config",
             Self::Serialization(_) => "serialization_failed",
             Self::Cloud(_) => "cloud_control_failed",
+            Self::InvalidTimer(_) => "invalid_timer_request",
+            Self::TimerRuntime(_) => "timer_runtime_failed",
             Self::Provider(_) => "collection_provider_failed",
         }
     }
@@ -2006,7 +2012,18 @@ fn operation_invalidation(
 fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
     if profile != SpecProfile::V03 {
         return &[
-            "describe", "changes", "read", "validate", "create", "update", "delete", "rename",
+            "describe",
+            "changes",
+            "read",
+            "validate",
+            "create",
+            "update",
+            "delete",
+            "rename",
+            "list_timers",
+            "put_timer",
+            "cancel_timer",
+            "reconcile_timers",
         ];
     }
     &[
@@ -2028,6 +2045,10 @@ fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
         "read_type",
         "create_type",
         "update_type",
+        "list_timers",
+        "put_timer",
+        "cancel_timer",
+        "reconcile_timers",
     ]
 }
 

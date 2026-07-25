@@ -70,6 +70,34 @@ review it.
 `timer.fired` is the portable scheduling event. The authority stores one-shot,
 generation-fenced timers durably and fires overdue timers once after restart.
 An application can use that event for reminders without remaining connected.
+Timer operations are exact grant permissions, and every timer is namespaced
+under the calling grant before it reaches Runtime. A timer can therefore wake
+only the criterion that created it, even when several applications use the
+same collection authority.
+
+Declare a `timer.fired` criterion, request the timer operations, and reconcile
+the desired namespace whenever application state changes:
+
+```ts
+await connect.reconcileTimers({
+  namespace: "task-reminders",
+  criterion_id: "task.reminder",
+  timers: [{
+    id: "task-123:reminder-1",
+    fire_at: "2026-07-25T10:00:00Z",
+    data: { kind: "task_reminder" }
+  }]
+});
+```
+
+`reconcileTimers` is atomic: unchanged timers retain their generation and fired
+state, changed timers receive a new generation, new timers are scheduled, and
+active timers omitted from the desired set are cancelled. `putTimer`,
+`cancelTimer`, and `listTimers` support incremental management. Timer IDs and
+optional data remain at the authority; neither is copied into the push signal.
+Namespaces contain letters, numbers, dots, underscores, and dashes, and one
+reconciliation accepts at most 10,000 timers with up to 16 KiB of private data
+per timer.
 
 ## Browser registration
 
@@ -119,7 +147,7 @@ an FCM registration token and registers it after a user explicitly opts in:
 ```ts
 await connect.registerNativeNotifications({
   token: await nativeMessaging.getToken(),
-  criteria: ["task.changed"]
+  criteria: ["task.reminder"]
 });
 ```
 

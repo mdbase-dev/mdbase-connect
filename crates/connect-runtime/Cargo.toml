@@ -7,9 +7,14 @@ repository.workspace = true
 description = "Connect-specific adapters for the provider-neutral mdbase runtime"
 
 [dependencies]
+chrono.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-runtime.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -21,7 +21,7 @@ import {
 import { collectionCompatibility } from "./compatibility";
 import "./styles.css";
 
-const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type"];
+const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
 
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
@@ -1073,6 +1073,10 @@ function operationLabel(operation: string) {
     execute_view: "Run saved views",
     read_view_source: "Inspect saved-view definitions",
     create_view_source: "Create saved views",
+    list_timers: "List application timers",
+    put_timer: "Create or update timers",
+    cancel_timer: "Cancel timers",
+    reconcile_timers: "Reconcile application timers",
     update_view_source: "Change saved views",
     delete_view_source: "Delete saved views",
     read_type: "Inspect type definitions",

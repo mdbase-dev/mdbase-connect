@@ -71,17 +71,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (runtime_events, runtime_event_rx) = tokio::sync::mpsc::unbounded_channel();
     let watcher =
         CollectionWatchService::start_with_runtime_events(registry.clone(), Some(runtime_events));
-    let _runtime_notifications = runtime_notifications::start(
+    let (runtime_timers, _runtime_notifications) = runtime_notifications::start(
         &state_dir,
         registry.clone(),
         cloud.clone(),
         runtime_event_rx,
     );
-    let state = Arc::new(AgentState::with_identity(
+    let state = Arc::new(AgentState::with_identity_and_timers(
         registry.clone(),
         watcher.clone(),
         cloud,
         relay_identity,
+        runtime_timers,
     ));
     let relay = match (args.server_url, args.connector_token) {
         (Some(server_url), Some(connector_token)) => Some((server_url, connector_token)),

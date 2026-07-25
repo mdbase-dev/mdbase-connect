@@ -3,7 +3,7 @@ use chrono::Utc;
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
     compose_notification_registry, drain_notification_runtime, notification_event_envelope,
-    AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID,
+    perform_timer_operation, AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID,
 };
 use mdbase_runtime::{
     ActionDispatch, ActionProvider, ActionResponse, AuthorizationDecision, DispatchAuthorizer,
@@ -102,6 +102,43 @@ impl HostedNotificationRuntime {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn timer_operation(
+        &self,
+        collection_id: Uuid,
+        grant_id: Uuid,
+        operation: &str,
+        input: Value,
+    ) -> ApiResult<Value> {
+        let grant = sqlx::query_scalar::<_, Value>(
+            "SELECT grant_json FROM hosted_provider_notification_grants
+             WHERE grant_id = $1 AND collection_id = $2",
+        )
+        .bind(grant_id)
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::forbidden(
+                "timer_grant_unavailable",
+                "The application grant is not active in this timer authority.",
+            )
+        })
+        .and_then(|value| {
+            serde_json::from_value::<GrantSummary>(value)
+                .map_err(|error| ApiError::internal(error.to_string()))
+        })?;
+        let runtime = self.runtime(collection_id).await?;
+        perform_timer_operation(&runtime, &grant, operation, input)
+            .await
+            .map_err(|error| {
+                if error.internal {
+                    ApiError::internal(error.message)
+                } else {
+                    ApiError::bad_request("invalid_timer_request", error.message)
+                }
+            })
     }
 
     pub async fn recover(&self, limit: usize) -> ApiResult<usize> {
@@ -448,6 +485,23 @@ impl DispatchAuthorizer for HostedNotificationAuthorizer {
             );
         }
         let event_type = request.event.get("type").and_then(Value::as_str);
+        if event_type == Some("timer.fired")
+            && (request
+                .event
+                .pointer("/payload/data/grant_id")
+                .and_then(Value::as_str)
+                != Some(grant_id.to_string().as_str())
+                || request
+                    .event
+                    .pointer("/payload/data/criterion_id")
+                    .and_then(Value::as_str)
+                    != Some(criterion_id))
+        {
+            return denied(
+                "notification_timer_owner_mismatch",
+                "The timer does not belong to this grant and criterion.",
+            );
+        }
         if grant.notification_criteria.iter().all(|criterion| {
             criterion.id != criterion_id || Some(criterion.event.id.as_str()) != event_type
         }) {

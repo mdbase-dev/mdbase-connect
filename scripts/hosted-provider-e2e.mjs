@@ -143,6 +143,8 @@ try {
   const notificationReplicaId = crypto.randomUUID();
   const notificationToken = `notification-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   const notificationGrantId = crypto.randomUUID();
+  const timerReplicaId = crypto.randomUUID();
+  const timerToken = `timer-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(notificationProvider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
@@ -167,6 +169,23 @@ try {
   );
   await internalRequest(
     notificationProvider.url,
+    `/internal/v1/collections/${notificationCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: timerReplicaId,
+        name: "Task reminder timer capability",
+        purpose: "application",
+        mode: "read_write",
+        allowed_types: ["task"],
+        allowed_operations: ["list_timers", "reconcile_timers"],
+        grant_id: notificationGrantId,
+        token: timerToken
+      }
+    }
+  );
+  await internalRequest(
+    notificationProvider.url,
     `/internal/v1/collections/${notificationCollectionId}/notification-grants/${notificationGrantId}`,
     {
       method: "PUT",
@@ -178,13 +197,20 @@ try {
         application_origin: "https://tasks.example",
         collection_id: notificationCollectionId,
         collection_name: "Notification tasks",
-        operations: ["changes"],
+        operations: ["changes", "list_timers", "reconcile_timers"],
         scope: { contracts: [], access: "full_collection" },
-        notification_criteria: [{
-          id: "task.created",
-          event: { id: "mdbase.record.created", version: 1 },
-          presentation: { title: "A task was created" }
-        }],
+        notification_criteria: [
+          {
+            id: "task.created",
+            event: { id: "mdbase.record.created", version: 1 },
+            presentation: { title: "A task was created" }
+          },
+          {
+            id: "task.reminder",
+            event: { id: "timer.fired", version: 1 },
+            presentation: { title: "Task reminder" }
+          }
+        ],
         created_at: new Date().toISOString()
       }
     }
@@ -226,6 +252,36 @@ try {
   assert.equal(notificationSignals[1].criterion_id, "task.created");
   assert.equal(Number(notificationSignals[0].cursor) < Number(notificationSignals[1].cursor), true);
   assert.notEqual(notificationSignals[0].signal_id, notificationSignals[1].signal_id);
+  const timerResponse = await rawRequest(
+    notificationProvider.url,
+    `/v1/hosted/collections/${notificationCollectionId}/operations/reconcile_timers`,
+    {
+      method: "POST",
+      token: timerToken,
+      body: {
+        namespace: "task-reminders",
+        criterion_id: "task.reminder",
+        timers: [{
+          id: "private-task:private-reminder",
+          fire_at: new Date(Date.now() - 1_000).toISOString(),
+          data: { private: "timer-state-stays-hosted" }
+        }]
+      }
+    }
+  );
+  assert.equal(timerResponse.status, 200);
+  const timerResult = timerResponse.body.result;
+  assert.equal(timerResult.timers[0].id, "private-task:private-reminder");
+  assert.equal(JSON.stringify(timerResult).includes(notificationGrantId), false);
+  await waitFor(
+    () => notificationSignals.length === 3,
+    "Hosted authority did not fire the application timer",
+    600
+  );
+  assert.equal(notificationSignals[2].grant_id, notificationGrantId);
+  assert.equal(notificationSignals[2].criterion_id, "task.reminder");
+  assert.equal(JSON.stringify(notificationSignals[2]).includes("private-task"), false);
+  assert.equal(JSON.stringify(notificationSignals[2]).includes("timer-state-stays-hosted"), false);
   await stopProvider(notificationProvider);
   await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   notificationCallbackServer = undefined;
@@ -1109,6 +1165,7 @@ schema:
         replica_id: benchmarkReplicaId,
         name: "Performance probe",
         purpose: "application",
+        grant_id: crypto.randomUUID(),
         mode: "read_only",
         allowed_types: ["task"],
         allowed_operations: ["read", "query"],

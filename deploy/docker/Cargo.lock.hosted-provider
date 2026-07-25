@@ -1693,10 +1693,13 @@ dependencies = [
 name = "mdbase-connect-runtime"
 version = "0.1.0-beta.1"
 dependencies = [
+ "chrono",
  "mdbase",
  "mdbase-connect-protocol",
  "mdbase-runtime",
+ "serde",
  "serde_json",
+ "tokio",
  "tracing",
  "uuid",
 ]

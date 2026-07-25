@@ -58,7 +58,11 @@ export type CollectionOperation =
   | "rename"
   | "read_type"
   | "create_type"
-  | "update_type";
+  | "update_type"
+  | "list_timers"
+  | "put_timer"
+  | "cancel_timer"
+  | "reconcile_timers";
 
 export interface MdbaseAppManifestV1 {
   manifest_version: 1;

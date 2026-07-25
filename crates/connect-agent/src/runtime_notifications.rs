@@ -6,7 +6,8 @@ use mdbase_connect_core::CollectionRegistry;
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
     compose_notification_registry, drain_notification_runtime, notification_event_envelope,
-    AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID,
+    perform_timer_operation, AuthorityEvent, TimerOperationError, NOTIFICATION_ACTION_ID,
+    NOTIFICATION_EXECUTOR_ID,
 };
 use mdbase_runtime::{
     ActionDispatch, ActionProvider, ActionResponse, AuthorizationDecision, DispatchAuthorizer,
@@ -25,9 +26,10 @@ pub fn start(
     local_registry: CollectionRegistry,
     cloud: Option<CloudControlClient>,
     mut events: tokio::sync::mpsc::UnboundedReceiver<CollectionRuntimeEvent>,
-) -> tokio::task::JoinHandle<()> {
+) -> (RuntimeTimerHandle, tokio::task::JoinHandle<()>) {
     let runtime_dir = state_dir.join("runtime");
-    tokio::spawn(async move {
+    let (commands, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<TimerCommand>();
+    let task = tokio::spawn(async move {
         if let Err(error) = std::fs::create_dir_all(&runtime_dir) {
             tracing::error!(%error, path = %runtime_dir.display(), "failed to create runtime state directory");
             return;
@@ -48,12 +50,76 @@ pub fn start(
                         tracing::warn!(code = error.code(), %error, "notification runtime rejected a collection event");
                     }
                 }
+                command = command_rx.recv() => {
+                    let Some(command) = command else { return; };
+                    let runtime = service.runtime(command.collection_id);
+                    let result = match runtime {
+                        Ok(runtime) => perform_timer_operation(
+                            runtime,
+                            &command.grant,
+                            &command.operation,
+                            command.input,
+                        ).await,
+                        Err(error) => Err(TimerOperationError {
+                            code: error.code().to_string(),
+                            message: error.to_string(),
+                            internal: true,
+                        }),
+                    };
+                    let _ = command.response.send(result);
+                }
                 _ = recovery.tick() => {
                     service.recover().await;
                 }
             }
         }
-    })
+    });
+    (RuntimeTimerHandle { commands }, task)
+}
+
+struct TimerCommand {
+    collection_id: Uuid,
+    grant: GrantSummary,
+    operation: String,
+    input: Value,
+    response: std::sync::mpsc::Sender<Result<Value, TimerOperationError>>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeTimerHandle {
+    commands: tokio::sync::mpsc::UnboundedSender<TimerCommand>,
+}
+
+impl RuntimeTimerHandle {
+    pub fn operation(
+        &self,
+        collection_id: Uuid,
+        grant: GrantSummary,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, TimerOperationError> {
+        let (response, receiver) = std::sync::mpsc::channel();
+        self.commands
+            .send(TimerCommand {
+                collection_id,
+                grant,
+                operation: operation.to_string(),
+                input,
+                response,
+            })
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_unavailable".to_string(),
+                message: "The local timer authority is unavailable.".to_string(),
+                internal: true,
+            })?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| TimerOperationError {
+                code: "timer_authority_timeout".to_string(),
+                message: "The local timer authority did not respond in time.".to_string(),
+                internal: true,
+            })?
+    }
 }
 
 struct RuntimeNotificationService {
@@ -266,6 +332,23 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
             );
         }
         let event_type = request.event.get("type").and_then(Value::as_str);
+        if event_type == Some("timer.fired")
+            && (request
+                .event
+                .pointer("/payload/data/grant_id")
+                .and_then(Value::as_str)
+                != Some(grant_id.to_string().as_str())
+                || request
+                    .event
+                    .pointer("/payload/data/criterion_id")
+                    .and_then(Value::as_str)
+                    != Some(criterion_id))
+        {
+            return denied(
+                "notification_timer_owner_mismatch",
+                "The timer does not belong to this grant and criterion.",
+            );
+        }
         let criterion = grant
             .notification_criteria
             .iter()
@@ -520,18 +603,29 @@ mod tests {
         assert!(!encoded.contains("medical-note"));
         assert!(!encoded.contains("never-upload"));
 
+        let timer_grant = service
+            .local_registry
+            .grant_context(grant_id)
+            .unwrap()
+            .unwrap();
         {
             let runtime = service.runtime(collection.id).unwrap();
-            runtime
-                .upsert_timer(mdbase_runtime::TimerRequest {
-                    id: "private-reminder".to_string(),
-                    fire_at: chrono::Utc::now() - chrono::TimeDelta::seconds(1),
-                    event_type: "timer.fired".to_string(),
-                    contract_version: 1,
-                    payload: json!({"private": "timer-state-stays-local"}),
-                })
-                .await
-                .unwrap();
+            perform_timer_operation(
+                runtime,
+                &timer_grant,
+                "put_timer",
+                json!({
+                    "namespace": "reminders",
+                    "criterion_id": "reminder.due",
+                    "timer": {
+                        "id": "private-reminder",
+                        "fire_at": (chrono::Utc::now() - chrono::TimeDelta::seconds(1)).to_rfc3339(),
+                        "data": {"private": "timer-state-stays-local"}
+                    }
+                }),
+            )
+            .await
+            .unwrap();
         }
         let grants = notification_grants(&service.local_registry, collection.id).unwrap();
         let timer_registry = compose_registry(&grants).unwrap();
@@ -564,5 +658,70 @@ mod tests {
         assert!(!encoded.contains("private-reminder"));
         assert!(!encoded.contains("timer-state-stays-local"));
         server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn timer_handle_reconciles_through_the_running_local_authority() {
+        let state_dir = tempdir().unwrap();
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let collection = registry
+            .create(state_dir.path().join("collection"), Some("Tasks"))
+            .unwrap();
+        let grant_id = Uuid::new_v4();
+        registry
+            .replace_grants(&[GrantPolicy {
+                id: grant_id,
+                application_id: Uuid::new_v4(),
+                collection_id: collection.id,
+                operations: vec!["reconcile_timers".to_string()],
+                scope: GrantScope::default(),
+                application_name: "Tasks".to_string(),
+                application_homepage: "https://tasks.example".to_string(),
+                application_origin: "https://tasks.example".to_string(),
+                application_icon: None,
+                collection_name: "Tasks".to_string(),
+                notification_criteria: vec![NotificationCriterion {
+                    id: "task.reminder".to_string(),
+                    event: ContractRequirement {
+                        id: "timer.fired".to_string(),
+                        version: 1,
+                    },
+                    r#if: None,
+                    debounce: None,
+                    minimum_interval: None,
+                    presentation: NotificationPresentation {
+                        title: "Task reminder".to_string(),
+                        body: None,
+                        tag: None,
+                    },
+                }],
+                created_at: "2026-07-25T00:00:00Z".to_string(),
+                encryption: None,
+            }])
+            .unwrap();
+        let grant = registry.grant_context(grant_id).unwrap().unwrap();
+        let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (timers, task) = start(state_dir.path(), registry, None, event_rx);
+        let result = tokio::task::spawn_blocking(move || {
+            timers.operation(
+                collection.id,
+                grant,
+                "reconcile_timers",
+                json!({
+                    "namespace": "task-reminders",
+                    "criterion_id": "task.reminder",
+                    "timers": [{
+                        "id": "task-a:reminder-a",
+                        "fire_at": "2026-07-26T00:00:00Z"
+                    }]
+                }),
+            )
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
+        drop(events);
+        task.abort();
     }
 }

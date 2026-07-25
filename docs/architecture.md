@@ -54,6 +54,7 @@ Connect protocol 2 exposes these grantable operations:
 - `describe`, `changes`
 - `read`, `query`, `validate`, `list_views`, `execute_view`
 - `create`, `update`, `delete`, `rename`
+- `list_timers`, `put_timer`, `cancel_timer`, `reconcile_timers`
 
 mdbase operations retain the canonical `{ valid, result, diagnostics }`
 envelope. Reads and successful writes carry opaque revisions. Mutations accept
@@ -110,7 +111,9 @@ runtime events. The local connector or hosted collection provider—not the
 control plane—journals each event, evaluates CEL, applies debounce and
 minimum-interval rules, and rechecks the exact current grant immediately before
 dispatch. Durable one-shot timers use the same path and wake after authority
-restart.
+restart. Application timer keys are derived from the grant and app namespace;
+the runtime workflow also requires the same grant and criterion in the timer
+payload, preventing another grant's timer from matching it.
 
 The authority sends only an idempotent signal ID, grant ID, criterion ID, and
 opaque cursor to the control plane. The control plane adds static manifest

@@ -65,6 +65,41 @@ describe("provider-neutral collection client", () => {
     ]);
   });
 
+  it("exposes grant-scoped timer reconciliation without raw authority keys", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return {
+          namespace: "task-reminders",
+          timers: [],
+          cancelled_ids: []
+        } as Result;
+      }
+    });
+    await client.reconcileTimers({
+      namespace: "task-reminders",
+      criterion_id: "task.reminder",
+      timers: [{
+        id: "task:reminder",
+        fire_at: "2026-07-25T10:00:00Z",
+        data: { kind: "task" }
+      }]
+    });
+    expect(calls).toEqual([{
+      operation: "reconcile_timers",
+      input: {
+        namespace: "task-reminders",
+        criterion_id: "task.reminder",
+        timers: [{
+          id: "task:reminder",
+          fire_at: "2026-07-25T10:00:00Z",
+          data: { kind: "task" }
+        }]
+      }
+    }]);
+  });
+
   it("provides typed mutation preflights without changing normal mutation inputs", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({

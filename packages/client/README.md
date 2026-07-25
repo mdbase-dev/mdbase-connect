@@ -122,6 +122,25 @@ already granted operations and the missing requirements. An
 `missingOperations`, and `requiredOperations` metadata with a `reauthorize`
 recovery action.
 
+Applications that declare a `timer.fired` notification criterion can keep
+one-shot reminders at the collection authority:
+
+```ts
+await connect.reconcileTimers({
+  namespace: "workout-reminders",
+  criterion_id: "workout.reminder",
+  timers: [{
+    id: "workout-42",
+    fire_at: new Date("2026-07-25T10:00:00Z").toISOString()
+  }]
+});
+```
+
+The SDK also exposes `listTimers()`, `putTimer()`, and `cancelTimer()`.
+Reconciliation is atomic and is normally the safest way to project a complete
+desired timer set. IDs and optional timer data stay at the local connector or
+hosted provider and are not included in notification signals.
+
 When the local connector definitively rejects an encrypted grant, the SDK does
 not bypass that decision through the relay. It classifies the error as requiring
 authorization, removes only the matching stale credential, and emits a `null`

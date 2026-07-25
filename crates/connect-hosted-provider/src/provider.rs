@@ -77,6 +77,8 @@ pub struct RegisterReplica {
     pub allowed_operations: Vec<String>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
+    #[serde(default)]
+    pub grant_id: Option<Uuid>,
     pub token: String,
     #[serde(default)]
     pub token_ttl_seconds: Option<u64>,
@@ -84,6 +86,8 @@ pub struct RegisterReplica {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateApplicationReplica {
+    #[serde(default)]
+    pub grant_id: Option<Uuid>,
     pub mode: SyncReplicaMode,
     #[serde(default)]
     pub allowed_types: Vec<String>,
@@ -126,6 +130,7 @@ struct Replica {
     full_collection: bool,
     allowed_operations: Vec<String>,
     allowed_origin: Option<String>,
+    grant_id: Option<Uuid>,
     scope_epoch: u64,
 }
 
@@ -442,7 +447,7 @@ impl HostedProvider {
         let max_replicas = number(collection.get::<i64, _>("max_replicas"), "replica quota")?;
         if let Some(existing) = sqlx::query(
             r#"SELECT collection_id, name, purpose, mode, allowed_types, full_collection,
-                      allowed_operations, allowed_origin, token_hash, revoked_at
+                      allowed_operations, allowed_origin, grant_id, token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
         .bind(input.replica_id)
@@ -461,6 +466,7 @@ impl HostedProvider {
                     .get::<Option<String>, _>("allowed_origin")
                     .as_deref()
                     == input.allowed_origin.as_deref()
+                && existing.get::<Option<Uuid>, _>("grant_id") == input.grant_id
                 && existing
                     .get::<Option<chrono::DateTime<Utc>>, _>("revoked_at")
                     .is_none()
@@ -490,9 +496,9 @@ impl HostedProvider {
         let result = sqlx::query(
             r#"INSERT INTO hosted_provider_replicas
                  (id, collection_id, name, purpose, mode, allowed_types, full_collection,
-                  allowed_operations, allowed_origin, token_hash, token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                       now() + ($11 * interval '1 second'))"#,
+                  allowed_operations, allowed_origin, grant_id, token_hash, token_expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                       now() + ($12 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -503,6 +509,7 @@ impl HostedProvider {
         .bind(input.full_collection)
         .bind(input.allowed_operations)
         .bind(input.allowed_origin)
+        .bind(input.grant_id)
         .bind(requested_token_hash)
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
         .execute(&mut *transaction)
@@ -613,6 +620,19 @@ impl HostedProvider {
                 "Application capabilities require at least one operation.",
             ));
         }
+        if input.grant_id.is_none()
+            && input.allowed_operations.iter().any(|operation| {
+                matches!(
+                    operation.as_str(),
+                    "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
+                )
+            })
+        {
+            return Err(ApiError::bad_request(
+                "invalid_application_capability",
+                "Application timer capabilities require a grant.",
+            ));
+        }
         validate_collection_scope(
             input.full_collection,
             &input.allowed_types,
@@ -625,11 +645,13 @@ impl HostedProvider {
                        OR allowed_types IS DISTINCT FROM $3
                        OR full_collection IS DISTINCT FROM $4
                        OR allowed_operations IS DISTINCT FROM $5
+                       OR grant_id IS DISTINCT FROM COALESCE($6, grant_id)
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
                    full_collection = $4,
-                   allowed_operations = $5
+                   allowed_operations = $5,
+                   grant_id = COALESCE($6, grant_id)
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -637,6 +659,7 @@ impl HostedProvider {
         .bind(input.allowed_types)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
+        .bind(input.grant_id)
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {
@@ -1624,6 +1647,27 @@ impl HostedProvider {
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await?;
         authorize_application_operation(&replica, operation, request_origin)?;
+        if matches!(
+            operation,
+            "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
+        ) {
+            let grant_id = replica.grant_id.ok_or_else(|| {
+                ApiError::forbidden(
+                    "timer_grant_unavailable",
+                    "This application capability is not bound to a timer grant.",
+                )
+            })?;
+            let notifications = self.notifications.as_ref().ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "notifications_unavailable",
+                    "Hosted timer execution is not configured.",
+                )
+            })?;
+            return notifications
+                .timer_operation(collection_id, grant_id, operation, input)
+                .await;
+        }
         if is_full_collection_operation(operation) && !replica.full_collection {
             return Err(ApiError::forbidden(
                 "scope_denied",
@@ -2610,7 +2654,7 @@ impl HostedProvider {
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                      allowed_origin, scope_epoch
+                      allowed_origin, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
                  AND revoked_at IS NULL AND token_expires_at > now()"#,
@@ -2632,7 +2676,7 @@ impl HostedProvider {
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                      allowed_origin, scope_epoch
+                      allowed_origin, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
                  AND revoked_at IS NULL AND token_expires_at > now()"#,
@@ -2698,7 +2742,7 @@ async fn authenticate_in(
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
         r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                  allowed_origin, scope_epoch
+                  allowed_origin, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
              AND revoked_at IS NULL AND token_expires_at > now()
@@ -2721,7 +2765,7 @@ async fn authenticate_in_for_sync(
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
         r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                  allowed_origin, scope_epoch
+                  allowed_origin, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2
              AND revoked_at IS NULL AND token_expires_at > now()
@@ -2764,6 +2808,7 @@ fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
         full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
         allowed_origin: row.get("allowed_origin"),
+        grant_id: row.get("grant_id"),
         scope_epoch: number(row.get::<i64, _>("scope_epoch"), "scope epoch")?,
     })
 }
@@ -3322,6 +3367,7 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
         ReplicaPurpose::Mirror => {
             if !input.allowed_operations.is_empty()
                 || input.allowed_origin.is_some()
+                || input.grant_id.is_some()
                 || input.full_collection
             {
                 return Err(ApiError::bad_request(
@@ -3335,6 +3381,19 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                 return Err(ApiError::bad_request(
                     "invalid_application_capability",
                     "Application capabilities require at least one operation.",
+                ));
+            }
+            if input.grant_id.is_none()
+                && input.allowed_operations.iter().any(|operation| {
+                    matches!(
+                        operation.as_str(),
+                        "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
+                    )
+                })
+            {
+                return Err(ApiError::bad_request(
+                    "invalid_application_capability",
+                    "Application timer capabilities require a grant.",
                 ));
             }
             validate_collection_scope(
@@ -3428,6 +3487,10 @@ fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResul
         "create_view_source",
         "update_view_source",
         "delete_view_source",
+        "list_timers",
+        "put_timer",
+        "cancel_timer",
+        "reconcile_timers",
     ];
     const WRITES: &[&str] = &[
         "create",
@@ -3439,6 +3502,9 @@ fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResul
         "create_view_source",
         "update_view_source",
         "delete_view_source",
+        "put_timer",
+        "cancel_timer",
+        "reconcile_timers",
     ];
     if operations
         .iter()
@@ -3580,10 +3646,23 @@ mod tests {
                 "execute_view".to_string(),
             ],
             allowed_origin: Some("https://tasks.example".to_string()),
+            grant_id: Some(Uuid::new_v4()),
             token: "x".repeat(40),
             token_ttl_seconds: Some(3600),
         };
         validate_replica_capability(&capability).unwrap();
+        let mut legacy_capability = capability.clone();
+        legacy_capability.grant_id = None;
+        validate_replica_capability(&legacy_capability).unwrap();
+        legacy_capability
+            .allowed_operations
+            .push("list_timers".to_string());
+        assert_eq!(
+            validate_replica_capability(&legacy_capability)
+                .unwrap_err()
+                .code,
+            "invalid_application_capability"
+        );
         let mut contract_capability = capability.clone();
         contract_capability.full_collection = false;
         assert_eq!(
@@ -3600,6 +3679,7 @@ mod tests {
             full_collection: capability.full_collection,
             allowed_operations: capability.allowed_operations,
             allowed_origin: capability.allowed_origin,
+            grant_id: capability.grant_id,
             scope_epoch: 1,
         };
         authorize_application_operation(&replica, "query", Some("https://tasks.example")).unwrap();
@@ -3644,6 +3724,7 @@ mod tests {
             full_collection: false,
             allowed_operations: Vec::new(),
             allowed_origin: None,
+            grant_id: None,
             scope_epoch: 1,
         };
         authorize_sync_access(&replica, "read", None).unwrap();
@@ -3686,6 +3767,7 @@ mod tests {
             full_collection: false,
             allowed_operations: vec!["create".to_string()],
             allowed_origin: Some("https://tasks.example".to_string()),
+            grant_id: Some(Uuid::new_v4()),
             token: "x".repeat(40),
             token_ttl_seconds: Some(3600),
         };

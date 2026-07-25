@@ -97,6 +97,7 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await provider.updateApplicationReplica("replica", {
+      grantId: "grant",
       mode: "read_only",
       allowedTypes: ["task"],
       fullCollection: false,
@@ -108,6 +109,7 @@ describe("hosted provider control client", () => {
         "https://provider.example/internal/v1/replicas/replica/policy",
         "PATCH",
         JSON.stringify({
+          grant_id: "grant",
           mode: "read_only",
           allowed_types: ["task"],
           full_collection: false,

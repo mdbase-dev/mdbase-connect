@@ -1,4 +1,5 @@
 use crate::cloud::CloudControlClient;
+use crate::runtime_notifications::RuntimeTimerHandle;
 use crate::watcher::CollectionWatchService;
 use mdbase_connect_core::{
     encrypted_request_fingerprint, CollectionRegistry, ConnectError, EncryptedRequestClaim,
@@ -23,6 +24,7 @@ pub struct AgentState {
     loopback_port: std::sync::atomic::AtomicU16,
     cloud: Option<CloudControlClient>,
     relay_identity: RelayIdentity,
+    runtime_timers: Option<RuntimeTimerHandle>,
 }
 
 impl AgentState {
@@ -49,7 +51,20 @@ impl AgentState {
             loopback_port: std::sync::atomic::AtomicU16::new(0),
             cloud,
             relay_identity,
+            runtime_timers: None,
         }
+    }
+
+    pub fn with_identity_and_timers(
+        registry: CollectionRegistry,
+        watcher: CollectionWatchService,
+        cloud: Option<CloudControlClient>,
+        relay_identity: RelayIdentity,
+        runtime_timers: RuntimeTimerHandle,
+    ) -> Self {
+        let mut state = Self::with_identity(registry, watcher, cloud, relay_identity);
+        state.runtime_timers = Some(runtime_timers);
+        state
     }
 
     pub fn relay_public_key(&self) -> String {
@@ -105,15 +120,39 @@ impl AgentState {
         collection_id: uuid::Uuid,
         operation: &str,
         input: &serde_json::Value,
-        scope: &mdbase_connect_protocol::GrantScope,
+        grant: &mdbase_connect_protocol::GrantSummary,
     ) -> Result<serde_json::Value, ConnectError> {
         let started = Instant::now();
         let synchronize_us = std::cell::Cell::new(0_u64);
+        if matches!(
+            operation,
+            "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
+        ) {
+            let result = self
+                .runtime_timers
+                .as_ref()
+                .ok_or_else(|| {
+                    ConnectError::TimerRuntime("The timer authority is unavailable.".to_string())
+                })
+                .and_then(|timers| {
+                    timers
+                        .operation(collection_id, grant.clone(), operation, input.clone())
+                        .map_err(|error| {
+                            if error.internal {
+                                ConnectError::TimerRuntime(error.message)
+                            } else {
+                                ConnectError::InvalidTimer(error.message)
+                            }
+                        })
+                });
+            profile_operation(transport, operation, started, 0, &result);
+            return result;
+        }
         let result = self.registry.scoped_operation_synchronized(
             collection_id,
             operation,
             input,
-            scope,
+            &grant.scope,
             |invalidation| {
                 let synchronize_started = Instant::now();
                 self.watcher.synchronize(collection_id, invalidation);
@@ -237,7 +276,7 @@ impl AgentState {
                         collection_id,
                         &operation,
                         &input,
-                        &context.as_ref().expect("authorized grant must exist").scope,
+                        context.as_ref().expect("authorized grant must exist"),
                     )
                 } else {
                     let _ = self.registry.record_activity(
@@ -409,7 +448,7 @@ impl AgentState {
                 context.collection_id,
                 &envelope.operation,
                 &input,
-                &context.scope,
+                &context,
             )
         };
         let (outcome, detail) = match &result {

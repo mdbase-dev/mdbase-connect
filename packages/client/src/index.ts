@@ -132,6 +132,33 @@ export interface MdbaseConnection {
   directAccess: DirectAccessStatus;
 }
 
+export interface MdbaseDesiredTimer {
+  /** Stable within the timer namespace. */
+  id: string;
+  /** RFC 3339 instant at which the authority should fire the timer. */
+  fire_at: string;
+  /** Private application data retained by the collection authority. */
+  data?: unknown;
+}
+
+export interface MdbaseTimer extends MdbaseDesiredTimer {
+  criterion_id: string;
+  generation: number;
+  status: "scheduled" | "firing" | "fired" | "cancelled";
+  created_at: string;
+  updated_at: string;
+  fired_at: string | null;
+}
+
+export interface MdbaseTimerList {
+  namespace: string;
+  timers: MdbaseTimer[];
+}
+
+export interface MdbaseTimerReconciliation extends MdbaseTimerList {
+  cancelled_ids: string[];
+}
+
 export interface MdbaseAuthorizationCapabilities {
   authorized: boolean;
   sufficient: boolean;
@@ -635,6 +662,34 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
     return this.operation("update_type", input);
+  }
+
+  listTimers(namespace: string): Promise<MdbaseTimerList> {
+    return this.operation("list_timers", { namespace });
+  }
+
+  putTimer(input: {
+    namespace: string;
+    criterion_id: string;
+    timer: MdbaseDesiredTimer;
+  }): Promise<MdbaseTimer> {
+    return this.operation("put_timer", input);
+  }
+
+  cancelTimer(input: {
+    namespace: string;
+    id: string;
+    generation?: number;
+  }): Promise<{ namespace: string; id: string; cancelled: boolean }> {
+    return this.operation("cancel_timer", input);
+  }
+
+  reconcileTimers(input: {
+    namespace: string;
+    criterion_id: string;
+    timers: MdbaseDesiredTimer[];
+  }): Promise<MdbaseTimerReconciliation> {
+    return this.operation("reconcile_timers", input);
   }
 
   async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
@@ -1537,6 +1592,34 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.updateType(input);
   }
 
+  listTimers(namespace: string): Promise<MdbaseTimerList> {
+    return this.collectionClient.listTimers(namespace);
+  }
+
+  putTimer(input: {
+    namespace: string;
+    criterion_id: string;
+    timer: MdbaseDesiredTimer;
+  }): Promise<MdbaseTimer> {
+    return this.collectionClient.putTimer(input);
+  }
+
+  cancelTimer(input: {
+    namespace: string;
+    id: string;
+    generation?: number;
+  }): Promise<{ namespace: string; id: string; cancelled: boolean }> {
+    return this.collectionClient.cancelTimer(input);
+  }
+
+  reconcileTimers(input: {
+    namespace: string;
+    criterion_id: string;
+    timers: MdbaseDesiredTimer[];
+  }): Promise<MdbaseTimerReconciliation> {
+    return this.collectionClient.reconcileTimers(input);
+  }
+
   async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
     yield* this.collectionClient.watch(options);
   }
@@ -2231,7 +2314,10 @@ function isMutation(operation: CollectionOperation, input?: unknown): boolean {
     || operation === "delete"
     || operation === "rename"
     || operation === "create_type"
-    || operation === "update_type";
+    || operation === "update_type"
+    || operation === "put_timer"
+    || operation === "cancel_timer"
+    || operation === "reconcile_timers";
 }
 
 function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {

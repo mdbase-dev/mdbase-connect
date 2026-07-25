@@ -4,6 +4,8 @@
 //! This crate only compiles application notification criteria into workflows
 //! and converts authority events into canonical runtime envelopes.
 
+mod timers;
+
 use mdbase::runtime_contracts::{
     ComposeOptions, ContractDocument, ContractSource, PolicySelector, RuntimeContracts,
     RuntimeRegistry,
@@ -13,6 +15,8 @@ use mdbase_runtime::{Runtime, WorkerOutcome};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
+
+pub use timers::{perform_timer_operation, TimerOperationError};
 
 pub const NOTIFICATION_ACTION_ID: &str = "mdbase.connect.notification.signal";
 pub const NOTIFICATION_EXECUTOR_ID: &str = "connect-notifications";
@@ -228,8 +232,21 @@ fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) ->
         "id": "notify",
         "event": criterion.event.id
     });
+    let ownership = (criterion.event.id == TIMER_EVENT_ID).then(|| {
+        format!(
+            "event.payload.data.grant_id == {} && event.payload.data.criterion_id == {}",
+            serde_json::to_string(&grant.id.to_string()).expect("UUID serializes"),
+            serde_json::to_string(&criterion.id).expect("criterion ID serializes")
+        )
+    });
     if let Some(condition) = &criterion.r#if {
-        trigger["if"] = json!({"$expr": condition.expression});
+        let expression = ownership.map_or_else(
+            || condition.expression.clone(),
+            |ownership| format!("({ownership}) && ({})", condition.expression),
+        );
+        trigger["if"] = json!({"$expr": expression});
+    } else if let Some(ownership) = ownership {
+        trigger["if"] = json!({"$expr": ownership});
     }
     if let Some(debounce) = &criterion.debounce {
         trigger["debounce"] = Value::String(debounce.clone());
@@ -272,4 +289,60 @@ fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) ->
 
 fn contract(value: Value) -> ContractDocument {
     ContractDocument::virtual_contract(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdbase_connect_protocol::{
+        ApplicationAccess, ContractRequirement, GrantScope, NotificationPresentation,
+        RuntimeExpression,
+    };
+
+    #[test]
+    fn timer_workflows_are_bound_to_their_grant_and_criterion() {
+        let grant = GrantSummary {
+            id: Uuid::new_v4(),
+            application_id: Uuid::new_v4(),
+            application_name: "Tasks".to_string(),
+            application_homepage: "https://tasks.example".to_string(),
+            application_origin: "https://tasks.example".to_string(),
+            application_icon: None,
+            collection_id: Uuid::new_v4(),
+            collection_name: "Tasks".to_string(),
+            operations: vec!["reconcile_timers".to_string()],
+            scope: GrantScope {
+                contracts: Vec::new(),
+                access: Some(ApplicationAccess::FullCollection),
+            },
+            notification_criteria: vec![NotificationCriterion {
+                id: "task.reminder".to_string(),
+                event: ContractRequirement {
+                    id: TIMER_EVENT_ID.to_string(),
+                    version: 1,
+                },
+                r#if: Some(RuntimeExpression {
+                    expression: "event.payload.data.data.kind == \"task\"".to_string(),
+                }),
+                debounce: None,
+                minimum_interval: None,
+                presentation: NotificationPresentation {
+                    title: "Task reminder".to_string(),
+                    body: None,
+                    tag: None,
+                },
+            }],
+            created_at: "2026-07-25T00:00:00Z".to_string(),
+            encryption: None,
+        };
+
+        let workflow = workflow_contract(&grant, &grant.notification_criteria[0]);
+        let condition = workflow
+            .pointer("/triggers/0/if/$expr")
+            .and_then(Value::as_str)
+            .unwrap();
+        assert!(condition.contains(&grant.id.to_string()));
+        assert!(condition.contains("task.reminder"));
+        assert!(condition.contains("event.payload.data.data.kind"));
+    }
 }

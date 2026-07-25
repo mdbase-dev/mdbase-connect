@@ -19,6 +19,7 @@ export interface HostedReplicaEnrollment {
   fullCollection?: boolean;
   allowedOperations?: string[];
   allowedOrigin?: string;
+  grantId?: string;
   token: string;
   tokenTtlSeconds?: number;
 }
@@ -93,6 +94,7 @@ export class HostedProviderClient {
         full_collection: replica.fullCollection ?? false,
         allowed_operations: replica.allowedOperations ?? [],
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
+        ...(replica.grantId ? { grant_id: replica.grantId } : {}),
         token: replica.token,
         ...(replica.tokenTtlSeconds ? { token_ttl_seconds: replica.tokenTtlSeconds } : {})
       }
@@ -118,6 +120,7 @@ export class HostedProviderClient {
   async updateApplicationReplica(
     replicaId: string,
     policy: {
+      grantId: string;
       mode: "read_only" | "read_write";
       allowedTypes: string[];
       fullCollection: boolean;
@@ -128,6 +131,7 @@ export class HostedProviderClient {
       "PATCH",
       `/internal/v1/replicas/${encodeURIComponent(replicaId)}/policy`,
       {
+        grant_id: policy.grantId,
         mode: policy.mode,
         allowed_types: policy.allowedTypes,
         full_collection: policy.fullCollection,
