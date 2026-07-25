@@ -3,16 +3,14 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$OutPath,
 
-  [Parameter(Mandatory = $true)]
+  [switch]$PreviewOnly,
+
   [string]$IdentityName,
 
-  [Parameter(Mandatory = $true)]
   [string]$Publisher,
 
-  [Parameter(Mandatory = $true)]
   [string]$PublisherDisplayName,
 
-  [Parameter(Mandatory = $true)]
   [string]$PackageVersion
 )
 
@@ -50,18 +48,41 @@ $portable = Get-SinglePackageFile `
   -Files @(
     Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.zip"
   )
-$storePackage = Get-SinglePackageFile `
-  -Description "Microsoft Store AppX package" `
-  -Files @(
-    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
-  )
-
 foreach ($file in @($application, $installer)) {
   $signature = Get-AuthenticodeSignature $file.FullName
   if ($signature.Status -ne "NotSigned") {
     throw "Expected unsigned GitHub preview executable, got $($signature.Status): $($file.FullName)"
   }
 }
+
+if ($PreviewOnly) {
+  $storePackages = @(
+    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
+  )
+  if ($storePackages.Count -ne 0) {
+    throw "Preview-only build unexpectedly produced a Microsoft Store AppX package"
+  }
+  Write-Output "Verified unsigned setup preview: $($installer.FullName)"
+  Write-Output "Verified unsigned portable preview: $($portable.FullName)"
+  exit 0
+}
+
+foreach ($value in @{
+  IdentityName = $IdentityName
+  Publisher = $Publisher
+  PublisherDisplayName = $PublisherDisplayName
+  PackageVersion = $PackageVersion
+}.GetEnumerator()) {
+  if ([string]::IsNullOrWhiteSpace([string]$value.Value)) {
+    throw "$($value.Key) is required when verifying a Microsoft Store package"
+  }
+}
+
+$storePackage = Get-SinglePackageFile `
+  -Description "Microsoft Store AppX package" `
+  -Files @(
+    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
+  )
 
 function Find-WindowsSdkTool {
   param(

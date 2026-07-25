@@ -42,9 +42,15 @@ canonical Windows installation channel. Windows will show Unknown Publisher or
 SmartScreen warnings for them. Checksums and GitHub artifact attestations prove
 which workflow produced the files, but do not provide Authenticode trust.
 
+Before company-backed publisher accounts are available, beta releases may also
+contain macOS DMG and ZIP files whose names contain `UNSIGNED`. They are neither
+Developer ID signed nor notarized and require a manual Gatekeeper override.
+Their bundled warning, checksums, and GitHub attestations describe the exact
+trust boundary.
+
 The `Desktop Release` workflow builds, verifies, attests, and publishes the
-installers for a version tag. Configure these secrets in the
-`desktop-release` GitHub Actions environment before creating a tag:
+installers for a version tag. To enable trusted macOS output, configure these
+secrets in the `desktop-release` GitHub Actions environment:
 
 - `MACOS_CERTIFICATE_P12_BASE64`: base64-encoded Developer ID Application
   certificate and private key in PKCS#12 format;
@@ -54,14 +60,16 @@ installers for a version tag. Configure these secrets in the
   notarization.
 
 Reserve `mdbase connect` in Partner Center, then copy the following non-secret
-values from **Product identity** into variables on the same GitHub environment:
+values from **Product identity** into variables on the same GitHub environment
+to additionally build a Store-submission package:
 
 - `WINDOWS_STORE_IDENTITY_NAME`: the exact package Identity/Name;
 - `WINDOWS_STORE_PUBLISHER`: the exact package Identity/Publisher;
 - `WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`: the exact publisher display name.
 
-The Windows job creates a Store-submission AppX whose manifest is checked
-against those values. The workflow uses `1.0.<GitHub run number>.0` as the
+When those values are present, the Windows job creates a Store-submission AppX
+whose manifest is checked against them. The workflow uses
+`1.0.<GitHub run number>.0` as the
 monotonically increasing Store package version; the fourth component remains
 zero as required by the Store. The AppX is retained as the
 `windows-store-submission` Actions artifact and is deliberately excluded from
@@ -76,12 +84,14 @@ git tag -a v0.1.0-beta.1 -m "mdbase connect 0.1.0-beta.1"
 git push origin v0.1.0-beta.1
 ```
 
-The workflow refuses to publish when Apple signing material or Partner Center
-identity values are absent, macOS notarization or signature verification fails,
-or the Store package identity is wrong. It also verifies that the Windows
-GitHub preview executables are unsigned before labeling and publishing them.
-Linux packages receive keyless Sigstore bundles, checksums, and GitHub artifact
-attestations.
+When platform publisher configuration is wholly absent, the workflow publishes
+only explicitly labelled preview artifacts for that platform. Partially
+configured Apple signing material or Partner Center identity values fail the
+build. Fully configured trusted paths remain fail-closed when macOS
+notarization, signature verification, or Store package identity checks fail.
+The workflow also verifies that GitHub preview executables are unsigned before
+labeling and publishing them. Linux packages receive keyless Sigstore bundles,
+checksums, and GitHub artifact attestations.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local and oracle end-to-end suites, retain checksums for every artifact, verify
