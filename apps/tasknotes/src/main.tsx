@@ -60,13 +60,17 @@ function App() {
   useEffect(() => {
     if (!connected) return;
     if (!bound) return;
+    if (!tasknotes) return;
     void bound.checkDirectAccess();
     void load();
     const controller = new AbortController();
     void (async () => {
       try {
         for await (const event of bound.watch({ signal: controller.signal })) {
-          if (event.type.startsWith("mdbase.record.") || event.type === "mdbase.type.changed") {
+          if (event.type === "mdbase.type.changed") {
+            await tasknotes.refreshContract();
+            await load();
+          } else if (event.type.startsWith("mdbase.record.")) {
             await load();
           }
         }

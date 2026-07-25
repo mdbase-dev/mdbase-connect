@@ -18,8 +18,21 @@ const description = {
   change_cursor: 0,
   types: [{
     name: "task",
-    schema: { type: "object" },
-    collection: { path: { folder: "inbox" } },
+    schema: {
+      type: "object",
+      required: ["name", "state"],
+      properties: {
+        name: { type: "string", title: "Task name" },
+        state: { enum: ["open", "closed"] },
+        urgency: { enum: ["low", "high"] },
+        estimate: { type: "number", title: "Effort" },
+        reviewed: { type: "boolean" }
+      }
+    },
+    collection: {
+      display: { name_field: "name" },
+      path: { folder: "inbox", template: "{{title}}-{{id}}" }
+    },
     extensions: {}
   }],
   contracts: [{
@@ -30,15 +43,45 @@ const description = {
     configuration: {
       contract: "tasknotes.task",
       version: 1,
-      field_roles: { title: "name", status: "state" },
-      status: { completed_values: ["closed"], default: "open" }
+      field_roles: {
+        title: "name",
+        status: "state",
+        priority: "urgency",
+        timeEstimate: "estimate"
+      },
+      status: {
+        values: ["open", "closed"],
+        completed_values: ["closed"],
+        default: "open",
+        definitions: [
+          { value: "open", label: "Ready", order: 1 },
+          { value: "closed", label: "Finished", is_completed: true, order: 2 }
+        ]
+      },
+      priority: {
+        values: ["low", "high"],
+        default: "low",
+        definitions: [
+          { value: "low", label: "Low", weight: 1 },
+          { value: "high", label: "High", weight: 10 }
+        ]
+      }
     }
   }]
 };
 
 describe("TaskNotes contract adapter", () => {
   it("uses declared field roles for create and completion", async () => {
-    expect(resolveTasknotesContract(description).pathFolder).toBe("inbox");
+    const contract = resolveTasknotesContract(description);
+    expect(contract.pathFolder).toBe("inbox");
+    expect(contract.pathTemplate).toBe("{{title}}-{{id}}");
+    expect(contract.fieldMapping.priority).toBe("urgency");
+    expect(contract.statuses.map((status) => status.label)).toEqual(["Ready", "Finished"]);
+    expect(contract.priorities.map((priority) => priority.value)).toEqual(["low", "high"]);
+    expect(contract.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "estimate", role: "timeEstimate", kind: "number" }),
+      expect.objectContaining({ key: "reviewed", kind: "boolean" })
+    ]));
     const connect = {
       describe: vi.fn().mockResolvedValue(description),
       query: vi.fn().mockResolvedValue({ valid: true, diagnostics: [], result: { results: [] } }),
@@ -62,7 +105,7 @@ describe("TaskNotes contract adapter", () => {
 
     await tasks.create({ title: "Write docs" });
     expect(connect.create).toHaveBeenCalledWith(expect.objectContaining({
-      path: "inbox/write-docs.md",
+      path: undefined,
       frontmatter: { name: "Write docs", state: "open" }
     }));
 
@@ -72,6 +115,79 @@ describe("TaskNotes contract adapter", () => {
       patch: { state: "closed" },
       if_revision: "one"
     });
+  });
+
+  it("refreshes its cached contract after a type change", async () => {
+    const renamed = {
+      ...description,
+      types: [{
+        ...description.types[0],
+        schema: {
+          ...description.types[0].schema,
+          properties: {
+            ...description.types[0].schema.properties,
+            summary: { type: "string" },
+            phase: { enum: ["queued", "finished"] }
+          }
+        }
+      }],
+      contracts: [{
+        ...description.contracts[0],
+        configuration: {
+          ...description.contracts[0].configuration,
+          field_roles: {
+            ...description.contracts[0].configuration.field_roles,
+            title: "summary",
+            status: "phase"
+          },
+          status: {
+            values: ["queued", "finished"],
+            completed_values: ["finished"],
+            default: "queued"
+          }
+        }
+      }]
+    };
+    const connect = {
+      describe: vi.fn()
+        .mockResolvedValueOnce(description)
+        .mockResolvedValueOnce(renamed),
+      query: vi.fn()
+        .mockResolvedValueOnce({
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{
+              path: "inbox/one.md",
+              frontmatter: { name: "Before", state: "open" },
+              types: ["task"]
+            }]
+          }
+        })
+        .mockResolvedValueOnce({
+          valid: true,
+          diagnostics: [],
+          result: {
+            results: [{
+              path: "inbox/one.md",
+              frontmatter: { summary: "After", phase: "finished" },
+              types: ["task"]
+            }]
+          }
+        })
+    } as any;
+    const tasks = new TasknotesCollection(connect);
+
+    expect((await tasks.list())[0]).toEqual(expect.objectContaining({
+      title: "Before",
+      completed: false
+    }));
+    await tasks.refreshContract();
+    expect((await tasks.list())[0]).toEqual(expect.objectContaining({
+      title: "After",
+      completed: true
+    }));
+    expect(connect.describe).toHaveBeenCalledTimes(2);
   });
 
   it("rejects empty titles and unsafe contract field paths", async () => {

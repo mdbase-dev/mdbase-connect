@@ -1,38 +1,31 @@
 import type {
-  CollectionContractDescriptor,
-  CollectionDescription,
   JsonObject,
-  RecordResult,
-  SyncCollectionResources
+  RecordResult
 } from "@mdbase/connect-protocol";
 import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
 import type { OfflineReplica } from "@mdbase/connect-sync";
+import {
+  resolveTasknotesContract,
+  TasknotesContractError,
+  type TasknotesContract
+} from "./contract.js";
 
-export const TASKNOTES_TASK_CONTRACT = "tasknotes.task";
+export {
+  resolveTasknotesContract,
+  resolveTasknotesSyncContract,
+  TASKNOTES_TASK_CONTRACT,
+  TasknotesContractError
+} from "./contract.js";
+export type {
+  TaskFieldDefinition,
+  TaskFieldKind,
+  TasknotesContract,
+  TasknotesContractConfiguration
+} from "./contract.js";
 
 export interface TaskFrontmatter extends JsonObject {
   title?: string;
   status?: string;
-}
-
-export interface TasknotesContractConfiguration extends JsonObject {
-  contract: typeof TASKNOTES_TASK_CONTRACT;
-  version: number;
-  field_roles: Record<string, string>;
-  status: {
-    completed_values: string[];
-    default?: string;
-  };
-  priority?: { default?: string };
-  archive?: { tags_field?: string; archived_tag?: string };
-}
-
-export interface TasknotesContract {
-  descriptor: CollectionContractDescriptor;
-  configuration: TasknotesContractConfiguration;
-  typeName: string;
-  pathFolder?: string;
-  pathPattern?: string;
 }
 
 export interface TaskSummary {
@@ -50,32 +43,6 @@ export interface CreateTaskInput {
   body?: string;
 }
 
-export function resolveTasknotesContract(description: CollectionDescription): TasknotesContract {
-  return resolveContract(description.types, description.contracts);
-}
-
-export function resolveTasknotesSyncContract(resources: SyncCollectionResources): TasknotesContract {
-  return resolveContract(resources.types, resources.contracts);
-}
-
-function resolveContract(
-  types: CollectionDescription["types"],
-  contracts: CollectionDescription["contracts"]
-): TasknotesContract {
-  const descriptor = contracts.find((contract) => contract.id === TASKNOTES_TASK_CONTRACT);
-  if (!descriptor) throw new TasknotesContractError("TaskNotes task contract is not available in this collection.");
-  const configuration = parseConfiguration(descriptor.configuration);
-  const type = types.find((candidate) => candidate.name === descriptor.type_name);
-  const path = asObject(type?.collection?.path);
-  return {
-    descriptor,
-    configuration,
-    typeName: descriptor.type_name,
-    pathFolder: stringValue(path?.folder),
-    pathPattern: stringValue(path?.pattern)
-  };
-}
-
 export class TasknotesCollection {
   private contract: TasknotesContract | null = null;
 
@@ -84,6 +51,15 @@ export class TasknotesCollection {
   async describe(): Promise<TasknotesContract> {
     this.contract ??= resolveTasknotesContract(await this.connect.describe());
     return this.contract;
+  }
+
+  invalidateContract(): void {
+    this.contract = null;
+  }
+
+  async refreshContract(): Promise<TasknotesContract> {
+    this.invalidateContract();
+    return this.describe();
   }
 
   async list(): Promise<TaskSummary[]> {
@@ -180,26 +156,6 @@ export class TasknotesOfflineCollection {
   }
 }
 
-export class TasknotesContractError extends Error {}
-
-function parseConfiguration(value: JsonObject): TasknotesContractConfiguration {
-  const roles = asObject(value.field_roles);
-  const status = asObject(value.status);
-  const completedValues = status?.completed_values;
-  if (value.contract !== TASKNOTES_TASK_CONTRACT
-      || typeof value.version !== "number"
-      || !roles
-      || !status
-      || !Array.isArray(completedValues)
-      || completedValues.length === 0
-      || !completedValues.every((item) => typeof item === "string" && item.length > 0)
-      || !Object.values(roles).every((field) => typeof field === "string" && validFieldPath(field))
-      || (status.default !== undefined && (typeof status.default !== "string" || status.default.length === 0))) {
-    throw new TasknotesContractError("The TaskNotes task contract is malformed.");
-  }
-  return value as TasknotesContractConfiguration;
-}
-
 function normalizeTask(path: string, frontmatter: TaskFrontmatter, contract: TasknotesContract): TaskSummary {
   const title = getField(frontmatter, roleField(contract, "title", "title"));
   const status = getField(frontmatter, roleField(contract, "status", "status"));
@@ -222,10 +178,6 @@ function taskTitle(value: string): string {
   return title;
 }
 
-function validFieldPath(value: string): boolean {
-  return value.split(".").every((part) => part.length > 0 && part !== "__proto__" && part !== "prototype" && part !== "constructor");
-}
-
 function incompleteStatus(contract: TasknotesContract): string | undefined {
   const candidate = contract.configuration.status.default;
   if (candidate && !contract.configuration.status.completed_values.includes(candidate)) return candidate;
@@ -233,7 +185,7 @@ function incompleteStatus(contract: TasknotesContract): string | undefined {
 }
 
 function defaultTaskPath(title: string, contract: TasknotesContract): string | undefined {
-  if (contract.pathPattern) return undefined;
+  if (contract.pathTemplate || contract.pathRuntime) return undefined;
   const filename = slug(title) || "task";
   const folder = contract.pathFolder?.replace(/^\/+|\/+$/g, "") ?? "tasks";
   return `${folder}/${filename}.md`;
@@ -278,8 +230,4 @@ function asObject(value: unknown): JsonObject | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as JsonObject
     : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

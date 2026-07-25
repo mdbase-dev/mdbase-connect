@@ -29,7 +29,8 @@
   "dependencies": {
     "@mdbase/connect": "workspace:*",
     "@mdbase/connect-protocol": "workspace:*",
-    "@mdbase/connect-sync": "workspace:*"
+    "@mdbase/connect-sync": "workspace:*",
+    "@tasknotes/model": "0.3.0-rc.1"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
