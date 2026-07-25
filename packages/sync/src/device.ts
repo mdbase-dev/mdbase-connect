@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  mirrorDeviceDirectory,
-  NodeMirrorStateStore,
-  type MirrorState
-} from "./node.js";
+import { mirrorDeviceDirectory } from "./node.js";
 import { SyncError } from "./index.js";
 
 export interface MirrorProfile {
@@ -30,21 +26,10 @@ export interface StoredMirrorProfile {
   credentials: MirrorCredentials;
 }
 
-interface LegacyMirrorConfiguration {
-  protocol_version: 1;
-  provider_url: string;
-  collection_id: string;
-  replica_id: string;
-  replica_token: string;
-  mode: "read_only" | "read_write";
-}
-
 export async function loadMirrorProfile(
   root: string,
   stateRoot = process.env.MDBASE_CONNECT_MIRROR_STATE_DIR
 ): Promise<StoredMirrorProfile> {
-  const migrated = await migrateLegacyMirrorProfile(root, stateRoot);
-  if (migrated) return migrated;
   const directory = await mirrorDeviceDirectory(root, stateRoot);
   const profile = await readJson<MirrorProfile>(join(directory, "profile.json"));
   const credentials = await readJson<MirrorCredentials>(join(directory, "credentials.json"));
@@ -91,94 +76,11 @@ export async function updateMirrorCredentials(
   return { profile, credentials };
 }
 
-export async function migrateLegacyMirrorProfile(
-  root: string,
-  stateRoot = process.env.MDBASE_CONNECT_MIRROR_STATE_DIR
-): Promise<StoredMirrorProfile | null> {
-  const directory = await mirrorDeviceDirectory(root, stateRoot);
-  if (await readOptional(join(directory, "profile.json")) !== null) return null;
-  const metadata = await legacyMetadataDirectory(root);
-  if (!metadata) return null;
-  const configurationPath = join(metadata, "connect-mirror.json");
-  const value = await readOptional(configurationPath);
-  if (value === null) return null;
-  let legacy: LegacyMirrorConfiguration;
-  try {
-    legacy = JSON.parse(value) as LegacyMirrorConfiguration;
-  } catch {
-    throw new SyncError("invalid_mirror_configuration", "Legacy mirror configuration is corrupt.");
-  }
-  if (
-    legacy.protocol_version !== 1
-    || typeof legacy.provider_url !== "string"
-    || typeof legacy.collection_id !== "string"
-    || typeof legacy.replica_id !== "string"
-    || typeof legacy.replica_token !== "string"
-    || !["read_only", "read_write"].includes(legacy.mode)
-  ) {
-    throw new SyncError("invalid_mirror_configuration", "Legacy mirror configuration is invalid.");
-  }
-  const profile: MirrorProfile = {
-    version: 1,
-    provider_url: legacy.provider_url,
-    collection_id: legacy.collection_id,
-    replica_id: legacy.replica_id,
-    mode: legacy.mode
-  };
-  const credentials = { access_token: legacy.replica_token };
-  const legacyStatePath = join(metadata, "connect-sync.json");
-  const legacyState = await readJson<MirrorState>(legacyStatePath);
-  if (legacyState) {
-    await new NodeMirrorStateStore(root, stateRoot).importLegacy(legacyState);
-  }
-  await saveMirrorProfile(root, profile, credentials, stateRoot);
-  await unlink(configurationPath);
-  if (legacyState) await unlink(legacyStatePath);
-  await removeLegacyConflictReceipts(metadata, legacyState);
-  return { profile, credentials };
-}
-
 export async function mirrorProfileDirectory(
   root: string,
   stateRoot = process.env.MDBASE_CONNECT_MIRROR_STATE_DIR
 ): Promise<string> {
   return mirrorDeviceDirectory(root, stateRoot);
-}
-
-async function legacyMetadataDirectory(root: string): Promise<string | null> {
-  const canonicalRoot = await realpath(root);
-  const metadataPath = join(canonicalRoot, ".mdbase");
-  try {
-    const metadata = await lstat(metadataPath);
-    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-      throw new SyncError(
-        "unsafe_legacy_mirror_configuration",
-        "Legacy mirror metadata must be an ordinary directory inside the collection."
-      );
-    }
-    return metadataPath;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-async function removeLegacyConflictReceipts(metadata: string, state: MirrorState | null): Promise<void> {
-  const conflictIds = new Set(Object.keys(state?.conflicts ?? {}));
-  if (!conflictIds.size) return;
-  const directory = join(metadata, "conflicts");
-  let entries: string[];
-  try {
-    entries = await readdir(directory);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  for (const entry of entries) {
-    if (entry.endsWith(".json") && conflictIds.has(entry.slice(0, -5))) {
-      await unlink(join(directory, entry));
-    }
-  }
 }
 
 async function readJson<Value>(path: string): Promise<Value | null> {
