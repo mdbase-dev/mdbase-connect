@@ -1945,7 +1945,7 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const input = z.object({
       display_name: z.string().trim().min(1).max(200),
-      template: z.enum(["mdbase", "tasknotes"]).default("mdbase")
+      template: z.literal("mdbase").default("mdbase")
     }).strict().parse(request.body);
     const collectionId = randomUUID();
     try {

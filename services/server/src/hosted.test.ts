@@ -3,8 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import {
   hostedContracts,
-  HostedAuthorityRegistry,
-  hostedTypesForContracts
+  HostedAuthorityRegistry
 } from "./hosted.js";
 
 let database: DatabasePool | undefined;
@@ -13,17 +12,11 @@ afterEach(async () => database?.end());
 describe("hosted collection profiles", () => {
   it("keeps generic mdbase collections independent of application contracts", () => {
     expect(hostedContracts("mdbase")).toEqual([]);
-    expect(hostedTypesForContracts("mdbase", [])).toEqual([]);
-    expect(hostedContracts("tasknotes")).toEqual([{ id: "tasknotes.task", version: 1 }]);
-    expect(hostedTypesForContracts(
-      "tasknotes",
-      [{ id: "tasknotes.task", version: 1 }]
-    )).toEqual(["task"]);
   });
 });
 
 describe("persisted hosted authority", () => {
-  it("allows full-collection TaskNotes replicas to store supporting Markdown records", async () => {
+  it("allows full-collection replicas to store untyped Markdown records", async () => {
     database = await createDatabase("memory");
     const userId = randomUUID();
     const collectionId = randomUUID();
@@ -35,10 +28,10 @@ describe("persisted hosted authority", () => {
     ]);
     await database.query(
       "INSERT INTO hosted_collections (id, user_id, display_name, template) VALUES ($1, $2, $3, $4)",
-      [collectionId, userId, "Tasks", "tasknotes"]
+      [collectionId, userId, "Writing", "mdbase"]
     );
     const registry = new HostedAuthorityRegistry(database);
-    await registry.create(collectionId, "tasknotes");
+    await registry.create(collectionId, "mdbase");
     await registry.registerReplica(collectionId, {
       id: replicaId,
       name: "Full collection app",
@@ -53,8 +46,8 @@ describe("persisted hosted authority", () => {
       operation: "create",
       record_id: randomUUID(),
       input: {
-        path: "Templates/Task.md",
-        frontmatter: { purpose: "task-template" },
+        path: "Templates/Document.md",
+        frontmatter: { purpose: "document-template" },
         body: "Template body for {{title}}",
         types: []
       },
@@ -62,7 +55,7 @@ describe("persisted hosted authority", () => {
     });
     expect(receipt).toMatchObject({
       status: "applied",
-      record: { path: "Templates/Task.md", types: [] }
+      record: { path: "Templates/Document.md", types: [] }
     });
   });
 
@@ -74,20 +67,20 @@ describe("persisted hosted authority", () => {
     await database.query("INSERT INTO users (id, email, name) VALUES ($1, $2, $3)", [userId, "sync@example.com", "Sync"]);
     await database.query(
       "INSERT INTO hosted_collections (id, user_id, display_name, template) VALUES ($1, $2, $3, $4)",
-      [collectionId, userId, "Tasks", "tasknotes"]
+      [collectionId, userId, "Writing", "mdbase"]
     );
     const first = new HostedAuthorityRegistry(database);
-    await first.create(collectionId, "tasknotes");
+    await first.create(collectionId, "mdbase");
     await first.registerReplica(collectionId, {
       id: replicaId,
       name: "Client",
       mode: "read_write",
-      allowedTypes: ["task"]
+      allowedTypes: []
     });
     const mutation = {
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1 as const,
       operation: "create" as const, record_id: randomUUID(),
-      input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" }, types: ["task"] },
+      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
       created_at: new Date().toISOString()
     };
     const applied = await (await first.transport(collectionId, replicaId)).mutate(mutation);
@@ -95,8 +88,8 @@ describe("persisted hosted authority", () => {
 
     const restarted = new HostedAuthorityRegistry(database);
     const transport = await restarted.transport(collectionId, replicaId);
-    const replay = await transport.mutate({ ...mutation, input: { path: "tasks/duplicate.md" } });
-    expect(replay).toMatchObject({ status: "previously_applied", record: { path: "tasks/one.md" } });
+    const replay = await transport.mutate({ ...mutation, input: { path: "records/duplicate.md" } });
+    expect(replay).toMatchObject({ status: "previously_applied", record: { path: "records/one.md" } });
     const session = await transport.openSession();
     const current = (await transport.snapshot(session.snapshot_id)).records[0];
     const updates = await Promise.all([
@@ -123,18 +116,18 @@ describe("persisted hosted authority", () => {
     await database.query("INSERT INTO users (id, email, name) VALUES ($1, $2, $3)", [userId, "cluster@example.com", "Cluster"]);
     await database.query(
       "INSERT INTO hosted_collections (id, user_id, display_name, template) VALUES ($1, $2, $3, $4)",
-      [collectionId, userId, "Tasks", "tasknotes"]
+      [collectionId, userId, "Writing", "mdbase"]
     );
     const first = new HostedAuthorityRegistry(database);
-    await first.create(collectionId, "tasknotes");
+    await first.create(collectionId, "mdbase");
     await first.registerReplica(collectionId, {
-      id: replicaId, name: "Client", mode: "read_write", allowedTypes: ["task"]
+      id: replicaId, name: "Client", mode: "read_write", allowedTypes: []
     });
     const creator = await first.transport(collectionId, replicaId);
     const create = await creator.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
       operation: "create", record_id: randomUUID(),
-      input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" }, types: ["task"] },
+      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
       created_at: new Date().toISOString()
     });
     if (create.status !== "applied" || !create.record) throw new Error("fixture create failed");
@@ -167,18 +160,18 @@ describe("persisted hosted authority", () => {
     await database.query("INSERT INTO users (id, email, name) VALUES ($1, $2, $3)", [userId, "reader@example.com", "Reader"]);
     await database.query(
       "INSERT INTO hosted_collections (id, user_id, display_name, template) VALUES ($1, $2, $3, $4)",
-      [collectionId, userId, "Tasks", "tasknotes"]
+      [collectionId, userId, "Writing", "mdbase"]
     );
     const writerRegistry = new HostedAuthorityRegistry(database);
-    await writerRegistry.create(collectionId, "tasknotes");
+    await writerRegistry.create(collectionId, "mdbase");
     await writerRegistry.registerReplica(collectionId, {
-      id: replicaId, name: "Client", mode: "read_write", allowedTypes: ["task"]
+      id: replicaId, name: "Client", mode: "read_write", allowedTypes: []
     });
     const writer = await writerRegistry.transport(collectionId, replicaId);
     await writer.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
       operation: "create", record_id: randomUUID(),
-      input: { path: "tasks/one.md", frontmatter: { type: "task", title: "One" }, types: ["task"] },
+      input: { path: "records/one.md", frontmatter: { title: "One" }, types: [] },
       created_at: new Date().toISOString()
     });
 
@@ -188,15 +181,15 @@ describe("persisted hosted authority", () => {
     await writer.mutate({
       mutation_id: randomUUID(), replica_id: replicaId, scope_epoch: 1,
       operation: "create", record_id: randomUUID(),
-      input: { path: "tasks/two.md", frontmatter: { type: "task", title: "Two" }, types: ["task"] },
+      input: { path: "records/two.md", frontmatter: { title: "Two" }, types: [] },
       created_at: new Date().toISOString()
     });
 
     const snapshot = await reader.snapshot(pinned.snapshot_id);
-    expect(snapshot.records.map((record) => record.path)).toEqual(["tasks/one.md"]);
+    expect(snapshot.records.map((record) => record.path)).toEqual(["records/one.md"]);
     const changes = await reader.changes(pinned.head);
     expect(changes.events).toEqual([
-      expect.objectContaining({ type: "put", record: expect.objectContaining({ path: "tasks/two.md" }) })
+      expect.objectContaining({ type: "put", record: expect.objectContaining({ path: "records/two.md" }) })
     ]);
   });
 });

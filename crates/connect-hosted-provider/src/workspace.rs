@@ -521,12 +521,37 @@ mod tests {
     use super::*;
 
     fn resources() -> Vec<(String, String)> {
-        crate::template::resources("tasknotes")
+        let mut resources: Vec<(String, String)> = crate::template::resources("mdbase")
             .unwrap()
             .1
             .into_iter()
             .map(|resource| (resource.path.to_string(), resource.document.to_string()))
-            .collect()
+            .collect();
+        resources.push((
+            "_types/task.md".to_string(),
+            r#"---
+kind: mdbase.type
+name: task
+version: 1
+description: A generic work item.
+collection:
+  path:
+    folder: tasks
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [type, title]
+    additionalProperties: true
+    properties:
+      type: { const: task }
+      title: { type: string, minLength: 1 }
+      status: { enum: [open, done] }
+---
+"#
+            .to_string(),
+        ));
+        resources
     }
 
     #[test]
@@ -725,7 +750,7 @@ mod tests {
                     "name": "task",
                     "if_revision": task_revision,
                     "document": task.result["document"].as_str().unwrap().replace(
-                        "A TaskNotes-compatible task.",
+                        "A generic work item.",
                         "An updated task."
                     )
                 }),

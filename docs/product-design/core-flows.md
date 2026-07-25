@@ -16,7 +16,7 @@ Every consequential flow should answer five questions in this order:
 4. **Where does the authority live?**
 5. **How can the user stop or reverse this later?**
 
-The final action uses a concrete verb and object. Prefer `Allow TaskNotes`,
+The final action uses a concrete verb and object. Prefer `Allow Worklog`,
 `Pause remote access`, or `Revoke from this computer` over `Continue`,
 `Confirm`, or `Manage`.
 
@@ -138,8 +138,8 @@ storage model.
 5. The collection remains an mdbase collection that other compatible apps may
    use.
 
-Avoid language such as `TaskNotes database`. Prefer `mdbase collection with
-TaskNotes fields`.
+Avoid language such as `Worklog database`. Prefer `mdbase collection with
+work-item records`.
 
 ## Failure and recovery
 

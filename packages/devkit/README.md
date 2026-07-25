@@ -27,7 +27,7 @@ Validate artifacts from a project script:
 ```sh
 mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json
 mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json --allow-local
-mdbase-connect-dev validate-contract tasknotes-contract.json
+mdbase-connect-dev validate-contract worklog-contract.json
 ```
 
 Bundled application declarations support connector-controlled type

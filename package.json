@@ -19,7 +19,6 @@
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "tslib": "^2.8.1"
+    "@playwright/test": "^1.61.1"
   }
 }

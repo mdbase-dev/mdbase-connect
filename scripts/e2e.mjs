@@ -84,17 +84,17 @@ try {
   ]);
   await writeFile(
     join(collectionPath, "mdbase.yaml"),
-    `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["TaskNotes/Views/**/*.base"]\n`
+    `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["Views/**/*.base"]\n`
   );
-  await mkdir(join(collectionPath, "TaskNotes", "Views"), { recursive: true });
-  await writeFile(join(collectionPath, "TaskNotes", "Views", "tasks.base"), `formulas:
+  await mkdir(join(collectionPath, "Views"), { recursive: true });
+  await writeFile(join(collectionPath, "Views", "workouts.base"), `formulas:
   lane: if(status == "open", "Ready", "Other")
 properties:
   formula.lane:
     displayName: Lane
 views:
-  - type: tasknotesKanban
-    name: Open tasks
+  - type: table
+    name: Open workouts
     filters:
       and:
         - 'status == "open"'
@@ -107,9 +107,9 @@ views:
         direction: ASC
 `);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
-  await writeFile(join(collectionPath, "_types", "task.md"), `---
+  await writeFile(join(collectionPath, "_types", "workout.md"), `---
 kind: mdbase.type
-name: task
+name: workout
 version: 1
 schema:
   dialect: json-schema-2020-12
@@ -118,17 +118,16 @@ schema:
     required: [type, title]
     additionalProperties: true
     properties:
-      type: { const: task }
+      type: { const: workout }
       title: { type: string }
       status: { enum: [open, done] }
-x-tasknotes:
-  contract: tasknotes.task
+x-workout:
+  contract: workout.record
   version: 1
   field_roles:
     title: title
     status: status
   status:
-    completed_values: [done]
 ---
 `);
   await writeFile(join(collectionPath, "_types", "private.md"), `---
@@ -153,7 +152,7 @@ secret: connector scope test
   await mkdir(join(collectionPath, "bulk"), { recursive: true });
   await Promise.all(Array.from({ length: 1_000 }, (_, index) => writeFile(
     join(collectionPath, "bulk", `${String(index).padStart(4, "0")}.md`),
-    `---\ntype: task\ntitle: Bulk ${index}\nstatus: open\n---\n`
+    `---\ntype: workout\ntitle: Bulk ${index}\nstatus: open\n---\n`
   )));
   await stopAgent(agent);
   agent = startAgent(["--server-url", serverUrl, "--connector-token", connector.body.token]);
@@ -208,7 +207,7 @@ secret: connector scope test
       code_verifier: verifier
     }
   });
-  if (token.body.scope?.contracts?.[0]?.id !== "tasknotes.task" || !token.body.refresh_token) {
+  if (token.body.scope?.contracts?.[0]?.id !== "workout.record" || !token.body.refresh_token) {
     throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
   }
   if (token.body.encryption?.protocol_version !== 1
@@ -522,7 +521,7 @@ secret: connector scope test
   const descriptionBody = await descriptionResponse.json();
   if (descriptionResponse.status !== 200
       || descriptionBody.result?.protocol_version !== 1
-      || descriptionBody.result?.contracts?.[0]?.id !== "tasknotes.task"
+      || descriptionBody.result?.contracts?.[0]?.id !== "workout.record"
       || descriptionBody.result?.types?.length !== 1
       || descriptionBody.result?.types?.[0]?.schema?.properties?.title?.type !== "string") {
     throw new Error(`Unexpected collection description: ${JSON.stringify(descriptionBody)}`);
@@ -532,7 +531,7 @@ secret: connector scope test
   const create = await poll(async () => {
     const response = await rawOperation(collection.id, "create", accessToken, {
       path: "sessions/first.md",
-      frontmatter: { type: "task", title: "First connected workout", status: "open" },
+      frontmatter: { type: "workout", title: "First connected workout", status: "open" },
       body: "Created through the relay."
     });
     return response.status === 200 ? response : null;
@@ -842,7 +841,7 @@ async function availableTcpPort() {
 async function openManifestServer() {
   const primary = await openApplicationServer(
     "MVP Workout App",
-    [{ id: "tasknotes.task", version: 1 }]
+    [{ id: "workout.record", version: 1 }]
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {
@@ -921,7 +920,7 @@ async function openApplicationServer(name, contracts, access) {
       const description = await connection.describe();
       const created = await connection.create({
         path: "browser/direct.md",
-        frontmatter: { type: "task", title: "Real browser direct", status: "open" },
+        frontmatter: { type: "workout", title: "Real browser direct", status: "open" },
         body: "Created in Chromium."
       });
       const revision = created.result.revision;
@@ -960,8 +959,8 @@ schema:
       });
       const views = await connection.listViews();
       const executedView = await connection.executeView({
-        path: "TaskNotes/Views/tasks.base",
-        view: "open-tasks"
+        path: "Views/workouts.base",
+        view: "open-workouts"
       });
       const changed = await connection.changes({ after: description.change_cursor });
       const deleted = await connection.delete({ path: "browser/renamed.md" });
@@ -978,8 +977,8 @@ schema:
         updatedType: updatedType.valid && updatedType.result.document.includes("Updated browser note"),
         listedView: views.valid
           && views.result.views.some((document) =>
-            document.source.path === "TaskNotes/Views/tasks.base"
-              && document.views.some((view) => view.id === "open-tasks"
+            document.source.path === "Views/workouts.base"
+              && document.views.some((view) => view.id === "open-workouts"
                 && view.properties[1].key === "formula.lane"
                 && view.properties[1].label === "Lane")
           ),

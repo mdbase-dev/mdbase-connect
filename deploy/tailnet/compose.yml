@@ -57,29 +57,5 @@ services:
       retries: 6
     restart: unless-stopped
 
-  tasknotes:
-    image: nginx:1.27-alpine
-    volumes:
-      - ./tasknotes-dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    ports:
-      - "127.0.0.1:8788:80"
-    mem_limit: 64m
-    read_only: true
-    tmpfs:
-      - /var/cache/nginx:size=16m,nosuid
-      - /var/run:size=2m,nosuid
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - SETGID
-      - SETUID
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-
 volumes:
   postgres-data:

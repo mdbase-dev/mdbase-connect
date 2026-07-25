@@ -4098,7 +4098,29 @@ mod tests {
 
     #[test]
     fn scopes_resources_and_records_consistently() {
-        let (resources, _) = template::resources("tasknotes").unwrap();
+        let resources = SyncCollectionResources {
+            revision: "example:1".to_string(),
+            spec_version: "0.3.0".to_string(),
+            types: vec![mdbase_connect_protocol::CollectionTypeDescriptor {
+                name: "task".to_string(),
+                version: Some(1),
+                description: Some("A generic work item.".to_string()),
+                path: Some("_types/task.md".to_string()),
+                definition: None,
+                schema: json!({ "type": "object" }),
+                collection: None,
+                lifecycle: None,
+                extensions: Map::new(),
+            }],
+            contracts: vec![CollectionContractDescriptor {
+                id: "example.work-item".to_string(),
+                version: 1,
+                type_name: "task".to_string(),
+                extension: "x-example".to_string(),
+                configuration: json!({ "contract": "example.work-item", "version": 1 }),
+            }],
+            documents: Vec::new(),
+        };
         let scoped = scoped_resources(resources, &["other".to_string()]);
         assert!(scoped.types.is_empty());
         assert!(scoped.contracts.is_empty());

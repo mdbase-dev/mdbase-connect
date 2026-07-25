@@ -8,23 +8,23 @@ import {
 describe("native manifest callbacks", () => {
   it("accepts a reverse-domain private-use application scheme", () => {
     expect(isNativeRedirectUri(
-      new URL("dev.tasknotes.app://auth/mdbase/callback"),
-      "tasknotes.dev"
+      new URL("dev.worklog.app://auth/mdbase/callback"),
+      "worklog.dev"
     )).toBe(true);
   });
 
   it("binds the private-use scheme to the manifest publisher", () => {
     expect(isNativeRedirectUri(
       new URL("com.example.app://auth/mdbase/callback"),
-      "tasknotes.dev"
+      "worklog.dev"
     )).toBe(false);
   });
 
   it.each([
-    "tasknotes://auth/callback",
+    "worklog://auth/callback",
     "javascript://auth/callback",
-    "dev.tasknotes.app://user:secret@auth/callback",
-    "dev.tasknotes.app://auth/callback#fragment"
+    "dev.worklog.app://user:secret@auth/callback",
+    "dev.worklog.app://auth/callback#fragment"
   ])("rejects an unsafe native callback %s", (value) => {
     expect(isNativeRedirectUri(new URL(value))).toBe(false);
   });

@@ -144,22 +144,22 @@ describe("provider-neutral collection client", () => {
     });
     await client.listViews();
     await client.executeView({
-      path: "TaskNotes/Views/tasks.base",
+      path: "Worklog/Views/tasks.base",
       view: "kanban-board",
       limit: 50
     });
-    await client.readViewSource({ path: "TaskNotes/Views/tasks.base" });
+    await client.readViewSource({ path: "Worklog/Views/tasks.base" });
     await client.createViewSource({
-      path: "TaskNotes/Views/new.base",
+      path: "Worklog/Views/new.base",
       document: "views: []\n"
     });
     await client.updateViewSource({
-      path: "TaskNotes/Views/tasks.base",
+      path: "Worklog/Views/tasks.base",
       if_revision: "sha256:one",
       document: "views: []\n"
     });
     await client.deleteViewSource({
-      path: "TaskNotes/Views/tasks.base",
+      path: "Worklog/Views/tasks.base",
       if_revision: "sha256:two"
     });
     expect(calls).toEqual([
@@ -167,26 +167,26 @@ describe("provider-neutral collection client", () => {
       {
         operation: "execute_view",
         input: {
-          path: "TaskNotes/Views/tasks.base",
+          path: "Worklog/Views/tasks.base",
           view: "kanban-board",
           limit: 50
         }
       },
       {
         operation: "read_view_source",
-        input: { path: "TaskNotes/Views/tasks.base" }
+        input: { path: "Worklog/Views/tasks.base" }
       },
       {
         operation: "create_view_source",
         input: {
-          path: "TaskNotes/Views/new.base",
+          path: "Worklog/Views/new.base",
           document: "views: []\n"
         }
       },
       {
         operation: "update_view_source",
         input: {
-          path: "TaskNotes/Views/tasks.base",
+          path: "Worklog/Views/tasks.base",
           if_revision: "sha256:one",
           document: "views: []\n"
         }
@@ -194,7 +194,7 @@ describe("provider-neutral collection client", () => {
       {
         operation: "delete_view_source",
         input: {
-          path: "TaskNotes/Views/tasks.base",
+          path: "Worklog/Views/tasks.base",
           if_revision: "sha256:two"
         }
       }
@@ -707,7 +707,7 @@ describe("mobile notifications", () => {
   const manifest: MdbaseAppManifest = {
     manifest_version: 1,
     id: "dev.mdbase.tasks",
-    name: "TaskNotes",
+    name: "Worklog",
     homepage: "https://tasks.example/",
     redirect_uris: [
       "https://tasks.example/callback",
@@ -746,7 +746,7 @@ describe("mobile notifications", () => {
         return jsonResponse({
           application: {
             id: "00000000-0000-0000-0000-000000000001",
-            name: "TaskNotes",
+            name: "Worklog",
             homepage: "https://tasks.example",
             notifications: {
               criteria: [{ id: "task.ready" }, { id: "task.overdue" }]
@@ -814,7 +814,7 @@ describe("mobile notifications", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
       application: {
         id: "00000000-0000-0000-0000-000000000001",
-        name: "TaskNotes",
+        name: "Worklog",
         homepage: "https://tasks.example",
         notifications: { criteria: [{ id: "task.ready" }] }
       }
@@ -846,7 +846,7 @@ describe("mobile notifications", () => {
       cursor: "42",
       presentation: {
         title: "A task is ready",
-        body: "Open TaskNotes to review it.",
+        body: "Open Worklog to review it.",
         tag: "task-ready"
       }
     };
@@ -854,7 +854,7 @@ describe("mobile notifications", () => {
     expect(parseMdbasePushPayload(payload)).toEqual(payload);
     await showMdbasePushNotification({ showNotification }, payload);
     expect(showNotification).toHaveBeenCalledWith("A task is ready", {
-      body: "Open TaskNotes to review it.",
+      body: "Open Worklog to review it.",
       tag: "task-ready",
       data: {
         type: "mdbase.notification",
@@ -885,7 +885,7 @@ describe("mobile notifications", () => {
           return jsonResponse({
             application: {
               id: "00000000-0000-0000-0000-000000000001",
-              name: "TaskNotes",
+              name: "Worklog",
               homepage: "https://tasks.example",
               notifications: {
                 native_delivery: {
@@ -913,7 +913,7 @@ describe("mobile notifications", () => {
     const manager = new MdbaseConnect({
       serverUrl,
       manifest,
-      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
@@ -949,7 +949,7 @@ describe("mobile notifications", () => {
       accessToken: "expired",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: TEST_COLLECTION_ID,
-      collectionName: "TaskNotes",
+      collectionName: "Worklog",
       operations: ["query"],
       scope: { contracts: [] },
       expiresAt: Date.now() + 60_000,
@@ -964,7 +964,7 @@ describe("mobile notifications", () => {
     const manager = new MdbaseConnect({
       serverUrl,
       manifest,
-      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
@@ -1320,15 +1320,15 @@ describe("authorization renewal", () => {
       String(request) === manifestUrl
         ? jsonResponse({
             manifest_version: 1,
-            id: "dev.tasknotes.app",
-            name: "TaskNotes",
+            id: "dev.worklog.app",
+            name: "Worklog",
             homepage: "https://tasks.example",
-            redirect_uris: ["dev.tasknotes.app://auth/mdbase/callback"]
+            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
           })
         : jsonResponse({
             application: {
               id: "00000000-0000-0000-0000-000000000001",
-              name: "TaskNotes",
+              name: "Worklog",
               homepage: "https://tasks.example"
             }
           })
@@ -1336,7 +1336,7 @@ describe("authorization renewal", () => {
     const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
-      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
       relayEncryption: "disabled",
       navigate
@@ -1399,15 +1399,15 @@ describe("authorization renewal", () => {
       String(request) === manifestUrl
         ? jsonResponse({
             manifest_version: 1,
-            id: "dev.tasknotes.app",
-            name: "TaskNotes",
+            id: "dev.worklog.app",
+            name: "Worklog",
             homepage: "https://tasks.example",
-            redirect_uris: ["dev.tasknotes.app://auth/mdbase/callback"]
+            redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
           })
         : jsonResponse({
             application: {
               id: "00000000-0000-0000-0000-000000000001",
-              name: "TaskNotes",
+              name: "Worklog",
               homepage: "https://tasks.example"
             }
           })
@@ -1415,7 +1415,7 @@ describe("authorization renewal", () => {
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
       manifest: manifestUrl,
-      redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
+      redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
       relayEncryption: "disabled",
       navigate
@@ -1424,7 +1424,7 @@ describe("authorization renewal", () => {
     void connect.authorize({ operations: ["query"] });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
     expect(new URL(navigate.mock.calls[0][0]).searchParams.get("redirect_uri"))
-      .toBe("dev.tasknotes.app://auth/mdbase/callback");
+      .toBe("dev.worklog.app://auth/mdbase/callback");
   });
 
   it("sends hosted operations directly to the provider with its scoped capability", async () => {
@@ -1438,7 +1438,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1478,7 +1478,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "create", "update", "delete"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1531,7 +1531,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
       expiresAt: Date.now() - 1,
       refreshExpiresAt: Date.now() + 60_000
     }));
@@ -1543,7 +1543,7 @@ describe("authorization renewal", () => {
         refresh_expires_in: 2_592_000,
         collection_id: "00000000-0000-0000-0000-000000000002",
         operations: ["query"],
-        scope: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+        scope: { contracts: [{ id: "example.work-item", version: 1 }] }
       }), { status: 200, headers: { "content-type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
@@ -1577,7 +1577,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
       refreshExpiresAt: Date.now() + 60_000
     };
     storage.setItem(tokenKey, JSON.stringify({

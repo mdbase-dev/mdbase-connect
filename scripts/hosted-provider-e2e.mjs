@@ -33,6 +33,11 @@ let controlApp;
 let controlDatabase;
 let manifestServer;
 let notificationCallbackServer;
+const WORK_ITEM_PROVISION = {
+  name: "task",
+  document: "---\nkind: mdbase.type\nname: task\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [type, title]\n    properties:\n      type: { const: task }\n      title: { type: string }\n      status: { enum: [open, done] }\nx-example:\n  contract: example.work-item\n  version: 1\n---\n",
+  provides: [{ id: "example.work-item", version: 1 }]
+};
 
 const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
   await import("../packages/sync/dist/index.js");
@@ -42,8 +47,6 @@ const {
   WritableDirectoryMirror
 } = await import("../packages/sync/dist/node.js");
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
-const { resolveTasknotesSyncContract, TasknotesOfflineCollection } =
-  await import("../packages/tasknotes/dist/index.js");
 const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/dist/index.js");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
@@ -156,10 +159,11 @@ try {
     method: "POST",
     body: {
       collection_id: notificationCollectionId,
-      template: "tasknotes",
-      display_name: "Notification tasks"
+      template: "mdbase",
+      display_name: "Notification records"
     }
   });
+  await provisionTypes(notificationProvider.url, notificationCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
     notificationProvider.url,
     `/internal/v1/collections/${notificationCollectionId}/replicas`,
@@ -306,12 +310,13 @@ try {
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
     // Exercise the pre-display-name control-plane document during rolling upgrades.
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: { collection_id: quotaCollectionId, template: "mdbase" }
   });
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: { collection_id: quotaCollectionId, template: "mdbase" }
   });
+  await provisionTypes(quotaProvider.url, quotaCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
     quotaProvider.url,
     `/internal/v1/collections/${quotaCollectionId}/replicas`,
@@ -411,8 +416,9 @@ try {
   const maintenanceToken = `maintenance-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(maintenanceProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: maintenanceCollectionId, template: "tasknotes", display_name: "Maintenance tasks" }
+    body: { collection_id: maintenanceCollectionId, template: "mdbase", display_name: "Maintenance records" }
   });
+  await provisionTypes(maintenanceProvider.url, maintenanceCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
     maintenanceProvider.url,
     `/internal/v1/collections/${maintenanceCollectionId}/replicas`,
@@ -422,7 +428,7 @@ try {
         replica_id: maintenanceReplicaId,
         name: "Retention probe",
         mode: "read_write",
-        allowed_types: ["task"],
+        allowed_types: [],
         token: maintenanceToken
       }
     }
@@ -467,23 +473,24 @@ try {
   assert.ok(cookie);
   const created = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
-    body: { display_name: "Task app data", template: "tasknotes" }
+    body: { display_name: "Hosted records", template: "mdbase" }
   });
   const collectionId = created.collection.id;
   assert.equal(created.collection.sync_url, provider.url);
+  await provisionTypes(provider.url, collectionId, [WORK_ITEM_PROVISION]);
   const other = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
     body: { display_name: "Hosted writing", template: "mdbase" }
   });
   const genericCollectionId = other.collection.id;
-  const writer = await registerReplica(controlUrl, cookie, collectionId, "Writer", "read_write", ["task"]);
-  const reader = await registerReplica(controlUrl, cookie, collectionId, "Reader", "read_write", ["task"]);
-  const mirror = await registerReplica(controlUrl, cookie, collectionId, "Mirror", "read_only", ["task"]);
-  const writableMirror = await registerReplica(controlUrl, cookie, collectionId, "Writable mirror", "read_write", ["task"]);
-  const importMirror = await registerReplica(controlUrl, cookie, collectionId, "Import mirror", "read_write", ["task"]);
-  const readOnly = await registerReplica(controlUrl, cookie, collectionId, "Read only", "read_only", ["task"]);
+  const writer = await registerReplica(controlUrl, cookie, collectionId, "Writer", "read_write", []);
+  const reader = await registerReplica(controlUrl, cookie, collectionId, "Reader", "read_write", []);
+  const mirror = await registerReplica(controlUrl, cookie, collectionId, "Mirror", "read_only", []);
+  const writableMirror = await registerReplica(controlUrl, cookie, collectionId, "Writable mirror", "read_write", []);
+  const importMirror = await registerReplica(controlUrl, cookie, collectionId, "Import mirror", "read_write", []);
+  const readOnly = await registerReplica(controlUrl, cookie, collectionId, "Read only", "read_only", []);
   const hidden = await registerReplica(controlUrl, cookie, collectionId, "Hidden scope", "read_only", ["note"]);
-  const recovery = await registerReplica(controlUrl, cookie, collectionId, "Recovery", "read_write", ["task"]);
+  const recovery = await registerReplica(controlUrl, cookie, collectionId, "Recovery", "read_write", []);
   assert.equal(writer.syncUrl, provider.url);
   const deniedBrowserSync = await rawRequest(provider.url, syncPath(collectionId, "sessions"), {
     method: "POST",
@@ -539,8 +546,9 @@ try {
   const emptyCookie = emptyLogin.headers.get("set-cookie")?.split(";", 1)[0];
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
-    name: "TaskNotes Inline E2E",
-    requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+    name: "Workout Inline E2E",
+    requirements: { contracts: [{ id: "workout.record", version: 1 }] },
+    provisions: { types: [typeProvision] }
   });
   try {
     const inlineStorage = memoryStorage();
@@ -569,7 +577,7 @@ try {
     const inlineToken = inlineStorage.token();
     assert.equal(inlineToken.hosted.providerUrl, provider.url);
     const inlineDescription = await inlineConnection.describe();
-    assert.equal(inlineDescription.contracts[0]?.id, "tasknotes.task");
+    assert.equal(inlineDescription.contracts[0]?.id, "workout.record");
   } finally {
     await new Promise((resolveClose) => inlineManifest.server.close(resolveClose));
   }
@@ -830,19 +838,15 @@ schema:
   const recoveryClient = new OfflineReplica(recoveryTransport, recoveryStore);
   await Promise.all([writerClient.initialize(), readerClient.initialize(), recoveryClient.initialize()]);
 
-  const resources = await writerClient.collectionResources();
-  assert.ok(resources);
-  const tasknotes = new TasknotesOfflineCollection(
-    writerClient,
-    resolveTasknotesSyncContract(resources)
-  );
-  const recordId = await tasknotes.create({
-    title: "Created offline",
+  const createdOffline = await writerClient.queueCreate({
     path: "tasks/offline.md",
-    body: "Created without a network round trip."
+    frontmatter: { type: "task", title: "Created offline", status: "open" },
+    body: "Created without a network round trip.",
+    types: ["task"]
   });
+  const recordId = createdOffline.record_id;
   const originalMutation = structuredClone((await writerClient.pending())[0]);
-  await tasknotes.sync();
+  await writerClient.sync();
   await readerClient.pull();
   assert.equal(findRecord(await readerClient.records(), recordId).frontmatter.title, "Created offline");
   const forbiddenPlaintextColumns = await postgresQuery(
@@ -929,7 +933,7 @@ schema:
   const hiddenSession = await hiddenTransport.openSession();
   assert.deepEqual(hiddenSession.resources.types, []);
   assert.deepEqual((await snapshotAll(hiddenTransport, hiddenSession)), []);
-  const hiddenChanges = await hiddenTransport.changes(0, 200);
+  const hiddenChanges = await hiddenTransport.changes(hiddenSession.head, 200);
   assert.deepEqual(hiddenChanges.events, []);
   assert.equal(hiddenChanges.cursor, hiddenChanges.head);
 
@@ -998,7 +1002,7 @@ schema:
     { code: "ENOENT" }
   );
   assert.match(await readFile(join(mirrorRoot, "mdbase.yaml"), "utf8"), /spec_version: 0\.3\.0/);
-  assert.match(await readFile(join(mirrorRoot, "_types", "task.md"), "utf8"), /x-tasknotes:/);
+  assert.match(await readFile(join(mirrorRoot, "_types", "task.md"), "utf8"), /x-example:/);
   const directoryMirror = new DirectoryMirror(
     mirrorRoot,
     mirror.id,
@@ -1015,7 +1019,7 @@ schema:
   await writerClient.sync();
   await directoryMirror.sync();
   await assert.rejects(() => readFile(join(mirrorRoot, "tasks", "offline.md"), "utf8"), { code: "ENOENT" });
-  assert.match(await readFile(join(mirrorRoot, "tasks", "renamed.md"), "utf8"), /type: task/);
+  assert.match(await readFile(join(mirrorRoot, "tasks", "renamed.md"), "utf8"), /title:/);
 
   phase("round-tripping writable files with stable identity and explicit conflict resolution");
   const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
@@ -1596,7 +1600,7 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
 
     await page.getByRole("button", { name: "Create hosted collection" }).click();
     await expect(page.getByText(/Starts as a clean mdbase 0\.3 collection/)).toBeVisible();
-    await expect(page.getByText(/TaskNotes/)).toHaveCount(0);
+    await expect(page.getByText(/application-specific template/i)).toHaveCount(0);
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create collection" }).click();
     const row = page.locator("article.hosted-row").filter({ hasText: "Browser E2E collection" });
@@ -1950,16 +1954,19 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
     }]);
     const page = await context.newPage();
     await page.goto(authorizationUrl);
-    await expect(page.getByRole("heading", { name: "TaskNotes Inline E2E" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workout Inline E2E" })).toBeVisible();
     const collection = page.getByLabel("Collection and location");
     await expect(collection.locator("option")).toHaveCount(1);
     await expect(collection.locator("option:checked")).toHaveText("No compatible collection");
     await expect(collection).toBeDisabled();
     await page.getByRole("button", { name: "Create an mdbase cloud collection" }).click();
     await expect(collection.locator("option")).toHaveCount(1);
-    await expect(collection.locator("option:checked")).toHaveText("My tasks · mdbase cloud");
+    await expect(collection.locator("option:checked")).toHaveText(
+      "My collection · mdbase cloud · setup required"
+    );
+    await expect(page.getByText("allowing access will add Workout")).toBeVisible();
     await expect(collection).toBeEnabled();
-    await page.getByRole("button", { name: "Allow TaskNotes Inline E2E" }).click();
+    await page.getByRole("button", { name: "Allow Workout Inline E2E" }).click();
     await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
     return page.url();
   } finally {
@@ -2166,6 +2173,14 @@ async function internalRequest(url, path, options = {}) {
   return response.body;
 }
 
+function provisionTypes(url, collectionId, types) {
+  return internalRequest(
+    url,
+    `/internal/v1/collections/${collectionId}/types/provision`,
+    { method: "POST", body: { types } }
+  );
+}
+
 async function controlRequest(url, path, cookie, options = {}) {
   const response = await rawRequest(url, path, { ...options, cookie });
   if (!response.ok) {
@@ -2239,7 +2254,8 @@ async function waitForOutput(action, message) {
 
 async function openManifestServer({
   name = "Hosted SDK E2E",
-  requirements = { contracts: [] }
+  requirements = { contracts: [] },
+  provisions = { types: [] }
 } = {}) {
   const server = createServer((_request, response) => {
     const address = server.address();
@@ -2248,13 +2264,14 @@ async function openManifestServer({
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
-      id: name === "TaskNotes Inline E2E"
-        ? "dev.mdbase.tasknotes-inline-e2e"
+      id: name === "Workout Inline E2E"
+        ? "dev.mdbase.workout-inline-e2e"
         : "dev.mdbase.hosted-sdk-e2e",
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
-      requirements
+      requirements,
+      provisions
     }));
   });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

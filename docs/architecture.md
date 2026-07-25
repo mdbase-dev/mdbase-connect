@@ -4,9 +4,8 @@
 
 mdbase defines the portable collection format and record operations. Connect
 provides authorization, routing, discovery, and change delivery for
-applications. Domain packages such as `@mdbase/tasknotes` interpret optional
-type extensions without adding TaskNotes behavior to the mdbase specification
-or the relay.
+applications. Domain packages interpret optional type extensions without
+adding application behavior to the mdbase specification or the relay.
 
 Five trust zones make up the local-hosted path:
 
@@ -68,8 +67,8 @@ the approval UI still requires an explicit compatible user choice.
   subscriptions, and Web Push installation registration.
 - `@mdbase/connect-sync` defines hosted replication and supplies offline replica
   stores, an HTTP transport, and a receive-only Markdown mirror.
-- Domain adapters consume collection contracts. `@mdbase/tasknotes` is the
-  first adapter and follows the collection's configured TaskNotes field roles.
+- Domain adapters consume collection contracts and remain in their owning
+  application repositories.
 
 ## Collection API
 
@@ -158,16 +157,14 @@ policy.
 ## Domain contracts
 
 A type may declare an optional domain contract in an extension such as
-`x-tasknotes`. Discovery returns the extension unchanged along with its type
+`x-workout`. Discovery returns the extension unchanged along with its type
 name and version. An adapter can then translate stable domain roles into the
 collection's configured field names.
 
-The TaskNotes adapter implements listing, creation, and completion through
-generic mdbase operations. Completion reads the latest revision and submits a
-conditional update. This path works while Obsidian is closed. Runtime-backed
-notification criteria and one-shot timers are available without adding
-TaskNotes semantics to Connect; richer recurrence expansion remains an explicit
-domain provider action.
+Application adapters implement their behavior through generic mdbase
+operations. Revision-sensitive changes read the latest revision and submit a
+conditional update. Runtime-backed notification criteria and one-shot timers
+remain generic; domain planning stays in the application.
 
 ## Application identity and authorization
 

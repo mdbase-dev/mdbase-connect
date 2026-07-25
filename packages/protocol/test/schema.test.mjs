@@ -49,7 +49,7 @@ test("v1 application manifests carry a stable reverse-domain id", () => {
       "dev.mdbase.tasks://auth/mdbase/callback"
     ],
     requirements: {
-      contracts: [{ id: "tasknotes.task", version: 1 }]
+      contracts: [{ id: "example.work-item", version: 1 }]
     },
     notifications: {
       criteria: []
@@ -99,7 +99,7 @@ test("notification webhooks carry only an opaque wake-up signal", () => {
       cursor: "42",
       presentation: {
         title: "Tasks changed",
-        body: "Open TaskNotes to refresh.",
+        body: "Open Worklog to refresh.",
         tag: "task-change"
       }
     }
@@ -200,13 +200,13 @@ test("application manifests declare connector-controlled type provisioning", () 
     requirements: {
       collection_kind: "hosted",
       access: "full_collection",
-      contracts: [{ id: "tasknotes.task", version: 1 }]
+      contracts: [{ id: "example.work-item", version: 1 }]
     },
     provisions: {
       types: [{
         name: "Task",
         document: "---\nkind: mdbase.type\nname: task\n---\n",
-        provides: [{ id: "tasknotes.task", version: 1 }]
+        provides: [{ id: "example.work-item", version: 1 }]
       }]
     }
   };
@@ -267,15 +267,15 @@ test("sync wire objects are independently addressable", () => {
     head: 0,
     snapshot_id: "01966666-6666-7666-8666-666666666666",
     resources: {
-      revision: "tasknotes-template:1",
+      revision: "example-template:1",
       spec_version: "0.3.0",
       types: [{ name: "task", version: 1, schema: { type: "object" }, extensions: {} }],
       contracts: [{
-        id: "tasknotes.task",
+        id: "example.work-item",
         version: 1,
         type_name: "task",
-        extension: "x-tasknotes",
-        configuration: { contract: "tasknotes.task", version: 1 }
+        extension: "x-work-item",
+        configuration: { contract: "example.work-item", version: 1 }
       }]
     }
   };
@@ -356,6 +356,6 @@ test("collection descriptions and operation envelopes have addressable schemas",
 
 test("contract extensions require a stable contract identity and version", () => {
   const validate = validator(contractSchema.$id);
-  assert.equal(validate({ contract: "tasknotes.task", version: 1, field_roles: {} }), true);
-  assert.equal(validate({ contract: "Task Notes", version: 0 }), false);
+  assert.equal(validate({ contract: "example.work-item", version: 1, field_roles: {} }), true);
+  assert.equal(validate({ contract: "Invalid Contract", version: 0 }), false);
 });

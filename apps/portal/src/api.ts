@@ -76,7 +76,7 @@ export interface HostedReplica {
 export interface HostedCollection {
   id: string;
   display_name: string;
-  template: "mdbase" | "tasknotes";
+  template: "mdbase";
   provider_url: string;
   spec_version: string;
   contracts: ContractRequirement[];

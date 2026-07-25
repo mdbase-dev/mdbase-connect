@@ -13,7 +13,7 @@ devices, authorization, and delivery. mdbase continues to define collection and
 record behavior.
 
 The first implementation has one authoritative provider for each collection.
-mdbase cloud is the authority for a hosted collection. A TaskNotes installation
+mdbase cloud is the authority for a hosted collection. An authorized application
 may keep a scoped offline cache, and Connect may materialize a local filesystem
 mirror. Both replicas converge through the same versioned replication protocol.
 
@@ -47,11 +47,11 @@ reference path through a real HTTP server:
   payloads through the control plane;
 - a durable-store abstraction with memory and IndexedDB implementations, plus
   an offline client for optimistic create, update, rename, and delete;
-- TaskNotes contract discovery from each hosted sync session, an adapter over
-  the offline replica, and receive-only or writable Markdown directory mirrors
-  with atomic writes, durable journals, and explicit conflict resolution.
+- contract discovery from each hosted sync session, a generic offline replica,
+  and receive-only or writable Markdown directory mirrors with atomic writes,
+  durable journals, and explicit conflict resolution.
 
-The network end-to-end test creates a hosted TaskNotes collection, queues work
+The network end-to-end test creates a hosted collection, queues a record
 offline, synchronizes two clients, materializes Markdown, returns a stale-write
 conflict, recovers an expired cursor without losing pending work, and enforces
 replica revocation and token-renewal denial.
@@ -77,7 +77,7 @@ launch gates.
    records and schemas covered by its grant.
 6. **mdbase semantics have one production implementation.** The production
    hosted provider uses `mdbase-rs`; the TypeScript authority is limited to an
-   executable replication model and TaskNotes slice.
+   executable replication model and application-neutral test fixtures.
 7. **Pending local work is durable.** A disposable cache can be rebuilt from the
    authority, while its queued offline mutations survive process and device
    restarts.
@@ -112,8 +112,8 @@ needed by local tools.
 
 The replication protocol is provider-neutral. After the cloud-authoritative
 path is reliable, a local connector can implement the authority side for a
-PC-owned collection. Mobile TaskNotes would then use the same offline cache and
-sync state, with synchronization resuming whenever that connector is online.
+PC-owned collection. Mobile applications would then use the same offline cache
+and sync state, with synchronization resuming whenever that connector is online.
 
 ## Hosted provider boundary
 
@@ -150,8 +150,8 @@ The provider, rather than the control plane, stores:
 
 A new cloud collection is created through the application after sign-in. The
 provider installs its config and initial type resources before issuing the
-first empty snapshot. TaskNotes can create its contract type as part of this
-single operation.
+first empty snapshot. An application can provision its required contract types
+as part of the authorization flow.
 
 Moving an existing local collection to cloud authority is an explicit cutover:
 
@@ -355,7 +355,7 @@ Resolution is explicit:
 - edit and resubmit against the current revision;
 - create a separate record where both versions should survive.
 
-TaskNotes can later offer safe domain-specific resolutions for independent
+Owning applications can offer safe domain-specific resolutions for independent
 field changes. General last-write-wins behavior would discard user edits and is
 therefore absent from the base protocol.
 
@@ -406,11 +406,11 @@ whole-collection administration capability is introduced.
 
 ## Application cache behavior
 
-The TaskNotes cache stores only records in its approved contract scope. It opens
-from local state, applies user actions optimistically to the cache, and records
-the corresponding mutation before reporting success to the UI. Background and
-resume tasks push pending mutations and pull authoritative changes when the
-operating system permits network work.
+An application cache stores only records in its approved contract scope. It
+opens from local state, applies user actions optimistically to the cache, and
+records the corresponding mutation before reporting success to the UI.
+Background and resume tasks push pending mutations and pull authoritative
+changes when the operating system permits network work.
 
 Connection state can be expressed in user terms:
 
@@ -513,12 +513,12 @@ Markdown records and type definitions.
 - publish authoritative record and resource changes atomically;
 - add export, backup, quota, and deletion paths.
 
-### 3. TaskNotes offline cache
+### 3. Application offline cache
 
 - implement scoped initial snapshot and cursor pulls;
 - persist an offline mutation queue and idempotent receipts;
 - exercise offline create, update, reconnect, and conflict resolution;
-- expose concise sync state in TaskNotes.
+- expose concise sync state in the owning application.
 
 ### 4. Receive-only Connect mirror
 
@@ -554,9 +554,9 @@ would require another consistency model and should be designed independently.
 
 The automated network slice demonstrates this complete state transition:
 
-1. Create a hosted TaskNotes collection with the TaskNotes contract.
-2. Connect a TaskNotes client and install a scoped snapshot.
-3. Go offline and create a task with a client-generated record and mutation ID.
+1. Create a hosted collection and provision an example application contract.
+2. Connect an application client and install a scoped snapshot.
+3. Go offline and create a record with a client-generated record and mutation ID.
 4. Reconnect, apply the mutation once, and receive its authoritative revision.
 5. Pull the resulting `put` on a second client.
 6. Materialize the same record as Markdown in a receive-only Connect mirror.

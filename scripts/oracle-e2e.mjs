@@ -31,6 +31,17 @@ let relayContext;
 try {
   const health = await request("/health");
   if (health.body.protocol_version !== 1) throw new Error(`Oracle protocol is ${health.body.protocol_version}, expected 1`);
+  const manifestUrl = `${appOrigin}/.well-known/mdbase-app.json`;
+  const hostedManifest = await fetch(manifestUrl).then((response) => response.json());
+  const manifest = {
+    ...hostedManifest,
+    manifest_version: 1,
+    id: hostedManifest.id ?? "dev.mdbase.oracle"
+  };
+  const requiredContract = manifest.requirements?.contracts?.[0] ?? {
+    id: "example.work-item",
+    version: 1
+  };
 
   const connector = await request("/v1/connectors", {
     method: "POST",
@@ -43,10 +54,10 @@ try {
   await run(cliBinary, [
     "--state-dir", stateDir,
     "collection", "create", collectionPath,
-    "--name", "Oracle TaskNotes E2E"
+    "--name", "Oracle contract E2E"
   ]);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
-  await writeFile(join(collectionPath, "_types", "task.md"), taskType());
+  await writeFile(join(collectionPath, "_types", "task.md"), taskType(requiredContract));
   await writeFile(join(collectionPath, "_types", "private.md"), privateType());
   await writeFile(join(collectionPath, "private.md"), `---\ntype: private\nsecret: oracle scope test\n---\n`);
   await stopAgent(agent);
@@ -58,13 +69,6 @@ try {
     return collection ? { dashboard: response.body, collection } : null;
   }, "ephemeral Oracle collection did not synchronize");
 
-  const manifestUrl = `${appOrigin}/.well-known/mdbase-app.json`;
-  const hostedManifest = await fetch(manifestUrl).then((response) => response.json());
-  const manifest = {
-    ...hostedManifest,
-    manifest_version: 1,
-    id: hostedManifest.id ?? "dev.mdbase.oracle"
-  };
   const application = await request("/v1/apps/register", {
     method: "POST",
     body: { manifest }
@@ -120,7 +124,7 @@ try {
       code_verifier: verifier
     }
   });
-  if (token.body.scope?.contracts?.[0]?.id !== "tasknotes.task" || !token.body.refresh_token) {
+  if (token.body.scope?.contracts?.[0]?.id !== requiredContract.id || !token.body.refresh_token) {
     throw new Error(`Oracle authorization did not return contract scope: ${JSON.stringify(token.body)}`);
   }
   if (encryptedRelay) {
@@ -154,7 +158,7 @@ try {
 
   const description = await operation(collectionId, "describe", accessToken, {});
   if (description.protocol_version !== 1
-      || description.contracts?.[0]?.id !== "tasknotes.task"
+      || description.contracts?.[0]?.id !== requiredContract.id
       || description.types?.length !== 1
       || description.types?.[0]?.schema?.properties?.title?.type !== "string") {
     throw new Error(`Oracle discovery failed: ${JSON.stringify(description)}`);
@@ -385,7 +389,7 @@ async function poll(action, failureMessage) {
   throw new Error(failureMessage);
 }
 
-function taskType() {
+function taskType(contract) {
   return `---
 kind: mdbase.type
 name: task
@@ -400,9 +404,9 @@ schema:
       type: { const: task }
       title: { type: string }
       status: { enum: [open, done] }
-x-tasknotes:
-  contract: tasknotes.task
-  version: 1
+x-work-item:
+  contract: ${JSON.stringify(contract.id)}
+  version: ${contract.version}
   field_roles: { title: title, status: status }
   status: { completed_values: [done], default: open }
 ---

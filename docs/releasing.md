@@ -25,7 +25,7 @@ pnpm --filter @mdbase/connect-desktop package
 The package command compiles a release agent, creates the platform Electron
 bundle, and verifies that `app.asar` and the agent executable are both present.
 Run the packaged application once with a fresh user-data directory and complete
-pairing, collection registration, encrypted TaskNotes authorization, one write,
+pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.
 
 ## Signing and publication

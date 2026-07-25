@@ -580,7 +580,7 @@ mod tests {
     fn collection_creation_remains_compatible_with_pre_identity_clients() {
         let input: CreateCollectionRequest = serde_json::from_value(serde_json::json!({
             "collection_id": Uuid::new_v4(),
-            "template": "tasknotes"
+            "template": "mdbase"
         }))
         .unwrap();
         assert_eq!(input.display_name, None);

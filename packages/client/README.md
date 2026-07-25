@@ -242,20 +242,20 @@ type definitions for the connector to install during approval:
 ```json
 {
   "manifest_version": 1,
-  "id": "dev.mdbase.tasknotes",
-  "name": "TaskNotes",
-  "homepage": "https://tasks.example",
-  "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
+  "id": "dev.mdbase.worklog",
+  "name": "Worklog",
+  "homepage": "https://worklog.example",
+  "redirect_uris": ["https://worklog.example/auth/mdbase/callback"],
   "requirements": {
     "collection_kind": "hosted",
     "access": "full_collection",
-    "contracts": [{ "id": "tasknotes.task", "version": 1 }]
+    "contracts": [{ "id": "example.work-item", "version": 1 }]
   },
   "provisions": {
     "types": [{
-      "name": "Task",
-      "document": "---\nkind: mdbase.type\nname: task\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-tasknotes:\n  contract: tasknotes.task\n  version: 1\n---\n",
-      "provides": [{ "id": "tasknotes.task", "version": 1 }]
+      "name": "work-item",
+      "document": "---\nkind: mdbase.type\nname: work-item\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-worklog:\n  contract: example.work-item\n  version: 1\n---\n",
+      "provides": [{ "id": "example.work-item", "version": 1 }]
     }]
   }
 }
@@ -301,7 +301,7 @@ allows a host to choose another persistence boundary.
 
 Native shells can pass `navigate` to open the authorization URL in the system
 browser and list a reverse-domain callback such as
-`dev.mdbase.tasknotes://auth/mdbase/callback` in the bundled declaration. Its
+`dev.mdbase.worklog://auth/mdbase/callback` in the bundled declaration. Its
 scheme must match the declaration ID. PKCE remains mandatory. Call
 `completeAuthorization(callbackUrl)` when the application receives the deep
 link.

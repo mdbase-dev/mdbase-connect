@@ -19,11 +19,11 @@ const taskDescription: Partial<CollectionDescription> = {
     extensions: {}
   }],
   contracts: [{
-    id: "tasknotes.task",
+    id: "example.work-item",
     version: 1,
     type_name: "task",
-    extension: "x-tasknotes",
-    configuration: { contract: "tasknotes.task", version: 1 }
+    extension: "x-work-item",
+    configuration: { contract: "example.work-item", version: 1 }
   }]
 };
 
@@ -35,7 +35,7 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+      requirements: { contracts: [{ id: "example.work-item", version: 1 }] }
     })).toEqual({ valid: true, issues: [] });
     const invalid = validateAppManifest({
       manifest_version: 1,
@@ -79,12 +79,12 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
       provisions: {
         types: [{
           name: "Task",
           document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "tasknotes.task", version: 1 }]
+          provides: [{ id: "example.work-item", version: 1 }]
         }]
       }
     }).valid).toBe(true);
@@ -94,7 +94,7 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
       provisions: {
         types: [{
           name: "Unrelated",
@@ -115,12 +115,12 @@ describe("canonical developer validation", () => {
         "https://tasks.example/callback",
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
-      requirements: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
       provisions: {
         types: [{
           name: "Task",
           document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "tasknotes.task", version: 1 }]
+          provides: [{ id: "example.work-item", version: 1 }]
         }, {
           name: "Task comment",
           document: "---\nkind: mdbase.type\nname: task_comment\n---\n",
@@ -138,12 +138,12 @@ describe("canonical developer validation", () => {
 
   it("defines extension contracts without erasing application-specific fields", () => {
     const contract = defineContract({
-      contract: "tasknotes.task",
+      contract: "example.work-item",
       version: 1,
       field_roles: { title: "title" }
     });
     expect(contract.field_roles.title).toBe("title");
-    expect(() => defineContract({ contract: "Task Notes", version: 0 }))
+    expect(() => defineContract({ contract: "Invalid Contract", version: 0 }))
       .toThrow(ContractDefinitionError);
     expect(validateContractExtension(contract).valid).toBe(true);
   });

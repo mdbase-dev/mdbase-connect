@@ -1,22 +1,18 @@
 # Tailnet staging deployment
 
-This deployment keeps PostgreSQL, mdbase connect, and the example frontend on
-host loopback. Tailscale Serve is the only ingress and supplies HTTPS for the
-browser-facing URLs.
+This deployment keeps PostgreSQL and mdbase connect on host loopback. Tailscale
+Serve is the only ingress and supplies HTTPS for the browser-facing URL.
 
 The server trusts Tailscale Serve's identity headers for portal authentication.
 It must remain bound to loopback, with Serve as its only ingress; do not expose
 port 8787 directly. Development email login is disabled in this deployment.
 
-The Connect container uses host networking so server-side application manifest
-discovery can reach a frontend served on the same Tailscale node. It still binds
-only to `127.0.0.1:8787`. PostgreSQL and the frontend bind only to loopback as
-well.
+The Connect container uses host networking and binds only to
+`127.0.0.1:8787`. PostgreSQL also binds only to loopback.
 
 ## Required files
 
-Install this directory at `/opt/mdbase-connect`, add the built TaskNotes
-reference frontend under `tasknotes-dist`, and load an image named
+Install this directory at `/opt/mdbase-connect` and load an image named
 `mdbase-connect-server:staging`.
 Create a root-readable `.env` containing:
 
@@ -25,15 +21,11 @@ POSTGRES_PASSWORD=<random password>
 PUBLIC_URL=https://<tailscale-dns-name>
 ```
 
-The frontend's `/.well-known/mdbase-app.json` must use its actual tailnet HTTPS
-homepage and callback URL.
-
 ## Start
 
 ```sh
 docker compose --env-file .env -f compose.yml up -d
 tailscale serve --bg --https=443 http://127.0.0.1:8787
-tailscale serve --bg --https=8443 http://127.0.0.1:8788
 ```
 
 Install the backup service and timer in `/etc/systemd/system`, then enable the

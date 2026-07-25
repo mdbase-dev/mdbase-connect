@@ -2521,8 +2521,8 @@ schema:
     properties:
       type: { const: task }
       title: { type: string }
-x-tasknotes:
-  contract: tasknotes.task
+x-work-item:
+  contract: example.work-item
   version: 1
 ---
 "#,
@@ -2546,7 +2546,7 @@ x-tasknotes:
             .to_string();
         let scope = GrantScope {
             contracts: vec![ContractRequirement {
-                id: "tasknotes.task".to_string(),
+                id: "example.work-item".to_string(),
                 version: 1,
             }],
             access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
@@ -2634,8 +2634,8 @@ schema:
     type: object
     properties:
       title: { type: string }
-x-tasknotes:
-  contract: tasknotes.task
+x-work-item:
+  contract: example.work-item
   version: 1
   field_roles: { title: title, status: status }
   status: { completed_values: [done], default: open }
@@ -2667,7 +2667,7 @@ x-tasknotes:
                 .and_then(Value::as_str),
             Some("0.3.0")
         );
-        assert_eq!(description.contracts[0].id, "tasknotes.task");
+        assert_eq!(description.contracts[0].id, "example.work-item");
         let serialized = serde_json::to_string(&description).unwrap();
         assert!(!serialized.contains(root.to_string_lossy().as_ref()));
         assert!(!serialized.contains("not-for-apps"));
@@ -2694,8 +2694,8 @@ schema:
     properties:
       type: { const: task }
       title: { type: string }
-x-tasknotes:
-  contract: tasknotes.task
+x-work-item:
+  contract: example.work-item
   version: 1
   field_roles: { title: title, status: status }
   status: { completed_values: [done], default: open }
@@ -2740,7 +2740,7 @@ schema:
         }
         let scope = GrantScope {
             contracts: vec![ContractRequirement {
-                id: "tasknotes.task".to_string(),
+                id: "example.work-item".to_string(),
                 version: 1,
             }],
             access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
@@ -2962,7 +2962,7 @@ views:
     name: All tasks
     select: [title]
     presentation:
-      type: tasknotes.task-list
+      type: example.list
 ---
 "#,
         )

@@ -9,7 +9,7 @@ const payload = JSON.stringify({
   cursor: "42",
   presentation: {
     title: "Tasks changed",
-    body: "Open TaskNotes to refresh.",
+    body: "Open Worklog to refresh.",
     tag: "task-change"
   }
 });
@@ -41,7 +41,7 @@ describe("FCM transport", () => {
       token: "device-token",
       notification: {
         title: "Tasks changed",
-        body: "Open TaskNotes to refresh."
+        body: "Open Worklog to refresh."
       },
       data: {
         type: "mdbase.notification",

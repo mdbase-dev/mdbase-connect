@@ -57,13 +57,13 @@ describe("mdbase connect server", () => {
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
       requirements: {
-        contracts: [{ id: "tasknotes.task", version: 1 }]
+        contracts: [{ id: "example.work-item", version: 1 }]
       },
       provisions: {
         types: [{
           name: "task",
           document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "tasknotes.task", version: 1 }]
+          provides: [{ id: "example.work-item", version: 1 }]
         }, {
           name: "task_comment",
           document: "---\nkind: mdbase.type\nname: task_comment\n---\n",

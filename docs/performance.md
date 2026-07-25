@@ -75,20 +75,3 @@ perf report
 `samply record` or `cargo flamegraph` can replace `perf record`. Keep latency
 JSON beside a CPU profile so changes can be compared at both the request and
 function level.
-
-## TaskNotes contract adapter
-
-Profile canonical contract parsing and task normalization with a synthetic
-10,000-task collection:
-
-```bash
-pnpm --filter @mdbase/tasknotes run profile
-node --cpu-prof --cpu-prof-dir=/tmp/tasknotes-profile \
-  packages/tasknotes/scripts/profile.mjs
-```
-
-The workload uses a renamed task type, mapped core fields, custom status and
-priority vocabularies, recurrence fields, and two schema-defined custom fields.
-It reports mean contract-resolution and per-task normalization time without
-printing task content. Build `@mdbase/tasknotes` before invoking the CPU-profile
-command directly.

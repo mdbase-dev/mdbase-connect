@@ -1194,12 +1194,11 @@ function ApprovalForm({
     setSubmitting("creating");
     setError("");
     try {
-      const tasknotes = request.requirements.contracts.some((contract) => contract.id === "tasknotes.task");
       const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", {
         method: "POST",
         body: JSON.stringify({
-          display_name: tasknotes ? "My tasks" : "My collection",
-          template: tasknotes ? "tasknotes" : "mdbase"
+          display_name: "My collection",
+          template: "mdbase"
         })
       });
       const collection: AvailableCollection = {
@@ -1207,7 +1206,7 @@ function ApprovalForm({
         display_name: created.collection.display_name,
         connector_name: "mdbase cloud",
         spec_version: created.collection.spec_version ?? "0.3.0",
-        contracts: tasknotes ? [{ id: "tasknotes.task", version: 1 }] : [],
+        contracts: [],
         kind: "hosted"
       };
       onCollectionCreated(collection);

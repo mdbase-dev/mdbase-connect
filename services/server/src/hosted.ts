@@ -1,7 +1,6 @@
 import type {
   CollectionContractDescriptor,
   ContractRequirement,
-  JsonObject,
   SyncCollectionResources,
   SyncMutation
 } from "@mdbase/connect-protocol";
@@ -23,7 +22,7 @@ interface CachedAuthority {
   version: number;
 }
 
-export type HostedTemplate = "mdbase" | "tasknotes";
+export type HostedTemplate = "mdbase";
 
 export interface ReferenceAuthorityTransfer {
   id: string;
@@ -384,18 +383,7 @@ function manifestDigest(state: SerializedHostedAuthority): string {
 }
 
 function authorityOptions(resources: SyncCollectionResources) {
-  const tasknotes = resources.contracts.some((contract) => contract.id === "tasknotes.task");
-  return {
-    ...(tasknotes ? { validate: validateTasknotes } : {}),
-    resources
-  };
-}
-
-function validateTasknotes(record: { types: string[]; frontmatter: JsonObject }): void {
-  if (!record.types.includes("task")) return;
-  if (record.frontmatter.type !== "task" || typeof record.frontmatter.title !== "string" || !record.frontmatter.title.trim()) {
-    throw new SyncError("validation_failed", "Task records require type: task and a non-empty title.");
-  }
+  return { resources };
 }
 
 export function asSyncMutation(value: unknown): SyncMutation {
@@ -404,7 +392,6 @@ export function asSyncMutation(value: unknown): SyncMutation {
 
 export function hostedResources(template: string): SyncCollectionResources {
   if (template === "mdbase") return mdbaseResources();
-  if (template === "tasknotes") return tasknotesResources();
   throw new SyncError("unsupported_template", "The hosted collection template is unavailable.");
 }
 
@@ -438,13 +425,6 @@ export function typesForContracts(
     .map(({ type_name }) => type_name))];
 }
 
-export function hostedTypesForContracts(
-  template: string,
-  contracts: ContractRequirement[]
-): string[] {
-  return typesForContracts(hostedContractDescriptors(template), contracts);
-}
-
 export function mdbaseResources(): SyncCollectionResources {
   return {
     revision: "mdbase-template:1",
@@ -456,77 +436,6 @@ export function mdbaseResources(): SyncCollectionResources {
       kind: "configuration",
       revision: "mdbase-config:1",
       document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
-    }]
-  };
-}
-
-export function tasknotesResources(): SyncCollectionResources {
-  const contract = {
-    contract: "tasknotes.task",
-    version: 1,
-    field_roles: { title: "title", status: "status" },
-    status: { completed_values: ["done"], default: "open" }
-  };
-  return {
-    revision: "tasknotes-template:1",
-    spec_version: "0.3.0",
-    types: [{
-      name: "task",
-      version: 1,
-      schema: {
-        type: "object",
-        required: ["type", "title"],
-        additionalProperties: true,
-        properties: {
-          type: { const: "task" },
-          title: { type: "string", minLength: 1 },
-          status: { enum: ["open", "done"] }
-        }
-      },
-      collection: { path: { folder: "tasks" } },
-      extensions: { "x-tasknotes": contract }
-    }],
-    contracts: [{
-      id: "tasknotes.task",
-      version: 1,
-      type_name: "task",
-      extension: "x-tasknotes",
-      configuration: contract
-    }],
-    documents: [{
-      path: "mdbase.yaml",
-      kind: "configuration",
-      revision: "tasknotes-config:1",
-      document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
-    }, {
-      path: "_types/task.md",
-      kind: "type",
-      revision: "tasknotes-type:1",
-      document: `---
-kind: mdbase.type
-name: task
-version: 1
-description: A TaskNotes-compatible task.
-collection:
-  path:
-    folder: tasks
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    required: [type, title]
-    additionalProperties: true
-    properties:
-      type: { const: task }
-      title: { type: string, minLength: 1 }
-      status: { enum: [open, done] }
-x-tasknotes:
-  contract: tasknotes.task
-  version: 1
-  field_roles: { title: title, status: status }
-  status: { completed_values: [done], default: open }
----
-`
     }]
   };
 }

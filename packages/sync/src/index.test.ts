@@ -32,7 +32,7 @@ function store(replicaId: string) {
 }
 
 describe("hosted sync vertical slice", () => {
-  it("moves one offline TaskNotes create exactly once to a second client", async () => {
+  it("moves one offline Worklog create exactly once to a second client", async () => {
     const hosted = authority(1);
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });
     hosted.registerReplica({ id: ids.reader, name: "Tablet", mode: "read_write", allowedTypes: ["task"] });
@@ -261,7 +261,7 @@ describe("hosted sync vertical slice", () => {
           { name: "private", schema: {}, extensions: {} }
         ],
         contracts: [
-          { id: "tasknotes.task", version: 1, type_name: "task", extension: "x-tasknotes", configuration: {} },
+          { id: "example.work-item", version: 1, type_name: "task", extension: "x-work-item", configuration: {} },
           { id: "private.note", version: 1, type_name: "private", extension: "x-private", configuration: {} }
         ]
       }
@@ -269,7 +269,7 @@ describe("hosted sync vertical slice", () => {
     hosted.registerReplica({ id: ids.reader, name: "Task reader", mode: "read_only", allowedTypes: ["task"] });
     const resources = (await hosted.transport(ids.reader).openSession()).resources;
     expect(resources.types.map((type) => type.name)).toEqual(["task"]);
-    expect(resources.contracts.map((contract) => contract.id)).toEqual(["tasknotes.task"]);
+    expect(resources.contracts.map((contract) => contract.id)).toEqual(["example.work-item"]);
   });
 
   it("keeps queued changes visible while pulling remote changes", async () => {

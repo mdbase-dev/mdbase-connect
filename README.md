@@ -20,14 +20,14 @@ collection, pairing an outbound-only connector, discovering an independent web
 app, approving exact operations locally or from the authenticated account
 portal, reading and writing records directly on the same computer or through
 the encrypted relay, discovering schemas and
-TaskNotes contract metadata, limiting applications to records belonging to
+application contract metadata, limiting applications to records belonging to
 their declared contracts, renewing browser authorization, receiving filesystem
 changes, rejecting stale revisions, pausing access, and immediately enforcing
 revocation. Browser-to-connector operation payloads use grant-bound end-to-end
 encryption; the relay sees routing metadata and ciphertext.
 
-Hosted collections are generic mdbase collections. TaskNotes is one reference
-application and contract adapter—not a collection kind or platform default.
+Hosted collections are generic mdbase collections. Domain-specific contracts,
+models, and interfaces live in their owning applications.
 
 ## What is here
 
@@ -60,10 +60,6 @@ application and contract adapter—not a collection kind or platform default.
 - `packages/sync`: the versioned hosted-replication model, offline replica
   stores and client, HTTP transport, and receive-only or conflict-safe writable
   Markdown mirrors.
-- `packages/tasknotes`: portable TaskNotes contract adapter using configurable
-  field roles and generic revision-safe operations.
-- `apps/tasknotes`: deliberately small reference frontend for the TaskNotes
-  contract.
 
 Collection behavior comes from the active `mdbase-rs` implementation; this
 repository does not reimplement the mdbase specification. During v0.3
@@ -89,7 +85,7 @@ pnpm e2e:provider
 web application, and a real mdbase collection. It completes OAuth/PKCE,
 approves access through the local control API, performs a 1,000-record query
 through the browser SDK's direct route, discovers a real JSON Schema and
-TaskNotes contract, proves that private records outside the contract cannot be
+example application contract, proves that private records outside the contract cannot be
 read or queried, rotates authorization credentials, relays create/read/update
 operations, verifies change delivery and revision conflicts, exercises the
 local pause switch, revokes the grant, and confirms that access and renewal are
@@ -105,9 +101,9 @@ payloads, fail-closed broker readiness, subscription recovery after a broker
 restart, connector reconnects, and the absence of payloads in control-plane
 audit storage.
 
-`pnpm e2e:sync` exercises the hosted TaskNotes vertical slice through the real
+`pnpm e2e:sync` exercises the generic hosted replication slice through the real
 HTTP server, including offline writes, two-client convergence, idempotency,
-contract discovery, conflicts, a receive-only Markdown mirror, cursor reset,
+conflicts, a receive-only Markdown mirror, cursor reset,
 and revocation.
 
 `pnpm e2e:provider` runs the production Rust provider against disposable

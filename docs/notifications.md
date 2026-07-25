@@ -22,11 +22,11 @@ Notifications use the bundled v1 application manifest:
 {
   "manifest_version": 1,
   "id": "dev.mdbase.tasks",
-  "name": "TaskNotes",
+  "name": "Worklog",
   "homepage": "https://tasks.example",
   "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
   "requirements": {
-    "contracts": [{ "id": "tasknotes.task", "version": 1 }]
+    "contracts": [{ "id": "example.work-item", "version": 1 }]
   },
   "notifications": {
     "criteria": [{
@@ -42,13 +42,13 @@ Notifications use the bundled v1 application manifest:
       "minimum_interval": "1m",
       "presentation": {
         "title": "Tasks changed",
-        "body": "Open TaskNotes to see the latest changes.",
+        "body": "Open Worklog to see the latest changes.",
         "tag": "task-changes"
       }
     }],
     "native_delivery": {
       "mode": "managed_fcm",
-      "firebase_project_id": "tasknotes-production"
+      "firebase_project_id": "worklog-production"
     }
   }
 }
@@ -224,7 +224,7 @@ connection ID and notification wake-up hint only:
     "cursor": "42",
     "presentation": {
       "title": "Tasks changed",
-      "body": "Open TaskNotes to see the latest changes.",
+      "body": "Open Worklog to see the latest changes.",
       "tag": "task-changes"
     }
   }

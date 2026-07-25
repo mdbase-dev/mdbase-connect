@@ -132,7 +132,7 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    await provider.createCollection("collection", "tasknotes", "Tasks");
+    await provider.createCollection("collection", "mdbase", "Writing");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(fetchMock.mock.calls[1]?.[1]?.body);
   });
