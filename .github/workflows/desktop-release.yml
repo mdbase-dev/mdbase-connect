@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     name: ${{ matrix.label }}
     environment: desktop-release
     strategy:
@@ -63,7 +63,11 @@ jobs:
           package_version="$(node -p "require('./package.json').version")"
           desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
           test "$package_version" = "$desktop_version"
-          test "v$package_version" = "$GITHUB_REF_NAME"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "v$package_version" = "$GITHUB_REF_NAME"
+          else
+            echo "Preflighting desktop version $package_version from $GITHUB_REF."
+          fi
           echo "value=$package_version" >> "$GITHUB_OUTPUT"
 
       - id: mdbase_revision
@@ -240,7 +244,7 @@ jobs:
             cosign sign-blob --yes --bundle "$package.sigstore.json" "$package"
             cosign verify-blob \
               --bundle "$package.sigstore.json" \
-              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@refs/tags/" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
               "$package"
           done

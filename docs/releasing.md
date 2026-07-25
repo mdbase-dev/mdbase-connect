@@ -77,6 +77,17 @@ the GitHub release. Upload it to the matching Partner Center submission. The
 Store replaces its build-time development signature with Microsoft's
 certificate after certification.
 
+Before creating a release tag, run the workflow manually from the commit that
+will be tagged:
+
+```bash
+gh workflow run desktop-release.yml --ref main
+```
+
+This preflight builds, verifies, signs where configured, attests, and uploads
+all platform artifacts without creating a GitHub release. Require the macOS,
+Windows, Linux, and Windows Store smoke-test jobs to pass before tagging.
+
 The tag must exactly match the root and desktop package version:
 
 ```bash
