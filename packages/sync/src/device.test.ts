@@ -12,7 +12,7 @@ import {
   saveMirrorProfile,
   setHostedCollectionIdentity
 } from "./device.js";
-import { NodeMirrorStateStore, type MirrorState } from "./node.js";
+import { NodeMirrorStateStore } from "./node.js";
 
 describe("device-local mirror storage", () => {
   it("sets the hosted identity atomically and can restore the original collection config", async () => {
@@ -187,50 +187,24 @@ describe("device-local mirror storage", () => {
     }
   });
 
-  it("migrates legacy tokens, journals, and conflict receipts off the collection", async () => {
+  it("does not load obsolete in-collection mirror credentials", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
-    const replicaId = crypto.randomUUID();
-    const conflictId = crypto.randomUUID();
-    const state: MirrorState = {
-      protocol_version: 1,
-      replica_id: replicaId,
-      scope_epoch: 1,
-      cursor: 4,
-      records: {},
-      conflicts: {
-        [conflictId]: {
-          mutation_id: crypto.randomUUID(),
-          status: "rejected",
-          error: { code: "invalid", message: "Needs attention" }
-        }
-      }
-    };
     try {
       const metadata = join(root, ".mdbase");
-      await mkdir(join(metadata, "conflicts"), { recursive: true });
+      await mkdir(metadata, { recursive: true });
       await writeFile(join(metadata, "connect-mirror.json"), JSON.stringify({
         protocol_version: 1,
         provider_url: "https://sync.example",
         collection_id: crypto.randomUUID(),
-        replica_id: replicaId,
+        replica_id: crypto.randomUUID(),
         replica_token: "legacy-secret",
         mode: "read_write"
       }));
-      await writeFile(join(metadata, "connect-sync.json"), JSON.stringify(state));
-      await writeFile(join(metadata, "conflicts", `${conflictId}.json`), "{}");
 
-      const migrated = await loadMirrorProfile(root, stateRoot);
-      expect(migrated.credentials.access_token).toBe("legacy-secret");
-      expect(await new NodeMirrorStateStore(root, stateRoot).read()).toEqual(state);
-      await expect(readFile(join(metadata, "connect-mirror.json"), "utf8")).rejects.toMatchObject({
-        code: "ENOENT"
+      await expect(loadMirrorProfile(root, stateRoot)).rejects.toMatchObject({
+        code: "mirror_not_configured"
       });
-      await expect(readFile(join(metadata, "connect-sync.json"), "utf8")).rejects.toMatchObject({
-        code: "ENOENT"
-      });
-      await expect(readFile(join(metadata, "conflicts", `${conflictId}.json`), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(stateRoot, { recursive: true, force: true });

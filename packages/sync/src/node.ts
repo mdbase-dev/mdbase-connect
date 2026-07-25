@@ -123,10 +123,6 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
   }
 
-  async importLegacy(state: MirrorState): Promise<void> {
-    if (await this.read() === null) await this.write(state);
-  }
-
   async directory(): Promise<string> {
     return dirname(await this.path());
   }

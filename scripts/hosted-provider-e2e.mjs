@@ -309,12 +309,19 @@ try {
   const quotaToken = `quota-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    // Exercise the pre-display-name control-plane document during rolling upgrades.
-    body: { collection_id: quotaCollectionId, template: "mdbase" }
+    body: {
+      collection_id: quotaCollectionId,
+      template: "mdbase",
+      display_name: "Quota worklog"
+    }
   });
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: quotaCollectionId, template: "mdbase" }
+    body: {
+      collection_id: quotaCollectionId,
+      template: "mdbase",
+      display_name: "Quota worklog"
+    }
   });
   await provisionTypes(quotaProvider.url, quotaCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
@@ -674,7 +681,7 @@ try {
   assert.deepEqual(sdkCreated.result.types, []);
   const sdkUpdated = await hostedConnection.update({
     path: "Draft.md",
-    fields: { title: "Updated through hosted SDK" },
+    patch: { title: "Updated through hosted SDK" },
     if_revision: sdkCreated.result.revision
   });
   assert.equal(sdkUpdated.valid, true);

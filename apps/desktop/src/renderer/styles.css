@@ -119,6 +119,12 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .collection-danger-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 0 14px; }
 .collection-danger-row small { color: var(--muted); font-size: var(--type-action); }
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 3px; }
+.copy-registration { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 24px; margin: 4px 0 18px; padding: 18px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--hover); }
+.copy-registration h2 { margin: 0; font-size: var(--type-row-title); }
+.copy-registration p:not(.eyebrow) { max-width: 68ch; margin: 6px 0 10px; color: var(--muted); font-size: var(--type-supporting); line-height: 1.5; }
+.copy-registration code { display: block; max-width: 68ch; overflow-wrap: anywhere; color: var(--ink); font-size: var(--type-action); }
+.copy-registration small { display: block; margin-top: 8px; color: var(--muted); font-size: var(--type-action); }
+.copy-registration-actions { display: flex; gap: 8px; }
 .empty-state { display: grid; justify-items: start; padding: 32px 0 28px; border-bottom: 1px solid var(--line); text-align: left; }
 .empty-folder { display: none; }
 .empty-state h3 { margin: 0; font-size: var(--type-row-title); font-weight: 700; }
@@ -241,6 +247,8 @@ fieldset legend { margin-bottom: 6px; }
   .overview-row { grid-template-columns: 95px minmax(0, 1fr) auto; }
   .pairing-form { grid-template-columns: 1fr; }
   .pairing-form .button { grid-column: 1; }
+  .copy-registration { grid-template-columns: 1fr; gap: 16px; }
+  .copy-registration-actions { justify-content: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }

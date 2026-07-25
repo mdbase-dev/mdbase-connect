@@ -56,6 +56,7 @@ interface ApplicationNotifications {
 
 interface GrantScope {
   contracts: ContractRequirement[];
+  access: "contract" | "full_collection";
 }
 
 interface StartupSetting {
@@ -135,7 +136,12 @@ interface Window {
   mdbaseConnect: {
     status(): Promise<AgentStatus>;
     listCollections(): Promise<CollectionSummary[]>;
-    addCollection(): Promise<CollectionSummary | null>;
+    addCollection(): Promise<
+      | { status: "added"; collection: CollectionSummary }
+      | { status: "copy_requires_new_identity"; path: string }
+      | null
+    >;
+    addCopiedCollection(path: string): Promise<CollectionSummary>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { path: string; name: string }): Promise<CollectionSummary>;
     updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;

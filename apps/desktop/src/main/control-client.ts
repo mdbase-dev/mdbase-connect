@@ -9,6 +9,16 @@ export interface ControlResponse<T = unknown> {
   error?: { code: string; message: string };
 }
 
+export class AgentControlError extends Error {
+  constructor(
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "AgentControlError";
+  }
+}
+
 export function requestAgent<T>(
   endpoint: string,
   method: string,
@@ -42,7 +52,10 @@ export function requestAgent<T>(
         clearTimeout(timer);
         socket.end();
         if (!response.ok) {
-          reject(new Error(response.error?.message ?? "The local connector rejected the request."));
+          reject(new AgentControlError(
+            response.error?.code ?? "agent_request_failed",
+            response.error?.message ?? "The local connector rejected the request."
+          ));
           return;
         }
         resolve(response.result as T);
@@ -53,4 +66,3 @@ export function requestAgent<T>(
     socket.once("error", (error) => finish(error));
   });
 }
-

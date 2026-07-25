@@ -134,6 +134,18 @@ To run the desktop controller locally:
 pnpm --filter @mdbase/connect-desktop start
 ```
 
+When a filesystem copy has the same Connect identity as its registered
+original, use the desktop's **Register copy** action or the explicit local
+command:
+
+```bash
+mdbase-connect collection add-copy /path/to/copied-collection
+```
+
+The command refuses to rewrite the registered original. It changes only the
+copy's `x-mdbase-connect.collection_id`, then registers the copy as an
+independent collection.
+
 ## Run the development stack
 
 ```bash

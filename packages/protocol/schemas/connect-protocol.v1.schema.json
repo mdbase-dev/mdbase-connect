@@ -28,7 +28,7 @@
     "grantScope": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contracts"],
+      "required": ["access", "contracts"],
       "properties": {
         "access": { "enum": ["contract", "full_collection"] },
         "contracts": {

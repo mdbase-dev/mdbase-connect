@@ -22,15 +22,16 @@ const mdbase = new MdbaseConnect({
   manifest: new URL(".well-known/mdbase-app.json", location.href).href,
   redirectUri: "https://workouts.example/auth/mdbase/callback"
 });
+const collectionLocation = new MdbaseBrowserLocation(mdbase);
 
 await mdbase.authorize({
   operations: ["describe", "changes", "read", "query", "update"],
-  returnTo: location.pathname + location.search
+  collectionId: collectionLocation.selectedCollectionId() ?? undefined,
+  returnTo: collectionLocation.authorizationReturnTo()
 });
 
 // On the callback route:
-const { connection, returnTo } =
-  await mdbase.completeAuthorization(location.href);
+const connection = await collectionLocation.completeAuthorization();
 const description = await connection.describe();
 const workouts = await connection.query({ types: ["workout"] });
 await connection.update({
@@ -71,10 +72,14 @@ independently authorized collections; call `connections()` to list them and
 `connection(collectionId)` to obtain a client permanently bound to one. Pass
 that `MdbaseConnection` into repositories and feature code.
 
-For bookmarkable static applications, store the stable ID in a query parameter
-such as `?collection=<id>`. Treat an explicit ID as authoritative and show the
-chooser or reconnect that exact ID when it is unavailable. Collection names
-are display text and may change.
+`MdbaseBrowserLocation` keeps the stable collection ID in
+`?collection=<id>`. It restores authorization callbacks safely, removes
+temporary OAuth parameters, auto-selects only when exactly one saved
+connection exists, and reports browser back/forward changes through
+`onChange()`. An explicit unavailable ID remains authoritative so the
+application can show its chooser or reconnect that exact collection. IDs are
+opaque locators that may appear in browser history and logs; they are not
+credentials. Collection names are display text and may change.
 
 Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web

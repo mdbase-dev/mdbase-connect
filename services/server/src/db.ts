@@ -147,7 +147,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       hosted_collection_id uuid REFERENCES hosted_collections(id) ON DELETE CASCADE,
       hosted_replica_id uuid REFERENCES hosted_replicas(id) ON DELETE SET NULL,
       operations jsonb NOT NULL,
-      scope jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
+      scope jsonb NOT NULL DEFAULT '{"contracts":[],"access":"full_collection"}'::jsonb,
       notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb,
       encryption jsonb,
       application_origin text NOT NULL DEFAULT '',
@@ -404,13 +404,18 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     db,
     "grants",
     "scope",
-    "ALTER TABLE grants ADD COLUMN scope jsonb NOT NULL DEFAULT '{\"contracts\":[]}'::jsonb"
+    "ALTER TABLE grants ADD COLUMN scope jsonb NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}'::jsonb"
   );
   await ensureColumn(
     db,
     "grants",
     "notification_criteria",
     "ALTER TABLE grants ADD COLUMN notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
+  await db.query(
+    `UPDATE grants
+     SET revoked_at = COALESCE(revoked_at, now())
+     WHERE scope->>'access' IS NULL`
   );
   await ensureColumn(db, "connectors", "relay_public_key", "ALTER TABLE connectors ADD COLUMN relay_public_key text");
   await ensureColumn(

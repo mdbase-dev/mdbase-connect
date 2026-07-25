@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPkce,
+  MdbaseBrowserLocation,
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
@@ -19,6 +20,7 @@ import type {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -477,7 +479,7 @@ describe("provider-neutral collection client", () => {
           collection_id: TEST_COLLECTION_ID,
           collection_name: "Portable notes",
           operations: ["describe", "query"],
-          scope: { contracts: [] },
+          scope: { contracts: [], access: "full_collection" },
           grant_id: "00000000-0000-0000-0000-000000000003",
           application_origin: "null",
           encryption: {
@@ -589,7 +591,7 @@ describe("provider-neutral collection client", () => {
           collection_id: TEST_COLLECTION_ID,
           collection_name: "Portable notes",
           operations: ["describe", "query"],
-          scope: { contracts: [] },
+          scope: { contracts: [], access: "full_collection" },
           grant_id: "00000000-0000-0000-0000-000000000003",
           application_origin: "null",
           encryption: {
@@ -724,7 +726,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const subscribe = vi.fn().mockResolvedValue({
@@ -807,7 +809,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const getSubscription = vi.fn();
@@ -875,7 +877,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -951,7 +953,7 @@ describe("mobile notifications", () => {
       collectionId: TEST_COLLECTION_ID,
       collectionName: "Worklog",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       savedAt: Date.now()
     }));
@@ -1124,6 +1126,106 @@ describe("long mutation progress", () => {
   });
 });
 
+describe("browser collection locations", () => {
+  it("bookmarks the only saved collection but respects an explicit unknown identity", () => {
+    const browser = installBrowser("https://tasks.example/today?filter=open#focus");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const location = new MdbaseBrowserLocation(manager);
+
+    expect(location.activeConnection()?.collectionId).toBe(TEST_COLLECTION_ID);
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(browser.replaceState).toHaveBeenCalledOnce();
+
+    browser.navigate("https://tasks.example/today?collection=not-authorized");
+    expect(location.activeConnection()).toBeNull();
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe("not-authorized");
+  });
+
+  it("keeps app navigation bookmarkable and strips temporary OAuth parameters", () => {
+    const browser = installBrowser(
+      "https://tasks.example/today?filter=open&code=temporary&state=pending#focus"
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const location = new MdbaseBrowserLocation(manager);
+
+    location.selectConnection(TEST_COLLECTION_ID);
+
+    const selected = new URL(browser.href());
+    expect(selected.pathname).toBe("/today");
+    expect(selected.searchParams.get("filter")).toBe("open");
+    expect(selected.searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(selected.searchParams.has("code")).toBe(false);
+    expect(selected.searchParams.has("state")).toBe(false);
+    expect(selected.hash).toBe("#focus");
+    expect(location.authorizationReturnTo()).toBe(
+      `/today?filter=open&collection=${TEST_COLLECTION_ID}#focus`
+    );
+  });
+
+  it("finishes authorization at a safe app-local return location", async () => {
+    const browser = installBrowser("https://tasks.example/auth/mdbase/callback?code=one&state=two");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const connection = manager.connection(TEST_COLLECTION_ID)!;
+    vi.spyOn(manager, "completeAuthorization").mockResolvedValue({
+      connection,
+      returnTo: "/search?q=next&error=stale#result"
+    });
+    const location = new MdbaseBrowserLocation(manager, { fallbackPath: "/app/" });
+
+    await expect(location.completeAuthorization()).resolves.toBe(connection);
+    const completed = new URL(browser.href());
+    expect(completed.pathname).toBe("/search");
+    expect(completed.searchParams.get("q")).toBe("next");
+    expect(completed.searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(completed.searchParams.has("error")).toBe(false);
+    expect(completed.hash).toBe("#result");
+
+    vi.mocked(manager.completeAuthorization).mockResolvedValue({
+      connection,
+      returnTo: "https://other.example/steal"
+    });
+    await location.completeAuthorization();
+    expect(new URL(browser.href()).pathname).toBe("/app/");
+  });
+
+  it("reports browser back and forward selection changes", () => {
+    const secondId = "00000000-0000-0000-0000-000000000003";
+    const browser = installBrowser(
+      `https://tasks.example/?collection=${TEST_COLLECTION_ID}`
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID, secondId]);
+    const location = new MdbaseBrowserLocation(manager);
+    const changes: Array<string | null> = [];
+    const stop = location.onChange(({ connection }) => {
+      changes.push(connection?.collectionId ?? null);
+    });
+
+    browser.navigate(`https://tasks.example/?collection=${secondId}`, true);
+    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+
+    stop();
+    browser.navigate(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`, true);
+    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+  });
+
+  it("recognizes only authorization-shaped callbacks and cleans denied URLs", () => {
+    const browser = installBrowser(
+      "https://tasks.example/auth/mdbase/callback?error=access_denied&state=one"
+    );
+    const location = new MdbaseBrowserLocation(managerWithConnections([]));
+
+    expect(location.isAuthorizationCallback(browser.href())).toBe(true);
+    expect(location.isAuthorizationCallback("dev.tasks://auth/mdbase/callback?code=one")).toBe(true);
+    expect(location.isAuthorizationCallback("https://tasks.example/today")).toBe(false);
+    expect(location.isAuthorizationCallback("not a url")).toBe(false);
+
+    location.clearAuthorizationCallback();
+    const cleaned = new URL(browser.href());
+    expect(cleaned.searchParams.has("error")).toBe(false);
+    expect(cleaned.searchParams.has("state")).toBe(false);
+  });
+});
+
 describe("authorization renewal", () => {
   it("keeps independent collection-bound connections and forgets only the selected one", () => {
     const storage = new MemoryStorage();
@@ -1140,7 +1242,7 @@ describe("authorization renewal", () => {
         collectionId,
         collectionName,
         operations: ["query"],
-        scope: { contracts: [] },
+        scope: { contracts: [], access: "full_collection" },
         expiresAt: Date.now() + 60_000,
         savedAt: Date.now()
       }));
@@ -1163,6 +1265,36 @@ describe("authorization renewal", () => {
     manager.connection(TEST_COLLECTION_ID)!.forget();
     expect(manager.connection(TEST_COLLECTION_ID)).toBeNull();
     expect(manager.connection(secondId)?.displayName).toBe("Studio tasks");
+  });
+
+  it("drops saved authorizations that predate explicit collection scope", () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/manifest.json";
+    const tokenKey = storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID);
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "legacy-token",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Old tasks",
+      operations: ["query"],
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now(),
+    }));
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
+      JSON.stringify([TEST_COLLECTION_ID]),
+    );
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest: manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+    });
+
+    expect(manager.connection(TEST_COLLECTION_ID)).toBeNull();
+    expect(manager.connections()).toEqual([]);
+    expect(storage.getItem(tokenKey)).toBeNull();
   });
 
   it("passes an exact collection hint and return location through authorization", async () => {
@@ -1227,7 +1359,7 @@ describe("authorization renewal", () => {
       collectionId: TEST_COLLECTION_ID,
       collectionName: "Saved tasks",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       savedAt: Date.now()
     }));
@@ -1276,7 +1408,7 @@ describe("authorization renewal", () => {
       collection_id: TEST_COLLECTION_ID,
       collection_name: "Tasks",
       operations: ["query"],
-      scope: { contracts: [] }
+      scope: { contracts: [], access: "full_collection" }
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const connect = new MdbaseConnect({
       serverUrl,
@@ -1312,7 +1444,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "read"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000
     }));
@@ -1368,7 +1500,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const manager = new MdbaseConnect({
@@ -1438,7 +1570,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
+      scope: {
+        contracts: [{ id: "example.work-item", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1478,7 +1613,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "create", "update", "delete"],
-      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
+      scope: {
+        contracts: [{ id: "example.work-item", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1531,7 +1669,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
+      scope: {
+        contracts: [{ id: "example.work-item", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() - 1,
       refreshExpiresAt: Date.now() + 60_000
     }));
@@ -1543,7 +1684,10 @@ describe("authorization renewal", () => {
         refresh_expires_in: 2_592_000,
         collection_id: "00000000-0000-0000-0000-000000000002",
         operations: ["query"],
-        scope: { contracts: [{ id: "example.work-item", version: 1 }] }
+        scope: {
+          contracts: [{ id: "example.work-item", version: 1 }],
+          access: "contract",
+        }
       }), { status: 200, headers: { "content-type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
@@ -1577,7 +1721,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "example.work-item", version: 1 }] },
+      scope: {
+        contracts: [{ id: "example.work-item", version: 1 }],
+        access: "contract",
+      },
       refreshExpiresAt: Date.now() + 60_000
     };
     storage.setItem(tokenKey, JSON.stringify({
@@ -1946,7 +2093,7 @@ async function encryptedConnection() {
       "describe", "changes", "read", "query", "list_views", "execute_view", "validate", "create", "update", "delete", "rename",
       "read_type", "create_type", "update_type"
     ],
-    scope: { contracts: [] },
+    scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     refreshExpiresAt: Date.now() + 120_000,
     grantId: "01911111-1111-7111-8111-111111111111",
@@ -1984,7 +2131,7 @@ function progressConnection() {
     collectionId: TEST_COLLECTION_ID,
     collectionName: "Tasks",
     operations: ["rename", "delete"],
-    scope: { contracts: [] },
+    scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     grantId: "00000000-0000-0000-0000-000000000003",
     encryption: {
@@ -2047,4 +2194,62 @@ function storedTokenKey(
   collectionId: string,
 ): string {
   return `mdbase-connect:${serverUrl}:${manifestSource}:token:${collectionId}`;
+}
+
+function managerWithConnections(collectionIds: string[]): MdbaseConnect {
+  const serverUrl = "https://connect.example";
+  const manifest = "https://tasks.example/manifest.json";
+  const storage = new MemoryStorage();
+  for (const collectionId of collectionIds) {
+    storage.setItem(storedTokenKey(serverUrl, manifest, collectionId), JSON.stringify({
+      accessToken: `token-${collectionId}`,
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId,
+      collectionName: `Collection ${collectionId.slice(-4)}`,
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now()
+    }));
+  }
+  storage.setItem(
+    `mdbase-connect:${serverUrl}:${manifest}:connections`,
+    JSON.stringify(collectionIds)
+  );
+  return new MdbaseConnect({
+    serverUrl,
+    manifest,
+    redirectUri: "https://tasks.example/auth/mdbase/callback",
+    storage
+  });
+}
+
+function installBrowser(initialUrl: string) {
+  let current = new URL(initialUrl);
+  const events = new EventTarget();
+  const navigate = (value: string | URL, pop = false) => {
+    current = new URL(String(value), current);
+    if (pop) events.dispatchEvent(new Event("popstate"));
+  };
+  const pushState = vi.fn((_state: unknown, _unused: string, value?: string | URL | null) => {
+    if (value !== undefined && value !== null) navigate(value);
+  });
+  const replaceState = vi.fn((_state: unknown, _unused: string, value?: string | URL | null) => {
+    if (value !== undefined && value !== null) navigate(value);
+  });
+  vi.stubGlobal("location", {
+    get href() { return current.href; },
+    get origin() { return current.origin; }
+  });
+  vi.stubGlobal("history", { pushState, replaceState });
+  vi.stubGlobal("window", {
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events)
+  });
+  return {
+    href: () => current.href,
+    navigate,
+    pushState,
+    replaceState
+  };
 }

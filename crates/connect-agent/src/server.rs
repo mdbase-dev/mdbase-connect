@@ -542,6 +542,13 @@ impl AgentState {
                 }
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
+            ControlCommand::CollectionAddCopy(params) => {
+                let result = self.registry.add_copy(params.path);
+                if result.is_ok() {
+                    self.refresh_watchers();
+                }
+                result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
+            }
             ControlCommand::CollectionCreate(params) => {
                 let result = self.registry.create(params.path, params.name.as_deref());
                 if result.is_ok() {
@@ -1013,7 +1020,7 @@ mod tests {
                 application_id,
                 collection_id: collection.id,
                 operations: vec!["describe".to_string()],
-                scope: GrantScope::default(),
+                scope: GrantScope::full_collection(),
                 application_name: "Encrypted application".to_string(),
                 application_distribution: "web".to_string(),
                 application_homepage: "https://example.test".to_string(),

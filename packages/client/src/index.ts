@@ -436,24 +436,12 @@ export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   if_revision?: string;
 }
 
-interface UpdateInputBase {
+export interface UpdateInput<Frontmatter extends JsonObject = JsonObject> {
   path: string;
+  patch: Partial<Frontmatter> & JsonObject;
   body?: string;
   if_revision?: string;
 }
-
-export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInputBase & (
-  | {
-      /** Canonical v0.3 partial frontmatter update. */
-      patch: Partial<Frontmatter> & JsonObject;
-      fields?: never;
-    }
-  | {
-      /** @deprecated Use `patch`. Kept during the protocol-2 transition. */
-      fields: Partial<Frontmatter> & JsonObject;
-      patch?: never;
-    }
-);
 
 export interface DeleteInput {
   path: string;
@@ -912,6 +900,165 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     for (const connection of this.connections()) {
       this.connection(connection.collectionId)?.forget();
     }
+  }
+}
+
+export interface MdbaseBrowserLocationOptions {
+  /** Query parameter used for the bookmarked collection identity. */
+  collectionParameter?: string;
+  /** App-local location used when an authorization did not preserve one. */
+  fallbackPath?: string;
+}
+
+export interface MdbaseBrowserLocationChange<Frontmatter extends JsonObject = JsonObject> {
+  connection: MdbaseConnection<Frontmatter> | null;
+  connections: MdbaseConnectionInfo[];
+  /** The explicit bookmarked identity, including one that is not currently authorized. */
+  collectionId: string | null;
+}
+
+/**
+ * Keeps a multi-collection browser application's active Connect collection in
+ * its URL. Collection identities are opaque locators, not credentials.
+ */
+export class MdbaseBrowserLocation<Frontmatter extends JsonObject = JsonObject> {
+  private readonly collectionParameter: string;
+  private readonly fallbackPath: string;
+  private readonly listeners = new Set<
+    (change: MdbaseBrowserLocationChange<Frontmatter>) => void
+  >();
+  private stopConnectionEvents?: () => void;
+  private readonly handlePopState = () => this.emit();
+
+  constructor(
+    private readonly connect: MdbaseConnect<Frontmatter>,
+    options: MdbaseBrowserLocationOptions = {}
+  ) {
+    this.collectionParameter = options.collectionParameter ?? "collection";
+    this.fallbackPath = options.fallbackPath ?? "/";
+  }
+
+  selectedCollectionId(): string | null {
+    return this.currentUrl().searchParams.get(this.collectionParameter);
+  }
+
+  activeConnection(): MdbaseConnection<Frontmatter> | null {
+    const selected = this.selectedCollectionId();
+    if (selected) return this.connect.connection(selected);
+    const connections = this.connect.connections();
+    if (connections.length !== 1) return null;
+    this.writeSelection(connections[0].collectionId, true);
+    return this.connect.connection(connections[0].collectionId);
+  }
+
+  selectConnection(collectionId: string, options: { replace?: boolean } = {}): void {
+    this.writeSelection(collectionId, options.replace ?? false);
+    this.emit();
+  }
+
+  authorizationReturnTo(): string {
+    const url = cleanAuthorizationParameters(this.currentUrl());
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  async completeAuthorization(
+    callbackUrl = this.currentUrl().href
+  ): Promise<MdbaseConnection<Frontmatter>> {
+    const result = await this.connect.completeAuthorization(callbackUrl);
+    const returnTo = this.safeAppUrl(result.returnTo ?? this.fallbackPath);
+    cleanAuthorizationParameters(returnTo);
+    returnTo.searchParams.set(this.collectionParameter, result.connection.collectionId);
+    this.browserHistory().replaceState(null, "", returnTo);
+    this.emit();
+    return result.connection;
+  }
+
+  isAuthorizationCallback(value: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    return url.searchParams.has("code") || url.searchParams.has("error");
+  }
+
+  clearAuthorizationCallback(returnTo?: string): void {
+    const url = returnTo ? this.safeAppUrl(returnTo) : this.currentUrl();
+    this.browserHistory().replaceState(null, "", cleanAuthorizationParameters(url));
+    this.emit();
+  }
+
+  onChange(
+    listener: (change: MdbaseBrowserLocationChange<Frontmatter>) => void
+  ): () => void {
+    const firstListener = this.listeners.size === 0;
+    this.listeners.add(listener);
+    if (firstListener) {
+      this.stopConnectionEvents = this.connect.onConnectionsChange(() => this.emit());
+      if (typeof window !== "undefined") {
+        window.addEventListener("popstate", this.handlePopState);
+      }
+    } else {
+      listener(this.snapshot());
+    }
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size > 0) return;
+      this.stopConnectionEvents?.();
+      this.stopConnectionEvents = undefined;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("popstate", this.handlePopState);
+      }
+    };
+  }
+
+  private snapshot(): MdbaseBrowserLocationChange<Frontmatter> {
+    return {
+      connection: this.activeConnection(),
+      connections: this.connect.connections(),
+      collectionId: this.selectedCollectionId()
+    };
+  }
+
+  private emit(): void {
+    if (!this.listeners.size) return;
+    const change = this.snapshot();
+    for (const listener of this.listeners) listener(change);
+  }
+
+  private writeSelection(collectionId: string, replace: boolean): void {
+    const url = cleanAuthorizationParameters(this.currentUrl());
+    url.searchParams.set(this.collectionParameter, collectionId);
+    this.browserHistory()[replace ? "replaceState" : "pushState"](null, "", url);
+  }
+
+  private safeAppUrl(value: string): URL {
+    const current = this.currentUrl();
+    const candidate = new URL(value, current.origin);
+    return candidate.origin === current.origin
+      ? candidate
+      : new URL(this.fallbackPath, current.origin);
+  }
+
+  private currentUrl(): URL {
+    if (typeof location === "undefined") {
+      throw new MdbaseConnectError(
+        "browser_required",
+        "Collection URL selection requires a browser environment."
+      );
+    }
+    return new URL(location.href);
+  }
+
+  private browserHistory(): History {
+    if (typeof history === "undefined") {
+      throw new MdbaseConnectError(
+        "browser_required",
+        "Collection URL selection requires a browser environment."
+      );
+    }
+    return history;
   }
 }
 
@@ -1381,6 +1528,13 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (typeof collectionId !== "string") {
       throw new MdbaseConnectError("invalid_token_response", "Authorization returned no collection ID.");
     }
+    const scope = parseGrantScope(body.scope);
+    if (!scope) {
+      throw new MdbaseConnectError(
+        "invalid_token_response",
+        "Authorization returned no valid collection scope."
+      );
+    }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
     const token: StoredToken = {
@@ -1390,7 +1544,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       collectionId,
       collectionName: body.collection_name ?? `Collection ${collectionId.slice(0, 8)}`,
       operations: body.operations,
-      scope: body.scope ?? { contracts: [] },
+      scope,
       expiresAt: Date.now() + body.expires_in * 1_000,
       refreshExpiresAt: body.refresh_expires_in
         ? Date.now() + body.refresh_expires_in * 1_000
@@ -1540,7 +1694,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   get scope(): GrantScope {
-    return this.currentToken()?.scope ?? { contracts: [] };
+    const scope = this.currentToken()?.scope;
+    if (!scope) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "This collection is no longer authorized for this application."
+      );
+    }
+    return scope;
   }
 
   get directAccess(): DirectAccessStatus {
@@ -2537,7 +2698,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private currentToken(): StoredToken | null {
     const token = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
     if (!token) return null;
-    token.scope ??= { contracts: [] };
+    if (!parseGrantScope(token.scope)) {
+      this.internals.removeToken(this.collectionId, token.keyHandle);
+      return null;
+    }
     if (token.expiresAt <= Date.now()
         && (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now())) {
       // The cloud bearer and the local grant proof have separate lifetimes. Keep an
@@ -3012,6 +3176,27 @@ function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
 function parseStored<T>(value: string | null): T | null {
   if (!value) return null;
   try { return JSON.parse(value) as T; } catch { return null; }
+}
+
+function cleanAuthorizationParameters(url: URL): URL {
+  for (const parameter of ["code", "state", "error", "error_description"]) {
+    url.searchParams.delete(parameter);
+  }
+  return url;
+}
+
+function parseGrantScope(value: unknown): GrantScope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const scope = value as Partial<GrantScope>;
+  if (scope.access !== "contract" && scope.access !== "full_collection") return null;
+  if (!Array.isArray(scope.contracts)) return null;
+  if (scope.contracts.some((contract) =>
+    !contract
+    || typeof contract !== "object"
+    || typeof contract.id !== "string"
+    || !Number.isInteger(contract.version)
+  )) return null;
+  return scope as GrantScope;
 }
 
 function stripTrailingSlash(value: string): string {

@@ -17,8 +17,9 @@ pnpm build
 pnpm typecheck
 pnpm test
 pnpm e2e
+pnpm e2e:relay
 pnpm e2e:sync
-pnpm e2e:oracle
+pnpm e2e:provider
 pnpm --filter @mdbase/connect-desktop package
 ```
 
@@ -106,7 +107,10 @@ labeling and publishing them. Every downloadable artifact receives a keyless
 Sigstore bundle tied to the workflow's GitHub OIDC identity plus a checksum.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
-local and oracle end-to-end suites, retain checksums for every artifact, verify
-upgrade and clean-install paths, and publish the supported protocol and schema
-versions. Automatic updates should be enabled only after signed rollback and
-staged-rollout behavior has been exercised against a private channel.
+local protocol-1, relay, sync, and production-provider end-to-end suites,
+retain checksums for every artifact, verify upgrade and clean-install paths,
+and publish the supported protocol and schema versions. After deployment,
+verify the deployed revision and protocol-1 browser authorization path against
+the actual release environment. Do not use a differently versioned oracle as a
+release gate. Automatic updates should be enabled only after signed rollback
+and staged-rollout behavior has been exercised against a private channel.

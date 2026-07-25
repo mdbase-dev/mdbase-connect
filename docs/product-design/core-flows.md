@@ -31,6 +31,13 @@ that files are uploaded.
 4. The collection appears in the list with `On this computer`.
 5. Success copy states that registration does not move or copy the files.
 
+If the folder duplicates the identity of another registered collection, keep
+the selected local path visible and offer `Register copy`. Before that action,
+state that Connect will write a new identity only to the selected copy's
+`mdbase.yaml`, will not change the original, and will treat the copy as a
+separate collection with independent app links and approvals. Never silently
+rewrite either identity.
+
 If validation fails, keep the selected path visible locally and explain the
 specific repair. Never send that path to the portal or control plane.
 

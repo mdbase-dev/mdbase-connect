@@ -315,7 +315,7 @@ mod tests {
             operations: vec!["reconcile_timers".to_string()],
             scope: GrantScope {
                 contracts: Vec::new(),
-                access: Some(ApplicationAccess::FullCollection),
+                access: ApplicationAccess::FullCollection,
             },
             notification_criteria: vec![NotificationCriterion {
                 id: "task.reminder".to_string(),

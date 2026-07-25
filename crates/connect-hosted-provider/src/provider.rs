@@ -89,8 +89,7 @@ pub struct RegisterReplica {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateApplicationReplica {
-    #[serde(default)]
-    pub grant_id: Option<Uuid>,
+    pub grant_id: Uuid,
     pub mode: SyncReplicaMode,
     #[serde(default)]
     pub allowed_types: Vec<String>,
@@ -959,19 +958,6 @@ impl HostedProvider {
                 "Application capabilities require at least one operation.",
             ));
         }
-        if input.grant_id.is_none()
-            && input.allowed_operations.iter().any(|operation| {
-                matches!(
-                    operation.as_str(),
-                    "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
-                )
-            })
-        {
-            return Err(ApiError::bad_request(
-                "invalid_application_capability",
-                "Application timer capabilities require a grant.",
-            ));
-        }
         validate_collection_scope(
             input.full_collection,
             &input.allowed_types,
@@ -984,13 +970,13 @@ impl HostedProvider {
                        OR allowed_types IS DISTINCT FROM $3
                        OR full_collection IS DISTINCT FROM $4
                        OR allowed_operations IS DISTINCT FROM $5
-                       OR grant_id IS DISTINCT FROM COALESCE($6, grant_id)
+                       OR grant_id IS DISTINCT FROM $6
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
                    full_collection = $4,
                    allowed_operations = $5,
-                   grant_id = COALESCE($6, grant_id)
+                   grant_id = $6
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -3776,17 +3762,10 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                     "Application capabilities require at least one operation.",
                 ));
             }
-            if input.grant_id.is_none()
-                && input.allowed_operations.iter().any(|operation| {
-                    matches!(
-                        operation.as_str(),
-                        "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
-                    )
-                })
-            {
+            if input.grant_id.is_none() {
                 return Err(ApiError::bad_request(
                     "invalid_application_capability",
-                    "Application timer capabilities require a grant.",
+                    "Application capabilities require a grant.",
                 ));
             }
             validate_collection_scope(
@@ -4175,14 +4154,10 @@ mod tests {
             token_ttl_seconds: Some(3600),
         };
         validate_replica_capability(&capability).unwrap();
-        let mut legacy_capability = capability.clone();
-        legacy_capability.grant_id = None;
-        validate_replica_capability(&legacy_capability).unwrap();
-        legacy_capability
-            .allowed_operations
-            .push("list_timers".to_string());
+        let mut missing_grant = capability.clone();
+        missing_grant.grant_id = None;
         assert_eq!(
-            validate_replica_capability(&legacy_capability)
+            validate_replica_capability(&missing_grant)
                 .unwrap_err()
                 .code,
             "invalid_application_capability"

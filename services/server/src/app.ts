@@ -2424,7 +2424,7 @@ export async function buildApp(options: BuildOptions) {
           effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
           current.scope.contracts
         ),
-        fullCollection: scopeAccess(current.scope) === "full_collection",
+        fullCollection: current.scope.access === "full_collection",
         allowedOperations: operations
       });
     }
@@ -3691,13 +3691,9 @@ async function reconcileApplicationGrants(
 }
 
 function scopesEqual(left: GrantScope, right: GrantScope): boolean {
-  return scopeAccess(left) === scopeAccess(right)
+  return left.access === right.access
     && isContractSubset(left.contracts, right.contracts)
     && isContractSubset(right.contracts, left.contracts);
-}
-
-function scopeAccess(scope: GrantScope): "contract" | "full_collection" {
-  return scope.access ?? (scope.contracts.length === 0 ? "full_collection" : "contract");
 }
 
 function isContractSubset(

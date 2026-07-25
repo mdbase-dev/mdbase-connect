@@ -184,7 +184,10 @@ export class RelayHub {
       local_id: string;
       collection_name: string;
       operations: string[];
-      scope: { contracts: Array<{ id: string; version: number }> };
+      scope: {
+        contracts: Array<{ id: string; version: number }>;
+        access: "contract" | "full_collection";
+      };
       encryption: unknown | null;
       notification_criteria: unknown[];
       created_at: string;
