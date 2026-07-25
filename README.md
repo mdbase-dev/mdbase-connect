@@ -5,6 +5,10 @@ on a user's local or mdbase-hosted [mdbase](https://mdbase.dev) collections.
 Local collection folders are never exposed directly to the internet; hosted
 collections keep their authoritative Markdown on mdbase with optional mirrors.
 
+Build an application with the task-oriented
+[Connect SDK guide](https://mdbase.dev/sdk/), or start with the
+[five-minute quickstart](https://mdbase.dev/sdk/quickstart/).
+
 Applications bundle declarations that can include portable type provisions.
 When a selected collection is missing a required contract, its local or hosted
 authority installs the declared type during approval, verifies the resulting

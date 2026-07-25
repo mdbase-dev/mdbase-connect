@@ -2,6 +2,15 @@
 
 Browser SDK for dynamically discovered mdbase connect applications.
 
+The complete developer guide covers
+[setup](https://mdbase.dev/sdk/quickstart/),
+[manifests and contracts](https://mdbase.dev/sdk/manifest/),
+[authorization](https://mdbase.dev/sdk/authorization/),
+[operations](https://mdbase.dev/sdk/operations/),
+[routing](https://mdbase.dev/sdk/routing/),
+[offline sync](https://mdbase.dev/sdk/offline-sync/), and
+[testing](https://mdbase.dev/sdk/testing/).
+
 ```ts
 const connect = new MdbaseConnect({
   serverUrl: "https://connect.mdbase.dev",

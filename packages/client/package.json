@@ -9,7 +9,7 @@
     "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
     "directory": "packages/client"
   },
-  "homepage": "https://mdbase.dev",
+  "homepage": "https://mdbase.dev/sdk/",
   "sideEffects": false,
   "exports": {
     ".": {

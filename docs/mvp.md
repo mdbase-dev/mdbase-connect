@@ -1,6 +1,6 @@
-# MVP acceptance path
+# Release acceptance path
 
-The MVP is complete when a user can:
+The original local-collection MVP is complete when a user can:
 
 1. Install mdbase connect and launch it automatically at login.
 2. Create a v0.3 collection or register an existing one.
@@ -26,6 +26,14 @@ The MVP is complete when a user can:
     tampering, or plaintext fallback.
 
 The TaskNotes reference app proves that an independent frontend can follow a
-configurable domain contract. Hosted collections, file mirroring, a developer
-portal, an app marketplace, multi-user sharing, billing, and fine-grained field
-permissions remain outside this milestone.
+configurable domain contract.
+
+The current private beta extends that milestone with hosted collections,
+offline SDK replicas, and receive-only or writable filesystem mirrors. These
+paths preserve the same manifest, grant, contract, operation, revision, and
+notification model across local and hosted authorities.
+
+The public developer portal is now maintained at
+[`mdbase.dev/sdk`](https://mdbase.dev/sdk/). An app marketplace, multi-user
+sharing, billing, attachments, private/zero-knowledge hosting, and
+fine-grained field permissions remain outside the first release.

@@ -1,6 +1,6 @@
 # Encryption architecture
 
-Status: encrypted relay implemented; hosted encryption remains a design
+Status: encrypted relay and standard hosted encryption implemented
 
 ## Purpose
 
@@ -43,6 +43,14 @@ implementations and exercises tampering, replay, scope, pause, revocation, and
 downgrade behavior. Connector identity material currently lives in a mode-0600
 agent state file. Moving it into platform-protected storage, verifying first
 contact, and auditing logs remain public-release gates.
+
+The hosted provider encrypts canonical records, retained versions, change
+payloads, mutation receipts, and collection resources with AES-256-GCM under a
+random per-collection data key. It wraps that key with the provider deployment
+master key and authenticates ciphertext identity as associated data. PostgreSQL
+retains the wrapped key, ciphertext, and the explicit metadata listed below.
+Key-service integration, online key rotation, and restore drills remain release
+operations work; private/zero-knowledge hosting is not implemented.
 
 Local Markdown files are also plaintext from mdbase's perspective. Operating
 system full-disk encryption, encrypted home directories, and device access
@@ -226,43 +234,53 @@ provider while the collection key is available to that provider.
 
 ### Infrastructure encryption
 
-Managed-database volume encryption and encrypted backups form the minimum
-baseline. Their keys are controlled separately from database credentials and
-follow documented rotation and recovery procedures.
+Managed-database volume encryption and encrypted backups form the deployment
+baseline. They complement, but do not replace, the application-level collection
+encryption below. Deployment verification and restore drills are release gates.
 
 ### Collection envelope encryption
 
-Each hosted collection receives a random data-encryption key. A key-encryption
-key held by a managed key service wraps that collection key. PostgreSQL stores
-the wrapped collection key and encrypted content; the key service controls
-unwrapping and records its use.
+Each hosted collection receives a random 256-bit data-encryption key. A
+deployment master key supplied to the Rust provider wraps that collection key.
+PostgreSQL stores the wrapped collection key and encrypted content. Provider
+startup verifies the supplied master key against an authenticated database key
+check and refuses a mismatched key.
 
-Each canonical document and retained version is authenticated with its
-collection ID, record ID, revision, and format version. Nonces are unique per
-key and record version. Key rotation creates a new key version and re-encrypts
-content incrementally while old versions remain readable during the migration.
+AES-256-GCM envelopes carry a random 96-bit nonce. Associated data binds each
+envelope to its purpose and identity: collection resources to the collection;
+record documents and versions to collection, record, and sequence; changes to
+collection, sequence, and side; and receipts to replica and mutation. Moving
+ciphertext to another identity therefore fails authentication.
 
-The provider unwraps a collection key only while serving authorized work and
-keeps plaintext and unwrapped keys out of logs, crash reports, and durable
-caches. Memory clearing has platform limits, so operational isolation and
-short-lived provider processes remain part of the protection.
+The provider decrypts records to evaluate authorized operations through
+`mdbase-rs`. Plaintext and unwrapped keys must stay out of logs, crash reports,
+and durable caches. Memory clearing has platform limits, so operational
+isolation remains part of the protection.
+
+The current provider does not support live master-key or collection-key
+rotation. Backup restoration must use the original provider master key. A
+versioned key-service integration, rotation procedure, and restore drill remain
+release operations work.
 
 ### Hosted metadata
 
-The hosted design records which metadata remains visible. A practical first
-version can leave tenant, collection, record ID, revision, sequence, size,
-deletion state, and contract-routing metadata in plaintext. Paths can be
-encrypted while a keyed path token enforces uniqueness.
+The implemented schema leaves collection and replica identifiers, record IDs,
+revisions, sequences, sizes, deletion state, matched type labels, quotas, and
+contract-routing metadata in plaintext. Record paths live inside encrypted
+record payloads; an HMAC-SHA-256 path token supports equality lookup and
+uniqueness without storing the record path itself. Resource paths such as
+`mdbase.yaml` and type-definition paths are visible.
 
-Frontmatter values, bodies, query source, validation results, and retained
-document versions should remain encrypted at rest. Plaintext JSONB copies or
-search indexes would weaken the database-dump protection. The first hosted
-provider can decrypt scoped candidate records and evaluate queries through
-`mdbase-rs`; later indexes need their own documented leakage analysis.
+Frontmatter values, bodies, retained document versions, change images, and
+mutation receipts are encrypted at rest. The provider decrypts scoped candidate
+records and evaluates queries through `mdbase-rs`; it does not maintain
+plaintext frontmatter JSONB or search indexes. Any future index needs its own
+documented leakage analysis.
 
 The encryption design and the hosted storage interface in
-[Hosted collections and sync](./sync.md) must be developed together. Revisions,
-version retention, transaction boundaries, and exports all cross this boundary.
+[Hosted collections and sync](./sync.md) are implemented together. Revisions,
+version retention, transaction boundaries, snapshots, and exports all cross
+this boundary.
 
 ## Private hosted collections
 
@@ -349,9 +367,9 @@ Keys have distinct lifecycles:
   the computer is revoked;
 - per-grant application keys are created during authorization, rotated on
   reauthorization or policy change, and discarded on disconnect or revocation;
-- standard hosted collection keys are generated by the provider, wrapped by a
-  managed key service, versioned, backed up through the wrapped form, and
-  destroyed according to collection deletion policy;
+- standard hosted collection keys are generated by the provider and wrapped by
+  its deployment master key. Versioned rotation and a formally exercised key
+  destruction procedure remain to be implemented;
 - private hosted collection keys are generated and wrapped on user devices,
   shared only with approved device/application keys, and covered by an explicit
   recovery procedure.
@@ -361,28 +379,30 @@ and decrypted recovery material never enter audit events.
 
 ## Implementation state and remaining sequence
 
-### Implemented: relay protocol and fixtures
+### Implemented: relay and standard hosted protection
 
 - protocol 1 request, response, grant-binding, and schema definitions;
 - Rust connector identity, derivation, authenticated encryption, durable replay
   state, exact local policy enforcement, and encrypted responses;
 - browser non-extractable keys, atomic counters, encrypted operations, binding
   refresh, and fail-closed behavior;
-- opaque relay routing and cross-runtime end-to-end coverage.
+- opaque relay routing and cross-runtime end-to-end coverage;
+- per-collection hosted data keys wrapped by a deployment master key;
+- authenticated encryption for hosted documents, resources, retained versions,
+  change images, and mutation receipts;
+- keyed record-path lookup without plaintext record paths in PostgreSQL; and
+- ciphertext tamper, wrong-key, two-provider race, sync, and operation tests.
 
-### Next: release security work
+### Next: release security and key operations
 
 - platform-protected connector identity and native application key storage;
 - first-contact connector identity verification or key transparency;
 - browser restart and multi-tab integration tests using real IndexedDB;
-- independent protocol review and systematic log, trace, and crash-path audit.
-
-### Then: hosted envelope encryption
-
-- integrate collection-key wrapping with the hosted Rust provider;
-- encrypt current documents, versions, paths where selected, and backups;
-- document visible metadata and query-index leakage;
-- implement rotation, restore, export, deletion, and key-service outage paths.
+- independent protocol review and systematic log, trace, and crash-path audit;
+- move hosted key wrapping to a versioned managed-key boundary;
+- implement and exercise rotation, restore, deletion, and key-service outage
+  procedures; and
+- verify managed volume and backup encryption in the production environment.
 
 ### Later: private hosted prototype
 
@@ -416,10 +436,11 @@ The relay-only encryption milestone is complete when:
 ## Decisions still open
 
 - first-contact authentication against an actively malicious control plane;
-- key rotation intervals and message limits;
+- relay key rotation intervals and message limits;
 - visible relay metadata, including whether operation names remain visible;
-- plaintext metadata and query-index leakage for standard hosted collections;
-- key-service availability and disaster-recovery procedure;
+- any future plaintext metadata or query-index leakage for standard hosted
+  collections;
+- hosted key-service availability, rotation, and disaster-recovery procedure;
 - private-hosted recovery and contract-scoped key distribution.
 
 The relay guarantee can be implemented independently of hosted sync. Hosted
