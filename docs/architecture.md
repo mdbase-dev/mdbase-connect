@@ -45,11 +45,14 @@ still-registered folder. It refuses the registered original, a moved folder,
 and a collection that can be registered normally.
 
 The browser SDK is multi-collection by default. `MdbaseConnect` manages the
-saved authorization set and `MdbaseConnection` is permanently bound to one
-collection. Client applications should put the stable server collection ID,
-not the mutable display name, in a bookmarkable URL parameter such as
-`?collection=<id>`. Authorization may carry that ID as a preselection hint, but
-the approval UI still requires an explicit compatible user choice.
+saved authorization set, `MdbaseConnection` is permanently bound to one
+collection, and `MdbaseBrowserLocation` owns bookmark selection and OAuth
+return cleanup. It puts the stable server collection ID, not the mutable
+display name, in `?collection=<id>`, preserves explicit unavailable IDs, and
+auto-selects only when exactly one connection is saved. Authorization may carry
+that ID as a preselection hint, but the approval UI still requires an explicit
+compatible user choice. Collection IDs are non-secret locators and can appear
+in browser history and logs; grants remain the authorization boundary.
 
 ## Components
 
