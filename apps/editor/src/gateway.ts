@@ -71,7 +71,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
     this.connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl: new URL(".well-known/mdbase-app.json", appRoot).href,
+      manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
     });
   }

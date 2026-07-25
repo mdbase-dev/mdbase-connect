@@ -284,11 +284,11 @@ packages:
     resolution: {integrity: sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA==}
 
   '@mdbase/connect-protocol@file:vendor/mdbase-connect-protocol-0.1.0-beta.1.tgz':
-    resolution: {integrity: sha512-1/TTnvCyIu5/rJl/jmApuhW7xuYlHa3v3oc/TUc1wt6jezhPM27HHvSrrTOiWpaI6VYU7JnGH7+qA9KXT3s5DQ==, tarball: file:vendor/mdbase-connect-protocol-0.1.0-beta.1.tgz}
+    resolution: {integrity: sha512-c7mBmDX2TutzWIvgtRJ1XAzjaO6wiSDcxhwJHzatpa5/JDmvMnbgVLEHWeWfQjgnGiKQUMZPdp/KU5qB2W46Qw==, tarball: file:vendor/mdbase-connect-protocol-0.1.0-beta.1.tgz}
     version: 0.1.0-beta.1
 
   '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.1.tgz':
-    resolution: {integrity: sha512-hnNRMVXs4PbcFoVR41hO+By0kRWiCJ69wV/ablOUPnnNkpx+gX9Tw2qUKFyRPBEKYRSU0y3738YGF6GN4yy76g==, tarball: file:vendor/mdbase-connect-0.1.0-beta.1.tgz}
+    resolution: {integrity: sha512-m/0zDM/WZJazpgBg+QN5hGwwniyBgMzTNuIZPE2BbDmWs38cX0OtJWguRLoqQTql6RWWvG7n9SnClRtDvf+amg==, tarball: file:vendor/mdbase-connect-0.1.0-beta.1.tgz}
     version: 0.1.0-beta.1
 
   '@napi-rs/wasm-runtime@1.1.6':

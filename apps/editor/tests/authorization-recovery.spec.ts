@@ -19,7 +19,13 @@ test("recovers from a stale local grant without bypassing the connector", async 
   });
   await page.route(`${serverUrl}/**`, async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/v1/apps/discover") {
+    if (url.pathname === "/v1/apps/register") {
+      expect(route.request().postDataJSON()).toMatchObject({
+        manifest: {
+          manifest_version: 3,
+          id: "dev.mdbase.editor"
+        }
+      });
       await json(route, {
         application: {
           id: "20000000-0000-4000-8000-000000000002",

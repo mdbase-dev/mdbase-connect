@@ -98,7 +98,13 @@ class HostedCollectionHarness {
   private async control(route: Route) {
     const request = route.request();
     const url = new URL(request.url());
-    if (url.pathname === "/v1/apps/discover") {
+    if (url.pathname === "/v1/apps/register") {
+      expect(request.postDataJSON()).toMatchObject({
+        manifest: {
+          manifest_version: 3,
+          id: "dev.mdbase.editor"
+        }
+      });
       return json(route, {
         application: {
           id: "40000000-0000-4000-8000-000000000004",

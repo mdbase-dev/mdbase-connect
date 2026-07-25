@@ -1,5 +1,6 @@
 {
-  "manifest_version": 1,
+  "manifest_version": 3,
+  "id": "dev.mdbase.editor",
   "name": "mdbase editor",
   "homepage": "https://callumalpass.github.io/mdbase-editor/",
   "redirect_uris": [
