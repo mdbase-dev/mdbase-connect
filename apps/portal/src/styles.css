@@ -643,10 +643,39 @@ h1 {
 
 .approval-form {
   display: grid;
-  grid-template-columns: minmax(12rem, 0.9fr) minmax(15rem, 1.2fr) auto;
-  align-items: end;
-  gap: 1rem;
   margin-top: 1.1rem;
+  border-top: 1px solid var(--line-strong);
+}
+
+.approval-section {
+  display: grid;
+  grid-template-columns: minmax(8.5rem, 0.38fr) minmax(0, 1fr);
+  gap: 1.6rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.approval-section-intro {
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+}
+
+.approval-section-intro > strong {
+  font-size: 0.78rem;
+}
+
+.approval-section-intro > small,
+.permission-review summary small {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.approval-section-content {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
 }
 
 .collection-field {
@@ -656,7 +685,6 @@ h1 {
 }
 
 .collection-field > span,
-.permission-field legend,
 .auth-panel label span {
   color: var(--ink-muted);
   font-size: 0.72rem;
@@ -675,24 +703,10 @@ select {
   font-size: 0.78rem;
 }
 
-.permission-field {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.permission-field legend {
-  margin-bottom: 0.4rem;
-  padding: 0;
-}
-
 .permission-options {
   display: flex;
   flex-wrap: wrap;
-  align-content: center;
   gap: 0.45rem 0.8rem;
-  min-height: 2.4rem;
 }
 
 .permission-options label {
@@ -727,31 +741,115 @@ select {
   color: var(--danger);
 }
 
-.approval-form > .message,
-.approval-form > .field-note {
-  grid-column: 1 / -1;
+.permission-review,
+.notification-access,
+.collection-compatibility {
+  min-width: 0;
 }
 
-.notification-access {
-  display: grid;
-  grid-template-columns: minmax(12rem, 0.9fr) minmax(15rem, 1.2fr) auto;
-  grid-column: 1 / -1;
+.permission-review > summary,
+.notification-access > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 1rem;
-  padding: 0.85rem 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  min-height: 2.4rem;
+  cursor: pointer;
+  list-style: none;
 }
 
-.notification-access > div {
+.permission-review > summary::-webkit-details-marker,
+.notification-access > summary::-webkit-details-marker,
+.collection-compatibility > summary::-webkit-details-marker {
+  display: none;
+}
+
+.permission-review > summary > span,
+.notification-access > summary > span {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.15rem;
 }
 
-.notification-access strong {
+.permission-review summary strong,
+.notification-access summary strong {
   font-size: 0.76rem;
 }
 
-.notification-access small {
+.permission-review summary b,
+.notification-access summary b {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+
+.permission-review summary b::after,
+.notification-access summary b::after {
+  content: " +";
+  color: var(--ink-muted);
+}
+
+.permission-review[open] summary b::after,
+.notification-access[open] summary b::after {
+  content: " −";
+}
+
+.permission-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1.2rem 1.6rem;
+  padding: 1rem 0 0.2rem;
+}
+
+.permission-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.permission-group legend {
+  padding: 0;
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.permission-group > p {
+  margin: 0.25rem 0 0.6rem;
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.permission-group > div {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.permission-group label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.permission-group input {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: 0 0 auto;
+  margin: 0.12rem 0 0;
+  accent-color: var(--accent-dark);
+}
+
+.notification-access {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-access summary small {
   color: var(--ink-muted);
   font-size: 0.7rem;
   line-height: 1.45;
@@ -759,9 +857,8 @@ select {
 
 .notification-access ul {
   display: grid;
-  grid-column: 2 / -1;
   gap: 0.35rem;
-  margin: 0;
+  margin: 0.8rem 0 0;
   padding: 0;
   list-style: none;
 }
@@ -780,10 +877,38 @@ select {
   white-space: nowrap;
 }
 
+.notification-access > p {
+  margin: 0.65rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.approval-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 0 0;
+}
+
+.approval-footer > p {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.approval-form > .message {
+  margin-bottom: 0;
+}
+
 .field-note {
-  margin: -0.35rem 0 0;
+  margin: 0;
   color: var(--ink-muted);
   font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .error-copy {
@@ -989,26 +1114,20 @@ select {
 }
 
 .authorization-panel .approval-form {
-  grid-template-columns: 1fr;
   padding-top: 0.25rem;
 }
 
 .collection-compatibility {
-  padding: 0.72rem 0.8rem;
-  border-left: 2px solid var(--warning, #a96f18);
-  background: color-mix(in srgb, var(--paper) 88%, #c99038);
-}
-
-.collection-compatibility > strong {
-  color: var(--ink);
-  font-size: 0.74rem;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
 }
 
 .collection-compatibility ul {
   display: grid;
   gap: 0.55rem;
-  margin: 0.65rem 0 0;
-  padding: 0;
+  margin: 0.65rem 0 0.2rem;
+  padding: 0.65rem 0 0;
+  border-top: 1px solid var(--line);
   list-style: none;
 }
 
@@ -1025,24 +1144,6 @@ select {
 .collection-compatibility li small {
   color: var(--ink-muted);
   line-height: 1.45;
-}
-
-.desktop-alternative {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-top: 1.3rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  color: var(--ink-muted);
-  font-size: 0.72rem;
-}
-
-.desktop-alternative a {
-  color: var(--accent-dark);
-  font-family: var(--mono);
-  font-size: 0.66rem;
 }
 
 .outcome-label {
@@ -1151,16 +1252,14 @@ select {
     display: none;
   }
 
-  .approval-form {
+  .approval-section {
     grid-template-columns: 1fr;
+    gap: 0.65rem;
   }
 
-  .notification-access {
-    grid-template-columns: 1fr;
-  }
-
-  .notification-access ul {
-    grid-column: 1;
+  .approval-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .approval-actions {

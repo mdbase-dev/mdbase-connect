@@ -3,7 +3,11 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
-import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
+import {
+  groupApplicationAccess,
+  groupAuthorizationOperations,
+  type ApplicationAccessGroup
+} from "@mdbase/connect-ui/access";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -459,6 +463,10 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
   const setup = selected && request.provisionable_collection_ids.includes(selected.id)
     ? neededProvisions(request.requirements, request.provisions, selected)
     : [];
+  const permissionGroups = useMemo(
+    () => groupAuthorizationOperations(request.requested_operations),
+    [request.requested_operations]
+  );
   useEffect(() => {
     if (!available.some((collection) => collection.id === collectionId)) {
       setCollectionId(available[0]?.id ?? "");
@@ -466,36 +474,83 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
   }, [collectionId, available]);
   return (
     <article className="request-panel">
-      <div className="identity-mark">{initials(request.application_name)}</div>
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{host(request.application_homepage)}</code><small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
-      <div className="request-fields">
-        <label><span>Collection</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{request.provisionable_collection_ids.includes(collection.id) ? " · setup required" : ""}</option>)}</select></label>
-        {available.length === 0 && <small>No registered collection supports all requested operations and contracts.</small>}
-        {setup.length > 0 && <small>Allowing access will add {provisionNames(setup)} to this collection.</small>}
-        <fieldset><legend>Requested operations</legend><OperationChoices allowed={request.requested_operations} selected={operations} onChange={setOperations} /></fieldset>
+      <div className="request-decision">
+        <section className="request-section">
+          <div><strong>Collection</strong><small>Choose where {request.application_name} can work.</small></div>
+          <div className="request-section-content">
+            <label><span>Collection on this computer</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{request.provisionable_collection_ids.includes(collection.id) ? " · setup required" : ""}</option>)}</select></label>
+            {available.length === 0 && <small>No registered collection supports all requested operations and contracts.</small>}
+            {setup.length > 0 && <small>Setup needed: allowing access will add {provisionNames(setup)} to this collection.</small>}
+          </div>
+        </section>
+        <section className="request-section">
+          <div><strong>Permissions</strong><small>{request.requested_operations.length} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small></div>
+          <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
+        </section>
         <NotificationAccess notifications={request.notifications} />
-      </div>
-      <div className="decision-actions">
-        <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
-        <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations }); onNotice(`${request.application_name} can now use the selected operations.`); })}>Allow access</button>
+        <footer className="request-footer">
+          <p>{selected
+            ? `${request.application_name} will use ${selected.display_name} on this computer until you revoke access.`
+            : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
+          <div className="decision-actions">
+            <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
+            <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations }); onNotice(`${request.application_name} can now use the selected operations.`); })}>Allow {request.application_name}</button>
+          </div>
+        </footer>
       </div>
     </article>
+  );
+}
+
+function RequestPermissionChoices({
+  groups,
+  selected,
+  onChange
+}: {
+  groups: ReturnType<typeof groupAuthorizationOperations>;
+  selected: string[];
+  onChange(value: string[]): void;
+}) {
+  const selectedSet = new Set(selected);
+  const total = groups.reduce((count, group) => count + group.operations.length, 0);
+  function toggle(operation: string, checked: boolean) {
+    onChange(checked
+      ? [...selected, operation]
+      : selected.filter((value) => value !== operation));
+  }
+  return (
+    <details className="request-permission-review">
+      <summary><span><strong>{selected.length} of {total} selected</strong><small>Review or narrow individual actions</small></span><b>Review</b></summary>
+      <div className="request-permission-groups">{groups.map((group) => (
+        <fieldset key={group.id}>
+          <legend>{group.label}</legend>
+          <p>{group.description}</p>
+          <div>{group.operations.map((operation) => (
+            <label key={operation.id}>
+              <input type="checkbox" checked={selectedSet.has(operation.id)} onChange={(event) => toggle(operation.id, event.target.checked)} />
+              <span>{operation.label}</span>
+            </label>
+          ))}</div>
+        </fieldset>
+      ))}</div>
+    </details>
   );
 }
 
 function NotificationAccess({ notifications }: { notifications: ApplicationNotifications }) {
   if (notifications.criteria.length === 0) return null;
   return (
-    <div className="notification-request">
-      <strong>Change notifications</strong>
-      <small>If enabled in the app, these rules run inside the collection and pushes contain no record content.</small>
+    <details className="notification-request">
+      <summary><span><strong>Change notifications</strong><small>{notifications.criteria.length} optional {plural(notifications.criteria.length, "rule", "rules")}; pushes contain no record content.</small></span><b>Details</b></summary>
       <ul>{notifications.criteria.map((criterion) => (
         <li key={criterion.id}>
           <span>{criterion.presentation.title}</span>
           <code>{criterion.event.id} v{criterion.event.version}</code>
         </li>
       ))}</ul>
-    </div>
+      <p>If you enable these in the application, the rules run inside the collection.</p>
+    </details>
   );
 }
 

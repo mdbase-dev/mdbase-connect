@@ -3,7 +3,12 @@ import "@fontsource/atkinson-hyperlegible/latin-700.css";
 import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
-import { groupApplicationAccess, type ApplicationAccessGroup } from "@mdbase/connect-ui/access";
+import {
+  authorizationOperationLabel,
+  groupApplicationAccess,
+  groupAuthorizationOperations,
+  type ApplicationAccessGroup
+} from "@mdbase/connect-ui/access";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -653,7 +658,7 @@ function PortalGrant({ grant, connectorName, disabled, onChanged, onError }: {
       <b>Review</b>
     </summary>
     <div className="portal-grant-detail">
-      <div><p className="detail-label">Allowed actions</p><div className="permission-options grant-permissions">{orderedOperations.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} disabled={inactive} onChange={() => toggle(operation)} /><span>{operationLabel(operation)}</span></label>)}</div></div>
+      <div><p className="detail-label">Allowed actions</p><div className="permission-options grant-permissions">{orderedOperations.map((operation) => <label key={operation}><input type="checkbox" checked={operations.has(operation)} disabled={inactive} onChange={() => toggle(operation)} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div></div>
       <div className="grant-context"><p><span>Scope</span><strong>{grant.scope.contracts.length ? scopeDescription(grant.scope.contracts) : "All record types in this collection."}</strong></p><p><span>Application origin</span><strong className="mono-detail">{grant.application_origin}</strong></p><p><span>Connected</span><strong>{relativeTime(grant.created_at)}</strong></p></div>
       <div className="grant-actions"><button className="button secondary" disabled={inactive || !changed || operations.size === 0} onClick={() => void save()}>Save narrower access</button><button className="quiet-danger" disabled={inactive} onClick={() => void revoke()}>Revoke access</button></div>
     </div>
@@ -807,7 +812,7 @@ function Authorization({ requestId }: { requestId: string }) {
   const [status, setStatus] = useState<"pending" | "approved" | "denied">("pending");
   const [error, setError] = useState("");
   const returning = useRef(false);
-  const deepLink = useMemo(() => `mdbase-connect://authorize?server=${encodeURIComponent(location.origin)}&request=${requestId}`, [requestId]);
+  useSystemTheme();
 
   useEffect(() => {
     api<{ authorization: PendingAuthorization; collections: AvailableCollection[] }>(`/v1/authorization-requests/${requestId}`)
@@ -844,11 +849,11 @@ function Authorization({ requestId }: { requestId: string }) {
   const authorization = request.authorization;
   return (
     <main className="center-page">
-      <PageBrand label="Application request" />
+      <PageBrand label="Application request" themePicker={false} />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
         {status === "pending" ? <>
-          <p>Choose the collection and exact permissions this application may use. Local collections remain under their connected computer; hosted collections remain under your mdbase account.</p>
+          <p>{authorization.application_name} is asking to use one collection. Choose where it can work and review what it can do.</p>
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
@@ -859,7 +864,6 @@ function Authorization({ requestId }: { requestId: string }) {
               collections: [...current.collections, collection]
             } : current)}
           />
-          <div className="desktop-alternative"><span>Want to review this on the computer instead?</span><a href={deepLink}>Open mdbase connect</a></div>
         </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>Returning to the application…</h2><p>Your approved collection and permissions will follow you back.</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>Returning to the application…</h2><p>The application will show that access was not granted.</p></>}
       </section>
     </main>
@@ -916,6 +920,10 @@ function ApprovalForm({
   const [error, setError] = useState("");
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
+  const permissionGroups = useMemo(
+    () => groupAuthorizationOperations(request.requested_operations),
+    [request.requested_operations]
+  );
 
   useEffect(() => {
     if (!compatible.some((choice) => choice.collection.id === collectionId)) {
@@ -980,43 +988,95 @@ function ApprovalForm({
 
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
-      <label className="collection-field" htmlFor={`collection-${request.id}`}>
-        <span>Collection</span>
-        <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || compatible.length === 0}>
-          {compatible.length === 0 && <option value="">No compatible collection</option>}
-          {choices.map(({ collection, compatibility }) => <option value={collection.id} key={collection.id} disabled={!compatibility.compatible}>{collection.display_name} · {collection.connector_name}{compatibility.compatible ? (neededProvisions(request, collection).length ? " · setup required" : "") : ` · ${compatibility.label}`}</option>)}
-        </select>
-      </label>
-      {unavailable.length > 0 && <div className="collection-compatibility" aria-label="Unavailable collections">
-        <strong>{unavailable.length} {unavailable.length === 1 ? "collection needs attention" : "collections need attention"}</strong>
-        <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
-      </div>}
-      {compatible.length === 0 && <div className="authorization-empty-collection">
-        <p className="field-note">No compatible collection is ready.</p>
-        <button
-          className="button secondary"
-          type="button"
-          disabled={submitting !== null}
-          onClick={() => void createCloudCollection()}
-        >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
-      </div>}
-      {setup.length > 0 && <p className="field-note">Allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
-      <fieldset className="permission-field">
-        <legend>Permissions</legend>
-        <div className="permission-options">{request.requested_operations.map((operation) => (
-          <label key={operation}>
-            <input type="checkbox" checked={operations.has(operation)} onChange={() => toggleOperation(operation)} disabled={submitting !== null} />
-            <span>{operationLabel(operation)}</span>
+      <section className="approval-section">
+        <div className="approval-section-intro">
+          <strong>Collection</strong>
+          <small>Choose where {request.application_name} can work.</small>
+        </div>
+        <div className="approval-section-content">
+          <label className="collection-field" htmlFor={`collection-${request.id}`}>
+            <span>Collection and location</span>
+            <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || compatible.length === 0}>
+              {compatible.length === 0 && <option value="">No compatible collection</option>}
+              {choices.map(({ collection, compatibility }) => <option value={collection.id} key={collection.id} disabled={!compatibility.compatible}>{collection.display_name} · {collection.connector_name}{compatibility.compatible ? (neededProvisions(request, collection).length ? " · setup required" : "") : ` · ${compatibility.label}`}</option>)}
+            </select>
           </label>
-        ))}</div>
-      </fieldset>
+          {unavailable.length > 0 && <details className="collection-compatibility">
+            <summary>{compatible.length > 0
+              ? `${unavailable.length} other ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`
+              : `${unavailable.length} ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`}</summary>
+            <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
+          </details>}
+          {compatible.length === 0 && <div className="authorization-empty-collection">
+            <p className="field-note">No compatible collection is ready.</p>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={submitting !== null}
+              onClick={() => void createCloudCollection()}
+            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
+          </div>}
+          {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
+        </div>
+      </section>
+      <section className="approval-section">
+        <div className="approval-section-intro">
+          <strong>Permissions</strong>
+          <small>{request.requested_operations.length} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small>
+        </div>
+        <PermissionChoices
+          groups={permissionGroups}
+          selected={operations}
+          disabled={submitting !== null}
+          onToggle={toggleOperation}
+        />
+      </section>
       <NotificationAccess notifications={request.notifications} />
       {error && <div className="message error compact">{error}</div>}
-      <div className="approval-actions">
-        <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-        <button className="button primary" type="button" disabled={submitting !== null || !collectionId || operations.size === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : "Allow access"}</button>
-      </div>
+      <footer className="approval-footer">
+        <p>{selected
+          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. Access lasts until you revoke it.`
+          : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
+        <div className="approval-actions">
+          <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || operations.size === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : `Allow ${request.application_name}`}</button>
+        </div>
+      </footer>
     </div>
+  );
+}
+
+function PermissionChoices({
+  groups,
+  selected,
+  disabled,
+  onToggle
+}: {
+  groups: ReturnType<typeof groupAuthorizationOperations>;
+  selected: ReadonlySet<string>;
+  disabled: boolean;
+  onToggle(operation: string): void;
+}) {
+  const total = groups.reduce((count, group) => count + group.operations.length, 0);
+  return (
+    <details className="permission-review">
+      <summary>
+        <span><strong>{selected.size} of {total} selected</strong><small>Review or narrow individual actions</small></span>
+        <b>Review</b>
+      </summary>
+      <div className="permission-groups">{groups.map((group) => (
+        <fieldset className="permission-group" key={group.id}>
+          <legend>{group.label}</legend>
+          <p>{group.description}</p>
+          <div>{group.operations.map((operation) => (
+            <label key={operation.id}>
+              <input type="checkbox" checked={selected.has(operation.id)} onChange={() => onToggle(operation.id)} disabled={disabled} />
+              <span>{operation.label}</span>
+            </label>
+          ))}</div>
+        </fieldset>
+      ))}</div>
+    </details>
   );
 }
 
@@ -1025,18 +1085,19 @@ function NotificationAccess({ notifications }: {
 }) {
   if (notifications.criteria.length === 0) return null;
   return (
-    <div className="notification-access">
-      <div>
-        <strong>Change notifications</strong>
-        <small>If you turn these on in the app, rules run inside the collection and pushes contain no record content.</small>
-      </div>
+    <details className="notification-access">
+      <summary>
+        <span><strong>Change notifications</strong><small>{notifications.criteria.length} optional {notifications.criteria.length === 1 ? "rule" : "rules"}; pushes contain no record content.</small></span>
+        <b>Details</b>
+      </summary>
       <ul>{notifications.criteria.map((criterion) => (
         <li key={criterion.id}>
           <span>{criterion.presentation.title}</span>
           <code>{criterion.event.id} v{criterion.event.version}</code>
         </li>
       ))}</ul>
-    </div>
+      <p>If you enable these in the application, the rules run inside the collection.</p>
+    </details>
   );
 }
 
@@ -1057,7 +1118,16 @@ function ThemeSelect() {
     saveThemePreference(next);
   }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
 }
-function PageBrand({ label }: { label: string }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div><ThemeSelect /></div>; }
+function useSystemTheme() {
+  useEffect(() => {
+    applyThemePreference("system");
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyThemePreference("system");
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+}
+function PageBrand({ label, themePicker = true }: { label: string; themePicker?: boolean }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div>{themePicker && <ThemeSelect />}</div>; }
 function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
 function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
@@ -1066,24 +1136,6 @@ function initials(value: string) { return value.split(/\s+/).map((part) => part[
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 function pluralLabel(count: number, singular: string, pluralValue: string) { return `${count} ${count === 1 ? singular : pluralValue}`; }
-function operationLabel(operation: string) {
-  return ({
-    query: "Search and query",
-    list_views: "See saved views",
-    execute_view: "Run saved views",
-    read_view_source: "Inspect saved-view definitions",
-    create_view_source: "Create saved views",
-    list_timers: "List application timers",
-    put_timer: "Create or update timers",
-    cancel_timer: "Cancel timers",
-    reconcile_timers: "Reconcile application timers",
-    update_view_source: "Change saved views",
-    delete_view_source: "Delete saved views",
-    read_type: "Inspect type definitions",
-    create_type: "Create type definitions",
-    update_type: "Change type definitions"
-  } as Record<string, string>)[operation] ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1)}`;
-}
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
   collection: Pick<AvailableCollection, "contracts">

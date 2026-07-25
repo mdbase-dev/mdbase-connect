@@ -1480,12 +1480,12 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     const page = await context.newPage();
     await page.goto(authorizationUrl);
     await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
-    await expect(page.getByText(/Local collections remain under their connected computer/)).toBeVisible();
-    const collection = page.getByLabel("Collection");
+    await expect(page.getByText("Hosted SDK E2E is asking to use one collection. Choose where it can work and review what it can do.")).toBeVisible();
+    const collection = page.getByLabel("Collection and location");
     await expect(collection.locator("option")).toHaveCount(2);
     await collection.selectOption(collectionId);
     await expect(collection.locator("option:checked")).toHaveText("Hosted writing · Hosted by mdbase");
-    await page.getByRole("button", { name: "Allow access" }).click();
+    await page.getByRole("button", { name: "Allow Hosted SDK E2E" }).click();
     const outcome = await Promise.race([
       page.waitForURL(
         (url) => url.origin === callbackOrigin && url.searchParams.has("code")
@@ -1515,7 +1515,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
     const page = await context.newPage();
     await page.goto(authorizationUrl);
     await expect(page.getByRole("heading", { name: "TaskNotes Inline E2E" })).toBeVisible();
-    const collection = page.getByLabel("Collection");
+    const collection = page.getByLabel("Collection and location");
     await expect(collection.locator("option")).toHaveCount(1);
     await expect(collection.locator("option:checked")).toHaveText("No compatible collection");
     await expect(collection).toBeDisabled();
@@ -1523,7 +1523,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
     await expect(collection.locator("option")).toHaveCount(1);
     await expect(collection.locator("option:checked")).toHaveText("My tasks · mdbase cloud");
     await expect(collection).toBeEnabled();
-    await page.getByRole("button", { name: "Allow access" }).click();
+    await page.getByRole("button", { name: "Allow TaskNotes Inline E2E" }).click();
     await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
     return page.url();
   } finally {
