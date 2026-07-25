@@ -12,7 +12,9 @@ import {
   typeFieldConversionImpact,
   typeFieldPathLabel,
   typeImpact,
-  updateTypePathGlob
+  updateTypeFieldsPresent,
+  updateTypePathGlob,
+  updateTypePathGlobs
 } from "./type-schema";
 import type { NoteSummary } from "./model";
 
@@ -61,6 +63,24 @@ describe("visual type source editing", () => {
       expect.objectContaining({ name: "deadline", kind: "datetime", required: true }),
       expect.objectContaining({ name: "field", kind: "string" })
     ]));
+  });
+
+  it("keeps every selected required field when the YAML uses a sequence node", () => {
+    let next = setTypeFieldRequired(source, "due", true);
+    next = addTypeField(next);
+    next = setTypeFieldRequired(next, "field", true);
+
+    expect(readVisualType(next).fields.filter((field) => field.required).map((field) => field.name)).toEqual([
+      "title",
+      "due",
+      "field"
+    ]);
+
+    next = setTypeFieldRequired(next, "due", false);
+    expect(readVisualType(next).fields.filter((field) => field.required).map((field) => field.name)).toEqual([
+      "title",
+      "field"
+    ]);
   });
 
   it("reports how a change affects currently indexed notes", () => {
@@ -247,5 +267,20 @@ describe("recursive visual type source editing", () => {
       changedFields: ["profile.display_name"],
       definitionChanges: ["Matching rules"]
     });
+  });
+
+  it("edits all portable inferred match selectors and removes an empty match section", () => {
+    let next = updateTypePathGlobs(recursiveSource, ["People/**/*.md", "Contacts/**/*.md"]);
+    next = updateTypeFieldsPresent(next, ["profile", "status"]);
+    expect(readVisualType(next)).toMatchObject({
+      pathGlobs: ["People/**/*.md", "Contacts/**/*.md"],
+      fieldsPresent: ["profile", "status"],
+      advancedMatchKeys: []
+    });
+
+    next = updateTypeFieldsPresent(next, []);
+    next = updateTypePathGlobs(next, []);
+    expect(next).not.toContain("match:");
+    expect(readVisualType(next)).toMatchObject({ pathGlobs: [], fieldsPresent: [] });
   });
 });

@@ -11,8 +11,10 @@ The editor includes a CodeMirror Markdown surface with optional Vim keys,
 views, deliberate note creation, collection settings, and a dedicated workspace
 for inspecting and editing type definitions. Its visual type builder supports
 recursive objects, lists of objects, nested lists, required fields, and common
-JSON Schema constraints while preserving advanced YAML rules. The same schema
-drives structured nested values during note creation and property editing. Use
+JSON Schema constraints while preserving advanced YAML rules. Type membership
+distinguishes explicit declarations from inferred path, field-presence,
+structured-predicate, and CEL rules. The same schema drives structured nested
+values during note creation and property editing. Use
 `@/type/query` to scope the object picker to a declared mdbase type. Type changes
 use mdbase connect's explicitly permissioned collection-management operations.
 

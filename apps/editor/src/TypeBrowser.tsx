@@ -1,6 +1,6 @@
 import { ArrowLeft, ChevronDown, ChevronRight, CircleAlert, FileCode2, FilePlus2, Info, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteSummary, TypeDocument } from "./model";
 import { compareLines } from "./text-diff";
@@ -18,8 +18,9 @@ import {
   typeFieldConversionImpact,
   typeFieldPathLabel,
   typeImpact,
+  updateTypeFieldsPresent,
   updateTypeIdentity,
-  updateTypePathGlob,
+  updateTypePathGlobs,
   type TypeFieldDefinition,
   type TypeFieldKind,
   type TypeImpact,
@@ -199,15 +200,43 @@ function VisualTypeEditor({ definition, source, impact, onChange, onOpenYaml }: 
     </section>
     <section className="visual-type-section type-match-section">
       <div className="visual-section-heading">
-        <div><h3>Applies to</h3><p>{impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed {impact?.affectedNotes === 1 ? "note uses" : "notes use"} this type.</p></div>
+        <div><h3>Type membership</h3><p>{impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed {impact?.affectedNotes === 1 ? "note resolves" : "notes resolve"} to this type.</p></div>
       </div>
-      <label className="type-path-glob"><span>Path pattern</span><input
-        value={definition.pathGlob ?? ""}
-        placeholder="Explicit type assignment"
-        onChange={(event) => onChange((source) => updateTypePathGlob(source, event.target.value))}
-        spellCheck="false"
-      /><small>{definition.pathGlob ? "Records under this path can match without a type property." : "Records select this type explicitly unless advanced matching is defined."}</small></label>
-      {definition.advancedMatch && <div className="advanced-match-note"><Info aria-hidden="true" /><p>This type also has advanced matching rules that remain in YAML.</p><button onClick={onOpenYaml}>Open YAML</button></div>}
+      <div className="type-membership-guide">
+        <Info aria-hidden="true" />
+        <div>
+          <strong>Explicit membership comes first.</strong>
+          <p>A record may name this type using the collection’s configured type keys, normally <code>type</code> or <code>types</code>. When it does, inferred rules are skipped.</p>
+          <p>Without an explicit declaration, every inferred rule below must match. More than one type may match the same record.</p>
+        </div>
+      </div>
+      <div className="type-match-rules">
+        <StringListEditor
+          label="Path patterns"
+          values={definition.pathGlobs}
+          itemLabel="Path pattern"
+          addLabel="Add path pattern"
+          placeholder="Journal/**/*.md"
+          helper="Any one pattern may match the collection-relative record path."
+          onChange={(values) => onChange((source) => updateTypePathGlobs(source, values))}
+        />
+        <StringListEditor
+          label="Fields that must be present"
+          values={definition.fieldsPresent}
+          itemLabel="Required match field"
+          addLabel="Add field selector"
+          placeholder="status"
+          helper="Every selector must resolve to a persisted, non-null frontmatter value."
+          onChange={(values) => onChange((source) => updateTypeFieldsPresent(source, values))}
+        />
+      </div>
+      {!definition.pathGlobs.length && !definition.fieldsPresent.length && !definition.advancedMatchKeys.length
+        && <p className="type-explicit-only">No inferred rules. Records must declare this type explicitly.</p>}
+      {definition.advancedMatch && <div className="advanced-match-note">
+        <Info aria-hidden="true" />
+        <div><strong>More inferred rules in YAML</strong><p>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</p></div>
+        <button onClick={onOpenYaml}>Open YAML</button>
+      </div>}
     </section>
     <section className="visual-type-section">
       <div className="visual-type-fields-heading"><div><h3>Fields</h3><p>Objects and lists can contain fields at any depth.</p></div><button onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button></div>
@@ -335,6 +364,98 @@ function KindOptions({ current }: { current: TypeFieldKind }) {
   </>;
 }
 
+function StringListEditor({ label, values, itemLabel, addLabel, placeholder, helper, onChange }: {
+  label: string;
+  values: string[];
+  itemLabel: string;
+  addLabel: string;
+  placeholder?: string;
+  helper?: string;
+  onChange: (values: string[]) => void;
+}) {
+  const valuesKey = JSON.stringify(values);
+  const [drafts, setDrafts] = useState(values);
+  const [dirty, setDirty] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
+  const skipBlur = useRef(false);
+  const focusLast = useRef(false);
+
+  useEffect(() => {
+    const currentKey = JSON.stringify(normalizedListStrings(drafts));
+    if (!dirty || currentKey !== valuesKey) {
+      setDrafts(values);
+      setDirty(false);
+    }
+  }, [valuesKey]);
+
+  useEffect(() => {
+    if (!focusLast.current) return;
+    const inputs = list.current?.querySelectorAll("input");
+    inputs?.item(inputs.length - 1).focus();
+    focusLast.current = false;
+  }, [drafts]);
+
+  function commit(next: string[], append = false) {
+    const normalized = normalizedListStrings(next);
+    onChange(normalized);
+    setDrafts(append ? [...normalized, ""] : normalized);
+    setDirty(append);
+    focusLast.current = append;
+  }
+
+  function addItem() {
+    if (drafts.at(-1) === "") {
+      const inputs = list.current?.querySelectorAll("input");
+      inputs?.item(inputs.length - 1).focus();
+      return;
+    }
+    focusLast.current = true;
+    setDrafts([...drafts, ""]);
+    setDirty(true);
+  }
+
+  return <div className="string-list-editor">
+    <div className="string-list-heading"><span>{label}</span><button onClick={addItem}><Plus aria-hidden="true" />{addLabel}</button></div>
+    {helper && <small>{helper}</small>}
+    <div className="string-list-items" ref={list}>
+      {drafts.map((value, index) => <div className="string-list-item" key={index}>
+        <span aria-hidden="true">{index + 1}</span>
+        <label><span className="sr-only">{itemLabel} {index + 1}</span><input
+          value={value}
+          placeholder={placeholder}
+          spellCheck="false"
+          onChange={(event) => {
+            setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item));
+            setDirty(true);
+          }}
+          onBlur={() => {
+            if (skipBlur.current) {
+              skipBlur.current = false;
+              return;
+            }
+            commit(drafts);
+          }}
+          onPaste={(event) => {
+            const pasted = event.clipboardData.getData("text");
+            if (!/[\r\n]/.test(pasted)) return;
+            event.preventDefault();
+            const pastedItems = pasted.split(/\r?\n/).filter(Boolean);
+            commit([...drafts.slice(0, index), ...pastedItems, ...drafts.slice(index + 1)]);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || !event.currentTarget.value.trim()) return;
+            event.preventDefault();
+            skipBlur.current = true;
+            commit(drafts, true);
+          }}
+        /></label>
+        <button className="string-list-remove" aria-label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))}><Trash2 aria-hidden="true" /></button>
+      </div>)}
+      {!drafts.length && <p>No entries.</p>}
+    </div>
+  </div>;
+}
+
 function FieldConstraints({ field, onChange }: {
   field: TypeFieldDefinition;
   onChange: (change: (source: string) => string) => void;
@@ -351,7 +472,15 @@ function FieldConstraints({ field, onChange }: {
     constraint("minLength", "Minimum length", field.constraints.minLength);
     constraint("maxLength", "Maximum length", field.constraints.maxLength);
     controls.push(<label key="pattern"><span>Pattern</span><input value={field.constraints.pattern ?? ""} placeholder="Optional regular expression" onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "pattern", event.target.value || undefined))} /></label>);
-    controls.push(<label className="field-choices" key="choices"><span>Choices</span><textarea defaultValue={field.constraints.choices?.join("\n") ?? ""} placeholder={"One choice per line"} onBlur={(event) => onChange((current) => setTypeFieldChoices(current, field.path, event.target.value.split(/\r?\n/)))} /></label>);
+    controls.push(<div className="field-choices" key="choices"><StringListEditor
+      label="Choices"
+      values={field.constraints.choices ?? []}
+      itemLabel={`${typeFieldPathLabel(field.path)} choice`}
+      addLabel="Add choice"
+      placeholder="Choice value"
+      helper="Saved values must equal one of these strings."
+      onChange={(values) => onChange((current) => setTypeFieldChoices(current, field.path, values))}
+    /></div>);
   }
   if (field.kind === "number" || field.kind === "integer") {
     controls.push(<label key="minimum"><span>Minimum</span><input key={`minimum:${field.constraints.minimum ?? ""}`} type="number" defaultValue={field.constraints.minimum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "minimum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
@@ -367,6 +496,18 @@ function FieldConstraints({ field, onChange }: {
   }
   if (!controls.length) return null;
   return <div className="field-constraint-grid">{controls}</div>;
+}
+
+function normalizedListStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function matchRuleLabel(key: string): string {
+  if (key === "where") return "Structured frontmatter conditions";
+  if (key === "expr") return "CEL expression";
+  if (key === "path_glob") return "Path patterns with an unsupported value";
+  if (key === "fields_present") return "Field selectors with an unsupported value";
+  return key;
 }
 
 function TypeChangeReview({ previousSource, source, impact, creating, saving, onBack, onConfirm }: {

@@ -1,4 +1,4 @@
-import { parseDocument, type Document } from "yaml";
+import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 import type { NoteSummary } from "./model";
 
 export type TypeFieldKind = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "advanced";
@@ -41,6 +41,9 @@ export interface VisualTypeDefinition {
   name: string;
   description: string;
   pathGlob?: string;
+  pathGlobs: string[];
+  fieldsPresent: string[];
+  advancedMatchKeys: string[];
   advancedMatch: boolean;
   fields: TypeFieldDefinition[];
 }
@@ -74,11 +77,28 @@ export function readVisualType(source: string): VisualTypeDefinition {
   const { value } = parseTypeSource(source);
   const schema = record(record(value.schema).value);
   const match = record(value.match);
+  const pathGlobs = typeof match.path_glob === "string"
+    ? [match.path_glob]
+    : array(match.path_glob).filter((item): item is string => typeof item === "string");
+  const fieldsPresent = array(match.fields_present).filter((item): item is string => typeof item === "string");
+  const advancedMatchKeys = Object.keys(match).filter((key) => {
+    if (key === "path_glob") {
+      return typeof match.path_glob !== "string"
+        && !(Array.isArray(match.path_glob) && match.path_glob.every((item) => typeof item === "string"));
+    }
+    if (key === "fields_present") {
+      return !(Array.isArray(match.fields_present) && match.fields_present.every((item) => typeof item === "string"));
+    }
+    return true;
+  });
   return {
     name: typeof value.name === "string" ? value.name : "",
     description: typeof value.description === "string" ? value.description : "",
-    ...(typeof match.path_glob === "string" ? { pathGlob: match.path_glob } : {}),
-    advancedMatch: Object.keys(match).some((key) => key !== "path_glob") || (match.path_glob !== undefined && typeof match.path_glob !== "string"),
+    ...(pathGlobs[0] ? { pathGlob: pathGlobs[0] } : {}),
+    pathGlobs,
+    fieldsPresent,
+    advancedMatchKeys,
+    advancedMatch: advancedMatchKeys.length > 0,
     fields: readObjectFields(schema, [], [])
   };
 }
@@ -88,15 +108,27 @@ export function updateTypeIdentity(source: string, field: "name" | "description"
 }
 
 export function updateTypePathGlob(source: string, value: string): string {
-  const pathGlob = value.trim();
+  return updateTypePathGlobs(source, value.trim() ? [value] : []);
+}
+
+export function updateTypePathGlobs(source: string, values: string[]): string {
+  const pathGlobs = normalizedStrings(values);
+  return updateMatchList(source, "path_glob", pathGlobs, true);
+}
+
+export function updateTypeFieldsPresent(source: string, values: string[]): string {
+  return updateMatchList(source, "fields_present", normalizedStrings(values), false);
+}
+
+function updateMatchList(source: string, key: "path_glob" | "fields_present", values: string[], scalarWhenSingle: boolean): string {
   return mutate(source, (document) => {
-    if (pathGlob) {
-      document.setIn(["match", "path_glob"], pathGlob);
+    if (values.length) {
+      document.setIn(["match", key], scalarWhenSingle && values.length === 1 ? values[0] : values);
       return;
     }
-    document.deleteIn(["match", "path_glob"]);
+    document.deleteIn(["match", key]);
     const match = document.getIn(["match"]);
-    if (isEmptyRecord(match)) document.deleteIn(["match"]);
+    if (isMap(match) && match.items.length === 0) document.deleteIn(["match"]);
   });
 }
 
@@ -325,6 +357,9 @@ function replaceSchemaKind(document: Document, path: TypeSchemaPath, kind: Exclu
 
 function requiredFields(document: Document, objectPath: TypeSchemaPath): string[] {
   const required = document.getIn([...SCHEMA_ROOT, ...objectPath, "required"]);
+  if (isSeq(required)) {
+    return required.items.flatMap((item) => isScalar(item) && typeof item.value === "string" ? [item.value] : []);
+  }
   return Array.isArray(required) ? required.filter((item): item is string => typeof item === "string") : [];
 }
 
@@ -489,16 +524,16 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function normalizedStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
 function record(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isEmptyRecord(value: unknown): boolean {
-  return isRecord(value) && Object.keys(value).length === 0;
 }
 
 function samePath(left: TypeSchemaPath, right: TypeSchemaPath): boolean {

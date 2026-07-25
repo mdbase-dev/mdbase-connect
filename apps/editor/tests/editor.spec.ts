@@ -175,12 +175,62 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
 });
 
+test("edits complete type membership, choices, and multiple required fields", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 600 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
+  await expect(page.getByText("Explicit membership comes first.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add path pattern" }).click();
+  await page.getByRole("textbox", { name: "Path pattern 2" }).fill("Journal/**/*.md");
+  await page.getByRole("textbox", { name: "Path pattern 2" }).press("Tab");
+  await page.getByRole("button", { name: "Add field selector" }).click();
+  await page.getByRole("textbox", { name: "Required match field 1" }).fill("title");
+  await page.getByRole("textbox", { name: "Required match field 1" }).press("Tab");
+
+  await page.getByRole("button", { name: "Expand title field" }).click();
+  await page.getByRole("button", { name: "Add choice" }).click();
+  await page.getByRole("textbox", { name: "title choice 1" }).fill("journal");
+  await page.getByRole("textbox", { name: "title choice 1" }).press("Enter");
+  await page.getByRole("textbox", { name: "title choice 2" }).fill("reflection");
+  await page.getByRole("textbox", { name: "title choice 2" }).press("Tab");
+
+  for (const name of ["title", "tags"]) {
+    const row = page.locator(".visual-field-row").filter({ has: page.locator(`.visual-field-name input[value="${name}"]`) });
+    await row.getByRole("checkbox", { name: "Required" }).check();
+  }
+
+  const geometry = await page.locator(".visual-type-editor").evaluate((editor) => {
+    const right = editor.getBoundingClientRect().left + editor.clientWidth;
+    const controls = [...editor.querySelectorAll<HTMLElement>("input, select")];
+    return {
+      hasVerticalScroll: editor.scrollHeight > editor.clientHeight,
+      noHorizontalScroll: editor.scrollWidth <= editor.clientWidth,
+      controlsInside: controls.every((control) => control.getBoundingClientRect().right <= right + 0.5)
+    };
+  });
+  expect(geometry).toEqual({ hasVerticalScroll: true, noHorizontalScroll: true, controlsInside: true });
+
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "YAML" }).click();
+  const source = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(source).toContainText("Journal/**/*.md");
+  await expect(source).toContainText("fields_present:");
+  await expect(source).toContainText("- title");
+  await expect(source).toContainText("- tags");
+  await expect(source).toContainText("- journal");
+  await expect(source).toContainText("- reflection");
+});
+
 test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
 
-  await page.getByRole("button", { name: "Add field" }).click();
+  await page.getByRole("button", { name: "Add field", exact: true }).click();
   const fieldName = page.locator(".visual-field-name input").last();
   await fieldName.fill("contacts");
   await fieldName.press("Tab");
