@@ -56,7 +56,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   async describe(): Promise<CollectionDescription> {
     if (this.openingDelay) await delay(this.openingDelay);
     return {
-      protocol_version: 2,
+      protocol_version: 1,
       collection_id: "00000000-0000-4000-8000-000000000001",
       display_name: "Writing",
       spec_version: "0.3.0",

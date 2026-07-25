@@ -101,7 +101,7 @@ class HostedCollectionHarness {
     if (url.pathname === "/v1/apps/register") {
       expect(request.postDataJSON()).toMatchObject({
         manifest: {
-          manifest_version: 3,
+          manifest_version: 1,
           id: "dev.mdbase.editor"
         }
       });
@@ -150,7 +150,7 @@ class HostedCollectionHarness {
     this.operations.push(operation);
 
     if (operation === "describe") return providerResult(route, {
-      protocol_version: 2,
+      protocol_version: 1,
       collection_id: collectionId,
       display_name: "Hosted writing",
       spec_version: "0.3.0",

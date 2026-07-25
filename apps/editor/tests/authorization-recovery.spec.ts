@@ -22,7 +22,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
     if (url.pathname === "/v1/apps/register") {
       expect(route.request().postDataJSON()).toMatchObject({
         manifest: {
-          manifest_version: 3,
+          manifest_version: 1,
           id: "dev.mdbase.editor"
         }
       });
@@ -106,7 +106,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
         refreshExpiresAt: Date.now() + 120_000,
         grantId: "40000000-0000-4000-8000-000000000004",
         encryption: {
-          protocol_version: 3,
+          protocol_version: 1,
           suite: "P256-HKDF-SHA256-AES256GCM",
           key_id: "enc_stale",
           scope_epoch: 1,

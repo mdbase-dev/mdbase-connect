@@ -10,7 +10,7 @@ const target = resolve(import.meta.dirname, "..", "public", ".well-known", "mdba
 
 await mkdir(resolve(target, ".."), { recursive: true });
 await writeFile(target, `${JSON.stringify({
-  manifest_version: 3,
+  manifest_version: 1,
   id: "dev.mdbase.editor",
   name: "mdbase editor",
   homepage: appUrl,
