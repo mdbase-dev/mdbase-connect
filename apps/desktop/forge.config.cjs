@@ -64,6 +64,37 @@ const windowsStoreMakers = windowsStoreIdentity
     ]
   : [];
 
+const platformMakers =
+  process.platform === "win32"
+    ? [
+        {
+          name: "@electron-forge/maker-squirrel",
+          config: {
+            name: "mdbase_connect",
+            authors: "mdbase",
+            description:
+              "Connect applications to authorized mdbase collections.",
+            iconUrl:
+              "https://raw.githubusercontent.com/mdbase-dev/mdbase-connect/main/apps/desktop/assets/app-icon.ico",
+            setupIcon: windowsIcon
+          }
+        },
+        { name: "@electron-forge/maker-zip" },
+        ...windowsStoreMakers
+      ]
+    : process.platform === "darwin"
+      ? [
+          { name: "@electron-forge/maker-zip" },
+          {
+            name: "@electron-forge/maker-dmg",
+            config: { icon: macIcon }
+          }
+        ]
+      : [
+          { name: "@electron-forge/maker-deb" },
+          { name: "@electron-forge/maker-rpm" }
+        ];
+
 module.exports = {
   packagerConfig: {
     asar: true,
@@ -83,26 +114,5 @@ module.exports = {
       }
     }
   },
-  makers: [
-    {
-      name: "@electron-forge/maker-squirrel",
-      config: {
-        name: "mdbase_connect",
-        authors: "mdbase",
-        description: "Connect applications to authorized mdbase collections.",
-        iconUrl:
-          "https://raw.githubusercontent.com/mdbase-dev/mdbase-connect/main/apps/desktop/assets/app-icon.ico",
-        setupIcon: windowsIcon
-      }
-    },
-    { name: "@electron-forge/maker-zip", platforms: ["darwin", "win32"] },
-    ...windowsStoreMakers,
-    {
-      name: "@electron-forge/maker-dmg",
-      platforms: ["darwin"],
-      config: { icon: macIcon }
-    },
-    { name: "@electron-forge/maker-deb" },
-    { name: "@electron-forge/maker-rpm" }
-  ]
+  makers: platformMakers
 };

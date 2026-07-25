@@ -32,18 +32,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS desktop
+          - label: macOS Apple Silicon desktop
             os: macos-15
-            artifact: desktop-macos
+            artifact: desktop-macos-arm64
             platform: macos
+            arch: arm64
+          - label: macOS Intel desktop
+            os: macos-15-intel
+            artifact: desktop-macos-x64
+            platform: macos
+            arch: x64
           - label: Windows desktop
             os: windows-2025
             artifact: desktop-windows
             platform: windows
+            arch: x64
           - label: Linux signed
             os: ubuntu-24.04
             artifact: desktop-linux
             platform: linux
+            arch: x64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -271,9 +279,9 @@ jobs:
             test -n "$installer"
             test -n "$portable"
             cp "$installer" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-x64-UNSIGNED-Setup.exe"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-Setup.exe"
             cp "$portable" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-x64-UNSIGNED-portable.zip"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-portable.zip"
             cp docs/windows-unsigned-preview.txt release-artifacts/
           elif [ "${{ matrix.platform }}" = "macos" ] && [ "$MACOS_RELEASE_MODE" = "unsigned" ]; then
             dmg="$(find apps/desktop/out/make -type f -name '*.dmg' -print -quit)"
@@ -281,9 +289,9 @@ jobs:
             test -n "$dmg"
             test -n "$portable"
             cp "$dmg" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.dmg"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.dmg"
             cp "$portable" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.zip"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.zip"
             cp docs/macos-unsigned-preview.txt release-artifacts/
           else
             find apps/desktop/out/make -type f \
@@ -294,9 +302,9 @@ jobs:
           test -n "$(find release-artifacts -type f -print -quit)"
           cd release-artifacts
           if command -v shasum >/dev/null 2>&1; then
-            shasum -a 256 * > "SHA256SUMS-${{ matrix.platform }}"
+            shasum -a 256 * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           else
-            sha256sum * > "SHA256SUMS-${{ matrix.platform }}"
+            sha256sum * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           fi
 
       - name: Attest release artifacts

@@ -85,8 +85,9 @@ gh workflow run desktop-release.yml --ref main
 ```
 
 This preflight builds, verifies, signs where configured, attests, and uploads
-all platform artifacts without creating a GitHub release. Require the macOS,
-Windows, Linux, and Windows Store smoke-test jobs to pass before tagging.
+all platform artifacts without creating a GitHub release. Require the macOS
+Apple Silicon, macOS Intel, Windows, Linux, and Windows Store smoke-test jobs to
+pass before tagging.
 
 The tag must exactly match the root and desktop package version:
 
