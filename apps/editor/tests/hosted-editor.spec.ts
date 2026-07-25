@@ -128,7 +128,7 @@ class HostedCollectionHarness {
         refresh_expires_in: 2_592_000,
         collection_id: collectionId,
         operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
-        scope: { contracts: [] },
+        scope: { contracts: [], access: "full_collection" },
         grant_id: grantId,
         encryption: null,
         hosted: {
