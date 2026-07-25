@@ -20,8 +20,9 @@ use tempfile::NamedTempFile;
 use thiserror::Error;
 use uuid::Uuid;
 
-const COLLECTION_NAMESPACE: Uuid = Uuid::from_u128(0x72972de3_d05a_4db7_82f5_c9ce02f0fb1d);
 const ENCRYPTED_REPLAY_WINDOW: u64 = 1024;
+const CONNECT_EXTENSION: &str = "x-mdbase-connect";
+const CONNECT_COLLECTION_ID: &str = "collection_id";
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -365,16 +366,34 @@ impl CollectionRegistry {
 
         let provider = Arc::new(FilesystemProvider::open(&path)?);
 
+        let id = ensure_collection_id(&path)?;
         let metadata = read_collection_metadata(&path)?;
         let path_string = path.to_string_lossy().to_string();
-        let id = Uuid::new_v5(&COLLECTION_NAMESPACE, path_string.as_bytes());
         let display_name = collection_display_name(&metadata, &path);
         let description = normalized_optional(metadata.description);
+
+        let existing_path = self
+            .connection()?
+            .query_row(
+                "SELECT path FROM collections WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(existing_path) = existing_path.as_deref() {
+            if existing_path != path_string && Path::new(existing_path).exists() {
+                return Err(ConnectError::CollectionOpen(format!(
+                    "Collection identity {id} is already registered at {existing_path}. \
+                     Give copied collections a new {CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID}."
+                )));
+            }
+        }
 
         self.connection()?.execute(
             "INSERT INTO collections (id, path, display_name, description, spec_version, enabled)
              VALUES (?1, ?2, ?3, ?4, ?5, 1)
-             ON CONFLICT(path) DO UPDATE SET
+             ON CONFLICT(id) DO UPDATE SET
+               path = excluded.path,
                display_name = excluded.display_name,
                description = excluded.description,
                spec_version = excluded.spec_version,
@@ -1859,6 +1878,54 @@ struct CollectionMetadata {
     description: Option<String>,
 }
 
+fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
+    let config_path = root.join("mdbase.yaml");
+    let source = fs::read_to_string(&config_path)?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+    let mapping = config.as_mapping_mut().ok_or_else(|| {
+        ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
+    })?;
+    let extension_key = serde_yaml::Value::String(CONNECT_EXTENSION.to_string());
+    let collection_id_key = serde_yaml::Value::String(CONNECT_COLLECTION_ID.to_string());
+
+    if let Some(value) = mapping
+        .get(&extension_key)
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|extension| extension.get(&collection_id_key))
+    {
+        let value = value.as_str().ok_or_else(|| {
+            ConnectError::CollectionOpen(format!(
+                "{CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID} must be a UUID string."
+            ))
+        })?;
+        return Uuid::parse_str(value).map_err(|_| {
+            ConnectError::CollectionOpen(format!(
+                "{CONNECT_EXTENSION}.{CONNECT_COLLECTION_ID} must be a valid UUID."
+            ))
+        });
+    }
+
+    let id = Uuid::new_v4();
+    let extension = mapping
+        .entry(extension_key)
+        .or_insert_with(|| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    let extension = extension.as_mapping_mut().ok_or_else(|| {
+        ConnectError::CollectionOpen(format!("{CONNECT_EXTENSION} must be a YAML mapping."))
+    })?;
+    extension.insert(collection_id_key, serde_yaml::Value::String(id.to_string()));
+
+    let serialized = serde_yaml::to_string(&config)?;
+    let permissions = fs::metadata(&config_path)?.permissions();
+    let mut temporary = NamedTempFile::new_in(root)?;
+    temporary.as_file().set_permissions(permissions)?;
+    temporary.write_all(serialized.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(&config_path)
+        .map_err(|error| ConnectError::Io(error.error))?;
+    Ok(id)
+}
+
 fn read_collection_metadata(root: &Path) -> Result<CollectionMetadata, ConnectError> {
     let source = fs::read_to_string(root.join("mdbase.yaml"))?;
     Ok(serde_yaml::from_str(&source)?)
@@ -2130,6 +2197,55 @@ mod tests {
             "unregistering must not delete collection files"
         );
         assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn collection_identity_survives_a_folder_move() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let original = collection_parent.path().join("notes");
+        let moved = collection_parent.path().join("archive");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+
+        let created = registry.create(&original, Some("Notes")).unwrap();
+        let config: serde_yaml::Value =
+            serde_yaml::from_str(&fs::read_to_string(original.join("mdbase.yaml")).unwrap())
+                .unwrap();
+        assert_eq!(
+            config[CONNECT_EXTENSION][CONNECT_COLLECTION_ID],
+            created.id.to_string()
+        );
+
+        fs::rename(&original, &moved).unwrap();
+        let registered_after_move = registry.add(&moved).unwrap();
+
+        assert_eq!(registered_after_move.id, created.id);
+        assert_eq!(
+            Path::new(&registered_after_move.path),
+            moved.canonicalize().unwrap()
+        );
+        assert_eq!(registry.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn copied_collection_identity_is_rejected_while_the_original_is_registered() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let original = collection_parent.path().join("notes");
+        let copy = collection_parent.path().join("notes-copy");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+
+        let created = registry.create(&original, Some("Notes")).unwrap();
+        fs::create_dir_all(&copy).unwrap();
+        fs::copy(original.join("mdbase.yaml"), copy.join("mdbase.yaml")).unwrap();
+        fs::create_dir_all(copy.join("_types")).unwrap();
+
+        assert!(matches!(
+            registry.add(&copy),
+            Err(ConnectError::CollectionOpen(message))
+                if message.contains(&created.id.to_string())
+                    && message.contains(CONNECT_COLLECTION_ID)
+        ));
     }
 
     #[test]

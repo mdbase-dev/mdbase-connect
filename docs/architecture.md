@@ -23,6 +23,30 @@ The connector is the authority for local data and policy. The server routes a
 request only when its access token and grant allow the operation. The connector
 checks its local policy copy again before it opens a collection.
 
+## Collection identity and application selection
+
+A local collection gets a random durable UUID the first time the connector
+registers it. The connector stores it in the collection's portable
+`mdbase.yaml` extension:
+
+```yaml
+x-mdbase-connect:
+  collection_id: 019...
+```
+
+The identity follows the folder when it is moved or renamed; absolute paths are
+never identities and never leave the connector. If a copied folder presents
+the same ID while the original remains registered, the connector rejects the
+copy and asks the user to establish a distinct identity instead of silently
+aliasing two authorities.
+
+The browser SDK is multi-collection by default. `MdbaseConnect` manages the
+saved authorization set and `MdbaseConnection` is permanently bound to one
+collection. Client applications should put the stable server collection ID,
+not the mutable display name, in a bookmarkable URL parameter such as
+`?collection=<id>`. Authorization may carry that ID as a preselection hint, but
+the approval UI still requires an explicit compatible user choice.
+
 ## Components
 
 - `mdbase-rs` owns collection loading, validation, querying, mutation,

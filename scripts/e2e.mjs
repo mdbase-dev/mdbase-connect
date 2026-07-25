@@ -250,11 +250,13 @@ secret: connector scope test
   const accessToken = refreshed.body.access_token;
   relayContext.binding.encryption = refreshed.body.encryption;
   const sdkStorage = new MemoryStorage();
-  sdkStorage.setItem(`mdbase-connect:token:${serverUrl}:bundle:${manifest.applicationManifest.id}`, JSON.stringify({
+  const sdkStoragePrefix = `mdbase-connect:${serverUrl}:bundle:${manifest.applicationManifest.id}`;
+  sdkStorage.setItem(`${sdkStoragePrefix}:token:${collection.id}`, JSON.stringify({
     accessToken,
     refreshToken: refreshed.body.refresh_token,
     clientId: appId,
     collectionId: collection.id,
+    collectionName: collection.name,
     operations: refreshed.body.operations,
     scope: refreshed.body.scope,
     // Direct access remains usable while the cloud access token needs renewal.
@@ -263,8 +265,10 @@ secret: connector scope test
     grantId: refreshed.body.grant_id,
     encryption: refreshed.body.encryption,
     applicationOrigin: refreshed.body.application_origin,
-    keyHandle: "e2e-grant"
+    keyHandle: "e2e-grant",
+    savedAt: Date.now()
   }));
+  sdkStorage.setItem(`${sdkStoragePrefix}:connections`, JSON.stringify([collection.id]));
   const sdk = new MdbaseConnect({
     serverUrl,
     manifest: manifest.applicationManifest,
@@ -281,13 +285,17 @@ secret: connector scope test
     return browserFetch(input, { ...init, headers });
   };
   try {
-    if (await sdk.requestDirectAccess() !== "available") {
+    const connection = sdk.connection(collection.id);
+    if (!connection) {
+      throw new Error("Browser SDK did not restore the saved collection connection");
+    }
+    if (await connection.requestDirectAccess() !== "available") {
       throw new Error("Browser SDK did not discover the direct connector");
     }
-    const sdkQuery = await sdk.query({ limit: 1_100 });
+    const sdkQuery = await connection.query({ limit: 1_100 });
     if (!sdkQuery.valid
         || sdkQuery.result.results.length !== 1_000
-        || sdk.connection()?.route !== "direct") {
+        || connection.route !== "direct") {
       throw new Error("Browser SDK did not complete the 1,000-record query directly");
     }
   } finally {
@@ -363,6 +371,7 @@ secret: connector scope test
         refreshToken: browserToken.body.refresh_token,
         clientId: browserAppId,
         collectionId: browserToken.body.collection_id,
+        collectionName: browserToken.body.collection_name,
         operations: browserToken.body.operations,
         scope: browserToken.body.scope,
         // Exercise genuine cloud-independent access, not merely deferred renewal.
@@ -371,7 +380,8 @@ secret: connector scope test
         grantId: browserToken.body.grant_id,
         encryption: browserToken.body.encryption,
         applicationOrigin: browserToken.body.application_origin,
-        keyHandle: "browser-e2e-grant"
+        keyHandle: "browser-e2e-grant",
+        savedAt: Date.now()
       }
     });
     if (browserResult.status !== "available"
@@ -763,8 +773,15 @@ async function openApplicationServer(name, contracts, access) {
   globalThis.directHarness = {
     publicKey: key.publicKey,
     async exercise(config) {
-      const tokenKey = \`mdbase-connect:token:\${config.serverUrl}:bundle:\${config.manifest.id}\`;
-      localStorage.setItem(tokenKey, JSON.stringify(config.token));
+      const storagePrefix = \`mdbase-connect:\${config.serverUrl}:bundle:\${config.manifest.id}\`;
+      localStorage.setItem(
+        \`\${storagePrefix}:token:\${config.token.collectionId}\`,
+        JSON.stringify(config.token)
+      );
+      localStorage.setItem(
+        \`\${storagePrefix}:connections\`,
+        JSON.stringify([config.token.collectionId])
+      );
       const connect = new MdbaseConnect({
         serverUrl: config.serverUrl,
         manifest: config.manifest,
@@ -772,27 +789,29 @@ async function openApplicationServer(name, contracts, access) {
         keyStore,
         loopbackUrl: config.loopbackUrl
       });
-      const status = await connect.requestDirectAccess();
-      const description = await connect.describe();
-      const created = await connect.create({
+      const connection = connect.connection(config.token.collectionId);
+      if (!connection) throw new Error("Saved browser connection was not restored");
+      const status = await connection.requestDirectAccess();
+      const description = await connection.describe();
+      const created = await connection.create({
         path: "browser/direct.md",
         frontmatter: { type: "task", title: "Real browser direct", status: "open" },
         body: "Created in Chromium."
       });
       const revision = created.result.revision;
-      const read = await connect.read({ path: "browser/direct.md" });
-      const updated = await connect.update({
+      const read = await connection.read({ path: "browser/direct.md" });
+      const updated = await connection.update({
         path: "browser/direct.md",
         patch: { status: "done" },
         if_revision: revision
       });
-      const readUpdated = await connect.read({ path: "browser/direct.md" });
-      const renamed = await connect.rename({
+      const readUpdated = await connection.read({ path: "browser/direct.md" });
+      const renamed = await connection.rename({
         from: "browser/direct.md",
         to: "browser/renamed.md"
       });
-      const query = await connect.query({ limit: 1_100 });
-      const validated = await connect.validate();
+      const query = await connection.query({ limit: 1_100 });
+      const validated = await connection.validate();
       const typeDocument = \`---
 kind: mdbase.type
 name: browsernote
@@ -806,23 +825,23 @@ schema:
       title: { type: string }
 ---
 \`;
-      const createdType = await connect.createType({ document: typeDocument });
-      const readType = await connect.readType({ name: "browsernote" });
-      const updatedType = await connect.updateType({
+      const createdType = await connection.createType({ document: typeDocument });
+      const readType = await connection.readType({ name: "browsernote" });
+      const updatedType = await connection.updateType({
         name: "browsernote",
         document: typeDocument.replace("Browser note", "Updated browser note"),
         if_revision: readType.result.revision
       });
-      const views = await connect.listViews();
-      const executedView = await connect.executeView({
+      const views = await connection.listViews();
+      const executedView = await connection.executeView({
         path: "TaskNotes/Views/tasks.base",
         view: "open-tasks"
       });
-      const changed = await connect.changes({ after: description.change_cursor });
-      const deleted = await connect.delete({ path: "browser/renamed.md" });
+      const changed = await connection.changes({ after: description.change_cursor });
+      const deleted = await connection.delete({ path: "browser/renamed.md" });
       return {
         status,
-        route: connect.connection()?.route,
+        route: connection.route,
         records: query.result.results.length,
         read: read.result.body.includes("Created in Chromium"),
         updated: updated.valid && readUpdated.result.frontmatter.status === "done",

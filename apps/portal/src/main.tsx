@@ -919,7 +919,11 @@ function ApprovalForm({
     () => choices.filter((choice) => !choice.compatibility.compatible),
     [choices]
   );
-  const [collectionId, setCollectionId] = useState(compatible[0]?.collection.id ?? "");
+  const [collectionId, setCollectionId] = useState(
+    compatible.some((choice) => choice.collection.id === request.collection_hint)
+      ? request.collection_hint!
+      : compatible[0]?.collection.id ?? ""
+  );
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
   const [error, setError] = useState("");

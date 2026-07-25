@@ -35,6 +35,21 @@ export function createMcpServer(
     });
   });
 
+  server.registerTool("reconnect_collection", {
+    title: "Reconnect an mdbase collection",
+    description: "Create a short-lived browser link that preselects one existing collection so the user can renew or broaden its approval.",
+    inputSchema: { connection_id: connectionId },
+    annotations: { readOnlyHint: false, openWorldHint: true }
+  }, async ({ connection_id }) => {
+    const authorizationUrl = await oauth.createConnectionTicket(context, connection_id);
+    return toolResult({
+      authorization_url: authorizationUrl,
+      connection_id,
+      expires_in: 600,
+      instruction: "Ask the user to open this link and review the preselected collection approval, then call list_connections again."
+    });
+  });
+
   server.registerTool("describe_collection", {
     title: "Describe an mdbase collection",
     description: "Return collection metadata, supported operations, types and contracts.",

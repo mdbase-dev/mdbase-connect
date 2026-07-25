@@ -313,7 +313,7 @@ describe("mdbase connect server", () => {
     const state = "test-state";
     const authorize = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${state}&operations=read,query`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${state}&operations=read,query&collection_hint=${collectionId}`,
       headers: { cookie }
     });
     expect(authorize.statusCode).toBe(302);
@@ -326,6 +326,7 @@ describe("mdbase connect server", () => {
     });
     expect(pending.statusCode).toBe(200);
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
+    expect(pending.json().authorization.collection_hint).toBe(collectionId);
     expect(pending.json().collections).toContainEqual(expect.objectContaining({
       display_name: "Legacy workouts",
       spec_version: "0.2.0"
@@ -350,6 +351,7 @@ describe("mdbase connect server", () => {
     });
     expect(localControl.statusCode).toBe(200);
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
+    expect(localControl.json().pending_authorizations[0].collection_hint).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
       contracts: [{ id: "workout.record", version: 1 }]
     });

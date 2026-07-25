@@ -156,7 +156,9 @@ deployment, DNS, and verification checklist, and
 The hosted MCP endpoint is `https://mcp.mdbase.dev/mcp`; users add that URL as
 a remote/custom connector and authorize their first collection through mdbase
 connect. The `add_connection` tool creates a short-lived approval link for each
-additional collection. See [`docs/mcp-gateway.md`](docs/mcp-gateway.md) for the
+additional collection, and `reconnect_collection` renews one existing
+connection with its collection preselected. See
+[`docs/mcp-gateway.md`](docs/mcp-gateway.md) for the
 trust boundary, development workflow, tools, and production checklist.
 
 ## Security status

@@ -12,25 +12,29 @@ The complete developer guide covers
 [testing](https://mdbase.dev/sdk/testing/).
 
 ```ts
-const connect = new MdbaseConnect({
+const mdbase = new MdbaseConnect({
   serverUrl: "https://connect.mdbase.dev",
   manifest: new URL(".well-known/mdbase-app.json", location.href).href,
   redirectUri: "https://workouts.example/auth/mdbase/callback"
 });
 
-await connect.authorize(["describe", "changes", "read", "query", "update"]);
+await mdbase.authorize({
+  operations: ["describe", "changes", "read", "query", "update"],
+  returnTo: location.pathname + location.search
+});
 
 // On the callback route:
-await connect.completeAuthorization();
-const description = await connect.describe();
-const workouts = await connect.query({ types: ["workout"] });
-await connect.update({
+const { connection, returnTo } =
+  await mdbase.completeAuthorization(location.href);
+const description = await connection.describe();
+const workouts = await connection.query({ types: ["workout"] });
+await connection.update({
   path: "workouts/monday.md",
   patch: { completed: true },
   if_revision: workouts.result.results[0].revision
 });
 
-const preview = await connect.preflightRename({
+const preview = await connection.preflightRename({
   from: "workouts/monday.md",
   to: "archive/monday.md",
   update_refs: true,
@@ -39,7 +43,7 @@ const preview = await connect.preflightRename({
 console.log(preview.result.references_affected);
 
 const controller = new AbortController();
-await connect.renameWithProgress({
+await connection.renameWithProgress({
   from: "workouts/monday.md",
   to: "archive/monday.md",
   update_refs: true,
@@ -52,10 +56,20 @@ await connect.renameWithProgress({
   }
 });
 
-for await (const change of connect.watch()) {
+for await (const change of connection.watch()) {
   console.log(change.type, change.payload.path);
 }
 ```
+
+`MdbaseConnect` is an application-level manager. It can retain several
+independently authorized collections; call `connections()` to list them and
+`connection(collectionId)` to obtain a client permanently bound to one. Pass
+that `MdbaseConnection` into repositories and feature code.
+
+For bookmarkable static applications, store the stable ID in a query parameter
+such as `?collection=<id>`. Treat an explicit ID as authoritative and show the
+chooser or reconnect that exact ID when it is unavailable. Collection names
+are display text and may change.
 
 Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web
@@ -63,7 +77,7 @@ Push while the app is closed:
 
 ```ts
 const worker = await navigator.serviceWorker.register("/service-worker.js");
-await connect.registerNotifications({
+await connection.registerNotifications({
   serviceWorker: worker,
   criteria: ["workout.reminder"]
 });
@@ -92,7 +106,7 @@ Native shells can use one FCM token for Android and iOS when the declaration
 declares `notifications.native_delivery.mode` as `managed_fcm`:
 
 ```ts
-await connect.registerNativeNotifications({
+await connection.registerNativeNotifications({
   token: await nativeMessaging.getToken(),
   criteria: ["workout.reminder"]
 });
@@ -117,10 +131,10 @@ waiting for an operation to fail:
 
 ```ts
 const required = ["read", "query", "update"] as const;
-const capabilities = connect.authorizationCapabilities([...required]);
+const capabilities = connection.authorizationCapabilities([...required]);
 if (!capabilities.sufficient) {
   console.log("Needs", capabilities.missingOperations);
-  await connect.requestOperations([...required]);
+  await connection.requestOperations([...required]);
 }
 ```
 
@@ -135,7 +149,7 @@ Applications that declare a `timer.fired` notification criterion can keep
 one-shot reminders at the collection authority:
 
 ```ts
-await connect.reconcileTimers({
+await connection.reconcileTimers({
   namespace: "workout-reminders",
   criterion_id: "workout.reminder",
   timers: [{
@@ -162,7 +176,7 @@ definitions. Type source is returned with a revision token so updates cannot
 silently overwrite a definition changed by another application:
 
 ```ts
-const created = await connect.createType({
+const created = await connection.createType({
   document: `---
 kind: mdbase.type
 name: workout
@@ -175,8 +189,8 @@ schema:
 `
 });
 
-const current = await connect.readType({ name: "workout" });
-await connect.updateType({
+const current = await connection.readType({ name: "workout" });
+await connection.updateType({
   path: current.result.path,
   document: current.result.document.replace("version: 1", "version: 2"),
   if_revision: current.result.revision
@@ -189,13 +203,13 @@ Contract-scoped applications cannot manage collection-wide type definitions.
 For a local collection, ask for same-computer access from a user gesture:
 
 ```ts
-const status = await connect.checkDirectAccess();
+const status = await connection.checkDirectAccess();
 if (status === "permission_required") {
-  directButton.onclick = () => connect.requestDirectAccess();
+  directButton.onclick = () => connection.requestDirectAccess();
 }
 
-connect.onConnectionChange((connection) => {
-  console.log(connection?.route); // "direct", "relay", or "hosted"
+connection.onConnectionChange((info) => {
+  console.log(info?.route); // "direct", "relay", or "hosted"
 });
 ```
 

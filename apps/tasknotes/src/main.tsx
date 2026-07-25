@@ -9,8 +9,12 @@ const requestedOperations = ["describe", "changes", "read", "query", "create", "
 
 function App() {
   const connect = useMemo(() => new MdbaseConnect<TaskFrontmatter>({ serverUrl }), []);
-  const tasknotes = useMemo(() => new TasknotesCollection(connect), [connect]);
-  const [connection, setConnection] = useState(() => connect.connection());
+  const [bound, setBound] = useState(() => {
+    const first = connect.connections()[0];
+    return first ? connect.connection(first.collectionId) : null;
+  });
+  const tasknotes = useMemo(() => bound ? new TasknotesCollection(bound) : null, [bound]);
+  const connection = bound?.info() ?? null;
   const connected = connection !== null;
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [title, setTitle] = useState("");
@@ -19,12 +23,17 @@ function App() {
   const [error, setError] = useState<string>();
   const loadGeneration = useRef(0);
 
-  useEffect(() => connect.onConnectionChange(setConnection), [connect]);
+  useEffect(() => connect.onConnectionsChange((connections) => {
+    const current = bound && connect.connection(bound.collectionId);
+    if (current) setBound(current);
+    else setBound(connections[0] ? connect.connection(connections[0].collectionId) : null);
+  }), [bound, connect]);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setLoading(true);
     try {
+      if (!tasknotes) return;
       const next = await tasknotes.list();
       if (generation === loadGeneration.current) {
         setTasks(next);
@@ -41,21 +50,22 @@ function App() {
     const callback = new URL(location.href);
     if (!callback.searchParams.has("code")) return;
     connect.completeAuthorization()
-      .then(() => {
+      .then(({ connection }) => {
         history.replaceState({}, "", callback.pathname);
-        setConnection(connect.connection());
+        setBound(connection);
       })
       .catch((caught) => setError(message(caught)));
   }, [connect]);
 
   useEffect(() => {
     if (!connected) return;
-    void connect.checkDirectAccess();
+    if (!bound) return;
+    void bound.checkDirectAccess();
     void load();
     const controller = new AbortController();
     void (async () => {
       try {
-        for await (const event of connect.watch({ signal: controller.signal })) {
+        for await (const event of bound.watch({ signal: controller.signal })) {
           if (event.type.startsWith("mdbase.record.") || event.type === "mdbase.type.changed") {
             await load();
           }
@@ -65,7 +75,7 @@ function App() {
       }
     })();
     return () => controller.abort();
-  }, [connect, connected, load]);
+  }, [bound, connected, load]);
 
   async function addTask(event: React.FormEvent) {
     event.preventDefault();
@@ -73,6 +83,7 @@ function App() {
     if (!nextTitle || saving) return;
     setSaving(true);
     try {
+      if (!tasknotes) return;
       await tasknotes.create({ title: nextTitle });
       setTitle("");
       await load();
@@ -88,6 +99,7 @@ function App() {
       ? { ...item, completed: !item.completed }
       : item));
     try {
+      if (!tasknotes) return;
       await tasknotes.setCompleted(task.path, !task.completed);
       await load();
     } catch (caught) {
@@ -102,7 +114,7 @@ function App() {
         <p className="wordmark">TaskNotes</p>
         <h1>Your tasks, wherever you need them.</h1>
         <p>Use this app with a TaskNotes collection on your computer.</p>
-        <button className="primary" onClick={() => void connect.authorize([...requestedOperations])}>
+        <button className="primary" onClick={() => void connect.authorize({ operations: [...requestedOperations] })}>
           Connect a collection
         </button>
         {error && <p className="error" role="alert">{error}</p>}
@@ -117,7 +129,7 @@ function App() {
         <p className="connection">{connection?.route === "direct" ? "Connected directly" : "Connected through mdbase"}</p>
         {connection?.directAccess === "permission_required" && (
           <div className="direct-option">
-            <button className="direct-access" aria-describedby="direct-access-hint" onClick={() => void connect.requestDirectAccess()}>
+            <button className="direct-access" aria-describedby="direct-access-hint" onClick={() => void bound?.requestDirectAccess()}>
               Connect directly
             </button>
             <span id="direct-access-hint">Let TaskNotes reach mdbase on this computer.</span>
@@ -125,8 +137,8 @@ function App() {
         )}
       </div>
       <button className="quiet" onClick={() => {
-        connect.disconnect();
-        setConnection(null);
+        bound?.forget();
+        setBound(null);
         setTasks([]);
       }}>Disconnect</button>
     </header>

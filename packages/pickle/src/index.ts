@@ -6,7 +6,7 @@ import type {
   RecordResult,
   RecordSummary
 } from "@mdbase/connect-protocol";
-import type { MdbaseConnect, QueryResult } from "@mdbase/connect";
+import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
@@ -117,11 +117,11 @@ export interface RespondOptions {
 export interface PickleClient {
   describe(): Promise<CollectionDescription>;
   queryAll(
-    input: Parameters<MdbaseConnect<PickleFrontmatter>["queryAll"]>[0]
+    input: Parameters<MdbaseConnection<PickleFrontmatter>["queryAll"]>[0]
   ): Promise<QueryResult<PickleFrontmatter>>;
   create(
-    input: Parameters<MdbaseConnect<PickleFrontmatter>["create"]>[0]
-  ): ReturnType<MdbaseConnect<PickleFrontmatter>["create"]>;
+    input: Parameters<MdbaseConnection<PickleFrontmatter>["create"]>[0]
+  ): ReturnType<MdbaseConnection<PickleFrontmatter>["create"]>;
 }
 
 export function resolvePickleContract(

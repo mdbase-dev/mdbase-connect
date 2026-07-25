@@ -156,6 +156,14 @@ describe("mdbase MCP gateway", () => {
       "First collection",
       "Second collection"
     ]);
+    const reconnectUrl = await oauth.createConnectionTicket(context!, connections[0].id);
+    const reconnect = await app.inject({
+      method: "GET",
+      url: `${new URL(reconnectUrl).pathname}${new URL(reconnectUrl).search}`
+    });
+    expect(reconnect.statusCode).toBe(302);
+    expect(new URL(reconnect.headers.location!).searchParams.get("collection_hint"))
+      .toBe(connections[0].collection_id);
 
     const stored = await db.query<{ credentials_ciphertext: string }>(
       "SELECT credentials_ciphertext FROM mcp_connections"
@@ -171,6 +179,7 @@ describe("mdbase MCP gateway", () => {
     await client.connect(transport);
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain("add_connection");
+    expect(tools.tools.map((tool) => tool.name)).toContain("reconnect_collection");
     expect(tools.tools.map((tool) => tool.name)).toContain("create_record");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
     expect((listed.structuredContent as any).connections).toHaveLength(2);

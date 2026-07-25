@@ -118,12 +118,31 @@ export type DirectAccessStatus =
   | "unavailable"
   | "denied";
 
-export interface MdbaseConnection {
+export interface MdbaseConnectionInfo {
   collectionId: string;
+  displayName: string;
   operations: CollectionOperation[];
   scope: GrantScope;
   route: MdbaseConnectionRoute;
   directAccess: DirectAccessStatus;
+}
+
+export interface MdbaseAuthorizeOptions {
+  operations?: CollectionOperation[];
+  /** Preselect this collection without bypassing the user's approval. */
+  collectionId?: string;
+  /** App-local location to restore after the authorization callback. */
+  returnTo?: string;
+}
+
+export interface MdbaseConnectionAuthorizeOptions {
+  operations?: CollectionOperation[];
+  returnTo?: string;
+}
+
+export interface MdbaseAuthorizationResult<Frontmatter extends JsonObject = JsonObject> {
+  connection: MdbaseConnection<Frontmatter>;
+  returnTo?: string;
 }
 
 export interface MdbaseDesiredTimer {
@@ -773,6 +792,8 @@ interface StoredAuthorization {
   clientId: string;
   redirectUri: string;
   relayEncryption: "required" | "disabled";
+  collectionId?: string;
+  returnTo?: string;
   keyHandle?: string;
   applicationPublicKey?: string;
 }
@@ -782,6 +803,7 @@ interface StoredToken {
   refreshToken?: string;
   clientId: string;
   collectionId: string;
+  collectionName: string;
   operations: CollectionOperation[];
   scope: GrantScope;
   expiresAt: number;
@@ -790,6 +812,7 @@ interface StoredToken {
   encryption?: GrantEncryption;
   applicationOrigin?: string;
   keyHandle?: string;
+  savedAt: number;
   hosted?: {
     providerUrl: string;
     replicaId: string;
@@ -817,29 +840,62 @@ interface OperationAttempt {
 const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
 
 export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
-  private readonly serverUrl: string;
-  private readonly manifest: MdbaseAppManifest | string;
-  private readonly manifestSource: string;
-  private readonly redirectUri: string;
-  private readonly storage: Storage;
-  private readonly relayEncryption: "required" | "disabled";
-  private readonly keyStore: GrantKeyStore;
-  private readonly directAccessMode: "auto" | "disabled";
-  private readonly loopbackUrl: string;
-  private readonly navigate?: (url: string) => void | Promise<void>;
+  private readonly internals: MdbaseConnectInternals<Frontmatter>;
+
+  constructor(options: MdbaseConnectOptions) {
+    this.internals = new MdbaseConnectInternals(options);
+  }
+
+  register(): Promise<Application> {
+    return this.internals.register();
+  }
+
+  authorize(options: MdbaseAuthorizeOptions = {}): Promise<never> {
+    return this.internals.authorize(options);
+  }
+
+  completeAuthorization(
+    callbackUrl = defaultCallbackUrl()
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+    return this.internals.completeAuthorization(callbackUrl);
+  }
+
+  connections(): MdbaseConnectionInfo[] {
+    return this.internals.connections();
+  }
+
+  connection(collectionId: string): MdbaseConnection<Frontmatter> | null {
+    return this.internals.connection(collectionId);
+  }
+
+  onConnectionsChange(
+    listener: (connections: MdbaseConnectionInfo[]) => void
+  ): () => void {
+    return this.internals.onConnectionsChange(listener);
+  }
+
+  forgetAll(): void {
+    for (const connection of this.connections()) {
+      this.connection(connection.collectionId)?.forget();
+    }
+  }
+}
+
+class MdbaseConnectInternals<Frontmatter extends JsonObject> {
+  readonly serverUrl: string;
+  readonly manifest: MdbaseAppManifest | string;
+  readonly manifestSource: string;
+  readonly redirectUri: string;
+  readonly storage: Storage;
+  readonly relayEncryption: "required" | "disabled";
+  readonly keyStore: GrantKeyStore;
+  readonly directAccessMode: "auto" | "disabled";
+  readonly loopbackUrl: string;
+  readonly navigate?: (url: string) => void | Promise<void>;
   private application: Application | null = null;
-  private authorizationCompletionPromise: Promise<{
-    collectionId: string;
-    operations: CollectionOperation[];
-    scope: GrantScope;
-  }> | null = null;
-  private refreshPromise: Promise<StoredToken> | null = null;
-  private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
-  private directStatus: DirectAccessStatus;
-  private route: MdbaseConnectionRoute = "relay";
-  private directFailures = 0;
-  private directRetryAt = 0;
-  private readonly connectionListeners = new Set<(connection: MdbaseConnection | null) => void>();
+  private readonly completionPromises = new Map<string, Promise<MdbaseAuthorizationResult<Frontmatter>>>();
+  private readonly connectionCache = new Map<string, MdbaseConnection<Frontmatter>>();
+  private readonly listeners = new Set<(connections: MdbaseConnectionInfo[]) => void>();
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(options.serverUrl);
@@ -855,11 +911,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.loopbackUrl = canonicalLoopbackUrl(
       options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`
     );
-    this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
     this.navigate = options.navigate;
-    this.collectionClient = new MdbaseCollectionClient({
-      operation: (operation, input, requestOptions) => this.performOperation(operation, input, requestOptions)
-    });
+    if (typeof window !== "undefined" && this.storage === window.localStorage) {
+      window.addEventListener("storage", (event) => {
+        if (event.storageArea !== this.storage || !event.key?.startsWith(this.storagePrefix())) return;
+        this.connectionCache.get(collectionIdFromTokenKey(event.key))?.notifyStorageChanged();
+        this.emitConnections();
+      });
+    }
   }
 
   async register(): Promise<Application> {
@@ -908,17 +967,13 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     }
   }
 
-  async authorize(operations: CollectionOperation[] = DEFAULT_OPERATIONS): Promise<never> {
+  async authorize(options: MdbaseAuthorizeOptions = {}): Promise<never> {
     if (typeof location === "undefined" && !this.navigate) {
       throw new MdbaseConnectError(
         "browser_required",
         "Authorization navigation requires a browser environment."
       );
     }
-    const replaced = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey()));
-    if (replaced?.keyHandle) await this.keyStore.delete(replaced.keyHandle);
-    this.storage.removeItem(this.pendingKey());
-    this.clearPendingMutation();
     const application = await this.register();
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
@@ -932,17 +987,25 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       clientId: application.id,
       redirectUri: this.redirectUri,
       relayEncryption: this.relayEncryption,
+      collectionId: options.collectionId,
+      returnTo: options.returnTo,
       keyHandle,
       applicationPublicKey: grantKey?.publicKey
     };
-    this.storage.setItem(this.pendingKey(), JSON.stringify(pending));
+    this.storage.setItem(this.pendingKey(state), JSON.stringify(pending));
     const authorize = new URL(`${this.serverUrl}/oauth/authorize`);
     authorize.searchParams.set("client_id", application.id);
     authorize.searchParams.set("redirect_uri", this.redirectUri);
     authorize.searchParams.set("code_challenge", challenge);
     authorize.searchParams.set("code_challenge_method", "S256");
     authorize.searchParams.set("state", state);
-    authorize.searchParams.set("operations", [...new Set(operations)].join(","));
+    authorize.searchParams.set(
+      "operations",
+      uniqueOperations(options.operations ?? DEFAULT_OPERATIONS).join(",")
+    );
+    if (options.collectionId) {
+      authorize.searchParams.set("collection_hint", options.collectionId);
+    }
     if (grantKey) {
       authorize.searchParams.set("relay_protocol", "1");
       authorize.searchParams.set("application_public_key", grantKey.publicKey);
@@ -952,66 +1015,46 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return new Promise<never>(() => undefined);
   }
 
-  authorizationCapabilities(
-    requiredOperations: CollectionOperation[] = DEFAULT_OPERATIONS
-  ): MdbaseAuthorizationCapabilities {
-    const connection = this.connection();
-    const grantedOperations = connection?.operations ?? [];
-    const missingOperations = uniqueOperations(requiredOperations)
-      .filter((operation) => !grantedOperations.includes(operation));
-    return {
-      authorized: connection !== null,
-      sufficient: connection !== null && missingOperations.length === 0,
-      ...(connection ? { collectionId: connection.collectionId } : {}),
-      grantedOperations: [...grantedOperations],
-      missingOperations
-    };
-  }
-
-  hasOperations(requiredOperations: CollectionOperation[]): boolean {
-    return this.authorizationCapabilities(requiredOperations).sufficient;
-  }
-
-  /**
-   * Request only the additional capabilities an app needs while retaining the
-   * exact operations already present on a replacement grant.
-   */
-  async requestOperations(requiredOperations: CollectionOperation[]): Promise<void> {
-    const capabilities = this.authorizationCapabilities(requiredOperations);
-    if (capabilities.sufficient) return;
-    await this.authorize(uniqueOperations([
-      ...capabilities.grantedOperations,
-      ...capabilities.missingOperations
-    ]));
-  }
-
-  completeAuthorization(callbackUrl = defaultCallbackUrl()): Promise<{
-    collectionId: string;
-    operations: CollectionOperation[];
-    scope: GrantScope;
-  }> {
-    if (this.authorizationCompletionPromise) return this.authorizationCompletionPromise;
-    const completion = this.performAuthorizationCompletion(callbackUrl);
+  completeAuthorization(callbackUrl: string): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+    const state = new URL(callbackUrl).searchParams.get("state");
+    if (!state) {
+      return Promise.reject(new MdbaseConnectError(
+        "invalid_callback",
+        "Authorization callback is missing its state."
+      ));
+    }
+    const existing = this.completionPromises.get(state);
+    if (existing) return existing;
+    const completion = this.performAuthorizationCompletion(callbackUrl, state);
     const shared = completion.finally(() => {
-      if (this.authorizationCompletionPromise === shared) {
-        this.authorizationCompletionPromise = null;
-      }
+      if (this.completionPromises.get(state) === shared) this.completionPromises.delete(state);
     });
-    this.authorizationCompletionPromise = shared;
+    this.completionPromises.set(state, shared);
     return shared;
   }
 
-  private async performAuthorizationCompletion(callbackUrl: string): Promise<{
-    collectionId: string;
-    operations: CollectionOperation[];
-    scope: GrantScope;
-  }> {
+  private async performAuthorizationCompletion(
+    callbackUrl: string,
+    state: string
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
     const callback = new URL(callbackUrl);
     const code = callback.searchParams.get("code");
-    const state = callback.searchParams.get("state");
-    const pending = parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey()));
-    if (!code || !state || !pending || state !== pending.state) {
+    const pendingKey = this.pendingKey(state);
+    const pending = parseStored<StoredAuthorization>(this.storage.getItem(pendingKey));
+    if (!pending || state !== pending.state) {
       throw new MdbaseConnectError("invalid_callback", "Authorization callback is missing or does not match this browser session.");
+    }
+    if (callback.searchParams.has("error")) {
+      if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
+      this.storage.removeItem(pendingKey);
+      throw new MdbaseConnectError(
+        callback.searchParams.get("error") ?? "access_denied",
+        callback.searchParams.get("error_description") ?? "Collection access was not approved.",
+        { details: pending.returnTo ? { returnTo: pending.returnTo } : undefined }
+      );
+    }
+    if (!code) {
+      throw new MdbaseConnectError("invalid_callback", "Authorization callback is missing its code.");
     }
     const response = await fetch(`${this.serverUrl}/oauth/token`, {
       method: "POST",
@@ -1032,7 +1075,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       || body.encryption.application_public_key !== pending.applicationPublicKey
     )) {
       if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
-      this.storage.removeItem(this.pendingKey());
+      this.storage.removeItem(pendingKey);
       throw new MdbaseConnectError(
         "encryption_required",
         "Authorization did not establish the required encrypted relay grant."
@@ -1044,27 +1087,276 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       pending.clientId,
       body.hosted ? undefined : pending.keyHandle
     );
-    this.storage.removeItem(this.pendingKey());
-    return { collectionId: token.collectionId, operations: token.operations, scope: token.scope };
+    if (pending.collectionId && pending.collectionId !== token.collectionId) {
+      this.removeToken(token.collectionId, token.keyHandle);
+      this.storage.removeItem(pendingKey);
+      throw new MdbaseConnectError(
+        "collection_mismatch",
+        "The approved collection does not match the collection requested by this link."
+      );
+    }
+    this.storage.removeItem(pendingKey);
+    return {
+      connection: this.connection(token.collectionId)!,
+      ...(pending.returnTo ? { returnTo: pending.returnTo } : {})
+    };
   }
 
-  connection(): MdbaseConnection | null {
+  connections(): MdbaseConnectionInfo[] {
+    const connections: MdbaseConnectionInfo[] = [];
+    for (const collectionId of this.connectionIds()) {
+      const info = this.connection(collectionId)?.info();
+      if (info) connections.push(info);
+    }
+    return connections.sort((left, right) =>
+      left.displayName.localeCompare(right.displayName) || left.collectionId.localeCompare(right.collectionId)
+    );
+  }
+
+  connection(collectionId: string): MdbaseConnection<Frontmatter> | null {
+    if (!this.storage.getItem(this.tokenKey(collectionId))) return null;
+    let connection = this.connectionCache.get(collectionId);
+    if (!connection) {
+      connection = new MdbaseConnection(this, collectionId);
+      this.connectionCache.set(collectionId, connection);
+    }
+    return connection.info() ? connection : null;
+  }
+
+  onConnectionsChange(listener: (connections: MdbaseConnectionInfo[]) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.connections());
+    return () => this.listeners.delete(listener);
+  }
+
+  storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
+    const collectionId = body.collection_id;
+    if (typeof collectionId !== "string") {
+      throw new MdbaseConnectError("invalid_token_response", "Authorization returned no collection ID.");
+    }
+    const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
+    if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
+    const token: StoredToken = {
+      accessToken: body.access_token,
+      refreshToken: body.refresh_token,
+      clientId,
+      collectionId,
+      collectionName: body.collection_name ?? `Collection ${collectionId.slice(0, 8)}`,
+      operations: body.operations,
+      scope: body.scope ?? { contracts: [] },
+      expiresAt: Date.now() + body.expires_in * 1_000,
+      refreshExpiresAt: body.refresh_expires_in
+        ? Date.now() + body.refresh_expires_in * 1_000
+        : undefined,
+      grantId: body.grant_id,
+      encryption: body.encryption ?? undefined,
+      applicationOrigin: body.application_origin ?? this.defaultApplicationOrigin(),
+      keyHandle,
+      savedAt: Date.now(),
+      hosted: body.hosted ? {
+        providerUrl: body.hosted.provider_url,
+        replicaId: body.hosted.replica_id,
+        accessToken: body.hosted.access_token
+      } : undefined
+    };
+    this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
+    this.addConnectionId(collectionId);
+    this.connectionCache.delete(collectionId);
+    this.emitConnections();
+    return token;
+  }
+
+  removeToken(collectionId: string, keyHandle?: string): void {
+    if (keyHandle) void this.keyStore.delete(keyHandle);
+    this.storage.removeItem(this.tokenKey(collectionId));
+    this.storage.removeItem(this.pendingMutationKey(collectionId));
+    for (const transport of ["web_push", "fcm"] as const) {
+      this.storage.removeItem(this.notificationKey(collectionId, transport));
+    }
+    this.storage.setItem(
+      this.connectionsKey(),
+      JSON.stringify(this.connectionIds().filter((id) => id !== collectionId))
+    );
+    this.connectionCache.delete(collectionId);
+    this.emitConnections();
+  }
+
+  tokenKey(collectionId: string): string {
+    return `${this.storagePrefix()}:token:${collectionId}`;
+  }
+
+  pendingMutationKey(collectionId: string): string {
+    return `${this.storagePrefix()}:pending-mutation:${collectionId}`;
+  }
+
+  notificationKey(collectionId: string, transport: "web_push" | "fcm" = "web_push"): string {
+    return `${this.storagePrefix()}:notifications:${collectionId}:${transport}`;
+  }
+
+  directPreferenceKey(): string {
+    return `mdbase-connect:direct:${this.defaultApplicationOrigin()}`;
+  }
+
+  defaultApplicationOrigin(): string {
+    const redirect = new URL(this.redirectUri);
+    if (["http:", "https:"].includes(redirect.protocol)) return redirect.origin;
+    if (typeof location !== "undefined") return location.origin;
+    if (this.manifest && typeof this.manifest !== "string") {
+      return new URL(this.manifest.homepage).origin;
+    }
+    try {
+      return new URL(this.manifestSource).origin;
+    } catch {
+      return "";
+    }
+  }
+
+  private pendingKey(state: string): string {
+    return `${this.storagePrefix()}:pending:${state}`;
+  }
+
+  private storagePrefix(): string {
+    return `mdbase-connect:${this.serverUrl}:${this.manifestSource}`;
+  }
+
+  private connectionsKey(): string {
+    return `${this.storagePrefix()}:connections`;
+  }
+
+  private connectionIds(): string[] {
+    return parseStored<string[]>(this.storage.getItem(this.connectionsKey())) ?? [];
+  }
+
+  private addConnectionId(collectionId: string): void {
+    this.storage.setItem(
+      this.connectionsKey(),
+      JSON.stringify([...new Set([...this.connectionIds(), collectionId])])
+    );
+  }
+
+  private emitConnections(): void {
+    const connections = this.connections();
+    for (const listener of this.listeners) listener(connections);
+  }
+}
+
+function collectionIdFromTokenKey(key: string): string {
+  const marker = ":token:";
+  const index = key.lastIndexOf(marker);
+  return index < 0 ? "" : key.slice(index + marker.length);
+}
+
+export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
+  private readonly serverUrl: string;
+  private readonly storage: Storage;
+  private readonly keyStore: GrantKeyStore;
+  private readonly directAccessMode: "auto" | "disabled";
+  private readonly loopbackUrl: string;
+  private refreshPromise: Promise<StoredToken> | null = null;
+  private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
+  private directStatus: DirectAccessStatus;
+  private currentRoute: MdbaseConnectionRoute = "relay";
+  private directFailures = 0;
+  private directRetryAt = 0;
+  private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
+
+  constructor(
+    private readonly internals: MdbaseConnectInternals<Frontmatter>,
+    readonly collectionId: string
+  ) {
+    this.serverUrl = internals.serverUrl;
+    this.storage = internals.storage;
+    this.keyStore = internals.keyStore;
+    this.directAccessMode = internals.directAccessMode;
+    this.loopbackUrl = internals.loopbackUrl;
+    this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
+    this.collectionClient = new MdbaseCollectionClient({
+      operation: (operation, input, requestOptions) => this.performOperation(operation, input, requestOptions)
+    });
+  }
+
+  get displayName(): string {
+    return this.currentToken()?.collectionName ?? `Collection ${this.collectionId.slice(0, 8)}`;
+  }
+
+  get operations(): CollectionOperation[] {
+    return [...(this.currentToken()?.operations ?? [])];
+  }
+
+  get scope(): GrantScope {
+    return this.currentToken()?.scope ?? { contracts: [] };
+  }
+
+  get directAccess(): DirectAccessStatus {
+    return this.currentToken()?.hosted ? "disabled" : this.directStatus;
+  }
+
+  get route(): MdbaseConnectionRoute {
+    return this.currentToken()?.hosted ? "hosted" : this.currentRoute;
+  }
+
+  register(): Promise<Application> {
+    return this.internals.register();
+  }
+
+  info(): MdbaseConnectionInfo | null {
     const token = this.currentToken();
-    return token
-      ? {
-          collectionId: token.collectionId,
-          operations: token.operations,
-          scope: token.scope,
-          route: token.hosted ? "hosted" : this.route,
-          directAccess: token.hosted ? "disabled" : this.directStatus
-        }
-      : null;
+    return token ? {
+      collectionId: token.collectionId,
+      displayName: token.collectionName,
+      operations: [...token.operations],
+      scope: token.scope,
+      route: token.hosted ? "hosted" : this.currentRoute,
+      directAccess: token.hosted ? "disabled" : this.directStatus
+    } : null;
   }
 
-  onConnectionChange(listener: (connection: MdbaseConnection | null) => void): () => void {
+  authorizationCapabilities(
+    requiredOperations: CollectionOperation[] = DEFAULT_OPERATIONS
+  ): MdbaseAuthorizationCapabilities {
+    const grantedOperations = this.operations;
+    const missingOperations = uniqueOperations(requiredOperations)
+      .filter((operation) => !grantedOperations.includes(operation));
+    return {
+      authorized: this.info() !== null,
+      sufficient: this.info() !== null && missingOperations.length === 0,
+      collectionId: this.collectionId,
+      grantedOperations,
+      missingOperations
+    };
+  }
+
+  hasOperations(requiredOperations: CollectionOperation[]): boolean {
+    return this.authorizationCapabilities(requiredOperations).sufficient;
+  }
+
+  authorize(options: MdbaseConnectionAuthorizeOptions = {}): Promise<never> {
+    return this.internals.authorize({ ...options, collectionId: this.collectionId });
+  }
+
+  async requestOperations(
+    requiredOperations: CollectionOperation[],
+    options: Pick<MdbaseConnectionAuthorizeOptions, "returnTo"> = {}
+  ): Promise<void> {
+    const capabilities = this.authorizationCapabilities(requiredOperations);
+    if (capabilities.sufficient) return;
+    await this.authorize({
+      ...options,
+      operations: uniqueOperations([
+        ...capabilities.grantedOperations,
+        ...capabilities.missingOperations
+      ])
+    });
+  }
+
+  onConnectionChange(listener: (connection: MdbaseConnectionInfo | null) => void): () => void {
     this.connectionListeners.add(listener);
-    listener(this.connection());
+    listener(this.info());
     return () => this.connectionListeners.delete(listener);
+  }
+
+  notifyStorageChanged(): void {
+    this.emitConnection();
   }
 
   async checkDirectAccess(): Promise<DirectAccessStatus> {
@@ -1360,15 +1652,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     await subscription?.unsubscribe();
   }
 
-  disconnect(): void {
-    const handles = new Set([
-      this.currentToken()?.keyHandle,
-      parseStored<StoredAuthorization>(this.storage.getItem(this.pendingKey()))?.keyHandle
-    ].filter((handle): handle is string => Boolean(handle)));
-    for (const handle of handles) void this.keyStore.delete(handle);
-    this.storage.removeItem(this.tokenKey());
-    this.storage.removeItem(this.pendingKey());
-    this.clearPendingMutation();
+  forget(): void {
+    const token = this.currentToken();
+    this.internals.removeToken(this.collectionId, token?.keyHandle);
     this.setRoute("relay");
     this.emitConnection();
   }
@@ -1970,24 +2256,22 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private setRoute(route: MdbaseConnectionRoute): void {
-    if (this.route !== route) {
-      this.route = route;
+    if (this.currentRoute !== route) {
+      this.currentRoute = route;
       this.emitConnection();
     }
   }
 
   private emitConnection(): void {
-    const connection = this.connection();
+    const connection = this.info();
     for (const listener of this.connectionListeners) listener(connection);
   }
 
   private invalidateRejectedAuthorization(rejected: StoredToken): void {
     const current = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
     if (!current || !sameAuthorization(current, rejected)) return;
-    if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
-    this.storage.removeItem(this.tokenKey());
-    this.clearPendingMutation();
-    this.route = "relay";
+    this.internals.removeToken(this.collectionId, current.keyHandle);
+    this.currentRoute = "relay";
     this.directStatus = this.directAccessMode === "disabled" ? "disabled" : "unavailable";
     this.emitConnection();
   }
@@ -2002,8 +2286,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       // encrypted local grant usable while the connector still recognizes it; relay
       // use will require reauthorization, and revocation remains enforced locally.
       if (this.directCapable(token)) return token;
-      if (token.keyHandle) void this.keyStore.delete(token.keyHandle);
-      this.storage.removeItem(this.tokenKey());
+      this.internals.removeToken(this.collectionId, token.keyHandle);
       return null;
     }
     return token;
@@ -2020,8 +2303,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
           "Direct access is still available on this computer, but using the relay requires reconnecting this application."
         );
       }
-      if (token.keyHandle) void this.keyStore.delete(token.keyHandle);
-      this.storage.removeItem(this.tokenKey());
+      this.internals.removeToken(this.collectionId, token.keyHandle);
       return null;
     }
     return this.refreshAuthorization();
@@ -2063,8 +2345,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         return latest;
       }
       if (!this.directCapable(current)) {
-        if (current.keyHandle) void this.keyStore.delete(current.keyHandle);
-        this.storage.removeItem(this.tokenKey());
+        this.internals.removeToken(this.collectionId, current.keyHandle);
       }
       throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
     }
@@ -2072,29 +2353,14 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
-    const token: StoredToken = {
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token,
-      clientId,
-      collectionId: body.collection_id,
-      operations: body.operations,
-      scope: body.scope ?? { contracts: [] },
-      expiresAt: Date.now() + body.expires_in * 1_000,
-      refreshExpiresAt: body.refresh_expires_in
-        ? Date.now() + body.refresh_expires_in * 1_000
-        : undefined,
-      grantId: body.grant_id,
-      encryption: body.encryption ?? undefined,
-      applicationOrigin: body.application_origin ?? this.defaultApplicationOrigin(),
-      keyHandle,
-      hosted: body.hosted ? {
-        providerUrl: body.hosted.provider_url,
-        replicaId: body.hosted.replica_id,
-        accessToken: body.hosted.access_token
-      } : undefined
-    };
-    this.storage.setItem(this.tokenKey(), JSON.stringify(token));
-    this.route = token.hosted ? "hosted" : "relay";
+    if (body.collection_id !== this.collectionId) {
+      throw new MdbaseConnectError(
+        "collection_mismatch",
+        "The refreshed authorization belongs to a different collection."
+      );
+    }
+    const token = this.internals.storeTokenResponse(body, clientId, keyHandle);
+    this.currentRoute = token.hosted ? "hosted" : "relay";
     this.directStatus = token.hosted || this.directAccessMode === "disabled"
       ? "disabled"
       : "unavailable";
@@ -2102,11 +2368,11 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return token;
   }
 
-  private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestSource}`; }
-  private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestSource}`; }
+  private tokenKey() {
+    return this.internals.tokenKey(this.collectionId);
+  }
   private notificationKey(transport: "web_push" | "fcm" = "web_push") {
-    const base = `mdbase-connect:notifications:${this.serverUrl}:${this.manifestSource}`;
-    return transport === "web_push" ? base : `${base}:${transport}`;
+    return this.internals.notificationKey(this.collectionId, transport);
   }
   private async deleteNotificationChannel(
     channelId: string,
@@ -2130,27 +2396,13 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     }
   }
   private pendingMutationKey() {
-    return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestSource}`;
+    return this.internals.pendingMutationKey(this.collectionId);
   }
   private clearPendingMutation(): void {
     this.storage.removeItem(this.pendingMutationKey());
   }
   private directPreferenceKey() {
-    return `mdbase-connect:direct:${this.defaultApplicationOrigin()}`;
-  }
-
-  private defaultApplicationOrigin(): string {
-    const redirect = new URL(this.redirectUri);
-    if (["http:", "https:"].includes(redirect.protocol)) return redirect.origin;
-    if (typeof location !== "undefined") return location.origin;
-    if (this.manifest && typeof this.manifest !== "string") {
-      return new URL(this.manifest.homepage).origin;
-    }
-    try {
-      return new URL(this.manifestSource).origin;
-    } catch {
-      return "";
-    }
+    return this.internals.directPreferenceKey();
   }
 }
 

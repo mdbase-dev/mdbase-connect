@@ -44,6 +44,11 @@ minutes. Following it repeats steps 3–5 and adds one independently approved
 collection to the same set. Every tool call still requires the opaque
 `connection_id`; there is no implicit cross-collection query or write.
 
+`reconnect_collection` creates the same kind of single-use link for an existing
+connection. It passes that connection's collection ID as an advisory hint, so
+the approval screen opens on the expected collection without bypassing the
+user's choice or compatibility checks.
+
 Revoking or narrowing the application grant in mdbase connect remains the final
 authorization control. The local connector independently enforces its cached
 exact grant before opening a local collection.
@@ -52,7 +57,8 @@ exact grant before opening a local collection.
 
 Read access provides:
 
-- `list_connections`, `add_connection`, and `describe_collection`;
+- `list_connections`, `add_connection`, `reconnect_collection`, and
+  `describe_collection`;
 - `list_changes`, `query_records`, `read_record`, and `validate_collection`;
 - `read_type`.
 

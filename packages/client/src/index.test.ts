@@ -19,6 +19,8 @@ import type {
 
 afterEach(() => vi.restoreAllMocks());
 
+const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
+
 describe("PKCE", () => {
   it("creates an OAuth S256 verifier and challenge", async () => {
     const pair = await createPkce();
@@ -495,7 +497,7 @@ describe("mobile notifications", () => {
     ]
   };
   const manifestSource = `bundle:${manifest.id}`;
-  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestSource}`;
+  const tokenKey = storedTokenKey(serverUrl, manifestSource, TEST_COLLECTION_ID);
 
   it("registers the selected criteria atomically for one browser installation", async () => {
     const storage = new MemoryStorage();
@@ -545,12 +547,13 @@ describe("mobile notifications", () => {
       }
       throw new Error(`Unexpected request: ${url}`);
     });
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     const registration = await connect.registerNotifications({
       serviceWorker,
@@ -598,12 +601,13 @@ describe("mobile notifications", () => {
         notifications: { criteria: [{ id: "task.ready" }] }
       }
     }));
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     await expect(connect.registerNotifications({
       serviceWorker: {
@@ -688,12 +692,13 @@ describe("mobile notifications", () => {
         throw new Error(`Unexpected request: ${url}`);
       }
     );
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     const registration = await connect.registerNativeNotifications({
       token: "fcm_registration_token_012345678901234567890123",
@@ -721,19 +726,31 @@ describe("mobile notifications", () => {
   it("keeps a native channel recoverable when authorization is unavailable during opt-out", async () => {
     const storage = new MemoryStorage();
     const registrationKey =
-      `mdbase-connect:notifications:${serverUrl}:${manifestSource}:fcm`;
+      `mdbase-connect:${serverUrl}:${manifestSource}:notifications:${TEST_COLLECTION_ID}:fcm`;
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "expired",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "TaskNotes",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now()
+    }));
     storage.setItem(registrationKey, JSON.stringify({
       channelId: "00000000-0000-0000-0000-000000000004",
       installationId: "native-installation-0001",
       transport: "fcm",
       criteria: ["task.ready"]
     }));
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
+    storage.removeItem(tokenKey);
 
     await expect(connect.unregisterNativeNotifications()).rejects.toMatchObject({
       code: "not_authorized"
@@ -786,12 +803,7 @@ describe("long mutation progress", () => {
   };
 
   it("reports authoritative phases and estimates without repeating a supplied preflight", async () => {
-    const connect = new MdbaseConnect({
-      serverUrl: "https://connect.example",
-      manifest: "https://tasks.example/manifest.json",
-      redirectUri: "https://tasks.example/callback",
-      storage: new MemoryStorage()
-    });
+    const connect = progressConnection();
     const preflight = vi.spyOn(connect, "preflightRename");
     vi.spyOn(connect, "rename").mockResolvedValue({
       valid: true,
@@ -833,12 +845,7 @@ describe("long mutation progress", () => {
   });
 
   it("cancels between preflight and apply without dispatching the mutation", async () => {
-    const connect = new MdbaseConnect({
-      serverUrl: "https://connect.example",
-      manifest: "https://tasks.example/manifest.json",
-      redirectUri: "https://tasks.example/callback",
-      storage: new MemoryStorage()
-    });
+    const connect = progressConnection();
     const rename = vi.spyOn(connect, "rename");
     const controller = new AbortController();
     const states: string[] = [];
@@ -861,12 +868,7 @@ describe("long mutation progress", () => {
   });
 
   it("rejects a reused preflight for a different mutation", async () => {
-    const connect = new MdbaseConnect({
-      serverUrl: "https://connect.example",
-      manifest: "https://tasks.example/manifest.json",
-      redirectUri: "https://tasks.example/callback",
-      storage: new MemoryStorage()
-    });
+    const connect = progressConnection();
     const rename = vi.spyOn(connect, "rename");
 
     await expect(connect.renameWithProgress(
@@ -877,12 +879,7 @@ describe("long mutation progress", () => {
   });
 
   it("does not estimate reference updates for a rename-only move", async () => {
-    const connect = new MdbaseConnect({
-      serverUrl: "https://connect.example",
-      manifest: "https://tasks.example/manifest.json",
-      redirectUri: "https://tasks.example/callback",
-      storage: new MemoryStorage()
-    });
+    const connect = progressConnection();
     vi.spyOn(connect, "rename").mockResolvedValue({
       valid: true,
       diagnostics: [],
@@ -910,11 +907,143 @@ describe("long mutation progress", () => {
 });
 
 describe("authorization renewal", () => {
+  it("keeps independent collection-bound connections and forgets only the selected one", () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/manifest.json";
+    const secondId = "00000000-0000-0000-0000-000000000003";
+    for (const [collectionId, collectionName] of [
+      [TEST_COLLECTION_ID, "Home tasks"],
+      [secondId, "Studio tasks"]
+    ]) {
+      storage.setItem(storedTokenKey(serverUrl, manifestUrl, collectionId), JSON.stringify({
+        accessToken: `token-${collectionId}`,
+        clientId: "00000000-0000-0000-0000-000000000001",
+        collectionId,
+        collectionName,
+        operations: ["query"],
+        scope: { contracts: [] },
+        expiresAt: Date.now() + 60_000,
+        savedAt: Date.now()
+      }));
+    }
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
+      JSON.stringify([secondId, TEST_COLLECTION_ID])
+    );
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest: manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+
+    expect(manager.connections().map(({ displayName }) => displayName)).toEqual([
+      "Home tasks",
+      "Studio tasks"
+    ]);
+    manager.connection(TEST_COLLECTION_ID)!.forget();
+    expect(manager.connection(TEST_COLLECTION_ID)).toBeNull();
+    expect(manager.connection(secondId)?.displayName).toBe("Studio tasks");
+  });
+
+  it("passes an exact collection hint and return location through authorization", async () => {
+    const storage = new MemoryStorage();
+    const navigate = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      application: {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "Tasks",
+        homepage: "https://tasks.example/"
+      }
+    }));
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled",
+      navigate
+    });
+
+    void manager.authorize({
+      operations: ["query"],
+      collectionId: TEST_COLLECTION_ID,
+      returnTo: "/today?filter=open"
+    });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+
+    const authorization = new URL(navigate.mock.calls[0][0]);
+    expect(authorization.searchParams.get("collection_hint")).toBe(TEST_COLLECTION_ID);
+    const state = authorization.searchParams.get("state")!;
+    expect(JSON.parse(storage.getItem(
+      `mdbase-connect:https://connect.example:bundle:dev.tasks:pending:${state}`
+    )!)).toMatchObject({
+      collectionId: TEST_COLLECTION_ID,
+      returnTo: "/today?filter=open"
+    });
+  });
+
+  it("cleans up a denied authorization without disturbing saved connections", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    const pendingKey = `mdbase-connect:${serverUrl}:${manifestUrl}:pending:denied-state`;
+    storage.setItem(pendingKey, JSON.stringify({
+      verifier: "pkce-verifier",
+      state: "denied-state",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      redirectUri: "https://tasks.example/callback",
+      relayEncryption: "disabled",
+      returnTo: "/today"
+    }));
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      accessToken: "mdb_saved",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Saved tasks",
+      operations: ["query"],
+      scope: { contracts: [] },
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now()
+    }));
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
+      JSON.stringify([TEST_COLLECTION_ID])
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest: manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled"
+    });
+
+    await expect(manager.completeAuthorization(
+      "https://tasks.example/callback?error=access_denied&error_description=Not%20now&state=denied-state"
+    )).rejects.toMatchObject({
+      code: "access_denied",
+      message: "Not now",
+      details: { returnTo: "/today" }
+    });
+
+    expect(storage.getItem(pendingKey)).toBeNull();
+    expect(manager.connection(TEST_COLLECTION_ID)?.displayName).toBe("Saved tasks");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("coalesces concurrent authorization completion into one code exchange", async () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:pending:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(`mdbase-connect:${serverUrl}:${manifestUrl}:pending:callback-state`, JSON.stringify({
       verifier: "pkce-verifier",
       state: "callback-state",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -926,7 +1055,8 @@ describe("authorization renewal", () => {
       refresh_token: "ref_authorized",
       expires_in: 3600,
       refresh_expires_in: 2_592_000,
-      collection_id: "00000000-0000-0000-0000-000000000002",
+      collection_id: TEST_COLLECTION_ID,
+      collection_name: "Tasks",
       operations: ["query"],
       scope: { contracts: [] }
     }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -945,8 +1075,9 @@ describe("authorization renewal", () => {
     ]);
 
     expect(first).toEqual(second);
-    expect(first).toMatchObject({
-      collectionId: "00000000-0000-0000-0000-000000000002",
+    expect(first.connection.info()).toMatchObject({
+      collectionId: TEST_COLLECTION_ID,
+      displayName: "Tasks",
       operations: ["query"]
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -957,7 +1088,7 @@ describe("authorization renewal", () => {
     const navigate = vi.fn();
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
       accessToken: "mdb_current",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -984,7 +1115,7 @@ describe("authorization renewal", () => {
             }
           })
     );
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
@@ -992,6 +1123,7 @@ describe("authorization renewal", () => {
       relayEncryption: "disabled",
       navigate
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     expect(connect.authorizationCapabilities(["read", "update", "update"])).toEqual({
       authorized: true,
@@ -1013,7 +1145,7 @@ describe("authorization renewal", () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
       accessToken: "mdb_current",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1021,12 +1153,13 @@ describe("authorization renewal", () => {
       scope: { contracts: [] },
       expiresAt: Date.now() + 60_000
     }));
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     await expect(connect.read({ path: "Notes/example.md" })).rejects.toMatchObject({
       code: "insufficient_access",
@@ -1070,7 +1203,7 @@ describe("authorization renewal", () => {
       navigate
     });
 
-    void connect.authorize(["query"]);
+    void connect.authorize({ operations: ["query"] });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
     expect(new URL(navigate.mock.calls[0][0]).searchParams.get("redirect_uri"))
       .toBe("dev.tasknotes.app://auth/mdbase/callback");
@@ -1081,7 +1214,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const providerUrl = "https://provider.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
       accessToken: "mdb_control",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1100,12 +1233,13 @@ describe("authorization renewal", () => {
       ok: true,
       result: { valid: true, result: { results: [] }, diagnostics: [] }
     }), { status: 200, headers: { "content-type": "application/json" } }));
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     expect((await connect.query()).valid).toBe(true);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
@@ -1120,7 +1254,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const providerUrl = "https://provider.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
       accessToken: "mdb_control",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1147,12 +1281,13 @@ describe("authorization renewal", () => {
       snapshot_id: "00000000-0000-0000-0000-000000000005",
       resources: { revision: "one", spec_version: "0.3.0", types: [], contracts: [] }
     }), { status: 200, headers: { "content-type": "application/json" } }));
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
 
     const hosted = connect.hostedSync();
     expect(hosted).toEqual(expect.objectContaining({
@@ -1172,7 +1307,7 @@ describe("authorization renewal", () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    storage.setItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`, JSON.stringify({
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
       accessToken: "mdb_expired",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1197,12 +1332,13 @@ describe("authorization renewal", () => {
         result: { valid: true, result: { results: [] }, diagnostics: [] }
       }), { status: 200, headers: { "content-type": "application/json" } }));
 
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
     const result = await connect.query();
 
     expect(result.valid).toBe(true);
@@ -1210,7 +1346,7 @@ describe("authorization renewal", () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe(`${serverUrl}/oauth/token`);
     expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>).authorization)
       .toBe("Bearer mdb_renewed");
-    expect(JSON.parse(storage.getItem(`mdbase-connect:token:${serverUrl}:${manifestUrl}`)!))
+    expect(JSON.parse(storage.getItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID))!))
       .toEqual(expect.objectContaining({ accessToken: "mdb_renewed", refreshToken: "ref_rotated" }));
   });
 
@@ -1218,7 +1354,7 @@ describe("authorization renewal", () => {
     const storage = new MemoryStorage();
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestUrl}`;
+    const tokenKey = storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID);
     const baseToken = {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1249,12 +1385,13 @@ describe("authorization renewal", () => {
         result: { valid: true, result: { results: [] }, diagnostics: [] }
       }), { status: 200, headers: { "content-type": "application/json" } }));
 
-    const connect = new MdbaseConnect({
+    const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
     const result = await connect.query();
 
     expect(result.valid).toBe(true);
@@ -1384,7 +1521,7 @@ schema:
 
   it("does not bypass an explicit rejection from the local authorization boundary", async () => {
     const fixture = await encryptedConnection();
-    const connectionChanges: Array<ReturnType<typeof fixture.connect.connection>> = [];
+    const connectionChanges: Array<ReturnType<typeof fixture.connect.info>> = [];
     fixture.connect.onConnectionChange((connection) => connectionChanges.push(connection));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       error: { code: "direct_operation_rejected", message: "Rejected locally." }
@@ -1402,7 +1539,7 @@ schema:
     }));
     expect(connectionChanges.at(-1)).toBeNull();
     expect(connectionChanges.filter((connection) => connection === null)).toHaveLength(1);
-    expect(fixture.connect.connection()).toBeNull();
+    expect(fixture.connect.info()).toBeNull();
     expect(fixture.storage.getItem(fixture.tokenKey)).toBeNull();
     await expect(fixture.keyStore.get("grant-key")).resolves.toBeNull();
     expect(fixture.connect.authorizationCapabilities(["query"])).toMatchObject({
@@ -1431,7 +1568,7 @@ schema:
       recovery: "reauthorize"
     });
     expect(fixture.connect.pendingMutation()).toBeNull();
-    expect(fixture.connect.connection()).toBeNull();
+    expect(fixture.connect.info()).toBeNull();
   });
 
   it("backs off an unavailable loopback route while keeping relay operations usable", async () => {
@@ -1466,7 +1603,7 @@ schema:
   it("renews a stale binding after an uncertain direct read without reporting an unknown write", async () => {
     const fixture = await encryptedConnection();
     const token = JSON.parse(fixture.storage.getItem(
-      `mdbase-connect:token:${fixture.serverUrl}:${fixture.manifestUrl}`
+      storedTokenKey(fixture.serverUrl, fixture.manifestUrl, fixture.collectionId)
     )!);
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockRejectedValueOnce(new TypeError("loopback response was lost"))
@@ -1518,7 +1655,7 @@ schema:
   it("lets a user re-enable direct access after disabling it", async () => {
     const fixture = await encryptedConnection();
     fixture.connect.disableDirectAccess();
-    expect(fixture.connect.connection()?.directAccess).toBe("disabled");
+    expect(fixture.connect.info()?.directAccess).toBe("disabled");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
@@ -1526,12 +1663,12 @@ schema:
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(fixture.connect.requestDirectAccess()).resolves.toBe("available");
-    expect(fixture.connect.connection()?.directAccess).toBe("available");
+    expect(fixture.connect.info()?.directAccess).toBe("available");
   });
 
   it("keeps direct grant proof usable after every cloud credential expires", async () => {
     const fixture = await encryptedConnection();
-    const tokenKey = `mdbase-connect:token:${fixture.serverUrl}:${fixture.manifestUrl}`;
+    const tokenKey = storedTokenKey(fixture.serverUrl, fixture.manifestUrl, fixture.collectionId);
     const token = JSON.parse(fixture.storage.getItem(tokenKey)!);
     fixture.storage.setItem(tokenKey, JSON.stringify({
       ...token,
@@ -1580,12 +1717,13 @@ async function encryptedConnection() {
     application_public_key: application.publicKey,
     connector_public_key: connector.publicKey
   };
-  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestUrl}`;
+  const tokenKey = storedTokenKey(serverUrl, manifestUrl, collectionId);
   storage.setItem(tokenKey, JSON.stringify({
     accessToken: "mdb_current",
     refreshToken: "ref_current",
     clientId: "01922222-2222-7222-8222-222222222222",
     collectionId,
+    collectionName: "Encrypted notes",
     operations: [
       "describe", "changes", "read", "query", "list_views", "execute_view", "validate", "create", "update", "delete", "rename",
       "read_type", "create_type", "update_type"
@@ -1596,9 +1734,17 @@ async function encryptedConnection() {
     grantId: "01911111-1111-7111-8111-111111111111",
     encryption,
     applicationOrigin: "https://tasks.example",
-    keyHandle: "grant-key"
+    keyHandle: "grant-key",
+    savedAt: Date.now()
   }));
   storage.setItem("mdbase-connect:direct:https://tasks.example", "enabled");
+  const manager = new MdbaseConnect({
+    serverUrl,
+    manifest: manifestUrl,
+    redirectUri: "https://tasks.example/callback",
+    storage,
+    keyStore
+  });
   return {
     serverUrl,
     manifestUrl,
@@ -1606,14 +1752,44 @@ async function encryptedConnection() {
     storage,
     tokenKey,
     keyStore,
-    connect: new MdbaseConnect({
-      serverUrl,
-      manifest: manifestUrl,
-      redirectUri: "https://tasks.example/callback",
-      storage,
-      keyStore
-    })
+    connect: manager.connection(collectionId)!
   };
+}
+
+function progressConnection() {
+  const serverUrl = "https://connect.example";
+  const manifest = "https://tasks.example/manifest.json";
+  const storage = new MemoryStorage();
+  storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+    accessToken: "progress",
+    clientId: "00000000-0000-0000-0000-000000000001",
+    collectionId: TEST_COLLECTION_ID,
+    collectionName: "Tasks",
+    operations: ["rename", "delete"],
+    scope: { contracts: [] },
+    expiresAt: Date.now() + 60_000,
+    grantId: "00000000-0000-0000-0000-000000000003",
+    encryption: {
+      protocol_version: 1,
+      suite: "P256-HKDF-SHA256-AES256GCM",
+      key_id: "progress-key",
+      scope_epoch: 1,
+      connector_id: "00000000-0000-0000-0000-000000000004",
+      collection_id: TEST_COLLECTION_ID,
+      application_public_key: "04".padEnd(130, "1"),
+      connector_public_key: "04".padEnd(130, "2")
+    },
+    keyHandle: "progress-key",
+    savedAt: Date.now()
+  }));
+  const manager = new MdbaseConnect({
+    serverUrl,
+    manifest,
+    redirectUri: "https://tasks.example/callback",
+    storage,
+    keyStore: new MemoryGrantKeyStore()
+  });
+  return manager.connection(TEST_COLLECTION_ID)!;
 }
 
 class MemoryStorage implements Storage {
@@ -1631,4 +1807,12 @@ function jsonResponse(value: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" }
   });
+}
+
+function storedTokenKey(
+  serverUrl: string,
+  manifestSource: string,
+  collectionId: string,
+): string {
+  return `mdbase-connect:${serverUrl}:${manifestSource}:token:${collectionId}`;
 }

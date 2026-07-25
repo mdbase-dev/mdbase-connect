@@ -5,7 +5,7 @@ import type {
   RecordResult,
   SyncCollectionResources
 } from "@mdbase/connect-protocol";
-import type { MdbaseConnect, QueryResult } from "@mdbase/connect";
+import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
 import type { OfflineReplica } from "@mdbase/connect-sync";
 
 export const TASKNOTES_TASK_CONTRACT = "tasknotes.task";
@@ -79,7 +79,7 @@ function resolveContract(
 export class TasknotesCollection {
   private contract: TasknotesContract | null = null;
 
-  constructor(private readonly connect: MdbaseConnect<TaskFrontmatter>) {}
+  constructor(private readonly connect: MdbaseConnection<TaskFrontmatter>) {}
 
   async describe(): Promise<TasknotesContract> {
     this.contract ??= resolveTasknotesContract(await this.connect.describe());

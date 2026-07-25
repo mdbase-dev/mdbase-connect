@@ -540,17 +540,19 @@ try {
       storage: inlineStorage,
       keyStore: new MemoryGrantKeyStore()
     });
-    void inlineSdk.authorize(["describe", "read", "query", "create", "update"]);
+    void inlineSdk.authorize({
+      operations: ["describe", "read", "query", "create", "update"]
+    });
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
     const inlineCallback = await authorizeHostedApplicationByCreating(
       inlineAuthorizationUrl,
       emptyCookie,
       inlineManifest.origin
     );
-    await inlineSdk.completeAuthorization(inlineCallback);
+    const { connection: inlineConnection } = await inlineSdk.completeAuthorization(inlineCallback);
     const inlineToken = inlineStorage.token();
     assert.equal(inlineToken.hosted.providerUrl, provider.url);
-    const inlineDescription = await inlineSdk.describe();
+    const inlineDescription = await inlineConnection.describe();
     assert.equal(inlineDescription.contracts[0]?.id, "tasknotes.task");
   } finally {
     await new Promise((resolveClose) => inlineManifest.server.close(resolveClose));
@@ -579,10 +581,12 @@ try {
     storage,
     keyStore: new MemoryGrantKeyStore()
   });
-  void hostedSdk.authorize([
-    "describe", "changes", "read", "query", "list_views", "execute_view",
-    "create", "update", "delete", "rename", "create_type"
-  ]);
+  void hostedSdk.authorize({
+    operations: [
+      "describe", "changes", "read", "query", "list_views", "execute_view",
+      "create", "update", "delete", "rename", "create_type"
+    ]
+  });
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   const callbackUrl = await authorizeHostedApplication(
     authorizationUrl,
@@ -590,7 +594,7 @@ try {
     genericCollectionId,
     manifest.origin
   );
-  await hostedSdk.completeAuthorization(callbackUrl);
+  const { connection: hostedConnection } = await hostedSdk.completeAuthorization(callbackUrl);
   const storedHostedToken = storage.token();
   assert.equal(storedHostedToken.hosted.providerUrl, provider.url);
   assert.equal(storedHostedToken.encryption, undefined);
@@ -634,30 +638,30 @@ try {
     headers.set("origin", manifest.origin);
     return originalFetch(input, { ...init, headers });
   };
-  const description = await hostedSdk.describe();
+  const description = await hostedConnection.describe();
   assert.equal(description.display_name, "Hosted writing");
   assert.deepEqual(description.contracts, []);
-  const sdkCreated = await hostedSdk.create({
+  const sdkCreated = await hostedConnection.create({
     path: "Draft.md",
     frontmatter: { title: "Created through hosted SDK" },
     body: "Generic mdbase Markdown."
   });
   assert.equal(sdkCreated.valid, true);
   assert.deepEqual(sdkCreated.result.types, []);
-  const sdkUpdated = await hostedSdk.update({
+  const sdkUpdated = await hostedConnection.update({
     path: "Draft.md",
     fields: { title: "Updated through hosted SDK" },
     if_revision: sdkCreated.result.revision
   });
   assert.equal(sdkUpdated.valid, true);
-  const sdkRenamed = await hostedSdk.rename({
+  const sdkRenamed = await hostedConnection.rename({
     from: "Draft.md",
     to: "Writing/Draft.md",
     if_revision: sdkUpdated.result.revision
   });
   assert.equal(sdkRenamed.valid, true);
-  assert.equal((await hostedSdk.query()).result.results[0].path, "Writing/Draft.md");
-  const viewType = await hostedSdk.createType({
+  assert.equal((await hostedConnection.query()).result.results[0].path, "Writing/Draft.md");
+  const viewType = await hostedConnection.createType({
     document: `---
 kind: mdbase.type
 name: view
@@ -673,7 +677,7 @@ schema:
 `
   });
   assert.equal(viewType.valid, true);
-  const viewRecord = await hostedSdk.create({
+  const viewRecord = await hostedConnection.create({
     path: "Views/writing.md",
     frontmatter: {
       type: "view",
@@ -695,14 +699,14 @@ schema:
     }
   });
   assert.equal(viewRecord.valid, true);
-  const listedViews = await hostedSdk.listViews();
+  const listedViews = await hostedConnection.listViews();
   assert.equal(listedViews.valid, true);
   assert.equal(listedViews.result.views[0].views[0].id, "all");
   assert.deepEqual(listedViews.result.views[0].views[0].properties[1], {
     key: "display_title",
     label: "Display title"
   });
-  const executedView = await hostedSdk.executeView({
+  const executedView = await hostedConnection.executeView({
     path: "Views/writing.md",
     view: "all"
   });
@@ -715,15 +719,15 @@ schema:
     executedView.result.results[0].values.display_title,
     "Updated through hosted SDK!"
   );
-  assert.equal((await hostedSdk.delete({
+  assert.equal((await hostedConnection.delete({
     path: "Views/writing.md",
     if_revision: viewRecord.result.revision
   })).valid, true);
-  assert.equal((await hostedSdk.delete({
+  assert.equal((await hostedConnection.delete({
     path: "Writing/Draft.md",
     if_revision: sdkRenamed.result.revision
   })).valid, true);
-  const hostedSync = hostedSdk.hostedSync();
+  const hostedSync = hostedConnection.hostedSync();
   assert.ok(hostedSync);
   const offline = new OfflineReplica(hostedSync.transport, store(hostedSync.replicaId));
   await offline.initialize();
@@ -1844,7 +1848,7 @@ function memoryStorage() {
     setItem(key, value) { values.set(key, String(value)); },
     token() {
       const value = [...values.entries()]
-        .find(([key]) => key.startsWith("mdbase-connect:token:"))?.[1];
+        .find(([key]) => key.includes(":token:"))?.[1];
       assert.ok(value, "SDK did not persist a hosted token");
       return JSON.parse(value);
     }

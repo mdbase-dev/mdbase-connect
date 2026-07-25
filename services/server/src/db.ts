@@ -154,6 +154,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       state text,
       code_challenge text NOT NULL,
       requested_operations jsonb NOT NULL,
+      collection_hint uuid,
       relay_protocol integer,
       application_public_key text,
       expires_at timestamptz NOT NULL,
@@ -364,6 +365,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
+  await ensureColumn(db, "authorization_requests", "collection_hint", "ALTER TABLE authorization_requests ADD COLUMN collection_hint uuid");
   await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");
   await ensureColumn(
     db,

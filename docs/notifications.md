@@ -79,7 +79,7 @@ Declare a `timer.fired` criterion, request the timer operations, and reconcile
 the desired namespace whenever application state changes:
 
 ```ts
-await connect.reconcileTimers({
+await connection.reconcileTimers({
   namespace: "task-reminders",
   criterion_id: "task.reminder",
   timers: [{
@@ -108,7 +108,7 @@ criteria or an explicit subset:
 import { MdbaseConnect } from "@mdbase/connect";
 
 const worker = await navigator.serviceWorker.register("/service-worker.js");
-await connect.registerNotifications({
+await connection.registerNotifications({
   serviceWorker: worker,
   criteria: ["task.changed"]
 });
@@ -145,7 +145,7 @@ sender identity permission to send messages to that project. The app obtains
 an FCM registration token and registers it after a user explicitly opts in:
 
 ```ts
-await connect.registerNativeNotifications({
+await connection.registerNativeNotifications({
   token: await nativeMessaging.getToken(),
   criteria: ["task.reminder"]
 });

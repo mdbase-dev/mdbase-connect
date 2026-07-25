@@ -461,7 +461,11 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
     ),
     [collections, request.compatible_collection_ids, request.provisionable_collection_ids]
   );
-  const [collectionId, setCollectionId] = useState(available[0]?.id ?? "");
+  const [collectionId, setCollectionId] = useState(
+    available.some((collection) => collection.id === request.collection_hint)
+      ? request.collection_hint!
+      : available[0]?.id ?? ""
+  );
   const [operations, setOperations] = useState(request.requested_operations);
   const selected = available.find((collection) => collection.id === collectionId);
   const setup = selected && request.provisionable_collection_ids.includes(selected.id)

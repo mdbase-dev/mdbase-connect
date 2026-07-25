@@ -126,7 +126,7 @@ export class OAuthService {
         new Date(Date.now() + 10 * 60_000)
       ]
     );
-    return this.beginUpstream("initial", setId, scopes, requestId);
+    return this.beginUpstream("initial", setId, scopes, requestId, null);
   }
 
   async completeUpstream(input: { state?: string; code?: string; error?: string }): Promise<{
@@ -300,13 +300,35 @@ export class OAuthService {
     };
   }
 
-  async createConnectionTicket(context: McpAuthContext): Promise<string> {
+  async createConnectionTicket(
+    context: McpAuthContext,
+    connectionId?: string
+  ): Promise<string> {
+    let collectionHint: string | null = null;
+    if (connectionId) {
+      const selected = await this.db.query<{ collection_id: string }>(
+        `SELECT collection_id FROM mcp_connections
+         WHERE id = $1 AND connection_set_id = $2`,
+        [connectionId, context.connectionSetId]
+      );
+      if (!selected.rows[0]) {
+        throw new OAuthError("invalid_request", "That collection connection is unavailable.");
+      }
+      collectionHint = selected.rows[0].collection_id;
+    }
     const token = randomToken("add");
     await this.db.query(
       `INSERT INTO mcp_connection_tickets
-         (id, token_hash, connection_set_id, scopes, expires_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5)`,
-      [randomUUID(), tokenHash(token), context.connectionSetId, JSON.stringify(context.scopes), new Date(Date.now() + 10 * 60_000)]
+         (id, token_hash, connection_set_id, scopes, collection_hint, expires_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+      [
+        randomUUID(),
+        tokenHash(token),
+        context.connectionSetId,
+        JSON.stringify(context.scopes),
+        collectionHint,
+        new Date(Date.now() + 10 * 60_000)
+      ]
     );
     return `${this.publicUrl}/connections/new?ticket=${encodeURIComponent(token)}`;
   }
@@ -316,22 +338,30 @@ export class OAuthService {
       id: string;
       connection_set_id: string;
       scopes: McpScope[];
+      collection_hint: string | null;
     }>(
       `UPDATE mcp_connection_tickets SET used_at = now()
        WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
-       RETURNING id, connection_set_id, scopes`,
+       RETURNING id, connection_set_id, scopes, collection_hint`,
       [tokenHash(token)]
     );
     const ticket = result.rows[0];
     if (!ticket) throw new OAuthError("invalid_request", "This add-collection link is invalid or expired.");
-    return this.beginUpstream("additional", ticket.connection_set_id, ticket.scopes, null);
+    return this.beginUpstream(
+      "additional",
+      ticket.connection_set_id,
+      ticket.scopes,
+      null,
+      ticket.collection_hint
+    );
   }
 
   private async beginUpstream(
     kind: "initial" | "additional",
     connectionSetId: string,
     scopes: McpScope[],
-    authorizationRequestId: string | null
+    authorizationRequestId: string | null,
+    collectionHint: string | null
   ): Promise<string> {
     const application = await this.gateway.registerApplication();
     const state = randomToken("state");
@@ -362,6 +392,7 @@ export class OAuthService {
     authorize.searchParams.set("code_challenge_method", "S256");
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("operations", operationsForScopes(scopes).join(","));
+    if (collectionHint) authorize.searchParams.set("collection_hint", collectionHint);
     authorize.searchParams.set("relay_protocol", "1");
     authorize.searchParams.set("application_public_key", key.publicKey);
     return authorize.href;

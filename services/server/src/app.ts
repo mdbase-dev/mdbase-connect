@@ -1005,7 +1005,7 @@ export async function buildApp(options: BuildOptions) {
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.expires_at,
+      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
@@ -1182,13 +1182,16 @@ export async function buildApp(options: BuildOptions) {
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.application_id, a.name AS application_name,
               a.homepage AS application_homepage, a.icon AS application_icon,
-              ar.requested_operations, ar.expires_at, a.requirements, a.provisions, a.notifications
+              ar.requested_operations, hinted.local_id AS collection_hint,
+              ar.expires_at, a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
+       LEFT JOIN collections hinted
+         ON hinted.id = ar.collection_hint AND hinted.connector_id = $2
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
          AND ar.expires_at > now()
        ORDER BY ar.expires_at`,
-      [connector.user_id]
+      [connector.user_id, connector.id]
     );
     return {
       configured: true,
@@ -1838,6 +1841,7 @@ export async function buildApp(options: BuildOptions) {
       code_challenge_method: z.literal("S256"),
       state: z.string().max(500).optional(),
       operations: z.string().default("read,query"),
+      collection_hint: z.uuid().optional(),
       relay_protocol: z.coerce.number().int().optional(),
       application_public_key: z.string().min(80).max(200).optional()
     }).parse(request.query);
@@ -1875,8 +1879,8 @@ export async function buildApp(options: BuildOptions) {
     await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
-          requested_operations, relay_protocol, application_public_key, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, now() + interval '10 minutes')`,
+          requested_operations, collection_hint, relay_protocol, application_public_key, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, now() + interval '10 minutes')`,
       [
         authorizationId,
         user.id,
@@ -1885,6 +1889,7 @@ export async function buildApp(options: BuildOptions) {
         query.state ?? null,
         query.code_challenge,
         JSON.stringify(requestedOperations),
+        query.collection_hint ?? null,
         query.relay_protocol ?? null,
         query.application_public_key ?? null
       ]
@@ -1897,7 +1902,7 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.expires_at,
+      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
               a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id

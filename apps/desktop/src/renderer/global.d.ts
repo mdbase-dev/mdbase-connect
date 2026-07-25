@@ -96,6 +96,7 @@ interface PendingAuthorization {
   application_homepage: string;
   application_icon?: string;
   requested_operations: string[];
+  collection_hint?: string;
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;

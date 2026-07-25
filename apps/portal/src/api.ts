@@ -85,6 +85,7 @@ export interface HostedCollection {
 export interface PendingAuthorization {
   id: string;
   requested_operations: string[];
+  collection_hint?: string | null;
   expires_at: string;
   application_id: string;
   application_name: string;
