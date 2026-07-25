@@ -30,6 +30,7 @@ export interface CollectionSnapshot {
 
 export interface ConnectionSummary {
   collectionId: string;
+  displayName?: string;
   operations: string[];
   missingOperations?: string[];
 }
@@ -87,8 +88,10 @@ export interface NoteListProgress {
 
 export interface CollectionGateway {
   connection(): ConnectionSummary | null;
+  connections(): ConnectionSummary[];
+  selectConnection(collectionId: string): void;
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void;
-  authorize(): Promise<void>;
+  authorize(collectionId?: string): Promise<void>;
   completeAuthorization(): Promise<void>;
   disconnect(): void;
   describe(): Promise<CollectionDescription>;

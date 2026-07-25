@@ -48,6 +48,7 @@ import {
 } from "./layout-preferences";
 import type {
   CollectionGateway,
+  ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
   NoteListProgress,
@@ -538,9 +539,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     void (async () => {
       try {
         const callback = new URL(location.href);
-        if (callback.searchParams.has("code")) {
+        if (callback.searchParams.has("code") || callback.searchParams.has("error")) {
           await gateway.completeAuthorization();
-          history.replaceState({}, "", new URL(import.meta.env.BASE_URL, location.href));
         }
         if (!alive) return;
         const connection = gateway.connection();
@@ -820,6 +820,22 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   async function connectCollection() {
     setNotice(undefined);
     try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
+  }
+
+  async function openSavedCollection(collectionId: string) {
+    setNotice(undefined);
+    gateway.selectConnection(collectionId);
+    const selected = gateway.connection();
+    if (missingCoreOperations(selected).length > 0) {
+      try {
+        await gateway.authorize(collectionId);
+      } catch (error) {
+        setNotice(gatewayError(error));
+      }
+      return;
+    }
+    setPhase("loading");
+    await start();
   }
 
   function beginCreation(mode: "note" | "folder") {
@@ -1322,7 +1338,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "disconnected") return <ConnectScreen
     notice={notice}
     missingOperations={missingCoreOperations(gateway.connection())}
+    connections={gateway.connections()}
     onConnect={() => void connectCollection()}
+    onOpen={(collectionId) => void openSavedCollection(collectionId)}
   />;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
@@ -1587,9 +1605,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   </div>;
 }
 
-function ConnectScreen({ notice, missingOperations = [], onConnect }: { notice?: string; missingOperations?: string[]; onConnect: () => void }) {
+function ConnectScreen({ notice, missingOperations = [], connections, onConnect, onOpen }: {
+  notice?: string;
+  missingOperations?: string[];
+  connections: ConnectionSummary[];
+  onConnect: () => void;
+  onOpen: (collectionId: string) => void;
+}) {
   const updatingAccess = missingOperations.length > 0;
-  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">{updatingAccess ? `Allow ${accessSummary(missingOperations)} to keep using this collection.` : "Open a local or hosted mdbase collection and write."}</p><button className="connect-button" onClick={onConnect}>{updatingAccess ? "Update access" : "Choose a collection"} <ChevronRight aria-hidden="true" /></button><p className="access-copy">{updatingAccess ? "mdbase connect will keep the access already approved and ask only for the missing capabilities." : "Choose the collection in mdbase connect, then approve access to view, create, edit, move, validate, and delete notes and to inspect and manage type definitions. Hosted collections stay available without your computer; local collections remain under its connector."}</p><details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
+  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">{updatingAccess ? `Allow ${accessSummary(missingOperations)} to keep using this collection.` : "Open a local or hosted mdbase collection and write."}</p>{connections.map((connection) => <button className="connect-button" key={connection.collectionId} onClick={() => onOpen(connection.collectionId)}>Open {connection.displayName ?? "collection"} <ChevronRight aria-hidden="true" /></button>)}<button className="connect-button" onClick={onConnect}>{updatingAccess ? "Update access" : connections.length ? "Connect another collection" : "Choose a collection"} <ChevronRight aria-hidden="true" /></button><p className="access-copy">{updatingAccess ? "mdbase connect will keep the access already approved and ask only for the missing capabilities." : "Choose the collection in mdbase connect, then approve access to view, create, edit, move, validate, and delete notes and to inspect and manage type definitions. Hosted collections stay available without your computer; local collections remain under its connector."}</p><details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
 }
 
 function OpeningScreen() {

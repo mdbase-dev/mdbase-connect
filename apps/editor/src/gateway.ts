@@ -3,6 +3,7 @@ import {
   MdbaseConnectError,
   unwrapOperation,
   type CollectionDescription,
+  type MdbaseConnection,
   type MdbaseOperation as CollectionOperation,
   type JsonObject,
   type MdbaseDiagnostic,
@@ -62,14 +63,14 @@ const FIRST_PAGE_SIZE = 200;
 const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
-  private readonly connect: MdbaseConnect<NoteFrontmatter>;
+  private readonly manager: MdbaseConnect<NoteFrontmatter>;
   private indexSnapshot?: string;
   private readonly renamePreflights = new Map<string, import("@mdbase/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase/connect").DeletePreflightResult>();
 
   constructor(serverUrl = import.meta.env.VITE_MDBASE_CONNECT_URL ?? "https://connect.mdbase.dev") {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
-    this.connect = new MdbaseConnect({
+    this.manager = new MdbaseConnect({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
@@ -77,39 +78,74 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   connection(): ConnectionSummary | null {
-    const connection = this.connect.connection();
+    const connection = this.activeConnection();
     if (!connection) return null;
     return {
       collectionId: connection.collectionId,
+      displayName: connection.displayName,
       operations: connection.operations,
-      missingOperations: this.connect.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations
+      missingOperations: connection.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations
     };
   }
 
-  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    return this.connect.onConnectionChange(() => listener(this.connection()));
+  connections(): ConnectionSummary[] {
+    return this.manager.connections().map((connection) => ({
+      collectionId: connection.collectionId,
+      displayName: connection.displayName,
+      operations: connection.operations,
+      missingOperations: this.manager.connection(connection.collectionId)
+        ?.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations ?? []
+    }));
   }
 
-  async authorize(): Promise<void> {
-    await this.connect.requestOperations(FULL_COLLECTION_OPERATIONS);
+  selectConnection(collectionId: string): void {
+    const url = cleanAuthorizationParameters(new URL(location.href));
+    url.searchParams.set("collection", collectionId);
+    history.replaceState({}, "", url);
+  }
+
+  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
+    return this.manager.onConnectionsChange(() => listener(this.connection()));
+  }
+
+  async authorize(collectionId?: string): Promise<void> {
+    const current = collectionId
+      ? this.manager.connection(collectionId)
+      : this.activeConnection();
+    const returnTo = cleanAuthorizationParameters(new URL(globalThis.location.href));
+    const returnLocation = `${returnTo.pathname}${returnTo.search}${returnTo.hash}`;
+    if (current) {
+      await current.requestOperations(FULL_COLLECTION_OPERATIONS, { returnTo: returnLocation });
+      return;
+    }
+    await this.manager.authorize({
+      operations: FULL_COLLECTION_OPERATIONS,
+      collectionId,
+      returnTo: returnLocation
+    });
   }
 
   async completeAuthorization(): Promise<void> {
-    await this.connect.completeAuthorization();
+    const result = await this.manager.completeAuthorization(location.href);
+    const returnTo = cleanAuthorizationParameters(
+      new URL(result.returnTo ?? import.meta.env.BASE_URL, location.origin)
+    );
+    returnTo.searchParams.set("collection", result.connection.collectionId);
+    history.replaceState({}, "", returnTo);
   }
 
   disconnect(): void {
-    this.connect.disconnect();
+    this.activeConnection()?.forget();
   }
 
   describe(): Promise<CollectionDescription> {
-    return this.connect.describe();
+    return this.requireConnection().describe();
   }
 
   async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const notes: NoteSummary[] = [];
     let snapshot: string | undefined;
-    for await (const page of this.connect.queryPages({
+    for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
         include_body: false
       }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE })) {
@@ -132,7 +168,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     const notes: NoteSummary[] = [];
     let snapshot = this.indexSnapshot;
-    for await (const page of this.connect.queryPages({
+    for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
         ...(snapshot ? { snapshot } : {}),
         include_body: true
@@ -153,11 +189,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async read(path: string): Promise<NoteDocument> {
-    return unwrapOperation(await this.connect.read({ path }));
+    return unwrapOperation(await this.requireConnection().read({ path }));
   }
 
   async create(input: CreateNoteInput): Promise<NoteDocument> {
-    return unwrapOperation(await this.connect.create({
+    return unwrapOperation(await this.requireConnection().create({
       path: input.path,
       ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties,
@@ -166,7 +202,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async restore(document: NoteDocument): Promise<NoteDocument> {
-    return unwrapOperation(await this.connect.create({
+    return unwrapOperation(await this.requireConnection().create({
       path: document.path,
       frontmatter: document.raw_frontmatter ?? document.frontmatter,
       body: document.body ?? ""
@@ -174,7 +210,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async update(input: SaveNoteInput): Promise<NoteDocument> {
-    return unwrapOperation(await this.connect.update({
+    return unwrapOperation(await this.requireConnection().update({
       path: input.path,
       patch: titlePatch(input.title, input.source),
       body: persistedBody(input.title, input.body, input.source),
@@ -183,11 +219,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
-    return unwrapOperation(await this.connect.update({ path, patch, if_revision: revision }));
+    return unwrapOperation(await this.requireConnection().update({ path, patch, if_revision: revision }));
   }
 
   async preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight> {
-    const result = unwrapOperation(await this.connect.preflightRename({
+    const result = unwrapOperation(await this.requireConnection().preflightRename({
       from,
       to,
       if_revision: revision,
@@ -205,7 +241,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const key = mutationKey(from, to, revision);
     let retainPreflight = false;
     try {
-      return unwrapOperation(await this.connect.renameWithProgress({
+      return unwrapOperation(await this.requireConnection().renameWithProgress({
         from,
         to,
         if_revision: revision,
@@ -224,7 +260,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async preflightDelete(path: string, revision: string): Promise<DeletePreflight> {
-    const result = unwrapOperation(await this.connect.preflightDelete({ path, if_revision: revision }));
+    const result = unwrapOperation(await this.requireConnection().preflightDelete({ path, if_revision: revision }));
     this.deletePreflights.set(mutationKey(path, "", revision), result);
     return { brokenLinkPaths: uniquePaths(result.broken_links), operation: result };
   }
@@ -233,7 +269,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     const key = mutationKey(path, "", revision);
     let retainPreflight = false;
     try {
-      unwrapOperation(await this.connect.deleteWithProgress({
+      unwrapOperation(await this.requireConnection().deleteWithProgress({
         path,
         if_revision: revision,
         check_backlinks: true
@@ -251,20 +287,20 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async validate(path: string): Promise<MdbaseDiagnostic[]> {
-    const response = await this.connect.validate({ path });
+    const response = await this.requireConnection().validate({ path });
     return response.diagnostics;
   }
 
   async readType(name: string) {
-    return unwrapOperation(await this.connect.readType({ name }));
+    return unwrapOperation(await this.requireConnection().readType({ name }));
   }
 
   async createType(document: string) {
-    return unwrapOperation(await this.connect.createType({ document }));
+    return unwrapOperation(await this.requireConnection().createType({ document }));
   }
 
   async updateType(current: import("./model").TypeDocument, document: string) {
-    return unwrapOperation(await this.connect.updateType({
+    return unwrapOperation(await this.requireConnection().updateType({
       path: current.path,
       document,
       if_revision: current.revision
@@ -272,10 +308,32 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async watch(onChange: (change: import("@mdbase/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase/connect").WatchStatus) => void): Promise<void> {
-    for await (const change of this.connect.watch({ signal, pollIntervalMs: 1_500, onStatus })) {
+    for await (const change of this.requireConnection().watch({ signal, pollIntervalMs: 1_500, onStatus })) {
       if (change.type.startsWith("mdbase.record.") || change.type === "mdbase.type.changed") onChange(change);
     }
   }
+
+  private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
+    const selected = new URL(location.href).searchParams.get("collection");
+    if (selected) return this.manager.connection(selected);
+    const saved = this.manager.connections();
+    if (saved.length !== 1) return null;
+    this.selectConnection(saved[0].collectionId);
+    return this.manager.connection(saved[0].collectionId);
+  }
+
+  private requireConnection(): MdbaseConnection<NoteFrontmatter> {
+    const connection = this.activeConnection();
+    if (!connection) throw new Error("Choose a collection before editing notes.");
+    return connection;
+  }
+}
+
+function cleanAuthorizationParameters(url: URL): URL {
+  for (const parameter of ["code", "state", "error", "error_description"]) {
+    url.searchParams.delete(parameter);
+  }
+  return url;
 }
 
 function uniquePaths(values: Array<{ path: string }> | undefined): string[] {

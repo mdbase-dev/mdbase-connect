@@ -44,6 +44,13 @@ export class DemoCollectionGateway implements CollectionGateway {
     return { collectionId: "demo", operations: ["all"], missingOperations: [] };
   }
 
+  connections(): ConnectionSummary[] {
+    const connection = this.connection();
+    return connection ? [connection] : [];
+  }
+
+  selectConnection(_collectionId: string): void {}
+
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
     listener(this.connection());
     return () => undefined;

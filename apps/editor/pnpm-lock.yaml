@@ -288,7 +288,7 @@ packages:
     version: 0.1.0-beta.1
 
   '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.1.tgz':
-    resolution: {integrity: sha512-q6CIg6RTGdtq4bFZ1BWSFguFUxT5SbGB/XhYtppo3g5dFCtZDFQAQGtVZPPXZ3PHXi8Ue+qyTog56epXkNzkig==, tarball: file:vendor/mdbase-connect-0.1.0-beta.1.tgz}
+    resolution: {integrity: sha512-BRVljtw7+YMtJ3wgJOuefahhqSjWXEAUjqBL1PoYRoBx8CpHvbT46/bR6slqvGmWhZSjMkuw4aQYZL2R/J37aw==, tarball: file:vendor/mdbase-connect-0.1.0-beta.1.tgz}
     version: 0.1.0-beta.1
 
   '@napi-rs/wasm-runtime@1.1.6':

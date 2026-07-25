@@ -90,13 +90,17 @@ test("recovers from a stale local grant without bypassing the connector", async 
     });
     database.close();
 
+    const collectionId = "30000000-0000-4000-8000-000000000003";
+    const storagePrefix = `mdbase-connect:${configuredServerUrl}:${manifestUrl}`;
+    localStorage.setItem(`${storagePrefix}:connections`, JSON.stringify([collectionId]));
     localStorage.setItem(
-      `mdbase-connect:token:${configuredServerUrl}:${manifestUrl}`,
+      `${storagePrefix}:token:${collectionId}`,
       JSON.stringify({
         accessToken: "mdb_stale",
         refreshToken: "ref_stale",
         clientId: "20000000-0000-4000-8000-000000000002",
-        collectionId: "30000000-0000-4000-8000-000000000003",
+        collectionId,
+        collectionName: "Stale editor collection",
         operations: [
           "describe", "changes", "read", "query", "validate", "create", "update",
           "delete", "rename", "read_type", "create_type", "update_type"
@@ -111,12 +115,13 @@ test("recovers from a stale local grant without bypassing the connector", async 
           key_id: "enc_stale",
           scope_epoch: 1,
           connector_id: "50000000-0000-4000-8000-000000000005",
-          collection_id: "30000000-0000-4000-8000-000000000003",
+          collection_id: collectionId,
           application_public_key: applicationPublicKey,
           connector_public_key: connectorPublicKey
         },
         applicationOrigin: location.origin,
-        keyHandle: grantHandle
+        keyHandle: grantHandle,
+        savedAt: Date.now()
       })
     );
     localStorage.setItem(`mdbase-connect:direct:${location.origin}`, "enabled");
@@ -139,7 +144,10 @@ test("recovers from a stale local grant without bypassing the connector", async 
   expect(relayedOperations).toEqual([]);
   expect(await page.evaluate(({ configuredServerUrl, configuredManifestPath }) => {
     const manifestUrl = new URL(configuredManifestPath, location.href).href;
-    return localStorage.getItem(`mdbase-connect:token:${configuredServerUrl}:${manifestUrl}`);
+    const collectionId = "30000000-0000-4000-8000-000000000003";
+    return localStorage.getItem(
+      `mdbase-connect:${configuredServerUrl}:${manifestUrl}:token:${collectionId}`
+    );
   }, { configuredServerUrl: serverUrl, configuredManifestPath: manifestPath })).toBeNull();
 
   await page.getByRole("button", { name: "Choose a collection" }).click();

@@ -19,13 +19,11 @@ describe("ConnectCollectionGateway collection index", () => {
       };
     });
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    Object.defineProperty(gateway, "connect", {
-      value: new MdbaseCollectionClient({
+    injectConnection(gateway, new MdbaseCollectionClient({
         async operation<Result>(_operation: string, input: unknown) {
           return await query(input as { include_body: boolean; offset: number; snapshot?: string }) as Result;
         }
-      })
-    });
+      }));
     const structureProgress: NoteListProgress[] = [];
     const contentProgress: NoteListProgress[] = [];
 
@@ -77,20 +75,26 @@ describe("ConnectCollectionGateway recovery operations", () => {
       result: { path: "Notes/invalid.md", frontmatter: {}, types: [], revision: "invalid" }
     }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    Object.defineProperty(gateway, "connect", { value: {
-      connection: () => ({ collectionId: "collection", operations: ["read"], scope: { contracts: [] } }),
+    injectConnection(gateway, {
+      collectionId: "collection",
+      displayName: "Notes",
+      operations: ["read"],
       authorizationCapabilities: () => ({ missingOperations: ["update"] }),
       requestOperations,
       read
-    } });
+    });
 
     expect(gateway.connection()).toEqual({
       collectionId: "collection",
+      displayName: "Notes",
       operations: ["read"],
       missingOperations: ["update"]
     });
     await gateway.authorize();
-    expect(requestOperations).toHaveBeenCalledWith(expect.arrayContaining(["describe", "read", "update", "rename"]));
+    expect(requestOperations).toHaveBeenCalledWith(
+      expect.arrayContaining(["describe", "read", "update", "rename"]),
+      expect.objectContaining({ returnTo: expect.any(String) })
+    );
     await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(MdbaseOperationValidationError);
     await expect(gateway.read("Notes/invalid.md")).rejects.toMatchObject({
       diagnostics: [{ code: "invalid_record" }],
@@ -110,7 +114,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
     const create = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
     const renameWithProgress = vi.fn(async () => ({ valid: true, diagnostics: [], result: { ...document, from: document.path, to: "Archive/restored.md", path: "Archive/restored.md" } }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    Object.defineProperty(gateway, "connect", { value: { create, renameWithProgress } });
+    injectConnection(gateway, { create, renameWithProgress });
 
     await gateway.restore(document);
     await gateway.rename(document.path, "Archive/restored.md", document.revision, false);
@@ -146,7 +150,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       result: { broken_links: [{ path: "Notes/linking.md" }, { path: "Notes/linking.md" }] }
     }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    Object.defineProperty(gateway, "connect", { value: { preflightRename, preflightDelete } });
+    injectConnection(gateway, { preflightRename, preflightDelete });
 
     await expect(gateway.preflightRename("Notes/source.md", "Archive/source.md", "revision:1")).resolves.toMatchObject({
       affectedPaths: ["Notes/linking.md"],
@@ -167,4 +171,31 @@ describe("ConnectCollectionGateway recovery operations", () => {
 
 function summary(path: string): NoteSummary {
   return { path, frontmatter: {}, types: [] };
+}
+
+function injectConnection(
+  gateway: ConnectCollectionGateway,
+  connection: object,
+): void {
+  const bound = connection as {
+    collectionId?: string;
+    displayName?: string;
+    operations?: string[];
+    authorizationCapabilities?: () => { missingOperations: string[] };
+  };
+  bound.collectionId ??= "collection";
+  bound.displayName ??= "Notes";
+  bound.operations ??= [];
+  bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
+  Object.defineProperty(gateway, "manager", {
+    value: {
+      connections: () => [{
+        collectionId: bound.collectionId,
+        displayName: bound.displayName,
+        operations: bound.operations
+      }],
+      connection: () => bound,
+      onConnectionsChange: () => () => undefined
+    }
+  });
 }
