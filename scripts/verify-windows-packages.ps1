@@ -1,0 +1,111 @@
+[CmdletBinding()]
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$OutPath,
+
+  [Parameter(Mandatory = $true)]
+  [string]$IdentityName,
+
+  [Parameter(Mandatory = $true)]
+  [string]$Publisher,
+
+  [Parameter(Mandatory = $true)]
+  [string]$PublisherDisplayName,
+
+  [Parameter(Mandatory = $true)]
+  [string]$PackageVersion
+)
+
+$ErrorActionPreference = "Stop"
+
+function Get-SinglePackageFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Description,
+
+    [Parameter(Mandatory = $true)]
+    [object[]]$Files
+  )
+
+  if ($Files.Count -ne 1) {
+    throw "Expected exactly one $Description, found $($Files.Count)"
+  }
+  $Files[0]
+}
+
+$application = Get-SinglePackageFile `
+  -Description "packaged application executable" `
+  -Files @(
+    Get-ChildItem $OutPath -Recurse -File -Filter "mdbase-connect.exe" |
+      Where-Object { $_.FullName -notmatch "\\make\\" }
+  )
+$installer = Get-SinglePackageFile `
+  -Description "Squirrel installer" `
+  -Files @(
+    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.exe" |
+      Where-Object { $_.Name -match "Setup" }
+  )
+$portable = Get-SinglePackageFile `
+  -Description "portable Windows archive" `
+  -Files @(
+    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.zip"
+  )
+$storePackage = Get-SinglePackageFile `
+  -Description "Microsoft Store AppX package" `
+  -Files @(
+    Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.appx"
+  )
+
+foreach ($file in @($application, $installer)) {
+  $signature = Get-AuthenticodeSignature $file.FullName
+  if ($signature.Status -ne "NotSigned") {
+    throw "Expected unsigned GitHub preview executable, got $($signature.Status): $($file.FullName)"
+  }
+}
+
+$storeSignature = Get-AuthenticodeSignature $storePackage.FullName
+if ($storeSignature.Status -ne "Valid") {
+  throw "Store package development signature is invalid: $($storeSignature.Status)"
+}
+
+$makeAppx = Get-Command "makeappx.exe" -ErrorAction SilentlyContinue
+if (-not $makeAppx) {
+  $sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+  $makeAppx = Get-ChildItem $sdkRoot -Recurse -File -Filter "makeappx.exe" |
+    Where-Object { $_.DirectoryName -match "\\x64$" } |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1
+}
+if (-not $makeAppx) {
+  throw "Could not find makeappx.exe in the Windows SDK"
+}
+
+$unpacked = Join-Path $env:RUNNER_TEMP "mdbase-connect-appx"
+& $makeAppx.FullName unpack /p $storePackage.FullName /d $unpacked /o
+if ($LASTEXITCODE -ne 0) {
+  throw "Could not unpack Store package"
+}
+
+[xml]$manifest = Get-Content (Join-Path $unpacked "AppxManifest.xml")
+$identity = $manifest.Package.Identity
+$properties = $manifest.Package.Properties
+$applicationNode = $manifest.Package.Applications.Application
+if ($identity.Name -ne $IdentityName) {
+  throw "Store identity name does not match Partner Center"
+}
+if ($identity.Publisher -ne $Publisher) {
+  throw "Store publisher does not match Partner Center"
+}
+if ($identity.Version -ne $PackageVersion) {
+  throw "Unexpected Store package version: $($identity.Version)"
+}
+if ([string]$properties.PublisherDisplayName -ne $PublisherDisplayName) {
+  throw "Store publisher display name does not match Partner Center"
+}
+if ($applicationNode.Executable -ne "app\mdbase-connect.exe") {
+  throw "Unexpected Store package executable: $($applicationNode.Executable)"
+}
+
+Write-Output "Verified Store package: $($storePackage.FullName)"
+Write-Output "Verified unsigned setup preview: $($installer.FullName)"
+Write-Output "Verified unsigned portable preview: $($portable.FullName)"

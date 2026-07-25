@@ -30,15 +30,17 @@ pause/resume, and revocation.
 
 ## Signing and publication
 
-Public artifacts must be signed with the platform owner's credentials:
+Canonical public artifacts use each platform's trust channel:
 
 - macOS: Developer ID signing and Apple notarization;
-- Windows: Authenticode signing for the application and installer;
+- Windows: Microsoft Store AppX packaging, certification, and Store signing;
 - Linux: repository/package signatures for the chosen distribution channel.
 
-Unsigned local packages are test artifacts. Do not present them as public beta
-downloads. Release automation should receive signing material from the CI
-secret store, never repository files or developer environment files.
+GitHub releases may additionally contain Windows Squirrel and portable builds
+whose filenames contain `UNSIGNED`. They are preview artifacts, not the
+canonical Windows installation channel. Windows will show Unknown Publisher or
+SmartScreen warnings for them. Checksums and GitHub artifact attestations prove
+which workflow produced the files, but do not provide Authenticode trust.
 
 The `Desktop Release` workflow builds, verifies, attests, and publishes the
 installers for a version tag. Configure these secrets in the
@@ -49,17 +51,23 @@ installers for a version tag. Configure these secrets in the
 - `MACOS_CERTIFICATE_PASSWORD`: password for that PKCS#12 file;
 - `APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API key;
 - `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`: API key identifiers used for
-  notarization;
-- `WINDOWS_ESIGNER_USERNAME`: SSL.com account username for the eSigner-enrolled
-  Windows code-signing certificate;
-- `WINDOWS_ESIGNER_PASSWORD`: SSL.com account password;
-- `WINDOWS_ESIGNER_TOTP_SECRET`: automation TOTP secret issued by eSigner.
+  notarization.
 
-Windows releases use SSL.com eSigner Cloud Key Adapter on the ephemeral GitHub
-Actions runner. The workflow downloads a pinned CKA release, verifies its
-SHA-256 checksum, loads the cloud-held certificate into the runner certificate
-store, and signs both the application and Squirrel installer through
-`signtool.exe`. Exportable PFX files and physical USB tokens are unsupported.
+Reserve `mdbase connect` in Partner Center, then copy the following non-secret
+values from **Product identity** into variables on the same GitHub environment:
+
+- `WINDOWS_STORE_IDENTITY_NAME`: the exact package Identity/Name;
+- `WINDOWS_STORE_PUBLISHER`: the exact package Identity/Publisher;
+- `WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`: the exact publisher display name.
+
+The Windows job creates a Store-submission AppX whose manifest is checked
+against those values. The workflow uses `1.0.<GitHub run number>.0` as the
+monotonically increasing Store package version; the fourth component remains
+zero as required by the Store. The AppX is retained as the
+`windows-store-submission` Actions artifact and is deliberately excluded from
+the GitHub release. Upload it to the matching Partner Center submission. The
+Store replaces its build-time development signature with Microsoft's
+certificate after certification.
 
 The tag must exactly match the root and desktop package version:
 
@@ -68,10 +76,12 @@ git tag -a v0.1.0-beta.1 -m "mdbase connect 0.1.0-beta.1"
 git push origin v0.1.0-beta.1
 ```
 
-The workflow refuses to publish when signing material is absent, macOS
-notarization or signature verification fails, or the Windows application and
-installer do not have valid Authenticode signatures. Linux packages receive
-keyless Sigstore bundles, checksums, and GitHub artifact attestations.
+The workflow refuses to publish when Apple signing material or Partner Center
+identity values are absent, macOS notarization or signature verification fails,
+or the Store package identity is wrong. It also verifies that the Windows
+GitHub preview executables are unsigned before labeling and publishing them.
+Linux packages receive keyless Sigstore bundles, checksums, and GitHub artifact
+attestations.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local and oracle end-to-end suites, retain checksums for every artifact, verify

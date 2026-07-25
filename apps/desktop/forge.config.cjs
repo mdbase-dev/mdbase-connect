@@ -8,6 +8,7 @@ const agent = path.resolve(
 );
 const macIcon = path.resolve(__dirname, "assets/app-icon.icns");
 const windowsIcon = path.resolve(__dirname, "assets/app-icon.ico");
+const windowsStoreAssets = path.resolve(__dirname, "assets/appx");
 const platformIcon =
   process.platform === "darwin"
     ? macIcon
@@ -32,17 +33,36 @@ const macSigning =
       }
     : {};
 
-const windowsSign =
-  process.platform === "win32" && process.env.WINDOWS_SIGN_WITH_PARAMS
-    ? {
-        hashes: ["sha256"],
-        signWithParams: process.env.WINDOWS_SIGN_WITH_PARAMS,
-        timestampServer: "http://ts.ssl.com"
-      }
-    : undefined;
+const windowsStoreIdentity =
+  process.platform === "win32" &&
+  process.env.WINDOWS_STORE_IDENTITY_NAME &&
+  process.env.WINDOWS_STORE_PUBLISHER &&
+  process.env.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME &&
+  process.env.WINDOWS_STORE_PACKAGE_VERSION;
 
-const windowsSigning = windowsSign ? { windowsSign } : {};
-const squirrelSigning = windowsSign ? { windowsSign } : {};
+const windowsStoreMakers = windowsStoreIdentity
+  ? [
+      {
+        name: "@electron-forge/maker-appx",
+        config: {
+          assets: windowsStoreAssets,
+          identityName: process.env.WINDOWS_STORE_IDENTITY_NAME,
+          packageName: "mdbaseConnect",
+          packageDisplayName: "mdbase connect",
+          packageDescription:
+            "Connect applications to authorized mdbase collections.",
+          packageExecutable: "app\\mdbase-connect.exe",
+          packageBackgroundColor: "#20334b",
+          packageVersion: process.env.WINDOWS_STORE_PACKAGE_VERSION,
+          publisher: process.env.WINDOWS_STORE_PUBLISHER,
+          publisherDisplayName:
+            process.env.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME,
+          devCert: process.env.WINDOWS_STORE_DEV_CERT || undefined,
+          certPass: process.env.WINDOWS_STORE_DEV_CERT_PASSWORD || undefined
+        }
+      }
+    ]
+  : [];
 
 module.exports = {
   packagerConfig: {
@@ -52,7 +72,6 @@ module.exports = {
     icon: platformIcon,
     protocols: [{ name: "mdbase connect", schemes: ["mdbase-connect"] }],
     ...macSigning,
-    ...windowsSigning,
     extraResource: fs.existsSync(agent)
       ? [agent]
       : []
@@ -73,11 +92,11 @@ module.exports = {
         description: "Connect applications to authorized mdbase collections.",
         iconUrl:
           "https://raw.githubusercontent.com/mdbase-dev/mdbase-connect/main/apps/desktop/assets/app-icon.ico",
-        setupIcon: windowsIcon,
-        ...squirrelSigning
+        setupIcon: windowsIcon
       }
     },
-    { name: "@electron-forge/maker-zip", platforms: ["darwin"] },
+    { name: "@electron-forge/maker-zip", platforms: ["darwin", "win32"] },
+    ...windowsStoreMakers,
     {
       name: "@electron-forge/maker-dmg",
       platforms: ["darwin"],
