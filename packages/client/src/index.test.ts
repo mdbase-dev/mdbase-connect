@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPkce,
+  MdbaseBrowserLocation,
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
@@ -17,7 +18,10 @@ import type {
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
 
@@ -903,6 +907,106 @@ describe("long mutation progress", () => {
       affectedRecords: 0,
       totalUnits: 1
     });
+  });
+});
+
+describe("browser collection locations", () => {
+  it("bookmarks the only saved collection but respects an explicit unknown identity", () => {
+    const browser = installBrowser("https://tasks.example/today?filter=open#focus");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const location = new MdbaseBrowserLocation(manager);
+
+    expect(location.activeConnection()?.collectionId).toBe(TEST_COLLECTION_ID);
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(browser.replaceState).toHaveBeenCalledOnce();
+
+    browser.navigate("https://tasks.example/today?collection=not-authorized");
+    expect(location.activeConnection()).toBeNull();
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe("not-authorized");
+  });
+
+  it("keeps app navigation bookmarkable and strips temporary OAuth parameters", () => {
+    const browser = installBrowser(
+      "https://tasks.example/today?filter=open&code=temporary&state=pending#focus"
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const location = new MdbaseBrowserLocation(manager);
+
+    location.selectConnection(TEST_COLLECTION_ID);
+
+    const selected = new URL(browser.href());
+    expect(selected.pathname).toBe("/today");
+    expect(selected.searchParams.get("filter")).toBe("open");
+    expect(selected.searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(selected.searchParams.has("code")).toBe(false);
+    expect(selected.searchParams.has("state")).toBe(false);
+    expect(selected.hash).toBe("#focus");
+    expect(location.authorizationReturnTo()).toBe(
+      `/today?filter=open&collection=${TEST_COLLECTION_ID}#focus`
+    );
+  });
+
+  it("finishes authorization at a safe app-local return location", async () => {
+    const browser = installBrowser("https://tasks.example/auth/mdbase/callback?code=one&state=two");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const connection = manager.connection(TEST_COLLECTION_ID)!;
+    vi.spyOn(manager, "completeAuthorization").mockResolvedValue({
+      connection,
+      returnTo: "/search?q=next&error=stale#result"
+    });
+    const location = new MdbaseBrowserLocation(manager, { fallbackPath: "/app/" });
+
+    await expect(location.completeAuthorization()).resolves.toBe(connection);
+    const completed = new URL(browser.href());
+    expect(completed.pathname).toBe("/search");
+    expect(completed.searchParams.get("q")).toBe("next");
+    expect(completed.searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(completed.searchParams.has("error")).toBe(false);
+    expect(completed.hash).toBe("#result");
+
+    vi.mocked(manager.completeAuthorization).mockResolvedValue({
+      connection,
+      returnTo: "https://other.example/steal"
+    });
+    await location.completeAuthorization();
+    expect(new URL(browser.href()).pathname).toBe("/app/");
+  });
+
+  it("reports browser back and forward selection changes", () => {
+    const secondId = "00000000-0000-0000-0000-000000000003";
+    const browser = installBrowser(
+      `https://tasks.example/?collection=${TEST_COLLECTION_ID}`
+    );
+    const manager = managerWithConnections([TEST_COLLECTION_ID, secondId]);
+    const location = new MdbaseBrowserLocation(manager);
+    const changes: Array<string | null> = [];
+    const stop = location.onChange(({ connection }) => {
+      changes.push(connection?.collectionId ?? null);
+    });
+
+    browser.navigate(`https://tasks.example/?collection=${secondId}`, true);
+    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+
+    stop();
+    browser.navigate(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`, true);
+    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+  });
+
+  it("recognizes only authorization-shaped callbacks and cleans denied URLs", () => {
+    const browser = installBrowser(
+      "https://tasks.example/auth/mdbase/callback?error=access_denied&state=one"
+    );
+    const location = new MdbaseBrowserLocation(managerWithConnections([]));
+
+    expect(location.isAuthorizationCallback(browser.href())).toBe(true);
+    expect(location.isAuthorizationCallback("dev.tasks://auth/mdbase/callback?code=one")).toBe(true);
+    expect(location.isAuthorizationCallback("https://tasks.example/today")).toBe(false);
+    expect(location.isAuthorizationCallback("not a url")).toBe(false);
+
+    location.clearAuthorizationCallback();
+    const cleaned = new URL(browser.href());
+    expect(cleaned.searchParams.has("error")).toBe(false);
+    expect(cleaned.searchParams.has("state")).toBe(false);
   });
 });
 
@@ -1860,4 +1964,62 @@ function storedTokenKey(
   collectionId: string,
 ): string {
   return `mdbase-connect:${serverUrl}:${manifestSource}:token:${collectionId}`;
+}
+
+function managerWithConnections(collectionIds: string[]): MdbaseConnect {
+  const serverUrl = "https://connect.example";
+  const manifest = "https://tasks.example/manifest.json";
+  const storage = new MemoryStorage();
+  for (const collectionId of collectionIds) {
+    storage.setItem(storedTokenKey(serverUrl, manifest, collectionId), JSON.stringify({
+      accessToken: `token-${collectionId}`,
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId,
+      collectionName: `Collection ${collectionId.slice(-4)}`,
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now()
+    }));
+  }
+  storage.setItem(
+    `mdbase-connect:${serverUrl}:${manifest}:connections`,
+    JSON.stringify(collectionIds)
+  );
+  return new MdbaseConnect({
+    serverUrl,
+    manifest,
+    redirectUri: "https://tasks.example/auth/mdbase/callback",
+    storage
+  });
+}
+
+function installBrowser(initialUrl: string) {
+  let current = new URL(initialUrl);
+  const events = new EventTarget();
+  const navigate = (value: string | URL, pop = false) => {
+    current = new URL(String(value), current);
+    if (pop) events.dispatchEvent(new Event("popstate"));
+  };
+  const pushState = vi.fn((_state: unknown, _unused: string, value?: string | URL | null) => {
+    if (value !== undefined && value !== null) navigate(value);
+  });
+  const replaceState = vi.fn((_state: unknown, _unused: string, value?: string | URL | null) => {
+    if (value !== undefined && value !== null) navigate(value);
+  });
+  vi.stubGlobal("location", {
+    get href() { return current.href; },
+    get origin() { return current.origin; }
+  });
+  vi.stubGlobal("history", { pushState, replaceState });
+  vi.stubGlobal("window", {
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events)
+  });
+  return {
+    href: () => current.href,
+    navigate,
+    pushState,
+    replaceState
+  };
 }
