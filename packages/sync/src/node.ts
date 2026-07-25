@@ -11,7 +11,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse, stringify } from "yaml";
 import type { JsonObject, SyncMutation, SyncMutationReceipt, SyncRecord } from "@mdbase/connect-protocol";
 import type { SyncTransport } from "./index.js";
@@ -134,7 +134,8 @@ export class NodeMirrorStateStore implements MirrorStateStore {
 }
 
 export async function mirrorDeviceDirectory(root: string, stateRoot?: string): Promise<string> {
-  const canonicalRoot = await realpath(root);
+  const resolvedRoot = resolve(root);
+  const canonicalRoot = await realpath(resolvedRoot);
   const rootIdentity = await stat(canonicalRoot);
   const digest = createHash("sha256")
     .update(canonicalRoot)
@@ -148,15 +149,16 @@ export async function mirrorDeviceDirectory(root: string, stateRoot?: string): P
       : process.platform === "win32"
         ? join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "mdbase-connect")
         : join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "mdbase-connect");
-  let canonicalBase = resolve(base);
+  const resolvedBase = resolve(base);
+  let canonicalBase = resolvedBase;
   try {
     canonicalBase = await realpath(canonicalBase);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   if (
-    canonicalBase === canonicalRoot
-    || canonicalBase.startsWith(`${canonicalRoot}${sep}`)
+    isWithinDirectory(resolvedBase, resolvedRoot)
+    || isWithinDirectory(canonicalBase, canonicalRoot)
   ) {
     throw new SyncError(
       "mirror_state_inside_collection",
@@ -164,6 +166,12 @@ export async function mirrorDeviceDirectory(root: string, stateRoot?: string): P
     );
   }
   return join(base, "mirrors", digest);
+}
+
+function isWithinDirectory(candidate: string, directory: string): boolean {
+  const offset = relative(directory, candidate);
+  return offset === ""
+    || (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset));
 }
 
 export class NodeMirrorFileSystem implements MirrorFileSystem {
