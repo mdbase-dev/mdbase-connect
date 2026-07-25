@@ -31,11 +31,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS signed and notarized
+          - label: macOS desktop
             os: macos-15
             artifact: desktop-macos
             platform: macos
-          - label: Windows Store and unsigned previews
+          - label: Windows desktop
             os: windows-2025
             artifact: desktop-windows
             platform: windows
@@ -96,7 +96,7 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install --yes fakeroot rpm
 
-      - name: Import Apple signing identity
+      - name: Configure Apple release mode
         if: matrix.platform == 'macos'
         shell: bash
         env:
@@ -106,11 +106,23 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          test -n "$MACOS_CERTIFICATE_P12_BASE64"
-          test -n "$MACOS_CERTIFICATE_PASSWORD"
-          test -n "$APPLE_API_KEY_P8_BASE64"
-          test -n "$APPLE_API_KEY_ID"
-          test -n "$APPLE_API_ISSUER"
+          if [ -z "$MACOS_CERTIFICATE_P12_BASE64" ] \
+            && [ -z "$APPLE_API_KEY_P8_BASE64" ] \
+            && [ -z "$APPLE_API_KEY_ID" ] \
+            && [ -z "$APPLE_API_ISSUER" ]; then
+            echo "MACOS_RELEASE_MODE=unsigned" >> "$GITHUB_ENV"
+            echo "Apple signing material is absent; publishing an explicitly unsigned beta preview."
+            exit 0
+          fi
+
+          if [ -z "$MACOS_CERTIFICATE_P12_BASE64" ] \
+            || [ -z "$MACOS_CERTIFICATE_PASSWORD" ] \
+            || [ -z "$APPLE_API_KEY_P8_BASE64" ] \
+            || [ -z "$APPLE_API_KEY_ID" ] \
+            || [ -z "$APPLE_API_ISSUER" ]; then
+            echo "Apple signing is partially configured; provide every certificate and API-key value or remove the signing material." >&2
+            exit 1
+          fi
 
           certificate_path="$RUNNER_TEMP/mdbase-connect-signing.p12"
           keychain_path="$RUNNER_TEMP/mdbase-connect.keychain-db"
@@ -139,11 +151,27 @@ jobs:
           echo "APPLE_API_KEY=$api_key_path" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          echo "MACOS_RELEASE_MODE=signed" >> "$GITHUB_ENV"
 
-      - name: Configure Microsoft Store package identity
+      - name: Configure Windows release mode
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          $identityValues = @(
+            $env:WINDOWS_STORE_IDENTITY_NAME,
+            $env:WINDOWS_STORE_PUBLISHER,
+            $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME
+          )
+          $configured = @($identityValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+          if ($configured -eq 0) {
+            "WINDOWS_STORE_MODE=preview" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Output "Partner Center identity is absent; publishing explicitly unsigned beta previews."
+            exit 0
+          }
+          if ($configured -ne $identityValues.Count) {
+            throw "Microsoft Store identity is partially configured; provide all three Partner Center values or remove them."
+          }
+
           $build = [int]$env:GITHUB_RUN_NUMBER
           if ($build -gt 65535) {
             throw "GitHub run number exceeds the Microsoft Store version field limit"
@@ -153,6 +181,7 @@ jobs:
             -Publisher $env:WINDOWS_STORE_PUBLISHER `
             -PublisherDisplayName $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME `
             -PackageVersion "1.0.$build.0"
+          "WINDOWS_STORE_MODE=store" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -160,28 +189,42 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter @mdbase/connect-desktop make
 
-      - name: Verify macOS signature and notarization
+      - name: Verify macOS release mode
         if: matrix.platform == 'macos'
         shell: bash
         run: |
           app_path="$(find apps/desktop/out -type d -name 'mdbase connect.app' -print -quit)"
           test -n "$app_path"
-          codesign --verify --deep --strict --verbose=2 "$app_path"
-          spctl --assess --type execute --verbose=4 "$app_path"
-          xcrun stapler validate "$app_path"
           dmg_path="$(find apps/desktop/out/make -type f -name '*.dmg' -print -quit)"
           test -n "$dmg_path"
+          if [ "$MACOS_RELEASE_MODE" = "signed" ]; then
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+            xcrun stapler validate "$app_path"
+          else
+            if codesign -dv "$app_path" 2>&1 | grep -q "Authority=Developer ID Application"; then
+              echo "Unsigned preview unexpectedly has a Developer ID signature." >&2
+              exit 1
+            fi
+            echo "Verified that the macOS beta preview has no Developer ID signature."
+          fi
 
       - name: Verify Windows packages
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          ./scripts/verify-windows-packages.ps1 `
-            -OutPath "apps/desktop/out" `
-            -IdentityName $env:WINDOWS_STORE_IDENTITY_NAME `
-            -Publisher $env:WINDOWS_STORE_PUBLISHER `
-            -PublisherDisplayName $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME `
-            -PackageVersion $env:WINDOWS_STORE_PACKAGE_VERSION
+          if ($env:WINDOWS_STORE_MODE -eq "store") {
+            ./scripts/verify-windows-packages.ps1 `
+              -OutPath "apps/desktop/out" `
+              -IdentityName $env:WINDOWS_STORE_IDENTITY_NAME `
+              -Publisher $env:WINDOWS_STORE_PUBLISHER `
+              -PublisherDisplayName $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME `
+              -PackageVersion $env:WINDOWS_STORE_PACKAGE_VERSION
+          } else {
+            ./scripts/verify-windows-packages.ps1 `
+              -OutPath "apps/desktop/out" `
+              -PreviewOnly
+          }
 
       - name: Install cosign
         if: matrix.platform == 'linux'
@@ -203,7 +246,7 @@ jobs:
           done
 
       - name: Stage Microsoft Store submission
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
         shell: bash
         run: |
           mkdir -p store-artifacts
@@ -227,6 +270,16 @@ jobs:
             cp "$portable" \
               "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-x64-UNSIGNED-portable.zip"
             cp docs/windows-unsigned-preview.txt release-artifacts/
+          elif [ "${{ matrix.platform }}" = "macos" ] && [ "$MACOS_RELEASE_MODE" = "unsigned" ]; then
+            dmg="$(find apps/desktop/out/make -type f -name '*.dmg' -print -quit)"
+            portable="$(find apps/desktop/out/make -type f -name '*.zip' -print -quit)"
+            test -n "$dmg"
+            test -n "$portable"
+            cp "$dmg" \
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.dmg"
+            cp "$portable" \
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.zip"
+            cp docs/macos-unsigned-preview.txt release-artifacts/
           else
             find apps/desktop/out/make -type f \
               \( -name '*.dmg' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \
@@ -247,7 +300,7 @@ jobs:
           subject-path: mdbase-connect/release-artifacts/*
 
       - name: Attest Microsoft Store submission
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: mdbase-connect/store-artifacts/*
@@ -260,7 +313,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Microsoft Store submission
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-store-submission
@@ -288,7 +341,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
-            --notes "Windows files containing **UNSIGNED** are optional preview builds and will show Unknown Publisher/SmartScreen warnings. Install from Microsoft Store for the trusted, Store-signed Windows release." \
+            --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Windows will show Unknown Publisher or SmartScreen warnings. macOS will require a manual Privacy & Security override and has not been notarized. Checksums and GitHub attestations establish build provenance but do not replace platform signing." \
             --prerelease \
             --title "mdbase connect $GITHUB_REF_NAME"
 

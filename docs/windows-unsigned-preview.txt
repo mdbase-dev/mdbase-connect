@@ -4,6 +4,7 @@ This GitHub download is intentionally not Authenticode-signed. Windows will
 identify its publisher as unknown and Microsoft Defender SmartScreen may warn
 or block it.
 
-For the trusted Windows release, install mdbase connect from Microsoft Store.
-Checksums and GitHub artifact attestations can verify this preview's integrity
-and build provenance, but they do not remove Windows publisher warnings.
+The trusted Microsoft Store channel is deferred until the mdbase publisher
+account is available. Checksums and GitHub artifact attestations can verify this
+preview's integrity and build provenance, but they do not remove Windows
+publisher warnings.
