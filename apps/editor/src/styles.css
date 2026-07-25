@@ -204,19 +204,28 @@ select:focus-visible {
 .wordmark {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--ink);
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
+  line-height: 1;
   letter-spacing: -0.02em;
 }
 
-.wordmark > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
+.wordmark-mark {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.wordmark-mark-ink {
+  fill: currentColor;
+}
+
+.wordmark-mark-accent {
+  fill: var(--accent);
 }
 
 .wordmark strong {

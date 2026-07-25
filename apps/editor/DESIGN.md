@@ -40,6 +40,17 @@ Atkinson Hyperlegible carries prose and controls. Azeret Mono is reserved for
 the lowercase mdbase wordmark, paths, types, and compact state labels. Note
 content is 17px with a relaxed 1.7 line height and a maximum readable measure.
 
+## Identity
+
+The shared mdbase Frontmatter mark precedes the live-type `mdbase editor`
+lockup. It appears on the connection screen, during collection opening, and in
+the collection rail. The mark uses the current ink color with one accent value,
+so it follows Light, Dark, and System themes without becoming a status
+indicator.
+
+Render the mark at 20px. Do not repeat it in note rows, editor headings, empty
+states, or collection controls.
+
 ## Layout
 
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
