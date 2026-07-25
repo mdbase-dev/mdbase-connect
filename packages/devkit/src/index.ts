@@ -252,7 +252,7 @@ implements MdbaseCollectionTransport {
     if (!current) return invalid("file_not_found", `File not found: ${path}`, path);
     const revisionError = checkRevision(input, current);
     if (revisionError) return revisionError;
-    const patch = asObject(input.patch ?? input.fields ?? {});
+    const patch = asObject(input.patch ?? {});
     const frontmatter = clone(current.frontmatter) as JsonObject;
     for (const [field, value] of Object.entries(patch)) frontmatter[field] = clone(value);
     const record = this.storedRecord({

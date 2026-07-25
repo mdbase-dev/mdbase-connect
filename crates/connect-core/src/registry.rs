@@ -814,11 +814,7 @@ impl CollectionRegistry {
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                if let Some(fields) = input
-                    .get("patch")
-                    .or_else(|| input.get("fields"))
-                    .and_then(Value::as_object)
-                {
+                if let Some(fields) = input.get("patch").and_then(Value::as_object) {
                     for (field, value) in fields {
                         if value.is_null() {
                             prospective.remove(field);
@@ -2550,7 +2546,7 @@ x-tasknotes:
                         "update",
                         &json!({
                             "path": "task.md",
-                            "fields": {"title": title},
+                            "patch": {"title": title},
                             "if_revision": revision,
                         }),
                         &scope,
@@ -2847,7 +2843,7 @@ schema:
                 "update",
                 &json!({
                     "path": "tasks/one.md",
-                    "fields": { "types": ["task", "private"] }
+                    "patch": { "types": ["task", "private"] }
                 }),
                 &scope
             ),

@@ -408,24 +408,12 @@ export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   if_revision?: string;
 }
 
-interface UpdateInputBase {
+export interface UpdateInput<Frontmatter extends JsonObject = JsonObject> {
   path: string;
+  patch: Partial<Frontmatter> & JsonObject;
   body?: string;
   if_revision?: string;
 }
-
-export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInputBase & (
-  | {
-      /** Canonical v0.3 partial frontmatter update. */
-      patch: Partial<Frontmatter> & JsonObject;
-      fields?: never;
-    }
-  | {
-      /** @deprecated Use `patch`. Kept during the protocol-2 transition. */
-      fields: Partial<Frontmatter> & JsonObject;
-      patch?: never;
-    }
-);
 
 export interface DeleteInput {
   path: string;

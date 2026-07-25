@@ -394,11 +394,9 @@ fn operation_input(
                 ApiError::not_found("record_not_found", "The hosted record does not exist.")
             })?;
             let mut input = mutation.input.clone();
-            // Sync v1 names partial frontmatter updates `patch`. The oldest
-            // supported mdbase v0.3 operation facade names the same input
-            // `fields`; normalize at this versioned protocol boundary so the
-            // production-pinned engine and newer development engines receive
-            // identical semantics.
+            // Connect exposes `patch`; the embedded Collection API consumes
+            // the equivalent `fields` object. Keep that translation isolated
+            // at this engine adapter.
             if let Some(patch) = input.remove("patch") {
                 input.insert("fields".to_string(), patch);
             }
