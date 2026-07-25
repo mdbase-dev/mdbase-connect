@@ -538,10 +538,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     let alive = true;
     void (async () => {
       try {
-        const callback = new URL(location.href);
-        if (callback.searchParams.has("code") || callback.searchParams.has("error")) {
-          await gateway.completeAuthorization();
-        }
+        await gateway.completeAuthorization();
         if (!alive) return;
         const connection = gateway.connection();
         if (connection && missingCoreOperations(connection).length === 0) await start();

@@ -1,4 +1,5 @@
 import {
+  MdbaseBrowserLocation,
   MdbaseConnect,
   MdbaseConnectError,
   unwrapOperation,
@@ -64,6 +65,7 @@ const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
   private readonly manager: MdbaseConnect<NoteFrontmatter>;
+  private readonly browserLocation: MdbaseBrowserLocation<NoteFrontmatter>;
   private indexSnapshot?: string;
   private readonly renamePreflights = new Map<string, import("@mdbase/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase/connect").DeletePreflightResult>();
@@ -74,6 +76,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
+    });
+    this.browserLocation = new MdbaseBrowserLocation(this.manager, {
+      fallbackPath: appRoot.pathname
     });
   }
 
@@ -99,21 +104,18 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   selectConnection(collectionId: string): void {
-    const url = cleanAuthorizationParameters(new URL(location.href));
-    url.searchParams.set("collection", collectionId);
-    history.replaceState({}, "", url);
+    this.browserLocation.selectConnection(collectionId, { replace: true });
   }
 
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    return this.manager.onConnectionsChange(() => listener(this.connection()));
+    return this.browserLocation.onChange(() => listener(this.connection()));
   }
 
   async authorize(collectionId?: string): Promise<void> {
     const current = collectionId
       ? this.manager.connection(collectionId)
       : this.activeConnection();
-    const returnTo = cleanAuthorizationParameters(new URL(globalThis.location.href));
-    const returnLocation = `${returnTo.pathname}${returnTo.search}${returnTo.hash}`;
+    const returnLocation = this.browserLocation.authorizationReturnTo();
     if (current) {
       await current.requestOperations(FULL_COLLECTION_OPERATIONS, { returnTo: returnLocation });
       return;
@@ -126,12 +128,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async completeAuthorization(): Promise<void> {
-    const result = await this.manager.completeAuthorization(location.href);
-    const returnTo = cleanAuthorizationParameters(
-      new URL(result.returnTo ?? import.meta.env.BASE_URL, location.origin)
-    );
-    returnTo.searchParams.set("collection", result.connection.collectionId);
-    history.replaceState({}, "", returnTo);
+    if (!this.browserLocation.isAuthorizationCallback(location.href)) return;
+    await this.browserLocation.completeAuthorization();
   }
 
   disconnect(): void {
@@ -314,12 +312,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
-    const selected = new URL(location.href).searchParams.get("collection");
-    if (selected) return this.manager.connection(selected);
-    const saved = this.manager.connections();
-    if (saved.length !== 1) return null;
-    this.selectConnection(saved[0].collectionId);
-    return this.manager.connection(saved[0].collectionId);
+    return this.browserLocation.activeConnection();
   }
 
   private requireConnection(): MdbaseConnection<NoteFrontmatter> {
@@ -327,13 +320,6 @@ export class ConnectCollectionGateway implements CollectionGateway {
     if (!connection) throw new Error("Choose a collection before editing notes.");
     return connection;
   }
-}
-
-function cleanAuthorizationParameters(url: URL): URL {
-  for (const parameter of ["code", "state", "error", "error_description"]) {
-    url.searchParams.delete(parameter);
-  }
-  return url;
 }
 
 function uniquePaths(values: Array<{ path: string }> | undefined): string[] {

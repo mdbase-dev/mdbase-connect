@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseCollectionClient, MdbaseConnectError, MdbaseOperationValidationError } from "@mdbase/connect";
+import {
+  MdbaseBrowserLocation,
+  MdbaseCollectionClient,
+  MdbaseConnectError,
+  MdbaseOperationValidationError,
+  type MdbaseConnect
+} from "@mdbase/connect";
 import { ConnectCollectionGateway, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
@@ -187,15 +193,17 @@ function injectConnection(
   bound.displayName ??= "Notes";
   bound.operations ??= [];
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
-  Object.defineProperty(gateway, "manager", {
-    value: {
-      connections: () => [{
-        collectionId: bound.collectionId,
-        displayName: bound.displayName,
-        operations: bound.operations
-      }],
-      connection: () => bound,
-      onConnectionsChange: () => () => undefined
-    }
+  const manager = {
+    connections: () => [{
+      collectionId: bound.collectionId,
+      displayName: bound.displayName,
+      operations: bound.operations
+    }],
+    connection: () => bound,
+    onConnectionsChange: () => () => undefined
+  } as unknown as MdbaseConnect;
+  Object.defineProperty(gateway, "manager", { value: manager });
+  Object.defineProperty(gateway, "browserLocation", {
+    value: new MdbaseBrowserLocation(manager)
   });
 }
