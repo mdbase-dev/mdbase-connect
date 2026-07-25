@@ -29,6 +29,10 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
     outline: getComputedStyle(element).outlineStyle,
     shadow: getComputedStyle(element).boxShadow
   }))).toEqual({ outline: "none", shadow: "none" });
+  await expect(page.locator(".body-editor .cm-cursorLayer")).toHaveCount(0);
+  const caretColor = await body.evaluate((element) => getComputedStyle(element).caretColor);
+  expect(caretColor).not.toBe("transparent");
+  expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
@@ -230,7 +234,7 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   await expect(rail.locator(".disconnect-action > span")).toBeHidden();
 });
 
-test("keeps the Vim insert-mode cursor visible", async ({ page }) => {
+test("uses the native caret in Vim insert mode", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("mdbase-editor:preferences", JSON.stringify({
       vim: true,
@@ -242,35 +246,19 @@ test("keeps the Vim insert-mode cursor visible", async ({ page }) => {
 
   const body = page.getByRole("textbox", { name: "Note body" });
   await body.click();
+  const scroller = page.locator(".body-editor .cm-scroller");
+  const blockCursor = page.locator(".body-editor .cm-vimCursorLayer .cm-fat-cursor");
+  await expect(scroller).toHaveClass(/cm-vimMode/);
+  await expect(blockCursor).toBeAttached();
+
   await page.keyboard.press("i");
   await expect(body).toBeFocused();
-
-  const cursor = page.locator(".body-editor .cm-cursorLayer:not(.cm-vimCursorLayer) .cm-cursor-primary");
-  await expect(cursor).toBeAttached();
-  const cursorState = await cursor.evaluate((element) => {
-    const cursorStyle = getComputedStyle(element);
-    const layerStyle = getComputedStyle(element.parentElement!);
-    const scroller = element.closest(".cm-scroller");
-    return {
-      animationName: layerStyle.animationName,
-      borderColor: cursorStyle.borderLeftColor,
-      borderWidth: cursorStyle.borderLeftWidth,
-      cursorDisplay: cursorStyle.display,
-      layerDisplay: layerStyle.display,
-      layerOpacity: layerStyle.opacity,
-      vimNormalMode: scroller?.classList.contains("cm-vimMode")
-    };
-  });
-  expect(cursorState).toMatchObject({
-    animationName: "none",
-    borderWidth: "2px",
-    cursorDisplay: "block",
-    layerDisplay: "block",
-    layerOpacity: "1",
-    vimNormalMode: false
-  });
-  expect(cursorState.borderColor).not.toBe("transparent");
-  expect(cursorState.borderColor).not.toBe("rgba(0, 0, 0, 0)");
+  await expect(scroller).not.toHaveClass(/cm-vimMode/);
+  await expect(blockCursor).not.toBeAttached();
+  await expect(page.locator(".body-editor .cm-cursorLayer:not(.cm-vimCursorLayer)")).toHaveCount(0);
+  const caretColor = await body.evaluate((element) => getComputedStyle(element).caretColor);
+  expect(caretColor).not.toBe("transparent");
+  expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("edits structured frontmatter without exposing an undifferentiated textarea", async ({ page }) => {

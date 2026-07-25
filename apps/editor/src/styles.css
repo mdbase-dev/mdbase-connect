@@ -1948,6 +1948,10 @@ kbd {
   font-family: inherit;
 }
 
+.code-editor .cm-content {
+  caret-color: var(--ink);
+}
+
 .body-editor .cm-scroller {
   padding-bottom: 80px;
 }
@@ -1956,7 +1960,6 @@ kbd {
   min-height: 100%;
   padding: 0;
   color: var(--color-editor-text);
-  caret-color: var(--ink);
   font-family: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: var(--editor-font-size, 17px);
   line-height: 1.7;
@@ -1970,10 +1973,6 @@ kbd {
 .code-editor .cm-selectionBackground,
 .code-editor .cm-content ::selection {
   background: var(--accent-soft) !important;
-}
-
-.code-editor .cm-cursor {
-  border-left-color: var(--ink);
 }
 
 .code-editor .cm-tooltip.cm-tooltip-autocomplete {
@@ -2020,16 +2019,6 @@ kbd {
   font-family: var(--mono);
   font-size: 9px;
   font-style: normal;
-}
-
-.code-editor.vim-enabled .cm-scroller:not(.cm-vimMode) .cm-cursorLayer:not(.cm-vimCursorLayer) {
-  animation: none !important;
-  opacity: 1 !important;
-}
-
-.code-editor.vim-enabled .cm-scroller:not(.cm-vimMode) .cm-cursor {
-  margin-left: -1px;
-  border-left: 2px solid var(--ink);
 }
 
 .code-editor .cm-activeLine,

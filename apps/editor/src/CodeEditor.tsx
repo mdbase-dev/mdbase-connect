@@ -1,12 +1,12 @@
 import { autocompletion, startCompletion, type Completion, type CompletionContext } from "@codemirror/autocomplete";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, placeholder as editorPlaceholder } from "@codemirror/view";
+import { EditorView, highlightSpecialChars, keymap, placeholder as editorPlaceholder } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { minimalSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 
@@ -64,7 +64,7 @@ export function CodeEditor({
         doc: value,
         extensions: [
           vimMode.current.of([]),
-          minimalSetup,
+          editorSetup,
           syntaxHighlighting(mdbaseHighlightStyle),
           languageExtension(language),
           wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
@@ -141,8 +141,15 @@ export function CodeEditor({
     syncing.current = false;
   }, [value]);
 
-  return <div ref={parentRef} className={`code-editor${vimEnabled ? " vim-enabled" : ""} ${className}`.trim()} />;
+  return <div ref={parentRef} className={`code-editor ${className}`.trim()} />;
 }
+
+const editorSetup: Extension = [
+  highlightSpecialChars(),
+  history(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  keymap.of([...defaultKeymap, ...historyKeymap])
+];
 
 const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: [tags.comment, tags.meta], color: "var(--syntax-comment)" },

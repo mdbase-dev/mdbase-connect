@@ -15,6 +15,9 @@ importers:
       '@codemirror/autocomplete':
         specifier: ^6.20.3
         version: 6.20.3
+      '@codemirror/commands':
+        specifier: ^6.10.4
+        version: 6.10.4
       '@codemirror/lang-json':
         specifier: ^6.0.2
         version: 6.0.2
@@ -54,9 +57,6 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.7
         version: 3.14.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      codemirror:
-        specifier: ^6.0.2
-        version: 6.0.2
       lucide-react:
         specifier: ^1.25.0
         version: 1.25.0(react@19.2.7)
@@ -672,9 +672,6 @@ packages:
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
-
-  codemirror@6.0.2:
-    resolution: {integrity: sha512-VhydHotNW5w1UGK0Qj96BwSk/Zqbp9WbnyK2W/eVMv4QyF41INRGpjUhFJY7/uDNuudSc33a/PKr4iDqRduvHw==}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -1645,16 +1642,6 @@ snapshots:
       require-from-string: 2.0.2
 
   chai@6.2.2: {}
-
-  codemirror@6.0.2:
-    dependencies:
-      '@codemirror/autocomplete': 6.20.3
-      '@codemirror/commands': 6.10.4
-      '@codemirror/language': 6.12.4
-      '@codemirror/lint': 6.9.7
-      '@codemirror/search': 6.7.1
-      '@codemirror/state': 6.7.1
-      '@codemirror/view': 6.43.6
 
   convert-source-map@2.0.0: {}
 
