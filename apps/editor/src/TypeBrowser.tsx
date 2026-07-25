@@ -1,6 +1,6 @@
-import { ArrowLeft, CircleAlert, FileCode2, FilePlus2, Info, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, CircleAlert, FileCode2, FilePlus2, Info, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteSummary, TypeDocument } from "./model";
 import { compareLines } from "./text-diff";
@@ -9,13 +9,21 @@ import {
   readVisualType,
   removeTypeField,
   renameTypeField,
+  setTypeFieldChoices,
+  setTypeFieldConstraint,
+  setTypeFieldDescription,
   setTypeFieldKind,
   setTypeFieldRequired,
+  setTypeListItemKind,
+  typeFieldConversionImpact,
+  typeFieldPathLabel,
   typeImpact,
   updateTypeIdentity,
+  updateTypePathGlob,
   type TypeFieldDefinition,
   type TypeFieldKind,
   type TypeImpact,
+  type TypeSchemaNode,
   type VisualTypeDefinition
 } from "./type-schema";
 
@@ -131,21 +139,18 @@ export function TypeInspector({ type, document, source, notes, creating, loading
     </section>
     <section className="type-source">
       <div className="type-source-context">
-        <div><h2>Definition</h2><p>Edit common fields visually or work with the complete YAML source. Changes are reviewed before they replace the current definition.</p></div>
+        <div className="type-source-intro"><h2>Definition</h2><p>Design the record shape or work with its complete YAML source.</p></div>
         <div className="type-view-switch" role="group" aria-label="Type editor view">
-          <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Fields</button>
+          <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Design</button>
           <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
         </div>
-        <div className="type-compatibility-warning" role="note">
-          <Info aria-hidden="true" />
-          <p><strong>Collection-wide change</strong>Review checks existing notes before saving. Connected apps may also rely on this type’s current shape.</p>
-        </div>
-        {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
         <div className="type-editor-actions">
+          <span className="type-change-scope">Collection-wide change</span>
           <button onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
           <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value}>{saving ? "Saving…" : "Review changes"}</button>
         </div>
       </div>
+      {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
       {loading ? <div className="type-source-loading" aria-label="Loading type definition"><span /><span /><span /></div>
         : reviewing && impact ? <TypeChangeReview
           previousSource={document?.document}
@@ -156,7 +161,13 @@ export function TypeInspector({ type, document, source, notes, creating, loading
           onBack={() => setReviewing(false)}
           onConfirm={onSave}
         />
-          : view === "visual" && parsed.value ? <VisualTypeEditor definition={parsed.value} onChange={changeSource} />
+          : view === "visual" && parsed.value ? <VisualTypeEditor
+            definition={parsed.value}
+            source={source}
+            impact={impact}
+            onChange={changeSource}
+            onOpenYaml={() => setView("yaml")}
+          />
             : view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
               : <CodeEditor
                 key={`${document?.path ?? "new-type"}:yaml`}
@@ -171,47 +182,191 @@ export function TypeInspector({ type, document, source, notes, creating, loading
   </main>;
 }
 
-function VisualTypeEditor({ definition, onChange }: {
+function VisualTypeEditor({ definition, source, impact, onChange, onOpenYaml }: {
   definition: VisualTypeDefinition;
+  source: string;
+  impact?: TypeImpact;
   onChange: (change: (source: string) => string) => void;
+  onOpenYaml: () => void;
 }) {
   return <div className="visual-type-editor">
-    <div className="visual-type-basics">
-      <label><span>Name</span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" /></label>
-      <label><span>Description</span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
-    </div>
-    <div className="visual-type-fields-heading"><div><h3>Fields</h3><p>Required fields must be present on every matching note.</p></div><button onClick={() => onChange(addTypeField)}><Plus aria-hidden="true" />Add field</button></div>
+    <section className="visual-type-section visual-type-basics">
+      <div className="visual-section-heading"><div><h3>Identity</h3><p>The stable name used by records and connected apps.</p></div></div>
+      <div className="visual-type-basics-fields">
+        <label><span>Name</span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" /></label>
+        <label><span>Description</span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
+      </div>
+    </section>
+    <section className="visual-type-section type-match-section">
+      <div className="visual-section-heading">
+        <div><h3>Applies to</h3><p>{impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed {impact?.affectedNotes === 1 ? "note uses" : "notes use"} this type.</p></div>
+      </div>
+      <label className="type-path-glob"><span>Path pattern</span><input
+        value={definition.pathGlob ?? ""}
+        placeholder="Explicit type assignment"
+        onChange={(event) => onChange((source) => updateTypePathGlob(source, event.target.value))}
+        spellCheck="false"
+      /><small>{definition.pathGlob ? "Records under this path can match without a type property." : "Records select this type explicitly unless advanced matching is defined."}</small></label>
+      {definition.advancedMatch && <div className="advanced-match-note"><Info aria-hidden="true" /><p>This type also has advanced matching rules that remain in YAML.</p><button onClick={onOpenYaml}>Open YAML</button></div>}
+    </section>
+    <section className="visual-type-section">
+      <div className="visual-type-fields-heading"><div><h3>Fields</h3><p>Objects and lists can contain fields at any depth.</p></div><button onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button></div>
+      <div className="visual-field-columns" aria-hidden="true"><span>Field</span><span>Kind</span><span>Required</span><span /></div>
+    </section>
     <div className="visual-type-fields">
-      {definition.fields.map((field) => <VisualFieldRow key={field.name} field={field} onChange={onChange} />)}
+      {definition.fields.map((field) => <VisualFieldRow key={typeFieldPathLabel(field.path)} field={field} source={source} depth={0} onChange={onChange} />)}
       {!definition.fields.length && <p className="quiet-empty">No fields are declared yet.</p>}
     </div>
-    <p className="visual-type-footnote">Advanced constraints remain in the YAML source. Changing an advanced field’s kind replaces its structural constraints.</p>
+    <p className="visual-type-footnote">Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it.</p>
   </div>;
 }
 
-function VisualFieldRow({ field, onChange }: {
+function VisualFieldRow({ field, source, depth, onChange }: {
+  field: TypeFieldDefinition;
+  source: string;
+  depth: number;
+  onChange: (change: (source: string) => string) => void;
+}) {
+  const [expanded, setExpanded] = useState(field.kind === "object" || field.kind === "array");
+  const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
+  const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
+  const fieldLabel = typeFieldPathLabel(field.path);
+  function chooseKind(kind: TypeFieldKind) {
+    if (kind === "advanced" || kind === field.kind) return;
+    const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
+    if (typeFieldConversionImpact(source, field.path, nextKind).length) {
+      setPendingKind(nextKind);
+      setExpanded(true);
+    } else {
+      onChange((current) => setTypeFieldKind(current, field.path, nextKind));
+      if (nextKind === "object" || nextKind === "array") setExpanded(true);
+    }
+  }
+  return <div className="visual-field-branch" style={{ "--field-depth": depth } as CSSProperties}>
+    <div className="visual-field-row">
+      <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+        {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+      </button>
+      <label className="visual-field-name"><span className="sr-only">Field name</span><input defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
+      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><select value={field.kind} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
+        <KindOptions current={field.kind} />
+      </select></label>
+      <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
+      <button className="icon-button remove-type-field" aria-label={`Remove ${fieldLabel} field`} title={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))}><Trash2 aria-hidden="true" /></button>
+    </div>
+    {expanded && <div className="visual-field-details">
+      <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong>Advanced YAML rules</strong>}</div>
+      {pendingKind && <div className="field-conversion-warning" role="alert">
+        <CircleAlert aria-hidden="true" />
+        <div><strong>Convert this field to {kindLabel(pendingKind)}?</strong><p>{conversionImpact.length ? `This removes ${formatList(conversionImpact)}.` : "Its current structural rules will be replaced."}</p></div>
+        <button onClick={() => setPendingKind(undefined)}>Cancel</button>
+        <button className="confirm-field-conversion" onClick={() => {
+          onChange((current) => setTypeFieldKind(current, field.path, pendingKind));
+          setPendingKind(undefined);
+        }}>Convert field</button>
+      </div>}
+      <label className="field-description"><span>Description</span><input aria-label={`${fieldLabel} description`} value={field.description ?? ""} placeholder="What belongs in this field?" onChange={(event) => onChange((current) => setTypeFieldDescription(current, field.path, event.target.value))} /></label>
+      <FieldConstraints field={field} onChange={onChange} />
+      {field.kind === "object" && <ObjectFields node={field} source={source} depth={depth + 1} onChange={onChange} />}
+      {field.kind === "array" && field.item && <ListItemEditor item={field.item} source={source} depth={depth + 1} onChange={onChange} />}
+    </div>}
+  </div>;
+}
+
+function ObjectFields({ node, source, depth, onChange }: {
+  node: TypeSchemaNode;
+  source: string;
+  depth: number;
+  onChange: (change: (source: string) => string) => void;
+}) {
+  return <div className="nested-field-group">
+    <div className="nested-field-heading"><div><strong>Nested fields</strong><span>{node.constraints.additionalProperties === false ? "Only declared fields are allowed" : "Other fields are allowed"}</span></div><button onClick={() => onChange((current) => addTypeField(current, node.path))}><Plus aria-hidden="true" />Add nested field</button></div>
+    {node.fields.map((field) => <VisualFieldRow key={typeFieldPathLabel(field.path)} field={field} source={source} depth={depth} onChange={onChange} />)}
+    {!node.fields.length && <p className="nested-field-empty">No nested fields yet.</p>}
+  </div>;
+}
+
+function ListItemEditor({ item, source, depth, onChange }: {
+  item: TypeSchemaNode;
+  source: string;
+  depth: number;
+  onChange: (change: (source: string) => string) => void;
+}) {
+  const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
+  const itemLabel = typeFieldPathLabel(item.path);
+  const impact = pendingKind ? typeFieldConversionImpact(source, item.path, pendingKind) : [];
+  return <div className="list-item-editor">
+    <div className="list-item-heading">
+      <div><strong>List items</strong><span>{itemLabel}</span></div>
+      <label><span className="sr-only">{itemLabel} kind</span><select value={item.kind} onChange={(event) => {
+        const kind = event.target.value as TypeFieldKind;
+        if (kind === "advanced" || kind === item.kind) return;
+        const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
+        if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);
+        else onChange((current) => setTypeListItemKind(current, item.path.slice(0, -1), nextKind));
+      }}><KindOptions current={item.kind} /></select></label>
+    </div>
+    {pendingKind && <div className="field-conversion-warning" role="alert">
+      <CircleAlert aria-hidden="true" />
+      <div><strong>Convert list items to {kindLabel(pendingKind)}?</strong><p>{impact.length ? `This removes ${formatList(impact)}.` : "Their current structural rules will be replaced."}</p></div>
+      <button onClick={() => setPendingKind(undefined)}>Cancel</button>
+      <button className="confirm-field-conversion" onClick={() => {
+        onChange((current) => setTypeListItemKind(current, item.path.slice(0, -1), pendingKind));
+        setPendingKind(undefined);
+      }}>Convert items</button>
+    </div>}
+    {item.kind === "object" && <ObjectFields node={item} source={source} depth={depth} onChange={onChange} />}
+    {item.kind === "array" && item.item && <ListItemEditor item={item.item} source={source} depth={depth + 1} onChange={onChange} />}
+    {item.advancedKeys.length > 0 && <p className="advanced-item-note">Additional item rules remain in YAML.</p>}
+  </div>;
+}
+
+function KindOptions({ current }: { current: TypeFieldKind }) {
+  return <>
+    {current === "advanced" && <option value="advanced">Advanced</option>}
+    <option value="string">Text</option>
+    <option value="number">Number</option>
+    <option value="integer">Integer</option>
+    <option value="boolean">Checkbox</option>
+    <option value="array">List</option>
+    <option value="date">Date</option>
+    <option value="datetime">Date and time</option>
+    <option value="object">Object</option>
+  </>;
+}
+
+function FieldConstraints({ field, onChange }: {
   field: TypeFieldDefinition;
   onChange: (change: (source: string) => string) => void;
 }) {
-  return <div className="visual-field-row">
-    <label><span className="sr-only">Field name</span><input defaultValue={field.name} onBlur={(event) => onChange((source) => renameTypeField(source, field.name, event.target.value))} spellCheck="false" /></label>
-    <label><span className="sr-only">{field.name} field kind</span><select value={field.kind} onChange={(event) => {
-      const kind = event.target.value as TypeFieldKind;
-      if (kind !== "advanced") onChange((source) => setTypeFieldKind(source, field.name, kind));
-    }}>
-      {field.kind === "advanced" && <option value="advanced">Advanced</option>}
-      <option value="string">Text</option>
-      <option value="number">Number</option>
-      <option value="integer">Integer</option>
-      <option value="boolean">Checkbox</option>
-      <option value="string-list">Text list</option>
-      <option value="date">Date</option>
-      <option value="datetime">Date and time</option>
-      <option value="object">Object</option>
-    </select></label>
-    <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((source) => setTypeFieldRequired(source, field.name, event.target.checked))} /><span>Required</span></label>
-    <button className="icon-button" aria-label={`Remove ${field.name} field`} title={`Remove ${field.name} field`} onClick={() => onChange((source) => removeTypeField(source, field.name))}><Trash2 aria-hidden="true" /></button>
-  </div>;
+  const controls: ReactNode[] = [];
+  const constraint = (key: string, label: string, value?: number) => controls.push(<label key={key}><span>{label}</span><input
+    key={`${key}:${value ?? ""}`}
+    type="number"
+    defaultValue={value}
+    min="0"
+    onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, key, event.target.value === "" ? undefined : Number(event.target.value)))}
+  /></label>);
+  if (field.kind === "string") {
+    constraint("minLength", "Minimum length", field.constraints.minLength);
+    constraint("maxLength", "Maximum length", field.constraints.maxLength);
+    controls.push(<label key="pattern"><span>Pattern</span><input value={field.constraints.pattern ?? ""} placeholder="Optional regular expression" onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "pattern", event.target.value || undefined))} /></label>);
+    controls.push(<label className="field-choices" key="choices"><span>Choices</span><textarea defaultValue={field.constraints.choices?.join("\n") ?? ""} placeholder={"One choice per line"} onBlur={(event) => onChange((current) => setTypeFieldChoices(current, field.path, event.target.value.split(/\r?\n/)))} /></label>);
+  }
+  if (field.kind === "number" || field.kind === "integer") {
+    controls.push(<label key="minimum"><span>Minimum</span><input key={`minimum:${field.constraints.minimum ?? ""}`} type="number" defaultValue={field.constraints.minimum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "minimum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
+    controls.push(<label key="maximum"><span>Maximum</span><input key={`maximum:${field.constraints.maximum ?? ""}`} type="number" defaultValue={field.constraints.maximum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "maximum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
+  }
+  if (field.kind === "array") {
+    constraint("minItems", "Minimum items", field.constraints.minItems);
+    constraint("maxItems", "Maximum items", field.constraints.maxItems);
+    controls.push(<label className="field-toggle" key="uniqueItems"><input type="checkbox" checked={field.constraints.uniqueItems === true} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "uniqueItems", event.target.checked || undefined))} /><span>Require unique items</span></label>);
+  }
+  if (field.kind === "object") {
+    controls.push(<label className="field-toggle" key="additionalProperties"><input type="checkbox" checked={field.constraints.additionalProperties !== false} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "additionalProperties", event.target.checked))} /><span>Allow undeclared fields</span></label>);
+  }
+  if (!controls.length) return null;
+  return <div className="field-constraint-grid">{controls}</div>;
 }
 
 function TypeChangeReview({ previousSource, source, impact, creating, saving, onBack, onConfirm }: {
@@ -228,13 +383,14 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
   return <div className="type-change-review">
     <p className="eyebrow">Review changes</p>
     <h2>{creating ? "Create this type?" : "Update this type?"}</h2>
-    <p>{changeCount ? `${changeCount} field-level ${changeCount === 1 ? "change" : "changes"} detected.` : "The source changed without altering the common field shape."}</p>
+    <p>{changeCount ? `${changeCount} field-level ${changeCount === 1 ? "change" : "changes"} detected.` : "The source changed without altering declared fields."}</p>
     <dl>
       <div><dt>Matching notes</dt><dd>{impact.affectedNotes.toLocaleString()}</dd></div>
       <div><dt>Fields added</dt><dd>{impact.addedFields.length}</dd></div>
       <div><dt>Fields removed</dt><dd>{impact.removedFields.length}</dd></div>
-      <div><dt>Kinds changed</dt><dd>{impact.changedFields.length}</dd></div>
+      <div><dt>Fields changed</dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
+    {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong>Definition changes</strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
     {impact.missingRequired.length > 0 && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
       <div><strong>Existing notes need attention</strong>{impact.missingRequired.map((item) => <p key={item.field}>{item.count.toLocaleString()} {item.count === 1 ? "note is" : "notes are"} missing required field <code>{item.field}</code>.</p>)}</div>
@@ -243,6 +399,26 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
     <details><summary>Review YAML diff</summary><div className="line-diff" role="table" aria-label="Type source differences">{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
     <div className="type-review-actions"><button onClick={onBack}>Back to editing</button><button className="confirm-type-button" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : creating ? "Create type" : "Confirm update"}</button></div>
   </div>;
+}
+
+function kindLabel(kind: Exclude<TypeFieldKind, "advanced">): string {
+  const labels: Record<Exclude<TypeFieldKind, "advanced">, string> = {
+    string: "text",
+    number: "number",
+    integer: "integer",
+    boolean: "checkbox",
+    array: "a list",
+    object: "an object",
+    date: "a date",
+    datetime: "a date and time"
+  };
+  return labels[kind];
+}
+
+function formatList(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? "the current rules";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }
 
 function parseVisualType(source: string): { value?: VisualTypeDefinition; error?: string } {

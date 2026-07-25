@@ -1,10 +1,9 @@
 import { ArrowLeft } from "lucide-react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { CodeEditor } from "./CodeEditor";
+import { useMemo, useState, type ReactNode } from "react";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
-import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
+import { SchemaValueEditor, schemaValueComplete } from "./SchemaValueEditor";
 
 export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadingActions, onCreate, onCancel }: {
   types: CollectionTypeDescriptor[];
@@ -32,7 +31,7 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
     title.trim()
     && validPath(resolvedPath)
     && (!folderCreation || validFolder(folderName))
-    && required.every((field) => hasValue(properties[field]))
+    && required.every((field) => schemaValueComplete(schema.properties[field], properties[field]))
   );
 
   const defaults = useMemo(() => schemaDefaults(type), [type]);
@@ -87,7 +86,14 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
           {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
         </select></label>
         {folderCreation && <label className="new-folder-path"><span>Path</span><output>{resolvedPath}</output></label>}
-        {required.map((field) => <RequiredField key={`${typeName}:${field}`} name={field} schema={schema.properties[field]} value={properties[field]} onChange={(value) => setProperties((current) => ({ ...current, [field]: value }))} />)}
+        {required.map((field) => <SchemaValueEditor
+          key={`${typeName}:${field}`}
+          name={field}
+          schema={schema.properties[field]}
+          value={properties[field]}
+          required
+          onChange={(value) => setProperties((current) => ({ ...current, [field]: value }))}
+        />)}
       </div>
       {folderCreation && <p className="new-folder-help">Folders are created when their first note is saved.</p>}
       {type?.description && <p className="new-note-type-help">{type.description}</p>}
@@ -95,42 +101,6 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
       <div className="new-note-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="create-note-button" disabled={!complete || creating}>{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}</button></div>
     </form>
   </main>;
-}
-
-function RequiredField({ name, schema, value, onChange }: { name: string; schema?: JsonObject; value: unknown; onChange: (value: unknown) => void }) {
-  const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item): item is string => typeof item === "string") : [];
-  const type = typeof schema?.type === "string" ? schema.type : "string";
-  const dateFormat = schemaDateFormat(schema);
-  if (choices.length) return <label><span>{name}</span><select value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)}><option value="">Choose</option>{choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select></label>;
-  if (dateFormat) return <label><span>{name}</span><input
-    type={schemaDateInputType(dateFormat)}
-    step={dateFormat === "date-time" ? 1 : undefined}
-    value={schemaDateInputValue(value, dateFormat)}
-    onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
-  /></label>;
-  if (type === "boolean") return <label className="required-toggle"><span>{name}</span><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} /></label>;
-  if (type === "number" || type === "integer") return <label><span>{name}</span><input type="number" value={typeof value === "number" ? value : ""} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} /></label>;
-  if (type === "array" || type === "object") return <JsonRequiredField name={name} type={type} onChange={onChange} />;
-  return <label><span>{name}</span><input value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function JsonRequiredField({ name, type, onChange }: { name: string; type: "array" | "object"; onChange: (value: unknown) => void }) {
-  const [error, setError] = useState<string>();
-  const initial = type === "array" ? "[]" : "{}";
-  useEffect(() => { onChange(type === "array" ? [] : {}); }, [type]);
-  return <label className="new-note-json-field"><span>{name}</span><CodeEditor value={initial} label={`${name} JSON value`} language="json" lineWrapping={false} onChange={(text) => {
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && (!parsed || Array.isArray(parsed) || typeof parsed !== "object"))) {
-        throw new Error(`Enter a JSON ${type}.`);
-      }
-      onChange(parsed);
-      setError(undefined);
-    } catch (parseError) {
-      onChange(undefined);
-      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
-    }
-  }} />{error && <small role="alert">{error}</small>}</label>;
 }
 
 function schemaShape(type?: CollectionTypeDescriptor): { properties: Record<string, JsonObject>; required: string[] } {
@@ -189,8 +159,4 @@ function normalizedFolder(folder: string): string {
 function validFolder(folder: string): boolean {
   const value = normalizedFolder(folder);
   return Boolean(value && value.split("/").every((part) => part && part !== "." && part !== ".."));
-}
-
-function hasValue(value: unknown): boolean {
-  return value !== undefined && value !== null && value !== "";
 }

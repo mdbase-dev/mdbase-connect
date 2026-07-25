@@ -175,6 +175,38 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
 });
 
+test("builds and saves a recursive list-of-objects field", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+
+  await page.getByRole("button", { name: "Add field" }).click();
+  const fieldName = page.locator(".visual-field-name input").last();
+  await fieldName.fill("contacts");
+  await fieldName.press("Tab");
+  await page.getByRole("combobox", { name: "contacts field kind" }).selectOption("array");
+  await page.getByRole("combobox", { name: "contacts[] kind" }).selectOption("object");
+  await page.getByRole("button", { name: "Add nested field" }).last().click();
+
+  const nestedName = page.locator(".visual-field-name input").last();
+  await nestedName.fill("value");
+  await nestedName.press("Tab");
+  const nestedRow = nestedName.locator("xpath=ancestor::div[contains(@class,'visual-field-row')]");
+  await nestedRow.getByRole("checkbox", { name: "Required" }).check();
+
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await expect(page.getByRole("heading", { name: "Update this type?" })).toBeVisible();
+  await expect(page.locator(".type-change-review dl > div").filter({ hasText: "Fields added" })).toContainText("2");
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "YAML" }).click();
+  const source = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(source).toContainText("contacts:");
+  await expect(source).toContainText("items:");
+  await expect(source).toContainText("- value");
+});
+
 test("resizes, collapses, and restores the desktop sidebars", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
@@ -263,14 +295,20 @@ test("uses the native caret in Vim insert mode", async ({ page }) => {
 
 test("edits structured frontmatter without exposing an undifferentiated textarea", async ({ page }) => {
   await page.goto("?demo=12");
-  await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click();
+  await page.getByRole("option").filter({ hasText: "Ideas for Sunday 12" }).click();
   await page.getByRole("button", { name: "Note properties" }).click();
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("heading", { name: "Properties" })).toBeVisible();
-  await expect(panel.getByRole("textbox", { name: "tags JSON value" })).toBeVisible();
+  const tags = panel.getByRole("group", { name: "tags" });
+  await expect(tags.getByRole("button", { name: "Add item" })).toBeVisible();
+  await tags.getByRole("button", { name: "Add item" }).click();
+  await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
+  await panel.getByRole("button", { name: "Save properties" }).click();
+  await expect(panel).not.toBeVisible();
+  await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: /JSON/ }).click();
-  await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"tags"');
+  await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"nested editing"');
 });
 
 test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {

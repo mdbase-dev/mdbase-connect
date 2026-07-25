@@ -56,6 +56,34 @@ describe("new note schema fields", () => {
       properties: {}
     });
   });
+
+  it("creates typed notes with required objects and lists of objects", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer types={[contactType]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "Ada Lovelace");
+    expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("display_name"), "Ada");
+    await user.selectOptions(screen.getByLabelText("kind"), "email");
+    await user.type(screen.getByLabelText("value"), "ada@example.com");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "Ada Lovelace",
+      path: "People/Ada Lovelace.md",
+      type: "contact",
+      titleField: "title",
+      properties: {
+        title: "Ada Lovelace",
+        profile: { display_name: "Ada" },
+        contacts: [{ kind: "email", value: "ada@example.com" }]
+      }
+    });
+  });
 });
 
 const eventType: CollectionTypeDescriptor = {
@@ -68,6 +96,39 @@ const eventType: CollectionTypeDescriptor = {
       title: { type: "string" },
       event_date: { type: "string", format: "date" },
       starts_at: { type: "string", format: "date-time" }
+    }
+  },
+  extensions: {}
+};
+
+const contactType: CollectionTypeDescriptor = {
+  name: "contact",
+  definition: { match: { path_glob: "People/**/*.md" } },
+  schema: {
+    type: "object",
+    required: ["title", "profile", "contacts"],
+    properties: {
+      title: { type: "string" },
+      profile: {
+        type: "object",
+        required: ["display_name"],
+        properties: {
+          display_name: { type: "string", minLength: 1 },
+          timezone: { type: "string" }
+        }
+      },
+      contacts: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["kind", "value"],
+          properties: {
+            kind: { type: "string", enum: ["email", "phone"] },
+            value: { type: "string", minLength: 1 }
+          }
+        }
+      }
     }
   },
   extensions: {}

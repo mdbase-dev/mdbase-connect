@@ -9,9 +9,12 @@ same editor works against either storage provider.
 The editor includes a CodeMirror Markdown surface with optional Vim keys,
 `@` and `[[` object-link completion, backlinks, structured and JSON frontmatter
 views, deliberate note creation, collection settings, and a dedicated workspace
-for inspecting and editing type definitions. Use `@/type/query` to scope the
-object picker to a declared mdbase type. Type changes use mdbase connect's
-explicitly permissioned collection-management operations.
+for inspecting and editing type definitions. Its visual type builder supports
+recursive objects, lists of objects, nested lists, required fields, and common
+JSON Schema constraints while preserving advanced YAML rules. The same schema
+drives structured nested values during note creation and property editing. Use
+`@/type/query` to scope the object picker to a declared mdbase type. Type changes
+use mdbase connect's explicitly permissioned collection-management operations.
 
 The application requests `describe`, `changes`, `read`, `query`, `validate`,
 `create`, `update`, `delete`, `rename`, `read_type`, `create_type`, and

@@ -4,6 +4,7 @@ import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteDocument } from "./model";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
+import { isStructuredSchema, SchemaValueEditor } from "./SchemaValueEditor";
 
 type PropertyKind = "text" | "number" | "boolean" | "list" | "object" | "null";
 type PropertyValue = unknown;
@@ -146,6 +147,9 @@ function PropertyValue({ name, value, schema, onChange }: {
   schema?: JsonObject;
   onChange: (value: PropertyValue) => void;
 }) {
+  if (isStructuredSchema(schema) && (Array.isArray(value) || (value && typeof value === "object"))) {
+    return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} />;
+  }
   if (typeof value === "boolean") {
     return <label className="boolean-property"><input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? "True" : "False"}</span></label>;
   }

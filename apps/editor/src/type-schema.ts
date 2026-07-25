@@ -1,18 +1,47 @@
 import { parseDocument, type Document } from "yaml";
 import type { NoteSummary } from "./model";
 
-export type TypeFieldKind = "string" | "number" | "integer" | "boolean" | "string-list" | "date" | "datetime" | "object" | "advanced";
+export type TypeFieldKind = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "advanced";
+export type TypeSchemaPath = string[];
+export type TypeValuePath = Array<string | "[]">;
 
-export interface TypeFieldDefinition {
-  name: string;
+export interface TypeFieldConstraints {
+  constant?: unknown;
+  choices?: string[];
+  defaultValue?: unknown;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+  additionalProperties?: boolean;
+}
+
+export interface TypeSchemaNode {
+  path: TypeSchemaPath;
+  valuePath: TypeValuePath;
   kind: TypeFieldKind;
-  required: boolean;
   description?: string;
+  fields: TypeFieldDefinition[];
+  item?: TypeSchemaNode;
+  constraints: TypeFieldConstraints;
+  advancedKeys: string[];
+  raw: Record<string, unknown>;
+}
+
+export interface TypeFieldDefinition extends TypeSchemaNode {
+  name: string;
+  required: boolean;
 }
 
 export interface VisualTypeDefinition {
   name: string;
   description: string;
+  pathGlob?: string;
+  advancedMatch: boolean;
   fields: TypeFieldDefinition[];
 }
 
@@ -23,6 +52,7 @@ export interface TypeImpact {
   newlyRequired: string[];
   affectedNotes: number;
   missingRequired: Array<{ field: string; count: number }>;
+  definitionChanges: string[];
 }
 
 interface ParsedTypeSource {
@@ -31,20 +61,25 @@ interface ParsedTypeSource {
   value: Record<string, unknown>;
 }
 
+const SCHEMA_ROOT = ["schema", "value"];
+const KIND_KEYS = [
+  "type", "const", "enum", "format", "items", "properties", "required", "additionalProperties",
+  "minLength", "maxLength", "pattern", "minimum", "maximum", "exclusiveMinimum",
+  "exclusiveMaximum", "multipleOf", "minItems", "maxItems", "uniqueItems", "minProperties",
+  "maxProperties", "$ref", "$defs", "allOf", "anyOf", "oneOf", "not", "if", "then", "else",
+  "dependentRequired", "dependentSchemas", "patternProperties", "prefixItems", "contains", "default", "examples"
+];
+
 export function readVisualType(source: string): VisualTypeDefinition {
   const { value } = parseTypeSource(source);
   const schema = record(record(value.schema).value);
-  const properties = record(schema.properties);
-  const required = new Set(array(schema.required).filter((item): item is string => typeof item === "string"));
+  const match = record(value.match);
   return {
     name: typeof value.name === "string" ? value.name : "",
     description: typeof value.description === "string" ? value.description : "",
-    fields: Object.entries(properties).map(([name, definition]) => ({
-      name,
-      kind: fieldKind(record(definition)),
-      required: required.has(name),
-      ...(typeof record(definition).description === "string" ? { description: record(definition).description as string } : {})
-    }))
+    ...(typeof match.path_glob === "string" ? { pathGlob: match.path_glob } : {}),
+    advancedMatch: Object.keys(match).some((key) => key !== "path_glob") || (match.path_glob !== undefined && typeof match.path_glob !== "string"),
+    fields: readObjectFields(schema, [], [])
   };
 }
 
@@ -52,78 +87,216 @@ export function updateTypeIdentity(source: string, field: "name" | "description"
   return mutate(source, (document) => document.setIn([field], value));
 }
 
-export function addTypeField(source: string): string {
+export function updateTypePathGlob(source: string, value: string): string {
+  const pathGlob = value.trim();
+  return mutate(source, (document) => {
+    if (pathGlob) {
+      document.setIn(["match", "path_glob"], pathGlob);
+      return;
+    }
+    document.deleteIn(["match", "path_glob"]);
+    const match = document.getIn(["match"]);
+    if (isEmptyRecord(match)) document.deleteIn(["match"]);
+  });
+}
+
+export function addTypeField(source: string, parentPath: TypeSchemaPath = []): string {
   const visual = readVisualType(source);
-  const existing = new Set(visual.fields.map((field) => field.name));
+  const parent = parentPath.length ? findSchemaNode(visual.fields, parentPath) : undefined;
+  const existing = new Set((parent ? parent.fields : visual.fields).map((field) => field.name));
   let index = 1;
   let name = "field";
   while (existing.has(name)) name = `field-${++index}`;
-  return mutate(source, (document) => document.setIn(["schema", "value", "properties", name], { type: "string" }));
+  return mutate(source, (document) => {
+    document.setIn([...SCHEMA_ROOT, ...parentPath, "properties", name], { type: "string" });
+  });
 }
 
-export function renameTypeField(source: string, from: string, to: string): string {
+export function renameTypeField(source: string, pathOrName: TypeSchemaPath | string, to: string): string {
+  const path = fieldPath(pathOrName);
   const name = to.trim();
+  const from = path.at(-1) ?? "";
   if (!name || name === from) return source;
   const visual = readVisualType(source);
-  if (visual.fields.some((field) => field.name === name)) throw new Error(`A field named “${name}” already exists.`);
+  const parentPath = objectParentPath(path);
+  const siblings = parentPath.length ? findSchemaNode(visual.fields, parentPath)?.fields ?? [] : visual.fields;
+  if (siblings.some((field) => field.name === name)) throw new Error(`A field named “${name}” already exists.`);
   return mutate(source, (document) => {
-    const path = ["schema", "value", "properties"];
-    const definition = document.getIn([...path, from]);
-    document.setIn([...path, name], definition);
-    document.deleteIn([...path, from]);
-    const required = requiredFields(document).map((field) => field === from ? name : field);
-    setRequiredFields(document, required);
+    const definition = document.getIn([...SCHEMA_ROOT, ...path]);
+    const nextPath = [...path.slice(0, -1), name];
+    document.setIn([...SCHEMA_ROOT, ...nextPath], definition);
+    document.deleteIn([...SCHEMA_ROOT, ...path]);
+    const required = requiredFields(document, parentPath).map((field) => field === from ? name : field);
+    setRequiredFields(document, parentPath, required);
   });
 }
 
-export function setTypeFieldKind(source: string, name: string, kind: Exclude<TypeFieldKind, "advanced">): string {
-  return mutate(source, (document) => {
-    const path = ["schema", "value", "properties", name];
-    for (const key of ["type", "const", "enum", "format", "items", "properties", "additionalProperties"]) {
-      document.deleteIn([...path, key]);
-    }
-    const definition = kindDefinition(kind);
-    for (const [key, value] of Object.entries(definition)) document.setIn([...path, key], value);
-  });
+export function setTypeFieldKind(source: string, pathOrName: TypeSchemaPath | string, kind: Exclude<TypeFieldKind, "advanced">): string {
+  const path = fieldPath(pathOrName);
+  return mutate(source, (document) => replaceSchemaKind(document, path, kind));
 }
 
-export function setTypeFieldRequired(source: string, name: string, required: boolean): string {
+export function setTypeListItemKind(source: string, arrayPath: TypeSchemaPath, kind: Exclude<TypeFieldKind, "advanced">): string {
+  return mutate(source, (document) => replaceSchemaKind(document, [...arrayPath, "items"], kind));
+}
+
+export function typeFieldConversionImpact(source: string, pathOrName: TypeSchemaPath | string, kind: Exclude<TypeFieldKind, "advanced">): string[] {
+  const path = fieldPath(pathOrName);
+  const definition = schemaAtPath(source, path);
+  const currentKind = fieldKind(definition);
+  if (currentKind === kind) return [];
+  return KIND_KEYS.flatMap((key) => {
+    if (!(key in definition) || key === "type") return [];
+    if (key === "format" && ((currentKind === "date" && kind === "datetime") || (currentKind === "datetime" && kind === "date"))) return [];
+    return [constraintLabel(key)];
+  }).filter((label, index, labels) => labels.indexOf(label) === index);
+}
+
+export function setTypeFieldRequired(source: string, pathOrName: TypeSchemaPath | string, required: boolean): string {
+  const path = fieldPath(pathOrName);
+  const parentPath = objectParentPath(path);
+  const name = path.at(-1) ?? "";
   return mutate(source, (document) => {
-    const fields = new Set(requiredFields(document));
+    const fields = new Set(requiredFields(document, parentPath));
     if (required) fields.add(name);
     else fields.delete(name);
-    setRequiredFields(document, [...fields]);
+    setRequiredFields(document, parentPath, [...fields]);
   });
 }
 
-export function removeTypeField(source: string, name: string): string {
+export function setTypeFieldDescription(source: string, pathOrName: TypeSchemaPath | string, description: string): string {
+  return setTypeFieldConstraint(source, pathOrName, "description", description.trim() || undefined);
+}
+
+export function setTypeFieldConstraint(source: string, pathOrName: TypeSchemaPath | string, key: string, value: unknown): string {
+  const path = fieldPath(pathOrName);
   return mutate(source, (document) => {
-    document.deleteIn(["schema", "value", "properties", name]);
-    setRequiredFields(document, requiredFields(document).filter((field) => field !== name));
+    if (value === undefined || value === "") document.deleteIn([...SCHEMA_ROOT, ...path, key]);
+    else document.setIn([...SCHEMA_ROOT, ...path, key], value);
   });
+}
+
+export function setTypeFieldChoices(source: string, pathOrName: TypeSchemaPath | string, choices: string[]): string {
+  const values = choices.map((choice) => choice.trim()).filter(Boolean);
+  return setTypeFieldConstraint(source, pathOrName, "enum", values.length ? [...new Set(values)] : undefined);
+}
+
+export function removeTypeField(source: string, pathOrName: TypeSchemaPath | string): string {
+  const path = fieldPath(pathOrName);
+  const parentPath = objectParentPath(path);
+  const name = path.at(-1) ?? "";
+  return mutate(source, (document) => {
+    document.deleteIn([...SCHEMA_ROOT, ...path]);
+    setRequiredFields(document, parentPath, requiredFields(document, parentPath).filter((field) => field !== name));
+  });
+}
+
+export function typeFieldPathLabel(path: TypeSchemaPath): string {
+  let label = "";
+  for (let index = 0; index < path.length; index += 1) {
+    if (path[index] === "properties" && path[index + 1]) {
+      label += `${label ? "." : ""}${path[index + 1]}`;
+      index += 1;
+    } else if (path[index] === "items") {
+      label += "[]";
+    }
+  }
+  return label || "field";
 }
 
 export function typeImpact(previousSource: string | undefined, nextSource: string, notes: NoteSummary[], currentTypeName?: string): TypeImpact {
-  const previous = previousSource ? readVisualType(previousSource) : { name: "", description: "", fields: [] };
+  const previous = previousSource ? readVisualType(previousSource) : { name: "", description: "", advancedMatch: false, fields: [] };
   const next = readVisualType(nextSource);
-  const before = new Map(previous.fields.map((field) => [field.name, field]));
-  const after = new Map(next.fields.map((field) => [field.name, field]));
+  const before = flattenFields(previous.fields);
+  const after = flattenFields(next.fields);
   const addedFields = [...after.keys()].filter((name) => !before.has(name));
   const removedFields = [...before.keys()].filter((name) => !after.has(name));
-  const changedFields = [...after].filter(([name, field]) => before.has(name) && before.get(name)?.kind !== field.kind).map(([name]) => name);
+  const changedFields = [...after].filter(([name, field]) => {
+    const previousField = before.get(name);
+    return previousField && fieldSignature(previousField) !== fieldSignature(field);
+  }).map(([name]) => name);
   const newlyRequired = [...after].filter(([name, field]) => field.required && !before.get(name)?.required).map(([name]) => name);
   const typeNames = new Set([currentTypeName, previous.name, next.name].filter((name): name is string => Boolean(name)));
-  const affected = notes.filter((note) => note.types.some((name) => typeNames.has(name)) || (typeof note.frontmatter.type === "string" && typeNames.has(note.frontmatter.type)));
+  const affected = notes.filter((note) => note.types.some((name) => typeNames.has(name)) || explicitTypeNames(note).some((name) => typeNames.has(name)));
   return {
     addedFields,
     removedFields,
     changedFields,
     newlyRequired,
     affectedNotes: affected.length,
-    missingRequired: newlyRequired.map((field) => ({
-      field,
-      count: affected.filter((note) => !hasValue(note.frontmatter[field])).length
-    })).filter((item) => item.count > 0)
+    missingRequired: newlyRequired.map((fieldName) => {
+      const field = after.get(fieldName)!;
+      return { field: fieldName, count: affected.filter((note) => missingRequiredValue(note.frontmatter, field.valuePath)).length };
+    }).filter((item) => item.count > 0),
+    definitionChanges: definitionChanges(previousSource, nextSource)
+  };
+}
+
+function readObjectFields(schema: Record<string, unknown>, objectPath: TypeSchemaPath, valuePath: TypeValuePath): TypeFieldDefinition[] {
+  const properties = record(schema.properties);
+  const required = new Set(array(schema.required).filter((item): item is string => typeof item === "string"));
+  return Object.entries(properties).map(([name, definition]) => {
+    const path = [...objectPath, "properties", name];
+    return {
+      name,
+      required: required.has(name),
+      ...readSchemaNode(record(definition), path, [...valuePath, name])
+    };
+  });
+}
+
+function readSchemaNode(schema: Record<string, unknown>, path: TypeSchemaPath, valuePath: TypeValuePath): TypeSchemaNode {
+  const kind = fieldKind(schema);
+  const fields = kind === "object" ? readObjectFields(schema, path, valuePath) : [];
+  const itemSchema = kind === "array" ? record(schema.items) : undefined;
+  return {
+    path,
+    valuePath,
+    kind,
+    ...(typeof schema.description === "string" ? { description: schema.description } : {}),
+    fields,
+    ...(itemSchema ? { item: readSchemaNode(itemSchema, [...path, "items"], [...valuePath, "[]"]) } : {}),
+    constraints: fieldConstraints(schema),
+    advancedKeys: advancedSchemaKeys(schema, kind),
+    raw: schema
+  };
+}
+
+function advancedSchemaKeys(schema: Record<string, unknown>, kind: TypeFieldKind): string[] {
+  const supported = new Set(["description"]);
+  if (kind !== "advanced" && typeof schema.type === "string") supported.add("type");
+  if (kind === "string") {
+    ["minLength", "maxLength", "pattern"].forEach((key) => supported.add(key));
+    if (Array.isArray(schema.enum) && schema.enum.every((value) => typeof value === "string")) supported.add("enum");
+  }
+  if (kind === "date" || kind === "datetime") supported.add("format");
+  if (kind === "number" || kind === "integer") ["minimum", "maximum"].forEach((key) => supported.add(key));
+  if (kind === "array") {
+    ["minItems", "maxItems", "uniqueItems"].forEach((key) => supported.add(key));
+    if (isRecord(schema.items)) supported.add("items");
+  }
+  if (kind === "object") {
+    if (isRecord(schema.properties)) supported.add("properties");
+    if (Array.isArray(schema.required) && schema.required.every((value) => typeof value === "string")) supported.add("required");
+    if (typeof schema.additionalProperties === "boolean") supported.add("additionalProperties");
+  }
+  return Object.keys(schema).filter((key) => !supported.has(key));
+}
+
+function fieldConstraints(schema: Record<string, unknown>): TypeFieldConstraints {
+  return {
+    ...("const" in schema ? { constant: schema.const } : {}),
+    ...(Array.isArray(schema.enum) && schema.enum.every((value) => typeof value === "string") ? { choices: schema.enum as string[] } : {}),
+    ...("default" in schema ? { defaultValue: schema.default } : {}),
+    ...(typeof schema.minLength === "number" ? { minLength: schema.minLength } : {}),
+    ...(typeof schema.maxLength === "number" ? { maxLength: schema.maxLength } : {}),
+    ...(typeof schema.pattern === "string" ? { pattern: schema.pattern } : {}),
+    ...(typeof schema.minimum === "number" ? { minimum: schema.minimum } : {}),
+    ...(typeof schema.maximum === "number" ? { maximum: schema.maximum } : {}),
+    ...(typeof schema.minItems === "number" ? { minItems: schema.minItems } : {}),
+    ...(typeof schema.maxItems === "number" ? { maxItems: schema.maxItems } : {}),
+    ...(typeof schema.uniqueItems === "boolean" ? { uniqueItems: schema.uniqueItems } : {}),
+    ...(typeof schema.additionalProperties === "boolean" ? { additionalProperties: schema.additionalProperties } : {})
   };
 }
 
@@ -144,30 +317,168 @@ function mutate(source: string, change: (document: Document) => void): string {
   return `---\n${parsed.document.toString({ lineWidth: 0 })}---${parsed.tail}`;
 }
 
-function requiredFields(document: Document): string[] {
-  const required = document.getIn(["schema", "value", "required"]);
+function replaceSchemaKind(document: Document, path: TypeSchemaPath, kind: Exclude<TypeFieldKind, "advanced">) {
+  for (const key of KIND_KEYS) document.deleteIn([...SCHEMA_ROOT, ...path, key]);
+  const definition = kindDefinition(kind);
+  for (const [key, value] of Object.entries(definition)) document.setIn([...SCHEMA_ROOT, ...path, key], value);
+}
+
+function requiredFields(document: Document, objectPath: TypeSchemaPath): string[] {
+  const required = document.getIn([...SCHEMA_ROOT, ...objectPath, "required"]);
   return Array.isArray(required) ? required.filter((item): item is string => typeof item === "string") : [];
 }
 
-function setRequiredFields(document: Document, fields: string[]) {
-  if (fields.length) document.setIn(["schema", "value", "required"], fields);
-  else document.deleteIn(["schema", "value", "required"]);
+function setRequiredFields(document: Document, objectPath: TypeSchemaPath, fields: string[]) {
+  if (fields.length) document.setIn([...SCHEMA_ROOT, ...objectPath, "required"], fields);
+  else document.deleteIn([...SCHEMA_ROOT, ...objectPath, "required"]);
 }
 
 function fieldKind(definition: Record<string, unknown>): TypeFieldKind {
   if (definition.type === "string" && definition.format === "date") return "date";
   if (definition.type === "string" && definition.format === "date-time") return "datetime";
-  if (definition.type === "array" && record(definition.items).type === "string") return "string-list";
+  if (definition.type === "array") return "array";
   if (["string", "number", "integer", "boolean", "object"].includes(String(definition.type))) return definition.type as TypeFieldKind;
+  if (typeof definition.const === "string" || (Array.isArray(definition.enum) && definition.enum.every((item) => typeof item === "string"))) return "string";
+  if (typeof definition.const === "number") return Number.isInteger(definition.const) ? "integer" : "number";
+  if (typeof definition.const === "boolean") return "boolean";
   return "advanced";
 }
 
 function kindDefinition(kind: Exclude<TypeFieldKind, "advanced">): Record<string, unknown> {
   if (kind === "date") return { type: "string", format: "date" };
   if (kind === "datetime") return { type: "string", format: "date-time" };
-  if (kind === "string-list") return { type: "array", items: { type: "string" } };
-  if (kind === "object") return { type: "object", additionalProperties: true };
+  if (kind === "array") return { type: "array", items: { type: "string" } };
+  if (kind === "object") return { type: "object", additionalProperties: true, properties: {} };
   return { type: kind };
+}
+
+function fieldPath(pathOrName: TypeSchemaPath | string): TypeSchemaPath {
+  return typeof pathOrName === "string" ? ["properties", pathOrName] : pathOrName;
+}
+
+function objectParentPath(fieldSchemaPath: TypeSchemaPath): TypeSchemaPath {
+  if (fieldSchemaPath.at(-2) !== "properties") throw new Error("The schema path does not identify an object field.");
+  return fieldSchemaPath.slice(0, -2);
+}
+
+function schemaAtPath(source: string, path: TypeSchemaPath): Record<string, unknown> {
+  const { value } = parseTypeSource(source);
+  let current: unknown = record(record(value.schema).value);
+  for (const segment of path) current = record(current)[segment];
+  return record(current);
+}
+
+function findSchemaNode(fields: TypeFieldDefinition[], path: TypeSchemaPath): TypeSchemaNode | undefined {
+  for (const field of fields) {
+    if (samePath(field.path, path)) return field;
+    const nested = findSchemaNode(field.fields, path);
+    if (nested) return nested;
+    if (field.item) {
+      if (samePath(field.item.path, path)) return field.item;
+      const itemNested = findSchemaNode(field.item.fields, path);
+      if (itemNested) return itemNested;
+      const deepItem = findInItem(field.item.item, path);
+      if (deepItem) return deepItem;
+    }
+  }
+  return undefined;
+}
+
+function findInItem(item: TypeSchemaNode | undefined, path: TypeSchemaPath): TypeSchemaNode | undefined {
+  if (!item) return undefined;
+  if (samePath(item.path, path)) return item;
+  const nested = findSchemaNode(item.fields, path);
+  return nested ?? findInItem(item.item, path);
+}
+
+function flattenFields(fields: TypeFieldDefinition[]): Map<string, TypeFieldDefinition> {
+  const result = new Map<string, TypeFieldDefinition>();
+  const visit = (field: TypeFieldDefinition) => {
+    result.set(typeFieldPathLabel(field.path), field);
+    field.fields.forEach(visit);
+    visitItemFields(field.item);
+  };
+  const visitItemFields = (item?: TypeSchemaNode) => {
+    if (!item) return;
+    item.fields.forEach(visit);
+    visitItemFields(item.item);
+  };
+  fields.forEach(visit);
+  return result;
+}
+
+function fieldSignature(field: TypeFieldDefinition): string {
+  const { properties: _properties, required: _required, items: _items, ...shallow } = field.raw;
+  return JSON.stringify(shallow);
+}
+
+function definitionChanges(previousSource: string | undefined, nextSource: string): string[] {
+  if (!previousSource) return ["New type definition"];
+  const previous = parseTypeSource(previousSource);
+  const next = parseTypeSource(nextSource);
+  const changes: string[] = [];
+  if (previous.value.name !== next.value.name) changes.push("Type name");
+  if (previous.value.description !== next.value.description) changes.push("Description");
+  if (JSON.stringify(previous.value.match) !== JSON.stringify(next.value.match)) changes.push("Matching rules");
+  if (JSON.stringify(previous.value.collection) !== JSON.stringify(next.value.collection)) changes.push("Collection behaviour");
+  if (JSON.stringify(previous.value.lifecycle) !== JSON.stringify(next.value.lifecycle)) changes.push("Lifecycle");
+  if (JSON.stringify(schemaEnvelope(previous.value)) !== JSON.stringify(schemaEnvelope(next.value))) changes.push("Schema settings");
+  if (previous.tail !== next.tail) changes.push("Documentation");
+  return changes;
+}
+
+function schemaEnvelope(value: Record<string, unknown>): Record<string, unknown> {
+  const schema = record(value.schema);
+  const embedded = record(schema.value);
+  const { properties: _properties, required: _required, ...root } = embedded;
+  return { ...schema, ...(schema.value ? { value: root } : {}) };
+}
+
+function missingRequiredValue(frontmatter: Record<string, unknown>, valuePath: TypeValuePath): boolean {
+  const name = valuePath.at(-1);
+  if (typeof name !== "string" || name === "[]") return false;
+  const containers = containersAt(frontmatter, valuePath.slice(0, -1));
+  return containers.some((container) => isRecord(container) && !hasValue(container[name]));
+}
+
+function containersAt(value: unknown, path: TypeValuePath): unknown[] {
+  let values: unknown[] = [value];
+  for (const segment of path) {
+    if (segment === "[]") {
+      values = values.flatMap((candidate) => Array.isArray(candidate) ? candidate : []);
+    } else {
+      values = values.flatMap((candidate) => isRecord(candidate) && segment in candidate ? [candidate[segment]] : []);
+    }
+  }
+  return values;
+}
+
+function explicitTypeNames(note: NoteSummary): string[] {
+  const values = [note.frontmatter.type, note.frontmatter.types];
+  return values.flatMap((value) => typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+}
+
+function constraintLabel(key: string): string {
+  const labels: Record<string, string> = {
+    const: "constant value",
+    enum: "choices",
+    format: "format",
+    items: "list item schema",
+    properties: "nested fields",
+    required: "nested required fields",
+    additionalProperties: "additional field policy",
+    minLength: "minimum length",
+    maxLength: "maximum length",
+    pattern: "pattern",
+    minimum: "minimum",
+    maximum: "maximum",
+    minItems: "minimum items",
+    maxItems: "maximum items",
+    uniqueItems: "unique items",
+    default: "default",
+    examples: "examples"
+  };
+  return labels[key] ?? key;
 }
 
 function hasValue(value: unknown): boolean {
@@ -184,4 +495,12 @@ function record(value: unknown): Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isEmptyRecord(value: unknown): boolean {
+  return isRecord(value) && Object.keys(value).length === 0;
+}
+
+function samePath(left: TypeSchemaPath, right: TypeSchemaPath): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
