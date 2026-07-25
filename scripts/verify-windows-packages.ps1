@@ -63,23 +63,35 @@ foreach ($file in @($application, $installer)) {
   }
 }
 
-$storeSignature = Get-AuthenticodeSignature $storePackage.FullName
-if ($storeSignature.Status -ne "Valid") {
-  throw "Store package development signature is invalid: $($storeSignature.Status)"
-}
+function Find-WindowsSdkTool {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
 
-$makeAppx = Get-Command "makeappx.exe" -ErrorAction SilentlyContinue
-if (-not $makeAppx) {
+  $tool = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($tool) {
+    return $tool
+  }
+
   $sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
-  $makeAppx = Get-ChildItem $sdkRoot -Recurse -File -Filter "makeappx.exe" |
+  $tool = Get-ChildItem $sdkRoot -Recurse -File -Filter $Name |
     Where-Object { $_.DirectoryName -match "\\x64$" } |
     Sort-Object FullName -Descending |
     Select-Object -First 1
-}
-if (-not $makeAppx) {
-  throw "Could not find makeappx.exe in the Windows SDK"
+  if (-not $tool) {
+    throw "Could not find $Name in the Windows SDK"
+  }
+  $tool
 }
 
+$signTool = Find-WindowsSdkTool -Name "signtool.exe"
+& $signTool.FullName verify /pa /v $storePackage.FullName
+if ($LASTEXITCODE -ne 0) {
+  throw "Store package development signature verification failed"
+}
+
+$makeAppx = Find-WindowsSdkTool -Name "makeappx.exe"
 $unpacked = Join-Path $env:RUNNER_TEMP "mdbase-connect-appx"
 & $makeAppx.FullName unpack /p $storePackage.FullName /d $unpacked /o
 if ($LASTEXITCODE -ne 0) {

@@ -69,7 +69,7 @@ Export-Certificate `
   -FilePath $certificateDerPath | Out-Null
 Import-Certificate `
   -FilePath $certificateDerPath `
-  -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
+  -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
 Export-PfxCertificate `
   -Cert $certificate `
   -FilePath $certificatePath `
