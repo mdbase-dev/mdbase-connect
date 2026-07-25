@@ -11,12 +11,12 @@ on:
       - "scripts/configure-windows-store-package.ps1"
       - "scripts/verify-windows-packages.ps1"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
   workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 concurrency:
   group: desktop-release-${{ github.ref }}
@@ -31,18 +31,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS desktop
+          - label: macOS Apple Silicon desktop
             os: macos-15
-            artifact: desktop-macos
+            artifact: desktop-macos-arm64
             platform: macos
+            arch: arm64
+          - label: macOS Intel desktop
+            os: macos-15-intel
+            artifact: desktop-macos-x64
+            platform: macos
+            arch: x64
           - label: Windows desktop
             os: windows-2025
             artifact: desktop-windows
             platform: windows
+            arch: x64
           - label: Linux signed
             os: ubuntu-24.04
             artifact: desktop-linux
             platform: linux
+            arch: x64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -231,23 +239,7 @@ jobs:
           }
 
       - name: Install cosign
-        if: matrix.platform == 'linux'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Sign Linux packages
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          mapfile -t packages < <(find apps/desktop/out/make -type f \( -name '*.deb' -o -name '*.rpm' \) -print)
-          test "${#packages[@]}" -gt 0
-          for package in "${packages[@]}"; do
-            cosign sign-blob --yes --bundle "$package.sigstore.json" "$package"
-            cosign verify-blob \
-              --bundle "$package.sigstore.json" \
-              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
-              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              "$package"
-          done
 
       - name: Stage Microsoft Store submission
         if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
@@ -257,8 +249,6 @@ jobs:
           find apps/desktop/out/make -type f -name '*.appx' \
             -exec cp '{}' store-artifacts/ ';'
           test -n "$(find store-artifacts -type f -name '*.appx' -print -quit)"
-          cd store-artifacts
-          sha256sum *.appx > SHA256SUMS-windows-store
 
       - name: Stage release artifacts
         shell: bash
@@ -270,9 +260,9 @@ jobs:
             test -n "$installer"
             test -n "$portable"
             cp "$installer" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-x64-UNSIGNED-Setup.exe"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-Setup.exe"
             cp "$portable" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-x64-UNSIGNED-portable.zip"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-portable.zip"
             cp docs/windows-unsigned-preview.txt release-artifacts/
           elif [ "${{ matrix.platform }}" = "macos" ] && [ "$MACOS_RELEASE_MODE" = "unsigned" ]; then
             dmg="$(find apps/desktop/out/make -type f -name '*.dmg' -print -quit)"
@@ -280,34 +270,58 @@ jobs:
             test -n "$dmg"
             test -n "$portable"
             cp "$dmg" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.dmg"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.dmg"
             cp "$portable" \
-              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-x64-UNSIGNED.zip"
+              "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.zip"
             cp docs/macos-unsigned-preview.txt release-artifacts/
           else
             find apps/desktop/out/make -type f \
-              \( -name '*.dmg' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \
-                 -o -name '*.sigstore.json' \) \
+              \( -name '*.dmg' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \) \
               -exec cp '{}' release-artifacts/ ';'
           fi
           test -n "$(find release-artifacts -type f -print -quit)"
+
+      - name: Sign and verify release artifact provenance
+        shell: bash
+        run: |
+          found=false
+          for artifact in release-artifacts/*; do
+            test -f "$artifact" || continue
+            found=true
+            cosign sign-blob --yes --bundle "$artifact.sigstore.json" "$artifact"
+            cosign verify-blob \
+              --bundle "$artifact.sigstore.json" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$artifact"
+          done
+          "$found"
+
+      - name: Create release checksums
+        shell: bash
+        run: |
           cd release-artifacts
           if command -v shasum >/dev/null 2>&1; then
-            shasum -a 256 * > "SHA256SUMS-${{ matrix.platform }}"
+            shasum -a 256 * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           else
-            sha256sum * > "SHA256SUMS-${{ matrix.platform }}"
+            sha256sum * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           fi
 
-      - name: Attest release artifacts
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: mdbase-connect/release-artifacts/*
-
-      - name: Attest Microsoft Store submission
+      - name: Sign and verify Microsoft Store submission provenance
         if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: mdbase-connect/store-artifacts/*
+        shell: bash
+        run: |
+          for artifact in store-artifacts/*.appx; do
+            test -f "$artifact"
+            cosign sign-blob --yes --bundle "$artifact.sigstore.json" "$artifact"
+            cosign verify-blob \
+              --bundle "$artifact.sigstore.json" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$artifact"
+          done
+          cd store-artifacts
+          sha256sum * > SHA256SUMS-windows-store
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -345,7 +359,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
-            --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Windows will show Unknown Publisher or SmartScreen warnings. macOS will require a manual Privacy & Security override and has not been notarized. Checksums and GitHub attestations establish build provenance but do not replace platform signing." \
+            --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Windows will show Unknown Publisher or SmartScreen warnings. macOS will require a manual Privacy & Security override and has not been notarized. Checksums and GitHub OIDC-backed Sigstore bundles establish build provenance but do not replace platform signing." \
             --prerelease \
             --title "mdbase connect $GITHUB_REF_NAME"
 

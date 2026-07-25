@@ -39,16 +39,16 @@ Canonical public artifacts use each platform's trust channel:
 GitHub releases may additionally contain Windows Squirrel and portable builds
 whose filenames contain `UNSIGNED`. They are preview artifacts, not the
 canonical Windows installation channel. Windows will show Unknown Publisher or
-SmartScreen warnings for them. Checksums and GitHub artifact attestations prove
-which workflow produced the files, but do not provide Authenticode trust.
+SmartScreen warnings for them. Checksums and GitHub OIDC-backed Sigstore bundles
+prove which workflow produced the files, but do not provide Authenticode trust.
 
 Before company-backed publisher accounts are available, beta releases may also
 contain macOS DMG and ZIP files whose names contain `UNSIGNED`. They are neither
 Developer ID signed nor notarized and require a manual Gatekeeper override.
-Their bundled warning, checksums, and GitHub attestations describe the exact
+Their bundled warning, checksums, and Sigstore bundles describe the exact
 trust boundary.
 
-The `Desktop Release` workflow builds, verifies, attests, and publishes the
+The `Desktop Release` workflow builds, verifies, signs, and publishes the
 installers for a version tag. To enable trusted macOS output, configure these
 secrets in the `desktop-release` GitHub Actions environment:
 
@@ -84,9 +84,10 @@ will be tagged:
 gh workflow run desktop-release.yml --ref main
 ```
 
-This preflight builds, verifies, signs where configured, attests, and uploads
-all platform artifacts without creating a GitHub release. Require the macOS,
-Windows, Linux, and Windows Store smoke-test jobs to pass before tagging.
+This preflight builds, verifies, signs provenance, and uploads
+all platform artifacts without creating a GitHub release. Require the macOS
+Apple Silicon, macOS Intel, Windows, Linux, and Windows Store smoke-test jobs to
+pass before tagging.
 
 The tag must exactly match the root and desktop package version:
 
@@ -101,8 +102,8 @@ configured Apple signing material or Partner Center identity values fail the
 build. Fully configured trusted paths remain fail-closed when macOS
 notarization, signature verification, or Store package identity checks fail.
 The workflow also verifies that GitHub preview executables are unsigned before
-labeling and publishing them. Linux packages receive keyless Sigstore bundles,
-checksums, and GitHub artifact attestations.
+labeling and publishing them. Every downloadable artifact receives a keyless
+Sigstore bundle tied to the workflow's GitHub OIDC identity plus a checksum.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local and oracle end-to-end suites, retain checksums for every artifact, verify

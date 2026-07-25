@@ -5,7 +5,7 @@ been submitted to Apple's notarization service. macOS will block its first
 launch by default.
 
 Only proceed if you understand this limitation and have verified the download's
-checksum and GitHub build-provenance attestation. After attempting to open the
+checksum and GitHub OIDC-backed Sigstore bundle. After attempting to open the
 app, macOS permits a one-time override under System Settings > Privacy &
 Security > Open Anyway.
 

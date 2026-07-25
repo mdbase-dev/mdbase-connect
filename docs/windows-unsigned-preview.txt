@@ -5,6 +5,6 @@ identify its publisher as unknown and Microsoft Defender SmartScreen may warn
 or block it.
 
 The trusted Microsoft Store channel is deferred until the mdbase publisher
-account is available. Checksums and GitHub artifact attestations can verify this
-preview's integrity and build provenance, but they do not remove Windows
+account is available. Checksums and GitHub OIDC-backed Sigstore bundles can
+verify this preview's integrity and build provenance, but they do not remove Windows
 publisher warnings.

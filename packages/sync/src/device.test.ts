@@ -33,8 +33,10 @@ describe("device-local mirror storage", () => {
         refresh_token: "refresh-secret"
       });
       const directory = await mirrorProfileDirectory(root, stateRoot);
-      expect((await stat(directory)).mode & 0o777).toBe(0o700);
-      expect((await stat(join(directory, "credentials.json"))).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32") {
+        expect((await stat(directory)).mode & 0o777).toBe(0o700);
+        expect((await stat(join(directory, "credentials.json"))).mode & 0o777).toBe(0o600);
+      }
       await expect(access(join(root, ".mdbase", "connect-mirror.json"))).rejects.toMatchObject({
         code: "ENOENT"
       });
