@@ -2,10 +2,10 @@
   xmlns="http://www.w3.org/2000/svg"
   viewBox="0 0 120 120"
   role="img"
-  aria-labelledby="mdbase-icon-title"
+  aria-labelledby="mdbase-icon-dark-title"
 >
-  <title id="mdbase-icon-title">mdbase Frontmatter mark</title>
-  <g fill="#131921">
+  <title id="mdbase-icon-dark-title">mdbase Frontmatter mark for dark surfaces</title>
+  <g fill="#e1e5ea">
     <rect x="22" y="22" width="20" height="10" rx="2"/>
     <rect x="50" y="22" width="20" height="10" rx="2"/>
     <rect x="78" y="22" width="20" height="10" rx="2"/>
@@ -16,5 +16,5 @@
     <rect x="50" y="88" width="20" height="10" rx="2"/>
     <rect x="78" y="88" width="20" height="10" rx="2"/>
   </g>
-  <rect x="42" y="44" width="56" height="10" rx="2" fill="#005c88"/>
+  <rect x="42" y="44" width="56" height="10" rx="2" fill="#63b1e2"/>
 </svg>

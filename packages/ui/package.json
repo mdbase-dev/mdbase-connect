@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test access.test.ts theme.test.ts"
+    "test": "node --test access.test.ts brand.test.ts theme.test.ts"
   },
   "exports": {
     "./access": "./access.ts",
+    "./brand": "./brand.ts",
     "./theme": "./theme.ts",
     "./styles.css": "./styles.css"
   }

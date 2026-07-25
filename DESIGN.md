@@ -58,8 +58,28 @@ values so both themes preserve the same hierarchy.
 - Body copy is 12 to 14px at 1.45 to 1.55 line height, capped near 70ch.
 
 The product name is always written as `mdbase connect`. The wordmark pairs a
-small blue dot with lowercase `mdbase`; `connect` remains a quiet secondary
-label.
+20px Frontmatter mark with lowercase `mdbase`; `connect` remains a quiet
+secondary label. Keep the wordmark as live type.
+
+## Identity
+
+The canonical mark is a square piece of Frontmatter: segmented upper and lower
+fences, two key-value rows, and a blue first value. It represents plain-text
+structure becoming useful without implying a cloud, folder, or proprietary
+database.
+
+The visible geometry is a `76 × 76` square. Every element has the same weight,
+every horizontal gap is equal, and every row follows one vertical interval.
+The mark identifies mdbase only; it never substitutes for connection,
+authorization, or health status.
+
+Use the default, dark-surface, monochrome, favicon, and application-icon assets
+in `assets/`. Construction, sizing, lockup, and misuse guidance live in
+[`docs/product-design/identity-system.md`](docs/product-design/identity-system.md).
+Product application guidance lives in
+[`docs/product-design/interface-foundations.md`](docs/product-design/interface-foundations.md)
+and interaction guidance in
+[`docs/product-design/core-flows.md`](docs/product-design/core-flows.md).
 
 ## Layout
 

@@ -1,10 +1,10 @@
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 120 120"
+  viewBox="18 18 84 84"
   role="img"
-  aria-labelledby="mdbase-icon-title"
+  aria-labelledby="mdbase-favicon-title"
 >
-  <title id="mdbase-icon-title">mdbase Frontmatter mark</title>
+  <title id="mdbase-favicon-title">mdbase</title>
   <g fill="#131921">
     <rect x="22" y="22" width="20" height="10" rx="2"/>
     <rect x="50" y="22" width="20" height="10" rx="2"/>

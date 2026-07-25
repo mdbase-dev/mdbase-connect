@@ -9,6 +9,11 @@ import {
   groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
+import {
+  MDBASE_MARK_VIEW_BOX,
+  mdbaseMarkAccentRect,
+  mdbaseMarkInkRects
+} from "@mdbase/connect-ui/brand";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -1128,7 +1133,8 @@ function useSystemTheme() {
   }, []);
 }
 function PageBrand({ label, themePicker = true }: { label: string; themePicker?: boolean }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div>{themePicker && <ThemeSelect />}</div>; }
-function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><MdbaseMark /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+function MdbaseMark() { return <svg className="product-brand-mark" viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false"><g className="product-brand-mark-ink">{mdbaseMarkInkRects.map((rect) => <rect key={`${rect.x}-${rect.y}`} {...rect} />)}</g><rect className="product-brand-mark-accent" {...mdbaseMarkAccentRect} /></svg>; }
 function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
 function Loading({ error = "" }: { error?: string }) { return <main className="loading"><Brand /><p>{error || "Opening mdbase connect…"}</p></main>; }

@@ -8,6 +8,11 @@ import {
   groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
+import {
+  MDBASE_MARK_VIEW_BOX,
+  mdbaseMarkAccentRect,
+  mdbaseMarkInkRects
+} from "@mdbase/connect-ui/brand";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -148,7 +153,7 @@ function App() {
     <div className="shell">
       <header className="product-header desktop-header">
         <div className="product-header-inner">
-          <div className="product-brand"><span className="product-brand-dot" aria-hidden="true" /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>
+          <Brand />
           <div className="product-header-meta">
             <StatusDot state={status?.paused ? "paused" : status?.state === "connected" ? "connected" : "idle"} />
             <div className="product-header-meta-copy"><strong>{connectionLabel}</strong><small>{access.account?.connector_name ?? "This computer"} · {status?.registered_collections ?? 0} registered</small></div>
@@ -765,6 +770,19 @@ function Empty({ title, text, action, onAction }: { title: string; text: string;
 
 function StatusDot({ state }: { state: "connected" | "paused" | "danger" | "idle" }) {
   return <span className={`status-dot ${state}`} aria-hidden="true" />;
+}
+
+function Brand() {
+  return <div className="product-brand"><MdbaseMark /><strong>mdbase</strong><span className="product-brand-label">connect</span></div>;
+}
+
+function MdbaseMark() {
+  return <svg className="product-brand-mark" viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false">
+    <g className="product-brand-mark-ink">
+      {mdbaseMarkInkRects.map((rect) => <rect key={`${rect.x}-${rect.y}`} {...rect} />)}
+    </g>
+    <rect className="product-brand-mark-accent" {...mdbaseMarkAccentRect} />
+  </svg>;
 }
 
 function SettingSwitch({ className, label, description, checked, disabled, stateLabel, onChange }: {

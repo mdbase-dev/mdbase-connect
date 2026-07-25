@@ -1,6 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 256 256"
+  role="img"
+  aria-labelledby="mdbase-app-icon-title"
+>
+  <title id="mdbase-app-icon-title">mdbase application icon</title>
   <rect width="256" height="256" rx="48" fill="#fcfdff"/>
-  <rect x=".75" y=".75" width="254.5" height="254.5" rx="47.25" fill="none" stroke="#e2e7ed" stroke-width="1.5"/>
+  <rect
+    x="0.75"
+    y="0.75"
+    width="254.5"
+    height="254.5"
+    rx="47.25"
+    fill="none"
+    stroke="#e2e7ed"
+    stroke-width="1.5"
+  />
   <g transform="translate(20 20) scale(1.8)">
     <g fill="#131921">
       <rect x="22" y="22" width="20" height="10" rx="2"/>
