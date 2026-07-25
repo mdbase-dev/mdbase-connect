@@ -31,6 +31,7 @@ describe("canonical developer validation", () => {
   it("validates public application manifests with the packaged schema", () => {
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
@@ -38,6 +39,7 @@ describe("canonical developer validation", () => {
     })).toEqual({ valid: true, issues: [] });
     const invalid = validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "http://tasks.example/",
       redirect_uris: []
@@ -45,30 +47,35 @@ describe("canonical developer validation", () => {
     expect(invalid.valid).toBe(false);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "http://localhost:5179",
       redirect_uris: ["http://localhost:5179/callback"]
     }, { allowLocal: true }).valid).toBe(true);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://attacker.example/callback"]
     }).valid).toBe(false);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["example.tasks.desktop://auth/mdbase/callback"]
     }).valid).toBe(true);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["com.attacker.desktop://auth/mdbase/callback"]
     }).valid).toBe(false);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
@@ -83,6 +90,7 @@ describe("canonical developer validation", () => {
     }).valid).toBe(true);
     expect(validateAppManifest({
       manifest_version: 1,
+      id: "example.tasks.desktop",
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
@@ -97,9 +105,9 @@ describe("canonical developer validation", () => {
     }).valid).toBe(false);
   });
 
-  it("validates bundled v3 declarations with auxiliary provisioned types", () => {
+  it("validates bundled v1 manifests with auxiliary provisioned types", () => {
     const manifest = {
-      manifest_version: 3,
+      manifest_version: 1,
       id: "dev.mdbase.tasks",
       name: "Tasks",
       homepage: "https://tasks.example/",

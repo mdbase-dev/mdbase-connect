@@ -160,7 +160,7 @@ trust boundary, development workflow, tools, and production checklist.
 The local connector is the final authorization boundary: the server cannot
 expand a cached grant, collection paths never leave the machine, connector
 tokens are stored encrypted by Electron, and cloud tokens are hashed at rest.
-New SDK authorizations require encrypted relay protocol 3 by default. Operation
+New SDK authorizations require encrypted relay protocol 1 by default. Operation
 inputs and results remain ciphertext at the control plane; identifiers,
 operation names, timing, and sizes remain visible.
 

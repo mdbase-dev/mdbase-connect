@@ -8,14 +8,15 @@ import type {
   CollectionOperation,
   EncryptedRelayOperationResponse,
   GrantEncryption,
-  GrantScope
+  GrantScope,
+  MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";
 
 const grantEncryptionSchema = z.object({
-  protocol_version: z.literal(3),
+  protocol_version: z.literal(1),
   suite: z.literal("P256-HKDF-SHA256-AES256GCM"),
   key_id: z.string().min(1),
   scope_epoch: z.number().int().positive(),
@@ -90,19 +91,19 @@ export class ConnectGateway {
     private readonly secrets: SecretBox,
     private readonly keyStore: GrantKeyStore,
     readonly connectUrl: string,
-    private readonly manifestUrl: string,
+    private readonly manifest: MdbaseAppManifest,
     readonly callbackUrl: string
   ) {}
 
-  async discoverApplication(): Promise<{ id: string }> {
-    const response = await fetch(`${this.connectUrl}/v1/apps/discover`, {
+  async registerApplication(): Promise<{ id: string }> {
+    const response = await fetch(`${this.connectUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest_url: this.manifestUrl })
+      body: JSON.stringify({ manifest: this.manifest })
     });
     const body = await response.json().catch(() => null);
     if (!response.ok || typeof body?.application?.id !== "string") {
-      throw upstreamError(body, "Connect could not discover the MCP application.");
+      throw upstreamError(body, "Connect could not register the MCP application.");
     }
     return { id: body.application.id };
   }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdbase.dev/connect/schemas/encrypted-relay.v3.json",
-  "title": "mdbase connect encrypted relay protocol 3",
+  "$id": "https://mdbase.dev/connect/schemas/encrypted-relay.v1.json",
+  "title": "mdbase connect encrypted relay protocol 1",
   "description": "Opaque authenticated operation envelopes routed between an application and connector.",
   "oneOf": [
     { "$ref": "#/$defs/request" },
@@ -22,7 +22,7 @@
       "required": ["type", "protocol_version", "suite", "request_id", "grant_id", "application_id", "connector_id", "collection_id", "operation", "scope_epoch", "key_id", "counter", "ciphertext"],
       "properties": {
         "type": { "enum": ["encrypted_operation_request", "encrypted_operation_response"] },
-        "protocol_version": { "const": 3 },
+        "protocol_version": { "const": 1 },
         "suite": { "const": "P256-HKDF-SHA256-AES256GCM" },
         "request_id": { "$ref": "#/$defs/uuid" },
         "grant_id": { "$ref": "#/$defs/uuid" },
@@ -54,7 +54,7 @@
       "required": ["type", "protocol_version", "request_id", "error"],
       "properties": {
         "type": { "const": "encrypted_operation_rejected" },
-        "protocol_version": { "const": 3 },
+        "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "error": {
           "type": "object",

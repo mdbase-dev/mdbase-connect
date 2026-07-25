@@ -48,7 +48,7 @@ for await (const change of connect.watch()) {
 }
 ```
 
-Bundled declaration version 3 applications can declare runtime notification criteria.
+Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web
 Push while the app is closed:
 
@@ -199,21 +199,21 @@ retried before a later mutation can overtake it. Set
 `directAccess: "disabled"` only when an embedding environment cannot use
 loopback requests.
 
-The SDK loads a version 3 declaration from the application's own bundle and
+The SDK loads the v1 manifest from the application's own bundle and
 posts it inline to Connect. Connect identifies the exact canonical declaration
 by its digest. The declared reverse-domain ID and name are presentation
 metadata, not proof of a publisher; grants remain bound to the authorization
 completed by that installation. No developer account, public manifest host, or
 manually issued client secret is required.
 
-Applications declare required domain contracts in their bundled declaration. Connect only
+Applications declare required domain contracts in their bundled manifest. Connect only
 offers collections that are compatible or can be configured safely, then derives
 the record scope from this declaration. It may include portable
 type definitions for the connector to install during approval:
 
 ```json
 {
-  "manifest_version": 3,
+  "manifest_version": 1,
   "id": "dev.mdbase.tasknotes",
   "name": "TaskNotes",
   "homepage": "https://tasks.example",
@@ -278,11 +278,12 @@ scheme must match the declaration ID. PKCE remains mandatory. Call
 `completeAuthorization(callbackUrl)` when the application receives the deep
 link.
 
-New authorizations require encrypted relay protocol 3 by default. The SDK keeps
+New authorizations require encrypted relay protocol 1 by default. The SDK keeps
 a non-extractable per-authorization P-256 key and atomic message counter in
 IndexedDB, encrypts operation inputs for the connector, and decrypts connector
-results locally. Set `relayEncryption: "disabled"` only for an explicit private
-protocol-2 migration; an encrypted grant never falls back to plaintext.
+results locally. Set `relayEncryption: "disabled"` only for development where
+end-to-end relay encryption is intentionally unavailable; an encrypted grant
+never falls back to plaintext.
 
 For a hosted collection, the same authorization exchange returns a short-lived,
 grant-bound provider capability. The SDK routes operations directly to the

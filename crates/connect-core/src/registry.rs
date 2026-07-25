@@ -2513,7 +2513,7 @@ x-tasknotes:
         .unwrap();
 
         let description = registry.describe(collection.id).unwrap();
-        assert_eq!(description.protocol_version, 2);
+        assert_eq!(description.protocol_version, 1);
         assert_eq!(
             description.types[0].schema["properties"]["title"]["type"],
             "string"
@@ -3146,7 +3146,7 @@ views:
             notification_criteria: Vec::new(),
             created_at: "2026-07-21T00:00:00Z".to_string(),
             encryption: Some(mdbase_connect_protocol::GrantEncryption {
-                protocol_version: 3,
+                protocol_version: 1,
                 suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
                 key_id: "key-1".to_string(),
                 scope_epoch: 1,

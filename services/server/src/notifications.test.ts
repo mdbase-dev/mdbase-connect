@@ -414,13 +414,12 @@ async function notificationFixture(
   }
   await db.query(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_url, manifest_version, name, homepage,
+       (id, canonical_identity, manifest_version, name, homepage,
         redirect_uris, notifications)
-     VALUES ($1, $2, $3, 2, $4, $5, $6::jsonb, $7::jsonb)`,
+     VALUES ($1, $2, 1, $3, $4, $5::jsonb, $6::jsonb)`,
     [
       applicationId,
-      "web:https://tasks.example",
-      "https://tasks.example/.well-known/mdbase-app.json",
+      "bundle:dev.mdbase.tasks:sha256:test",
       "Tasks",
       "https://tasks.example/",
       JSON.stringify(["https://tasks.example/callback"]),

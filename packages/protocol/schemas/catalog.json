@@ -2,11 +2,9 @@
   "manifest_version": 1,
   "schemas": {
     "app_manifest": "./mdbase-app.schema.json",
-    "app_manifest_v2": "./mdbase-app.v2.schema.json",
-    "app_manifest_v3": "./mdbase-app.v3.schema.json",
     "contract_extension": "./contract-extension.v1.schema.json",
-    "connect_protocol": "./connect-protocol.v2.schema.json",
-    "encrypted_relay": "./encrypted-relay.v3.schema.json",
+    "connect_protocol": "./connect-protocol.v1.schema.json",
+    "encrypted_relay": "./encrypted-relay.v1.schema.json",
     "notification_webhook": "./notification-webhook.v1.schema.json",
     "sync": "./sync.v1.schema.json"
   }

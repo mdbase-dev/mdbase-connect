@@ -195,7 +195,7 @@ describe("Pickle contract adapter", () => {
   it("rejects malformed contracts and ships portable provisioning documents", () => {
     expect(() =>
       resolvePickleContract({
-        protocol_version: 2,
+        protocol_version: 1,
         collection_id: "broken",
         display_name: "Broken",
         spec_version: "0.3.0",

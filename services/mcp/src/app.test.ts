@@ -71,7 +71,7 @@ describe("mdbase MCP gateway", () => {
     const firstUpstream = new URL(authorization.headers.location!);
     expect(firstUpstream.origin).toBe("https://connect.example");
     expect(firstUpstream.searchParams.get("operations")).toContain("create");
-    expect(firstUpstream.searchParams.get("relay_protocol")).toBe("3");
+    expect(firstUpstream.searchParams.get("relay_protocol")).toBe("1");
     upstream.applicationPublicKeys.push(firstUpstream.searchParams.get("application_public_key")!);
 
     const firstCallback = await app.inject({
@@ -220,7 +220,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
   ).toString("base64url");
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-    if (url.href === "https://connect.example/v1/apps/discover") {
+    if (url.href === "https://connect.example/v1/apps/register") {
       return Response.json({ application: { id: applicationId } });
     }
     if (url.href === "https://connect.example/oauth/token") {
@@ -238,7 +238,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
         scope: { contracts: [] },
         grant_id: second ? secondGrantId : firstGrantId,
         encryption: second ? null : {
-          protocol_version: 3,
+          protocol_version: 1,
           suite: "P256-HKDF-SHA256-AES256GCM",
           key_id: "local-key-1",
           scope_epoch: 1,
@@ -323,7 +323,7 @@ async function relayKey(privateKey: CryptoKey, applicationPublicKey: string, env
     name: "HKDF",
     hash: "SHA-256",
     salt,
-    info: new TextEncoder().encode(`mdbase-connect relay ${direction} key v3`)
+    info: new TextEncoder().encode(`mdbase-connect relay ${direction} key v1`)
   }, material, { name: "AES-GCM", length: 256 }, false, direction === "request" ? ["decrypt"] : ["encrypt"]);
 }
 

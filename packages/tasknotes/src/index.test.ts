@@ -10,7 +10,7 @@ import {
 import { MemoryHostedAuthority, MemoryReplicaStore, OfflineReplica } from "@mdbase/connect-sync";
 
 const description = {
-  protocol_version: 2 as const,
+  protocol_version: 1 as const,
   collection_id: "collection",
   display_name: "Tasks",
   spec_version: "0.3.0",

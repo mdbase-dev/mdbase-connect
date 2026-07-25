@@ -118,7 +118,6 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     CREATE TABLE IF NOT EXISTS applications (
       id uuid PRIMARY KEY,
       canonical_identity text NOT NULL UNIQUE,
-      manifest_url text NOT NULL,
       manifest_version integer NOT NULL DEFAULT 1,
       name text NOT NULL,
       homepage text NOT NULL,
@@ -312,6 +311,13 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "manifest_version",
     "ALTER TABLE applications ADD COLUMN manifest_version integer NOT NULL DEFAULT 1"
   );
+  const applicationColumns = await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'applications'`
+  );
+  if (applicationColumns.rows.some((column) => column.column_name === "manifest_url")) {
+    await db.query("ALTER TABLE applications DROP COLUMN manifest_url");
+  }
   await ensureColumn(
     db,
     "applications",

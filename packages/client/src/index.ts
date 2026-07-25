@@ -15,7 +15,7 @@ import type {
   GrantEncryption,
   GrantScope,
   JsonObject,
-  MdbaseAppManifestV3,
+  MdbaseAppManifest,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   RecordSummary,
@@ -67,7 +67,6 @@ export type {
   GrantScope,
   JsonObject,
   MdbaseAppManifest,
-  MdbaseAppManifestV3,
   NotificationCriterion,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
@@ -93,15 +92,10 @@ export type {
 export interface MdbaseConnectOptions {
   serverUrl: string;
   /**
-   * A bundled v3 application declaration or its app-local URL. String values
+   * A bundled v1 application manifest or its app-local URL. String values
    * are loaded by this SDK and posted inline; Connect never fetches them.
    */
-  manifest?: MdbaseAppManifestV3 | string;
-  /**
-   * Legacy server-fetched v1/v2 manifest URL.
-   * @deprecated Bundle a v3 declaration with the application using `manifest`.
-   */
-  manifestUrl?: string;
+  manifest?: MdbaseAppManifest | string;
   redirectUri?: string;
   storage?: Storage;
   /** Encrypted relay is required by default for newly authorized grants. */
@@ -824,9 +818,8 @@ const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read"
 
 export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly serverUrl: string;
-  private readonly manifest: MdbaseAppManifestV3 | string | null;
-  private readonly manifestUrl: string;
-  private readonly legacyManifestDiscovery: boolean;
+  private readonly manifest: MdbaseAppManifest | string;
+  private readonly manifestSource: string;
   private readonly redirectUri: string;
   private readonly storage: Storage;
   private readonly relayEncryption: "required" | "disabled";
@@ -850,20 +843,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(options.serverUrl);
-    if (options.manifest !== undefined && options.manifestUrl !== undefined) {
-      throw new MdbaseConnectError(
-        "ambiguous_manifest",
-        "Use either manifest or the legacy manifestUrl option, not both."
-      );
-    }
-    this.legacyManifestDiscovery = options.manifestUrl !== undefined;
-    this.manifest = this.legacyManifestDiscovery
-      ? null
-      : options.manifest ?? defaultManifestUrl();
-    this.manifestUrl = options.manifestUrl
-      ?? (typeof this.manifest === "string"
-        ? this.manifest
-        : `bundle:${this.manifest!.id}`);
+    this.manifest = options.manifest ?? defaultManifestSource();
+    this.manifestSource = typeof this.manifest === "string"
+      ? this.manifest
+      : `bundle:${this.manifest.id}`;
     this.redirectUri = options.redirectUri ?? defaultRedirectUri();
     this.storage = options.storage ?? defaultStorage();
     this.relayEncryption = options.relayEncryption ?? "required";
@@ -879,18 +862,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     });
   }
 
-  async discover(): Promise<Application> {
+  async register(): Promise<Application> {
     if (this.application) return this.application;
-    const endpoint = this.legacyManifestDiscovery
-      ? "/v1/apps/discover"
-      : "/v1/apps/register";
-    const payload = this.legacyManifestDiscovery
-      ? { manifest_url: this.manifestUrl }
-      : { manifest: await this.loadBundledManifest() };
-    const response = await fetch(`${this.serverUrl}${endpoint}`, {
+    const response = await fetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ manifest: await this.loadManifest() })
     });
     const body = await response.json();
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
@@ -898,15 +875,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.application!;
   }
 
-  private async loadBundledManifest(): Promise<MdbaseAppManifestV3> {
-    if (this.manifest && typeof this.manifest !== "string") return this.manifest;
+  private async loadManifest(): Promise<MdbaseAppManifest> {
+    if (typeof this.manifest !== "string") return this.manifest;
     const source = this.manifest;
-    if (!source) {
-      throw new MdbaseConnectError(
-        "manifest_required",
-        "A bundled application declaration is required."
-      );
-    }
     let response: Response;
     try {
       response = await fetch(source, {
@@ -927,7 +898,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       );
     }
     try {
-      return await response.json() as MdbaseAppManifestV3;
+      return await response.json() as MdbaseAppManifest;
     } catch (cause) {
       throw new MdbaseConnectError(
         "invalid_application_manifest",
@@ -948,7 +919,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     if (replaced?.keyHandle) await this.keyStore.delete(replaced.keyHandle);
     this.storage.removeItem(this.pendingKey());
     this.clearPendingMutation();
-    const application = await this.discover();
+    const application = await this.register();
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
     const keyHandle = this.relayEncryption === "required"
@@ -973,7 +944,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("operations", [...new Set(operations)].join(","));
     if (grantKey) {
-      authorize.searchParams.set("relay_protocol", "3");
+      authorize.searchParams.set("relay_protocol", "1");
       authorize.searchParams.set("application_public_key", grantKey.publicKey);
     }
     if (this.navigate) await this.navigate(authorize.href);
@@ -1176,7 +1147,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         "Connect this application before enabling notifications."
       );
     }
-    const application = await this.discover();
+    const application = await this.register();
     const declared = application.notifications?.criteria.map((criterion) => criterion.id) ?? [];
     const criteria = [...new Set(options.criteria ?? declared)];
     const undeclared = criteria.find((criterion) => !declared.includes(criterion));
@@ -1268,7 +1239,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
         "Connect this application before enabling notifications."
       );
     }
-    const application = await this.discover();
+    const application = await this.register();
     if (application.notifications?.native_delivery?.mode !== "managed_fcm") {
       throw new MdbaseConnectError(
         "managed_fcm_not_declared",
@@ -1966,7 +1937,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       if (response.ok
           && body?.service === "mdbase-connect"
           && body?.loopback_protocol_version === 1
-          && body?.encrypted_protocol_version === 3) {
+          && body?.encrypted_protocol_version === 1) {
         this.markDirectAvailable();
         return "available";
       }
@@ -2131,10 +2102,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return token;
   }
 
-  private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestUrl}`; }
-  private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestUrl}`; }
+  private pendingKey() { return `mdbase-connect:pending:${this.serverUrl}:${this.manifestSource}`; }
+  private tokenKey() { return `mdbase-connect:token:${this.serverUrl}:${this.manifestSource}`; }
   private notificationKey(transport: "web_push" | "fcm" = "web_push") {
-    const base = `mdbase-connect:notifications:${this.serverUrl}:${this.manifestUrl}`;
+    const base = `mdbase-connect:notifications:${this.serverUrl}:${this.manifestSource}`;
     return transport === "web_push" ? base : `${base}:${transport}`;
   }
   private async deleteNotificationChannel(
@@ -2159,7 +2130,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     }
   }
   private pendingMutationKey() {
-    return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestUrl}`;
+    return `mdbase-connect:pending-mutation:${this.serverUrl}:${this.manifestSource}`;
   }
   private clearPendingMutation(): void {
     this.storage.removeItem(this.pendingMutationKey());
@@ -2176,7 +2147,7 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       return new URL(this.manifest.homepage).origin;
     }
     try {
-      return new URL(this.manifestUrl).origin;
+      return new URL(this.manifestSource).origin;
     } catch {
       return "";
     }
@@ -2510,11 +2481,11 @@ function stripTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
-function defaultManifestUrl(): string {
+function defaultManifestSource(): string {
   if (typeof location === "undefined") {
     throw new MdbaseConnectError(
-      "manifest_url_required",
-      "manifestUrl is required outside a browser environment."
+      "manifest_required",
+      "manifest is required outside a browser environment."
     );
   }
   return new URL("/.well-known/mdbase-app.json", location.origin).href;

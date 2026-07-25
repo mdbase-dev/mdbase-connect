@@ -82,5 +82,5 @@ mdbase-connect-agent \
 
 The agent sends collection IDs, display names, spec versions, availability
 metadata, and its relay public key. Local filesystem paths are not included in
-the sync payload. SDK-created grants use encrypted relay protocol 3 by default,
+the sync payload. SDK-created grants use encrypted relay protocol 1 by default,
 so the service routes operation ciphertext without receiving record content.

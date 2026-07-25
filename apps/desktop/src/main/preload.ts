@@ -30,7 +30,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
   renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
-  discoverApplication: (manifestUrl: string) => ipcRenderer.invoke("connect:apps:discover", manifestUrl),
   createGrant: (input: { applicationId: string; collectionId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:create", input),
   updateGrant: (input: { grantId: string; operations: string[] }) =>

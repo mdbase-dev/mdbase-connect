@@ -1,8 +1,7 @@
-import { createServer } from "node:http";
 import { createECDH } from "node:crypto";
 import type {
   ApplicationRequirements,
-  MdbaseAppManifestV3
+  MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
@@ -34,7 +33,7 @@ describe("mdbase connect server", () => {
     expect(health.json()).toEqual({
       ok: true,
       service: "mdbase-connect",
-      protocol_version: 2,
+      protocol_version: 1,
       revision: "ae3a8d9"
     });
   });
@@ -48,8 +47,8 @@ describe("mdbase connect server", () => {
       publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
-    const manifest: MdbaseAppManifestV3 = {
-      manifest_version: 3,
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
       id: "dev.mdbase.tasks",
       name: "Tasks",
       homepage: "https://tasks.example/",
@@ -113,7 +112,7 @@ describe("mdbase connect server", () => {
       url: "/v1/apps/register",
       payload: {
         manifest: {
-          manifest_version: 3,
+          manifest_version: 1,
           id: "dev.mdbase.tasks",
           name: "Tasks",
           homepage: "https://tasks.example/",
@@ -218,12 +217,11 @@ describe("mdbase connect server", () => {
     expect(synchronized.statusCode).toBe(200);
     const collectionId = synchronized.json().collections[0].id as string;
 
-    const manifestServer = await startManifestServer();
-    resources.push(manifestServer.close);
+    const manifestServer = applicationManifestFixture();
     const discovered = await app.inject({
       method: "POST",
-      url: "/v1/apps/discover",
-      payload: { manifest_url: manifestServer.manifestUrl }
+      url: "/v1/apps/register",
+      payload: { manifest: manifestServer.manifest }
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
@@ -260,8 +258,8 @@ describe("mdbase connect server", () => {
     );
     const rediscovered = await app.inject({
       method: "POST",
-      url: "/v1/apps/discover",
-      payload: { manifest_url: manifestServer.manifestUrl }
+      url: "/v1/apps/register",
+      payload: { manifest: manifestServer.manifest }
     });
     expect(rediscovered.statusCode).toBe(200);
     const reconciled = await db.query<{ id: string; scope: unknown; revoked_at: string | null }>(
@@ -427,7 +425,7 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     const nativeRedirect = new URL(nativeStatus.json().redirect_uri);
-    expect(nativeRedirect.protocol).toBe("localhost.workout:");
+    expect(nativeRedirect.protocol).toBe("dev.mdbase.workouts:");
     expect(nativeRedirect.searchParams.get("state")).toBe("native-state");
     const nativeToken = await app.inject({
       method: "POST",
@@ -663,15 +661,14 @@ describe("mdbase connect server", () => {
     });
     const collectionId = collection.json().collection.id as string;
 
-    const manifestServer = await startManifestServer(
+    const manifestServer = applicationManifestFixture(
       { contracts: [], access: "full_collection", collection_kind: "hosted" },
       "Writing Editor"
     );
-    resources.push(manifestServer.close);
     const discovered = await app.inject({
       method: "POST",
-      url: "/v1/apps/discover",
-      payload: { manifest_url: manifestServer.manifestUrl }
+      url: "/v1/apps/register",
+      payload: { manifest: manifestServer.manifest }
     });
     const applicationId = discovered.json().application.id as string;
     const verifier = "hosted-unrestricted-verifier-that-is-long-enough-0001";
@@ -744,8 +741,8 @@ describe("mdbase connect server", () => {
     vi.mocked(hostedProvider.updateApplicationReplica).mockClear();
     const rediscovered = await app.inject({
       method: "POST",
-      url: "/v1/apps/discover",
-      payload: { manifest_url: manifestServer.manifestUrl }
+      url: "/v1/apps/register",
+      payload: { manifest: manifestServer.manifest }
     });
     expect(rediscovered.statusCode).toBe(200);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
@@ -808,7 +805,7 @@ describe("mdbase connect server", () => {
     });
     const collectionId = collection.json().collection.id as string;
     const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n";
-    const manifestServer = await startManifestServer(
+    const manifestServer = applicationManifestFixture(
       {
         contracts: [{ id: "workout.record", version: 1 }],
         access: "full_collection"
@@ -827,11 +824,10 @@ describe("mdbase connect server", () => {
         }
       ] }
     );
-    resources.push(manifestServer.close);
     const discovered = await app.inject({
       method: "POST",
-      url: "/v1/apps/discover",
-      payload: { manifest_url: manifestServer.manifestUrl }
+      url: "/v1/apps/register",
+      payload: { manifest: manifestServer.manifest }
     });
     const applicationId = discovered.json().application.id as string;
     expect(discovered.json().application.provisions.types[0].name).toBe("Workout");
@@ -926,7 +922,7 @@ describe("mdbase connect server", () => {
   });
 });
 
-async function startManifestServer(
+function applicationManifestFixture(
   requirements: ApplicationRequirements = {
     contracts: [{ id: "workout.record", version: 1 }]
   },
@@ -939,35 +935,24 @@ async function startManifestServer(
       provides: Array<{ id: string; version: number }>;
     }>;
   }
-): Promise<{
-  manifestUrl: string;
+): {
+  manifest: MdbaseAppManifest;
   redirectUri: string;
   nativeRedirectUri: string;
-  close(): Promise<void>;
-}> {
-  const server = createServer((request, response) => {
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Manifest server is not listening.");
-    const origin = `http://localhost:${address.port}`;
-    const nativeRedirectUri = "localhost.workout://auth/mdbase/callback";
-    response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify({
+} {
+  const origin = "http://localhost:4173";
+  const nativeRedirectUri = "dev.mdbase.workouts://auth/mdbase/callback";
+  return {
+    manifest: {
       manifest_version: 1,
+      id: "dev.mdbase.workouts",
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`, nativeRedirectUri],
       requirements,
       ...(provisions ? { provisions } : {})
-    }));
-  });
-  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Manifest server is not listening.");
-  const origin = `http://localhost:${address.port}`;
-  return {
-    manifestUrl: `${origin}/.well-known/mdbase-app.json`,
+    },
     redirectUri: `${origin}/auth/mdbase/callback`,
-    nativeRedirectUri: "localhost.workout://auth/mdbase/callback",
-    close: () => new Promise<void>((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
+    nativeRedirectUri
   };
 }

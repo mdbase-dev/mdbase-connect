@@ -30,11 +30,11 @@ let relayContext;
 
 try {
   const health = await request("/health");
-  if (health.body.protocol_version !== 2) throw new Error(`Oracle protocol is ${health.body.protocol_version}, expected 2`);
+  if (health.body.protocol_version !== 1) throw new Error(`Oracle protocol is ${health.body.protocol_version}, expected 1`);
 
   const connector = await request("/v1/connectors", {
     method: "POST",
-    body: { name: `Protocol 2 E2E ${new Date().toISOString()}` }
+    body: { name: `Protocol 1 E2E ${new Date().toISOString()}` }
   });
   connectorId = connector.body.connector.id;
 
@@ -59,9 +59,15 @@ try {
   }, "ephemeral Oracle collection did not synchronize");
 
   const manifestUrl = `${appOrigin}/.well-known/mdbase-app.json`;
-  const application = await request("/v1/apps/discover", {
+  const hostedManifest = await fetch(manifestUrl).then((response) => response.json());
+  const manifest = {
+    ...hostedManifest,
+    manifest_version: 1,
+    id: hostedManifest.id ?? "dev.mdbase.oracle"
+  };
+  const application = await request("/v1/apps/register", {
     method: "POST",
-    body: { manifest_url: manifestUrl }
+    body: { manifest }
   });
   const appId = application.body.application.id;
   const applicationKeyStore = encryptedRelay ? new MemoryGrantKeyStore() : undefined;
@@ -78,7 +84,7 @@ try {
     code_challenge_method: "S256",
     state: "oracle-e2e",
     operations,
-    ...(applicationKey ? { relay_protocol: "3", application_public_key: applicationKey.publicKey } : {})
+    ...(applicationKey ? { relay_protocol: "1", application_public_key: applicationKey.publicKey } : {})
   }).toString();
   const authorize = await fetch(
     authorizeUrl,
@@ -120,9 +126,9 @@ try {
   if (encryptedRelay) {
     if (!applicationKeyStore
         || !token.body.grant_id
-        || token.body.encryption?.protocol_version !== 3
+        || token.body.encryption?.protocol_version !== 1
         || token.body.encryption?.application_public_key !== applicationKey?.publicKey) {
-      throw new Error(`Oracle authorization did not establish encrypted relay protocol 3: ${JSON.stringify(token.body)}`);
+      throw new Error(`Oracle authorization did not establish encrypted relay protocol 1: ${JSON.stringify(token.body)}`);
     }
     relayContext = {
       store: applicationKeyStore,
@@ -147,7 +153,7 @@ try {
   const collectionId = dashboard.collection.id;
 
   const description = await operation(collectionId, "describe", accessToken, {});
-  if (description.protocol_version !== 2
+  if (description.protocol_version !== 1
       || description.contracts?.[0]?.id !== "tasknotes.task"
       || description.types?.length !== 1
       || description.types?.[0]?.schema?.properties?.title?.type !== "string") {
@@ -197,7 +203,7 @@ try {
   }
   if (benchmarkIterations > 0) {
     const results = await benchmarkRelay(collectionId, accessToken, benchmarkIterations);
-    process.stdout.write(`${JSON.stringify({ server: serverUrl, relay_protocol: relayContext ? 3 : 2, iterations: benchmarkIterations, results }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ server: serverUrl, relay_protocol: 1, iterations: benchmarkIterations, results }, null, 2)}\n`);
   }
   process.stdout.write(`mdbase connect Oracle protocol ${relayContext ? 3 : 2} end-to-end path passed\n`);
 } finally {

@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 pub mod crypto;
 
-pub const CONTROL_PROTOCOL_VERSION: u32 = 2;
-pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 3;
+pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
+pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 1;
 pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
@@ -56,8 +56,6 @@ pub enum ControlCommand {
     AccessPause(AccessPauseParams),
     #[serde(rename = "account.rename-computer")]
     AccountRenameComputer(ComputerNameParams),
-    #[serde(rename = "apps.discover")]
-    ApplicationDiscover(ApplicationDiscoverParams),
     #[serde(rename = "grants.create")]
     GrantCreate(GrantCreateParams),
     #[serde(rename = "grants.update")]
@@ -119,11 +117,6 @@ pub struct AccessPauseParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerNameParams {
     pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApplicationDiscoverParams {
-    pub manifest_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -737,7 +730,7 @@ mod tests {
 
     fn protocol_schema() -> Value {
         serde_json::from_str(include_str!(
-            "../../../packages/protocol/schemas/connect-protocol.v2.schema.json"
+            "../../../packages/protocol/schemas/connect-protocol.v1.schema.json"
         ))
         .unwrap()
     }
@@ -766,7 +759,7 @@ mod tests {
 
     fn assert_encrypted_schema(value: Value) {
         let schema: Value = serde_json::from_str(include_str!(
-            "../../../packages/protocol/schemas/encrypted-relay.v3.schema.json"
+            "../../../packages/protocol/schemas/encrypted-relay.v1.schema.json"
         ))
         .unwrap();
         let validator = jsonschema::JSONSchema::options()

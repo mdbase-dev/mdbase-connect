@@ -238,7 +238,7 @@ impl AgentState {
                         result: None,
                         error: Some(ControlError {
                             code: "encryption_required".to_string(),
-                            message: "This grant requires encrypted relay protocol 3.".to_string(),
+                            message: "This grant requires encrypted relay protocol 1.".to_string(),
                             details: None,
                         }),
                     });
@@ -589,10 +589,6 @@ impl AgentState {
                 .map(|_| serde_json::json!({ "paused": params.paused })),
             ControlCommand::AccountRenameComputer(params) => match self.cloud() {
                 Ok(cloud) => cloud.rename_computer(&params).await,
-                Err(error) => Err(error),
-            },
-            ControlCommand::ApplicationDiscover(params) => match self.cloud() {
-                Ok(cloud) => cloud.discover(&params).await,
                 Err(error) => Err(error),
             },
             ControlCommand::GrantCreate(params) => self.create_grant(&params).await,

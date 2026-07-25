@@ -204,7 +204,7 @@ export class RelayHub {
     if (!generation) return;
     const message = {
       type: "policy_snapshot",
-      protocol_version: 2,
+      protocol_version: 1,
       grants: grants.rows.map((grant) => ({
         id: grant.id,
         application_id: grant.application_id,
@@ -247,7 +247,7 @@ export class RelayHub {
     const requestId = randomUUID();
     return this.deliver(input.connectorId, generation, {
       type: "operation_request",
-      protocol_version: 2,
+      protocol_version: 1,
       request_id: requestId,
       grant_id: input.grantId,
       collection_id: input.localCollectionId,

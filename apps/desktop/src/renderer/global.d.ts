@@ -75,16 +75,6 @@ interface ConnectorAccount {
   user_email: string;
 }
 
-interface ApplicationSummary {
-  id: string;
-  name: string;
-  homepage: string;
-  icon?: string;
-  requirements: ApplicationRequirements;
-  provisions?: ApplicationProvisions;
-  notifications: ApplicationNotifications;
-}
-
 interface GrantSummary {
   id: string;
   application_id: string;
@@ -161,7 +151,6 @@ interface Window {
     accessSnapshot(): Promise<AccessSnapshot>;
     setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
     renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;
-    discoverApplication(manifestUrl: string): Promise<{ application: ApplicationSummary }>;
     createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
     revokeGrant(grantId: string): Promise<unknown>;

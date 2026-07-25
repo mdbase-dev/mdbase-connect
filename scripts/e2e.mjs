@@ -167,16 +167,16 @@ secret: connector scope test
   manifestServer = manifest.server;
   browserManifestServer = manifest.browserServer;
   directOrigin = manifest.origin;
-  const application = await request("/v1/apps/discover", {
+  const application = await request("/v1/apps/register", {
     method: "POST",
-    body: { manifest_url: manifest.manifestUrl }
+    body: { manifest: manifest.applicationManifest }
   });
   const appId = application.body.application.id;
   const applicationKey = await applicationKeyStore.create("e2e-grant");
   const verifier = "end-to-end-pkce-verifier-with-forty-three-characters";
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const authorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=3&application_public_key=${encodeURIComponent(applicationKey.publicKey)}`,
+    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_public_key=${encodeURIComponent(applicationKey.publicKey)}`,
     { headers: { cookie }, redirect: "manual" }
   );
   if (authorize.status !== 302) throw new Error(`Authorization start returned HTTP ${authorize.status}`);
@@ -210,10 +210,10 @@ secret: connector scope test
   if (token.body.scope?.contracts?.[0]?.id !== "tasknotes.task" || !token.body.refresh_token) {
     throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
   }
-  if (token.body.encryption?.protocol_version !== 3
+  if (token.body.encryption?.protocol_version !== 1
       || token.body.encryption?.application_public_key !== applicationKey.publicKey
       || !token.body.grant_id) {
-    throw new Error(`Authorization did not establish encrypted relay protocol 3: ${JSON.stringify(token.body)}`);
+    throw new Error(`Authorization did not establish encrypted relay protocol 1: ${JSON.stringify(token.body)}`);
   }
   relayContext = {
     store: applicationKeyStore,
@@ -250,7 +250,7 @@ secret: connector scope test
   const accessToken = refreshed.body.access_token;
   relayContext.binding.encryption = refreshed.body.encryption;
   const sdkStorage = new MemoryStorage();
-  sdkStorage.setItem(`mdbase-connect:token:${serverUrl}:${manifest.manifestUrl}`, JSON.stringify({
+  sdkStorage.setItem(`mdbase-connect:token:${serverUrl}:bundle:${manifest.applicationManifest.id}`, JSON.stringify({
     accessToken,
     refreshToken: refreshed.body.refresh_token,
     clientId: appId,
@@ -267,7 +267,7 @@ secret: connector scope test
   }));
   const sdk = new MdbaseConnect({
     serverUrl,
-    manifestUrl: manifest.manifestUrl,
+    manifest: manifest.applicationManifest,
     redirectUri: manifest.redirectUri,
     storage: sdkStorage,
     keyStore: applicationKeyStore,
@@ -302,9 +302,9 @@ secret: connector scope test
     await page.goto(`${manifest.browserOrigin}/browser-e2e`);
     await page.waitForFunction(() => Boolean(globalThis.directHarness?.publicKey));
     const browserPublicKey = await page.evaluate(() => globalThis.directHarness.publicKey);
-    const browserApplication = await request("/v1/apps/discover", {
+    const browserApplication = await request("/v1/apps/register", {
       method: "POST",
-      body: { manifest_url: manifest.browserManifestUrl }
+      body: { manifest: manifest.browserApplicationManifest }
     });
     const browserAppId = browserApplication.body.application.id;
     const browserVerifier = "browser-end-to-end-pkce-verifier-forty-three-chars";
@@ -314,7 +314,7 @@ secret: connector scope test
       "read_type", "create_type", "update_type", "list_views", "execute_view"
     ];
     const browserAuthorize = await fetch(
-      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=3&application_public_key=${encodeURIComponent(browserPublicKey)}`,
+      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=1&application_public_key=${encodeURIComponent(browserPublicKey)}`,
       { headers: { cookie }, redirect: "manual" }
     );
     if (browserAuthorize.status !== 302) {
@@ -355,7 +355,7 @@ secret: connector scope test
     }, {
       serverUrl,
       loopbackUrl,
-      manifestUrl: manifest.browserManifestUrl,
+      manifest: manifest.browserApplicationManifest,
       redirectUri: manifest.browserRedirectUri,
       loopbackUrl,
       token: {
@@ -398,7 +398,7 @@ secret: connector scope test
   const descriptionResponse = await rawOperation(collection.id, "describe", accessToken, {});
   const descriptionBody = await descriptionResponse.json();
   if (descriptionResponse.status !== 200
-      || descriptionBody.result?.protocol_version !== 2
+      || descriptionBody.result?.protocol_version !== 1
       || descriptionBody.result?.contracts?.[0]?.id !== "tasknotes.task"
       || descriptionBody.result?.types?.length !== 1
       || descriptionBody.result?.types?.[0]?.schema?.properties?.title?.type !== "string") {
@@ -727,14 +727,17 @@ async function openManifestServer() {
     browserServer: browser.server,
     origin: primary.origin,
     browserOrigin: browser.origin,
-    manifestUrl: primary.manifestUrl,
-    browserManifestUrl: browser.manifestUrl,
+    applicationManifest: primary.manifest,
+    browserApplicationManifest: browser.manifest,
     redirectUri: primary.redirectUri,
     browserRedirectUri: browser.redirectUri
   };
 }
 
 async function openApplicationServer(name, contracts, access) {
+  const id = name === "Browser direct E2E"
+    ? "dev.mdbase.browser-e2e"
+    : "dev.mdbase.connect-e2e";
   const server = createServer(async (request, response) => {
     const address = server.address();
     const origin = `http://localhost:${address.port}`;
@@ -760,11 +763,11 @@ async function openApplicationServer(name, contracts, access) {
   globalThis.directHarness = {
     publicKey: key.publicKey,
     async exercise(config) {
-      const tokenKey = \`mdbase-connect:token:\${config.serverUrl}:\${config.manifestUrl}\`;
+      const tokenKey = \`mdbase-connect:token:\${config.serverUrl}:bundle:\${config.manifest.id}\`;
       localStorage.setItem(tokenKey, JSON.stringify(config.token));
       const connect = new MdbaseConnect({
         serverUrl: config.serverUrl,
-        manifestUrl: config.manifestUrl,
+        manifest: config.manifest,
         redirectUri: config.redirectUri,
         keyStore,
         loopbackUrl: config.loopbackUrl
@@ -851,6 +854,7 @@ schema:
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
+      id,
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],
@@ -860,10 +864,18 @@ schema:
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   const origin = `http://localhost:${address.port}`;
+  const manifest = {
+    manifest_version: 1,
+    id,
+    name,
+    homepage: origin,
+    redirect_uris: [`${origin}/auth/mdbase/callback`],
+    requirements: { contracts, ...(access ? { access } : {}) }
+  };
   return {
     server,
     origin,
-    manifestUrl: `${origin}/.well-known/mdbase-app.json`,
+    manifest,
     redirectUri: `${origin}/auth/mdbase/callback`
   };
 }

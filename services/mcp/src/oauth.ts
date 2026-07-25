@@ -164,7 +164,7 @@ export class OAuthService {
       }
       return { kind: "additional", error: "Collection access was not approved." };
     }
-    const application = await this.gateway.discoverApplication();
+    const application = await this.gateway.registerApplication();
     const connection = await this.gateway.exchangeAuthorization({
       code: input.code,
       verifier: pending.code_verifier,
@@ -333,7 +333,7 @@ export class OAuthService {
     scopes: McpScope[],
     authorizationRequestId: string | null
   ): Promise<string> {
-    const application = await this.gateway.discoverApplication();
+    const application = await this.gateway.registerApplication();
     const state = randomToken("state");
     const verifier = randomToken("pkce");
     const keyHandle = `mcp:${randomUUID()}`;
@@ -362,7 +362,7 @@ export class OAuthService {
     authorize.searchParams.set("code_challenge_method", "S256");
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("operations", operationsForScopes(scopes).join(","));
-    authorize.searchParams.set("relay_protocol", "3");
+    authorize.searchParams.set("relay_protocol", "1");
     authorize.searchParams.set("application_public_key", key.publicKey);
     return authorize.href;
   }
