@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  symlink,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { chromium, expect } from "@playwright/test";
 
@@ -1743,6 +1754,22 @@ async function authorityPromotionCliE2E(
     ?? await new Promise((resolveExit) => connectProcess.once("exit", resolveExit));
   assert.equal(connectExit, 0, `Promotion mirror connect failed:\n${connectError}\n${connectOutput}`);
 
+  const promotionStressCount = Number(
+    process.env.MDBASE_CONNECT_PROVIDER_E2E_PROMOTION_COUNT ?? 0
+  );
+  assert.ok(
+    Number.isInteger(promotionStressCount)
+      && (promotionStressCount === 0 || promotionStressCount >= 205)
+      && promotionStressCount <= 20_000
+  );
+  const promotionStress = promotionStressCount > 0
+    ? await prepareAuthorityPromotionStressFixture(
+        mirrorCli,
+        mirrorDirectory,
+        promotionStressCount
+      )
+    : null;
+
   const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
     method: "POST",
     body: { name: "Promotion computer" }
@@ -1888,6 +1915,21 @@ process.stdout.write(JSON.stringify({
   );
   assert.equal(authorityReceipt.collection_id, collectionId);
   assert.equal(authorityReceipt.authority_epoch, 2);
+  if (promotionStress) {
+    assert.equal(await countMarkdownFiles(mirrorDirectory), promotionStress.expectedCount);
+    assert.match(
+      await readFile(join(mirrorDirectory, promotionStress.updatedPath), "utf8"),
+      /Updated during authority stress wave/
+    );
+    await assert.rejects(
+      () => readFile(join(mirrorDirectory, promotionStress.deletedPath), "utf8"),
+      { code: "ENOENT" }
+    );
+    assert.match(
+      await readFile(join(mirrorDirectory, promotionStress.addedPath), "utf8"),
+      /Added during authority stress wave/
+    );
+  }
   const state = await database.query(
     `SELECT hosted.authority_state AS hosted_state,
             local.authority_state AS local_state,
@@ -1911,6 +1953,181 @@ process.stdout.write(JSON.stringify({
       authority_epoch: 2
     }
   );
+}
+
+async function prepareAuthorityPromotionStressFixture(
+  mirrorCli,
+  mirrorDirectory,
+  recordCount
+) {
+  phase(`preparing ${recordCount} complex documents for authority promotion`);
+  const started = performance.now();
+  const paths = Array.from(
+    { length: recordCount },
+    (_, index) => authorityStressPath(index)
+  );
+  await writeFilesInBatches(paths, 64, async (path, index) => {
+    const absolutePath = join(mirrorDirectory, path);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, authorityStressDocument(index));
+  });
+  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+
+  const updateIndexes = paths
+    .map((_, index) => index)
+    .filter((index) => index >= 4 && index % 47 === 0);
+  await writeFilesInBatches(updateIndexes, 64, async (index) => {
+    const absolutePath = join(mirrorDirectory, paths[index]);
+    const document = await readFile(absolutePath, "utf8");
+    await writeFile(
+      absolutePath,
+      `${document}\nUpdated during authority stress wave ${index}.\n`
+    );
+  });
+  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+
+  const renameIndexes = paths
+    .map((_, index) => index)
+    .filter((index) => index >= 4 && index % 83 === 0);
+  for (const index of renameIndexes) {
+    const nextPath = paths[index].replace(/\.md$/, "-renamed.md");
+    await rename(join(mirrorDirectory, paths[index]), join(mirrorDirectory, nextPath));
+    paths[index] = nextPath;
+  }
+  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+
+  const deleteIndexes = paths
+    .map((_, index) => index)
+    .filter((index) => index >= 4 && index % 101 === 0);
+  const deletedPath = paths[deleteIndexes[0]];
+  for (const index of deleteIndexes) {
+    await unlink(join(mirrorDirectory, paths[index]));
+  }
+  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+
+  const addedCount = Math.min(25, Math.max(1, Math.ceil(recordCount / 200)));
+  const addedPaths = Array.from(
+    { length: addedCount },
+    (_, index) => `stress/late-arrivals/added-${String(index).padStart(3, "0")}.md`
+  );
+  await writeFilesInBatches(addedPaths, 64, async (path, index) => {
+    const absolutePath = join(mirrorDirectory, path);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(
+      absolutePath,
+      `${authorityStressDocument(recordCount + index)}\nAdded during authority stress wave.\n`
+    );
+  });
+  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+
+  const expectedCount = recordCount - deleteIndexes.length + addedCount;
+  assert.equal(await countMarkdownFiles(mirrorDirectory), expectedCount);
+  phase(
+    `authority promotion stress fixture converged at ${expectedCount} documents `
+      + `in ${Math.round(performance.now() - started)}ms`
+  );
+  return {
+    addedPath: addedPaths[0],
+    deletedPath,
+    expectedCount,
+    updatedPath: paths[updateIndexes[0]]
+  };
+}
+
+function authorityStressPath(index) {
+  const sentinels = [
+    "stress/ordering/zulu.md",
+    "stress/ordering/äther.md",
+    "stress/ordering/東京.md",
+    "stress/ordering/🧪-experiment.md"
+  ];
+  if (index < sentinels.length) return sentinels[index];
+  return [
+    "stress",
+    "deep",
+    `group-${String(index % 32).padStart(2, "0")}`,
+    `chapter-${String(Math.floor(index / 256)).padStart(2, "0")}`,
+    `record-${String(index).padStart(5, "0")}.md`
+  ].join("/");
+}
+
+function authorityStressDocument(index) {
+  const title = `Complex record ${index} — ${index % 2 === 0 ? "東京" : "naïve 🧪"}`;
+  return `---
+title: ${JSON.stringify(title)}
+category: research
+sequence: ${index}
+active: ${index % 7 !== 0}
+tags:
+  - authority-stress
+  - cohort-${index % 13}
+metadata:
+  owner:
+    name: ${JSON.stringify(`Researcher ${index % 17}`)}
+    locale: ${JSON.stringify(index % 2 === 0 ? "ja-JP" : "fr-FR")}
+  metrics:
+    confidence: ${((index % 100) / 100).toFixed(2)}
+    samples: [${index}, ${index + 1}, ${index + 2}]
+  reviewers:
+    - name: Reviewer A
+      approved: ${index % 3 === 0}
+    - name: Reviewer B
+      approved: ${index % 5 === 0}
+related:
+  - "[[stress/ordering/zulu]]"
+  - "[[stress/ordering/äther]]"
+---
+# ${title}
+
+This is a nested, Unicode-rich authority transfer fixture.
+
+| measure | value |
+| --- | ---: |
+| index | ${index} |
+| square | ${index * index} |
+
+\`\`\`json
+{"index":${index},"flags":[true,false,null],"label":${JSON.stringify(title)}}
+\`\`\`
+`;
+}
+
+async function syncPromotionMirror(mirrorCli, mirrorDirectory) {
+  await execute(process.execPath, [mirrorCli, "sync", mirrorDirectory]);
+  const status = JSON.parse(
+    (await execute(process.execPath, [
+      mirrorCli,
+      "status",
+      mirrorDirectory,
+      "--json"
+    ])).stdout
+  );
+  assert.equal(status.state, "up_to_date");
+  assert.equal(status.pending, 0);
+  assert.deepEqual(status.conflicts, []);
+}
+
+async function writeFilesInBatches(values, batchSize, action) {
+  for (let start = 0; start < values.length; start += batchSize) {
+    await Promise.all(
+      values
+        .slice(start, start + batchSize)
+        .map((value, offset) => action(value, start + offset))
+    );
+  }
+}
+
+async function countMarkdownFiles(root) {
+  let count = 0;
+  const visit = async (directory) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && entry.name.endsWith(".md")) count += 1;
+    }
+  };
+  await visit(root);
+  return count;
 }
 
 async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, callbackOrigin) {

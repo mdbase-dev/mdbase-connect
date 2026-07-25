@@ -9,6 +9,7 @@
     "e2e:relay": "pnpm build && node scripts/relay-e2e.mjs",
     "e2e:sync": "pnpm build && node scripts/sync-e2e.mjs",
     "e2e:provider": "pnpm build && cargo build -p mdbase-connect-hosted-provider && node scripts/hosted-provider-e2e.mjs",
+    "e2e:authority:stress": "MDBASE_CONNECT_PROVIDER_E2E_PROMOTION_COUNT=2500 pnpm e2e:provider",
     "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "package:consumer": "node scripts/pack-consumer-sdk.mjs",

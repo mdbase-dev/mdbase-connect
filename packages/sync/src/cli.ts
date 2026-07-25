@@ -9,6 +9,7 @@ import { HttpSyncTransport } from "./index.js";
 import {
   DirectoryMirror,
   WritableDirectoryMirror,
+  type MirrorProgress,
   type MirrorStatus
 } from "./node.js";
 import {
@@ -184,9 +185,49 @@ function mirrorFor(root: string, configuration: StoredMirrorProfile) {
     configuration.profile.collection_id,
     configuration.credentials.access_token
   );
+  const options = { onProgress: mirrorProgressReporter() };
   return configuration.profile.mode === "read_write"
-    ? new WritableDirectoryMirror(root, configuration.profile.replica_id, transport)
-    : new DirectoryMirror(root, configuration.profile.replica_id, transport);
+    ? new WritableDirectoryMirror(root, configuration.profile.replica_id, transport, options)
+    : new DirectoryMirror(root, configuration.profile.replica_id, transport, options);
+}
+
+function mirrorProgressReporter(): (progress: MirrorProgress) => void {
+  let lastPhase: MirrorProgress["phase"] | null = null;
+  let lastTotal: number | null = null;
+  let lastCompleted = 0;
+  return (progress) => {
+    if (
+      progress.phase !== lastPhase
+      || progress.total !== lastTotal
+      || progress.completed < lastCompleted
+    ) {
+      lastPhase = progress.phase;
+      lastTotal = progress.total;
+      lastCompleted = 0;
+    }
+    const interval = progress.total === null
+      ? 200
+      : Math.max(1, Math.ceil(progress.total / 10));
+    const atUnfinishedKnownEnd = progress.total !== null
+      && progress.completed === progress.total
+      && !progress.done;
+    if (
+      atUnfinishedKnownEnd
+      || (
+        !progress.done
+        && progress.completed !== 1
+        && progress.completed - lastCompleted < interval
+      )
+    ) return;
+    const label = progress.phase === "uploading"
+      ? "Uploading local changes"
+      : "Applying synchronized documents";
+    const count = progress.total === null
+      ? `${progress.completed} applied`
+      : `${progress.completed}/${progress.total}`;
+    process.stdout.write(`${label}: ${count}${progress.done ? " complete" : ""}.\n`);
+    lastCompleted = progress.completed;
+  };
 }
 
 async function currentProfile(root: string): Promise<StoredMirrorProfile> {

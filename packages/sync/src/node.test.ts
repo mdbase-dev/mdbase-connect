@@ -10,7 +10,8 @@ import {
   MirrorDivergenceError,
   WritableDirectoryMirror,
   type DirectoryMirrorOptions,
-  type MirrorFileSystem
+  type MirrorFileSystem,
+  type MirrorProgress
 } from "./node.js";
 
 function deviceState(): DirectoryMirrorOptions {
@@ -36,6 +37,15 @@ class MemoryMirrorFileSystem implements MirrorFileSystem {
     return [...this.files.keys()]
       .filter((path) => path.endsWith(".md") && !excluded.has(path))
       .sort();
+  }
+}
+
+class CountingMirrorStateStore extends MemoryMirrorStateStore {
+  writes = 0;
+
+  override async write(state: Parameters<MemoryMirrorStateStore["write"]>[0]): Promise<void> {
+    this.writes += 1;
+    await super.write(state);
   }
 }
 
@@ -211,6 +221,19 @@ describe("writable Markdown mirror", () => {
         document_hash: "00".repeat(32)
       }
     ])).toBe("c3a6c98f15ed143bf4b9642e32c9f4c775ca8ad4978a42a4dbd69f79f6fc5e0f");
+
+    expect(authorityManifestDigest([
+      {
+        kind: "record",
+        path: "zulu.md",
+        document_hash: "aa".repeat(32)
+      },
+      {
+        kind: "record",
+        path: "äther.md",
+        document_hash: "bb".repeat(32)
+      }
+    ])).toBe("5f1f72e19ba871d569231de5cd71a4e1703fbc28e39d9357081f1a870d1fc7a9");
 
     const hosted = new MemoryHostedAuthority({
       resources: {
@@ -631,6 +654,77 @@ describe("writable Markdown mirror", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("checkpoints large imports in bounded batches and safely replays an interrupted batch", async () => {
+    const hosted = new MemoryHostedAuthority();
+    const replicaId = hosted.registerReplica({
+      name: "Large writable mirror",
+      mode: "read_write"
+    });
+    const upstream = hosted.transport(replicaId);
+    const fileSystem = new MemoryMirrorFileSystem();
+    const stateStore = new CountingMirrorStateStore();
+    const progress: MirrorProgress[] = [];
+    let mutationCalls = 0;
+    let loseResponseAt = 95;
+    const unreliable = {
+      openSession: () => upstream.openSession(),
+      snapshot: (snapshotId: string, page?: string) => upstream.snapshot(snapshotId, page),
+      changes: (after: number, limit?: number) => upstream.changes(after, limit),
+      async mutate(mutation: Parameters<typeof upstream.mutate>[0]) {
+        const receipt = await upstream.mutate(mutation);
+        mutationCalls += 1;
+        if (mutationCalls === loseResponseAt) {
+          loseResponseAt = -1;
+          throw new Error("connection reset after a checkpointed server commit");
+        }
+        return receipt;
+      }
+    };
+    const mirror = new WritableDirectoryMirror(".", replicaId, unreliable, {
+      fileSystem,
+      stateStore,
+      onProgress: (event) => progress.push(event)
+    });
+    await mirror.sync();
+    for (let index = 0; index < 150; index += 1) {
+      fileSystem.files.set(
+        `bulk-${String(index).padStart(3, "0")}.md`,
+        `---\ntype: note\ntitle: Bulk ${index}\n---\nLocal body ${index}\n`
+      );
+    }
+
+    await expect(mirror.sync()).rejects.toThrow(
+      "connection reset after a checkpointed server commit"
+    );
+    await mirror.sync();
+
+    const session = await upstream.openSession();
+    const snapshot = await upstream.snapshot(session.snapshot_id);
+    expect(snapshot.records).toHaveLength(100);
+    const secondPage = await upstream.snapshot(session.snapshot_id, snapshot.next_page);
+    expect(secondPage.records).toHaveLength(50);
+    expect(await mirror.status()).toMatchObject({ state: "up_to_date", pending: 0 });
+    expect(stateStore.writes).toBeLessThan(15);
+    expect(progress).toContainEqual({
+      phase: "uploading",
+      completed: 94,
+      total: 150,
+      done: false
+    });
+    expect(progress).toContainEqual({
+      phase: "uploading",
+      completed: 86,
+      total: 86,
+      done: true
+    });
+    expect(progress).toContainEqual({
+      phase: "applying",
+      completed: 150,
+      total: null,
+      done: true
+    });
   });
 
   it("never treats schema resources as writable record changes", async () => {
