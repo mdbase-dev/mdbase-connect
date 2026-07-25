@@ -25,7 +25,7 @@ The original local-collection MVP is complete when a user can:
     application installation and the local connector, and reject replay,
     tampering, or plaintext fallback.
 
-The TaskNotes reference app proves that an independent frontend can follow a
+The example contract fixtures prove that an independent frontend can follow a
 configurable domain contract.
 
 The current private beta extends that milestone with hosted collections,

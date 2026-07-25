@@ -21,6 +21,7 @@ import { createRoot } from "react-dom/client";
 import {
   api,
   ApiError,
+  type AuthorityTransfer as AuthorityTransferData,
   type AvailableCollection,
   type ContractRequirement,
   type DashboardData,
@@ -36,10 +37,13 @@ const allOperations = ["describe", "changes", "read", "query", "list_views", "ex
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
+  const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
+  if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
+  if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
   return <Dashboard />;
 }
@@ -307,7 +311,9 @@ function Dashboard() {
                   collections={[
                     ...data.collections.filter((collection) => collection.enabled)
                       .map((collection) => ({ ...collection, kind: "local" as const })),
-                    ...data.hosted_collections.map((collection) => ({
+                    ...data.hosted_collections
+                      .filter((collection) => collection.authority_state === "active")
+                      .map((collection) => ({
                       ...collection,
                       kind: "hosted" as const,
                       connector_name: "Hosted by mdbase"
@@ -325,7 +331,7 @@ function Dashboard() {
         <section id="permissions">
           <SectionHeading title="Application access" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
           {applicationAccess.length === 0 ? (
-            <Empty title="No applications connected" text="Approved website connections will appear here." />
+            <Empty title="No applications connected" text="Approved website and downloaded application connections will appear here." />
           ) : (
             <div className="portal-application-list">{applicationAccess.map((group) => (
               <PortalApplicationAccess
@@ -412,6 +418,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
   const [panel, setPanel] = useState<"mirror" | "rename" | null>(null);
   const [name, setName] = useState(collection.display_name);
   const [busy, setBusy] = useState(false);
+  const isActive = collection.authority_state === "active";
   const activeReplicas = collection.replicas.filter((replica) => !replica.revoked_at);
   useEffect(() => { if (panel !== "rename") setName(collection.display_name); }, [collection.display_name, panel]);
 
@@ -451,10 +458,26 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
 
   return <article className="hosted-row">
     <div className="hosted-summary">
-      <div><strong>{collection.display_name}</strong><small>mdbase · authoritative on mdbase · created {relativeTime(collection.created_at)}</small></div>
-      <span className="availability online"><i />Hosted</span>
+      <div><strong>{collection.display_name}</strong><small>
+        {collection.authority_state === "transferred"
+          ? `mdbase · moved to a computer · authority epoch ${collection.authority_epoch}`
+          : collection.authority_state === "transferring"
+            ? "mdbase · authority transfer in progress"
+            : `mdbase · authoritative on mdbase · created ${relativeTime(collection.created_at)}`}
+      </small></div>
+      <span className={`availability ${isActive ? "online" : "idle"}`}><i />
+        {collection.authority_state === "transferred"
+          ? "Moved"
+          : collection.authority_state === "transferring"
+            ? "Moving"
+            : "Hosted"}
+      </span>
       <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
-      <div className="computer-actions"><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync folder</button><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button><button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button></div>
+      <div className="computer-actions">
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync folder</button>}
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button>}
+        <button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button>
+      </div>
     </div>
     {panel === "rename" && <form className="hosted-detail hosted-rename" onSubmit={(event) => void rename(event)}>
       <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -582,7 +605,7 @@ function PortalApplicationAccess({ group, collections, onChanged, onError }: {
 
   return <details className="portal-application-access">
     <summary>
-      <div className="application-access-identity"><strong>{group.applicationName}</strong><small>{host(identity.homepage)}</small></div>
+      <div className="application-access-identity"><strong>{group.applicationName}</strong><small>{identity.distribution === "portable" ? `Downloaded file${identity.project_url ? ` · ${host(identity.project_url)}` : ""}` : host(identity.homepage)}</small></div>
       <span>{pluralLabel(group.collectionCount, "collection", "collections")}</span>
       <span>{pluralLabel(group.grants.length, "access record", "access records")}</span>
       <b>Review</b>
@@ -809,6 +832,205 @@ function MirrorPairing({ pairingId }: { pairingId: string }) {
   );
 }
 
+function AuthorityTransfer({ transferId }: { transferId: string }) {
+  const [transfer, setTransfer] = useState<AuthorityTransferData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      const result = await api<{ transfer: AuthorityTransferData }>(
+        `/v1/authority-transfers/${transferId}`
+      );
+      setTransfer(result.transfer);
+      setError("");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+      } else {
+        setError(message(reason));
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [transferId]);
+
+  async function approve() {
+    setBusy(true);
+    try {
+      const result = await api<{ transfer: AuthorityTransferData }>(
+        `/v1/authority-transfers/${transferId}/approve`,
+        { method: "POST", body: "{}" }
+      );
+      setTransfer(result.transfer);
+      setError("");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancel() {
+    setBusy(true);
+    try {
+      await api(`/v1/authority-transfers/${transferId}`, { method: "DELETE" });
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!transfer) return <Loading error={error} />;
+  const collectionName = transfer.collection_name ?? "This collection";
+  const mirrorName = transfer.mirror_name ?? "the selected computer";
+  const waiting = transfer.state === "approved" || transfer.state === "prepared";
+  const inactive = transfer.state === "cancelled" || transfer.state === "expired";
+  return (
+    <main className="center-page">
+      <PageBrand label="Authority transfer" />
+      <section className="decision-panel authority-decision">
+        {transfer.state === "completed" ? <>
+          <p className="eyebrow outcome-label">Transfer complete</p>
+          <h1>{collectionName} now lives on your computer.</h1>
+          <p>
+            The folder on {mirrorName} is the source of truth. Hosted access has stopped
+            and previous application connections were revoked.
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot connected" aria-hidden="true" />
+            <span>Local authority, epoch {transfer.authority_epoch}</span>
+          </div>
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : inactive ? <>
+          <p className="eyebrow">Transfer ended</p>
+          <h1>Hosted authority was kept.</h1>
+          <p>
+            {collectionName} remains hosted. No source-of-truth change was completed.
+          </p>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : waiting ? <>
+          <p className="eyebrow outcome-label">Transfer approved</p>
+          <h1>Return to {mirrorName}.</h1>
+          <p>
+            The command is checking the final hosted sequence, registering the folder
+            with mdbase connect, and activating local authority.
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot paused" aria-hidden="true" />
+            <span>{transfer.state === "prepared" ? "Hosted writes are paused" : "Waiting for the computer"}</span>
+          </div>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="decision-actions">
+            <button className="quiet-danger" disabled={busy} onClick={() => void cancel()}>
+              Cancel transfer
+            </button>
+          </div>
+        </> : <>
+          <p className="eyebrow">Move source of truth</p>
+          <h1>Make {mirrorName} authoritative?</h1>
+          <p>
+            {collectionName} will stop being hosted and become a computer-owned collection.
+            This changes where every future edit is accepted.
+          </p>
+          <dl className="transfer-consequences">
+            <div><dt>Folder</dt><dd>The synchronized Markdown folder becomes the source of truth.</dd></div>
+            <div><dt>Hosted service</dt><dd>Writes pause during verification, then hosted access is retired.</dd></div>
+            <div><dt>Applications</dt><dd>Existing access is revoked. Connect applications again to use the local collection.</dd></div>
+            <div><dt>Recovery</dt><dd>If verification fails or this request expires, hosted writes resume.</dd></div>
+          </dl>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="decision-actions">
+            <button className="button secondary" disabled={busy} onClick={() => void cancel()}>
+              Keep it hosted
+            </button>
+            <button className="button primary" disabled={busy} onClick={() => void approve()}>
+              {busy ? "Approving…" : "Move authority"}
+            </button>
+          </div>
+        </>}
+      </section>
+    </main>
+  );
+}
+
+function DeviceAuthorization() {
+  const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
+  const [code, setCode] = useState(initialCode);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const automaticallyClaimed = useRef(false);
+  useSystemTheme();
+
+  async function openRequest(value: string) {
+    const userCode = formatDeviceCode(value);
+    if (userCode.replace("-", "").length !== 8) {
+      setError("Enter the eight-character code shown by the downloaded application.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ request_id: string }>(
+        "/v1/device-authorization-requests/lookup",
+        { method: "POST", body: JSON.stringify({ user_code: userCode }) }
+      );
+      location.replace(`/authorize/${result.request_id}`);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+        return;
+      }
+      setError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!initialCode || automaticallyClaimed.current) return;
+    automaticallyClaimed.current = true;
+    void openRequest(initialCode);
+  }, [initialCode]);
+
+  return (
+    <main className="center-page">
+      <PageBrand label="Downloaded application" themePicker={false} />
+      <form className="decision-panel device-panel" onSubmit={(event) => {
+        event.preventDefault();
+        void openRequest(code);
+      }}>
+        <p className="eyebrow">Short approval code</p>
+        <h1>Check the downloaded file.</h1>
+        <p>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</p>
+        <label className="device-code-field">
+          <span>Approval code</span>
+          <input
+            autoFocus={!initialCode}
+            autoComplete="one-time-code"
+            inputMode="text"
+            maxLength={9}
+            value={code}
+            onChange={(event) => setCode(formatDeviceCode(event.target.value))}
+            placeholder="ABCD-EFGH"
+          />
+        </label>
+        <p className="field-note">Codes expire after ten minutes and can authorize only the key created by that file.</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}>
+          {busy ? "Checking…" : "Review request"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function Authorization({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
@@ -869,7 +1091,7 @@ function Authorization({ requestId }: { requestId: string }) {
               collections: [...current.collections, collection]
             } : current)}
           />
-        </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>Returning to the application…</h2><p>Your approved collection and permissions will follow you back.</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>Returning to the application…</h2><p>The application will show that access was not granted.</p></>}
+        </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
       </section>
     </main>
   );
@@ -882,7 +1104,9 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
       <div>
         {large && <p className="eyebrow">Application access</p>}
         {large ? <h1>{request.application_name}</h1> : <strong>{request.application_name}</strong>}
-        <small>{host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
+        <small>{request.distribution === "portable"
+          ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
+          : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
         {request.requirements.access === "full_collection" ? (
           <small>Requests access to all record types in the selected collection.</small>
         ) : request.requirements.contracts.length > 0 && (
@@ -970,12 +1194,11 @@ function ApprovalForm({
     setSubmitting("creating");
     setError("");
     try {
-      const tasknotes = request.requirements.contracts.some((contract) => contract.id === "tasknotes.task");
       const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", {
         method: "POST",
         body: JSON.stringify({
-          display_name: tasknotes ? "My tasks" : "My collection",
-          template: tasknotes ? "tasknotes" : "mdbase"
+          display_name: "My collection",
+          template: "mdbase"
         })
       });
       const collection: AvailableCollection = {
@@ -983,7 +1206,7 @@ function ApprovalForm({
         display_name: created.collection.display_name,
         connector_name: "mdbase cloud",
         spec_version: created.collection.spec_version ?? "0.3.0",
-        contracts: tasknotes ? [{ id: "tasknotes.task", version: 1 }] : [],
+        contracts: [],
         kind: "hosted"
       };
       onCollectionCreated(collection);
@@ -997,6 +1220,16 @@ function ApprovalForm({
 
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
+      {request.distribution === "portable" && <div className="portable-authorization-warning" role="note">
+        <div>
+          <p className="eyebrow">Downloaded file, unverified origin</p>
+          <strong>Only continue if you intentionally opened this HTML file.</strong>
+        </div>
+        {request.user_code && <p>Confirm that it shows <code>{request.user_code}</code>. The code binds this approval to the file’s temporary encryption key.</p>}
+        <p>{request.project_url
+          ? `${host(request.project_url)} is a developer-supplied project link, not proof that the downloaded file came from that site.`
+          : "A downloaded file has no website origin that mdbase can verify."}</p>
+      </div>}
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Collection</strong>
@@ -1017,13 +1250,16 @@ function ApprovalForm({
             <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
           </details>}
           {compatible.length === 0 && <div className="authorization-empty-collection">
-            <p className="field-note">No compatible collection is ready.</p>
+            <p className="field-note">{request.distribution === "portable"
+              ? "No compatible computer-owned collection is currently available through mdbase connect."
+              : "No compatible collection is ready."}</p>
+            {request.distribution !== "portable" &&
             <button
               className="button secondary"
               type="button"
               disabled={submitting !== null}
               onClick={() => void createCloudCollection()}
-            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
+            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>}
           </div>}
           {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
         </div>
@@ -1044,7 +1280,7 @@ function ApprovalForm({
       {error && <div className="message error compact">{error}</div>}
       <footer className="approval-footer">
         <p>{selected
-          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. Access lasts until you revoke it.`
+          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. ${request.distribution === "portable" ? "The local connector checks every encrypted operation." : "Access lasts until you revoke it."}`
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
@@ -1145,6 +1381,12 @@ function Loading({ error = "" }: { error?: string }) { return <main className="l
 function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
+function formatDeviceCode(value: string) {
+  const canonical = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return canonical.length > 4
+    ? `${canonical.slice(0, 4)}-${canonical.slice(4)}`
+    : canonical;
+}
 function pluralLabel(count: number, singular: string, pluralValue: string) { return `${count} ${count === 1 ? singular : pluralValue}`; }
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,

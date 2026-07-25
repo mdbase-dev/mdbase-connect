@@ -22,7 +22,7 @@ const webhook = {
     cursor: "42",
     presentation: {
       title: "Tasks changed",
-      body: "Open TaskNotes to refresh."
+      body: "Open Worklog to refresh."
     }
   }
 } as const;

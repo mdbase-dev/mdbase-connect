@@ -1,7 +1,6 @@
 import type {
   CollectionContractDescriptor,
   ContractRequirement,
-  JsonObject,
   SyncCollectionResources,
   SyncMutation
 } from "@mdbase/connect-protocol";
@@ -12,6 +11,10 @@ import {
   type SerializedHostedAuthority,
   type SyncTransport
 } from "@mdbase/connect-sync";
+import {
+  authorityManifestDigest
+} from "@mdbase/connect-sync/node";
+import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 
 interface CachedAuthority {
@@ -19,7 +22,18 @@ interface CachedAuthority {
   version: number;
 }
 
-export type HostedTemplate = "mdbase" | "tasknotes";
+export type HostedTemplate = "mdbase";
+
+export interface ReferenceAuthorityTransfer {
+  id: string;
+  collection_id: string;
+  replica_id: string;
+  final_head: number;
+  authority_epoch: number;
+  manifest_digest: string;
+  state: "prepared" | "completed" | "aborted";
+  expires_at: string;
+}
 
 /**
  * Transactional persistence boundary for the sync reference authority.
@@ -79,19 +93,168 @@ export class HostedAuthorityRegistry {
     await this.write(collectionId, (authority) => authority.compactThrough(sequence));
   }
 
+  async prepareAuthorityTransfer(
+    collectionId: string,
+    input: { transferId: string; replicaId: string; ttlSeconds: number }
+  ): Promise<ReferenceAuthorityTransfer> {
+    if (input.ttlSeconds < 60 || input.ttlSeconds > 3_600) {
+      throw new SyncError(
+        "invalid_authority_transfer_ttl",
+        "Authority transfer preparation must expire between one minute and one hour."
+      );
+    }
+    return this.read(collectionId, (authority) => {
+      const state = authority.serialize();
+      const replica = state.replicas.find(({ id }) => id === input.replicaId);
+      if (
+        !replica
+        || replica.revoked
+        || replica.mode !== "read_write"
+        || replica.allowedTypes.length > 0
+      ) {
+        throw new SyncError(
+          "promotion_mirror_ineligible",
+          "Authority can move only to an active, two-way, full collection mirror."
+        );
+      }
+      const digestValue = manifestDigest(state);
+      const expiresAt = new Date(Date.now() + input.ttlSeconds * 1_000).toISOString();
+      return {
+        id: input.transferId,
+        collection_id: collectionId,
+        replica_id: input.replicaId,
+        final_head: state.head,
+        authority_epoch: 2,
+        manifest_digest: digestValue,
+        state: "prepared" as const,
+        expires_at: expiresAt
+      };
+    });
+  }
+
+  async completeAuthorityTransfer(
+    transferId: string,
+    manifestDigestValue: string
+  ): Promise<ReferenceAuthorityTransfer> {
+    const transfer = await this.transfer(transferId);
+    if (transfer.state === "completed") return transfer;
+    if (transfer.state !== "prepared") {
+      throw new SyncError("authority_transfer_inactive", "Authority transfer is no longer active.");
+    }
+    if (transfer.expires_at <= new Date().toISOString()) {
+      throw new SyncError(
+        "authority_transfer_expired",
+        "Authority transfer expired and hosted writes were restored."
+      );
+    }
+    if (transfer.manifest_digest !== manifestDigestValue) {
+      throw new SyncError(
+        "authority_manifest_mismatch",
+        "The local folder does not exactly match the fenced hosted collection."
+      );
+    }
+    await this.write(transfer.collection_id, (authority) => {
+      for (const replica of authority.serialize().replicas) {
+        if (!replica.revoked) authority.revokeReplica(replica.id);
+      }
+    });
+    return { ...transfer, state: "completed" };
+  }
+
+  async abortAuthorityTransfer(transferId: string): Promise<ReferenceAuthorityTransfer> {
+    const transfer = await this.transfer(transferId);
+    if (transfer.state === "completed") {
+      throw new SyncError(
+        "authority_transfer_completed",
+        "Completed authority transfer cannot be cancelled."
+      );
+    }
+    return { ...transfer, state: "aborted" };
+  }
+
   async transport(collectionId: string, replicaId: string): Promise<SyncTransport> {
     return {
-      openSession: () => this.read(collectionId, (authority) => authority.transport(replicaId).openSession()),
-      snapshot: (snapshotId, page) => this.read(
-        collectionId,
-        (authority) => authority.transport(replicaId).snapshot(snapshotId, page)
-      ),
-      changes: (after, limit) => this.read(
-        collectionId,
-        (authority) => authority.transport(replicaId).changes(after, limit)
-      ),
-      mutate: (mutation) => this.write(collectionId, (authority) => authority.transport(replicaId).mutate(mutation))
+      openSession: async () => {
+        await this.assertTransferReadAllowed(collectionId, replicaId);
+        return this.read(collectionId, (authority) => authority.transport(replicaId).openSession());
+      },
+      snapshot: async (snapshotId, page) => {
+        await this.assertTransferReadAllowed(collectionId, replicaId);
+        return this.read(
+          collectionId,
+          (authority) => authority.transport(replicaId).snapshot(snapshotId, page)
+        );
+      },
+      changes: async (after, limit) => {
+        await this.assertTransferReadAllowed(collectionId, replicaId);
+        return this.read(
+          collectionId,
+          (authority) => authority.transport(replicaId).changes(after, limit)
+        );
+      },
+      mutate: async (mutation) => {
+        if (await this.activeTransfer(collectionId)) {
+          throw new SyncError(
+            "authority_transfer_in_progress",
+            "Hosted writes are fenced while authority moves to the local collection."
+          );
+        }
+        return this.write(
+          collectionId,
+          (authority) => authority.transport(replicaId).mutate(mutation)
+        );
+      }
     };
+  }
+
+  private async assertTransferReadAllowed(collectionId: string, replicaId: string): Promise<void> {
+    const transfer = await this.activeTransfer(collectionId);
+    if (transfer && transfer.replica_id !== replicaId) {
+      throw new SyncError(
+        "authority_transfer_in_progress",
+        "Only the promotion mirror can read while authority is moving."
+      );
+    }
+  }
+
+  private async activeTransfer(collectionId: string): Promise<ReferenceAuthorityTransfer | null> {
+    await this.db.query(
+      `UPDATE authority_transfers SET state = 'expired'
+       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at <= now()`,
+      [collectionId]
+    );
+    await this.db.query(
+      `UPDATE hosted_collections SET authority_state = 'active'
+       WHERE id = $1 AND authority_state = 'transferring'
+         AND NOT EXISTS (
+           SELECT 1 FROM authority_transfers
+           WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
+         )`,
+      [collectionId]
+    );
+    const result = await this.db.query<ReferenceTransferRow>(
+      `SELECT id, hosted_collection_id, replica_id, final_head, next_authority_epoch,
+              manifest_digest, state, expires_at
+       FROM authority_transfers
+       WHERE hosted_collection_id = $1 AND state = 'prepared' AND expires_at > now()
+       ORDER BY created_at DESC LIMIT 1`,
+      [collectionId]
+    );
+    return result.rows[0] ? referenceTransfer(result.rows[0]) : null;
+  }
+
+  private async transfer(transferId: string): Promise<ReferenceAuthorityTransfer> {
+    const result = await this.db.query<ReferenceTransferRow>(
+      `SELECT id, hosted_collection_id, replica_id, final_head, next_authority_epoch,
+              manifest_digest, state, expires_at
+       FROM authority_transfers WHERE id = $1`,
+      [transferId]
+    );
+    const row = result.rows[0];
+    if (!row || row.final_head === null || row.next_authority_epoch === null || !row.manifest_digest) {
+      throw new SyncError("authority_transfer_not_found", "Authority transfer was not found.");
+    }
+    return referenceTransfer(row);
   }
 
   private read<Result>(
@@ -175,19 +338,52 @@ export class HostedAuthorityRegistry {
   }
 }
 
-function authorityOptions(resources: SyncCollectionResources) {
-  const tasknotes = resources.contracts.some((contract) => contract.id === "tasknotes.task");
+interface ReferenceTransferRow {
+  id: string;
+  hosted_collection_id: string;
+  replica_id: string;
+  final_head: string | number | null;
+  next_authority_epoch: string | number | null;
+  manifest_digest: string | null;
+  state: "prepared" | "completed" | "cancelled" | "expired";
+  expires_at: string | Date;
+}
+
+function referenceTransfer(row: ReferenceTransferRow): ReferenceAuthorityTransfer {
   return {
-    ...(tasknotes ? { validate: validateTasknotes } : {}),
-    resources
+    id: row.id,
+    collection_id: row.hosted_collection_id,
+    replica_id: row.replica_id,
+    final_head: Number(row.final_head),
+    authority_epoch: Number(row.next_authority_epoch),
+    manifest_digest: row.manifest_digest ?? "",
+    state: row.state === "completed"
+      ? "completed"
+      : row.state === "prepared"
+        ? "prepared"
+        : "aborted",
+    expires_at: new Date(row.expires_at).toISOString()
   };
 }
 
-function validateTasknotes(record: { types: string[]; frontmatter: JsonObject }): void {
-  if (!record.types.includes("task")) return;
-  if (record.frontmatter.type !== "task" || typeof record.frontmatter.title !== "string" || !record.frontmatter.title.trim()) {
-    throw new SyncError("validation_failed", "Task records require type: task and a non-empty title.");
-  }
+function manifestDigest(state: SerializedHostedAuthority): string {
+  const digest = (document: string) => createHash("sha256").update(document).digest("hex");
+  return authorityManifestDigest([
+    ...(state.resources?.documents ?? []).map((resource) => ({
+      kind: "resource" as const,
+      path: resource.path,
+      document_hash: digest(resource.document)
+    })),
+    ...state.records.map((record) => ({
+      kind: "record" as const,
+      path: record.path,
+      document_hash: record.revision
+    }))
+  ]);
+}
+
+function authorityOptions(resources: SyncCollectionResources) {
+  return { resources };
 }
 
 export function asSyncMutation(value: unknown): SyncMutation {
@@ -196,7 +392,6 @@ export function asSyncMutation(value: unknown): SyncMutation {
 
 export function hostedResources(template: string): SyncCollectionResources {
   if (template === "mdbase") return mdbaseResources();
-  if (template === "tasknotes") return tasknotesResources();
   throw new SyncError("unsupported_template", "The hosted collection template is unavailable.");
 }
 
@@ -230,13 +425,6 @@ export function typesForContracts(
     .map(({ type_name }) => type_name))];
 }
 
-export function hostedTypesForContracts(
-  template: string,
-  contracts: ContractRequirement[]
-): string[] {
-  return typesForContracts(hostedContractDescriptors(template), contracts);
-}
-
 export function mdbaseResources(): SyncCollectionResources {
   return {
     revision: "mdbase-template:1",
@@ -248,77 +436,6 @@ export function mdbaseResources(): SyncCollectionResources {
       kind: "configuration",
       revision: "mdbase-config:1",
       document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
-    }]
-  };
-}
-
-export function tasknotesResources(): SyncCollectionResources {
-  const contract = {
-    contract: "tasknotes.task",
-    version: 1,
-    field_roles: { title: "title", status: "status" },
-    status: { completed_values: ["done"], default: "open" }
-  };
-  return {
-    revision: "tasknotes-template:1",
-    spec_version: "0.3.0",
-    types: [{
-      name: "task",
-      version: 1,
-      schema: {
-        type: "object",
-        required: ["type", "title"],
-        additionalProperties: true,
-        properties: {
-          type: { const: "task" },
-          title: { type: "string", minLength: 1 },
-          status: { enum: ["open", "done"] }
-        }
-      },
-      collection: { path: { folder: "tasks" } },
-      extensions: { "x-tasknotes": contract }
-    }],
-    contracts: [{
-      id: "tasknotes.task",
-      version: 1,
-      type_name: "task",
-      extension: "x-tasknotes",
-      configuration: contract
-    }],
-    documents: [{
-      path: "mdbase.yaml",
-      kind: "configuration",
-      revision: "tasknotes-config:1",
-      document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
-    }, {
-      path: "_types/task.md",
-      kind: "type",
-      revision: "tasknotes-type:1",
-      document: `---
-kind: mdbase.type
-name: task
-version: 1
-description: A TaskNotes-compatible task.
-collection:
-  path:
-    folder: tasks
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    required: [type, title]
-    additionalProperties: true
-    properties:
-      type: { const: task }
-      title: { type: string, minLength: 1 }
-      status: { enum: [open, done] }
-x-tasknotes:
-  contract: tasknotes.task
-  version: 1
-  field_roles: { title: title, status: status }
-  status: { completed_values: [done], default: open }
----
-`
     }]
   };
 }

@@ -54,13 +54,10 @@ const nativeNotificationDeliverySchema = z.discriminatedUnion("mode", [
     url: z.url().refine((value) => new URL(value).protocol === "https:", "Webhook URL must use HTTPS.")
   }).strict()
 ]);
-const manifestSchema = z.object({
+const manifestFields = {
   manifest_version: z.literal(1),
   id: applicationIdSchema,
   name: z.string().trim().min(1).max(100),
-  homepage: z.url(),
-  icon: z.url().optional(),
-  redirect_uris: z.array(z.url()).min(1).max(10),
   requirements: requirementsSchema,
   provisions: z.object({
     types: z.array(z.object({
@@ -77,19 +74,48 @@ const manifestSchema = z.object({
     ),
     native_delivery: nativeNotificationDeliverySchema.optional()
   }).strict().default({ criteria: [] })
-}).strict().superRefine(validateProvisionContracts);
+} as const;
+const webManifestSchema = z.object({
+  ...manifestFields,
+  distribution: z.literal("web").optional(),
+  homepage: z.url(),
+  icon: z.url().optional(),
+  redirect_uris: z.array(z.url()).min(1).max(10)
+}).strict();
+const portableManifestSchema = z.object({
+  ...manifestFields,
+  distribution: z.literal("portable"),
+  project_url: z.url().optional(),
+  icon: z.url().optional()
+}).strict();
+const manifestSchema = z.union([
+  webManifestSchema,
+  portableManifestSchema
+]).superRefine(validateProvisionContracts);
 
-export interface AppManifest {
+interface AppManifestBase {
   manifest_version: 1;
   id: string;
   name: string;
-  homepage: string;
-  icon?: string;
-  redirect_uris: string[];
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;
 }
+
+export interface WebAppManifest extends AppManifestBase {
+  distribution?: "web";
+  homepage: string;
+  icon?: string;
+  redirect_uris: string[];
+}
+
+export interface PortableAppManifest extends AppManifestBase {
+  distribution: "portable";
+  project_url?: string;
+  icon?: string;
+}
+
+export type AppManifest = WebAppManifest | PortableAppManifest;
 
 export interface RegisteredApplicationManifest {
   manifest: AppManifest;
@@ -113,7 +139,7 @@ export function registerApplicationManifest(
       throw new ApplicationManifestError("Application declaration is too large.");
     }
     const parsed = manifestSchema.parse(value);
-    validateManifestOrigins(parsed, allowInsecure);
+    validateManifestIdentity(parsed, allowInsecure);
     const manifest: AppManifest = parsed;
     const digest = createHash("sha256")
       .update(JSON.stringify(manifest))
@@ -148,10 +174,33 @@ function validateProvisionContracts(
   }
 }
 
-function validateManifestOrigins(
+function validateManifestIdentity(
   manifest: z.infer<typeof manifestSchema>,
   allowInsecure: boolean
 ): void {
+  if (manifest.distribution === "portable") {
+    if (manifest.requirements.collection_kind === "hosted") {
+      throw new ApplicationManifestError(
+        "Portable applications cannot request hosted-only collection access."
+      );
+    }
+    if (manifest.project_url) {
+      const project = new URL(manifest.project_url);
+      if (project.protocol !== "https:") {
+        throw new ApplicationManifestError("Portable application project URLs must use HTTPS.");
+      }
+      if (manifest.icon && new URL(manifest.icon).origin !== project.origin) {
+        throw new ApplicationManifestError(
+          "Portable application icons must use the project URL origin."
+        );
+      }
+    } else if (manifest.icon) {
+      throw new ApplicationManifestError(
+        "Portable application icons require a project URL on the same origin."
+      );
+    }
+    return;
+  }
   const homepage = new URL(manifest.homepage);
   const developmentOrigin = allowInsecure
     && homepage.protocol === "http:"

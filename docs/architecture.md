@@ -4,9 +4,8 @@
 
 mdbase defines the portable collection format and record operations. Connect
 provides authorization, routing, discovery, and change delivery for
-applications. Domain packages such as `@mdbase/tasknotes` interpret optional
-type extensions without adding TaskNotes behavior to the mdbase specification
-or the relay.
+applications. Domain packages interpret optional type extensions without
+adding application behavior to the mdbase specification or the relay.
 
 Five trust zones make up the local-hosted path:
 
@@ -75,8 +74,8 @@ in browser history and logs; grants remain the authorization boundary.
   subscriptions, and Web Push installation registration.
 - `@mdbase/connect-sync` defines hosted replication and supplies offline replica
   stores, an HTTP transport, and a receive-only Markdown mirror.
-- Domain adapters consume collection contracts. `@mdbase/tasknotes` is the
-  first adapter and follows the collection's configured TaskNotes field roles.
+- Domain adapters consume collection contracts and remain in their owning
+  application repositories.
 
 ## Collection API
 
@@ -165,16 +164,14 @@ policy.
 ## Domain contracts
 
 A type may declare an optional domain contract in an extension such as
-`x-tasknotes`. Discovery returns the extension unchanged along with its type
+`x-workout`. Discovery returns the extension unchanged along with its type
 name and version. An adapter can then translate stable domain roles into the
 collection's configured field names.
 
-The TaskNotes adapter implements listing, creation, and completion through
-generic mdbase operations. Completion reads the latest revision and submits a
-conditional update. This path works while Obsidian is closed. Runtime-backed
-notification criteria and one-shot timers are available without adding
-TaskNotes semantics to Connect; richer recurrence expansion remains an explicit
-domain provider action.
+Application adapters implement their behavior through generic mdbase
+operations. Revision-sensitive changes read the latest revision and submit a
+conditional update. Runtime-backed notification criteria and one-shot timers
+remain generic; domain planning stays in the application.
 
 ## Application identity and authorization
 
@@ -196,6 +193,14 @@ presentation fields are explicitly not publisher authentication. Authorization
 uses short-lived codes and PKCE; browser and native applications have no client
 secret. The user approves concrete operations and the declaration-derived
 record scope for one named collection.
+
+Downloaded HTML applications use the v1 portable distribution profile described
+in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
+single-use OAuth device code plus PKCE and the existing per-grant P-256 key.
+Their browser origin is the exact opaque value `null`, tokens and non-extractable
+keys are memory-only by default, and the local connector still requires a
+matching encrypted grant for every operation. Portable grants are currently
+limited to local-authority collections.
 Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when
 cloud policy is stale.

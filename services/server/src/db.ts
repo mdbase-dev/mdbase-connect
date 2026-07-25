@@ -91,6 +91,9 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       display_name text NOT NULL,
       spec_version text NOT NULL,
       enabled boolean NOT NULL DEFAULT true,
+      authority_state text NOT NULL DEFAULT 'active'
+        CHECK (authority_state IN ('active', 'candidate', 'retired')),
+      authority_epoch bigint NOT NULL DEFAULT 1,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
       last_seen_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(connector_id, local_id)
@@ -102,6 +105,10 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       template text NOT NULL,
       provider_url text,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
+      authority_state text NOT NULL DEFAULT 'active'
+        CHECK (authority_state IN ('active', 'transferring', 'transferred')),
+      authority_epoch bigint NOT NULL DEFAULT 1,
+      transferred_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS hosted_replicas (
@@ -119,8 +126,11 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       canonical_identity text NOT NULL UNIQUE,
       manifest_version integer NOT NULL DEFAULT 1,
+      distribution text NOT NULL DEFAULT 'web'
+        CHECK (distribution IN ('web', 'portable')),
       name text NOT NULL,
       homepage text NOT NULL,
+      project_url text,
       icon text,
       redirect_uris jsonb NOT NULL,
       requirements jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
@@ -147,16 +157,24 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     );
     CREATE TABLE IF NOT EXISTS authorization_requests (
       id uuid PRIMARY KEY,
-      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id uuid REFERENCES users(id) ON DELETE CASCADE,
       application_id uuid NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
       grant_id uuid REFERENCES grants(id) ON DELETE CASCADE,
-      redirect_uri text NOT NULL,
+      flow text NOT NULL DEFAULT 'authorization_code'
+        CHECK (flow IN ('authorization_code', 'device_code')),
+      redirect_uri text,
       state text,
-      code_challenge text NOT NULL,
+      code_challenge text,
       requested_operations jsonb NOT NULL,
       collection_hint uuid,
       relay_protocol integer,
       application_public_key text,
+      device_code_hash text UNIQUE,
+      user_code text,
+      user_code_hash text UNIQUE,
+      poll_interval_seconds integer NOT NULL DEFAULT 5,
+      last_polled_at timestamptz,
+      device_consumed_at timestamptz,
       expires_at timestamptz NOT NULL,
       completed_at timestamptz,
       denied_at timestamptz
@@ -185,6 +203,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS authority_transfers (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      hosted_collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
+      pairing_id uuid NOT NULL REFERENCES mirror_pairing_requests(id) ON DELETE CASCADE,
+      replica_id uuid NOT NULL REFERENCES hosted_replicas(id) ON DELETE CASCADE,
+      local_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
+      state text NOT NULL DEFAULT 'requested'
+        CHECK (state IN ('requested', 'approved', 'prepared', 'completed', 'cancelled', 'expired')),
+      final_head bigint,
+      next_authority_epoch bigint,
+      manifest_digest text,
+      expires_at timestamptz NOT NULL,
+      approved_at timestamptz,
+      prepared_at timestamptz,
+      completed_at timestamptz,
+      cancelled_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS authority_transfers_collection_idx
+      ON authority_transfers(hosted_collection_id, state);
     CREATE TABLE IF NOT EXISTS authorization_codes (
       id uuid PRIMARY KEY,
       code_hash text NOT NULL UNIQUE,
@@ -308,9 +347,33 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(
     db,
+    "collections",
+    "authority_state",
+    "ALTER TABLE collections ADD COLUMN authority_state text NOT NULL DEFAULT 'active'"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "authority_epoch",
+    "ALTER TABLE collections ADD COLUMN authority_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
     "applications",
     "manifest_version",
     "ALTER TABLE applications ADD COLUMN manifest_version integer NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
+    "applications",
+    "distribution",
+    "ALTER TABLE applications ADD COLUMN distribution text NOT NULL DEFAULT 'web'"
+  );
+  await ensureColumn(
+    db,
+    "applications",
+    "project_url",
+    "ALTER TABLE applications ADD COLUMN project_url text"
   );
   const applicationColumns = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
@@ -371,12 +434,81 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
   await ensureColumn(db, "authorization_requests", "collection_hint", "ALTER TABLE authorization_requests ADD COLUMN collection_hint uuid");
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "flow",
+    "ALTER TABLE authorization_requests ADD COLUMN flow text NOT NULL DEFAULT 'authorization_code'"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "device_code_hash",
+    "ALTER TABLE authorization_requests ADD COLUMN device_code_hash text"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "user_code",
+    "ALTER TABLE authorization_requests ADD COLUMN user_code text"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "user_code_hash",
+    "ALTER TABLE authorization_requests ADD COLUMN user_code_hash text"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "poll_interval_seconds",
+    "ALTER TABLE authorization_requests ADD COLUMN poll_interval_seconds integer NOT NULL DEFAULT 5"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "last_polled_at",
+    "ALTER TABLE authorization_requests ADD COLUMN last_polled_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "device_consumed_at",
+    "ALTER TABLE authorization_requests ADD COLUMN device_consumed_at timestamptz"
+  );
+  await ensureNullable(db, "authorization_requests", "user_id");
+  await ensureNullable(db, "authorization_requests", "redirect_uri");
+  await ensureNullable(db, "authorization_requests", "code_challenge");
+  await db.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS authorization_requests_device_code_idx ON authorization_requests(device_code_hash)"
+  );
+  await db.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS authorization_requests_user_code_idx ON authorization_requests(user_code_hash)"
+  );
   await ensureColumn(db, "hosted_collections", "provider_url", "ALTER TABLE hosted_collections ADD COLUMN provider_url text");
   await ensureColumn(
     db,
     "hosted_collections",
     "contracts",
     "ALTER TABLE hosted_collections ADD COLUMN contracts jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "authority_state",
+    "ALTER TABLE hosted_collections ADD COLUMN authority_state text NOT NULL DEFAULT 'active'"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "authority_epoch",
+    "ALTER TABLE hosted_collections ADD COLUMN authority_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "transferred_collection_id",
+    "ALTER TABLE hosted_collections ADD COLUMN transferred_collection_id uuid"
   );
   await ensureColumn(
     db,
@@ -479,6 +611,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "grants_collection_target_check",
     `ALTER TABLE grants ADD CONSTRAINT grants_collection_target_check
      CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))`
+  );
+  await ensureConstraint(
+    db,
+    "hosted_collections",
+    "hosted_collections_transferred_collection_id_fkey",
+    `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_transferred_collection_id_fkey
+     FOREIGN KEY (transferred_collection_id) REFERENCES collections(id) ON DELETE SET NULL`
+  );
+  await ensureConstraint(
+    db,
+    "collections",
+    "collections_authority_state_check",
+    `ALTER TABLE collections ADD CONSTRAINT collections_authority_state_check
+     CHECK (authority_state IN ('active', 'candidate', 'retired'))`
+  );
+  await ensureConstraint(
+    db,
+    "hosted_collections",
+    "hosted_collections_authority_state_check",
+    `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_authority_state_check
+     CHECK (authority_state IN ('active', 'transferring', 'transferred'))`
   );
 }
 

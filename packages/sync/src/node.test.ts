@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryHostedAuthority } from "./index.js";
 import {
+  authorityManifestDigest,
   DirectoryMirror,
   MemoryMirrorStateStore,
   MirrorDivergenceError,
@@ -197,6 +198,89 @@ describe("receive-only Markdown mirror", () => {
 });
 
 describe("writable Markdown mirror", () => {
+  it("builds a stable content-only authority manifest", async () => {
+    expect(authorityManifestDigest([
+      {
+        kind: "resource",
+        path: "mdbase.yaml",
+        document_hash: "ff".repeat(32)
+      },
+      {
+        kind: "record",
+        path: "tasks/a.md",
+        document_hash: "00".repeat(32)
+      }
+    ])).toBe("c3a6c98f15ed143bf4b9642e32c9f4c775ca8ad4978a42a4dbd69f79f6fc5e0f");
+
+    const hosted = new MemoryHostedAuthority({
+      resources: {
+        revision: "resources:1",
+        spec_version: "0.3.0",
+        types: [],
+        contracts: [],
+        documents: [{
+          path: "mdbase.yaml",
+          kind: "configuration",
+          revision: "config:1",
+          document: "spec_version: 0.3.0\n"
+        }]
+      }
+    });
+    const replicaId = hosted.registerReplica({ name: "Promotion candidate", mode: "read_write" });
+    await hosted.transport(replicaId).mutate({
+      mutation_id: crypto.randomUUID(),
+      replica_id: replicaId,
+      scope_epoch: 1,
+      operation: "create",
+      record_id: crypto.randomUUID(),
+      input: { path: "note.md", frontmatter: { title: "Local" }, types: [] },
+      created_at: new Date().toISOString()
+    });
+    const fileSystem = new MemoryMirrorFileSystem();
+    const mirror = new WritableDirectoryMirror(
+      "/virtual",
+      replicaId,
+      hosted.transport(replicaId),
+      { stateStore: new MemoryMirrorStateStore(), fileSystem }
+    );
+    await mirror.sync();
+
+    const first = await mirror.authorityPromotionManifest();
+    const second = await mirror.authorityPromotionManifest();
+    expect(first).toEqual(second);
+    expect(first.cursor).toBe(1);
+    expect(first.digest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("refuses promotion when the mirror is read-only or has unmanaged Markdown", async () => {
+    const hosted = new MemoryHostedAuthority();
+    const readOnlyId = hosted.registerReplica({ name: "Read only", mode: "read_only" });
+    const readOnly = new DirectoryMirror(
+      "/virtual",
+      readOnlyId,
+      hosted.transport(readOnlyId),
+      { stateStore: new MemoryMirrorStateStore(), fileSystem: new MemoryMirrorFileSystem() }
+    );
+    await readOnly.sync();
+    await expect(readOnly.authorityPromotionManifest()).rejects.toMatchObject({
+      code: "promotion_requires_writable_mirror"
+    });
+
+    const writableId = hosted.registerReplica({ name: "Writable", mode: "read_write" });
+    const fileSystem = new MemoryMirrorFileSystem();
+    const writable = new WritableDirectoryMirror(
+      "/virtual",
+      writableId,
+      hosted.transport(writableId),
+      { stateStore: new MemoryMirrorStateStore(), fileSystem }
+    );
+    await writable.sync();
+    fileSystem.files.set("unmanaged.md", "---\ntitle: Unmanaged\n---\n");
+    await expect(writable.authorityPromotionManifest()).rejects.toMatchObject({
+      code: "promotion_unmanaged_files"
+    });
+  });
+
   it("imports existing local Markdown during initialization", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {

@@ -145,6 +145,16 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             }
             Err(error) => tracing::error!(%error, "hosted history maintenance failed"),
         }
+        match provider.recover_expired_authority_transfers().await {
+            Ok(0) => {}
+            Ok(transfers) => {
+                tracing::warn!(
+                    transfers,
+                    "restored hosted authority after expired transfers"
+                )
+            }
+            Err(error) => tracing::error!(%error, "authority transfer recovery failed"),
+        }
     }
 }
 

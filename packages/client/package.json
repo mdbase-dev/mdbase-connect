@@ -11,6 +11,9 @@
   },
   "homepage": "https://mdbase.dev/sdk/",
   "sideEffects": false,
+  "browser": "./dist/browser/mdbase-connect.min.js",
+  "unpkg": "./dist/browser/mdbase-connect.min.js",
+  "jsdelivr": "./dist/browser/mdbase-connect.min.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -25,11 +28,12 @@
     "@mdbase/connect-protocol": "workspace:*"
   },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/build-browser.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }

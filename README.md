@@ -20,14 +20,14 @@ collection, pairing an outbound-only connector, discovering an independent web
 app, approving exact operations locally or from the authenticated account
 portal, reading and writing records directly on the same computer or through
 the encrypted relay, discovering schemas and
-TaskNotes contract metadata, limiting applications to records belonging to
+application contract metadata, limiting applications to records belonging to
 their declared contracts, renewing browser authorization, receiving filesystem
 changes, rejecting stale revisions, pausing access, and immediately enforcing
 revocation. Browser-to-connector operation payloads use grant-bound end-to-end
 encryption; the relay sees routing metadata and ciphertext.
 
-Hosted collections are generic mdbase collections. TaskNotes is one reference
-application and contract adapter—not a collection kind or platform default.
+Hosted collections are generic mdbase collections. Domain-specific contracts,
+models, and interfaces live in their owning applications.
 
 ## What is here
 
@@ -52,17 +52,14 @@ application and contract adapter—not a collection kind or platform default.
   pairing, remote approval, and grant-review surface. Routine collection
   configuration stays in the local controller, and there is no developer
   portal.
-- `packages/client`: browser SDK using authorization code + PKCE.
+- `packages/client`: browser SDK using authorization code or portable device
+  authorization with PKCE, plus a dependency-free CDN/SRI browser build.
 - `packages/protocol`: shared versioned web/relay contracts.
 - `packages/devkit`: canonical artifact validation and an explicit frontend
   sandbox over the same typed collection-client boundary.
 - `packages/sync`: the versioned hosted-replication model, offline replica
   stores and client, HTTP transport, and receive-only or conflict-safe writable
   Markdown mirrors.
-- `packages/tasknotes`: portable TaskNotes contract adapter using configurable
-  field roles and generic revision-safe operations.
-- `apps/tasknotes`: deliberately small reference frontend for the TaskNotes
-  contract.
 
 Collection behavior comes from the active `mdbase-rs` implementation; this
 repository does not reimplement the mdbase specification. During v0.3
@@ -88,7 +85,7 @@ pnpm e2e:provider
 web application, and a real mdbase collection. It completes OAuth/PKCE,
 approves access through the local control API, performs a 1,000-record query
 through the browser SDK's direct route, discovers a real JSON Schema and
-TaskNotes contract, proves that private records outside the contract cannot be
+example application contract, proves that private records outside the contract cannot be
 read or queried, rotates authorization credentials, relays create/read/update
 operations, verifies change delivery and revision conflicts, exercises the
 local pause switch, revokes the grant, and confirms that access and renewal are
@@ -104,19 +101,20 @@ payloads, fail-closed broker readiness, subscription recovery after a broker
 restart, connector reconnects, and the absence of payloads in control-plane
 audit storage.
 
-`pnpm e2e:sync` exercises the hosted TaskNotes vertical slice through the real
+`pnpm e2e:sync` exercises the generic hosted replication slice through the real
 HTTP server, including offline writes, two-client convergence, idempotency,
-contract discovery, conflicts, a receive-only Markdown mirror, cursor reset,
+conflicts, a receive-only Markdown mirror, cursor reset,
 and revocation.
 
 `pnpm e2e:provider` runs the production Rust provider against disposable
 PostgreSQL 18. It includes a real Chromium portal flow, direct OAuth SDK
 operations, encrypted-at-rest checks, two provider instances racing one write,
 pinned snapshots, writable filesystem mirroring, durable retry receipts,
+an exact hosted-to-local authority handoff through the real CLI and portal,
+authority fencing, proof rejection, completion retry, cancellation recovery,
 compaction, restart recovery, logical backup restoration into a fresh database,
-credential rotation, quotas, ciphertext tamper detection, and a private
-mutation flowing through the hosted runtime into an opaque notification
-callback.
+credential rotation, quotas, ciphertext tamper detection, and a private mutation
+flowing through the hosted runtime into an opaque notification callback.
 `pnpm e2e:provider:stress` repeats the path with 10,000 records and enforces the
 documented latency budgets.
 

@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
@@ -83,17 +84,17 @@ try {
   ]);
   await writeFile(
     join(collectionPath, "mdbase.yaml"),
-    `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["TaskNotes/Views/**/*.base"]\n`
+    `${await readFile(join(collectionPath, "mdbase.yaml"), "utf8")}\nx-obsidian:\n  bases:\n    include: ["Views/**/*.base"]\n`
   );
-  await mkdir(join(collectionPath, "TaskNotes", "Views"), { recursive: true });
-  await writeFile(join(collectionPath, "TaskNotes", "Views", "tasks.base"), `formulas:
+  await mkdir(join(collectionPath, "Views"), { recursive: true });
+  await writeFile(join(collectionPath, "Views", "workouts.base"), `formulas:
   lane: if(status == "open", "Ready", "Other")
 properties:
   formula.lane:
     displayName: Lane
 views:
-  - type: tasknotesKanban
-    name: Open tasks
+  - type: table
+    name: Open workouts
     filters:
       and:
         - 'status == "open"'
@@ -106,9 +107,9 @@ views:
         direction: ASC
 `);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
-  await writeFile(join(collectionPath, "_types", "task.md"), `---
+  await writeFile(join(collectionPath, "_types", "workout.md"), `---
 kind: mdbase.type
-name: task
+name: workout
 version: 1
 schema:
   dialect: json-schema-2020-12
@@ -117,17 +118,16 @@ schema:
     required: [type, title]
     additionalProperties: true
     properties:
-      type: { const: task }
+      type: { const: workout }
       title: { type: string }
       status: { enum: [open, done] }
-x-tasknotes:
-  contract: tasknotes.task
+x-workout:
+  contract: workout.record
   version: 1
   field_roles:
     title: title
     status: status
   status:
-    completed_values: [done]
 ---
 `);
   await writeFile(join(collectionPath, "_types", "private.md"), `---
@@ -152,7 +152,7 @@ secret: connector scope test
   await mkdir(join(collectionPath, "bulk"), { recursive: true });
   await Promise.all(Array.from({ length: 1_000 }, (_, index) => writeFile(
     join(collectionPath, "bulk", `${String(index).padStart(4, "0")}.md`),
-    `---\ntype: task\ntitle: Bulk ${index}\nstatus: open\n---\n`
+    `---\ntype: workout\ntitle: Bulk ${index}\nstatus: open\n---\n`
   )));
   await stopAgent(agent);
   agent = startAgent(["--server-url", serverUrl, "--connector-token", connector.body.token]);
@@ -207,7 +207,7 @@ secret: connector scope test
       code_verifier: verifier
     }
   });
-  if (token.body.scope?.contracts?.[0]?.id !== "tasknotes.task" || !token.body.refresh_token) {
+  if (token.body.scope?.contracts?.[0]?.id !== "workout.record" || !token.body.refresh_token) {
     throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
   }
   if (token.body.encryption?.protocol_version !== 1
@@ -400,6 +400,118 @@ secret: connector scope test
         || !browserResult.deleted) {
       throw new Error(`Real browser direct-operation matrix failed: ${JSON.stringify(browserResult)}`);
     }
+
+    const portableIntegrity = JSON.parse(await readFile(
+      join(repoRoot, "packages", "client", "dist", "browser", "integrity.json"),
+      "utf8"
+    )).integrity;
+    const portableFile = join(scratch, "portable-e2e.html");
+    await writeFile(portableFile, `<!doctype html>
+<meta charset="utf-8">
+<title>Portable mdbase e2e</title>
+<button id="connect">Connect</button>
+<output id="code"></output>
+<script src="${manifest.browserOrigin}/client/browser.js" integrity="${portableIntegrity}" crossorigin="anonymous"></script>
+<script>
+  const manifest = {
+    manifest_version: 1,
+    distribution: "portable",
+    id: "dev.mdbase.portable-e2e",
+    name: "Portable E2E",
+    project_url: "https://apps.example/portable-e2e",
+    requirements: { access: "full_collection", contracts: [] }
+  };
+  const manager = new MdbaseConnect.MdbaseConnect({
+    serverUrl: ${JSON.stringify(serverUrl)},
+    manifest,
+    loopbackUrl: ${JSON.stringify(loopbackUrl)}
+  });
+  globalThis.portableHarness = {
+    environment: manager.environment(),
+    initialConnections: manager.connections().length
+  };
+  document.querySelector("#connect").onclick = () => {
+    globalThis.portableHarness.pending = manager.authorize({
+      operations: ["describe", "query"],
+      onDeviceCode(authorization) {
+        globalThis.portableHarness.authorization = authorization;
+        document.querySelector("#code").textContent = authorization.userCode;
+      },
+      openVerification() {}
+    }).then(async ({ connection }) => {
+      const description = await connection.describe();
+      const query = await connection.query({ limit: 2 });
+      globalThis.portableHarness.result = {
+        collectionId: connection.collectionId,
+        displayName: description.display_name,
+        records: query.result.results.length,
+        route: connection.route,
+        connections: manager.connections().length
+      };
+    }).catch((error) => {
+      globalThis.portableHarness.error = {
+        code: error?.code,
+        message: error?.message
+      };
+    });
+  };
+</script>`);
+    const portableUrl = pathToFileURL(portableFile).href;
+    const portablePage = await browserContext.newPage();
+    await portablePage.goto(portableUrl);
+    await portablePage.waitForFunction(() => Boolean(globalThis.portableHarness));
+    const portableEnvironment = await portablePage.evaluate(() => globalThis.portableHarness);
+    if (portableEnvironment.environment?.applicationOrigin !== "null"
+        || portableEnvironment.environment?.credentialStorage !== "memory"
+        || portableEnvironment.initialConnections !== 0) {
+      throw new Error(`Portable file defaults were not isolated: ${JSON.stringify(portableEnvironment)}`);
+    }
+    await portablePage.click("#connect");
+    await portablePage.waitForFunction(
+      () => Boolean(globalThis.portableHarness.authorization)
+    );
+    const portableAuthorization = await portablePage.evaluate(
+      () => globalThis.portableHarness.authorization
+    );
+    const portableClaim = await request("/v1/device-authorization-requests/lookup", {
+      method: "POST",
+      cookie,
+      body: { user_code: portableAuthorization.userCode }
+    });
+    await cliJson([
+      "access",
+      "approve",
+      portableClaim.body.request_id,
+      collection.local_id,
+      "--operations",
+      "describe,query"
+    ]);
+    await portablePage.waitForFunction(
+      () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
+      undefined,
+      { timeout: 20_000 }
+    );
+    const portableResult = await portablePage.evaluate(
+      () => globalThis.portableHarness
+    );
+    if (portableResult.error
+        || portableResult.result?.collectionId !== collection.id
+        || portableResult.result?.displayName !== "Workouts"
+        || portableResult.result?.records !== 2
+        || portableResult.result?.connections !== 1) {
+      throw new Error(`Portable file authorization failed: ${JSON.stringify(portableResult)}`);
+    }
+    const separatePortablePage = await browserContext.newPage();
+    await separatePortablePage.goto(portableUrl);
+    const separatePortableState = await separatePortablePage.evaluate(
+      () => globalThis.portableHarness
+    );
+    if (separatePortableState.initialConnections !== 0
+        || separatePortableState.environment?.credentialStorage !== "memory") {
+      throw new Error(`A separate file page inherited portable authorization: ${JSON.stringify(separatePortableState)}`);
+    }
+    await separatePortablePage.close();
+    await portablePage.close();
     await browserContext.close();
   } finally {
     await browser.close();
@@ -409,7 +521,7 @@ secret: connector scope test
   const descriptionBody = await descriptionResponse.json();
   if (descriptionResponse.status !== 200
       || descriptionBody.result?.protocol_version !== 1
-      || descriptionBody.result?.contracts?.[0]?.id !== "tasknotes.task"
+      || descriptionBody.result?.contracts?.[0]?.id !== "workout.record"
       || descriptionBody.result?.types?.length !== 1
       || descriptionBody.result?.types?.[0]?.schema?.properties?.title?.type !== "string") {
     throw new Error(`Unexpected collection description: ${JSON.stringify(descriptionBody)}`);
@@ -419,7 +531,7 @@ secret: connector scope test
   const create = await poll(async () => {
     const response = await rawOperation(collection.id, "create", accessToken, {
       path: "sessions/first.md",
-      frontmatter: { type: "task", title: "First connected workout", status: "open" },
+      frontmatter: { type: "workout", title: "First connected workout", status: "open" },
       body: "Created through the relay."
     });
     return response.status === 200 ? response : null;
@@ -729,7 +841,7 @@ async function availableTcpPort() {
 async function openManifestServer() {
   const primary = await openApplicationServer(
     "MVP Workout App",
-    [{ id: "tasknotes.task", version: 1 }]
+    [{ id: "workout.record", version: 1 }]
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {
@@ -754,6 +866,19 @@ async function openApplicationServer(name, contracts, access) {
     if (request.url === "/client/index.js" || request.url === "/client/crypto.js") {
       response.setHeader("content-type", "text/javascript");
       response.end(await readFile(join(repoRoot, "packages", "client", "dist", request.url.split("/").at(-1))));
+      return;
+    }
+    if (request.url === "/client/browser.js") {
+      response.setHeader("content-type", "text/javascript");
+      response.setHeader("access-control-allow-origin", "*");
+      response.end(await readFile(join(
+        repoRoot,
+        "packages",
+        "client",
+        "dist",
+        "browser",
+        "mdbase-connect.min.js"
+      )));
       return;
     }
     if (request.url === "/protocol/index.js") {
@@ -795,7 +920,7 @@ async function openApplicationServer(name, contracts, access) {
       const description = await connection.describe();
       const created = await connection.create({
         path: "browser/direct.md",
-        frontmatter: { type: "task", title: "Real browser direct", status: "open" },
+        frontmatter: { type: "workout", title: "Real browser direct", status: "open" },
         body: "Created in Chromium."
       });
       const revision = created.result.revision;
@@ -834,8 +959,8 @@ schema:
       });
       const views = await connection.listViews();
       const executedView = await connection.executeView({
-        path: "TaskNotes/Views/tasks.base",
-        view: "open-tasks"
+        path: "Views/workouts.base",
+        view: "open-workouts"
       });
       const changed = await connection.changes({ after: description.change_cursor });
       const deleted = await connection.delete({ path: "browser/renamed.md" });
@@ -852,8 +977,8 @@ schema:
         updatedType: updatedType.valid && updatedType.result.document.includes("Updated browser note"),
         listedView: views.valid
           && views.result.views.some((document) =>
-            document.source.path === "TaskNotes/Views/tasks.base"
-              && document.views.some((view) => view.id === "open-tasks"
+            document.source.path === "Views/workouts.base"
+              && document.views.some((view) => view.id === "open-workouts"
                 && view.properties[1].key === "formula.lane"
                 && view.properties[1].label === "Lane")
           ),

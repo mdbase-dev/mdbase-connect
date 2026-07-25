@@ -21,8 +21,8 @@ collections; the account portal controls mdbase-hosted collections and shared
 application access. The hosted service supplies identity, short-lived
 authorization, routing, an outbound-only relay for local authorities, and a
 durable authority for hosted collections. Hosted collections are always mdbase
-collections—application contracts such as TaskNotes are optional consumers,
-never the storage model. Success means connecting an app feels deliberate and
+collections—application contracts are optional consumers, never the storage
+model. Success means connecting an app feels deliberate and
 understandable, while revoking it is immediate and unambiguous.
 
 For a local-authority collection, the browser SDK should use the connector's

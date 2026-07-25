@@ -37,7 +37,14 @@ import {
 } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import type { RelayBroker } from "./relay-broker.js";
-import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
+import {
+  canonicalUserCode,
+  pkceChallenge,
+  randomToken,
+  randomUserCode,
+  safeEqual,
+  tokenHash
+} from "./security.js";
 import {
   asSyncMutation,
   contractRequirements,
@@ -95,6 +102,9 @@ const OPERATIONS = [
   "reconcile_timers"
 ] as const;
 const operationSchema = z.enum(OPERATIONS);
+const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+const DEVICE_AUTHORIZATION_SECONDS = 600;
+const DEVICE_POLL_INTERVAL_SECONDS = 5;
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
   version: z.number().int().positive()
@@ -160,6 +170,35 @@ interface User {
 interface ConnectorIdentity {
   id: string;
   user_id: string;
+}
+
+interface AuthorityTransferRow {
+  id: string;
+  user_id: string;
+  hosted_collection_id: string;
+  pairing_id: string;
+  replica_id: string;
+  local_collection_id: string | null;
+  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
+  final_head: string | number | null;
+  next_authority_epoch: string | number | null;
+  manifest_digest: string | null;
+  expires_at: string | Date;
+}
+
+interface AuthorityTransferDetails extends AuthorityTransferRow {
+  collection_name?: string;
+  mirror_name?: string;
+}
+
+interface AuthorityPairing {
+  pairing_id: string;
+  user_id: string;
+  collection_id: string;
+  replica_id: string;
+  mode: "read_only" | "read_write";
+  allowed_types: string[];
+  authority_state: "active" | "transferring" | "transferred";
 }
 
 export async function buildApp(options: BuildOptions) {
@@ -235,7 +274,11 @@ export async function buildApp(options: BuildOptions) {
   app.addHook("onRequest", async (request, reply) => {
     if (
       !options.hostedCollections
-      && (request.url.startsWith("/v1/hosted/") || request.url.startsWith("/v1/mirror-pairing-requests"))
+      && (
+        request.url.startsWith("/v1/hosted/")
+        || request.url.startsWith("/v1/mirror-pairing-requests")
+        || request.url.startsWith("/v1/authority-transfers")
+      )
     ) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
@@ -672,7 +715,7 @@ export async function buildApp(options: BuildOptions) {
     }
     const collections = await options.db.query<{ id: string; display_name: string }>(
       `SELECT id, display_name FROM hosted_collections
-       WHERE user_id = $1 ORDER BY display_name`,
+       WHERE user_id = $1 AND authority_state = 'active' ORDER BY display_name`,
       [user.id]
     );
     const { user_id: _userId, ...publicPairing } = pending;
@@ -695,7 +738,7 @@ export async function buildApp(options: BuildOptions) {
          AND expires_at > now()
          AND EXISTS (
            SELECT 1 FROM hosted_collections
-           WHERE id = $3 AND user_id = $2
+           WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
          )
        RETURNING id, mirror_name, mode`,
       [pairingId, user.id, input.collection_id]
@@ -896,6 +939,447 @@ export async function buildApp(options: BuildOptions) {
     );
   });
 
+  app.post("/v1/mirror-pairing-requests/:pairingId/authority-transfers", async (request, reply) => {
+    const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const secret = bearerToken(request);
+    if (!secret) {
+      return reply.code(401).send(apiError(
+        "invalid_mirror_pairing",
+        "Mirror refresh credential required."
+      ));
+    }
+    const pairing = await authorityPairing(options.db, pairingId, secret);
+    if (!pairing) {
+      return reply.code(404).send(apiError(
+        "mirror_pairing_not_found",
+        "This device can no longer move collection authority."
+      ));
+    }
+    if (pairing.mode !== "read_write" || pairing.allowed_types.length > 0) {
+      return reply.code(409).send(apiError(
+        "promotion_mirror_ineligible",
+        "Authority can move only to an active, two-way, full collection mirror."
+      ));
+    }
+    const existing = await options.db.query<AuthorityTransferRow>(
+      `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id, local_collection_id,
+              state, final_head, next_authority_epoch, manifest_digest, expires_at
+       FROM authority_transfers
+       WHERE pairing_id = $1 AND state IN ('requested', 'approved', 'prepared')
+       ORDER BY created_at DESC LIMIT 1`,
+      [pairingId]
+    );
+    if (existing.rows[0]) {
+      return reply.code(200).send(authorityTransferResponse(existing.rows[0], publicUrl));
+    }
+    if (pairing.authority_state !== "active") {
+      return reply.code(409).send(apiError(
+        "authority_transfer_unavailable",
+        "This hosted collection is not available for authority transfer."
+      ));
+    }
+    const transferId = randomUUID();
+    const transfer = await options.db.query<AuthorityTransferRow>(
+      `INSERT INTO authority_transfers
+         (id, user_id, hosted_collection_id, pairing_id, replica_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, now() + interval '30 minutes')
+       RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                 local_collection_id, state, final_head, next_authority_epoch,
+                 manifest_digest, expires_at`,
+      [transferId, pairing.user_id, pairing.collection_id, pairingId, pairing.replica_id]
+    );
+    await audit(options.db, pairing.user_id, "authority_transfer.requested", transferId, {
+      collection_id: pairing.collection_id,
+      replica_id: pairing.replica_id
+    });
+    return reply.code(201).send(authorityTransferResponse(transfer.rows[0], publicUrl));
+  });
+
+  app.get("/v1/authority-transfers/:transferId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const transfer = await options.db.query<AuthorityTransferDetails>(
+      `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+              transfer.pairing_id, transfer.replica_id, transfer.local_collection_id,
+              transfer.state, transfer.final_head, transfer.next_authority_epoch,
+              transfer.manifest_digest, transfer.expires_at,
+              hosted.display_name AS collection_name,
+              replica.name AS mirror_name
+       FROM authority_transfers transfer
+       JOIN hosted_collections hosted ON hosted.id = transfer.hosted_collection_id
+       JOIN hosted_replicas replica ON replica.id = transfer.replica_id
+       WHERE transfer.id = $1 AND transfer.user_id = $2`,
+      [transferId, user.id]
+    );
+    if (!transfer.rows[0]) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found."
+      ));
+    }
+    return { transfer: authorityTransferView(transfer.rows[0], publicUrl) };
+  });
+
+  app.post("/v1/authority-transfers/:transferId/approve", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const approved = await options.db.query<AuthorityTransferRow>(
+      `UPDATE authority_transfers
+       SET state = 'approved', approved_at = now()
+       WHERE id = $1 AND user_id = $2 AND state = 'requested' AND expires_at > now()
+       RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                 local_collection_id, state, final_head, next_authority_epoch,
+                 manifest_digest, expires_at`,
+      [transferId, user.id]
+    );
+    if (!approved.rows[0]) {
+      const existing = await options.db.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 AND user_id = $2`,
+        [transferId, user.id]
+      );
+      if (existing.rows[0]?.state === "approved" || existing.rows[0]?.state === "prepared") {
+        return { transfer: authorityTransferView(existing.rows[0], publicUrl) };
+      }
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "Authority transfer expired or is no longer awaiting approval."
+      ));
+    }
+    await audit(options.db, user.id, "authority_transfer.approved", transferId, {
+      collection_id: approved.rows[0].hosted_collection_id
+    });
+    return { transfer: authorityTransferView(approved.rows[0], publicUrl) };
+  });
+
+  app.post("/v1/authority-transfers/:transferId/prepare", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const transfer = await mirrorAuthorityTransfer(
+      options.db,
+      transferId,
+      bearerToken(request)
+    );
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this mirror."
+      ));
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      const current = locked.rows[0];
+      if (!current || current.pairing_id !== transfer.pairing_id) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "authority_transfer_not_found",
+          "Authority transfer was not found for this mirror."
+        ));
+      }
+      if (current.state === "requested") {
+        await connection.query("COMMIT");
+        return reply.code(202).send({ status: "pending" });
+      }
+      if (current.state === "prepared") {
+        await connection.query("COMMIT");
+        return { transfer: authorityTransferView(current, publicUrl) };
+      }
+      if (current.state !== "approved") {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "authority_transfer_inactive",
+          "Authority transfer is no longer active."
+        ));
+      }
+      const prepared = options.hostedProvider
+        ? await options.hostedProvider.prepareAuthorityTransfer(
+            current.hosted_collection_id,
+            { transferId, replicaId: current.replica_id, ttlSeconds: 900 }
+          )
+        : await hostedReference!.prepareAuthorityTransfer(
+            current.hosted_collection_id,
+            { transferId, replicaId: current.replica_id, ttlSeconds: 900 }
+          );
+      const saved = await connection.query<AuthorityTransferRow>(
+        `UPDATE authority_transfers
+         SET state = 'prepared', final_head = $2, next_authority_epoch = $3,
+             manifest_digest = $4, expires_at = $5, prepared_at = now()
+         WHERE id = $1 AND state = 'approved'
+         RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                   local_collection_id, state, final_head, next_authority_epoch,
+                   manifest_digest, expires_at`,
+        [
+          transferId,
+          prepared.final_head,
+          prepared.authority_epoch,
+          prepared.manifest_digest,
+          prepared.expires_at
+        ]
+      );
+      await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'transferring'
+         WHERE id = $1 AND authority_state = 'active'`,
+        [current.hosted_collection_id]
+      );
+      await audit(connection, current.user_id, "authority_transfer.prepared", transferId, {
+        collection_id: current.hosted_collection_id,
+        final_head: prepared.final_head,
+        authority_epoch: prepared.authority_epoch
+      });
+      await connection.query("COMMIT");
+      return { transfer: authorityTransferView(saved.rows[0], publicUrl) };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+
+  app.post("/v1/authority-transfers/:transferId/complete", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      manifest_digest: z.string().regex(/^[a-f0-9]{64}$/)
+    }).strict().parse(request.body);
+    const transfer = await mirrorAuthorityTransfer(
+      options.db,
+      transferId,
+      bearerToken(request)
+    );
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this mirror."
+      ));
+    }
+    if (transfer.state === "completed" && transfer.local_collection_id) {
+      return {
+        status: "completed",
+        collection_id: transfer.hosted_collection_id,
+        local_collection_id: transfer.local_collection_id,
+        authority_epoch: Number(transfer.next_authority_epoch)
+      };
+    }
+    if (transfer.state !== "prepared") {
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "Authority transfer is not prepared."
+      ));
+    }
+    const candidates = await options.db.query<{ id: string; connector_id: string }>(
+      `SELECT collection.id, collection.connector_id
+       FROM collections collection
+       JOIN connectors connector ON connector.id = collection.connector_id
+       WHERE connector.user_id = $1
+         AND collection.local_id = $2
+         AND collection.authority_state = 'candidate'
+       ORDER BY collection.last_seen_at DESC`,
+      [transfer.user_id, transfer.hosted_collection_id]
+    );
+    if (candidates.rows.length === 0) {
+      return reply.code(202).send({
+        status: "waiting_for_connector",
+        message: "The local connector has not registered the promoted collection yet."
+      });
+    }
+    if (candidates.rows.length > 1) {
+      return reply.code(409).send(apiError(
+        "authority_target_ambiguous",
+        "More than one computer registered this promoted collection."
+      ));
+    }
+    const candidate = candidates.rows[0];
+    const completed = options.hostedProvider
+      ? await options.hostedProvider.completeAuthorityTransfer(transferId, input.manifest_digest)
+      : await hostedReference!.completeAuthorityTransfer(transferId, input.manifest_digest);
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      if (locked.rows[0]?.state === "completed" && locked.rows[0].local_collection_id) {
+        await connection.query("COMMIT");
+        return {
+          status: "completed",
+          collection_id: transfer.hosted_collection_id,
+          local_collection_id: locked.rows[0].local_collection_id,
+          authority_epoch: Number(locked.rows[0].next_authority_epoch)
+        };
+      }
+      await connection.query(
+        `UPDATE collections
+         SET authority_state = 'active', authority_epoch = $2, enabled = true,
+             last_seen_at = now()
+         WHERE id = $1 AND authority_state = 'candidate'`,
+        [candidate.id, completed.authority_epoch]
+      );
+      await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'transferred', authority_epoch = $2,
+             transferred_collection_id = $3
+         WHERE id = $1`,
+        [transfer.hosted_collection_id, completed.authority_epoch, candidate.id]
+      );
+      const grants = await connection.query<{ id: string }>(
+        "SELECT id FROM grants WHERE hosted_collection_id = $1",
+        [transfer.hosted_collection_id]
+      );
+      const grantIds = grants.rows.map(({ id }) => id);
+      await connection.query(
+        `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id IN (
+           SELECT id FROM grants WHERE hosted_collection_id = $1
+         )`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id IN (
+           SELECT id FROM grants WHERE hosted_collection_id = $1
+         )`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE grants SET revoked_at = COALESCE(revoked_at, now())
+         WHERE hosted_collection_id = $1`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE hosted_replicas
+         SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+         WHERE collection_id = $1`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE authority_transfers
+         SET state = 'completed', local_collection_id = $2,
+             next_authority_epoch = $3, completed_at = now()
+         WHERE id = $1`,
+        [transferId, candidate.id, completed.authority_epoch]
+      );
+      await audit(connection, transfer.user_id, "authority_transfer.completed", transferId, {
+        collection_id: transfer.hosted_collection_id,
+        local_collection_id: candidate.id,
+        connector_id: candidate.connector_id,
+        authority_epoch: completed.authority_epoch,
+        revoked_grants: grantIds.length
+      });
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    await relay.pushPolicy(candidate.connector_id);
+    return {
+      status: "completed",
+      collection_id: transfer.hosted_collection_id,
+      local_collection_id: candidate.id,
+      authority_epoch: completed.authority_epoch
+    };
+  });
+
+  app.delete("/v1/authority-transfers/:transferId", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
+    const transfer = user
+      ? (await options.db.query<AuthorityTransferRow>(
+          `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                  local_collection_id, state, final_head, next_authority_epoch,
+                  manifest_digest, expires_at
+           FROM authority_transfers WHERE id = $1 AND user_id = $2`,
+          [transferId, user.id]
+        )).rows[0]
+      : await mirrorAuthorityTransfer(options.db, transferId, bearerToken(request));
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found."
+      ));
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      const current = locked.rows[0];
+      if (!current || current.user_id !== transfer.user_id) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "authority_transfer_not_found",
+          "Authority transfer was not found."
+        ));
+      }
+      if (current.state === "completed") {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "authority_transfer_completed",
+          "Completed authority transfer cannot be cancelled."
+        ));
+      }
+      if (current.state === "prepared") {
+        if (options.hostedProvider) await options.hostedProvider.abortAuthorityTransfer(transferId);
+        else await hostedReference!.abortAuthorityTransfer(transferId);
+      }
+      await connection.query(
+        `UPDATE authority_transfers
+         SET state = 'cancelled', cancelled_at = now()
+         WHERE id = $1 AND state <> 'completed'`,
+        [transferId]
+      );
+      await connection.query(
+        `UPDATE hosted_collections SET authority_state = 'active'
+         WHERE id = $1 AND authority_state = 'transferring'`,
+        [current.hosted_collection_id]
+      );
+      await retireAuthorityCandidates(
+        connection,
+        current.user_id,
+        current.hosted_collection_id
+      );
+      await audit(connection, current.user_id, "authority_transfer.cancelled", transferId, {
+        collection_id: current.hosted_collection_id
+      });
+      await connection.query("COMMIT");
+      return { ok: true };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+
   app.post("/v1/dev/session", async (request, reply) => {
     if (!options.devAuth) return reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
     const input = z.object({ email: z.email(), name: z.string().trim().min(1).max(100) }).parse(request.body);
@@ -927,6 +1411,9 @@ export async function buildApp(options: BuildOptions) {
   app.get("/v1/me", async (request, reply) => {
     const authenticated = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!authenticated) return;
+    if (options.hostedCollections) {
+      await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    }
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const connectors = await options.db.query(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at
@@ -935,10 +1422,11 @@ export async function buildApp(options: BuildOptions) {
     );
     const collections = await options.db.query(
       `SELECT col.id, col.connector_id, col.local_id, col.display_name, col.spec_version, col.enabled,
-              col.contracts, col.last_seen_at,
+              col.authority_state, col.authority_epoch, col.contracts, col.last_seen_at,
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 ORDER BY col.display_name`,
+       WHERE c.user_id = $1 AND col.authority_state = 'active'
+       ORDER BY col.display_name`,
       [user.id]
     );
     const hostedCollections = options.hostedCollections
@@ -948,9 +1436,13 @@ export async function buildApp(options: BuildOptions) {
           template: string;
           contracts: CollectionContractDescriptor[];
           provider_url: string | null;
+          authority_state: "active" | "transferring" | "transferred";
+          authority_epoch: string | number;
+          transferred_collection_id: string | null;
           created_at: string;
         }>(
-          `SELECT id, display_name, template, provider_url, contracts, created_at
+          `SELECT id, display_name, template, provider_url, contracts, authority_state,
+                  authority_epoch, transferred_collection_id, created_at
            FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
           [user.id]
         )
@@ -994,7 +1486,8 @@ export async function buildApp(options: BuildOptions) {
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
               CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
@@ -1005,8 +1498,10 @@ export async function buildApp(options: BuildOptions) {
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
+              ar.collection_hint, ar.expires_at,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -1027,6 +1522,7 @@ export async function buildApp(options: BuildOptions) {
         ...collection,
         provider_url: collection.provider_url ?? publicUrl,
         spec_version: "0.3.0",
+        authority_epoch: Number(collection.authority_epoch),
         contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template)),
         replicas: hostedReplicas.rows
           .filter((replica) => replica.collection_id === collection.id)
@@ -1037,7 +1533,7 @@ export async function buildApp(options: BuildOptions) {
       })),
       grants: grants.rows.map((grant) => ({
         ...grant,
-        application_origin: new URL(grant.application_origin).origin
+        application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
       pending_authorizations: pendingAuthorizations.rows
     };
@@ -1120,27 +1616,74 @@ export async function buildApp(options: BuildOptions) {
     }
     const synchronized = [];
     for (const collection of input.collections) {
-      const row = await options.db.query<{ id: string; local_id: string }>(
-        `INSERT INTO collections (id, connector_id, local_id, display_name, spec_version, enabled, contracts)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      const existing = await options.db.query<{
+        id: string;
+        authority_state: "active" | "candidate" | "retired";
+        authority_epoch: string | number;
+      }>(
+        `SELECT id, authority_state, authority_epoch
+         FROM collections WHERE connector_id = $1 AND local_id = $2`,
+        [connector.id, collection.id]
+      );
+      const hosted = await options.db.query<{
+        authority_state: "active" | "transferring" | "transferred";
+        authority_epoch: string | number;
+        transferred_collection_id: string | null;
+      }>(
+        `SELECT authority_state, authority_epoch, transferred_collection_id
+         FROM hosted_collections WHERE id = $1 AND user_id = $2`,
+        [collection.id, connector.user_id]
+      );
+      const hostedCollection = hosted.rows[0];
+      const isActivatedTransfer = Boolean(
+        hostedCollection?.authority_state === "transferred"
+        && hostedCollection.transferred_collection_id
+        && hostedCollection.transferred_collection_id === existing.rows[0]?.id
+      );
+      const authorityState = hostedCollection
+        ? (isActivatedTransfer ? "active" : "candidate")
+        : (existing.rows[0]?.authority_state ?? "active");
+      const authorityEpoch = Number(
+        hostedCollection?.authority_epoch
+        ?? existing.rows[0]?.authority_epoch
+        ?? 1
+      );
+      const enabled = authorityState === "active" ? collection.enabled : false;
+      const row = await options.db.query<{
+        id: string;
+        local_id: string;
+        authority_state: "active" | "candidate" | "retired";
+        authority_epoch: string | number;
+      }>(
+        `INSERT INTO collections
+           (id, connector_id, local_id, display_name, spec_version, enabled,
+            authority_state, authority_epoch, contracts)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
          ON CONFLICT(connector_id, local_id) DO UPDATE SET
            display_name = excluded.display_name,
            spec_version = excluded.spec_version,
            enabled = excluded.enabled,
+           authority_state = excluded.authority_state,
+           authority_epoch = excluded.authority_epoch,
            contracts = excluded.contracts,
            last_seen_at = now()
-         RETURNING id, local_id`,
+         RETURNING id, local_id, authority_state, authority_epoch`,
         [
           randomUUID(),
           connector.id,
           collection.id,
           collection.display_name,
           collection.spec_version,
-          collection.enabled,
+          enabled,
+          authorityState,
+          authorityEpoch,
           JSON.stringify(collection.contracts)
         ]
       );
-      synchronized.push(row.rows[0]);
+      synchronized.push({
+        ...row.rows[0],
+        authority_epoch: Number(row.rows[0].authority_epoch)
+      });
     }
     await options.db.query("UPDATE connectors SET last_seen_at = now() WHERE id = $1", [connector.id]);
     return { collections: synchronized };
@@ -1165,7 +1708,9 @@ export async function buildApp(options: BuildOptions) {
     );
     const grants = await options.db.query(
       `SELECT g.id, g.application_id, a.name AS application_name,
+              a.distribution AS application_distribution,
               a.homepage AS application_homepage,
+              a.project_url AS application_project_url,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
@@ -1181,7 +1726,10 @@ export async function buildApp(options: BuildOptions) {
     );
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.application_id, a.name AS application_name,
-              a.homepage AS application_homepage, a.icon AS application_icon,
+              a.distribution AS application_distribution,
+              a.homepage AS application_homepage,
+              a.project_url AS application_project_url, a.icon AS application_icon,
+              ar.flow, ar.user_code,
               ar.requested_operations, hinted.local_id AS collection_hint,
               ar.expires_at, a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
@@ -1199,7 +1747,7 @@ export async function buildApp(options: BuildOptions) {
       account: account.rows[0],
       grants: grants.rows.map((grant) => ({
         ...grant,
-        application_origin: new URL(grant.application_origin).origin
+        application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
       pending_authorizations: pendingAuthorizations.rows
         .filter((authorization) => !requiresHostedCollection(authorization.requirements))
@@ -1211,7 +1759,8 @@ export async function buildApp(options: BuildOptions) {
     if (!connector) return;
     const { applicationId } = z.object({ applicationId: z.uuid() }).parse(request.params);
     const application = await options.db.query(
-      `SELECT id, name, homepage, icon, requirements, provisions, notifications
+      `SELECT id, distribution, name, homepage, project_url, icon,
+              requirements, provisions, notifications
        FROM applications WHERE id = $1`,
       [applicationId]
     );
@@ -1244,14 +1793,21 @@ export async function buildApp(options: BuildOptions) {
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, homepage, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, homepage, requirements, notifications FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (application.rows[0].distribution === "portable") {
+      return reply.code(409).send(apiError(
+        "portable_approval_required",
+        "Downloaded applications must use their key-bound device authorization request."
+      ));
+    }
     if (requiresHostedCollection(application.rows[0].requirements)) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
@@ -1389,7 +1945,7 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const input = z.object({
       display_name: z.string().trim().min(1).max(200),
-      template: z.enum(["mdbase", "tasknotes"]).default("mdbase")
+      template: z.literal("mdbase").default("mdbase")
     }).strict().parse(request.body);
     const collectionId = randomUUID();
     try {
@@ -1441,7 +1997,7 @@ export async function buildApp(options: BuildOptions) {
       mode: z.enum(["read_only", "read_write"]),
       allowed_types: z.array(z.string().min(1).max(100)).max(100).default([])
     }).strict().parse(request.body);
-    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+    if (!await ownsActiveHostedCollection(options.db, user.id, collectionId)) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     const replicaId = randomUUID();
@@ -1670,6 +2226,91 @@ export async function buildApp(options: BuildOptions) {
     return { application };
   });
 
+  app.post("/oauth/device_authorization", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const input = z.object({
+      client_id: z.uuid(),
+      operations: z.string().default("read,query"),
+      collection_hint: z.uuid().optional(),
+      code_challenge: z.string().min(43).max(128),
+      code_challenge_method: z.literal("S256"),
+      relay_protocol: z.coerce.number().int(),
+      application_public_key: z.string().min(80).max(200)
+    }).strict().parse(request.body);
+    if (
+      input.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+      || !isP256PublicKey(input.application_public_key)
+    ) {
+      return reply.code(400).send(apiError(
+        "invalid_encryption_request",
+        "Portable authorization requires encrypted relay protocol 1 and a valid P-256 public key."
+      ));
+    }
+    const application = await options.db.query<{
+      id: string;
+      distribution: "web" | "portable";
+      requirements: ApplicationRequirements;
+    }>(
+      "SELECT id, distribution, requirements FROM applications WHERE id = $1",
+      [input.client_id]
+    );
+    if (!application.rows[0] || application.rows[0].distribution !== "portable") {
+      return reply.code(400).send(apiError(
+        "invalid_client",
+        "Only a registered portable application can use device authorization."
+      ));
+    }
+    const requestedOperations = [...new Set(
+      input.operations.split(",").map((value) => value.trim()).filter(Boolean)
+    )]
+      .map((value) => operationSchema.parse(value));
+    if (requestedOperations.length === 0) {
+      return reply.code(400).send(apiError(
+        "invalid_operations",
+        "At least one collection operation is required."
+      ));
+    }
+    assertOperationsAllowedByRequirements(
+      requestedOperations,
+      application.rows[0].requirements
+    );
+    const authorizationId = randomUUID();
+    const deviceCode = randomToken("device");
+    const userCode = randomUserCode();
+    await options.db.query(
+      `INSERT INTO authorization_requests
+         (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
+          requested_operations, collection_hint, relay_protocol,
+          application_public_key, device_code_hash, user_code, user_code_hash,
+          poll_interval_seconds, expires_at)
+       VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
+               $7, $8, $9, $10, $11, now() + interval '10 minutes')`,
+      [
+        authorizationId,
+        input.client_id,
+        input.code_challenge,
+        JSON.stringify(requestedOperations),
+        input.collection_hint ?? null,
+        ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        input.application_public_key,
+        tokenHash(deviceCode),
+        userCode,
+        tokenHash(canonicalUserCode(userCode)),
+        DEVICE_POLL_INTERVAL_SECONDS
+      ]
+    );
+    const verificationUri = `${publicUrl}/device`;
+    return reply.header("cache-control", "no-store").send({
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: verificationUri,
+      verification_uri_complete: `${verificationUri}?user_code=${encodeURIComponent(userCode)}`,
+      expires_in: DEVICE_AUTHORIZATION_SECONDS,
+      interval: DEVICE_POLL_INTERVAL_SECONDS
+    });
+  });
+
   app.post("/v1/grants", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
@@ -1687,14 +2328,21 @@ export async function buildApp(options: BuildOptions) {
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, homepage, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, homepage, requirements, notifications FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (application.rows[0].distribution === "portable") {
+      return reply.code(409).send(apiError(
+        "portable_approval_required",
+        "Downloaded applications must use their key-bound device authorization request."
+      ));
+    }
     if (requiresHostedCollection(application.rows[0].requirements)) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
@@ -1859,13 +2507,18 @@ export async function buildApp(options: BuildOptions) {
     }
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       redirect_uris: string[];
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, redirect_uris, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, redirect_uris, requirements FROM applications WHERE id = $1",
       [query.client_id]
     );
-    if (!application.rows[0] || !application.rows[0].redirect_uris.includes(query.redirect_uri)) {
+    if (
+      !application.rows[0]
+      || application.rows[0].distribution !== "web"
+      || !application.rows[0].redirect_uris.includes(query.redirect_uri)
+    ) {
       return reply.code(400).send(apiError("invalid_client", "Unknown application or redirect URI."));
     }
     const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
@@ -1897,13 +2550,59 @@ export async function buildApp(options: BuildOptions) {
     return reply.redirect(`/authorize/${authorizationId}`);
   });
 
+  app.post("/v1/device-authorization-requests/lookup", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const input = z.object({
+      user_code: z.string().min(8).max(20)
+    }).strict().parse(request.body);
+    const canonicalCode = canonicalUserCode(input.user_code);
+    if (canonicalCode.length !== 8) {
+      return reply.code(404).send(apiError(
+        "device_authorization_not_found",
+        "This code is invalid or has expired."
+      ));
+    }
+    const claimed = await options.db.query<{ id: string; user_code: string }>(
+      `UPDATE authorization_requests
+       SET user_id = $2
+       WHERE id = (
+         SELECT id FROM authorization_requests
+         WHERE flow = 'device_code' AND user_code_hash = $1
+           AND expires_at > now() AND device_consumed_at IS NULL
+           AND (user_id IS NULL OR user_id = $2)
+         LIMIT 1
+       )
+       RETURNING id, user_code`,
+      [tokenHash(canonicalCode), user.id]
+    );
+    const authorization = claimed.rows[0];
+    if (!authorization) {
+      return reply.code(404).send(apiError(
+        "device_authorization_not_found",
+        "This code is invalid or has expired."
+      ));
+    }
+    await audit(options.db, user.id, "device_authorization.claimed", authorization.id, {
+      user_code_suffix: canonicalCode.slice(-4)
+    });
+    return reply.header("cache-control", "no-store").send({
+      request_id: authorization.id,
+      user_code: authorization.user_code
+    });
+  });
+
   app.get("/v1/authorization-requests/:requestId", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
+              ar.collection_hint, ar.expires_at,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()`,
@@ -1914,7 +2613,9 @@ export async function buildApp(options: BuildOptions) {
       `SELECT col.id, col.display_name, col.spec_version, col.contracts,
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 AND col.enabled = true ORDER BY col.display_name`,
+       WHERE c.user_id = $1 AND col.enabled = true
+         AND col.authority_state = 'active'
+       ORDER BY col.display_name`,
       [user.id]
     );
     const hosted = options.hostedCollections
@@ -1926,7 +2627,7 @@ export async function buildApp(options: BuildOptions) {
           contracts: CollectionContractDescriptor[];
         }>(
           `SELECT id, display_name, template, contracts FROM hosted_collections
-           WHERE user_id = $1 ORDER BY display_name`,
+           WHERE user_id = $1 AND authority_state = 'active' ORDER BY display_name`,
           [user.id]
         )
       : { rows: [] };
@@ -1942,9 +2643,11 @@ export async function buildApp(options: BuildOptions) {
     ];
     return {
       authorization: authorization.rows[0],
-      collections: requiresHostedCollection(authorization.rows[0].requirements)
-        ? availableCollections.filter((collection) => collection.kind === "hosted")
-        : availableCollections
+      collections: authorization.rows[0].distribution === "portable"
+        ? availableCollections.filter((collection) => collection.kind === "local")
+        : requiresHostedCollection(authorization.rows[0].requirements)
+          ? availableCollections.filter((collection) => collection.kind === "hosted")
+          : availableCollections
     };
   });
 
@@ -1956,14 +2659,15 @@ export async function buildApp(options: BuildOptions) {
       completed_at: string | null;
       denied_at: string | null;
       expires_at: string;
+      flow: "authorization_code" | "device_code";
       application_id: string;
       grant_id: string | null;
-      redirect_uri: string;
+      redirect_uri: string | null;
       state: string | null;
-      code_challenge: string;
+      code_challenge: string | null;
     }>(
       `SELECT completed_at, denied_at, expires_at, application_id, grant_id,
-              redirect_uri, state, code_challenge
+              flow, redirect_uri, state, code_challenge
        FROM authorization_requests
        WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
       [requestId, user.id]
@@ -1971,13 +2675,22 @@ export async function buildApp(options: BuildOptions) {
     const value = authorization.rows[0];
     if (!value) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     if (value.denied_at) {
-      return { status: "denied", redirect_uri: deniedAuthorizationRedirect(value) };
+      return value.flow === "device_code"
+        ? { status: "denied" }
+        : { status: "denied", redirect_uri: deniedAuthorizationRedirect({
+            redirect_uri: value.redirect_uri!,
+            state: value.state
+          }) };
     }
     if (value.completed_at && value.grant_id) {
+      if (value.flow === "device_code") return { status: "approved" };
       return {
         status: "approved",
         redirect_uri: await createAuthorizationRedirect(options.db, publicUrl, {
-          ...value,
+          application_id: value.application_id,
+          redirect_uri: value.redirect_uri!,
+          state: value.state,
+          code_challenge: value.code_challenge!,
           grant_id: value.grant_id
         })
       };
@@ -1992,7 +2705,8 @@ export async function buildApp(options: BuildOptions) {
     const input = z.object({ collection_id: z.uuid(), operations: z.array(operationSchema).min(1) }).parse(request.body);
     const collection = await options.db.query<{ connector_id: string }>(
       `SELECT col.connector_id FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true`,
+       WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true
+         AND col.authority_state = 'active'`,
       [input.collection_id, user.id]
     );
     let approved: boolean;
@@ -2007,7 +2721,8 @@ export async function buildApp(options: BuildOptions) {
       });
     } else {
       const hosted = await options.db.query<{ id: string; template: string; display_name: string; contracts: CollectionContractDescriptor[] }>(
-        "SELECT id, template, display_name, contracts FROM hosted_collections WHERE id = $1 AND user_id = $2",
+        `SELECT id, template, display_name, contracts FROM hosted_collections
+         WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
         [input.collection_id, user.id]
       );
       if (!hosted.rows[0] || !options.hostedProvider) {
@@ -2053,8 +2768,109 @@ export async function buildApp(options: BuildOptions) {
         grant_type: z.literal("refresh_token"),
         refresh_token: z.string().min(1),
         client_id: z.uuid()
+      }),
+      z.object({
+        grant_type: z.literal(DEVICE_GRANT_TYPE),
+        device_code: z.string().min(1),
+        client_id: z.uuid(),
+        code_verifier: z.string().min(43).max(128)
       })
     ]).parse(request.body);
+
+    if (input.grant_type === DEVICE_GRANT_TYPE) {
+      reply.header("cache-control", "no-store");
+      const device = await options.db.query<{
+        id: string;
+        application_id: string;
+        grant_id: string | null;
+        code_challenge: string;
+        denied_at: string | null;
+        completed_at: string | null;
+        expires_at: string | Date;
+        device_consumed_at: string | null;
+      }>(
+        `SELECT id, application_id, grant_id, code_challenge, denied_at,
+                completed_at, expires_at, device_consumed_at
+         FROM authorization_requests
+         WHERE flow = 'device_code' AND device_code_hash = $1`,
+        [tokenHash(input.device_code)]
+      );
+      const pending = device.rows[0];
+      if (
+        !pending
+        || pending.application_id !== input.client_id
+        || !safeEqual(pending.code_challenge, pkceChallenge(input.code_verifier))
+        || pending.device_consumed_at
+      ) {
+        return reply.code(400).send(oauthError(
+          "invalid_grant",
+          "The device authorization is invalid or has already been used."
+        ));
+      }
+      if (new Date(pending.expires_at).getTime() <= Date.now()) {
+        return reply.code(400).send(oauthError(
+          "expired_token",
+          "The device authorization has expired."
+        ));
+      }
+      const acceptedPoll = await options.db.query(
+        `UPDATE authorization_requests SET last_polled_at = now()
+         WHERE id = $1 AND device_consumed_at IS NULL
+           AND (
+             last_polled_at IS NULL
+             OR last_polled_at <= now() - interval '5 seconds'
+           )
+         RETURNING id`,
+        [pending.id]
+      );
+      if (!acceptedPoll.rows[0]) {
+        return reply.code(400).send(oauthError(
+          "slow_down",
+          "Poll no more often than the interval returned by the device authorization endpoint."
+        ));
+      }
+      if (pending.denied_at) {
+        return reply.code(400).send(oauthError(
+          "access_denied",
+          "Collection access was not approved."
+        ));
+      }
+      if (!pending.completed_at || !pending.grant_id) {
+        return reply.code(400).send(oauthError(
+          "authorization_pending",
+          "The user has not completed the authorization request."
+        ));
+      }
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        const consumed = await connection.query<{ grant_id: string }>(
+          `UPDATE authorization_requests SET device_consumed_at = now()
+           WHERE id = $1 AND device_consumed_at IS NULL
+           RETURNING grant_id`,
+          [pending.id]
+        );
+        if (!consumed.rows[0]) {
+          await connection.query("ROLLBACK");
+          return reply.code(400).send(oauthError(
+            "invalid_grant",
+            "The device authorization has already been used."
+          ));
+        }
+        const tokens = await issueApplicationTokens(
+          connection,
+          options.hostedProvider,
+          consumed.rows[0].grant_id
+        );
+        await connection.query("COMMIT");
+        return tokens;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
 
     if (input.grant_type === "authorization_code") {
       const code = await options.db.query<{
@@ -2545,8 +3361,10 @@ async function upsertApplication(
   discovered: RegisteredApplicationManifest
 ): Promise<{
   id: string;
+  distribution: "web" | "portable";
   name: string;
   homepage: string;
+  project_url: string | null;
   icon: string | null;
   redirect_uris: string[];
   canonical_identity: string;
@@ -2556,8 +3374,10 @@ async function upsertApplication(
 }> {
   const application = await db.query<{
     id: string;
+    distribution: "web" | "portable";
     name: string;
     homepage: string;
+    project_url: string | null;
     icon: string | null;
     redirect_uris: string[];
     canonical_identity: string;
@@ -2566,29 +3386,42 @@ async function upsertApplication(
     notifications: ApplicationNotifications;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_version, name, homepage, icon,
-        redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
+       (id, canonical_identity, manifest_version, distribution, name, homepage,
+        project_url, icon, redirect_uris, requirements, provisions, notifications)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
+             $11::jsonb, $12::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        manifest_version = excluded.manifest_version,
+       distribution = excluded.distribution,
        name = excluded.name,
        homepage = excluded.homepage,
+       project_url = excluded.project_url,
        icon = excluded.icon,
        redirect_uris = excluded.redirect_uris,
        requirements = excluded.requirements,
        provisions = excluded.provisions,
        notifications = excluded.notifications,
        updated_at = now()
-     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements,
-               provisions, notifications`,
+     RETURNING id, distribution, name, homepage, project_url, icon, redirect_uris,
+               canonical_identity, requirements, provisions, notifications`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
       discovered.manifest.manifest_version,
+      discovered.manifest.distribution === "portable" ? "portable" : "web",
       discovered.manifest.name,
-      discovered.manifest.homepage,
+      discovered.manifest.distribution === "portable"
+        ? ""
+        : discovered.manifest.homepage,
+      discovered.manifest.distribution === "portable"
+        ? discovered.manifest.project_url ?? null
+        : null,
       discovered.manifest.icon ?? null,
-      JSON.stringify(discovered.manifest.redirect_uris),
+      JSON.stringify(
+        discovered.manifest.distribution === "portable"
+          ? []
+          : discovered.manifest.redirect_uris
+      ),
       JSON.stringify(discovered.manifest.requirements),
       JSON.stringify(discovered.manifest.provisions),
       JSON.stringify(discovered.manifest.notifications)
@@ -2890,79 +3723,107 @@ async function approveAuthorization(
     source: "connector" | "portal";
   }
 ): Promise<boolean> {
-  const authorization = await db.query<{
+  const connection = await db.connect();
+  const grantId = randomUUID();
+  let scope: GrantScope;
+  try {
+    await connection.query("BEGIN");
+    const authorization = await connection.query<{
     application_id: string;
+    distribution: "web" | "portable";
     application_homepage: string;
     requested_operations: string[];
     requirements: ApplicationRequirements;
     notifications: ApplicationNotifications;
     relay_protocol: number | null;
     application_public_key: string | null;
-    redirect_uri: string;
+    flow: "authorization_code" | "device_code";
+    redirect_uri: string | null;
   }>(
-    `SELECT ar.application_id, a.homepage AS application_homepage,
+    `SELECT ar.application_id, a.distribution, a.homepage AS application_homepage,
             ar.requested_operations, a.requirements, a.notifications,
-            ar.relay_protocol, ar.application_public_key, ar.redirect_uri
+            ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
-     WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL AND ar.expires_at > now()`,
+     WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
+       AND ar.denied_at IS NULL AND ar.expires_at > now()
+     FOR UPDATE`,
     [input.requestId, input.userId]
-  );
-  const pending = authorization.rows[0];
-  if (!pending) return false;
-  if (requiresHostedCollection(pending.requirements)) {
-    throw new RequestValidationError("This application requires an mdbase cloud collection.");
-  }
-  if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
-    throw new RequestValidationError("Approved operations must be requested by the application.");
-  }
-  assertOperationsAllowedByRequirements(input.operations, pending.requirements);
-  const collection = await db.query<{
+    );
+    const pending = authorization.rows[0];
+    if (!pending) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    if (
+      pending.distribution === "portable"
+      && (
+        pending.flow !== "device_code"
+        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || !pending.application_public_key
+      )
+    ) {
+      throw new RequestValidationError(
+        "Downloaded applications require a key-bound device authorization request."
+      );
+    }
+    if (pending.flow === "device_code" && pending.distribution !== "portable") {
+      throw new RequestValidationError(
+        "Device authorization is reserved for downloaded applications."
+      );
+    }
+    if (requiresHostedCollection(pending.requirements)) {
+      throw new RequestValidationError("This application requires an mdbase cloud collection.");
+    }
+    if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
+      throw new RequestValidationError("Approved operations must be requested by the application.");
+    }
+    assertOperationsAllowedByRequirements(input.operations, pending.requirements);
+    const collection = await connection.query<{
     contracts: ContractRequirement[];
     local_id: string;
     relay_public_key: string | null;
     spec_version: string;
-  }>(
+    }>(
     `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
      FROM collections col JOIN connectors con ON con.id = col.connector_id
      WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true`,
     [input.collectionId, input.connectorId]
-  );
-  const scope = scopeForRequirements(pending.requirements);
-  if (!collection.rows[0]) {
-    throw new RequestValidationError(
-      "This collection does not provide the contracts required by the application."
     );
-  }
-  assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
-  if (!contractsSatisfy(
-    collection.rows[0].contracts,
-    requiredContractsForRequirements(pending.requirements)
-  )) {
-    throw new RequestValidationError(
-      "This collection does not provide the contracts required by the application."
-    );
-  }
-  const grantId = randomUUID();
-  let encryption: GrantEncryption | null = null;
-  if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
-    if (!pending.application_public_key || !collection.rows[0].relay_public_key) {
+    scope = scopeForRequirements(pending.requirements);
+    if (!collection.rows[0]) {
       throw new RequestValidationError(
-        "Encrypted relay protocol 1 requires an up-to-date connector."
+        "This collection does not provide the contracts required by the application."
       );
     }
-    encryption = {
-      protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
-      suite: RELAY_ENCRYPTION_SUITE,
-      key_id: `enc_${randomUUID()}`,
-      scope_epoch: 1,
-      connector_id: input.connectorId,
-      collection_id: collection.rows[0].local_id,
-      application_public_key: pending.application_public_key,
-      connector_public_key: collection.rows[0].relay_public_key
-    };
-  }
-  await db.query(
+    assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
+    if (!contractsSatisfy(
+      collection.rows[0].contracts,
+      requiredContractsForRequirements(pending.requirements)
+    )) {
+      throw new RequestValidationError(
+        "This collection does not provide the contracts required by the application."
+      );
+    }
+    let encryption: GrantEncryption | null = null;
+    if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
+      if (!pending.application_public_key || !collection.rows[0].relay_public_key) {
+        throw new RequestValidationError(
+          "Encrypted relay protocol 1 requires an up-to-date connector."
+        );
+      }
+      encryption = {
+        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        suite: RELAY_ENCRYPTION_SUITE,
+        key_id: `enc_${randomUUID()}`,
+        scope_epoch: 1,
+        connector_id: input.connectorId,
+        collection_id: collection.rows[0].local_id,
+        application_public_key: pending.application_public_key,
+        connector_public_key: collection.rows[0].relay_public_key
+      };
+    }
+    await connection.query(
     `INSERT INTO grants
        (id, user_id, application_id, collection_id, operations, scope, encryption,
         application_origin, notification_criteria)
@@ -2975,14 +3836,23 @@ async function approveAuthorization(
       JSON.stringify(input.operations),
       JSON.stringify(scope),
       encryption ? JSON.stringify(encryption) : null,
-      applicationOriginForRedirect(pending.redirect_uri, pending.application_homepage),
+      pending.flow === "device_code"
+        ? "null"
+        : applicationOriginForRedirect(pending.redirect_uri!, pending.application_homepage),
       JSON.stringify(pending.notifications.criteria)
     ]
-  );
-  await db.query(
-    "UPDATE authorization_requests SET completed_at = now(), grant_id = $2 WHERE id = $1",
-    [input.requestId, grantId]
-  );
+    );
+    await connection.query(
+      "UPDATE authorization_requests SET completed_at = now(), grant_id = $2 WHERE id = $1",
+      [input.requestId, grantId]
+    );
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
   await relay.pushPolicy(input.connectorId);
   await audit(db, input.userId, "authorization.approved", input.requestId, {
     connector_id: input.connectorId,
@@ -3016,13 +3886,15 @@ async function approveHostedAuthorization(
       application_id: string;
       application_name: string;
       application_homepage: string;
-      redirect_uri: string;
+      distribution: "web" | "portable";
+      redirect_uri: string | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
     }>(
-      `SELECT ar.application_id, a.name AS application_name, a.homepage AS application_homepage,
+      `SELECT ar.application_id, a.name AS application_name,
+              a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
@@ -3036,6 +3908,11 @@ async function approveHostedAuthorization(
     if (!pending) {
       await connection.query("ROLLBACK");
       return false;
+    }
+    if (pending.distribution === "portable") {
+      throw new RequestValidationError(
+        "Downloaded applications can currently authorize local collections only."
+      );
     }
     if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
       throw new RequestValidationError("Approved operations must be requested by the application.");
@@ -3075,12 +3952,12 @@ async function approveHostedAuthorization(
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
-    const applicationUrl = new URL(pending.redirect_uri);
+    const applicationUrl = new URL(pending.redirect_uri!);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin
       : undefined;
     const applicationOrigin = applicationOriginForRedirect(
-      pending.redirect_uri,
+      pending.redirect_uri!,
       pending.application_homepage
     );
     const grantId = randomUUID();
@@ -3195,6 +4072,10 @@ function applicationOriginForRedirect(redirectUri: string, homepage: string): st
     : new URL(homepage).origin;
 }
 
+function normalizedApplicationOrigin(value: string): string {
+  return value === "null" ? "null" : new URL(value).origin;
+}
+
 async function createAuthorizationRedirect(
   db: DatabasePool,
   publicUrl: string,
@@ -3221,7 +4102,7 @@ async function createAuthorizationRedirect(
 }
 
 async function issueApplicationTokens(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   hostedProvider: HostedProviderClient | undefined,
   grantId: string
 ): Promise<{
@@ -3305,7 +4186,7 @@ async function issueApplicationTokens(
     scope: grant.rows[0].scope,
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
-    application_origin: new URL(grant.rows[0].application_origin).origin,
+    application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(hosted ? { hosted } : {})
   };
 }
@@ -3554,6 +4435,168 @@ async function authenticatedUser(
   return tailscaleAuth ? tailscaleUser(request, db) : sessionUser(request, db);
 }
 
+async function authorityPairing(
+  db: DatabasePool,
+  pairingId: string,
+  secret: string | null
+): Promise<AuthorityPairing | null> {
+  if (!secret) return null;
+  const result = await db.query<AuthorityPairing & {
+    replica_collection_id: string;
+    consumed_at: string | null;
+    purpose: "mirror" | "application";
+    revoked_at: string | null;
+  }>(
+    `SELECT pairing.id AS pairing_id, pairing.user_id,
+            pairing.collection_id, pairing.replica_id, pairing.mode, pairing.consumed_at,
+            replica.allowed_types, replica.collection_id AS replica_collection_id,
+            replica.purpose, replica.revoked_at, hosted.authority_state
+     FROM mirror_pairing_requests pairing
+     JOIN hosted_replicas replica ON replica.id = pairing.replica_id
+     JOIN hosted_collections hosted ON hosted.id = pairing.collection_id
+     WHERE pairing.id = $1 AND pairing.secret_hash = $2`,
+    [pairingId, tokenHash(secret)]
+  );
+  const pairing = result.rows[0];
+  if (
+    !pairing
+    || !pairing.consumed_at
+    || pairing.purpose !== "mirror"
+    || pairing.revoked_at
+    || pairing.replica_collection_id !== pairing.collection_id
+  ) {
+    return null;
+  }
+  const {
+    replica_collection_id: _replicaCollectionId,
+    consumed_at: _consumedAt,
+    purpose: _purpose,
+    revoked_at: _revokedAt,
+    ...authenticated
+  } = pairing;
+  return authenticated;
+}
+
+async function mirrorAuthorityTransfer(
+  db: DatabasePool,
+  transferId: string,
+  secret: string | null
+): Promise<AuthorityTransferRow | null> {
+  if (!secret) return null;
+  const result = await db.query<AuthorityTransferRow>(
+    `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+            transfer.pairing_id, transfer.replica_id, transfer.local_collection_id,
+            transfer.state, transfer.final_head, transfer.next_authority_epoch,
+            transfer.manifest_digest, transfer.expires_at
+     FROM authority_transfers transfer
+     JOIN mirror_pairing_requests pairing ON pairing.id = transfer.pairing_id
+     WHERE transfer.id = $1 AND pairing.secret_hash = $2`,
+    [transferId, tokenHash(secret)]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function recoverExpiredAuthorityTransfers(
+  db: DatabasePool,
+  hostedProvider?: HostedProviderClient,
+  hostedReference?: HostedAuthorityRegistry
+): Promise<void> {
+  const prepared = await db.query<{ id: string; hosted_collection_id: string; user_id: string }>(
+    `SELECT id, hosted_collection_id, user_id FROM authority_transfers
+     WHERE state = 'prepared' AND expires_at <= now()`
+  );
+  for (const transfer of prepared.rows) {
+    try {
+      if (hostedProvider) await hostedProvider.abortAuthorityTransfer(transfer.id);
+      else await hostedReference?.abortAuthorityTransfer(transfer.id);
+    } catch (error) {
+      if (
+        (
+          error instanceof HostedProviderResponseError
+          || error instanceof SyncError
+        )
+        && error.code === "authority_transfer_completed"
+      ) {
+        // The provider committed but the control-plane transaction did not.
+        // Keep the transfer resumable instead of incorrectly restoring epoch one.
+        continue;
+      }
+      throw error;
+    }
+    await db.query(
+      `UPDATE authority_transfers SET state = 'expired'
+       WHERE id = $1 AND state = 'prepared'`,
+      [transfer.id]
+    );
+    await db.query(
+      `UPDATE hosted_collections SET authority_state = 'active'
+       WHERE id = $1 AND authority_state = 'transferring'`,
+      [transfer.hosted_collection_id]
+    );
+    await retireAuthorityCandidates(
+      db,
+      transfer.user_id,
+      transfer.hosted_collection_id
+    );
+  }
+  await db.query(
+    `UPDATE authority_transfers SET state = 'expired'
+     WHERE state IN ('requested', 'approved') AND expires_at <= now()`
+  );
+}
+
+async function retireAuthorityCandidates(
+  db: DatabaseQueryable,
+  userId: string,
+  hostedCollectionId: string
+): Promise<void> {
+  await db.query(
+    `UPDATE collections
+     SET authority_state = 'retired', enabled = false
+     WHERE local_id = $1 AND authority_state = 'candidate'
+       AND connector_id IN (SELECT id FROM connectors WHERE user_id = $2)`,
+    [hostedCollectionId, userId]
+  );
+}
+
+function authorityTransferView(
+  transfer: AuthorityTransferDetails,
+  publicUrl: string
+): Record<string, unknown> {
+  return {
+    id: transfer.id,
+    collection_id: transfer.hosted_collection_id,
+    replica_id: transfer.replica_id,
+    state: transfer.state,
+    final_head: transfer.final_head === null ? null : Number(transfer.final_head),
+    authority_epoch: transfer.next_authority_epoch === null
+      ? null
+      : Number(transfer.next_authority_epoch),
+    manifest_digest: transfer.manifest_digest,
+    expires_at: new Date(transfer.expires_at).toISOString(),
+    verification_uri: `${publicUrl}/transfer/${transfer.id}`,
+    ...(transfer.local_collection_id
+      ? { local_collection_id: transfer.local_collection_id }
+      : {}),
+    ...(transfer.collection_name ? { collection_name: transfer.collection_name } : {}),
+    ...(transfer.mirror_name ? { mirror_name: transfer.mirror_name } : {})
+  };
+}
+
+function authorityTransferResponse(
+  transfer: AuthorityTransferRow,
+  publicUrl: string
+): Record<string, unknown> {
+  return {
+    transfer: authorityTransferView(transfer, publicUrl),
+    verification_uri: `${publicUrl}/transfer/${transfer.id}`,
+    expires_in: Math.max(
+      0,
+      Math.floor((new Date(transfer.expires_at).getTime() - Date.now()) / 1_000)
+    )
+  };
+}
+
 async function ownsHostedCollection(
   db: DatabasePool,
   userId: string,
@@ -3561,6 +4604,19 @@ async function ownsHostedCollection(
 ): Promise<boolean> {
   const result = await db.query(
     "SELECT id FROM hosted_collections WHERE id = $1 AND user_id = $2",
+    [collectionId, userId]
+  );
+  return Boolean(result.rows[0]);
+}
+
+async function ownsActiveHostedCollection(
+  db: DatabasePool,
+  userId: string,
+  collectionId: string
+): Promise<boolean> {
+  const result = await db.query(
+    `SELECT id FROM hosted_collections
+     WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
     [collectionId, userId]
   );
   return Boolean(result.rows[0]);
@@ -3734,4 +4790,8 @@ async function audit(
 
 function apiError(code: string, message: string) {
   return { error: { code, message } };
+}
+
+function oauthError(error: string, errorDescription: string) {
+  return { error, error_description: errorDescription };
 }

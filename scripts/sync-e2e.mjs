@@ -12,10 +12,6 @@ const {
   OfflineReplica
 } = await import("../packages/sync/dist/index.js");
 const { DirectoryMirror } = await import("../packages/sync/dist/node.js");
-const {
-  resolveTasknotesSyncContract,
-  TasknotesOfflineCollection
-} = await import("../packages/tasknotes/dist/index.js");
 
 const database = await createDatabase("memory");
 const { app } = await buildApp({
@@ -42,7 +38,7 @@ try {
   const created = await request("/v1/hosted/collections", {
     method: "POST",
     cookie,
-    body: { display_name: "Hosted tasks", template: "tasknotes" }
+    body: { display_name: "Hosted records", template: "mdbase" }
   });
   const collectionId = created.body.collection.id;
   const writer = await createReplica(collectionId, cookie, "Android", "read_write");
@@ -59,14 +55,13 @@ try {
   const recoveryClient = new OfflineReplica(recoveryTransport, recoveryStore);
   await Promise.all([writerClient.initialize(), readerClient.initialize(), recoveryClient.initialize()]);
 
-  const resources = await writerClient.collectionResources();
-  if (!resources) throw new Error("Hosted sync session did not include collection resources");
-  const tasknotes = new TasknotesOfflineCollection(writerClient, resolveTasknotesSyncContract(resources));
-  const recordId = await tasknotes.create({
-    title: "Created offline",
-    path: "tasks/offline.md",
-    body: "Created without a network round trip."
+  const createdRecord = await writerClient.queueCreate({
+    path: "records/offline.md",
+    frontmatter: { title: "Created offline", state: "open" },
+    body: "Created without a network round trip.",
+    types: []
   });
+  const recordId = createdRecord.record_id;
   const queuedCreate = (await writerClient.pending())[0];
   const mutationId = queuedCreate.mutation_id;
   await writerClient.sync();
@@ -82,13 +77,13 @@ try {
     operation: "create",
     record_id: recordId,
     input: {
-      path: "tasks/should-not-exist.md",
-      frontmatter: { type: "task", title: "Duplicate" },
-      types: ["task"]
+      path: "records/should-not-exist.md",
+      frontmatter: { title: "Duplicate" },
+      types: []
     },
     created_at: new Date().toISOString()
   });
-  if (replay.status !== "previously_applied" || replay.record?.path !== "tasks/offline.md") {
+  if (replay.status !== "previously_applied" || replay.record?.path !== "records/offline.md") {
     throw new Error(`Mutation replay was not idempotent: ${JSON.stringify(replay)}`);
   }
 
@@ -98,12 +93,12 @@ try {
     new HttpSyncTransport(serverUrl, collectionId, mirror.token)
   );
   await directoryMirror.sync();
-  const markdown = await readFile(join(mirrorRoot, "tasks", "offline.md"), "utf8");
+  const markdown = await readFile(join(mirrorRoot, "records", "offline.md"), "utf8");
   if (!markdown.includes("title: Created offline") || !markdown.includes("Created without a network")) {
     throw new Error("Receive-only mirror did not materialize canonical Markdown");
   }
 
-  await writerClient.queueUpdate({ recordId, patch: { status: "done" } });
+  await writerClient.queueUpdate({ recordId, patch: { state: "closed" } });
   await writerClient.sync();
   await readerClient.queueUpdate({
     recordId,
@@ -113,25 +108,25 @@ try {
   await readerClient.sync();
   const conflicts = await readerClient.conflicts();
   if (conflicts[0]?.status !== "conflicted"
-      || conflicts[0].conflict.current?.frontmatter.status !== "done") {
+      || conflicts[0].conflict.current?.frontmatter.state !== "closed") {
     throw new Error(`Stale update did not return a usable conflict: ${JSON.stringify(conflicts)}`);
   }
   await directoryMirror.sync();
-  if (!(await readFile(join(mirrorRoot, "tasks", "offline.md"), "utf8")).includes("status: done")) {
+  if (!(await readFile(join(mirrorRoot, "records", "offline.md"), "utf8")).includes("state: closed")) {
     throw new Error("Mirror did not receive the authoritative update");
   }
 
   const queuedMutationId = crypto.randomUUID();
   await recoveryClient.queueCreate({
     mutationId: queuedMutationId,
-    path: "tasks/queued-during-reset.md",
-    frontmatter: { type: "task", title: "Still queued" },
-    types: ["task"]
+    path: "records/queued-during-reset.md",
+    frontmatter: { title: "Still queued" },
+    types: []
   });
   await writerClient.queueCreate({
-    path: "tasks/advance-head.md",
-    frontmatter: { type: "task", title: "Advance head" },
-    types: ["task"]
+    path: "records/advance-head.md",
+    frontmatter: { title: "Advance head" },
+    types: []
   });
   await writerClient.sync();
   const head = (await writerTransport.openSession()).head;
@@ -168,7 +163,7 @@ async function createReplica(collectionId, cookie, name, mode) {
   return (await request(`/v1/hosted/collections/${collectionId}/replicas`, {
     method: "POST",
     cookie,
-    body: { name, mode, allowed_types: ["task"] }
+    body: { name, mode, allowed_types: [] }
   })).body;
 }
 
