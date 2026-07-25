@@ -1584,12 +1584,12 @@ kbd {
 .rename-confirm .primary-confirm-action {
   border-color: var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .rename-confirm .primary-confirm-action:hover {
   background: var(--accent-strong);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .notice button {
@@ -1708,12 +1708,12 @@ kbd {
 .conflict-actions .primary-conflict-action {
   border-color: var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .conflict-actions .primary-conflict-action:hover {
   background: var(--accent-strong);
-  color: white;
+  color: var(--color-on-accent);
 }
 
 .conflict-resolver > details {
@@ -1748,8 +1748,8 @@ kbd {
   border-radius: 1px;
 }
 
-.diff-legend .local::before { background: oklch(91% 0.04 28); }
-.diff-legend .remote::before { background: oklch(91% 0.045 153); }
+.diff-legend .local::before { background: var(--color-diff-local-mark); }
+.diff-legend .remote::before { background: var(--color-diff-remote-mark); }
 
 .title-diff {
   display: grid;
@@ -1767,8 +1767,8 @@ kbd {
 }
 
 .title-diff p + p { border-left: 1px solid var(--line); }
-.title-diff .local { background: oklch(98% 0.012 28); }
-.title-diff .remote { background: oklch(98% 0.014 153); }
+.title-diff .local { background: var(--color-diff-local); }
+.title-diff .remote { background: var(--color-diff-remote); }
 
 .title-diff small {
   color: var(--faint);
@@ -1801,8 +1801,8 @@ kbd {
   align-items: start;
 }
 
-.diff-line.local { background: oklch(98% 0.012 28); }
-.diff-line.remote { background: oklch(98% 0.014 153); }
+.diff-line.local { background: var(--color-diff-local); }
+.diff-line.remote { background: var(--color-diff-remote); }
 .diff-line.omitted { color: var(--faint); background: var(--canvas); }
 
 .diff-marker,
@@ -1861,7 +1861,7 @@ kbd {
   border: 1px solid var(--line-strong);
   border-radius: 5px;
   background: var(--white);
-  box-shadow: 0 8px 24px oklch(21% 0.018 255 / 12%);
+  box-shadow: 0 8px 24px var(--color-shadow);
   color: var(--muted);
   font-size: 12px;
 }
@@ -2752,7 +2752,7 @@ kbd {
   width: min(72%, 480px);
   height: 9px;
   border-radius: 2px;
-  background: oklch(95.5% 0.004 255);
+  background: var(--skeleton);
   animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
 }
 
