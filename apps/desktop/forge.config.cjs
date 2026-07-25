@@ -8,13 +8,27 @@ const agent = path.resolve(
 );
 const macIcon = path.resolve(__dirname, "assets/app-icon.icns");
 const windowsIcon = path.resolve(__dirname, "assets/app-icon.ico");
+const linuxIcon = path.resolve(__dirname, "assets/app-icon.png");
 const windowsStoreAssets = path.resolve(__dirname, "assets/appx");
 const platformIcon =
   process.platform === "darwin"
     ? macIcon
     : process.platform === "win32"
       ? windowsIcon
-      : path.resolve(__dirname, "assets/app-icon.png");
+      : linuxIcon;
+
+const linuxMakerOptions = {
+  name: "mdbase-connect",
+  productName: "mdbase connect",
+  genericName: "mdbase connector",
+  description: "Connect applications to authorized mdbase collections.",
+  productDescription:
+    "Connect applications to authorized local and hosted mdbase collections.",
+  bin: "mdbase-connect",
+  homepage: "https://mdbase.dev",
+  icon: linuxIcon,
+  categories: ["Utility"]
+};
 
 const macSigning =
   process.platform === "darwin" &&
@@ -91,8 +105,19 @@ const platformMakers =
           }
         ]
       : [
-          { name: "@electron-forge/maker-deb" },
-          { name: "@electron-forge/maker-rpm" }
+          {
+            name: "@electron-forge/maker-deb",
+            config: { options: linuxMakerOptions }
+          },
+          {
+            name: "@electron-forge/maker-rpm",
+            config: {
+              options: {
+                ...linuxMakerOptions,
+                license: "MIT"
+              }
+            }
+          }
         ];
 
 module.exports = {
