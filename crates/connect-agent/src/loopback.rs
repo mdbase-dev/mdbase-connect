@@ -643,7 +643,10 @@ mod tests {
             .await;
         assert_eq!(created["result"]["valid"], true);
 
-        let mut requests = (2..130)
+        // Exercise the full operation concurrency budget without turning this replay-window
+        // assertion into a SQLite connection-saturation test on slower CI runners.
+        let request_count = MAX_CONCURRENT_OPERATIONS as u64;
+        let mut requests = (2..(2 + request_count))
             .map(|counter| fixture.encrypted_request("query", json!({}), counter))
             .collect::<Vec<_>>();
         requests.reverse();
@@ -653,7 +656,7 @@ mod tests {
                 .map(|request| fixture.send(&app, request)),
         )
         .await;
-        assert_eq!(responses.len(), 128);
+        assert_eq!(responses.len(), MAX_CONCURRENT_OPERATIONS);
         assert!(responses
             .iter()
             .all(|response| response.operation == "query" && !response.ciphertext.is_empty()));
