@@ -444,7 +444,7 @@ secret: connector scope test
 
   const update = await rawOperation(collection.id, "update", accessToken, {
     path: "sessions/first.md",
-    fields: { status: "done" },
+    patch: { status: "done" },
     if_revision: firstRevision
   });
   const updateBody = await update.json();
@@ -454,7 +454,7 @@ secret: connector scope test
   }
   const conflict = await rawOperation(collection.id, "update", accessToken, {
     path: "sessions/first.md",
-    fields: { title: "Lost update" },
+    patch: { title: "Lost update" },
     if_revision: firstRevision
   });
   const conflictBody = await conflict.json();

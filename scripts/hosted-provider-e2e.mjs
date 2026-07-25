@@ -650,7 +650,7 @@ try {
   assert.deepEqual(sdkCreated.result.types, []);
   const sdkUpdated = await hostedConnection.update({
     path: "Draft.md",
-    fields: { title: "Updated through hosted SDK" },
+    patch: { title: "Updated through hosted SDK" },
     if_revision: sdkCreated.result.revision
   });
   assert.equal(sdkUpdated.valid, true);
