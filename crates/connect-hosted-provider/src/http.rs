@@ -75,8 +75,7 @@ impl AppState {
 struct CreateCollectionRequest {
     collection_id: Uuid,
     template: String,
-    #[serde(default)]
-    display_name: Option<String>,
+    display_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,11 +247,7 @@ async fn create_collection(
     state.authorize_internal(&headers)?;
     let collection = state
         .provider
-        .create_collection(
-            input.collection_id,
-            &input.template,
-            input.display_name.as_deref().unwrap_or("Hosted collection"),
-        )
+        .create_collection(input.collection_id, &input.template, &input.display_name)
         .await?;
     Ok((
         StatusCode::CREATED,
@@ -517,12 +512,20 @@ mod tests {
     }
 
     #[test]
-    fn collection_creation_remains_compatible_with_pre_identity_clients() {
+    fn collection_creation_requires_a_display_name() {
+        assert!(
+            serde_json::from_value::<CreateCollectionRequest>(serde_json::json!({
+                "collection_id": Uuid::new_v4(),
+                "template": "tasknotes"
+            }))
+            .is_err()
+        );
         let input: CreateCollectionRequest = serde_json::from_value(serde_json::json!({
             "collection_id": Uuid::new_v4(),
-            "template": "tasknotes"
+            "template": "tasknotes",
+            "display_name": "Tasks"
         }))
         .unwrap();
-        assert_eq!(input.display_name, None);
+        assert_eq!(input.display_name, "Tasks");
     }
 }
