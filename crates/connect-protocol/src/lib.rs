@@ -551,7 +551,11 @@ pub struct GrantSummary {
     pub id: Uuid,
     pub application_id: Uuid,
     pub application_name: String,
+    #[serde(default = "default_application_distribution")]
+    pub application_distribution: String,
     pub application_homepage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_project_url: Option<String>,
     /// Exact browser origin authorized to use this grant over loopback.
     #[serde(default)]
     pub application_origin: String,
@@ -574,7 +578,15 @@ pub struct PendingAuthorization {
     pub id: Uuid,
     pub application_id: Uuid,
     pub application_name: String,
+    #[serde(default = "default_application_distribution")]
+    pub application_distribution: String,
     pub application_homepage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_project_url: Option<String>,
+    #[serde(default = "default_authorization_flow")]
+    pub flow: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_icon: Option<String>,
     pub requested_operations: Vec<String>,
@@ -584,6 +596,8 @@ pub struct PendingAuthorization {
     pub requirements: ApplicationRequirements,
     #[serde(default)]
     pub provisions: ApplicationProvisions,
+    #[serde(default)]
+    pub notifications: ApplicationNotifications,
     #[serde(default)]
     pub compatible_collection_ids: Vec<Uuid>,
     #[serde(default)]
@@ -633,8 +647,12 @@ pub struct GrantPolicy {
     pub scope: GrantScope,
     #[serde(default = "default_application_name")]
     pub application_name: String,
+    #[serde(default = "default_application_distribution")]
+    pub application_distribution: String,
     #[serde(default)]
     pub application_homepage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_project_url: Option<String>,
     /// Exact browser origin authorized to use this grant over loopback.
     #[serde(default)]
     pub application_origin: String,
@@ -680,6 +698,14 @@ pub struct EncryptedRelayEnvelope {
 
 fn default_application_name() -> String {
     "Application".to_string()
+}
+
+fn default_application_distribution() -> String {
+    "web".to_string()
+}
+
+fn default_authorization_flow() -> String {
+    "authorization_code".to_string()
 }
 
 fn default_collection_name() -> String {
@@ -853,7 +879,9 @@ mod tests {
                     operations: vec!["query".to_string()],
                     scope: GrantScope::default(),
                     application_name: "Tasks".to_string(),
+                    application_distribution: "web".to_string(),
                     application_homepage: "https://tasks.example".to_string(),
+                    application_project_url: None,
                     application_origin: "https://tasks.example".to_string(),
                     application_icon: None,
                     collection_name: "My tasks".to_string(),
@@ -865,6 +893,46 @@ mod tests {
         ] {
             assert_schema("", serde_json::to_value(message).unwrap());
         }
+    }
+
+    #[test]
+    fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
+        let ids = [
+            Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
+            Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+            Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
+            Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap(),
+        ];
+        let message = RelayMessage::PolicySnapshot {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            grants: vec![GrantPolicy {
+                id: ids[0],
+                application_id: ids[1],
+                collection_id: ids[2],
+                operations: vec!["query".to_string()],
+                scope: GrantScope::default(),
+                application_name: "Portable notes".to_string(),
+                application_distribution: "portable".to_string(),
+                application_homepage: String::new(),
+                application_project_url: Some("https://apps.example/portable".to_string()),
+                application_origin: "null".to_string(),
+                application_icon: None,
+                collection_name: "Notes".to_string(),
+                notification_criteria: Vec::new(),
+                created_at: "2026-07-26T00:00:00Z".to_string(),
+                encryption: Some(GrantEncryption {
+                    protocol_version: 1,
+                    suite: RELAY_ENCRYPTION_SUITE.to_string(),
+                    key_id: "portable-key".to_string(),
+                    scope_epoch: 1,
+                    connector_id: ids[3],
+                    collection_id: ids[2],
+                    application_public_key: "A".repeat(87),
+                    connector_public_key: "B".repeat(87),
+                }),
+            }],
+        };
+        assert_schema("", serde_json::to_value(message).unwrap());
     }
 
     #[test]

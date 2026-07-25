@@ -189,6 +189,14 @@ presentation fields are explicitly not publisher authentication. Authorization
 uses short-lived codes and PKCE; browser and native applications have no client
 secret. The user approves concrete operations and the declaration-derived
 record scope for one named collection.
+
+Downloaded HTML applications use the v1 portable distribution profile described
+in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
+single-use OAuth device code plus PKCE and the existing per-grant P-256 key.
+Their browser origin is the exact opaque value `null`, tokens and non-extractable
+keys are memory-only by default, and the local connector still requires a
+matching encrypted grant for every operation. Portable grants are currently
+limited to local-authority collections.
 Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when
 cloud policy is stale.

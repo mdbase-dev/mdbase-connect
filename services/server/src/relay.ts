@@ -176,7 +176,9 @@ export class RelayHub {
       id: string;
       application_id: string;
       application_name: string;
+      application_distribution: "web" | "portable";
       application_homepage: string;
+      application_project_url: string | null;
       application_origin: string;
       application_icon: string | null;
       local_id: string;
@@ -188,7 +190,9 @@ export class RelayHub {
       created_at: string;
     }>(
       `SELECT g.id, g.application_id, a.name AS application_name,
+              a.distribution AS application_distribution,
               a.homepage AS application_homepage,
+              a.project_url AS application_project_url,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
@@ -212,8 +216,14 @@ export class RelayHub {
         operations: grant.operations,
         scope: grant.scope,
         application_name: grant.application_name,
+        application_distribution: grant.application_distribution,
         application_homepage: grant.application_homepage,
-        application_origin: new URL(grant.application_origin).origin,
+        ...(grant.application_project_url
+          ? { application_project_url: grant.application_project_url }
+          : {}),
+        application_origin: grant.application_origin === "null"
+          ? "null"
+          : new URL(grant.application_origin).origin,
         application_icon: grant.application_icon,
         collection_name: grant.collection_name,
         notification_criteria: grant.notification_criteria,

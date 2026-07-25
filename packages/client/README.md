@@ -2,6 +2,11 @@
 
 Browser SDK for dynamically discovered mdbase connect applications.
 
+It also ships a dependency-free browser bundle for downloaded HTML
+applications. See the [portable application guide](../../docs/portable-apps.md)
+for the v1 manifest, device-code flow, version-pinned CDN URL, SRI metadata,
+and `file://` storage boundary.
+
 The complete developer guide covers
 [setup](https://mdbase.dev/sdk/quickstart/),
 [manifests and contracts](https://mdbase.dev/sdk/manifest/),

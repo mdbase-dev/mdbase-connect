@@ -60,6 +60,30 @@ test("v1 application manifests carry a stable reverse-domain id", () => {
   assert.equal(validate({ ...declaration, manifest_version: 2 }), false);
 });
 
+test("v1 portable manifests explicitly avoid web origin claims", () => {
+  const validate = validator(manifestSchema.$id);
+  const declaration = {
+    manifest_version: 1,
+    distribution: "portable",
+    id: "dev.mdbase.workouts",
+    name: "Portable Workouts",
+    project_url: "https://workouts.example/source",
+    requirements: {
+      contracts: [{ id: "workout.record", version: 1 }]
+    }
+  };
+  assert.equal(validate(declaration), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...declaration,
+    homepage: "https://workouts.example/",
+    redirect_uris: ["https://workouts.example/callback"]
+  }), false);
+  assert.equal(validate({
+    ...declaration,
+    distribution: "web"
+  }), false);
+});
+
 test("notification webhooks carry only an opaque wake-up signal", () => {
   const validate = validator(notificationWebhookSchema.$id);
   const webhook = {

@@ -125,8 +125,15 @@
         "operations": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/operation" } },
         "scope": { "$ref": "#/$defs/grantScope" },
         "application_name": { "type": "string", "minLength": 1 },
+        "application_distribution": { "enum": ["web", "portable"] },
         "application_homepage": { "type": "string" },
-        "application_origin": { "type": "string", "format": "uri" },
+        "application_project_url": { "type": "string", "format": "uri" },
+        "application_origin": {
+          "anyOf": [
+            { "const": "null" },
+            { "type": "string", "format": "uri" }
+          ]
+        },
         "application_icon": { "type": "string" },
         "collection_name": { "type": "string", "minLength": 1 },
         "notification_criteria": {

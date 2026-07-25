@@ -597,6 +597,346 @@ describe("mdbase connect server", () => {
     );
   });
 
+  it("authorizes portable v1 applications with a single-use key-bound device flow", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Portable owner", email: "portable@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const otherSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Another user", email: "other-portable@example.com" }
+    });
+    const otherSetCookie = otherSession.headers["set-cookie"]!;
+    const otherCookie = (Array.isArray(otherSetCookie) ? otherSetCookie[0] : otherSetCookie)
+      .split(";")[0];
+
+    const connectorResponse = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Portable computer" }
+    });
+    const connector = connectorResponse.json();
+    const connectorKey = createECDH("prime256v1");
+    connectorKey.generateKeys();
+    const localCollectionId = "725cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
+    const synchronized = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/sync",
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: {
+        relay_public_key: connectorKey.getPublicKey(undefined, "uncompressed").toString("base64url"),
+        collections: [{
+          id: localCollectionId,
+          display_name: "Portable notes",
+          spec_version: "0.3.0",
+          enabled: true,
+          contracts: []
+        }]
+      }
+    });
+    const collectionId = synchronized.json().collections[0].id as string;
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.portable-notes",
+      name: "Portable notes",
+      project_url: "https://apps.example/portable-notes",
+      requirements: {
+        contracts: [],
+        access: "full_collection"
+      }
+    };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    expect(registration.statusCode).toBe(200);
+    expect(registration.json().application).toMatchObject({
+      distribution: "portable",
+      homepage: "",
+      project_url: "https://apps.example/portable-notes"
+    });
+    const applicationId = registration.json().application.id as string;
+
+    const applicationKey = createECDH("prime256v1");
+    applicationKey.generateKeys();
+    const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
+    const device = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "describe, query,query",
+        collection_hint: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        relay_protocol: "1",
+        application_public_key: applicationKey
+          .getPublicKey(undefined, "uncompressed")
+          .toString("base64url")
+      }).toString()
+    });
+    expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
+    expect(device.headers["access-control-allow-origin"]).toBe("null");
+    expect(device.headers["cache-control"]).toContain("no-store");
+    expect(device.json()).toMatchObject({
+      verification_uri: "http://connect.test/device",
+      expires_in: 600,
+      interval: 5
+    });
+    expect(device.json().user_code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    expect(device.json().verification_uri_complete).toContain(
+      encodeURIComponent(device.json().user_code)
+    );
+
+    const webAuthorizeBypass = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent("https://apps.example/callback")}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256`,
+      headers: { cookie }
+    });
+    expect(webAuthorizeBypass.statusCode).toBe(400);
+    expect(webAuthorizeBypass.json().error.code).toBe("invalid_client");
+
+    const manualGrantBypass = await app.inject({
+      method: "POST",
+      url: "/v1/grants",
+      headers: { cookie },
+      payload: {
+        application_id: applicationId,
+        collection_id: collectionId,
+        operations: ["query"]
+      }
+    });
+    expect(manualGrantBypass.statusCode).toBe(409);
+    expect(manualGrantBypass.json().error.code).toBe("portable_approval_required");
+
+    const pendingPoll = await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier
+    });
+    expect(pendingPoll.statusCode).toBe(400);
+    expect(pendingPoll.json()).toMatchObject({ error: "authorization_pending" });
+    expect((await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier
+    })).json()).toMatchObject({ error: "slow_down" });
+
+    const missingSession = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      payload: { user_code: device.json().user_code }
+    });
+    expect(missingSession.statusCode).toBe(401);
+    const wrongCode = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie },
+      payload: { user_code: "AAAA-AAAA" }
+    });
+    expect(wrongCode.statusCode).toBe(404);
+    const lookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie },
+      payload: {
+        user_code: String(device.json().user_code).toLowerCase().replace("-", "")
+      }
+    });
+    expect(lookup.statusCode).toBe(200);
+    expect(lookup.headers["cache-control"]).toContain("no-store");
+    const requestId = lookup.json().request_id as string;
+    const crossUserLookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie: otherCookie },
+      payload: { user_code: device.json().user_code }
+    });
+    expect(crossUserLookup.statusCode).toBe(404);
+
+    const pending = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie }
+    });
+    expect(pending.json().authorization).toMatchObject({
+      id: requestId,
+      flow: "device_code",
+      distribution: "portable",
+      project_url: "https://apps.example/portable-notes",
+      user_code: device.json().user_code,
+      requested_operations: ["describe", "query"]
+    });
+    expect(pending.json().collections).toEqual([
+      expect.objectContaining({ id: collectionId, kind: "local" })
+    ]);
+
+    const control = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(control.json().pending_authorizations).toContainEqual(
+      expect.objectContaining({
+        id: requestId,
+        flow: "device_code",
+        application_distribution: "portable",
+        application_project_url: "https://apps.example/portable-notes",
+        user_code: device.json().user_code
+      })
+    );
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authorization-requests/${requestId}/approve`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { collection_id: localCollectionId, operations: ["describe", "query"] }
+    });
+    expect(approved.statusCode).toBe(200);
+    const status = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}/status`,
+      headers: { cookie }
+    });
+    expect(status.json()).toEqual({ status: "approved" });
+
+    const wrongVerifier = await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier: "wrong-verifier-that-is-long-enough-for-pkce-000001"
+    });
+    expect(wrongVerifier.json()).toMatchObject({ error: "invalid_grant" });
+    await db.query(
+      "UPDATE authorization_requests SET last_polled_at = NULL WHERE id = $1",
+      [requestId]
+    );
+    const token = await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier
+    });
+    expect(token.statusCode).toBe(200);
+    expect(token.json()).toMatchObject({
+      collection_id: collectionId,
+      application_origin: "null",
+      operations: ["describe", "query"],
+      encryption: {
+        protocol_version: 1,
+        connector_id: connector.connector.id,
+        collection_id: localCollectionId,
+        application_public_key: applicationKey
+          .getPublicKey(undefined, "uncompressed")
+          .toString("base64url")
+      }
+    });
+    const policy = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(policy.json().grants).toContainEqual(expect.objectContaining({
+      application_distribution: "portable",
+      application_project_url: "https://apps.example/portable-notes",
+      application_origin: "null"
+    }));
+    expect((await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier
+    })).json()).toMatchObject({ error: "invalid_grant" });
+
+    const mutated = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest: { ...manifest, name: "Portable notes changed" } }
+    });
+    expect(mutated.json().application.id).not.toBe(applicationId);
+    expect((await pollDeviceToken(app, {
+      applicationId: mutated.json().application.id,
+      deviceCode: device.json().device_code,
+      verifier
+    })).json()).toMatchObject({ error: "invalid_grant" });
+
+    const deniedKey = createECDH("prime256v1");
+    deniedKey.generateKeys();
+    const deniedDevice = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "query",
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        relay_protocol: "1",
+        application_public_key: deniedKey
+          .getPublicKey(undefined, "uncompressed")
+          .toString("base64url")
+      }).toString()
+    });
+    const deniedLookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie },
+      payload: { user_code: deniedDevice.json().user_code }
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${deniedLookup.json().request_id}/deny`,
+      headers: { cookie }
+    });
+    expect((await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: deniedDevice.json().device_code,
+      verifier
+    })).json()).toMatchObject({ error: "access_denied" });
+
+    const expiringKey = createECDH("prime256v1");
+    expiringKey.generateKeys();
+    const expiredDevice = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "query",
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        relay_protocol: "1",
+        application_public_key: expiringKey
+          .getPublicKey(undefined, "uncompressed")
+          .toString("base64url")
+      }).toString()
+    });
+    await db.query(
+      "UPDATE authorization_requests SET expires_at = now() - interval '1 second' WHERE device_code_hash IS NOT NULL AND device_consumed_at IS NULL"
+    );
+    expect((await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: expiredDevice.json().device_code,
+      verifier
+    })).json()).toMatchObject({ error: "expired_token" });
+  });
+
   it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -923,6 +1263,23 @@ describe("mdbase connect server", () => {
     expect(developmentLogin.statusCode).toBe(404);
   });
 });
+
+function pollDeviceToken(
+  app: Awaited<ReturnType<typeof buildApp>>["app"],
+  input: { applicationId: string; deviceCode: string; verifier: string }
+) {
+  return app.inject({
+    method: "POST",
+    url: "/oauth/token",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    payload: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      device_code: input.deviceCode,
+      client_id: input.applicationId,
+      code_verifier: input.verifier
+    }).toString()
+  });
+}
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {

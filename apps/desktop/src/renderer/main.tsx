@@ -388,9 +388,9 @@ function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingCo
   return (
     <div className="workspace-stack">
       <section>
-        <SectionHeading title="Pending requests" note="A website cannot continue until you decide here." count={access.pending_authorizations.length} />
+        <SectionHeading title="Pending requests" note="An application cannot continue until you decide here." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
-          <Empty title="No applications are waiting" text="New connection requests from websites will appear here while this computer is online." />
+          <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here while this computer is online." />
         ) : (
           <div className="request-list">
             {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} busy={busy} onAct={onAct} onNotice={onNotice} />)}
@@ -423,7 +423,7 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
   return (
     <details className="application-grant-group">
       <summary>
-        <div><strong>{group.applicationName}</strong><code>{host(identity.application_homepage)}</code></div>
+        <div><strong>{group.applicationName}</strong><code>{identity.application_distribution === "portable" ? `Downloaded file${identity.application_project_url ? ` · ${host(identity.application_project_url)}` : ""}` : host(identity.application_homepage)}</code></div>
         <span>{group.collectionCount} {plural(group.collectionCount, "collection", "collections")}</span>
         <span>{group.grants.length} {plural(group.grants.length, "access record", "access records")}</span>
         <b>Review</b>
@@ -482,7 +482,7 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
   }, [collectionId, available]);
   return (
     <article className="request-panel">
-      <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{host(request.application_homepage)}</code><small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
+      <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{request.application_distribution === "portable" ? `Downloaded HTML file${request.application_project_url ? ` · ${host(request.application_project_url)}` : ""}` : host(request.application_homepage)}</code>{request.application_distribution === "portable" && <small className="portable-request-warning">Unverified file origin. Only allow it if you intentionally opened the file{request.user_code ? ` and it shows ${request.user_code}` : ""}.</small>}<small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
       <div className="request-decision">
         <section className="request-section">
           <div><strong>Collection</strong><small>Choose where {request.application_name} can work.</small></div>
@@ -571,7 +571,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   return (
     <article className="grant-row">
-      <div className="grant-identity"><strong>{grant.collection_name}</strong><code>{host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
+      <div className="grant-identity"><strong>{grant.collection_name}</strong><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted local access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
       <OperationChoices allowed={allowedOperations} selected={operations} onChange={setOperations} compact />
       <div className="row-actions">
         <button className="quiet-action" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations }); onNotice(`${grant.application_name} permissions were updated.`); })}>Save</button>

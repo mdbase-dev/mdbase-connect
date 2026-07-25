@@ -49,7 +49,9 @@ export interface DashboardData {
     collection_kind: "local" | "hosted";
     application_id: string;
     application_name: string;
+    distribution: "web" | "portable";
     homepage: string;
+    project_url: string | null;
     application_origin: string;
     icon: string | null;
   }>;
@@ -102,12 +104,16 @@ export interface AuthorityTransfer {
 
 export interface PendingAuthorization {
   id: string;
+  flow: "authorization_code" | "device_code";
+  user_code?: string | null;
   requested_operations: string[];
   collection_hint?: string | null;
   expires_at: string;
   application_id: string;
   application_name: string;
+  distribution: "web" | "portable";
   homepage: string;
+  project_url: string | null;
   icon: string | null;
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
@@ -131,7 +137,7 @@ export interface ContractRequirement {
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
   access?: "contract" | "full_collection";
-  collection_kind?: "hosted";
+  collection_kind?: "local" | "hosted";
 }
 
 export interface TypeProvision {

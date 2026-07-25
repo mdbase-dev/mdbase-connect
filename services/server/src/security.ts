@@ -4,6 +4,20 @@ export function randomToken(prefix: string): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
 }
 
+const USER_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+/** Forty bits of human-readable entropy, grouped only for transcription. */
+export function randomUserCode(): string {
+  const bytes = randomBytes(8);
+  let code = "";
+  for (const byte of bytes) code += USER_CODE_ALPHABET[byte & 31];
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+export function canonicalUserCode(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 export function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }

@@ -183,7 +183,9 @@ impl CollectionRegistry {
                 operations TEXT NOT NULL,
                 scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}',
                 application_name TEXT NOT NULL DEFAULT 'Application',
+                application_distribution TEXT NOT NULL DEFAULT 'web',
                 application_homepage TEXT NOT NULL DEFAULT '',
+                application_project_url TEXT,
                 application_origin TEXT NOT NULL DEFAULT '',
                 application_icon TEXT,
                 collection_name TEXT NOT NULL DEFAULT 'Collection',
@@ -240,7 +242,9 @@ impl CollectionRegistry {
         let connection = self.connection()?;
         for migration in [
             "ALTER TABLE grants ADD COLUMN application_name TEXT NOT NULL DEFAULT 'Application'",
+            "ALTER TABLE grants ADD COLUMN application_distribution TEXT NOT NULL DEFAULT 'web'",
             "ALTER TABLE grants ADD COLUMN application_homepage TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE grants ADD COLUMN application_project_url TEXT",
             "ALTER TABLE grants ADD COLUMN application_origin TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grants ADD COLUMN application_icon TEXT",
             "ALTER TABLE grants ADD COLUMN collection_name TEXT NOT NULL DEFAULT 'Collection'",
@@ -1204,9 +1208,10 @@ impl CollectionRegistry {
             let mut statement = transaction.prepare(
                 "INSERT INTO grants
                    (id, application_id, collection_id, operations, scope, application_name,
-                    application_homepage, application_origin, application_icon, collection_name,
-                    created_at, encryption, notification_criteria)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    application_distribution, application_homepage, application_project_url,
+                    application_origin, application_icon, collection_name, created_at, encryption,
+                    notification_criteria)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -1216,7 +1221,9 @@ impl CollectionRegistry {
                     serde_json::to_string(&grant.operations)?,
                     serde_json::to_string(&grant.scope)?,
                     grant.application_name,
+                    grant.application_distribution,
                     grant.application_homepage,
+                    grant.application_project_url,
                     grant.application_origin,
                     grant.application_icon,
                     grant.collection_name,
@@ -1278,7 +1285,9 @@ impl CollectionRegistry {
                     operations: grant.operations.clone(),
                     scope: grant.scope.clone(),
                     application_name: grant.application_name.clone(),
+                    application_distribution: grant.application_distribution.clone(),
                     application_homepage: grant.application_homepage.clone(),
+                    application_project_url: grant.application_project_url.clone(),
                     application_origin: grant.application_origin.clone(),
                     application_icon: grant.application_icon.clone(),
                     collection_name: grant.collection_name.clone(),
@@ -1293,9 +1302,10 @@ impl CollectionRegistry {
     pub fn list_grants(&self) -> Result<Vec<GrantSummary>, ConnectError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, application_id, application_name, application_homepage,
-                    application_origin, application_icon, collection_id, collection_name,
-                    operations, scope, created_at, encryption, notification_criteria
+            "SELECT id, application_id, application_name, application_distribution,
+                    application_homepage, application_project_url, application_origin,
+                    application_icon, collection_id, collection_name, operations, scope,
+                    created_at, encryption, notification_criteria
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -1307,12 +1317,14 @@ impl CollectionRegistry {
                 row.get::<_, String>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, String>(9)?,
                 row.get::<_, String>(10)?,
-                row.get::<_, Option<String>>(11)?,
+                row.get::<_, String>(11)?,
                 row.get::<_, String>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, String>(14)?,
             ))
         })?;
         rows.map(|row| {
@@ -1320,7 +1332,9 @@ impl CollectionRegistry {
                 id,
                 application_id,
                 application_name,
+                application_distribution,
                 application_homepage,
+                application_project_url,
                 application_origin,
                 application_icon,
                 collection_id,
@@ -1335,7 +1349,9 @@ impl CollectionRegistry {
                 id: parse_registry_uuid(&id)?,
                 application_id: parse_registry_uuid(&application_id)?,
                 application_name,
+                application_distribution,
                 application_homepage,
+                application_project_url,
                 application_origin,
                 application_icon,
                 collection_id: parse_registry_uuid(&collection_id)?,
@@ -3047,7 +3063,9 @@ views:
             operations: vec!["read".to_string(), "query".to_string()],
             scope: GrantScope::default(),
             application_name: "Workout Tracker".to_string(),
+            application_distribution: "web".to_string(),
             application_homepage: "https://workouts.example".to_string(),
+            application_project_url: None,
             application_origin: "https://workouts.example".to_string(),
             application_icon: None,
             collection_name: "Workouts".to_string(),
@@ -3255,7 +3273,9 @@ views:
             operations: vec!["read".to_string()],
             scope: GrantScope::default(),
             application_name: "Encrypted app".to_string(),
+            application_distribution: "web".to_string(),
             application_homepage: "https://app.example".to_string(),
+            application_project_url: None,
             application_origin: "https://app.example".to_string(),
             application_icon: None,
             collection_name: "Collection".to_string(),

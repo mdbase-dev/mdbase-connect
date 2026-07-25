@@ -272,6 +272,12 @@ fn authorize_browser_request(
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .ok_or(())?;
+    if origin == "null" {
+        if !state.agent.origin_allowed(origin) || !within_rate_limit(state, origin) {
+            return Err(());
+        }
+        return Ok(origin.to_string());
+    }
     let parsed = url::Url::parse(origin).map_err(|_| ())?;
     if parsed.origin().ascii_serialization() != origin
         || !matches!(parsed.scheme(), "http" | "https")
@@ -370,6 +376,13 @@ mod tests {
         assert_eq!(hostile.status(), StatusCode::FORBIDDEN);
         assert!(hostile.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
 
+        let opaque_without_grant = app
+            .clone()
+            .oneshot(request(Method::GET, "/v1/ready", "null", None))
+            .await
+            .unwrap();
+        assert_eq!(opaque_without_grant.status(), StatusCode::FORBIDDEN);
+
         let rebound = app
             .clone()
             .oneshot(
@@ -406,6 +419,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(plaintext.status(), StatusCode::UPGRADE_REQUIRED);
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn opaque_file_origin_requires_an_exact_encrypted_portable_grant() {
+        let fixture = fixture_for_origin("null", "portable");
+        let app = router(fixture.agent.clone(), 28_485);
+
+        let ready = app
+            .clone()
+            .oneshot(request(Method::GET, "/v1/ready", "null", None))
+            .await
+            .unwrap();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(
+            ready.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+            "null"
+        );
+
+        let described = fixture.direct(&app, "describe", json!({}), 1).await;
+        assert_eq!(described["ok"], true);
+        assert_eq!(described["result"]["display_name"], "Direct notes");
 
         fs::remove_dir_all(fixture.root).unwrap();
     }
@@ -757,6 +793,10 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
+        fixture_for_origin("https://tasks.example", "web")
+    }
+
+    fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         let root = std::env::temp_dir().join(format!("mdbase-loopback-{}", Uuid::new_v4()));
         let registry = CollectionRegistry::open(root.join("state")).unwrap();
         let collection = registry
@@ -766,7 +806,7 @@ mod tests {
         let application = RelayIdentity::generate();
         let application_id = Uuid::new_v4();
         let grant_id = Uuid::new_v4();
-        let origin = "https://tasks.example".to_string();
+        let origin = origin.to_string();
         let encryption = GrantEncryption {
             protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
             suite: RELAY_ENCRYPTION_SUITE.to_string(),
@@ -800,7 +840,14 @@ mod tests {
                 .to_vec(),
                 scope: GrantScope::default(),
                 application_name: "Tasks".to_string(),
-                application_homepage: origin.clone(),
+                application_distribution: distribution.to_string(),
+                application_homepage: if distribution == "web" {
+                    origin.clone()
+                } else {
+                    String::new()
+                },
+                application_project_url: (distribution == "portable")
+                    .then(|| "https://example.test/portable".to_string()),
                 application_origin: origin.clone(),
                 application_icon: None,
                 collection_name: "Direct notes".to_string(),

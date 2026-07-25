@@ -117,6 +117,7 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .request-identity h3 { margin: 0; font-size: 16px; font-weight: 700; }
 .request-identity code, .grant-identity code, .pairing-wait code, .manual-grant code { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; }
 .request-identity small, .grant-identity small { color: var(--muted); font-size: var(--type-supporting); }
+.request-identity .portable-request-warning { margin-top: 5px; color: var(--ink); line-height: 1.45; }
 .request-decision { min-width: 0; border-top: 1px solid var(--line-strong); }
 .request-section { display: grid; grid-template-columns: minmax(130px, 0.38fr) minmax(0, 1fr); gap: 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
 .request-section > div:first-child { display: grid; align-content: start; gap: 3px; }

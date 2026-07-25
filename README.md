@@ -52,7 +52,8 @@ application and contract adapter—not a collection kind or platform default.
   pairing, remote approval, and grant-review surface. Routine collection
   configuration stays in the local controller, and there is no developer
   portal.
-- `packages/client`: browser SDK using authorization code + PKCE.
+- `packages/client`: browser SDK using authorization code or portable device
+  authorization with PKCE, plus a dependency-free CDN/SRI browser build.
 - `packages/protocol`: shared versioned web/relay contracts.
 - `packages/devkit`: canonical artifact validation and an explicit frontend
   sandbox over the same typed collection-client boundary.

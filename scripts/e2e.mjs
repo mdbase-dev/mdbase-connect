@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
@@ -400,6 +401,118 @@ secret: connector scope test
         || !browserResult.deleted) {
       throw new Error(`Real browser direct-operation matrix failed: ${JSON.stringify(browserResult)}`);
     }
+
+    const portableIntegrity = JSON.parse(await readFile(
+      join(repoRoot, "packages", "client", "dist", "browser", "integrity.json"),
+      "utf8"
+    )).integrity;
+    const portableFile = join(scratch, "portable-e2e.html");
+    await writeFile(portableFile, `<!doctype html>
+<meta charset="utf-8">
+<title>Portable mdbase e2e</title>
+<button id="connect">Connect</button>
+<output id="code"></output>
+<script src="${manifest.browserOrigin}/client/browser.js" integrity="${portableIntegrity}" crossorigin="anonymous"></script>
+<script>
+  const manifest = {
+    manifest_version: 1,
+    distribution: "portable",
+    id: "dev.mdbase.portable-e2e",
+    name: "Portable E2E",
+    project_url: "https://apps.example/portable-e2e",
+    requirements: { access: "full_collection", contracts: [] }
+  };
+  const manager = new MdbaseConnect.MdbaseConnect({
+    serverUrl: ${JSON.stringify(serverUrl)},
+    manifest,
+    loopbackUrl: ${JSON.stringify(loopbackUrl)}
+  });
+  globalThis.portableHarness = {
+    environment: manager.environment(),
+    initialConnections: manager.connections().length
+  };
+  document.querySelector("#connect").onclick = () => {
+    globalThis.portableHarness.pending = manager.authorize({
+      operations: ["describe", "query"],
+      onDeviceCode(authorization) {
+        globalThis.portableHarness.authorization = authorization;
+        document.querySelector("#code").textContent = authorization.userCode;
+      },
+      openVerification() {}
+    }).then(async ({ connection }) => {
+      const description = await connection.describe();
+      const query = await connection.query({ limit: 2 });
+      globalThis.portableHarness.result = {
+        collectionId: connection.collectionId,
+        displayName: description.display_name,
+        records: query.result.results.length,
+        route: connection.route,
+        connections: manager.connections().length
+      };
+    }).catch((error) => {
+      globalThis.portableHarness.error = {
+        code: error?.code,
+        message: error?.message
+      };
+    });
+  };
+</script>`);
+    const portableUrl = pathToFileURL(portableFile).href;
+    const portablePage = await browserContext.newPage();
+    await portablePage.goto(portableUrl);
+    await portablePage.waitForFunction(() => Boolean(globalThis.portableHarness));
+    const portableEnvironment = await portablePage.evaluate(() => globalThis.portableHarness);
+    if (portableEnvironment.environment?.applicationOrigin !== "null"
+        || portableEnvironment.environment?.credentialStorage !== "memory"
+        || portableEnvironment.initialConnections !== 0) {
+      throw new Error(`Portable file defaults were not isolated: ${JSON.stringify(portableEnvironment)}`);
+    }
+    await portablePage.click("#connect");
+    await portablePage.waitForFunction(
+      () => Boolean(globalThis.portableHarness.authorization)
+    );
+    const portableAuthorization = await portablePage.evaluate(
+      () => globalThis.portableHarness.authorization
+    );
+    const portableClaim = await request("/v1/device-authorization-requests/lookup", {
+      method: "POST",
+      cookie,
+      body: { user_code: portableAuthorization.userCode }
+    });
+    await cliJson([
+      "access",
+      "approve",
+      portableClaim.body.request_id,
+      collection.local_id,
+      "--operations",
+      "describe,query"
+    ]);
+    await portablePage.waitForFunction(
+      () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
+      undefined,
+      { timeout: 20_000 }
+    );
+    const portableResult = await portablePage.evaluate(
+      () => globalThis.portableHarness
+    );
+    if (portableResult.error
+        || portableResult.result?.collectionId !== collection.id
+        || portableResult.result?.displayName !== "Workouts"
+        || portableResult.result?.records !== 2
+        || portableResult.result?.connections !== 1) {
+      throw new Error(`Portable file authorization failed: ${JSON.stringify(portableResult)}`);
+    }
+    const separatePortablePage = await browserContext.newPage();
+    await separatePortablePage.goto(portableUrl);
+    const separatePortableState = await separatePortablePage.evaluate(
+      () => globalThis.portableHarness
+    );
+    if (separatePortableState.initialConnections !== 0
+        || separatePortableState.environment?.credentialStorage !== "memory") {
+      throw new Error(`A separate file page inherited portable authorization: ${JSON.stringify(separatePortableState)}`);
+    }
+    await separatePortablePage.close();
+    await portablePage.close();
     await browserContext.close();
   } finally {
     await browser.close();
@@ -754,6 +867,19 @@ async function openApplicationServer(name, contracts, access) {
     if (request.url === "/client/index.js" || request.url === "/client/crypto.js") {
       response.setHeader("content-type", "text/javascript");
       response.end(await readFile(join(repoRoot, "packages", "client", "dist", request.url.split("/").at(-1))));
+      return;
+    }
+    if (request.url === "/client/browser.js") {
+      response.setHeader("content-type", "text/javascript");
+      response.setHeader("access-control-allow-origin", "*");
+      response.end(await readFile(join(
+        repoRoot,
+        "packages",
+        "client",
+        "dist",
+        "browser",
+        "mdbase-connect.min.js"
+      )));
       return;
     }
     if (request.url === "/protocol/index.js") {

@@ -79,7 +79,9 @@ interface GrantSummary {
   id: string;
   application_id: string;
   application_name: string;
+  application_distribution: "web" | "portable";
   application_homepage: string;
+  application_project_url?: string;
   application_origin: string;
   application_icon?: string;
   collection_id: string;
@@ -93,7 +95,11 @@ interface PendingAuthorization {
   id: string;
   application_id: string;
   application_name: string;
+  application_distribution: "web" | "portable";
   application_homepage: string;
+  application_project_url?: string;
+  flow: "authorization_code" | "device_code";
+  user_code?: string;
   application_icon?: string;
   requested_operations: string[];
   collection_hint?: string;

@@ -31,11 +31,16 @@ import type {
   SyncSnapshotPage,
   UpdateViewSourceInput
 } from "@mdbase/connect-protocol";
-import { DEFAULT_LOOPBACK_PORT } from "@mdbase/connect-protocol";
+import {
+  DEFAULT_LOOPBACK_PORT,
+  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  RELAY_ENCRYPTION_SUITE
+} from "@mdbase/connect-protocol";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
   IndexedDbGrantKeyStore,
+  MemoryGrantKeyStore,
   RelayCryptoError,
   type GrantKeyStore
 } from "./crypto.js";
@@ -133,11 +138,34 @@ export interface MdbaseAuthorizeOptions {
   collectionId?: string;
   /** App-local location to restore after the authorization callback. */
   returnTo?: string;
+  /** Receives the short code even when the SDK also opens the approval page. */
+  onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
+  /** Replace the default popup for a downloaded application's approval page. */
+  openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
+  /** Stop polling and discard the unapproved, in-memory key. */
+  signal?: AbortSignal;
 }
 
 export interface MdbaseConnectionAuthorizeOptions {
   operations?: CollectionOperation[];
   returnTo?: string;
+  onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
+  openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
+  signal?: AbortSignal;
+}
+
+export interface MdbaseDeviceAuthorization {
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string;
+  expiresAt: number;
+  intervalSeconds: number;
+}
+
+export interface MdbaseConnectEnvironment {
+  distribution: "web" | "portable";
+  applicationOrigin: string;
+  credentialStorage: "persistent" | "memory" | "custom";
 }
 
 export interface MdbaseAuthorizationResult<Frontmatter extends JsonObject = JsonObject> {
@@ -782,7 +810,9 @@ function positiveInteger(value: unknown, fallback: number): number {
 interface Application {
   id: string;
   name: string;
-  homepage: string;
+  distribution?: "web" | "portable";
+  homepage?: string;
+  project_url?: string;
   notifications?: ApplicationNotifications;
 }
 
@@ -850,8 +880,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.internals.register();
   }
 
-  authorize(options: MdbaseAuthorizeOptions = {}): Promise<never> {
+  authorize(options: MdbaseAuthorizeOptions = {}): Promise<MdbaseAuthorizationResult<Frontmatter>> {
     return this.internals.authorize(options);
+  }
+
+  environment(): MdbaseConnectEnvironment {
+    return this.internals.environment();
   }
 
   completeAuthorization(
@@ -892,6 +926,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
   readonly navigate?: (url: string) => void | Promise<void>;
+  readonly credentialStorage: MdbaseConnectEnvironment["credentialStorage"];
   private application: Application | null = null;
   private readonly completionPromises = new Map<string, Promise<MdbaseAuthorizationResult<Frontmatter>>>();
   private readonly connectionCache = new Map<string, MdbaseConnection<Frontmatter>>();
@@ -902,11 +937,23 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     this.manifest = options.manifest ?? defaultManifestSource();
     this.manifestSource = typeof this.manifest === "string"
       ? this.manifest
-      : `bundle:${this.manifest.id}`;
-    this.redirectUri = options.redirectUri ?? defaultRedirectUri();
-    this.storage = options.storage ?? defaultStorage();
+      : this.manifest.distribution === "portable"
+        ? `bundle:${this.manifest.id}:${manifestStorageFingerprint(this.manifest)}`
+        : `bundle:${this.manifest.id}`;
+    const opaquePortable = isOpaquePortableManifest(this.manifest);
+    this.redirectUri = options.redirectUri ?? (
+      typeof this.manifest !== "string" && this.manifest.distribution === "portable"
+        ? ""
+        : defaultRedirectUri()
+    );
+    this.storage = options.storage ?? defaultStorage(opaquePortable);
     this.relayEncryption = options.relayEncryption ?? "required";
-    this.keyStore = options.keyStore ?? new IndexedDbGrantKeyStore();
+    this.keyStore = options.keyStore ?? (
+      opaquePortable ? new MemoryGrantKeyStore() : new IndexedDbGrantKeyStore()
+    );
+    this.credentialStorage = options.storage || options.keyStore
+      ? "custom"
+      : this.storage instanceof MemoryStorage ? "memory" : "persistent";
     this.directAccessMode = options.directAccess ?? "auto";
     this.loopbackUrl = canonicalLoopbackUrl(
       options.loopbackUrl ?? `http://127.0.0.1:${DEFAULT_LOOPBACK_PORT}`
@@ -919,6 +966,20 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         this.emitConnections();
       });
     }
+  }
+
+  environment(): MdbaseConnectEnvironment {
+    const distribution = typeof this.manifest !== "string"
+      && this.manifest.distribution === "portable"
+      ? "portable"
+      : this.application?.distribution ?? "web";
+    return {
+      distribution,
+      applicationOrigin: distribution === "portable"
+        ? "null"
+        : this.defaultApplicationOrigin(),
+      credentialStorage: this.credentialStorage
+    };
   }
 
   async register(): Promise<Application> {
@@ -967,14 +1028,37 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
   }
 
-  async authorize(options: MdbaseAuthorizeOptions = {}): Promise<never> {
-    if (typeof location === "undefined" && !this.navigate) {
+  async authorize(
+    options: MdbaseAuthorizeOptions = {}
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+    if (typeof location === "undefined" && !this.navigate && !options.openVerification) {
       throw new MdbaseConnectError(
         "browser_required",
         "Authorization navigation requires a browser environment."
       );
     }
-    const application = await this.register();
+    const portableDeclared = typeof this.manifest !== "string"
+      && this.manifest.distribution === "portable";
+    const popup = portableDeclared
+      && !options.openVerification
+      && typeof window !== "undefined"
+      ? window.open(
+          `${this.serverUrl}/device`,
+          "mdbase-connect-authorization",
+          "popup,width=620,height=760"
+        )
+      : null;
+    let application: Application;
+    try {
+      application = await this.register();
+    } catch (error) {
+      popup?.close();
+      throw error;
+    }
+    if (application.distribution === "portable") {
+      return this.authorizePortable(application, options, popup);
+    }
+    popup?.close();
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
     const keyHandle = this.relayEncryption === "required"
@@ -1012,7 +1096,170 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     if (this.navigate) await this.navigate(authorize.href);
     else location.assign(authorize.href);
-    return new Promise<never>(() => undefined);
+    return new Promise<MdbaseAuthorizationResult<Frontmatter>>(() => undefined);
+  }
+
+  private async authorizePortable(
+    application: Application,
+    options: MdbaseAuthorizeOptions,
+    popup: Window | null
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+    if (this.relayEncryption !== "required") {
+      popup?.close();
+      throw new MdbaseConnectError(
+        "encryption_required",
+        "Downloaded applications require encrypted relay authorization."
+      );
+    }
+    const { verifier, challenge } = await createPkce();
+    const keyHandle = `grant:${application.id}:${randomBase64Url(24)}`;
+    const grantKey = await this.keyStore.create(keyHandle);
+    let response: Response;
+    let body: any;
+    try {
+      response = await fetch(`${this.serverUrl}/oauth/device_authorization`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: application.id,
+          operations: uniqueOperations(options.operations ?? DEFAULT_OPERATIONS).join(","),
+          ...(options.collectionId ? { collection_hint: options.collectionId } : {}),
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          relay_protocol: "1",
+          application_public_key: grantKey.publicKey
+        })
+      });
+      body = await response.json();
+    } catch (cause) {
+      popup?.close();
+      await this.keyStore.delete(keyHandle);
+      throw new MdbaseConnectError(
+        "device_authorization_failed",
+        "Downloaded application authorization could not be started.",
+        { cause }
+      );
+    }
+    if (!response.ok) {
+      popup?.close();
+      await this.keyStore.delete(keyHandle);
+      throw apiError(
+        body,
+        "device_authorization_failed",
+        "Downloaded application authorization could not be started.",
+        response.status
+      );
+    }
+    let authorization: MdbaseDeviceAuthorization;
+    try {
+      authorization = parseDeviceAuthorization(body);
+    } catch (error) {
+      popup?.close();
+      await this.keyStore.delete(keyHandle);
+      throw error;
+    }
+    options.onDeviceCode?.(authorization);
+    if (options.openVerification) {
+      await options.openVerification(authorization);
+    } else if (popup) {
+      try {
+        popup.location.href = authorization.verificationUriComplete;
+      } catch {
+        // The already-open verification page still accepts the displayed code.
+      }
+    } else {
+      await this.keyStore.delete(keyHandle);
+      throw new MdbaseConnectError(
+        "approval_window_blocked",
+        "The approval window was blocked. Show the provided verification link and code, then try again.",
+        { details: authorization }
+      );
+    }
+
+    let intervalSeconds = authorization.intervalSeconds;
+    try {
+      while (Date.now() < authorization.expiresAt) {
+        await abortableDelay(intervalSeconds * 1_000, options.signal);
+        if (options.signal?.aborted) {
+          throw new MdbaseConnectError(
+            "authorization_cancelled",
+            "Downloaded application authorization was cancelled."
+          );
+        }
+        let tokenResponse: Response;
+        try {
+          tokenResponse = await fetch(`${this.serverUrl}/oauth/token`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+              device_code: body.device_code,
+              client_id: application.id,
+              code_verifier: verifier
+            }),
+            signal: options.signal
+          });
+        } catch (cause) {
+          if (options.signal?.aborted) {
+            throw new MdbaseConnectError(
+              "authorization_cancelled",
+              "Downloaded application authorization was cancelled.",
+              { cause }
+            );
+          }
+          continue;
+        }
+        const tokenBody = await tokenResponse.json();
+        if (!tokenResponse.ok) {
+          const code = oauthErrorCode(tokenBody);
+          if (code === "authorization_pending") continue;
+          if (code === "slow_down") {
+            intervalSeconds += 5;
+            continue;
+          }
+          throw apiError(
+            tokenBody,
+            "token_exchange_failed",
+            "Downloaded application authorization could not be completed.",
+            tokenResponse.status
+          );
+        }
+        if (
+          tokenBody.hosted
+          || !tokenBody.encryption
+          || tokenBody.encryption.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+          || tokenBody.encryption.suite !== RELAY_ENCRYPTION_SUITE
+          || tokenBody.encryption.application_public_key !== grantKey.publicKey
+          || tokenBody.application_origin !== "null"
+        ) {
+          throw new MdbaseConnectError(
+            "encryption_required",
+            "Authorization did not establish the expected key-bound portable grant."
+          );
+        }
+        const token = this.storeTokenResponse(tokenBody, application.id, keyHandle);
+        if (options.collectionId && options.collectionId !== token.collectionId) {
+          this.removeToken(token.collectionId, token.keyHandle);
+          throw new MdbaseConnectError(
+            "collection_mismatch",
+            "The approved collection does not match the collection requested by this link."
+          );
+        }
+        popup?.close();
+        return {
+          connection: this.connection(token.collectionId)!,
+          ...(options.returnTo ? { returnTo: options.returnTo } : {})
+        };
+      }
+      throw new MdbaseConnectError(
+        "expired_token",
+        "The downloaded application authorization code expired."
+      );
+    } catch (error) {
+      popup?.close();
+      await this.keyStore.delete(keyHandle);
+      throw error;
+    }
   }
 
   completeAuthorization(callbackUrl: string): Promise<MdbaseAuthorizationResult<Frontmatter>> {
@@ -1198,10 +1445,19 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   }
 
   defaultApplicationOrigin(): string {
+    if (
+      (typeof this.manifest !== "string" && this.manifest.distribution === "portable")
+      || this.application?.distribution === "portable"
+    ) {
+      return "null";
+    }
     const redirect = new URL(this.redirectUri);
     if (["http:", "https:"].includes(redirect.protocol)) return redirect.origin;
     if (typeof location !== "undefined") return location.origin;
-    if (this.manifest && typeof this.manifest !== "string") {
+    if (
+      this.manifest
+      && typeof this.manifest !== "string"
+    ) {
       return new URL(this.manifest.homepage).origin;
     }
     try {
@@ -1330,7 +1586,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.authorizationCapabilities(requiredOperations).sufficient;
   }
 
-  authorize(options: MdbaseConnectionAuthorizeOptions = {}): Promise<never> {
+  authorize(
+    options: MdbaseConnectionAuthorizeOptions = {}
+  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
     return this.internals.authorize({ ...options, collectionId: this.collectionId });
   }
 
@@ -2695,10 +2953,37 @@ export async function createPkce(): Promise<{ verifier: string; challenge: strin
 
 function apiError(body: any, fallbackCode: string, fallbackMessage: string, status?: number): MdbaseConnectError {
   return new MdbaseConnectError(
-    body?.error?.code ?? fallbackCode,
-    body?.error?.message ?? fallbackMessage,
+    oauthErrorCode(body) ?? body?.error?.code ?? fallbackCode,
+    body?.error_description ?? body?.error?.message ?? fallbackMessage,
     { status, details: body?.error?.details }
   );
+}
+
+function oauthErrorCode(body: any): string | undefined {
+  return typeof body?.error === "string" ? body.error : undefined;
+}
+
+function parseDeviceAuthorization(body: any): MdbaseDeviceAuthorization {
+  if (
+    typeof body?.device_code !== "string"
+    || typeof body?.user_code !== "string"
+    || typeof body?.verification_uri !== "string"
+    || typeof body?.verification_uri_complete !== "string"
+    || !Number.isFinite(body?.expires_in)
+    || !Number.isFinite(body?.interval)
+  ) {
+    throw new MdbaseConnectError(
+      "invalid_device_authorization_response",
+      "Connect returned an invalid downloaded application authorization response."
+    );
+  }
+  return {
+    userCode: body.user_code,
+    verificationUri: body.verification_uri,
+    verificationUriComplete: body.verification_uri_complete,
+    expiresAt: Date.now() + Math.max(1, body.expires_in) * 1_000,
+    intervalSeconds: Math.max(1, body.interval)
+  };
 }
 
 function randomBase64Url(size: number): string {
@@ -2740,6 +3025,12 @@ function defaultManifestSource(): string {
       "manifest is required outside a browser environment."
     );
   }
+  if (location.origin === "null") {
+    throw new MdbaseConnectError(
+      "manifest_required",
+      "Downloaded applications must provide their v1 portable manifest inline."
+    );
+  }
   return new URL("/.well-known/mdbase-app.json", location.origin).href;
 }
 
@@ -2763,14 +3054,69 @@ function defaultCallbackUrl(): string {
   return location.href;
 }
 
-function defaultStorage(): Storage {
+function defaultStorage(memoryOnly: boolean): Storage {
+  if (memoryOnly) return new MemoryStorage();
   if (typeof localStorage === "undefined") {
     throw new MdbaseConnectError(
       "storage_required",
       "storage is required outside a browser environment."
     );
   }
-  return localStorage;
+  try {
+    const probe = `mdbase-connect:probe:${randomBase64Url(8)}`;
+    localStorage.setItem(probe, "1");
+    localStorage.removeItem(probe);
+    return localStorage;
+  } catch {
+    return new MemoryStorage();
+  }
+}
+
+class MemoryStorage implements Storage {
+  private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(String(key), String(value));
+  }
+}
+
+function isOpaquePortableManifest(manifest: MdbaseAppManifest | string): boolean {
+  if (typeof manifest === "string" || manifest.distribution !== "portable") return false;
+  return typeof location === "undefined"
+    || location.origin === "null"
+    || !["http:", "https:"].includes(location.protocol);
+}
+
+function manifestStorageFingerprint(manifest: MdbaseAppManifest): string {
+  const canonical = canonicalJson(manifest);
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < canonical.length; index += 1) {
+    const code = canonical.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {

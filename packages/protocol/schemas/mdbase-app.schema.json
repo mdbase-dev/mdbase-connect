@@ -4,9 +4,13 @@
   "title": "mdbase connect bundled application manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["manifest_version", "id", "name", "homepage", "redirect_uris"],
+  "required": ["manifest_version", "id", "name"],
   "properties": {
     "manifest_version": { "const": 1 },
+    "distribution": {
+      "enum": ["web", "portable"],
+      "description": "Portable declarations use device authorization and do not claim a browser origin."
+    },
     "id": {
       "type": "string",
       "minLength": 5,
@@ -16,6 +20,7 @@
     },
     "name": { "type": "string", "minLength": 1, "maxLength": 100 },
     "homepage": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "project_url": { "type": "string", "format": "uri", "pattern": "^https://" },
     "icon": { "type": "string", "format": "uri", "pattern": "^https://" },
     "redirect_uris": {
       "type": "array",
@@ -55,6 +60,25 @@
       }
     }
   },
+  "oneOf": [
+    {
+      "required": ["homepage", "redirect_uris"],
+      "properties": {
+        "distribution": { "const": "web" },
+        "homepage": true,
+        "redirect_uris": true,
+        "project_url": false
+      }
+    },
+    {
+      "required": ["distribution"],
+      "properties": {
+        "distribution": { "const": "portable" },
+        "homepage": false,
+        "redirect_uris": false
+      }
+    }
+  ],
   "$defs": {
     "identifier": {
       "type": "string",

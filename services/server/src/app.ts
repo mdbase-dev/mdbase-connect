@@ -37,7 +37,14 @@ import {
 } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import type { RelayBroker } from "./relay-broker.js";
-import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
+import {
+  canonicalUserCode,
+  pkceChallenge,
+  randomToken,
+  randomUserCode,
+  safeEqual,
+  tokenHash
+} from "./security.js";
 import {
   asSyncMutation,
   contractRequirements,
@@ -95,6 +102,9 @@ const OPERATIONS = [
   "reconcile_timers"
 ] as const;
 const operationSchema = z.enum(OPERATIONS);
+const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+const DEVICE_AUTHORIZATION_SECONDS = 600;
+const DEVICE_POLL_INTERVAL_SECONDS = 5;
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
   version: z.number().int().positive()
@@ -1476,7 +1486,8 @@ export async function buildApp(options: BuildOptions) {
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
               CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
@@ -1487,8 +1498,10 @@ export async function buildApp(options: BuildOptions) {
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
+              ar.collection_hint, ar.expires_at,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -1520,7 +1533,7 @@ export async function buildApp(options: BuildOptions) {
       })),
       grants: grants.rows.map((grant) => ({
         ...grant,
-        application_origin: new URL(grant.application_origin).origin
+        application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
       pending_authorizations: pendingAuthorizations.rows
     };
@@ -1695,7 +1708,9 @@ export async function buildApp(options: BuildOptions) {
     );
     const grants = await options.db.query(
       `SELECT g.id, g.application_id, a.name AS application_name,
+              a.distribution AS application_distribution,
               a.homepage AS application_homepage,
+              a.project_url AS application_project_url,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
@@ -1711,7 +1726,10 @@ export async function buildApp(options: BuildOptions) {
     );
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.application_id, a.name AS application_name,
-              a.homepage AS application_homepage, a.icon AS application_icon,
+              a.distribution AS application_distribution,
+              a.homepage AS application_homepage,
+              a.project_url AS application_project_url, a.icon AS application_icon,
+              ar.flow, ar.user_code,
               ar.requested_operations, hinted.local_id AS collection_hint,
               ar.expires_at, a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
@@ -1729,7 +1747,7 @@ export async function buildApp(options: BuildOptions) {
       account: account.rows[0],
       grants: grants.rows.map((grant) => ({
         ...grant,
-        application_origin: new URL(grant.application_origin).origin
+        application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
       pending_authorizations: pendingAuthorizations.rows
         .filter((authorization) => !requiresHostedCollection(authorization.requirements))
@@ -1741,7 +1759,8 @@ export async function buildApp(options: BuildOptions) {
     if (!connector) return;
     const { applicationId } = z.object({ applicationId: z.uuid() }).parse(request.params);
     const application = await options.db.query(
-      `SELECT id, name, homepage, icon, requirements, provisions, notifications
+      `SELECT id, distribution, name, homepage, project_url, icon,
+              requirements, provisions, notifications
        FROM applications WHERE id = $1`,
       [applicationId]
     );
@@ -1774,14 +1793,21 @@ export async function buildApp(options: BuildOptions) {
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, homepage, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, homepage, requirements, notifications FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (application.rows[0].distribution === "portable") {
+      return reply.code(409).send(apiError(
+        "portable_approval_required",
+        "Downloaded applications must use their key-bound device authorization request."
+      ));
+    }
     if (requiresHostedCollection(application.rows[0].requirements)) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
@@ -2200,6 +2226,91 @@ export async function buildApp(options: BuildOptions) {
     return { application };
   });
 
+  app.post("/oauth/device_authorization", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const input = z.object({
+      client_id: z.uuid(),
+      operations: z.string().default("read,query"),
+      collection_hint: z.uuid().optional(),
+      code_challenge: z.string().min(43).max(128),
+      code_challenge_method: z.literal("S256"),
+      relay_protocol: z.coerce.number().int(),
+      application_public_key: z.string().min(80).max(200)
+    }).strict().parse(request.body);
+    if (
+      input.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+      || !isP256PublicKey(input.application_public_key)
+    ) {
+      return reply.code(400).send(apiError(
+        "invalid_encryption_request",
+        "Portable authorization requires encrypted relay protocol 1 and a valid P-256 public key."
+      ));
+    }
+    const application = await options.db.query<{
+      id: string;
+      distribution: "web" | "portable";
+      requirements: ApplicationRequirements;
+    }>(
+      "SELECT id, distribution, requirements FROM applications WHERE id = $1",
+      [input.client_id]
+    );
+    if (!application.rows[0] || application.rows[0].distribution !== "portable") {
+      return reply.code(400).send(apiError(
+        "invalid_client",
+        "Only a registered portable application can use device authorization."
+      ));
+    }
+    const requestedOperations = [...new Set(
+      input.operations.split(",").map((value) => value.trim()).filter(Boolean)
+    )]
+      .map((value) => operationSchema.parse(value));
+    if (requestedOperations.length === 0) {
+      return reply.code(400).send(apiError(
+        "invalid_operations",
+        "At least one collection operation is required."
+      ));
+    }
+    assertOperationsAllowedByRequirements(
+      requestedOperations,
+      application.rows[0].requirements
+    );
+    const authorizationId = randomUUID();
+    const deviceCode = randomToken("device");
+    const userCode = randomUserCode();
+    await options.db.query(
+      `INSERT INTO authorization_requests
+         (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
+          requested_operations, collection_hint, relay_protocol,
+          application_public_key, device_code_hash, user_code, user_code_hash,
+          poll_interval_seconds, expires_at)
+       VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
+               $7, $8, $9, $10, $11, now() + interval '10 minutes')`,
+      [
+        authorizationId,
+        input.client_id,
+        input.code_challenge,
+        JSON.stringify(requestedOperations),
+        input.collection_hint ?? null,
+        ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        input.application_public_key,
+        tokenHash(deviceCode),
+        userCode,
+        tokenHash(canonicalUserCode(userCode)),
+        DEVICE_POLL_INTERVAL_SECONDS
+      ]
+    );
+    const verificationUri = `${publicUrl}/device`;
+    return reply.header("cache-control", "no-store").send({
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: verificationUri,
+      verification_uri_complete: `${verificationUri}?user_code=${encodeURIComponent(userCode)}`,
+      expires_in: DEVICE_AUTHORIZATION_SECONDS,
+      interval: DEVICE_POLL_INTERVAL_SECONDS
+    });
+  });
+
   app.post("/v1/grants", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
@@ -2217,14 +2328,21 @@ export async function buildApp(options: BuildOptions) {
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       homepage: string;
       requirements: ApplicationRequirements;
       notifications: ApplicationNotifications;
     }>(
-      "SELECT id, homepage, requirements, notifications FROM applications WHERE id = $1",
+      "SELECT id, distribution, homepage, requirements, notifications FROM applications WHERE id = $1",
       [input.application_id]
     );
     if (!application.rows[0]) return reply.code(404).send(apiError("application_not_found", "Application not found."));
+    if (application.rows[0].distribution === "portable") {
+      return reply.code(409).send(apiError(
+        "portable_approval_required",
+        "Downloaded applications must use their key-bound device authorization request."
+      ));
+    }
     if (requiresHostedCollection(application.rows[0].requirements)) {
       return reply.code(409).send(apiError(
         "incompatible_collection",
@@ -2389,13 +2507,18 @@ export async function buildApp(options: BuildOptions) {
     }
     const application = await options.db.query<{
       id: string;
+      distribution: "web" | "portable";
       redirect_uris: string[];
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, redirect_uris, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, redirect_uris, requirements FROM applications WHERE id = $1",
       [query.client_id]
     );
-    if (!application.rows[0] || !application.rows[0].redirect_uris.includes(query.redirect_uri)) {
+    if (
+      !application.rows[0]
+      || application.rows[0].distribution !== "web"
+      || !application.rows[0].redirect_uris.includes(query.redirect_uri)
+    ) {
       return reply.code(400).send(apiError("invalid_client", "Unknown application or redirect URI."));
     }
     const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
@@ -2427,13 +2550,59 @@ export async function buildApp(options: BuildOptions) {
     return reply.redirect(`/authorize/${authorizationId}`);
   });
 
+  app.post("/v1/device-authorization-requests/lookup", {
+    config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const input = z.object({
+      user_code: z.string().min(8).max(20)
+    }).strict().parse(request.body);
+    const canonicalCode = canonicalUserCode(input.user_code);
+    if (canonicalCode.length !== 8) {
+      return reply.code(404).send(apiError(
+        "device_authorization_not_found",
+        "This code is invalid or has expired."
+      ));
+    }
+    const claimed = await options.db.query<{ id: string; user_code: string }>(
+      `UPDATE authorization_requests
+       SET user_id = $2
+       WHERE id = (
+         SELECT id FROM authorization_requests
+         WHERE flow = 'device_code' AND user_code_hash = $1
+           AND expires_at > now() AND device_consumed_at IS NULL
+           AND (user_id IS NULL OR user_id = $2)
+         LIMIT 1
+       )
+       RETURNING id, user_code`,
+      [tokenHash(canonicalCode), user.id]
+    );
+    const authorization = claimed.rows[0];
+    if (!authorization) {
+      return reply.code(404).send(apiError(
+        "device_authorization_not_found",
+        "This code is invalid or has expired."
+      ));
+    }
+    await audit(options.db, user.id, "device_authorization.claimed", authorization.id, {
+      user_code_suffix: canonicalCode.slice(-4)
+    });
+    return reply.header("cache-control", "no-store").send({
+      request_id: authorization.id,
+      user_code: authorization.user_code
+    });
+  });
+
   app.get("/v1/authorization-requests/:requestId", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
-      `SELECT ar.id, ar.requested_operations, ar.collection_hint, ar.expires_at,
-              a.id AS application_id, a.name AS application_name, a.homepage, a.icon,
+      `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
+              ar.collection_hint, ar.expires_at,
+              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()`,
@@ -2474,9 +2643,11 @@ export async function buildApp(options: BuildOptions) {
     ];
     return {
       authorization: authorization.rows[0],
-      collections: requiresHostedCollection(authorization.rows[0].requirements)
-        ? availableCollections.filter((collection) => collection.kind === "hosted")
-        : availableCollections
+      collections: authorization.rows[0].distribution === "portable"
+        ? availableCollections.filter((collection) => collection.kind === "local")
+        : requiresHostedCollection(authorization.rows[0].requirements)
+          ? availableCollections.filter((collection) => collection.kind === "hosted")
+          : availableCollections
     };
   });
 
@@ -2488,14 +2659,15 @@ export async function buildApp(options: BuildOptions) {
       completed_at: string | null;
       denied_at: string | null;
       expires_at: string;
+      flow: "authorization_code" | "device_code";
       application_id: string;
       grant_id: string | null;
-      redirect_uri: string;
+      redirect_uri: string | null;
       state: string | null;
-      code_challenge: string;
+      code_challenge: string | null;
     }>(
       `SELECT completed_at, denied_at, expires_at, application_id, grant_id,
-              redirect_uri, state, code_challenge
+              flow, redirect_uri, state, code_challenge
        FROM authorization_requests
        WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
       [requestId, user.id]
@@ -2503,13 +2675,22 @@ export async function buildApp(options: BuildOptions) {
     const value = authorization.rows[0];
     if (!value) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     if (value.denied_at) {
-      return { status: "denied", redirect_uri: deniedAuthorizationRedirect(value) };
+      return value.flow === "device_code"
+        ? { status: "denied" }
+        : { status: "denied", redirect_uri: deniedAuthorizationRedirect({
+            redirect_uri: value.redirect_uri!,
+            state: value.state
+          }) };
     }
     if (value.completed_at && value.grant_id) {
+      if (value.flow === "device_code") return { status: "approved" };
       return {
         status: "approved",
         redirect_uri: await createAuthorizationRedirect(options.db, publicUrl, {
-          ...value,
+          application_id: value.application_id,
+          redirect_uri: value.redirect_uri!,
+          state: value.state,
+          code_challenge: value.code_challenge!,
           grant_id: value.grant_id
         })
       };
@@ -2587,8 +2768,109 @@ export async function buildApp(options: BuildOptions) {
         grant_type: z.literal("refresh_token"),
         refresh_token: z.string().min(1),
         client_id: z.uuid()
+      }),
+      z.object({
+        grant_type: z.literal(DEVICE_GRANT_TYPE),
+        device_code: z.string().min(1),
+        client_id: z.uuid(),
+        code_verifier: z.string().min(43).max(128)
       })
     ]).parse(request.body);
+
+    if (input.grant_type === DEVICE_GRANT_TYPE) {
+      reply.header("cache-control", "no-store");
+      const device = await options.db.query<{
+        id: string;
+        application_id: string;
+        grant_id: string | null;
+        code_challenge: string;
+        denied_at: string | null;
+        completed_at: string | null;
+        expires_at: string | Date;
+        device_consumed_at: string | null;
+      }>(
+        `SELECT id, application_id, grant_id, code_challenge, denied_at,
+                completed_at, expires_at, device_consumed_at
+         FROM authorization_requests
+         WHERE flow = 'device_code' AND device_code_hash = $1`,
+        [tokenHash(input.device_code)]
+      );
+      const pending = device.rows[0];
+      if (
+        !pending
+        || pending.application_id !== input.client_id
+        || !safeEqual(pending.code_challenge, pkceChallenge(input.code_verifier))
+        || pending.device_consumed_at
+      ) {
+        return reply.code(400).send(oauthError(
+          "invalid_grant",
+          "The device authorization is invalid or has already been used."
+        ));
+      }
+      if (new Date(pending.expires_at).getTime() <= Date.now()) {
+        return reply.code(400).send(oauthError(
+          "expired_token",
+          "The device authorization has expired."
+        ));
+      }
+      const acceptedPoll = await options.db.query(
+        `UPDATE authorization_requests SET last_polled_at = now()
+         WHERE id = $1 AND device_consumed_at IS NULL
+           AND (
+             last_polled_at IS NULL
+             OR last_polled_at <= now() - interval '5 seconds'
+           )
+         RETURNING id`,
+        [pending.id]
+      );
+      if (!acceptedPoll.rows[0]) {
+        return reply.code(400).send(oauthError(
+          "slow_down",
+          "Poll no more often than the interval returned by the device authorization endpoint."
+        ));
+      }
+      if (pending.denied_at) {
+        return reply.code(400).send(oauthError(
+          "access_denied",
+          "Collection access was not approved."
+        ));
+      }
+      if (!pending.completed_at || !pending.grant_id) {
+        return reply.code(400).send(oauthError(
+          "authorization_pending",
+          "The user has not completed the authorization request."
+        ));
+      }
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        const consumed = await connection.query<{ grant_id: string }>(
+          `UPDATE authorization_requests SET device_consumed_at = now()
+           WHERE id = $1 AND device_consumed_at IS NULL
+           RETURNING grant_id`,
+          [pending.id]
+        );
+        if (!consumed.rows[0]) {
+          await connection.query("ROLLBACK");
+          return reply.code(400).send(oauthError(
+            "invalid_grant",
+            "The device authorization has already been used."
+          ));
+        }
+        const tokens = await issueApplicationTokens(
+          connection,
+          options.hostedProvider,
+          consumed.rows[0].grant_id
+        );
+        await connection.query("COMMIT");
+        return tokens;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
 
     if (input.grant_type === "authorization_code") {
       const code = await options.db.query<{
@@ -3079,8 +3361,10 @@ async function upsertApplication(
   discovered: RegisteredApplicationManifest
 ): Promise<{
   id: string;
+  distribution: "web" | "portable";
   name: string;
   homepage: string;
+  project_url: string | null;
   icon: string | null;
   redirect_uris: string[];
   canonical_identity: string;
@@ -3090,8 +3374,10 @@ async function upsertApplication(
 }> {
   const application = await db.query<{
     id: string;
+    distribution: "web" | "portable";
     name: string;
     homepage: string;
+    project_url: string | null;
     icon: string | null;
     redirect_uris: string[];
     canonical_identity: string;
@@ -3100,29 +3386,42 @@ async function upsertApplication(
     notifications: ApplicationNotifications;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_version, name, homepage, icon,
-        redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
+       (id, canonical_identity, manifest_version, distribution, name, homepage,
+        project_url, icon, redirect_uris, requirements, provisions, notifications)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
+             $11::jsonb, $12::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        manifest_version = excluded.manifest_version,
+       distribution = excluded.distribution,
        name = excluded.name,
        homepage = excluded.homepage,
+       project_url = excluded.project_url,
        icon = excluded.icon,
        redirect_uris = excluded.redirect_uris,
        requirements = excluded.requirements,
        provisions = excluded.provisions,
        notifications = excluded.notifications,
        updated_at = now()
-     RETURNING id, name, homepage, icon, redirect_uris, canonical_identity, requirements,
-               provisions, notifications`,
+     RETURNING id, distribution, name, homepage, project_url, icon, redirect_uris,
+               canonical_identity, requirements, provisions, notifications`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
       discovered.manifest.manifest_version,
+      discovered.manifest.distribution === "portable" ? "portable" : "web",
       discovered.manifest.name,
-      discovered.manifest.homepage,
+      discovered.manifest.distribution === "portable"
+        ? ""
+        : discovered.manifest.homepage,
+      discovered.manifest.distribution === "portable"
+        ? discovered.manifest.project_url ?? null
+        : null,
       discovered.manifest.icon ?? null,
-      JSON.stringify(discovered.manifest.redirect_uris),
+      JSON.stringify(
+        discovered.manifest.distribution === "portable"
+          ? []
+          : discovered.manifest.redirect_uris
+      ),
       JSON.stringify(discovered.manifest.requirements),
       JSON.stringify(discovered.manifest.provisions),
       JSON.stringify(discovered.manifest.notifications)
@@ -3428,79 +3727,107 @@ async function approveAuthorization(
     source: "connector" | "portal";
   }
 ): Promise<boolean> {
-  const authorization = await db.query<{
+  const connection = await db.connect();
+  const grantId = randomUUID();
+  let scope: GrantScope;
+  try {
+    await connection.query("BEGIN");
+    const authorization = await connection.query<{
     application_id: string;
+    distribution: "web" | "portable";
     application_homepage: string;
     requested_operations: string[];
     requirements: ApplicationRequirements;
     notifications: ApplicationNotifications;
     relay_protocol: number | null;
     application_public_key: string | null;
-    redirect_uri: string;
+    flow: "authorization_code" | "device_code";
+    redirect_uri: string | null;
   }>(
-    `SELECT ar.application_id, a.homepage AS application_homepage,
+    `SELECT ar.application_id, a.distribution, a.homepage AS application_homepage,
             ar.requested_operations, a.requirements, a.notifications,
-            ar.relay_protocol, ar.application_public_key, ar.redirect_uri
+            ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
-     WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL AND ar.expires_at > now()`,
+     WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
+       AND ar.denied_at IS NULL AND ar.expires_at > now()
+     FOR UPDATE`,
     [input.requestId, input.userId]
-  );
-  const pending = authorization.rows[0];
-  if (!pending) return false;
-  if (requiresHostedCollection(pending.requirements)) {
-    throw new RequestValidationError("This application requires an mdbase cloud collection.");
-  }
-  if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
-    throw new RequestValidationError("Approved operations must be requested by the application.");
-  }
-  assertOperationsAllowedByRequirements(input.operations, pending.requirements);
-  const collection = await db.query<{
+    );
+    const pending = authorization.rows[0];
+    if (!pending) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    if (
+      pending.distribution === "portable"
+      && (
+        pending.flow !== "device_code"
+        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || !pending.application_public_key
+      )
+    ) {
+      throw new RequestValidationError(
+        "Downloaded applications require a key-bound device authorization request."
+      );
+    }
+    if (pending.flow === "device_code" && pending.distribution !== "portable") {
+      throw new RequestValidationError(
+        "Device authorization is reserved for downloaded applications."
+      );
+    }
+    if (requiresHostedCollection(pending.requirements)) {
+      throw new RequestValidationError("This application requires an mdbase cloud collection.");
+    }
+    if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
+      throw new RequestValidationError("Approved operations must be requested by the application.");
+    }
+    assertOperationsAllowedByRequirements(input.operations, pending.requirements);
+    const collection = await connection.query<{
     contracts: ContractRequirement[];
     local_id: string;
     relay_public_key: string | null;
     spec_version: string;
-  }>(
+    }>(
     `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
      FROM collections col JOIN connectors con ON con.id = col.connector_id
      WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true`,
     [input.collectionId, input.connectorId]
-  );
-  const scope = scopeForRequirements(pending.requirements);
-  if (!collection.rows[0]) {
-    throw new RequestValidationError(
-      "This collection does not provide the contracts required by the application."
     );
-  }
-  assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
-  if (!contractsSatisfy(
-    collection.rows[0].contracts,
-    requiredContractsForRequirements(pending.requirements)
-  )) {
-    throw new RequestValidationError(
-      "This collection does not provide the contracts required by the application."
-    );
-  }
-  const grantId = randomUUID();
-  let encryption: GrantEncryption | null = null;
-  if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
-    if (!pending.application_public_key || !collection.rows[0].relay_public_key) {
+    scope = scopeForRequirements(pending.requirements);
+    if (!collection.rows[0]) {
       throw new RequestValidationError(
-        "Encrypted relay protocol 1 requires an up-to-date connector."
+        "This collection does not provide the contracts required by the application."
       );
     }
-    encryption = {
-      protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
-      suite: RELAY_ENCRYPTION_SUITE,
-      key_id: `enc_${randomUUID()}`,
-      scope_epoch: 1,
-      connector_id: input.connectorId,
-      collection_id: collection.rows[0].local_id,
-      application_public_key: pending.application_public_key,
-      connector_public_key: collection.rows[0].relay_public_key
-    };
-  }
-  await db.query(
+    assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
+    if (!contractsSatisfy(
+      collection.rows[0].contracts,
+      requiredContractsForRequirements(pending.requirements)
+    )) {
+      throw new RequestValidationError(
+        "This collection does not provide the contracts required by the application."
+      );
+    }
+    let encryption: GrantEncryption | null = null;
+    if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
+      if (!pending.application_public_key || !collection.rows[0].relay_public_key) {
+        throw new RequestValidationError(
+          "Encrypted relay protocol 1 requires an up-to-date connector."
+        );
+      }
+      encryption = {
+        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        suite: RELAY_ENCRYPTION_SUITE,
+        key_id: `enc_${randomUUID()}`,
+        scope_epoch: 1,
+        connector_id: input.connectorId,
+        collection_id: collection.rows[0].local_id,
+        application_public_key: pending.application_public_key,
+        connector_public_key: collection.rows[0].relay_public_key
+      };
+    }
+    await connection.query(
     `INSERT INTO grants
        (id, user_id, application_id, collection_id, operations, scope, encryption,
         application_origin, notification_criteria)
@@ -3513,14 +3840,23 @@ async function approveAuthorization(
       JSON.stringify(input.operations),
       JSON.stringify(scope),
       encryption ? JSON.stringify(encryption) : null,
-      applicationOriginForRedirect(pending.redirect_uri, pending.application_homepage),
+      pending.flow === "device_code"
+        ? "null"
+        : applicationOriginForRedirect(pending.redirect_uri!, pending.application_homepage),
       JSON.stringify(pending.notifications.criteria)
     ]
-  );
-  await db.query(
-    "UPDATE authorization_requests SET completed_at = now(), grant_id = $2 WHERE id = $1",
-    [input.requestId, grantId]
-  );
+    );
+    await connection.query(
+      "UPDATE authorization_requests SET completed_at = now(), grant_id = $2 WHERE id = $1",
+      [input.requestId, grantId]
+    );
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
   await relay.pushPolicy(input.connectorId);
   await audit(db, input.userId, "authorization.approved", input.requestId, {
     connector_id: input.connectorId,
@@ -3554,13 +3890,15 @@ async function approveHostedAuthorization(
       application_id: string;
       application_name: string;
       application_homepage: string;
-      redirect_uri: string;
+      distribution: "web" | "portable";
+      redirect_uri: string | null;
       requested_operations: string[];
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
     }>(
-      `SELECT ar.application_id, a.name AS application_name, a.homepage AS application_homepage,
+      `SELECT ar.application_id, a.name AS application_name,
+              a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
@@ -3574,6 +3912,11 @@ async function approveHostedAuthorization(
     if (!pending) {
       await connection.query("ROLLBACK");
       return false;
+    }
+    if (pending.distribution === "portable") {
+      throw new RequestValidationError(
+        "Downloaded applications can currently authorize local collections only."
+      );
     }
     if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
       throw new RequestValidationError("Approved operations must be requested by the application.");
@@ -3613,12 +3956,12 @@ async function approveHostedAuthorization(
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
-    const applicationUrl = new URL(pending.redirect_uri);
+    const applicationUrl = new URL(pending.redirect_uri!);
     const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
       ? applicationUrl.origin
       : undefined;
     const applicationOrigin = applicationOriginForRedirect(
-      pending.redirect_uri,
+      pending.redirect_uri!,
       pending.application_homepage
     );
     const grantId = randomUUID();
@@ -3733,6 +4076,10 @@ function applicationOriginForRedirect(redirectUri: string, homepage: string): st
     : new URL(homepage).origin;
 }
 
+function normalizedApplicationOrigin(value: string): string {
+  return value === "null" ? "null" : new URL(value).origin;
+}
+
 async function createAuthorizationRedirect(
   db: DatabasePool,
   publicUrl: string,
@@ -3759,7 +4106,7 @@ async function createAuthorizationRedirect(
 }
 
 async function issueApplicationTokens(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   hostedProvider: HostedProviderClient | undefined,
   grantId: string
 ): Promise<{
@@ -3843,7 +4190,7 @@ async function issueApplicationTokens(
     scope: grant.rows[0].scope,
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
-    application_origin: new URL(grant.rows[0].application_origin).origin,
+    application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(hosted ? { hosted } : {})
   };
 }
@@ -4447,4 +4794,8 @@ async function audit(
 
 function apiError(code: string, message: string) {
   return { error: { code, message } };
+}
+
+function oauthError(error: string, errorDescription: string) {
+  return { error, error_description: errorDescription };
 }

@@ -40,6 +40,7 @@ function Portal() {
   const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
+  if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
@@ -330,7 +331,7 @@ function Dashboard() {
         <section id="permissions">
           <SectionHeading title="Application access" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
           {applicationAccess.length === 0 ? (
-            <Empty title="No applications connected" text="Approved website connections will appear here." />
+            <Empty title="No applications connected" text="Approved website and downloaded application connections will appear here." />
           ) : (
             <div className="portal-application-list">{applicationAccess.map((group) => (
               <PortalApplicationAccess
@@ -604,7 +605,7 @@ function PortalApplicationAccess({ group, collections, onChanged, onError }: {
 
   return <details className="portal-application-access">
     <summary>
-      <div className="application-access-identity"><strong>{group.applicationName}</strong><small>{host(identity.homepage)}</small></div>
+      <div className="application-access-identity"><strong>{group.applicationName}</strong><small>{identity.distribution === "portable" ? `Downloaded file${identity.project_url ? ` · ${host(identity.project_url)}` : ""}` : host(identity.homepage)}</small></div>
       <span>{pluralLabel(group.collectionCount, "collection", "collections")}</span>
       <span>{pluralLabel(group.grants.length, "access record", "access records")}</span>
       <b>Review</b>
@@ -960,6 +961,76 @@ function AuthorityTransfer({ transferId }: { transferId: string }) {
   );
 }
 
+function DeviceAuthorization() {
+  const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? "");
+  const [code, setCode] = useState(initialCode);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const automaticallyClaimed = useRef(false);
+  useSystemTheme();
+
+  async function openRequest(value: string) {
+    const userCode = formatDeviceCode(value);
+    if (userCode.replace("-", "").length !== 8) {
+      setError("Enter the eight-character code shown by the downloaded application.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ request_id: string }>(
+        "/v1/device-authorization-requests/lookup",
+        { method: "POST", body: JSON.stringify({ user_code: userCode }) }
+      );
+      location.replace(`/authorize/${result.request_id}`);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+        return;
+      }
+      setError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!initialCode || automaticallyClaimed.current) return;
+    automaticallyClaimed.current = true;
+    void openRequest(initialCode);
+  }, [initialCode]);
+
+  return (
+    <main className="center-page">
+      <PageBrand label="Downloaded application" themePicker={false} />
+      <form className="decision-panel device-panel" onSubmit={(event) => {
+        event.preventDefault();
+        void openRequest(code);
+      }}>
+        <p className="eyebrow">Short approval code</p>
+        <h1>Check the downloaded file.</h1>
+        <p>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</p>
+        <label className="device-code-field">
+          <span>Approval code</span>
+          <input
+            autoFocus={!initialCode}
+            autoComplete="one-time-code"
+            inputMode="text"
+            maxLength={9}
+            value={code}
+            onChange={(event) => setCode(formatDeviceCode(event.target.value))}
+            placeholder="ABCD-EFGH"
+          />
+        </label>
+        <p className="field-note">Codes expire after ten minutes and can authorize only the key created by that file.</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}>
+          {busy ? "Checking…" : "Review request"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function Authorization({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
@@ -1020,7 +1091,7 @@ function Authorization({ requestId }: { requestId: string }) {
               collections: [...current.collections, collection]
             } : current)}
           />
-        </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>Returning to the application…</h2><p>Your approved collection and permissions will follow you back.</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>Returning to the application…</h2><p>The application will show that access was not granted.</p></>}
+        </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
       </section>
     </main>
   );
@@ -1033,7 +1104,9 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
       <div>
         {large && <p className="eyebrow">Application access</p>}
         {large ? <h1>{request.application_name}</h1> : <strong>{request.application_name}</strong>}
-        <small>{host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
+        <small>{request.distribution === "portable"
+          ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
+          : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
         {request.requirements.access === "full_collection" ? (
           <small>Requests access to all record types in the selected collection.</small>
         ) : request.requirements.contracts.length > 0 && (
@@ -1148,6 +1221,16 @@ function ApprovalForm({
 
   return (
     <div className="approval-form" aria-busy={submitting !== null}>
+      {request.distribution === "portable" && <div className="portable-authorization-warning" role="note">
+        <div>
+          <p className="eyebrow">Downloaded file, unverified origin</p>
+          <strong>Only continue if you intentionally opened this HTML file.</strong>
+        </div>
+        {request.user_code && <p>Confirm that it shows <code>{request.user_code}</code>. The code binds this approval to the file’s temporary encryption key.</p>}
+        <p>{request.project_url
+          ? `${host(request.project_url)} is a developer-supplied project link, not proof that the downloaded file came from that site.`
+          : "A downloaded file has no website origin that mdbase can verify."}</p>
+      </div>}
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Collection</strong>
@@ -1168,13 +1251,16 @@ function ApprovalForm({
             <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
           </details>}
           {compatible.length === 0 && <div className="authorization-empty-collection">
-            <p className="field-note">No compatible collection is ready.</p>
+            <p className="field-note">{request.distribution === "portable"
+              ? "No compatible computer-owned collection is currently available through mdbase connect."
+              : "No compatible collection is ready."}</p>
+            {request.distribution !== "portable" &&
             <button
               className="button secondary"
               type="button"
               disabled={submitting !== null}
               onClick={() => void createCloudCollection()}
-            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
+            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>}
           </div>}
           {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
         </div>
@@ -1195,7 +1281,7 @@ function ApprovalForm({
       {error && <div className="message error compact">{error}</div>}
       <footer className="approval-footer">
         <p>{selected
-          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. Access lasts until you revoke it.`
+          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. ${request.distribution === "portable" ? "The local connector checks every encrypted operation." : "Access lasts until you revoke it."}`
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
@@ -1296,6 +1382,12 @@ function Loading({ error = "" }: { error?: string }) { return <main className="l
 function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function host(value: string) { try { return new URL(value).host; } catch { return value; } }
+function formatDeviceCode(value: string) {
+  const canonical = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return canonical.length > 4
+    ? `${canonical.slice(0, 4)}-${canonical.slice(4)}`
+    : canonical;
+}
 function pluralLabel(count: number, singular: string, pluralValue: string) { return `${count} ${count === 1 ? singular : pluralValue}`; }
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,

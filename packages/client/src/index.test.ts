@@ -17,7 +17,10 @@ import type {
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
 
@@ -405,6 +408,221 @@ describe("provider-neutral collection client", () => {
       manifestUrl,
       "https://connect.example/v1/apps/register"
     ]);
+  });
+
+  it("keeps opaque portable credentials in memory by default", () => {
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest()
+    });
+
+    expect(connect.environment()).toEqual({
+      distribution: "portable",
+      applicationOrigin: "null",
+      credentialStorage: "memory"
+    });
+  });
+
+  it("completes key-bound device authorization without redirecting the portable page", async () => {
+    vi.useFakeTimers();
+    const storage = new MemoryStorage();
+    const keyStore = new MemoryGrantKeyStore();
+    const opened = vi.fn();
+    const shown: string[] = [];
+    let applicationPublicKey = "";
+    let polls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({
+          application: {
+            id: "00000000-0000-0000-0000-000000000001",
+            name: "Portable notes",
+            distribution: "portable",
+            project_url: "https://apps.example/portable"
+          }
+        });
+      }
+      if (url.endsWith("/oauth/device_authorization")) {
+        const form = new URLSearchParams(String(init?.body));
+        applicationPublicKey = form.get("application_public_key")!;
+        expect(form.get("relay_protocol")).toBe("1");
+        expect(form.get("operations")).toBe("describe,query");
+        return jsonResponse({
+          device_code: "device-secret",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://connect.example/device",
+          verification_uri_complete: "https://connect.example/device?user_code=ABCD-EFGH",
+          expires_in: 600,
+          interval: 1
+        });
+      }
+      if (url.endsWith("/oauth/token")) {
+        polls += 1;
+        const form = new URLSearchParams(String(init?.body));
+        expect(form.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:device_code");
+        expect(form.get("device_code")).toBe("device-secret");
+        if (polls === 1) {
+          return jsonResponse({
+            error: "authorization_pending",
+            error_description: "Pending."
+          }, 400);
+        }
+        return jsonResponse({
+          access_token: "mdb_portable",
+          refresh_token: "ref_portable",
+          token_type: "Bearer",
+          expires_in: 900,
+          refresh_expires_in: 86_400,
+          collection_id: TEST_COLLECTION_ID,
+          collection_name: "Portable notes",
+          operations: ["describe", "query"],
+          scope: { contracts: [] },
+          grant_id: "00000000-0000-0000-0000-000000000003",
+          application_origin: "null",
+          encryption: {
+            protocol_version: 1,
+            suite: "P256-HKDF-SHA256-AES256GCM",
+            key_id: "portable-key",
+            scope_epoch: 1,
+            connector_id: "00000000-0000-0000-0000-000000000004",
+            collection_id: TEST_COLLECTION_ID,
+            application_public_key: applicationPublicKey,
+            connector_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
+          }
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage,
+      keyStore
+    });
+
+    const authorization = connect.authorize({
+      operations: ["describe", "query"],
+      onDeviceCode: ({ userCode }) => shown.push(userCode),
+      openVerification: opened
+    });
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    expect(shown).toEqual(["ABCD-EFGH"]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(authorization).resolves.toMatchObject({
+      connection: { collectionId: TEST_COLLECTION_ID }
+    });
+    expect(connect.connections()).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns the verification details when a portable approval popup is blocked", async () => {
+    const keyStore = new MemoryGrantKeyStore();
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        application: {
+          id: "00000000-0000-0000-0000-000000000001",
+          name: "Portable notes",
+          distribution: "portable"
+        }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        device_code: "device-secret",
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://connect.example/device",
+        verification_uri_complete: "https://connect.example/device?user_code=ABCD-EFGH",
+        expires_in: 600,
+        interval: 5
+      }));
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage: new MemoryStorage(),
+      keyStore,
+      navigate: vi.fn()
+    });
+
+    await expect(connect.authorize()).rejects.toMatchObject({
+      code: "approval_window_blocked",
+      details: {
+        userCode: "ABCD-EFGH",
+        verificationUri: "https://connect.example/device"
+      }
+    });
+  });
+
+  it("rejects a portable token that is not bound to encrypted relay protocol v1", async () => {
+    vi.useFakeTimers();
+    let applicationPublicKey = "";
+    const opened = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({
+          application: {
+            id: "00000000-0000-0000-0000-000000000001",
+            name: "Portable notes",
+            distribution: "portable"
+          }
+        });
+      }
+      if (url.endsWith("/oauth/device_authorization")) {
+        applicationPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_public_key")!;
+        return jsonResponse({
+          device_code: "device-secret",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://connect.example/device",
+          verification_uri_complete: "https://connect.example/device?user_code=ABCD-EFGH",
+          expires_in: 600,
+          interval: 1
+        });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return jsonResponse({
+          access_token: "mdb_portable",
+          refresh_token: "ref_portable",
+          token_type: "Bearer",
+          expires_in: 900,
+          collection_id: TEST_COLLECTION_ID,
+          collection_name: "Portable notes",
+          operations: ["describe", "query"],
+          scope: { contracts: [] },
+          grant_id: "00000000-0000-0000-0000-000000000003",
+          application_origin: "null",
+          encryption: {
+            protocol_version: 2,
+            suite: "P256-HKDF-SHA256-AES256GCM",
+            key_id: "portable-key",
+            scope_epoch: 1,
+            connector_id: "00000000-0000-0000-0000-000000000004",
+            collection_id: TEST_COLLECTION_ID,
+            application_public_key: applicationPublicKey,
+            connector_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
+          }
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore()
+    });
+
+    const authorization = expect(
+      connect.authorize({ openVerification: opened })
+    ).rejects.toMatchObject({
+      code: "encryption_required"
+    });
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await authorization;
+    expect(connect.connections()).toHaveLength(0);
   });
 });
 
@@ -1807,6 +2025,20 @@ function jsonResponse(value: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" }
   });
+}
+
+function portableManifest(): MdbaseAppManifest {
+  return {
+    manifest_version: 1,
+    distribution: "portable",
+    id: "dev.mdbase.portable-notes",
+    name: "Portable notes",
+    project_url: "https://apps.example/portable",
+    requirements: {
+      contracts: [],
+      access: "full_collection"
+    }
+  };
 }
 
 function storedTokenKey(

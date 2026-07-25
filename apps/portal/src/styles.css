@@ -647,6 +647,37 @@ h1 {
   border-top: 1px solid var(--line-strong);
 }
 
+.portable-authorization-warning {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem 0 1.1rem;
+  border-bottom: 1px solid var(--accent);
+}
+
+.portable-authorization-warning > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.portable-authorization-warning .eyebrow,
+.portable-authorization-warning p {
+  margin: 0;
+}
+
+.portable-authorization-warning > p {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.portable-authorization-warning code {
+  padding: 0.15rem 0.3rem;
+  color: var(--ink);
+  background: var(--paper-hover);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+}
+
 .approval-section {
   display: grid;
   grid-template-columns: minmax(8.5rem, 0.38fr) minmax(0, 1fr);
@@ -1034,6 +1065,18 @@ select {
 
 .authority-decision {
   width: min(36rem, 100%);
+}
+
+.device-panel .device-code-field input {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.device-panel > .button {
+  justify-self: start;
+  margin-top: 1.4rem;
 }
 
 .transfer-consequences {
