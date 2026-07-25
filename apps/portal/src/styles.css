@@ -1032,6 +1032,45 @@ select {
   line-height: 1.5;
 }
 
+.authority-decision {
+  width: min(36rem, 100%);
+}
+
+.transfer-consequences {
+  margin: 1.5rem 0 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.transfer-consequences > div {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 1.2rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.transfer-consequences dt {
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+}
+
+.transfer-consequences dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.transfer-status {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1.5rem;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+}
+
 .auth-panel .button {
   margin-top: 1.5rem;
 }
@@ -1209,6 +1248,11 @@ select {
   .inline-create,
   .mirror-form {
     grid-template-columns: 1fr;
+  }
+
+  .transfer-consequences > div {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
   }
 
   .copy-row,

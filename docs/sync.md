@@ -1,8 +1,9 @@
 # Hosted collections and sync
 
-Status: production provider and filesystem-mirror path implemented for private
-preview; writable initialization can import existing Markdown, while atomic
-control-plane import and authority transfer remain later administration features
+Status: production provider, filesystem mirrors, and hosted-to-local authority
+transfer are implemented for private preview. Writable initialization can import
+existing Markdown; atomic local-to-hosted import remains a later administration
+feature.
 
 ## Purpose
 
@@ -168,10 +169,30 @@ the source revisions still match the import manifest. Concurrent filesystem
 edits restart the affected upload page. An interrupted import leaves the local
 collection authoritative and available.
 
-Moving back to local authority uses the reverse explicit transfer: download and
-verify a complete snapshot, stop cloud writes at a final sequence, promote the
-local collection, and create a new authority epoch. Authority transfer is a
-product action rather than a background merge between two writers.
+Moving back to local authority is implemented as an explicit, browser-confirmed
+handoff from a full writable mirror:
+
+1. `mdbase-mirror promote <directory>` synchronizes the mirror and creates a
+   short-lived transfer request using its renewal credential.
+2. The owner reviews the destination folder and consequences in the Connect
+   portal. Approval freezes hosted writes at a final sequence and assigns the
+   next authority epoch.
+3. Only the promotion mirror may continue reading while frozen. It pulls through
+   the final sequence and proves an exact manifest of collection resources and
+   record revisions. Unmanaged Markdown, queued writes, or conflicts stop the
+   transfer before cutover.
+4. The CLI gives the directory the hosted collection's stable ID and registers
+   it with the local agent as a disabled candidate.
+5. After both the hosted proof and local registration exist, the control plane
+   atomically activates the local collection in the new epoch, retires the
+   hosted authority, and revokes old application grants, tokens, and replicas.
+
+The command is resumable after local materialization. Cancellation or expiry
+before completion restores hosted writes. The hosted copy remains retained as a
+retired recovery copy until the owner explicitly deletes it, but it cannot
+resume writing in the old epoch. Applications must authorize the new local
+authority explicitly. This is a product action, not a background merge between
+two writers.
 
 ## Replication data model
 
@@ -514,6 +535,16 @@ Markdown records and type definitions.
 - resolve echo suppression, path conflicts, deletions, and interrupted writes;
 - isolate record conflicts so independent Markdown keeps synchronizing;
 - add explicitly authorized config and type-resource editing.
+
+### 6. Hosted-to-local authority handoff
+
+- require an exact, converged full writable mirror and browser confirmation;
+- freeze provider writes at a final sequence and verify a cross-language
+  manifest proof;
+- register the materialized folder as a local candidate before activating it;
+- advance the authority epoch and revoke every old hosted capability;
+- make completion retry-safe and restore hosted writes on cancellation or
+  pre-cutover expiry.
 
 Multi-user collaboration can build on the same authority and log after
 single-user replication is reliable. Peer-to-peer and multi-authority merging

@@ -91,6 +91,9 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       display_name text NOT NULL,
       spec_version text NOT NULL,
       enabled boolean NOT NULL DEFAULT true,
+      authority_state text NOT NULL DEFAULT 'active'
+        CHECK (authority_state IN ('active', 'candidate', 'retired')),
+      authority_epoch bigint NOT NULL DEFAULT 1,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
       last_seen_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(connector_id, local_id)
@@ -102,6 +105,10 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       template text NOT NULL,
       provider_url text,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
+      authority_state text NOT NULL DEFAULT 'active'
+        CHECK (authority_state IN ('active', 'transferring', 'transferred')),
+      authority_epoch bigint NOT NULL DEFAULT 1,
+      transferred_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS hosted_replicas (
@@ -185,6 +192,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS authority_transfers (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      hosted_collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
+      pairing_id uuid NOT NULL REFERENCES mirror_pairing_requests(id) ON DELETE CASCADE,
+      replica_id uuid NOT NULL REFERENCES hosted_replicas(id) ON DELETE CASCADE,
+      local_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
+      state text NOT NULL DEFAULT 'requested'
+        CHECK (state IN ('requested', 'approved', 'prepared', 'completed', 'cancelled', 'expired')),
+      final_head bigint,
+      next_authority_epoch bigint,
+      manifest_digest text,
+      expires_at timestamptz NOT NULL,
+      approved_at timestamptz,
+      prepared_at timestamptz,
+      completed_at timestamptz,
+      cancelled_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS authority_transfers_collection_idx
+      ON authority_transfers(hosted_collection_id, state);
     CREATE TABLE IF NOT EXISTS authorization_codes (
       id uuid PRIMARY KEY,
       code_hash text NOT NULL UNIQUE,
@@ -308,6 +336,18 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(
     db,
+    "collections",
+    "authority_state",
+    "ALTER TABLE collections ADD COLUMN authority_state text NOT NULL DEFAULT 'active'"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "authority_epoch",
+    "ALTER TABLE collections ADD COLUMN authority_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
     "applications",
     "manifest_version",
     "ALTER TABLE applications ADD COLUMN manifest_version integer NOT NULL DEFAULT 1"
@@ -372,6 +412,24 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "hosted_collections",
     "contracts",
     "ALTER TABLE hosted_collections ADD COLUMN contracts jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "authority_state",
+    "ALTER TABLE hosted_collections ADD COLUMN authority_state text NOT NULL DEFAULT 'active'"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "authority_epoch",
+    "ALTER TABLE hosted_collections ADD COLUMN authority_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    db,
+    "hosted_collections",
+    "transferred_collection_id",
+    "ALTER TABLE hosted_collections ADD COLUMN transferred_collection_id uuid"
   );
   await ensureColumn(
     db,
@@ -474,6 +532,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "grants_collection_target_check",
     `ALTER TABLE grants ADD CONSTRAINT grants_collection_target_check
      CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))`
+  );
+  await ensureConstraint(
+    db,
+    "hosted_collections",
+    "hosted_collections_transferred_collection_id_fkey",
+    `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_transferred_collection_id_fkey
+     FOREIGN KEY (transferred_collection_id) REFERENCES collections(id) ON DELETE SET NULL`
+  );
+  await ensureConstraint(
+    db,
+    "collections",
+    "collections_authority_state_check",
+    `ALTER TABLE collections ADD CONSTRAINT collections_authority_state_check
+     CHECK (authority_state IN ('active', 'candidate', 'retired'))`
+  );
+  await ensureConstraint(
+    db,
+    "hosted_collections",
+    "hosted_collections_authority_state_check",
+    `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_authority_state_check
+     CHECK (authority_state IN ('active', 'transferring', 'transferred'))`
   );
 }
 

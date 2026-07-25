@@ -28,7 +28,10 @@ use uuid::Uuid;
 
 use crate::{
     error::{ApiError, ApiResult},
-    provider::{validate_limit, HostedProvider, RegisterReplica, UpdateApplicationReplica},
+    provider::{
+        validate_limit, HostedProvider, PrepareAuthorityTransfer, RegisterReplica,
+        UpdateApplicationReplica,
+    },
 };
 
 // Leave room for the mutation envelope, frontmatter, and JSON escaping around
@@ -101,6 +104,11 @@ struct ProvisionTypesRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompleteAuthorityTransferRequest {
+    manifest_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct SnapshotQuery {
     snapshot_id: Uuid,
     page: Option<String>,
@@ -138,6 +146,14 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/collections/{collection_id}/types/provision",
             post(provision_types),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/authority-transfers",
+            post(prepare_authority_transfer),
+        )
+        .route(
+            "/internal/v1/authority-transfers/{transfer_id}",
+            post(complete_authority_transfer).delete(abort_authority_transfer),
         )
         .route(
             "/internal/v1/collections/{collection_id}/notification-grants/{grant_id}",
@@ -384,6 +400,50 @@ async fn compact_collection(
         .compact_through(collection_id, input.through)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn prepare_authority_transfer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<PrepareAuthorityTransfer>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let transfer = state
+        .provider
+        .prepare_authority_transfer(collection_id, input)
+        .await?;
+    Ok(Json(serde_json::to_value(transfer).map_err(|error| {
+        ApiError::internal(format!("Authority transfer could not serialize: {error}"))
+    })?))
+}
+
+async fn complete_authority_transfer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(transfer_id): Path<Uuid>,
+    Json(input): Json<CompleteAuthorityTransferRequest>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let transfer = state
+        .provider
+        .complete_authority_transfer(transfer_id, &input.manifest_digest)
+        .await?;
+    Ok(Json(serde_json::to_value(transfer).map_err(|error| {
+        ApiError::internal(format!("Authority transfer could not serialize: {error}"))
+    })?))
+}
+
+async fn abort_authority_transfer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(transfer_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let transfer = state.provider.abort_authority_transfer(transfer_id).await?;
+    Ok(Json(serde_json::to_value(transfer).map_err(|error| {
+        ApiError::internal(format!("Authority transfer could not serialize: {error}"))
+    })?))
 }
 
 async fn open_session(

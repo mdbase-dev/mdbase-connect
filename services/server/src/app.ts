@@ -162,6 +162,35 @@ interface ConnectorIdentity {
   user_id: string;
 }
 
+interface AuthorityTransferRow {
+  id: string;
+  user_id: string;
+  hosted_collection_id: string;
+  pairing_id: string;
+  replica_id: string;
+  local_collection_id: string | null;
+  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
+  final_head: string | number | null;
+  next_authority_epoch: string | number | null;
+  manifest_digest: string | null;
+  expires_at: string | Date;
+}
+
+interface AuthorityTransferDetails extends AuthorityTransferRow {
+  collection_name?: string;
+  mirror_name?: string;
+}
+
+interface AuthorityPairing {
+  pairing_id: string;
+  user_id: string;
+  collection_id: string;
+  replica_id: string;
+  mode: "read_only" | "read_write";
+  allowed_types: string[];
+  authority_state: "active" | "transferring" | "transferred";
+}
+
 export async function buildApp(options: BuildOptions) {
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
@@ -235,7 +264,11 @@ export async function buildApp(options: BuildOptions) {
   app.addHook("onRequest", async (request, reply) => {
     if (
       !options.hostedCollections
-      && (request.url.startsWith("/v1/hosted/") || request.url.startsWith("/v1/mirror-pairing-requests"))
+      && (
+        request.url.startsWith("/v1/hosted/")
+        || request.url.startsWith("/v1/mirror-pairing-requests")
+        || request.url.startsWith("/v1/authority-transfers")
+      )
     ) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
@@ -672,7 +705,7 @@ export async function buildApp(options: BuildOptions) {
     }
     const collections = await options.db.query<{ id: string; display_name: string }>(
       `SELECT id, display_name FROM hosted_collections
-       WHERE user_id = $1 ORDER BY display_name`,
+       WHERE user_id = $1 AND authority_state = 'active' ORDER BY display_name`,
       [user.id]
     );
     const { user_id: _userId, ...publicPairing } = pending;
@@ -695,7 +728,7 @@ export async function buildApp(options: BuildOptions) {
          AND expires_at > now()
          AND EXISTS (
            SELECT 1 FROM hosted_collections
-           WHERE id = $3 AND user_id = $2
+           WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
          )
        RETURNING id, mirror_name, mode`,
       [pairingId, user.id, input.collection_id]
@@ -896,6 +929,447 @@ export async function buildApp(options: BuildOptions) {
     );
   });
 
+  app.post("/v1/mirror-pairing-requests/:pairingId/authority-transfers", async (request, reply) => {
+    const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const secret = bearerToken(request);
+    if (!secret) {
+      return reply.code(401).send(apiError(
+        "invalid_mirror_pairing",
+        "Mirror refresh credential required."
+      ));
+    }
+    const pairing = await authorityPairing(options.db, pairingId, secret);
+    if (!pairing) {
+      return reply.code(404).send(apiError(
+        "mirror_pairing_not_found",
+        "This device can no longer move collection authority."
+      ));
+    }
+    if (pairing.mode !== "read_write" || pairing.allowed_types.length > 0) {
+      return reply.code(409).send(apiError(
+        "promotion_mirror_ineligible",
+        "Authority can move only to an active, two-way, full collection mirror."
+      ));
+    }
+    const existing = await options.db.query<AuthorityTransferRow>(
+      `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id, local_collection_id,
+              state, final_head, next_authority_epoch, manifest_digest, expires_at
+       FROM authority_transfers
+       WHERE pairing_id = $1 AND state IN ('requested', 'approved', 'prepared')
+       ORDER BY created_at DESC LIMIT 1`,
+      [pairingId]
+    );
+    if (existing.rows[0]) {
+      return reply.code(200).send(authorityTransferResponse(existing.rows[0], publicUrl));
+    }
+    if (pairing.authority_state !== "active") {
+      return reply.code(409).send(apiError(
+        "authority_transfer_unavailable",
+        "This hosted collection is not available for authority transfer."
+      ));
+    }
+    const transferId = randomUUID();
+    const transfer = await options.db.query<AuthorityTransferRow>(
+      `INSERT INTO authority_transfers
+         (id, user_id, hosted_collection_id, pairing_id, replica_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5, now() + interval '30 minutes')
+       RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                 local_collection_id, state, final_head, next_authority_epoch,
+                 manifest_digest, expires_at`,
+      [transferId, pairing.user_id, pairing.collection_id, pairingId, pairing.replica_id]
+    );
+    await audit(options.db, pairing.user_id, "authority_transfer.requested", transferId, {
+      collection_id: pairing.collection_id,
+      replica_id: pairing.replica_id
+    });
+    return reply.code(201).send(authorityTransferResponse(transfer.rows[0], publicUrl));
+  });
+
+  app.get("/v1/authority-transfers/:transferId", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const transfer = await options.db.query<AuthorityTransferDetails>(
+      `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+              transfer.pairing_id, transfer.replica_id, transfer.local_collection_id,
+              transfer.state, transfer.final_head, transfer.next_authority_epoch,
+              transfer.manifest_digest, transfer.expires_at,
+              hosted.display_name AS collection_name,
+              replica.name AS mirror_name
+       FROM authority_transfers transfer
+       JOIN hosted_collections hosted ON hosted.id = transfer.hosted_collection_id
+       JOIN hosted_replicas replica ON replica.id = transfer.replica_id
+       WHERE transfer.id = $1 AND transfer.user_id = $2`,
+      [transferId, user.id]
+    );
+    if (!transfer.rows[0]) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found."
+      ));
+    }
+    return { transfer: authorityTransferView(transfer.rows[0], publicUrl) };
+  });
+
+  app.post("/v1/authority-transfers/:transferId/approve", async (request, reply) => {
+    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
+    if (!user) return;
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const approved = await options.db.query<AuthorityTransferRow>(
+      `UPDATE authority_transfers
+       SET state = 'approved', approved_at = now()
+       WHERE id = $1 AND user_id = $2 AND state = 'requested' AND expires_at > now()
+       RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                 local_collection_id, state, final_head, next_authority_epoch,
+                 manifest_digest, expires_at`,
+      [transferId, user.id]
+    );
+    if (!approved.rows[0]) {
+      const existing = await options.db.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 AND user_id = $2`,
+        [transferId, user.id]
+      );
+      if (existing.rows[0]?.state === "approved" || existing.rows[0]?.state === "prepared") {
+        return { transfer: authorityTransferView(existing.rows[0], publicUrl) };
+      }
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "Authority transfer expired or is no longer awaiting approval."
+      ));
+    }
+    await audit(options.db, user.id, "authority_transfer.approved", transferId, {
+      collection_id: approved.rows[0].hosted_collection_id
+    });
+    return { transfer: authorityTransferView(approved.rows[0], publicUrl) };
+  });
+
+  app.post("/v1/authority-transfers/:transferId/prepare", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const transfer = await mirrorAuthorityTransfer(
+      options.db,
+      transferId,
+      bearerToken(request)
+    );
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this mirror."
+      ));
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      const current = locked.rows[0];
+      if (!current || current.pairing_id !== transfer.pairing_id) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "authority_transfer_not_found",
+          "Authority transfer was not found for this mirror."
+        ));
+      }
+      if (current.state === "requested") {
+        await connection.query("COMMIT");
+        return reply.code(202).send({ status: "pending" });
+      }
+      if (current.state === "prepared") {
+        await connection.query("COMMIT");
+        return { transfer: authorityTransferView(current, publicUrl) };
+      }
+      if (current.state !== "approved") {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "authority_transfer_inactive",
+          "Authority transfer is no longer active."
+        ));
+      }
+      const prepared = options.hostedProvider
+        ? await options.hostedProvider.prepareAuthorityTransfer(
+            current.hosted_collection_id,
+            { transferId, replicaId: current.replica_id, ttlSeconds: 900 }
+          )
+        : await hostedReference!.prepareAuthorityTransfer(
+            current.hosted_collection_id,
+            { transferId, replicaId: current.replica_id, ttlSeconds: 900 }
+          );
+      const saved = await connection.query<AuthorityTransferRow>(
+        `UPDATE authority_transfers
+         SET state = 'prepared', final_head = $2, next_authority_epoch = $3,
+             manifest_digest = $4, expires_at = $5, prepared_at = now()
+         WHERE id = $1 AND state = 'approved'
+         RETURNING id, user_id, hosted_collection_id, pairing_id, replica_id,
+                   local_collection_id, state, final_head, next_authority_epoch,
+                   manifest_digest, expires_at`,
+        [
+          transferId,
+          prepared.final_head,
+          prepared.authority_epoch,
+          prepared.manifest_digest,
+          prepared.expires_at
+        ]
+      );
+      await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'transferring'
+         WHERE id = $1 AND authority_state = 'active'`,
+        [current.hosted_collection_id]
+      );
+      await audit(connection, current.user_id, "authority_transfer.prepared", transferId, {
+        collection_id: current.hosted_collection_id,
+        final_head: prepared.final_head,
+        authority_epoch: prepared.authority_epoch
+      });
+      await connection.query("COMMIT");
+      return { transfer: authorityTransferView(saved.rows[0], publicUrl) };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+
+  app.post("/v1/authority-transfers/:transferId/complete", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      manifest_digest: z.string().regex(/^[a-f0-9]{64}$/)
+    }).strict().parse(request.body);
+    const transfer = await mirrorAuthorityTransfer(
+      options.db,
+      transferId,
+      bearerToken(request)
+    );
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this mirror."
+      ));
+    }
+    if (transfer.state === "completed" && transfer.local_collection_id) {
+      return {
+        status: "completed",
+        collection_id: transfer.hosted_collection_id,
+        local_collection_id: transfer.local_collection_id,
+        authority_epoch: Number(transfer.next_authority_epoch)
+      };
+    }
+    if (transfer.state !== "prepared") {
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "Authority transfer is not prepared."
+      ));
+    }
+    const candidates = await options.db.query<{ id: string; connector_id: string }>(
+      `SELECT collection.id, collection.connector_id
+       FROM collections collection
+       JOIN connectors connector ON connector.id = collection.connector_id
+       WHERE connector.user_id = $1
+         AND collection.local_id = $2
+         AND collection.authority_state = 'candidate'
+       ORDER BY collection.last_seen_at DESC`,
+      [transfer.user_id, transfer.hosted_collection_id]
+    );
+    if (candidates.rows.length === 0) {
+      return reply.code(202).send({
+        status: "waiting_for_connector",
+        message: "The local connector has not registered the promoted collection yet."
+      });
+    }
+    if (candidates.rows.length > 1) {
+      return reply.code(409).send(apiError(
+        "authority_target_ambiguous",
+        "More than one computer registered this promoted collection."
+      ));
+    }
+    const candidate = candidates.rows[0];
+    const completed = options.hostedProvider
+      ? await options.hostedProvider.completeAuthorityTransfer(transferId, input.manifest_digest)
+      : await hostedReference!.completeAuthorityTransfer(transferId, input.manifest_digest);
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      if (locked.rows[0]?.state === "completed" && locked.rows[0].local_collection_id) {
+        await connection.query("COMMIT");
+        return {
+          status: "completed",
+          collection_id: transfer.hosted_collection_id,
+          local_collection_id: locked.rows[0].local_collection_id,
+          authority_epoch: Number(locked.rows[0].next_authority_epoch)
+        };
+      }
+      await connection.query(
+        `UPDATE collections
+         SET authority_state = 'active', authority_epoch = $2, enabled = true,
+             last_seen_at = now()
+         WHERE id = $1 AND authority_state = 'candidate'`,
+        [candidate.id, completed.authority_epoch]
+      );
+      await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'transferred', authority_epoch = $2,
+             transferred_collection_id = $3
+         WHERE id = $1`,
+        [transfer.hosted_collection_id, completed.authority_epoch, candidate.id]
+      );
+      const grants = await connection.query<{ id: string }>(
+        "SELECT id FROM grants WHERE hosted_collection_id = $1",
+        [transfer.hosted_collection_id]
+      );
+      const grantIds = grants.rows.map(({ id }) => id);
+      await connection.query(
+        `UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id IN (
+           SELECT id FROM grants WHERE hosted_collection_id = $1
+         )`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now())
+         WHERE grant_id IN (
+           SELECT id FROM grants WHERE hosted_collection_id = $1
+         )`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE grants SET revoked_at = COALESCE(revoked_at, now())
+         WHERE hosted_collection_id = $1`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE hosted_replicas
+         SET revoked_at = COALESCE(revoked_at, now()), token_hash = NULL
+         WHERE collection_id = $1`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query(
+        `UPDATE authority_transfers
+         SET state = 'completed', local_collection_id = $2,
+             next_authority_epoch = $3, completed_at = now()
+         WHERE id = $1`,
+        [transferId, candidate.id, completed.authority_epoch]
+      );
+      await audit(connection, transfer.user_id, "authority_transfer.completed", transferId, {
+        collection_id: transfer.hosted_collection_id,
+        local_collection_id: candidate.id,
+        connector_id: candidate.connector_id,
+        authority_epoch: completed.authority_epoch,
+        revoked_grants: grantIds.length
+      });
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    await relay.pushPolicy(candidate.connector_id);
+    return {
+      status: "completed",
+      collection_id: transfer.hosted_collection_id,
+      local_collection_id: candidate.id,
+      authority_epoch: completed.authority_epoch
+    };
+  });
+
+  app.delete("/v1/authority-transfers/:transferId", async (request, reply) => {
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
+    const transfer = user
+      ? (await options.db.query<AuthorityTransferRow>(
+          `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                  local_collection_id, state, final_head, next_authority_epoch,
+                  manifest_digest, expires_at
+           FROM authority_transfers WHERE id = $1 AND user_id = $2`,
+          [transferId, user.id]
+        )).rows[0]
+      : await mirrorAuthorityTransfer(options.db, transferId, bearerToken(request));
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found."
+      ));
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const locked = await connection.query<AuthorityTransferRow>(
+        `SELECT id, user_id, hosted_collection_id, pairing_id, replica_id,
+                local_collection_id, state, final_head, next_authority_epoch,
+                manifest_digest, expires_at
+         FROM authority_transfers WHERE id = $1 FOR UPDATE`,
+        [transferId]
+      );
+      const current = locked.rows[0];
+      if (!current || current.user_id !== transfer.user_id) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "authority_transfer_not_found",
+          "Authority transfer was not found."
+        ));
+      }
+      if (current.state === "completed") {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "authority_transfer_completed",
+          "Completed authority transfer cannot be cancelled."
+        ));
+      }
+      if (current.state === "prepared") {
+        if (options.hostedProvider) await options.hostedProvider.abortAuthorityTransfer(transferId);
+        else await hostedReference!.abortAuthorityTransfer(transferId);
+      }
+      await connection.query(
+        `UPDATE authority_transfers
+         SET state = 'cancelled', cancelled_at = now()
+         WHERE id = $1 AND state <> 'completed'`,
+        [transferId]
+      );
+      await connection.query(
+        `UPDATE hosted_collections SET authority_state = 'active'
+         WHERE id = $1 AND authority_state = 'transferring'`,
+        [current.hosted_collection_id]
+      );
+      await retireAuthorityCandidates(
+        connection,
+        current.user_id,
+        current.hosted_collection_id
+      );
+      await audit(connection, current.user_id, "authority_transfer.cancelled", transferId, {
+        collection_id: current.hosted_collection_id
+      });
+      await connection.query("COMMIT");
+      return { ok: true };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  });
+
   app.post("/v1/dev/session", async (request, reply) => {
     if (!options.devAuth) return reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
     const input = z.object({ email: z.email(), name: z.string().trim().min(1).max(100) }).parse(request.body);
@@ -927,6 +1401,9 @@ export async function buildApp(options: BuildOptions) {
   app.get("/v1/me", async (request, reply) => {
     const authenticated = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!authenticated) return;
+    if (options.hostedCollections) {
+      await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    }
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const connectors = await options.db.query(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at
@@ -935,10 +1412,11 @@ export async function buildApp(options: BuildOptions) {
     );
     const collections = await options.db.query(
       `SELECT col.id, col.connector_id, col.local_id, col.display_name, col.spec_version, col.enabled,
-              col.contracts, col.last_seen_at,
+              col.authority_state, col.authority_epoch, col.contracts, col.last_seen_at,
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 ORDER BY col.display_name`,
+       WHERE c.user_id = $1 AND col.authority_state = 'active'
+       ORDER BY col.display_name`,
       [user.id]
     );
     const hostedCollections = options.hostedCollections
@@ -948,9 +1426,13 @@ export async function buildApp(options: BuildOptions) {
           template: string;
           contracts: CollectionContractDescriptor[];
           provider_url: string | null;
+          authority_state: "active" | "transferring" | "transferred";
+          authority_epoch: string | number;
+          transferred_collection_id: string | null;
           created_at: string;
         }>(
-          `SELECT id, display_name, template, provider_url, contracts, created_at
+          `SELECT id, display_name, template, provider_url, contracts, authority_state,
+                  authority_epoch, transferred_collection_id, created_at
            FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
           [user.id]
         )
@@ -1027,6 +1509,7 @@ export async function buildApp(options: BuildOptions) {
         ...collection,
         provider_url: collection.provider_url ?? publicUrl,
         spec_version: "0.3.0",
+        authority_epoch: Number(collection.authority_epoch),
         contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template)),
         replicas: hostedReplicas.rows
           .filter((replica) => replica.collection_id === collection.id)
@@ -1120,27 +1603,74 @@ export async function buildApp(options: BuildOptions) {
     }
     const synchronized = [];
     for (const collection of input.collections) {
-      const row = await options.db.query<{ id: string; local_id: string }>(
-        `INSERT INTO collections (id, connector_id, local_id, display_name, spec_version, enabled, contracts)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      const existing = await options.db.query<{
+        id: string;
+        authority_state: "active" | "candidate" | "retired";
+        authority_epoch: string | number;
+      }>(
+        `SELECT id, authority_state, authority_epoch
+         FROM collections WHERE connector_id = $1 AND local_id = $2`,
+        [connector.id, collection.id]
+      );
+      const hosted = await options.db.query<{
+        authority_state: "active" | "transferring" | "transferred";
+        authority_epoch: string | number;
+        transferred_collection_id: string | null;
+      }>(
+        `SELECT authority_state, authority_epoch, transferred_collection_id
+         FROM hosted_collections WHERE id = $1 AND user_id = $2`,
+        [collection.id, connector.user_id]
+      );
+      const hostedCollection = hosted.rows[0];
+      const isActivatedTransfer = Boolean(
+        hostedCollection?.authority_state === "transferred"
+        && hostedCollection.transferred_collection_id
+        && hostedCollection.transferred_collection_id === existing.rows[0]?.id
+      );
+      const authorityState = hostedCollection
+        ? (isActivatedTransfer ? "active" : "candidate")
+        : (existing.rows[0]?.authority_state ?? "active");
+      const authorityEpoch = Number(
+        hostedCollection?.authority_epoch
+        ?? existing.rows[0]?.authority_epoch
+        ?? 1
+      );
+      const enabled = authorityState === "active" ? collection.enabled : false;
+      const row = await options.db.query<{
+        id: string;
+        local_id: string;
+        authority_state: "active" | "candidate" | "retired";
+        authority_epoch: string | number;
+      }>(
+        `INSERT INTO collections
+           (id, connector_id, local_id, display_name, spec_version, enabled,
+            authority_state, authority_epoch, contracts)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
          ON CONFLICT(connector_id, local_id) DO UPDATE SET
            display_name = excluded.display_name,
            spec_version = excluded.spec_version,
            enabled = excluded.enabled,
+           authority_state = excluded.authority_state,
+           authority_epoch = excluded.authority_epoch,
            contracts = excluded.contracts,
            last_seen_at = now()
-         RETURNING id, local_id`,
+         RETURNING id, local_id, authority_state, authority_epoch`,
         [
           randomUUID(),
           connector.id,
           collection.id,
           collection.display_name,
           collection.spec_version,
-          collection.enabled,
+          enabled,
+          authorityState,
+          authorityEpoch,
           JSON.stringify(collection.contracts)
         ]
       );
-      synchronized.push(row.rows[0]);
+      synchronized.push({
+        ...row.rows[0],
+        authority_epoch: Number(row.rows[0].authority_epoch)
+      });
     }
     await options.db.query("UPDATE connectors SET last_seen_at = now() WHERE id = $1", [connector.id]);
     return { collections: synchronized };
@@ -1441,7 +1971,7 @@ export async function buildApp(options: BuildOptions) {
       mode: z.enum(["read_only", "read_write"]),
       allowed_types: z.array(z.string().min(1).max(100)).max(100).default([])
     }).strict().parse(request.body);
-    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+    if (!await ownsActiveHostedCollection(options.db, user.id, collectionId)) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     const replicaId = randomUUID();
@@ -1914,7 +2444,9 @@ export async function buildApp(options: BuildOptions) {
       `SELECT col.id, col.display_name, col.spec_version, col.contracts,
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 AND col.enabled = true ORDER BY col.display_name`,
+       WHERE c.user_id = $1 AND col.enabled = true
+         AND col.authority_state = 'active'
+       ORDER BY col.display_name`,
       [user.id]
     );
     const hosted = options.hostedCollections
@@ -1926,7 +2458,7 @@ export async function buildApp(options: BuildOptions) {
           contracts: CollectionContractDescriptor[];
         }>(
           `SELECT id, display_name, template, contracts FROM hosted_collections
-           WHERE user_id = $1 ORDER BY display_name`,
+           WHERE user_id = $1 AND authority_state = 'active' ORDER BY display_name`,
           [user.id]
         )
       : { rows: [] };
@@ -1992,7 +2524,8 @@ export async function buildApp(options: BuildOptions) {
     const input = z.object({ collection_id: z.uuid(), operations: z.array(operationSchema).min(1) }).parse(request.body);
     const collection = await options.db.query<{ connector_id: string }>(
       `SELECT col.connector_id FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true`,
+       WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true
+         AND col.authority_state = 'active'`,
       [input.collection_id, user.id]
     );
     let approved: boolean;
@@ -2007,7 +2540,8 @@ export async function buildApp(options: BuildOptions) {
       });
     } else {
       const hosted = await options.db.query<{ id: string; template: string; display_name: string; contracts: CollectionContractDescriptor[] }>(
-        "SELECT id, template, display_name, contracts FROM hosted_collections WHERE id = $1 AND user_id = $2",
+        `SELECT id, template, display_name, contracts FROM hosted_collections
+         WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
         [input.collection_id, user.id]
       );
       if (!hosted.rows[0] || !options.hostedProvider) {
@@ -3558,6 +4092,168 @@ async function authenticatedUser(
   return tailscaleAuth ? tailscaleUser(request, db) : sessionUser(request, db);
 }
 
+async function authorityPairing(
+  db: DatabasePool,
+  pairingId: string,
+  secret: string | null
+): Promise<AuthorityPairing | null> {
+  if (!secret) return null;
+  const result = await db.query<AuthorityPairing & {
+    replica_collection_id: string;
+    consumed_at: string | null;
+    purpose: "mirror" | "application";
+    revoked_at: string | null;
+  }>(
+    `SELECT pairing.id AS pairing_id, pairing.user_id,
+            pairing.collection_id, pairing.replica_id, pairing.mode, pairing.consumed_at,
+            replica.allowed_types, replica.collection_id AS replica_collection_id,
+            replica.purpose, replica.revoked_at, hosted.authority_state
+     FROM mirror_pairing_requests pairing
+     JOIN hosted_replicas replica ON replica.id = pairing.replica_id
+     JOIN hosted_collections hosted ON hosted.id = pairing.collection_id
+     WHERE pairing.id = $1 AND pairing.secret_hash = $2`,
+    [pairingId, tokenHash(secret)]
+  );
+  const pairing = result.rows[0];
+  if (
+    !pairing
+    || !pairing.consumed_at
+    || pairing.purpose !== "mirror"
+    || pairing.revoked_at
+    || pairing.replica_collection_id !== pairing.collection_id
+  ) {
+    return null;
+  }
+  const {
+    replica_collection_id: _replicaCollectionId,
+    consumed_at: _consumedAt,
+    purpose: _purpose,
+    revoked_at: _revokedAt,
+    ...authenticated
+  } = pairing;
+  return authenticated;
+}
+
+async function mirrorAuthorityTransfer(
+  db: DatabasePool,
+  transferId: string,
+  secret: string | null
+): Promise<AuthorityTransferRow | null> {
+  if (!secret) return null;
+  const result = await db.query<AuthorityTransferRow>(
+    `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+            transfer.pairing_id, transfer.replica_id, transfer.local_collection_id,
+            transfer.state, transfer.final_head, transfer.next_authority_epoch,
+            transfer.manifest_digest, transfer.expires_at
+     FROM authority_transfers transfer
+     JOIN mirror_pairing_requests pairing ON pairing.id = transfer.pairing_id
+     WHERE transfer.id = $1 AND pairing.secret_hash = $2`,
+    [transferId, tokenHash(secret)]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function recoverExpiredAuthorityTransfers(
+  db: DatabasePool,
+  hostedProvider?: HostedProviderClient,
+  hostedReference?: HostedAuthorityRegistry
+): Promise<void> {
+  const prepared = await db.query<{ id: string; hosted_collection_id: string; user_id: string }>(
+    `SELECT id, hosted_collection_id, user_id FROM authority_transfers
+     WHERE state = 'prepared' AND expires_at <= now()`
+  );
+  for (const transfer of prepared.rows) {
+    try {
+      if (hostedProvider) await hostedProvider.abortAuthorityTransfer(transfer.id);
+      else await hostedReference?.abortAuthorityTransfer(transfer.id);
+    } catch (error) {
+      if (
+        (
+          error instanceof HostedProviderResponseError
+          || error instanceof SyncError
+        )
+        && error.code === "authority_transfer_completed"
+      ) {
+        // The provider committed but the control-plane transaction did not.
+        // Keep the transfer resumable instead of incorrectly restoring epoch one.
+        continue;
+      }
+      throw error;
+    }
+    await db.query(
+      `UPDATE authority_transfers SET state = 'expired'
+       WHERE id = $1 AND state = 'prepared'`,
+      [transfer.id]
+    );
+    await db.query(
+      `UPDATE hosted_collections SET authority_state = 'active'
+       WHERE id = $1 AND authority_state = 'transferring'`,
+      [transfer.hosted_collection_id]
+    );
+    await retireAuthorityCandidates(
+      db,
+      transfer.user_id,
+      transfer.hosted_collection_id
+    );
+  }
+  await db.query(
+    `UPDATE authority_transfers SET state = 'expired'
+     WHERE state IN ('requested', 'approved') AND expires_at <= now()`
+  );
+}
+
+async function retireAuthorityCandidates(
+  db: DatabaseQueryable,
+  userId: string,
+  hostedCollectionId: string
+): Promise<void> {
+  await db.query(
+    `UPDATE collections
+     SET authority_state = 'retired', enabled = false
+     WHERE local_id = $1 AND authority_state = 'candidate'
+       AND connector_id IN (SELECT id FROM connectors WHERE user_id = $2)`,
+    [hostedCollectionId, userId]
+  );
+}
+
+function authorityTransferView(
+  transfer: AuthorityTransferDetails,
+  publicUrl: string
+): Record<string, unknown> {
+  return {
+    id: transfer.id,
+    collection_id: transfer.hosted_collection_id,
+    replica_id: transfer.replica_id,
+    state: transfer.state,
+    final_head: transfer.final_head === null ? null : Number(transfer.final_head),
+    authority_epoch: transfer.next_authority_epoch === null
+      ? null
+      : Number(transfer.next_authority_epoch),
+    manifest_digest: transfer.manifest_digest,
+    expires_at: new Date(transfer.expires_at).toISOString(),
+    verification_uri: `${publicUrl}/transfer/${transfer.id}`,
+    ...(transfer.local_collection_id
+      ? { local_collection_id: transfer.local_collection_id }
+      : {}),
+    ...(transfer.collection_name ? { collection_name: transfer.collection_name } : {}),
+    ...(transfer.mirror_name ? { mirror_name: transfer.mirror_name } : {})
+  };
+}
+
+function authorityTransferResponse(
+  transfer: AuthorityTransferRow,
+  publicUrl: string
+): Record<string, unknown> {
+  return {
+    transfer: authorityTransferView(transfer, publicUrl),
+    verification_uri: `${publicUrl}/transfer/${transfer.id}`,
+    expires_in: Math.max(
+      0,
+      Math.floor((new Date(transfer.expires_at).getTime() - Date.now()) / 1_000)
+    )
+  };
+}
+
 async function ownsHostedCollection(
   db: DatabasePool,
   userId: string,
@@ -3565,6 +4261,19 @@ async function ownsHostedCollection(
 ): Promise<boolean> {
   const result = await db.query(
     "SELECT id FROM hosted_collections WHERE id = $1 AND user_id = $2",
+    [collectionId, userId]
+  );
+  return Boolean(result.rows[0]);
+}
+
+async function ownsActiveHostedCollection(
+  db: DatabasePool,
+  userId: string,
+  collectionId: string
+): Promise<boolean> {
+  const result = await db.query(
+    `SELECT id FROM hosted_collections
+     WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
     [collectionId, userId]
   );
   return Boolean(result.rows[0]);

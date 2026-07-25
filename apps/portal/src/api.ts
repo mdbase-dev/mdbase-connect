@@ -78,8 +78,26 @@ export interface HostedCollection {
   provider_url: string;
   spec_version: string;
   contracts: ContractRequirement[];
+  authority_state: "active" | "transferring" | "transferred";
+  authority_epoch: number;
+  transferred_collection_id: string | null;
   created_at: string;
   replicas: HostedReplica[];
+}
+
+export interface AuthorityTransfer {
+  id: string;
+  collection_id: string;
+  replica_id: string;
+  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
+  final_head: number | null;
+  authority_epoch: number | null;
+  manifest_digest: string | null;
+  expires_at: string;
+  verification_uri: string;
+  local_collection_id?: string;
+  collection_name?: string;
+  mirror_name?: string;
 }
 
 export interface PendingAuthorization {

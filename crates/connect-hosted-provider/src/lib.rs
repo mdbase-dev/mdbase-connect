@@ -10,4 +10,7 @@ pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use http::{app, AppState};
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
-pub use provider::{HostedProvider, ProviderLimits, RegisterReplica};
+pub use provider::{
+    HostedProvider, PrepareAuthorityTransfer, ProviderAuthorityTransfer, ProviderLimits,
+    RegisterReplica,
+};

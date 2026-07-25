@@ -113,10 +113,11 @@ and revocation.
 PostgreSQL 18. It includes a real Chromium portal flow, direct OAuth SDK
 operations, encrypted-at-rest checks, two provider instances racing one write,
 pinned snapshots, writable filesystem mirroring, durable retry receipts,
+an exact hosted-to-local authority handoff through the real CLI and portal,
+authority fencing, proof rejection, completion retry, cancellation recovery,
 compaction, restart recovery, logical backup restoration into a fresh database,
-credential rotation, quotas, ciphertext tamper detection, and a private
-mutation flowing through the hosted runtime into an opaque notification
-callback.
+credential rotation, quotas, ciphertext tamper detection, and a private mutation
+flowing through the hosted runtime into an opaque notification callback.
 `pnpm e2e:provider:stress` repeats the path with 10,000 records and enforces the
 documented latency budgets.
 

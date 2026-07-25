@@ -28,12 +28,23 @@ mdbase-mirror connect ./tasks --server https://connect.mdbase.dev \
 mdbase-mirror sync ./tasks
 mdbase-mirror status ./tasks
 mdbase-mirror resolve ./tasks <record-id> --use local
+
+# Move authority from mdbase cloud to this computer
+mdbase-mirror promote ./tasks
 ```
 
 `connect` creates a short-lived browser approval request. The resulting
 collection-scoped access and renewal credentials are stored in the device's
 owner-only application-state directory, never inside the mirrored folder.
 Access tokens renew automatically until the mirror is revoked.
+
+`promote` requires a converged, full writable mirror and a running local
+`mdbase-connect` agent. It opens a browser confirmation, freezes hosted writes
+at a final sequence, proves that the directory is exact, and registers the
+folder locally under the collection's stable ID. Completion advances the
+authority epoch and revokes the old hosted replicas and application grants.
+Before cutover, cancellation or expiry restores hosted writes. If the command
+is interrupted after local registration, run it again to resume completion.
 
 The lower-level `init` command remains available for automation and migration.
 It reads a pre-provisioned token from a hidden prompt or

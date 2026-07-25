@@ -21,6 +21,7 @@ import { createRoot } from "react-dom/client";
 import {
   api,
   ApiError,
+  type AuthorityTransfer as AuthorityTransferData,
   type AvailableCollection,
   type ContractRequirement,
   type DashboardData,
@@ -36,10 +37,12 @@ const allOperations = ["describe", "changes", "read", "query", "list_views", "ex
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
+  const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
+  if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
   return <Dashboard />;
 }
@@ -307,7 +310,9 @@ function Dashboard() {
                   collections={[
                     ...data.collections.filter((collection) => collection.enabled)
                       .map((collection) => ({ ...collection, kind: "local" as const })),
-                    ...data.hosted_collections.map((collection) => ({
+                    ...data.hosted_collections
+                      .filter((collection) => collection.authority_state === "active")
+                      .map((collection) => ({
                       ...collection,
                       kind: "hosted" as const,
                       connector_name: "Hosted by mdbase"
@@ -412,6 +417,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
   const [panel, setPanel] = useState<"mirror" | "rename" | null>(null);
   const [name, setName] = useState(collection.display_name);
   const [busy, setBusy] = useState(false);
+  const isActive = collection.authority_state === "active";
   const activeReplicas = collection.replicas.filter((replica) => !replica.revoked_at);
   useEffect(() => { if (panel !== "rename") setName(collection.display_name); }, [collection.display_name, panel]);
 
@@ -451,10 +457,26 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
 
   return <article className="hosted-row">
     <div className="hosted-summary">
-      <div><strong>{collection.display_name}</strong><small>mdbase · authoritative on mdbase · created {relativeTime(collection.created_at)}</small></div>
-      <span className="availability online"><i />Hosted</span>
+      <div><strong>{collection.display_name}</strong><small>
+        {collection.authority_state === "transferred"
+          ? `mdbase · moved to a computer · authority epoch ${collection.authority_epoch}`
+          : collection.authority_state === "transferring"
+            ? "mdbase · authority transfer in progress"
+            : `mdbase · authoritative on mdbase · created ${relativeTime(collection.created_at)}`}
+      </small></div>
+      <span className={`availability ${isActive ? "online" : "idle"}`}><i />
+        {collection.authority_state === "transferred"
+          ? "Moved"
+          : collection.authority_state === "transferring"
+            ? "Moving"
+            : "Hosted"}
+      </span>
       <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
-      <div className="computer-actions"><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync folder</button><button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button><button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button></div>
+      <div className="computer-actions">
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync folder</button>}
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button>}
+        <button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button>
+      </div>
     </div>
     {panel === "rename" && <form className="hosted-detail hosted-rename" onSubmit={(event) => void rename(event)}>
       <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -803,6 +825,135 @@ function MirrorPairing({ pairingId }: { pairingId: string }) {
               <a className="button primary link-button" href="/">Open your collections</a>
             </div>
           </>}
+        </>}
+      </section>
+    </main>
+  );
+}
+
+function AuthorityTransfer({ transferId }: { transferId: string }) {
+  const [transfer, setTransfer] = useState<AuthorityTransferData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      const result = await api<{ transfer: AuthorityTransferData }>(
+        `/v1/authority-transfers/${transferId}`
+      );
+      setTransfer(result.transfer);
+      setError("");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+      } else {
+        setError(message(reason));
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [transferId]);
+
+  async function approve() {
+    setBusy(true);
+    try {
+      const result = await api<{ transfer: AuthorityTransferData }>(
+        `/v1/authority-transfers/${transferId}/approve`,
+        { method: "POST", body: "{}" }
+      );
+      setTransfer(result.transfer);
+      setError("");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancel() {
+    setBusy(true);
+    try {
+      await api(`/v1/authority-transfers/${transferId}`, { method: "DELETE" });
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!transfer) return <Loading error={error} />;
+  const collectionName = transfer.collection_name ?? "This collection";
+  const mirrorName = transfer.mirror_name ?? "the selected computer";
+  const waiting = transfer.state === "approved" || transfer.state === "prepared";
+  const inactive = transfer.state === "cancelled" || transfer.state === "expired";
+  return (
+    <main className="center-page">
+      <PageBrand label="Authority transfer" />
+      <section className="decision-panel authority-decision">
+        {transfer.state === "completed" ? <>
+          <p className="eyebrow outcome-label">Transfer complete</p>
+          <h1>{collectionName} now lives on your computer.</h1>
+          <p>
+            The folder on {mirrorName} is the source of truth. Hosted access has stopped
+            and previous application connections were revoked.
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot connected" aria-hidden="true" />
+            <span>Local authority, epoch {transfer.authority_epoch}</span>
+          </div>
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : inactive ? <>
+          <p className="eyebrow">Transfer ended</p>
+          <h1>Hosted authority was kept.</h1>
+          <p>
+            {collectionName} remains hosted. No source-of-truth change was completed.
+          </p>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : waiting ? <>
+          <p className="eyebrow outcome-label">Transfer approved</p>
+          <h1>Return to {mirrorName}.</h1>
+          <p>
+            The command is checking the final hosted sequence, registering the folder
+            with mdbase connect, and activating local authority.
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot paused" aria-hidden="true" />
+            <span>{transfer.state === "prepared" ? "Hosted writes are paused" : "Waiting for the computer"}</span>
+          </div>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="decision-actions">
+            <button className="quiet-danger" disabled={busy} onClick={() => void cancel()}>
+              Cancel transfer
+            </button>
+          </div>
+        </> : <>
+          <p className="eyebrow">Move source of truth</p>
+          <h1>Make {mirrorName} authoritative?</h1>
+          <p>
+            {collectionName} will stop being hosted and become a computer-owned collection.
+            This changes where every future edit is accepted.
+          </p>
+          <dl className="transfer-consequences">
+            <div><dt>Folder</dt><dd>The synchronized Markdown folder becomes the source of truth.</dd></div>
+            <div><dt>Hosted service</dt><dd>Writes pause during verification, then hosted access is retired.</dd></div>
+            <div><dt>Applications</dt><dd>Existing access is revoked. Connect applications again to use the local collection.</dd></div>
+            <div><dt>Recovery</dt><dd>If verification fails or this request expires, hosted writes resume.</dd></div>
+          </dl>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="decision-actions">
+            <button className="button secondary" disabled={busy} onClick={() => void cancel()}>
+              Keep it hosted
+            </button>
+            <button className="button primary" disabled={busy} onClick={() => void approve()}>
+              {busy ? "Approving…" : "Move authority"}
+            </button>
+          </div>
         </>}
       </section>
     </main>

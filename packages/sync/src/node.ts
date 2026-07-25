@@ -82,6 +82,11 @@ export interface MirrorInitializationPreview {
   collisions: string[];
 }
 
+export interface AuthorityPromotionManifest {
+  cursor: number;
+  digest: string;
+}
+
 export class MemoryMirrorStateStore implements MirrorStateStore {
   private state: MirrorState | null = null;
 
@@ -353,6 +358,62 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     };
   }
 
+  /**
+   * Prove that this directory is an exact, complete copy of its last applied
+   * authority cursor. The digest contains no paths or record content.
+   */
+  async authorityPromotionManifest(): Promise<AuthorityPromotionManifest> {
+    if (this.mode !== "read_write") {
+      throw new SyncError(
+        "promotion_requires_writable_mirror",
+        "Only a two-way full collection mirror can become the local source of truth."
+      );
+    }
+    const state = await this.readState();
+    if (!state) {
+      throw new SyncError(
+        "promotion_not_initialized",
+        "Synchronize this folder before moving the source of truth."
+      );
+    }
+    if ((state.pending?.length ?? 0) > 0 || Object.keys(state.conflicts ?? {}).length > 0) {
+      throw new SyncError(
+        "promotion_not_converged",
+        "Upload or resolve every local change before moving the source of truth."
+      );
+    }
+    await this.assertUndiverged(state);
+    const resourcePaths = new Set(Object.keys(state.resources ?? {}));
+    const managedPaths = new Set(Object.values(state.records).map((entry) => entry.path));
+    const unmanaged = (await this.fileSystem.listMarkdown(resourcePaths))
+      .filter((path) => !managedPaths.has(path));
+    if (unmanaged.length > 0) {
+      throw new SyncError(
+        "promotion_unmanaged_files",
+        `Synchronize unmanaged Markdown before promotion: ${unmanaged.join(", ")}.`
+      );
+    }
+    return {
+      cursor: state.cursor,
+      digest: authorityManifestDigest([
+        ...Object.entries(state.resources ?? {}).map(([path, entry]) => ({
+          kind: "resource" as const,
+          path,
+          document_hash: entry.hash
+        })),
+        ...Object.values(state.records).map((entry) => ({
+          kind: "record" as const,
+          path: entry.path,
+          // Hosted mdbase may normalize equivalent Markdown when it executes a
+          // mutation. The provider-issued revision is the shared content
+          // identity; assertUndiverged above separately proves the local bytes
+          // still match the exact document materialized for that revision.
+          document_hash: entry.revision
+        }))
+      ])
+    };
+  }
+
   async previewInitialization(): Promise<MirrorInitializationPreview> {
     if (await this.readState()) {
       return {
@@ -367,7 +428,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     const resources = session.resources.documents ?? [];
     const remoteDocuments = new Map<string, string>([
       ...resources.map((resource) => [resource.path, resource.document] as const),
-      ...records.map((record) => [record.path, markdown(record)] as const)
+      ...records.map((record) => [record.path, recordMarkdownDocument(record)] as const)
     ]);
     let downloadDocuments = 0;
     let unchangedDocuments = 0;
@@ -467,7 +528,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       const managed = prior?.records[record.record_id];
       if (
         local !== null
-        && local !== markdown(record)
+        && local !== recordMarkdownDocument(record)
         && (!managed || managed.path !== record.path || digest(local) !== managed.hash)
       ) {
         collisions.push(record.path);
@@ -499,7 +560,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     managedState: MirrorState | undefined = state,
     acceptedHash?: string | null
   ): Promise<void> {
-    const document = markdown(record);
+    const document = recordMarkdownDocument(record);
     const existing = await this.fileSystem.read(record.path);
     const prior = managedState?.records[record.record_id];
     if (existing !== null && existing !== document) {
@@ -620,7 +681,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         state.records[recordId] = {
           path: current.path,
           revision: current.revision,
-          hash: digest(markdown(current)),
+          hash: digest(recordMarkdownDocument(current)),
           record: current
         };
       } else {
@@ -714,7 +775,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       }, localHash);
       return queued;
     }
-    if (localDocument !== markdown(current)) {
+    if (localDocument !== recordMarkdownDocument(current)) {
       queue({
         operation: "update",
         record_id: recordId,
@@ -1012,7 +1073,7 @@ export class WritableMirrorRejectedError extends SyncError {
   }
 }
 
-function markdown(record: SyncRecord): string {
+export function recordMarkdownDocument(record: SyncRecord): string {
   const yaml = stringify(record.frontmatter, { lineWidth: 0 }).trimEnd();
   const body = record.body ? `\n${record.body.replace(/^\n/, "")}` : "";
   return `---\n${yaml}\n---\n${body}`;
@@ -1060,4 +1121,23 @@ async function atomicWrite(path: string, value: string): Promise<void> {
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function authorityManifestDigest(entries: Array<{
+  kind: "record" | "resource";
+  path: string;
+  document_hash: string;
+}>): string {
+  const manifest = createHash("sha256").update("mdbase-authority-manifest-v1\n");
+  for (const entry of [...entries].sort((left, right) =>
+    left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path)
+  )) {
+    manifest.update(entry.kind);
+    manifest.update("\0");
+    manifest.update(entry.path);
+    manifest.update("\0");
+    manifest.update(entry.document_hash);
+    manifest.update("\n");
+  }
+  return manifest.digest("hex");
 }
