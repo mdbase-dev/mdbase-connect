@@ -26,7 +26,17 @@ const description = {
         state: { enum: ["open", "closed"] },
         urgency: { enum: ["low", "high"] },
         estimate: { type: "number", title: "Effort" },
-        reviewed: { type: "boolean" }
+        deadline: { type: "string", format: "date" },
+        start_on: { type: "string", format: "date" },
+        areas: { type: "array", items: { type: "string" } },
+        goals: { type: "array", items: { type: "string" } },
+        repeat: { type: "string" },
+        completed_runs: { type: "array", items: { type: "string", format: "date" } },
+        skipped_runs: { type: "array", items: { type: "string", format: "date" } },
+        finished_on: { type: "string", format: "date" },
+        updated_at: { type: "string", format: "date-time" },
+        sessions: { type: "array", items: { type: "object" } },
+        reviewed: { type: "boolean", default: false }
       }
     },
     collection: {
@@ -47,7 +57,17 @@ const description = {
         title: "name",
         status: "state",
         priority: "urgency",
-        timeEstimate: "estimate"
+        timeEstimate: "estimate",
+        due: "deadline",
+        scheduled: "start_on",
+        contexts: "areas",
+        projects: "goals",
+        recurrence: "repeat",
+        completeInstances: "completed_runs",
+        skippedInstances: "skipped_runs",
+        completedDate: "finished_on",
+        dateModified: "updated_at",
+        timeEntries: "sessions"
       },
       status: {
         values: ["open", "closed"],
@@ -106,15 +126,23 @@ describe("TaskNotes contract adapter", () => {
     await tasks.create({ title: "Write docs" });
     expect(connect.create).toHaveBeenCalledWith(expect.objectContaining({
       path: undefined,
-      frontmatter: { name: "Write docs", state: "open" }
+      frontmatter: expect.objectContaining({
+        name: "Write docs",
+        state: "open",
+        urgency: "low"
+      })
     }));
 
     await tasks.setCompleted("inbox/write-docs.md", true);
-    expect(connect.update).toHaveBeenCalledWith({
+    expect(connect.update).toHaveBeenCalledWith(expect.objectContaining({
       path: "inbox/write-docs.md",
-      patch: { state: "closed" },
+      patch: expect.objectContaining({
+        state: "closed",
+        finished_on: expect.any(String),
+        updated_at: expect.any(String)
+      }),
       if_revision: "one"
-    });
+    }));
   });
 
   it("refreshes its cached contract after a type change", async () => {
@@ -188,6 +216,236 @@ describe("TaskNotes contract adapter", () => {
       completed: true
     }));
     expect(connect.describe).toHaveBeenCalledTimes(2);
+  });
+
+  it("normalizes mapped core roles and schema-defined custom fields", async () => {
+    const connect = {
+      describe: vi.fn().mockResolvedValue(description),
+      query: vi.fn().mockResolvedValue({
+        valid: true,
+        diagnostics: [],
+        result: {
+          results: [{
+            path: "inbox/mapped.md",
+            frontmatter: {
+              name: "Mapped task",
+              state: "open",
+              urgency: "high",
+              deadline: "2026-08-01",
+              start_on: "2026-07-30",
+              estimate: 45,
+              areas: ["home"],
+              goals: ["[[Launch]]"],
+              reviewed: true
+            },
+            types: ["task"]
+          }]
+        }
+      })
+    } as any;
+
+    const task = (await new TasknotesCollection(connect).list())[0];
+    expect(task).toEqual(expect.objectContaining({
+      title: "Mapped task",
+      status: "open",
+      priority: "high",
+      due: "2026-08-01",
+      scheduled: "2026-07-30",
+      timeEstimate: 45,
+      contexts: ["home"],
+      projects: ["[[Launch]]"],
+      customProperties: { reviewed: true }
+    }));
+  });
+
+  it("uses model-planned completion, stops active tracking, and archives immediately", async () => {
+    const semanticDescription = {
+      ...description,
+      contracts: [{
+        ...description.contracts[0],
+        configuration: {
+          ...description.contracts[0].configuration,
+          status: {
+            ...description.contracts[0].configuration.status,
+            definitions: [
+              { value: "open", label: "Ready", order: 1 },
+              {
+                value: "closed",
+                label: "Finished",
+                is_completed: true,
+                auto_archive: true,
+                auto_archive_delay_minutes: 0,
+                order: 2
+              }
+            ]
+          },
+          time_tracking: { auto_stop_on_complete: true },
+          archive: {
+            tags_field: "tags",
+            archived_tag: "archived",
+            move_on_archive: true,
+            folder: "Archive"
+          }
+        }
+      }]
+    };
+    const connect = {
+      describe: vi.fn().mockResolvedValue(semanticDescription),
+      read: vi.fn()
+        .mockResolvedValueOnce({
+          valid: true,
+          diagnostics: [],
+          result: {
+            path: "inbox/tracked.md",
+            frontmatter: {
+              name: "Tracked",
+              state: "open",
+              tags: ["work"],
+              sessions: [{ startTime: "2026-07-25T12:00:00.000Z" }]
+            },
+            types: ["task"],
+            revision: "one"
+          }
+        }),
+      update: vi.fn().mockImplementation(async ({ patch }) => ({
+        valid: true,
+        diagnostics: [],
+        result: {
+          path: "inbox/tracked.md",
+          frontmatter: patch,
+          types: ["task"],
+          revision: "two"
+        }
+      })),
+      rename: vi.fn().mockResolvedValue({
+        valid: true,
+        diagnostics: [],
+        result: { from: "inbox/tracked.md", to: "Archive/tracked.md", revision: "three" }
+      })
+    } as any;
+
+    await new TasknotesCollection(connect).setCompleted("inbox/tracked.md", true);
+
+    expect(connect.update).toHaveBeenCalledWith(expect.objectContaining({
+      path: "inbox/tracked.md",
+      patch: expect.objectContaining({
+        state: "closed",
+        finished_on: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        updated_at: expect.any(String),
+        tags: ["work", "archived"],
+        sessions: [expect.objectContaining({
+          startTime: "2026-07-25T12:00:00.000Z",
+          endTime: expect.any(String)
+        })]
+      })
+    }));
+    expect(connect.rename).toHaveBeenCalledWith({
+      from: "inbox/tracked.md",
+      to: "Archive/tracked.md",
+      if_revision: "two",
+      update_refs: false
+    });
+  });
+
+  it("advances recurring tasks through the shared TaskNotes operation planner", async () => {
+    const connect = {
+      describe: vi.fn().mockResolvedValue(description),
+      read: vi.fn().mockResolvedValue({
+        valid: true,
+        diagnostics: [],
+        result: {
+          path: "inbox/daily.md",
+          frontmatter: {
+            name: "Daily",
+            state: "open",
+            start_on: "2026-07-26",
+            deadline: "2026-07-27",
+            repeat: "DTSTART:20260726;FREQ=DAILY",
+            completed_runs: [],
+            skipped_runs: []
+          },
+          types: ["task"],
+          revision: "one"
+        }
+      }),
+      update: vi.fn().mockImplementation(async ({ patch }) => ({
+        valid: true,
+        diagnostics: [],
+        result: {
+          path: "inbox/daily.md",
+          frontmatter: patch,
+          types: ["task"],
+          revision: "two"
+        }
+      }))
+    } as any;
+
+    await new TasknotesCollection(connect).setCompleted("inbox/daily.md", true);
+    const patch = connect.update.mock.calls[0][0].patch;
+    expect(patch).toEqual(expect.objectContaining({
+      repeat: expect.any(String),
+      completed_runs: expect.arrayContaining([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]),
+      start_on: expect.any(String),
+      deadline: expect.any(String),
+      updated_at: expect.any(String)
+    }));
+    expect(patch).not.toHaveProperty("state");
+    expect(patch).not.toHaveProperty("finished_on");
+  });
+
+  it("preserves siblings when updating a nested mapped field", async () => {
+    const nested = {
+      ...description,
+      contracts: [{
+        ...description.contracts[0],
+        configuration: {
+          ...description.contracts[0].configuration,
+          field_roles: {
+            ...description.contracts[0].configuration.field_roles,
+            status: "workflow.state",
+            completedDate: "workflow.completed"
+          }
+        }
+      }]
+    };
+    const connect = {
+      describe: vi.fn().mockResolvedValue(nested),
+      read: vi.fn().mockResolvedValue({
+        valid: true,
+        diagnostics: [],
+        result: {
+          path: "inbox/nested.md",
+          frontmatter: {
+            name: "Nested",
+            workflow: { state: "open", owner: "Callum" }
+          },
+          types: ["task"],
+          revision: "one"
+        }
+      }),
+      update: vi.fn().mockImplementation(async ({ patch }) => ({
+        valid: true,
+        diagnostics: [],
+        result: {
+          path: "inbox/nested.md",
+          frontmatter: patch,
+          types: ["task"],
+          revision: "two"
+        }
+      }))
+    } as any;
+
+    await new TasknotesCollection(connect).setCompleted("inbox/nested.md", true);
+    expect(connect.update).toHaveBeenCalledWith(expect.objectContaining({
+      patch: {
+        workflow: expect.objectContaining({
+          state: "closed",
+          owner: "Callum",
+          completed: expect.any(String)
+        }),
+        updated_at: expect.any(String)
+      }
+    }));
   });
 
   it("rejects empty titles and unsafe contract field paths", async () => {

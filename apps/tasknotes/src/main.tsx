@@ -5,7 +5,15 @@ import { TasknotesCollection, type TaskFrontmatter, type TaskSummary } from "@md
 import "./styles.css";
 
 const serverUrl = import.meta.env.VITE_CONNECT_SERVER_URL ?? "http://127.0.0.1:8787";
-const requestedOperations = ["describe", "changes", "read", "query", "create", "update"] as const;
+const requestedOperations = [
+  "describe",
+  "changes",
+  "read",
+  "query",
+  "create",
+  "update",
+  "rename"
+] as const;
 
 function App() {
   const connect = useMemo(() => new MdbaseConnect<TaskFrontmatter>({ serverUrl }), []);
