@@ -19,6 +19,8 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+  fs-xattr: true
+  macos-alias: true
 
 overrides:
   "@hono/node-server": "2.0.11"

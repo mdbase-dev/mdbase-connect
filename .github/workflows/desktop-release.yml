@@ -11,6 +11,7 @@ on:
       - "scripts/configure-windows-store-package.ps1"
       - "scripts/verify-windows-packages.ps1"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
   workflow_dispatch:
 
 permissions:
