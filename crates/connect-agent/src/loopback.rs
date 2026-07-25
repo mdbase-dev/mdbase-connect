@@ -186,7 +186,7 @@ async fn operation(
         return cors_error(
             StatusCode::UPGRADE_REQUIRED,
             "encryption_required",
-            "Direct operations require encrypted protocol 3.",
+            "Direct operations require encrypted protocol 1.",
             &origin,
         );
     };
@@ -353,7 +353,7 @@ mod tests {
     use uuid::Uuid;
 
     #[tokio::test]
-    async fn exact_origin_host_and_protocol_three_are_enforced() {
+    async fn exact_origin_host_and_protocol_one_are_enforced() {
         let fixture = fixture();
         let app = router(fixture.agent.clone(), 28_485);
 

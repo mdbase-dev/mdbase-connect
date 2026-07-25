@@ -25,7 +25,7 @@ switch.
 
 ## Current state
 
-New SDK authorizations use encrypted relay protocol 3 by default. The browser
+New SDK authorizations use encrypted relay protocol 1 by default. The browser
 and connector derive separate request and response keys with P-256 ECDH and
 HKDF-SHA-256, then authenticate payloads and their routing context with
 AES-256-GCM. The control plane receives the operation name, grant and routing
@@ -37,11 +37,6 @@ request IDs, non-increasing counters, stale grant bindings, altered metadata,
 altered ciphertext, and plaintext requests for encrypted grants are rejected.
 Policy changes rotate the binding epoch and key ID. The SDK refreshes that
 binding without falling back to plaintext.
-
-Protocol 2 remains available only when an SDK explicitly requests the legacy
-mode. It provides transport encryption and allows the control plane to read
-relayed payloads in memory. It is a migration path and does not carry the
-relay-only privacy promise.
 
 The TypeScript/Rust end-to-end suite crosses both cryptographic
 implementations and exercises tampering, replay, scope, pause, revocation, and
@@ -178,7 +173,7 @@ Server-generated authorization and routing errors remain visible protocol
 errors. Connector-generated mdbase results and diagnostics stay inside the
 encrypted response.
 
-Protocol 3 fixes the interoperable profile to P-256 ECDH, HKDF-SHA-256, and
+Protocol 1 fixes the interoperable profile to P-256 ECDH, HKDF-SHA-256, and
 AES-256-GCM. A 96-bit nonce contains a zero 32-bit prefix and the grant's
 monotonic unsigned 64-bit counter. Canonical context strings and envelope
 schemas are shared across Rust and TypeScript and covered by cross-runtime
@@ -192,9 +187,9 @@ encrypted grant cannot fall back silently to a plaintext relay. A connector or
 application that lacks the required protocol returns an upgrade-required error
 before any record operation is sent.
 
-Protocol 2 remains identifiable as transport-encrypted relay traffic during
-private migration. A public relay-only promise should begin only when both ends
-require the end-to-end encrypted protocol.
+Development clients may explicitly disable relay encryption, but an encrypted
+grant never falls back to plaintext. A public relay-only promise begins only
+when both ends require the end-to-end encrypted protocol.
 
 ### Relay handling
 
@@ -368,7 +363,7 @@ and decrypted recovery material never enter audit events.
 
 ### Implemented: relay protocol and fixtures
 
-- protocol 3 request, response, grant-binding, and schema definitions;
+- protocol 1 request, response, grant-binding, and schema definitions;
 - Rust connector identity, derivation, authenticated encryption, durable replay
   state, exact local policy enforcement, and encrypted responses;
 - browser non-extractable keys, atomic counters, encrypted operations, binding

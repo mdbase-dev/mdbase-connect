@@ -15,10 +15,8 @@ import type {
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
-import appManifestV2Schema from "@mdbase/connect-protocol/schemas/mdbase-app.v2.schema.json" with { type: "json" };
-import appManifestV3Schema from "@mdbase/connect-protocol/schemas/mdbase-app.v3.schema.json" with { type: "json" };
 import contractExtensionSchema from "@mdbase/connect-protocol/schemas/contract-extension.v1.schema.json" with { type: "json" };
-import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v2.schema.json" with { type: "json" };
+import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
 
 export interface ValidationIssue {
   path: string;
@@ -37,14 +35,10 @@ const ajv = new Ajv2020({
   formats: { "date-time": true, uri: true }
 });
 ajv.addSchema(appManifestSchema);
-ajv.addSchema(appManifestV2Schema);
-ajv.addSchema(appManifestV3Schema);
 ajv.addSchema(contractExtensionSchema);
 ajv.addSchema(connectProtocolSchema);
 
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
-const appManifestV2Validator = requiredValidator(String(appManifestV2Schema.$id));
-const appManifestV3Validator = requiredValidator(String(appManifestV3Schema.$id));
 const contractValidator = requiredValidator(String(contractExtensionSchema.$id));
 
 export interface ManifestValidationOptions {
@@ -57,13 +51,7 @@ export function validateAppManifest(
   options: ManifestValidationOptions = {}
 ): ValidationResult {
   const candidate = options.allowLocal ? localManifestSchemaCandidate(value) : value;
-  const version = asObject(value).manifest_version;
-  const validator = version === 3
-    ? appManifestV3Validator
-    : version === 2
-      ? appManifestV2Validator
-      : appManifestValidator;
-  const schemaResult = validationResult(validator, candidate);
+  const schemaResult = validationResult(appManifestValidator, candidate);
   if (!schemaResult.valid) return schemaResult;
   const originResult = validateManifestOrigins(value, options.allowLocal === true);
   if (!originResult.valid) return originResult;
@@ -400,15 +388,11 @@ function validateManifestOrigins(value: unknown, allowLocal: boolean): Validatio
       if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
         return semanticIssue(`/redirect_uris/${index}`, "must use HTTPS (or loopback HTTP in local mode)");
       }
-      const nativeAllowed = manifest.manifest_version === 3
-        ? nativeRedirectMatchesApplication(url, String(manifest.id))
-        : isNativeRedirectUri(url, homepage.hostname);
+      const nativeAllowed = nativeRedirectMatchesApplication(url, String(manifest.id));
       if (url.origin !== homepage.origin && !nativeAllowed) {
         return semanticIssue(
           `/redirect_uris/${index}`,
-          manifest.manifest_version === 3
-            ? "must use the homepage origin or a private-use scheme matching the application ID"
-            : "must use the homepage origin or a publisher-bound private-use application scheme"
+          "must use the homepage origin or a private-use scheme matching the application ID"
         );
       }
     }
@@ -494,7 +478,7 @@ function semanticIssue(path: string, message: string): ValidationResult {
 
 function sandboxDescription(value: Partial<CollectionDescription> = {}): CollectionDescription {
   return {
-    protocol_version: 2,
+    protocol_version: 1,
     collection_id: value.collection_id ?? "01900000-0000-7000-8000-000000000001",
     display_name: value.display_name ?? "Developer sandbox",
     spec_version: value.spec_version ?? "0.3.0",

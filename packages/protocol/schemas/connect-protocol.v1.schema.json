@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdbase.dev/connect/schemas/connect-protocol.v2.json",
-  "title": "mdbase connect protocol 2",
+  "$id": "https://mdbase.dev/connect/schemas/connect-protocol.v1.json",
+  "title": "mdbase connect protocol 1",
   "description": "Canonical wire shapes shared by applications, the control plane, and connectors.",
   "oneOf": [
     { "$ref": "#/$defs/relayOperationRequest" },
@@ -69,7 +69,7 @@
       "required": ["type", "protocol_version", "request_id", "grant_id", "collection_id", "application_id", "operation", "input"],
       "properties": {
         "type": { "const": "operation_request" },
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "grant_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },
@@ -84,7 +84,7 @@
       "required": ["type", "protocol_version", "request_id", "ok"],
       "properties": {
         "type": { "const": "operation_response" },
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
         "ok": { "type": "boolean" },
         "result": true,
@@ -170,7 +170,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "suite", "key_id", "scope_epoch", "connector_id", "collection_id", "application_public_key", "connector_public_key"],
       "properties": {
-        "protocol_version": { "const": 3 },
+        "protocol_version": { "const": 1 },
         "suite": { "const": "P256-HKDF-SHA256-AES256GCM" },
         "key_id": { "type": "string", "minLength": 1, "maxLength": 200 },
         "scope_epoch": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
@@ -186,7 +186,7 @@
       "required": ["type", "protocol_version", "grants"],
       "properties": {
         "type": { "const": "policy_snapshot" },
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 1 },
         "grants": { "type": "array", "items": { "$ref": "#/$defs/grantPolicy" } }
       }
     },
@@ -195,7 +195,7 @@
       "additionalProperties": false,
       "required": ["protocol_version", "collection_id", "display_name", "spec_version", "operations", "change_cursor", "types", "contracts"],
       "properties": {
-        "protocol_version": { "const": 2 },
+        "protocol_version": { "const": 1 },
         "collection_id": { "$ref": "#/$defs/uuid" },
         "display_name": { "type": "string", "minLength": 1 },
         "spec_version": { "type": "string", "minLength": 1 },

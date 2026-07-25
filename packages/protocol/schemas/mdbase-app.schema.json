@@ -1,12 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mdbase.dev/connect/schemas/mdbase-app.v1.json",
-  "title": "mdbase connect application manifest",
+  "title": "mdbase connect bundled application manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["manifest_version", "name", "homepage", "redirect_uris"],
+  "required": ["manifest_version", "id", "name", "homepage", "redirect_uris"],
   "properties": {
     "manifest_version": { "const": 1 },
+    "id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 150,
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*){2,}$",
+      "description": "Stable reverse-domain application identifier. This is presentation metadata, not publisher authentication."
+    },
     "name": { "type": "string", "minLength": 1, "maxLength": 100 },
     "homepage": { "type": "string", "format": "uri", "pattern": "^https://" },
     "icon": { "type": "string", "format": "uri", "pattern": "^https://" },
@@ -18,7 +25,7 @@
       "items": {
         "type": "string",
         "format": "uri",
-        "description": "An HTTPS URI on the manifest origin or a native reverse-domain private-use scheme."
+        "description": "An HTTPS URI on the homepage origin or a private-use scheme derived from the application ID."
       }
     },
     "requirements": { "$ref": "#/$defs/requirements" },
@@ -33,20 +40,38 @@
           "items": { "$ref": "#/$defs/typeProvision" }
         }
       }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["criteria"],
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/notificationCriterion" }
+        },
+        "native_delivery": { "$ref": "#/$defs/nativeNotificationDelivery" }
+      }
     }
   },
   "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+(ms|s|m|h|d)$"
+    },
     "contract": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "version"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 100,
-          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
-        },
+        "id": { "$ref": "#/$defs/identifier" },
         "version": { "type": "integer", "minimum": 1 }
       }
     },
@@ -86,6 +111,66 @@
           "items": { "$ref": "#/$defs/contract" }
         }
       }
+    },
+    "notificationCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "presentation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "event": { "$ref": "#/$defs/contract" },
+        "if": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["$expr"],
+          "properties": {
+            "$expr": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          }
+        },
+        "debounce": { "$ref": "#/$defs/duration" },
+        "minimum_interval": { "$ref": "#/$defs/duration" },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "body": { "type": "string", "maxLength": 160 },
+            "tag": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        }
+      }
+    },
+    "nativeNotificationDelivery": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "firebase_project_id"],
+          "properties": {
+            "mode": { "const": "managed_fcm" },
+            "firebase_project_id": {
+              "type": "string",
+              "minLength": 6,
+              "maxLength": 63,
+              "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "url"],
+          "properties": {
+            "mode": { "const": "webhook" },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://"
+            }
+          }
+        }
+      ]
     }
   }
 }

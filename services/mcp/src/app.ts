@@ -3,6 +3,7 @@ import formbody from "@fastify/formbody";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { MdbaseAppManifest } from "@mdbase/connect-protocol";
 import { ZodError, z } from "zod";
 import type { DatabasePool } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";
@@ -29,12 +30,21 @@ export async function buildApp(options: BuildOptions) {
     requestTimeout: 40_000
   });
   const keyStore = new PostgresGrantKeyStore(options.db, config.masterKey);
+  const manifest: MdbaseAppManifest = {
+    manifest_version: 1,
+    id: "dev.mdbase.mcp",
+    name: "mdbase",
+    homepage: config.publicUrl,
+    redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
+    requirements: { contracts: [] },
+    provisions: { types: [] }
+  };
   const gateway = new ConnectGateway(
     options.db,
     config.masterKey,
     keyStore,
     config.connectUrl,
-    `${config.publicUrl}/.well-known/mdbase-app.json`,
+    manifest,
     `${config.publicUrl}/oauth/connect/callback`
   );
   const oauth = new OAuthService(options.db, gateway, keyStore, config.publicUrl, config.resource);
@@ -85,14 +95,7 @@ export async function buildApp(options: BuildOptions) {
     "Connect Claude, ChatGPT, and other MCP clients to collections you explicitly approve in mdbase connect."
   )));
 
-  app.get("/.well-known/mdbase-app.json", async () => ({
-    manifest_version: 1,
-    name: "mdbase",
-    homepage: config.publicUrl,
-    redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
-    requirements: { contracts: [] },
-    provisions: { types: [] }
-  }));
+  app.get("/.well-known/mdbase-app.json", async () => manifest);
 
   const protectedResourceMetadata = {
     resource: config.resource,

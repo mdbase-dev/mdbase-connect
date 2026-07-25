@@ -182,7 +182,7 @@ try {
     "Concurrent cross-instance relay burst was incomplete");
 
   const encryption = {
-    protocol_version: 3,
+    protocol_version: 1,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: `enc_${randomUUID()}`,
     scope_epoch: 1,
@@ -198,7 +198,7 @@ try {
   await builtB.relay.pushPolicy(fixture.connectorId);
   const encryptedEnvelope = {
     type: "encrypted_operation_request",
-    protocol_version: 3,
+    protocol_version: 1,
     suite: encryption.suite,
     request_id: randomUUID(),
     grant_id: fixture.grantId,
@@ -366,12 +366,11 @@ async function seed(db, hash) {
   );
   await db.query(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_url, name, homepage, redirect_uris, requirements, provisions)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb)`,
+       (id, canonical_identity, name, homepage, redirect_uris, requirements, provisions)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
     [
       applicationId,
-      "https://relay-e2e.example/.well-known/mdbase-app.json",
-      "https://relay-e2e.example/.well-known/mdbase-app.json",
+      "bundle:dev.mdbase.relay-e2e:sha256:test",
       "Relay E2E app",
       "https://relay-e2e.example",
       JSON.stringify(["https://relay-e2e.example/callback"]),
@@ -434,7 +433,7 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
     if (message.input?.deny) {
       socket.send(JSON.stringify({
         type: "operation_response",
-        protocol_version: 2,
+        protocol_version: 1,
         request_id: message.request_id,
         ok: false,
         error: { code: "access_denied", message: "Denied by the connector fixture." }
@@ -443,7 +442,7 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
     }
     socket.send(JSON.stringify({
       type: "operation_response",
-      protocol_version: 2,
+      protocol_version: 1,
       request_id: message.request_id,
       ok: true,
       result: {

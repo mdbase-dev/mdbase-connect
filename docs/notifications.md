@@ -16,11 +16,11 @@ combination of:
 
 ## Bundled application declaration
 
-Notifications require bundled application declaration version 3:
+Notifications use the bundled v1 application manifest:
 
 ```json
 {
-  "manifest_version": 3,
+  "manifest_version": 1,
   "id": "dev.mdbase.tasks",
   "name": "TaskNotes",
   "homepage": "https://tasks.example",

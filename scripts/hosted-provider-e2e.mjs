@@ -535,7 +535,7 @@ try {
     });
     const inlineSdk = new MdbaseConnect({
       serverUrl: controlUrl,
-      manifestUrl: inlineManifest.manifestUrl,
+      manifest: inlineManifest.manifestUrl,
       redirectUri: inlineManifest.redirectUri,
       storage: inlineStorage,
       keyStore: new MemoryGrantKeyStore()
@@ -574,7 +574,7 @@ try {
   });
   const hostedSdk = new MdbaseConnect({
     serverUrl: controlUrl,
-    manifestUrl: manifest.manifestUrl,
+    manifest: manifest.manifestUrl,
     redirectUri: manifest.redirectUri,
     storage,
     keyStore: new MemoryGrantKeyStore()
@@ -1812,6 +1812,9 @@ async function openManifestServer({
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify({
       manifest_version: 1,
+      id: name === "TaskNotes Inline E2E"
+        ? "dev.mdbase.tasknotes-inline-e2e"
+        : "dev.mdbase.hosted-sdk-e2e",
       name,
       homepage: origin,
       redirect_uris: [`${origin}/auth/mdbase/callback`],

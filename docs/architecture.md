@@ -49,7 +49,7 @@ checks its local policy copy again before it opens a collection.
 
 ## Collection API
 
-Connect protocol 2 exposes these grantable operations:
+Connect protocol 1 exposes these grantable operations:
 
 - `describe`, `changes`
 - `read`, `query`, `validate`, `list_views`, `execute_view`
@@ -158,9 +158,9 @@ registration admits only configured provider subjects. Local development can
 use an explicitly enabled unverified email session; public origins refuse that
 mode.
 
-Applications bundle a version 3 declaration and send it inline during
-registration. Connect canonicalizes the declaration and identifies that exact
-version by its SHA-256 digest; the reverse-domain application ID and other
+Applications bundle a v1 manifest and send it inline during registration.
+Connect canonicalizes the manifest and identifies that exact content by its
+SHA-256 digest; the reverse-domain application ID and other
 presentation fields are explicitly not publisher authentication. Authorization
 uses short-lived codes and PKCE; browser and native applications have no client
 secret. The user approves concrete operations and the declaration-derived
@@ -169,24 +169,22 @@ Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when
 cloud policy is stale.
 
-Changing a declaration creates a new application version and never mutates an
+Changing a manifest creates a new application identity and never mutates an
 older grant. The previous installation credential remains bound to its exact
-approved version; authorizing the changed version requires another explicit
-decision. Legacy version 1 and 2 clients may still use server-fetched manifest
-discovery during migration.
+approved manifest; authorizing the changed manifest requires another explicit
+decision. Applications load their own bundled v1 manifest and register its
+contents inline. The control plane never fetches an application-supplied URL.
 
 Authorization codes issue a one-hour access token and a rotating 30-day refresh
 token. Refresh tokens are single-use, bound to the application and grant, and
 revoked with the grant. Browser clients renew shortly before expiry and retain
 the rotated credential in application-owned storage.
 
-New authorizations use protocol 3 to encrypt each operation end to end between
+New authorizations use protocol 1 to encrypt each operation end to end between
 an authorized application installation and the local connector. The relay sees
 the operation and routing metadata but carries opaque request and response
-payloads. Protocol 2 remains an explicitly selected migration mode and allows
-the relay to read payloads in memory. Hosted collections use a separate
-provider encryption boundary. The complete trust, key, metadata, and rollout
-design is in
+payloads. Hosted collections use a separate provider encryption boundary. The
+complete trust, key, metadata, and rollout design is in
 [Encryption architecture](./encryption.md).
 
 The Electron controller is the primary collection and permission surface. The
@@ -244,7 +242,6 @@ is in [Hosted collections and sync](./sync.md).
 ## Versioning
 
 The mdbase spec version, Connect protocol version, app manifest version, and
-domain contract versions evolve independently. Clients branch on declared
-versions and capabilities. Protocol 2 is introduced as one coordinated agent,
-server, and SDK release; protocol 1 installations must be upgraded together in
-private staging.
+domain contract versions evolve independently. The unreleased wire contracts
+all begin at v1. Future incompatible formats will use new declared versions and
+ship as coordinated agent, server, and SDK releases.

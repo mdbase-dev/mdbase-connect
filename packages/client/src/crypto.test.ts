@@ -20,7 +20,7 @@ async function fixture() {
   const application = await applicationStore.create("grant");
   const connector = await connectorStore.create("connector");
   const encryption: GrantEncryption = {
-    protocol_version: 3,
+    protocol_version: 1,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: "enc_test",
     scope_epoch: 1,
@@ -47,7 +47,7 @@ describe("encrypted relay client", () => {
     );
     expect(request).toMatchObject({
       type: "encrypted_operation_request",
-      protocol_version: 3,
+      protocol_version: 1,
       grant_id: ids.grant,
       application_id: ids.application,
       connector_id: ids.connector,

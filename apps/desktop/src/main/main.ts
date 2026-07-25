@@ -346,11 +346,6 @@ function registerIpc(): void {
     }
     return requestReadyAgent("account.rename-computer", { name: name.trim() }, 10_000);
   });
-  ipcMain.handle("connect:apps:discover", async (event, manifestUrl: unknown) => {
-    trustedIpc(event);
-    if (typeof manifestUrl !== "string") throw new Error("Enter an application manifest URL.");
-    return requestReadyAgent("apps.discover", { manifest_url: manifestUrl }, 15_000);
-  });
   ipcMain.handle("connect:grants:create", async (event, input: unknown) => {
     trustedIpc(event);
     return requestReadyAgent("grants.create", grantInput(input, true), 10_000);

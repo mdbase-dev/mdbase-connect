@@ -162,14 +162,6 @@ fieldset legend { margin-bottom: 6px; }
 .grant-row:first-child { border-top: 1px solid var(--line); }
 .grant-identity strong { font-size: var(--type-row-title); font-weight: 700; }
 
-.manual-app { border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); background: var(--paper); }
-.manual-app-toggle { display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%; min-height: 60px; padding: 10px 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.manual-app-toggle > span { display: grid; gap: 3px; }
-.manual-app-toggle strong { font-size: var(--type-body); font-weight: 700; }
-.manual-app-toggle small { color: var(--muted); font-size: var(--type-supporting); }
-.manual-app-toggle b { font-size: var(--type-action); font-weight: 600; }
-.manual-app-body { padding: 16px 0 18px; border-top: 1px solid var(--line); }
-.manual-app-body form { display: grid; grid-template-columns: minmax(250px, 1fr) auto; align-items: end; gap: 10px; }
 .manual-grant { display: grid; grid-template-columns: minmax(130px, 0.55fr) minmax(130px, 0.55fr) minmax(260px, 1.2fr) auto; align-items: end; gap: 17px; }
 .manual-grant h3 { margin: 0 0 3px; font-size: var(--type-body); font-weight: 620; }
 .activity-list { border-top: 1px solid var(--line); }

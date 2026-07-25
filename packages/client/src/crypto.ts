@@ -10,8 +10,8 @@ import {
 const DATABASE_NAME = "mdbase-connect-keys";
 const STORE_NAME = "grant-keys";
 const MAX_U64 = 18_446_744_073_709_551_615n;
-const REQUEST_INFO = "mdbase-connect relay request key v3";
-const RESPONSE_INFO = "mdbase-connect relay response key v3";
+const REQUEST_INFO = "mdbase-connect relay request key v1";
+const RESPONSE_INFO = "mdbase-connect relay response key v1";
 
 export interface GrantKeyRecord {
   handle: string;

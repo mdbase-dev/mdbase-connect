@@ -38,7 +38,7 @@ use an empty `provides` array. The validator rejects provisions that claim
 contracts the application does not require.
 
 Native applications may add a reverse-domain private-use callback scheme that
-matches the version 3 application ID, such as
+matches the v1 manifest's application ID, such as
 `example.tasks.desktop://auth/mdbase/callback` for
 `id: "example.tasks.desktop"`. Native authorization still uses PKCE and should
 open the authorization URL in the system browser.

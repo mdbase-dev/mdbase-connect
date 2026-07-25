@@ -32,8 +32,8 @@ import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import {
   ApplicationManifestError,
-  fetchManifest,
-  registerBundledManifest
+  registerApplicationManifest,
+  type RegisteredApplicationManifest
 } from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import type { RelayBroker } from "./relay-broker.js";
@@ -311,7 +311,7 @@ export async function buildApp(options: BuildOptions) {
   app.get("/health", async () => ({
     ok: true,
     service: "mdbase-connect",
-    protocol_version: 2,
+    protocol_version: 1,
     ...(revision ? { revision } : {})
   }));
   app.get("/ready", async (_request, reply) => {
@@ -1203,19 +1203,6 @@ export async function buildApp(options: BuildOptions) {
     };
   });
 
-  app.post("/v1/connectors/apps/discover", async (request, reply) => {
-    const connector = await requireConnector(request, reply, options.db);
-    if (!connector) return;
-    const input = z.object({ manifest_url: z.url() }).parse(request.body);
-    const discovered = await fetchManifest(input.manifest_url, options.allowInsecureManifests);
-    const application = await upsertApplication(options.db, discovered);
-    await audit(options.db, connector.user_id, "application.discovered", application.id, {
-      manifest_url: input.manifest_url,
-      connector_id: connector.id
-    });
-    return { application };
-  });
-
   app.get("/v1/connectors/apps/:applicationId", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
@@ -1669,21 +1656,14 @@ export async function buildApp(options: BuildOptions) {
     await relay.attach(connector.id, socket);
   });
 
-  app.post("/v1/apps/discover", async (request, reply) => {
-    const input = z.object({ manifest_url: z.url() }).parse(request.body);
-    const discovered = await fetchManifest(input.manifest_url, options.allowInsecureManifests);
-    const application = await upsertApplication(options.db, discovered);
-    await reconcileApplicationGrants(options.db, relay, options.hostedProvider, application);
-    return { application };
-  });
-
   app.post("/v1/apps/register", async (request) => {
     const input = z.object({ manifest: z.unknown() }).strict().parse(request.body);
-    const registered = registerBundledManifest(
+    const registered = registerApplicationManifest(
       input.manifest,
       options.allowInsecureManifests
     );
     const application = await upsertApplication(options.db, registered);
+    await reconcileApplicationGrants(options.db, relay, options.hostedProvider, application);
     return { application };
   });
 
@@ -1870,7 +1850,7 @@ export async function buildApp(options: BuildOptions) {
     )) {
       return reply.code(400).send(apiError(
         "invalid_encryption_request",
-        "Encrypted relay authorization requires protocol 3 and a valid P-256 public key."
+        "Encrypted relay authorization requires protocol 1 and a valid P-256 public key."
       ));
     }
     const application = await options.db.query<{
@@ -2493,7 +2473,7 @@ export async function buildApp(options: BuildOptions) {
         } catch {
           return reply.code(426).send(apiError(
             "encryption_required",
-            "This grant requires encrypted relay protocol 3."
+            "This grant requires encrypted relay protocol 1."
           ));
         }
         if (!matchesGrantEncryption(
@@ -2518,7 +2498,7 @@ export async function buildApp(options: BuildOptions) {
       if ((request.body as { type?: unknown } | null)?.type === "encrypted_operation_request") {
         return reply.code(400).send(apiError(
           "encryption_not_configured",
-          "This grant was not authorized for encrypted relay protocol 3."
+          "This grant was not authorized for encrypted relay protocol 1."
         ));
       }
       const result = await relay.route({
@@ -2557,7 +2537,7 @@ export async function buildApp(options: BuildOptions) {
 
 async function upsertApplication(
   db: DatabasePool,
-  discovered: Awaited<ReturnType<typeof fetchManifest>>
+  discovered: RegisteredApplicationManifest
 ): Promise<{
   id: string;
   name: string;
@@ -2581,11 +2561,10 @@ async function upsertApplication(
     notifications: ApplicationNotifications;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_url, manifest_version, name, homepage, icon,
+       (id, canonical_identity, manifest_version, name, homepage, icon,
         redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
-       manifest_url = excluded.manifest_url,
        manifest_version = excluded.manifest_version,
        name = excluded.name,
        homepage = excluded.homepage,
@@ -2600,7 +2579,6 @@ async function upsertApplication(
     [
       randomUUID(),
       discovered.canonicalIdentity,
-      discovered.manifestUrl,
       discovered.manifest.manifest_version,
       discovered.manifest.name,
       discovered.manifest.homepage,
@@ -2969,7 +2947,7 @@ async function approveAuthorization(
   if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
     if (!pending.application_public_key || !collection.rows[0].relay_public_key) {
       throw new RequestValidationError(
-        "Encrypted relay protocol 3 requires an up-to-date connector."
+        "Encrypted relay protocol 1 requires an up-to-date connector."
       );
     }
     encryption = {

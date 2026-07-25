@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 import type {
   GrantEncryption,
-  MdbaseAppManifestV3
+  MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 
 afterEach(() => vi.restoreAllMocks());
@@ -335,15 +335,15 @@ describe("provider-neutral collection client", () => {
       .toThrow(MdbaseConnectError);
     expect(() => new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     })).not.toThrow();
   });
 
   it("registers a bundled application declaration inline", async () => {
-    const manifest: MdbaseAppManifestV3 = {
-      manifest_version: 3,
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
       id: "dev.mdbase.tasks",
       name: "Tasks",
       homepage: "https://tasks.example/",
@@ -363,7 +363,7 @@ describe("provider-neutral collection client", () => {
       storage: new MemoryStorage()
     });
 
-    await expect(connect.discover()).resolves.toMatchObject({ name: "Tasks" });
+    await expect(connect.register()).resolves.toMatchObject({ name: "Tasks" });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe(
       "https://connect.example/v1/apps/register"
@@ -376,7 +376,7 @@ describe("provider-neutral collection client", () => {
   it("loads a bundled declaration locally before registering it", async () => {
     const manifestUrl = "capacitor://localhost/.well-known/mdbase-app.json";
     const manifest = {
-      manifest_version: 3,
+      manifest_version: 1,
       id: "dev.mdbase.tasks",
       name: "Tasks",
       homepage: "https://tasks.example/",
@@ -398,7 +398,7 @@ describe("provider-neutral collection client", () => {
       storage: new MemoryStorage()
     });
 
-    await connect.discover();
+    await connect.register();
     expect(fetchMock.mock.calls.map(([request]) => String(request))).toEqual([
       manifestUrl,
       "https://connect.example/v1/apps/register"
@@ -484,8 +484,18 @@ describe("actionable SDK errors", () => {
 
 describe("mobile notifications", () => {
   const serverUrl = "https://connect.example";
-  const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestUrl}`;
+  const manifest: MdbaseAppManifest = {
+    manifest_version: 1,
+    id: "dev.mdbase.tasks",
+    name: "TaskNotes",
+    homepage: "https://tasks.example/",
+    redirect_uris: [
+      "https://tasks.example/callback",
+      "dev.mdbase.tasks://auth/mdbase/callback"
+    ]
+  };
+  const manifestSource = `bundle:${manifest.id}`;
+  const tokenKey = `mdbase-connect:token:${serverUrl}:${manifestSource}`;
 
   it("registers the selected criteria atomically for one browser installation", async () => {
     const storage = new MemoryStorage();
@@ -512,7 +522,7 @@ describe("mobile notifications", () => {
     } as unknown as ServiceWorkerRegistration;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
-      if (url.endsWith("/v1/apps/discover")) {
+      if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
           application: {
             id: "00000000-0000-0000-0000-000000000001",
@@ -537,7 +547,7 @@ describe("mobile notifications", () => {
     });
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -590,7 +600,7 @@ describe("mobile notifications", () => {
     }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -649,7 +659,7 @@ describe("mobile notifications", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
       async (request, init) => {
         const url = String(request);
-        if (url.endsWith("/v1/apps/discover")) {
+        if (url.endsWith("/v1/apps/register")) {
           return jsonResponse({
             application: {
               id: "00000000-0000-0000-0000-000000000001",
@@ -680,7 +690,7 @@ describe("mobile notifications", () => {
     );
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage
     });
@@ -711,7 +721,7 @@ describe("mobile notifications", () => {
   it("keeps a native channel recoverable when authorization is unavailable during opt-out", async () => {
     const storage = new MemoryStorage();
     const registrationKey =
-      `mdbase-connect:notifications:${serverUrl}:${manifestUrl}:fcm`;
+      `mdbase-connect:notifications:${serverUrl}:${manifestSource}:fcm`;
     storage.setItem(registrationKey, JSON.stringify({
       channelId: "00000000-0000-0000-0000-000000000004",
       installationId: "native-installation-0001",
@@ -720,7 +730,7 @@ describe("mobile notifications", () => {
     }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage
     });
@@ -778,7 +788,7 @@ describe("long mutation progress", () => {
   it("reports authoritative phases and estimates without repeating a supplied preflight", async () => {
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     });
@@ -825,7 +835,7 @@ describe("long mutation progress", () => {
   it("cancels between preflight and apply without dispatching the mutation", async () => {
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     });
@@ -853,7 +863,7 @@ describe("long mutation progress", () => {
   it("rejects a reused preflight for a different mutation", async () => {
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     });
@@ -869,7 +879,7 @@ describe("long mutation progress", () => {
   it("does not estimate reference updates for a rename-only move", async () => {
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage()
     });
@@ -922,7 +932,7 @@ describe("authorization renewal", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage,
       relayEncryption: "disabled"
@@ -957,16 +967,26 @@ describe("authorization renewal", () => {
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000
     }));
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      application: {
-        id: "00000000-0000-0000-0000-000000000001",
-        name: "TaskNotes",
-        homepage: "https://tasks.example"
-      }
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) =>
+      String(request) === manifestUrl
+        ? jsonResponse({
+            manifest_version: 1,
+            id: "dev.tasknotes.app",
+            name: "TaskNotes",
+            homepage: "https://tasks.example",
+            redirect_uris: ["dev.tasknotes.app://auth/mdbase/callback"]
+          })
+        : jsonResponse({
+            application: {
+              id: "00000000-0000-0000-0000-000000000001",
+              name: "TaskNotes",
+              homepage: "https://tasks.example"
+            }
+          })
+    );
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage,
       relayEncryption: "disabled",
@@ -1003,7 +1023,7 @@ describe("authorization renewal", () => {
     }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -1023,16 +1043,27 @@ describe("authorization renewal", () => {
   it("uses injected navigation for native authorization", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      application: {
-        id: "00000000-0000-0000-0000-000000000001",
-        name: "TaskNotes",
-        homepage: "https://tasks.example"
-      }
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) =>
+      String(request) === manifestUrl
+        ? jsonResponse({
+            manifest_version: 1,
+            id: "dev.tasknotes.app",
+            name: "TaskNotes",
+            homepage: "https://tasks.example",
+            redirect_uris: ["dev.tasknotes.app://auth/mdbase/callback"]
+          })
+        : jsonResponse({
+            application: {
+              id: "00000000-0000-0000-0000-000000000001",
+              name: "TaskNotes",
+              homepage: "https://tasks.example"
+            }
+          })
+    );
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/.well-known/mdbase-app.json",
+      manifest: manifestUrl,
       redirectUri: "dev.tasknotes.app://auth/mdbase/callback",
       storage,
       relayEncryption: "disabled",
@@ -1071,7 +1102,7 @@ describe("authorization renewal", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -1118,7 +1149,7 @@ describe("authorization renewal", () => {
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -1168,7 +1199,7 @@ describe("authorization renewal", () => {
 
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -1220,7 +1251,7 @@ describe("authorization renewal", () => {
 
     const connect = new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage
     });
@@ -1469,7 +1500,7 @@ schema:
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 3
+      encrypted_protocol_version: 1
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const changes: string[] = [];
     fixture.connect.onConnectionChange((connection) => {
@@ -1491,7 +1522,7 @@ schema:
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       service: "mdbase-connect",
       loopback_protocol_version: 1,
-      encrypted_protocol_version: 3
+      encrypted_protocol_version: 1
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(fixture.connect.requestDirectAccess()).resolves.toBe("available");
@@ -1522,7 +1553,7 @@ schema:
   it("rejects loopback overrides that could escape the local machine", () => {
     expect(() => new MdbaseConnect({
       serverUrl: "https://connect.example",
-      manifestUrl: "https://tasks.example/manifest.json",
+      manifest: "https://tasks.example/manifest.json",
       redirectUri: "https://tasks.example/callback",
       storage: new MemoryStorage(),
       loopbackUrl: "http://connector.evil.example:28485"
@@ -1540,7 +1571,7 @@ async function encryptedConnection() {
   const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
   const collectionId = "01944444-4444-7444-8444-444444444444";
   const encryption: GrantEncryption = {
-    protocol_version: 3,
+    protocol_version: 1,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: "enc_direct",
     scope_epoch: 1,
@@ -1577,7 +1608,7 @@ async function encryptedConnection() {
     keyStore,
     connect: new MdbaseConnect({
       serverUrl,
-      manifestUrl,
+      manifest: manifestUrl,
       redirectUri: "https://tasks.example/callback",
       storage,
       keyStore

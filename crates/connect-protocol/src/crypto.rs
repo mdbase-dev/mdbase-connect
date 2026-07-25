@@ -20,8 +20,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const IDENTITY_FILE: &str = "relay-identity.key";
-const REQUEST_INFO: &[u8] = b"mdbase-connect relay request key v3";
-const RESPONSE_INFO: &[u8] = b"mdbase-connect relay response key v3";
+const REQUEST_INFO: &[u8] = b"mdbase-connect relay request key v1";
+const RESPONSE_INFO: &[u8] = b"mdbase-connect relay response key v1";
 
 #[derive(Debug, Error)]
 pub enum RelayCryptoError {

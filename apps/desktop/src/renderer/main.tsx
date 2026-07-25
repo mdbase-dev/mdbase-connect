@@ -396,7 +396,7 @@ function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingCo
       <section>
         <SectionHeading title="Connected applications" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
         {applicationAccess.length === 0 ? (
-          <Empty title="No applications connected" text="Connect from an mdbase-enabled website, or inspect a published application manifest below." />
+          <Empty title="No applications connected" text="Connect from an mdbase-enabled application to manage its access here." />
         ) : (
           <div className="application-access-list">{applicationAccess.map((group) => (
             <ApplicationGrantGroup key={group.applicationId} group={group} busy={busy} onAct={onAct} onNotice={onNotice} />
@@ -404,7 +404,6 @@ function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingCo
         )}
       </section>
 
-      <ManualApplication collections={collections} busy={busy} onAct={onAct} onNotice={onNotice} />
     </div>
   );
 }
@@ -570,52 +569,6 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
         <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => { await window.mdbaseConnect.revokeGrant(grant.id); onNotice(`${grant.application_name} access was revoked.`); }); }}>Revoke</button>
       </div>
     </article>
-  );
-}
-
-function ManualApplication({ collections, busy, onAct, onNotice }: { collections: CollectionSummary[]; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
-  const [expanded, setExpanded] = useState(false);
-  const [manifestUrl, setManifestUrl] = useState("");
-  const [application, setApplication] = useState<ApplicationSummary | null>(null);
-  const [collectionId, setCollectionId] = useState(collections[0]?.id ?? "");
-  const [operations, setOperations] = useState(["read", "query"]);
-  const compatible = useMemo(
-    () => application ? availableCollections(application.requirements, application.provisions, collections) : collections,
-    [application, collections]
-  );
-  const selected = compatible.find((collection) => collection.id === collectionId);
-  const setup = application && selected
-    ? neededProvisions(application.requirements, application.provisions, selected)
-    : [];
-  useEffect(() => {
-    if (!compatible.some((collection) => collection.id === collectionId)) {
-      setCollectionId(compatible[0]?.id ?? "");
-    }
-  }, [collectionId, compatible]);
-  return (
-    <section className="manual-app">
-      <button className="manual-app-toggle" onClick={() => setExpanded(!expanded)}><span><strong>Add from an application manifest</strong><small>For apps that have not initiated their own connection request.</small></span><b>{expanded ? "Hide" : "Inspect app"}</b></button>
-      {expanded && (
-        <div className="manual-app-body">
-          {!application ? (
-            <form onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const found = await window.mdbaseConnect.discoverApplication(manifestUrl); setApplication(found.application); }); }}>
-              <label><span>Manifest URL</span><input type="url" required value={manifestUrl} onChange={(event) => setManifestUrl(event.target.value)} placeholder="https://app.example/.well-known/mdbase-app.json" /></label>
-              <button className="button secondary" disabled={busy}>Inspect</button>
-            </form>
-          ) : (
-            <div className="manual-grant">
-              <div><p className="eyebrow">Application found</p><h3>{application.name}</h3><code>{host(application.homepage)}</code>{application.requirements.contracts.length > 0 && <small>{scopeDescription(application.requirements.contracts)}</small>}</div>
-              <label><span>Collection</span><select value={collectionId} disabled={compatible.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{compatible.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{neededProvisions(application.requirements, application.provisions, collection).length ? " · setup required" : ""}</option>)}</select></label>
-              {compatible.length === 0 && <small>No registered collection provides the required contracts and the app cannot install them.</small>}
-              {setup.length > 0 && <small>Connecting will add {provisionNames(setup)} to this collection.</small>}
-              <NotificationAccess notifications={application.notifications} />
-              <fieldset><legend>Allow</legend><OperationChoices allowed={allOperations} selected={operations} onChange={setOperations} compact /></fieldset>
-              <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.createGrant({ applicationId: application.id, collectionId, operations }); onNotice(`${application.name} is connected.`); setApplication(null); setManifestUrl(""); setExpanded(false); })}>Connect app</button>
-            </div>
-          )}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -843,18 +796,6 @@ function SettingSwitch({ className, label, description, checked, disabled, state
 
 function operationDescription(operation: string) {
   return ({ read: "Open individual records", query: "Find and filter records", list_views: "See saved views", execute_view: "Run saved views", read_view_source: "Inspect saved-view definitions", create_view_source: "Create saved views", update_view_source: "Change saved views", delete_view_source: "Delete saved views", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility", list_timers: "See timers owned by this application", put_timer: "Create or reschedule application timers", cancel_timer: "Cancel application timers", reconcile_timers: "Make an application timer set match its desired state" } as Record<string, string>)[operation] ?? operation;
-}
-
-function availableCollections(
-  requirements: ApplicationRequirements,
-  provisions: ApplicationProvisions | undefined,
-  collections: CollectionSummary[]
-): CollectionSummary[] {
-  if (requirements.contracts.length === 0) return collections;
-  return collections.filter((collection) => requirements.contracts.every((requirement) =>
-    hasContract(collection.contracts, requirement)
-    || (provisions?.types ?? []).some((provision) => provision.provides.some((provided) => sameContract(provided, requirement)))
-  ));
 }
 
 function neededProvisions(
