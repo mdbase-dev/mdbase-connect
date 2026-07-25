@@ -30,6 +30,8 @@ interface PendingMirrorMutation {
   local_hash: string | null;
 }
 
+const MIRROR_MUTATION_CHECKPOINT_SIZE = 64;
+
 export interface MirrorState {
   protocol_version: 1;
   replica_id: string;
@@ -51,6 +53,14 @@ export interface MirrorStateStore {
 export interface DirectoryMirrorOptions {
   stateStore?: MirrorStateStore;
   fileSystem?: MirrorFileSystem;
+  onProgress?: (progress: MirrorProgress) => void;
+}
+
+export interface MirrorProgress {
+  phase: "uploading" | "applying";
+  completed: number;
+  total: number | null;
+  done: boolean;
 }
 
 export interface MirrorFileSystem {
@@ -255,6 +265,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private readonly root: string;
   private readonly stateStore: MirrorStateStore;
   private readonly fileSystem: MirrorFileSystem;
+  private readonly onProgress?: (progress: MirrorProgress) => void;
 
   constructor(
     root: string,
@@ -266,6 +277,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     this.root = resolve(root);
     this.stateStore = options.stateStore ?? new NodeMirrorStateStore(this.root);
     this.fileSystem = options.fileSystem ?? new NodeMirrorFileSystem(this.root);
+    this.onProgress = options.onProgress;
   }
 
   async sync(): Promise<void> {
@@ -285,6 +297,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     } else {
       await this.assertUndiverged(state);
     }
+    let appliedDocuments = 0;
     while (true) {
       const page = await this.transport.changes(state.cursor, 200);
       if (page.scope_epoch !== state.scope_epoch || page.reset_required) {
@@ -300,12 +313,27 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         } else {
           await this.remove(state, event.record_id, event.previous_path);
         }
+        appliedDocuments += 1;
+        this.reportProgress({
+          phase: "applying",
+          completed: appliedDocuments,
+          total: null,
+          done: false
+        });
       }
       state.cursor = page.cursor;
       await this.writeState(state);
       if (!page.has_more) {
         state.last_synced_at = new Date().toISOString();
         await this.writeState(state);
+        if (appliedDocuments > 0) {
+          this.reportProgress({
+            phase: "applying",
+            completed: appliedDocuments,
+            total: null,
+            done: true
+          });
+        }
         return;
       }
     }
@@ -462,10 +490,28 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       conflicts: {}
     };
     await this.assertRebuildSafe(prior, session.resources.documents ?? [], records);
+    const documentCount = (session.resources.documents ?? []).length + records.length;
+    let appliedDocuments = 0;
     for (const resource of session.resources.documents ?? []) {
       await this.putResource(state, resource, prior);
+      appliedDocuments += 1;
+      this.reportProgress({
+        phase: "applying",
+        completed: appliedDocuments,
+        total: documentCount,
+        done: appliedDocuments === documentCount
+      });
     }
-    for (const record of records) await this.put(state, record, prior);
+    for (const record of records) {
+      await this.put(state, record, prior);
+      appliedDocuments += 1;
+      this.reportProgress({
+        phase: "applying",
+        completed: appliedDocuments,
+        total: documentCount,
+        done: appliedDocuments === documentCount
+      });
+    }
     if (prior) {
       for (const [recordId, entry] of Object.entries(prior.records)) {
         if (!state.records[recordId]) await this.remove(prior, recordId, entry.path);
@@ -554,7 +600,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     state: MirrorState,
     record: SyncRecord<Frontmatter>,
     managedState: MirrorState | undefined = state,
-    acceptedHash?: string | null
+    acceptedHash?: string | null,
+    preserveAcceptedDocument = false
   ): Promise<void> {
     const document = recordMarkdownDocument(record);
     const existing = await this.fileSystem.read(record.path);
@@ -571,11 +618,17 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     if (prior && prior.path !== record.path) {
       await this.remove(managedState!, record.record_id, prior.path);
     }
-    await this.fileSystem.write(record.path, document);
+    const acceptedLocalHash = preserveAcceptedDocument
+      && typeof acceptedHash === "string"
+      && existing !== null
+      && digest(existing) === acceptedHash
+      ? acceptedHash
+      : null;
+    if (acceptedLocalHash === null) await this.fileSystem.write(record.path, document);
     state.records[record.record_id] = {
       path: record.path,
       revision: record.revision,
-      hash: digest(document),
+      hash: acceptedLocalHash ?? digest(document),
       record
     };
   }
@@ -913,6 +966,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private async flushPending(state: MirrorState): Promise<void> {
     const pendingQueue = state.pending ??= [];
     let index = 0;
+    let mutationsSinceCheckpoint = 0;
+    const uploadTotal = pendingQueue.filter(
+      (pending) => !state.conflicts?.[pending.mutation.record_id]
+    ).length;
+    let uploaded = 0;
     while (index < pendingQueue.length) {
       const pending = pendingQueue[index]!;
       if (state.conflicts?.[pending.mutation.record_id]) {
@@ -928,13 +986,21 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         );
       }
       const receipt = await this.transport.mutate(pending.mutation);
+      uploaded += 1;
+      this.reportProgress({
+        phase: "uploading",
+        completed: uploaded,
+        total: uploadTotal,
+        done: false
+      });
       if (receipt.status === "applied" || receipt.status === "previously_applied") {
         if (receipt.record) {
           await this.put(
             state,
             receipt.record,
             state,
-            pending.local_hash
+            pending.local_hash,
+            true
           );
         } else {
           delete state.records[pending.mutation.record_id];
@@ -951,13 +1017,30 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           }
         }
         pendingQueue.splice(index, 1);
-        await this.writeState(state);
+        mutationsSinceCheckpoint += 1;
+        if (mutationsSinceCheckpoint >= MIRROR_MUTATION_CHECKPOINT_SIZE) {
+          await this.writeState(state);
+          mutationsSinceCheckpoint = 0;
+        }
         continue;
       }
       state.conflicts ??= {};
       state.conflicts[pending.mutation.record_id] = receipt;
-      await this.writeState(state);
+      mutationsSinceCheckpoint += 1;
+      if (mutationsSinceCheckpoint >= MIRROR_MUTATION_CHECKPOINT_SIZE) {
+        await this.writeState(state);
+        mutationsSinceCheckpoint = 0;
+      }
       index += 1;
+    }
+    if (mutationsSinceCheckpoint > 0) await this.writeState(state);
+    if (uploadTotal > 0) {
+      this.reportProgress({
+        phase: "uploading",
+        completed: uploaded,
+        total: uploadTotal,
+        done: true
+      });
     }
   }
 
@@ -1008,6 +1091,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   private async writeState(state: MirrorState): Promise<void> {
     await this.stateStore.write(state);
+  }
+
+  private reportProgress(progress: MirrorProgress): void {
+    this.onProgress?.(progress);
   }
 
   private async assertUndiverged(state: MirrorState): Promise<void> {
@@ -1125,9 +1212,10 @@ export function authorityManifestDigest(entries: Array<{
   document_hash: string;
 }>): string {
   const manifest = createHash("sha256").update("mdbase-authority-manifest-v1\n");
-  for (const entry of [...entries].sort((left, right) =>
-    left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path)
-  )) {
+  for (const entry of [...entries].sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
+    return Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8"));
+  })) {
     manifest.update(entry.kind);
     manifest.update("\0");
     manifest.update(entry.path);
