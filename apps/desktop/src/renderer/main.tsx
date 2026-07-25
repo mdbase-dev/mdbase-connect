@@ -17,6 +17,7 @@ import { applyThemePreference, loadThemePreference, saveThemePreference, type Th
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { presentConnection, type ConnectionDotState } from "./connection-state.mjs";
 import "./styles.css";
 
 type Route = "overview" | "collections" | "access" | "activity" | "settings";
@@ -55,7 +56,7 @@ function App() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
-  const [cloud, setCloud] = useState<CloudSetting>({ configured: false, serverUrl: null });
+  const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [] });
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -67,20 +68,16 @@ function App() {
 
   const refresh = useCallback(async (quiet = false) => {
     try {
-      const [nextStatus, nextCollections, nextStartup, nextCloud, nextAccess, nextActivity] = await Promise.all([
-        window.mdbaseConnect.status(),
-        window.mdbaseConnect.listCollections(),
-        window.mdbaseConnect.getLaunchAtLogin(),
-        window.mdbaseConnect.getCloudConfig(),
-        window.mdbaseConnect.accessSnapshot(),
-        window.mdbaseConnect.listActivity(100)
+      const results = await Promise.allSettled([
+        window.mdbaseConnect.status().then(setStatus),
+        window.mdbaseConnect.listCollections().then(setCollections),
+        window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
+        window.mdbaseConnect.getCloudConfig().then(setCloud),
+        window.mdbaseConnect.accessSnapshot().then(setAccess),
+        window.mdbaseConnect.listActivity(100).then(setActivity)
       ]);
-      setStatus(nextStatus);
-      setCollections(nextCollections);
-      setStartup(nextStartup);
-      setCloud(nextCloud);
-      setAccess(nextAccess);
-      setActivity(nextActivity);
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed) throw failed.reason;
       setError(null);
     } catch (refreshError) {
       if (!quiet) setError(message(refreshError));
@@ -141,22 +138,16 @@ function App() {
   }
 
   const copy = routeCopy[route];
-  const connectionLabel = status?.paused
-    ? "Remote access paused"
-    : status?.state === "connected"
-      ? "Connected securely"
-      : cloud.configured
-        ? "Connector offline"
-        : "Local only";
+  const connection = presentConnection(status, cloud);
 
   return (
     <div className="shell">
       <header className="product-header desktop-header">
         <div className="product-header-inner">
           <Brand />
-          <div className="product-header-meta">
-            <StatusDot state={status?.paused ? "paused" : status?.state === "connected" ? "connected" : "idle"} />
-            <div className="product-header-meta-copy"><strong>{connectionLabel}</strong><small>{access.account?.connector_name ?? "This computer"} · {status?.registered_collections ?? 0} registered</small></div>
+          <div className="product-header-meta" role="status" aria-live="polite">
+            <StatusDot state={connection.dot} />
+            <div className="product-header-meta-copy"><strong>{connection.label}</strong><small>{access.account?.connector_name ?? "This computer"} · {status ? `${status.registered_collections} registered` : "Checking local connector"}</small></div>
           </div>
         </div>
       </header>
@@ -181,7 +172,7 @@ function App() {
           {notice && <div className="message notice-message">{notice}</div>}
         </div>
 
-        {route === "overview" && (
+        {cloud === null ? <ConnectionProgress /> : route === "overview" ? (
           <Overview
             status={status}
             cloud={cloud}
@@ -189,14 +180,12 @@ function App() {
             collections={collections}
             busy={busy}
             onNavigate={setRoute}
-            onPairingComplete={() => void refresh()}
             onPause={(paused) => void act(async () => {
               await window.mdbaseConnect.setAccessPaused(paused);
               setNotice(paused ? "Remote access is paused on this computer." : "Remote access is available again.");
             })}
           />
-        )}
-        {route === "collections" && (
+        ) : route === "collections" ? (
           <Collections
             collections={collections}
             busy={busy}
@@ -205,8 +194,7 @@ function App() {
             onAct={act}
             onNotice={setNotice}
           />
-        )}
-        {route === "access" && (
+        ) : route === "access" ? (
           <Access
             cloud={cloud}
             access={access}
@@ -214,11 +202,8 @@ function App() {
             busy={busy}
             onAct={act}
             onNotice={setNotice}
-            onPairingComplete={() => void refresh()}
           />
-        )}
-        {route === "activity" && <Activity entries={activity} />}
-        {route === "settings" && (
+        ) : route === "activity" ? <Activity entries={activity} /> : (
           <Settings
             startup={startup}
             cloud={cloud}
@@ -227,7 +212,6 @@ function App() {
             busy={busy}
             onAct={act}
             onNotice={setNotice}
-            onPairingComplete={() => void refresh()}
           />
         )}
       </main>
@@ -251,18 +235,24 @@ function App() {
   );
 }
 
-function Overview({ status, cloud, access, collections, busy, onNavigate, onPairingComplete, onPause }: {
+function ConnectionProgress() {
+  return <div className="connection-progress" role="status" aria-live="polite">
+    <StatusDot state="connecting" />
+    <div><strong>Checking this computer</strong><small>Starting the local connector and checking its secure connection.</small></div>
+  </div>;
+}
+
+function Overview({ status, cloud, access, collections, busy, onNavigate, onPause }: {
   status: AgentStatus | null;
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   busy: boolean;
   onNavigate(route: Route): void;
-  onPairingComplete(): void;
   onPause(paused: boolean): void;
 }) {
   if (!cloud.configured) {
-    return <PairingPanel onComplete={onPairingComplete} />;
+    return <PairingPanel />;
   }
   return (
     <div className="workspace-stack">
@@ -360,13 +350,28 @@ function CollectionRow({ collection, busy, onAct, onNotice }: {
         </div>
       </div>
       {editing && <div className="collection-editor">
-        <form onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const updated = await window.mdbaseConnect.updateCollectionMetadata({ collectionId: collection.id, name, description }); setEditing(false); onNotice(`${updated.display_name} details were saved to mdbase.yaml.`); }); }}>
-          <label><span>Name</span><input value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
-          <label><span>Description</span><textarea value={description} maxLength={500} rows={2} placeholder="Optional" onChange={(event) => setDescription(event.target.value)} /></label>
-          <div className="editor-actions"><button type="button" className="button secondary" disabled={busy} onClick={() => void window.mdbaseConnect.openCollectionConfig(collection.id)}>Open mdbase.yaml</button><button className="button primary" disabled={busy || !changed || !name.trim()}>Save details</button></div>
+        <form className="collection-editor-form" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const updated = await window.mdbaseConnect.updateCollectionMetadata({ collectionId: collection.id, name, description }); setEditing(false); onNotice(`${updated.display_name} details were saved to mdbase.yaml.`); }); }}>
+          <section className="collection-editor-section">
+            <div><strong>Details</strong><small>Name and description are stored in mdbase.yaml.</small></div>
+            <div className="collection-fields">
+              <label><span>Name</span><input value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
+              <label><span>Description</span><textarea value={description} maxLength={500} rows={2} placeholder="Optional" onChange={(event) => setDescription(event.target.value)} /></label>
+            </div>
+          </section>
+          <section className="collection-editor-section">
+            <div><strong>Configuration</strong><small>Inspect the source file or check the collection structure.</small></div>
+            <div className="collection-config-actions">
+              <button type="button" className="quiet-action" disabled={busy} onClick={() => void window.mdbaseConnect.openCollectionConfig(collection.id)}>Open mdbase.yaml</button>
+              <button type="button" className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.validateCollection(collection.id); onNotice(`${collection.display_name} passed collection validation.`); })}>Validate collection</button>
+            </div>
+          </section>
+          <footer className="request-footer collection-editor-footer">
+            <p>Saving changes updates collection metadata without moving or rewriting records.</p>
+            <button className="button primary" disabled={busy || !changed || !name.trim()}>Save details</button>
+          </footer>
         </form>
-        <div className="collection-maintenance">
-          <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.validateCollection(collection.id); onNotice(`${collection.display_name} passed collection validation.`); })}>Validate collection</button>
+        <div className="collection-danger-row">
+          <small>Removing this collection from mdbase connect never deletes its files.</small>
           <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>
         </div>
       </div>}
@@ -374,17 +379,16 @@ function CollectionRow({ collection, busy, onAct, onNotice }: {
   );
 }
 
-function Access({ cloud, access, collections, busy, onAct, onNotice, onPairingComplete }: {
+function Access({ cloud, access, collections, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
-  onPairingComplete(): void;
 }) {
   const applicationAccess = useMemo(() => groupApplicationAccess(access.grants), [access.grants]);
-  if (!cloud.configured) return <PairingPanel onComplete={onPairingComplete} />;
+  if (!cloud.configured) return <PairingPanel />;
   return (
     <div className="workspace-stack">
       <section>
@@ -425,7 +429,7 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
       <summary>
         <div><strong>{group.applicationName}</strong><code>{identity.application_distribution === "portable" ? `Downloaded file${identity.application_project_url ? ` · ${host(identity.application_project_url)}` : ""}` : host(identity.application_homepage)}</code></div>
         <span>{group.collectionCount} {plural(group.collectionCount, "collection", "collections")}</span>
-        <span>{group.grants.length} {plural(group.grants.length, "access record", "access records")}</span>
+        <span>{group.grants.length} {plural(group.grants.length, "connection", "connections")}</span>
         <b>Review</b>
       </summary>
       <div className="application-grant-body">
@@ -564,18 +568,32 @@ function NotificationAccess({ notifications }: { notifications: ApplicationNotif
 
 function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
   const [operations, setOperations] = useState(grant.operations);
-  const allowedOperations = grant.scope.contracts.length > 0
-    ? allOperations.filter((operation) => operation !== "validate")
-    : allOperations;
+  const contractScoped = grant.scope.contracts.length > 0;
+  const allowedOperations = useMemo(
+    () => contractScoped ? allOperations.filter((operation) => operation !== "validate") : allOperations,
+    [contractScoped]
+  );
+  const permissionGroups = useMemo(
+    () => groupAuthorizationOperations(allowedOperations),
+    [allowedOperations]
+  );
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   return (
-    <article className="grant-row">
-      <div className="grant-identity"><strong>{grant.collection_name}</strong><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted local access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
-      <OperationChoices allowed={allowedOperations} selected={operations} onChange={setOperations} compact />
-      <div className="row-actions">
-        <button className="quiet-action" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations }); onNotice(`${grant.application_name} permissions were updated.`); })}>Save</button>
-        <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => { await window.mdbaseConnect.revokeGrant(grant.id); onNotice(`${grant.application_name} access was revoked.`); }); }}>Revoke</button>
+    <article className="grant-review">
+      <div className="grant-identity"><p className="eyebrow">Collection access</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted local access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
+      <div className="request-decision">
+        <section className="request-section">
+          <div><strong>Permissions</strong><small>{allowedOperations.length} available actions across {permissionGroups.length} {plural(permissionGroups.length, "category", "categories")}.</small></div>
+          <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
+        </section>
+        <footer className="request-footer">
+          <p>{grant.application_name} can use the selected actions on {grant.collection_name} until you revoke access.</p>
+          <div className="decision-actions">
+            <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => { await window.mdbaseConnect.revokeGrant(grant.id); onNotice(`${grant.application_name} access was revoked.`); }); }}>Revoke</button>
+            <button className="button primary" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations }); onNotice(`${grant.application_name} permissions were updated.`); })}>Save changes</button>
+          </div>
+        </footer>
       </div>
     </article>
   );
@@ -592,7 +610,7 @@ function Activity({ entries }: { entries: ActivityEntry[] }) {
   );
 }
 
-function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPairingComplete }: {
+function Settings({ startup, cloud, access, status, busy, onAct, onNotice }: {
   startup: StartupSetting;
   cloud: CloudSetting;
   access: AccessSnapshot;
@@ -600,17 +618,17 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice, onPai
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
-  onPairingComplete(): void;
 }) {
+  const connection = presentConnection(status, cloud);
   return (
     <div className="workspace-stack settings-stack">
-      {!cloud.configured ? <PairingPanel onComplete={onPairingComplete} /> : (
+      {!cloud.configured ? <PairingPanel /> : (
         <section>
           <SectionHeading title="Portal connection" note="Account and routing metadata for this computer." />
           <div className="settings-rows">
             <ComputerNameSetting account={access.account} online={access.online} busy={busy} onAct={onAct} onNotice={onNotice} />
             <SettingRow label="Server" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Control service reachable" : "Using cached local policy"} mono />
-            <SettingRow label="Connection" value={status?.state === "connected" ? "Connected" : "Offline"} detail="The relay connection is always outbound from this computer" />
+            <SettingRow label="Connection" value={connection.settingsLabel} detail="The relay connection is always outbound from this computer" />
             <SettingRow label="Direct access" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps on this computer can bypass the relay" />
           </div>
           <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from its portal? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
@@ -701,12 +719,13 @@ function ThemeSelect() {
   }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
 }
 
-function PairingPanel({ onComplete }: { onComplete(): void }) {
+function PairingPanel() {
   const [serverUrl, setServerUrl] = useState("https://connect.mdbase.dev");
   const [connectorName, setConnectorName] = useState("This computer");
   const [pairing, setPairing] = useState<{ pairingId: string; verificationUri: string } | null>(null);
   const [pairError, setPairError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   useEffect(() => {
     if (!pairing) return;
@@ -715,7 +734,7 @@ function PairingPanel({ onComplete }: { onComplete(): void }) {
         const result = await window.mdbaseConnect.pairingStatus(pairing.pairingId);
         if (result.status === "paired") {
           window.clearInterval(timer);
-          onComplete();
+          setCompleting(true);
         }
       } catch (error) {
         setPairError(message(error));
@@ -723,7 +742,7 @@ function PairingPanel({ onComplete }: { onComplete(): void }) {
       }
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [pairing, onComplete]);
+  }, [pairing]);
 
   async function begin(event: React.FormEvent) {
     event.preventDefault();
@@ -744,7 +763,14 @@ function PairingPanel({ onComplete }: { onComplete(): void }) {
       <div className="pairing-intro"><p className="eyebrow">Portal connection</p><h2>{pairing ? "Finish in your browser." : "Connect this computer."}</h2><p>{pairing ? "Sign in and approve the computer. This window will update automatically, and no token needs to be copied." : "A portal supplies identity and routing so authorized websites can find this connector. Collection paths remain local."}</p></div>
       {pairError && <div className="message error-message">{pairError}</div>}
       {pairing ? (
-        <div className="pairing-wait"><StatusDot state="paused" /><div><strong>Waiting for browser approval</strong><code>{pairing.verificationUri}</code></div><button className="quiet-action" onClick={() => setPairing(null)}>Start again</button></div>
+        <div className="pairing-wait" role="status" aria-live="polite">
+          <StatusDot state="connecting" />
+          <div>
+            <strong>{completing ? "Computer approved. Connecting securely…" : "Waiting for browser approval"}</strong>
+            {completing ? <small>mdbase connect is restarting with the new secure connection.</small> : <code>{pairing.verificationUri}</code>}
+          </div>
+          {!completing && <button className="quiet-action" onClick={() => setPairing(null)}>Start again</button>}
+        </div>
       ) : (
         <form className="pairing-form" onSubmit={(event) => void begin(event)}>
           <label><span>Server</span><input type="url" value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} /></label>
@@ -754,10 +780,6 @@ function PairingPanel({ onComplete }: { onComplete(): void }) {
       )}
     </section>
   );
-}
-
-function OperationChoices({ allowed, selected, onChange, compact = false }: { allowed: string[]; selected: string[]; onChange(value: string[]): void; compact?: boolean }) {
-  return <div className={`operation-choices ${compact ? "compact" : ""}`}>{allowed.map((operation) => <label key={operation}><input type="checkbox" checked={selected.includes(operation)} onChange={(event) => onChange(event.target.checked ? [...selected, operation] : selected.filter((value) => value !== operation))} /><span>{operation}</span>{!compact && <small>{operationDescription(operation)}</small>}</label>)}</div>;
 }
 
 function NavButton({ route, current, label, count, attention, onSelect }: { route: Route; current: Route; label: string; count?: number; attention?: number; onSelect(route: Route): void }) {
@@ -772,7 +794,7 @@ function Empty({ title, text, action, onAction }: { title: string; text: string;
   return <div className="empty-state"><div className="empty-folder" aria-hidden="true"><span /></div><h3>{title}</h3><p>{text}</p>{action && onAction && <button className="text-action" onClick={onAction}>{action}</button>}</div>;
 }
 
-function StatusDot({ state }: { state: "connected" | "paused" | "danger" | "idle" }) {
+function StatusDot({ state }: { state: ConnectionDotState }) {
   return <span className={`status-dot ${state}`} aria-hidden="true" />;
 }
 
@@ -814,10 +836,6 @@ function SettingSwitch({ className, label, description, checked, disabled, state
       </span>
     </label>
   );
-}
-
-function operationDescription(operation: string) {
-  return ({ read: "Open individual records", query: "Find and filter records", list_views: "See saved views", execute_view: "Run saved views", read_view_source: "Inspect saved-view definitions", create_view_source: "Create saved views", update_view_source: "Change saved views", delete_view_source: "Delete saved views", create: "Add records", update: "Change records", rename: "Move or rename records", delete: "Delete records", validate: "Check collection validity", read_type: "Inspect type definitions", create_type: "Add definitions that shape records", update_type: "Change definitions and compatibility", list_timers: "See timers owned by this application", put_timer: "Create or reschedule application timers", cancel_timer: "Cancel application timers", reconcile_timers: "Make an application timer set match its desired state" } as Record<string, string>)[operation] ?? operation;
 }
 
 function neededProvisions(

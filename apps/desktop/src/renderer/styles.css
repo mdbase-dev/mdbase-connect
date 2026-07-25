@@ -19,6 +19,15 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .error-message { color: var(--danger); border-color: color-mix(in oklch, var(--danger) 34%, var(--line)); }
 .notice-message { color: var(--connected); border-color: color-mix(in oklch, var(--connected) 34%, var(--line)); }
 .workspace-stack { display: grid; gap: 56px; margin-top: 32px; }
+.connection-progress { display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 24px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.connection-progress div { display: grid; gap: 4px; }
+.connection-progress strong { font-size: var(--type-body); font-weight: 700; }
+.connection-progress small, .pairing-wait small { color: var(--muted); font-size: var(--type-supporting); }
+.status-dot.connecting { background: var(--warning); animation: connection-pulse 1.1s ease-in-out infinite; }
+@keyframes connection-pulse {
+  0%, 100% { opacity: 0.38; transform: scale(0.78); }
+  50% { opacity: 1; transform: scale(1); }
+}
 
 .button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); font-family: var(--mono); font-size: var(--type-supporting); font-weight: 600; cursor: pointer; transition: color 160ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease); }
 .button:hover:not(:disabled) { border-color: var(--action); background: var(--hover); }
@@ -71,17 +80,17 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .collection-list, .grant-list, .activity-list { display: grid; margin-top: 10px; }
 .application-access-list { margin-top: 10px; border-top: 1px solid var(--line); }
 .application-grant-group { border-bottom: 1px solid var(--line); }
-.application-grant-group > summary { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; align-items: center; gap: 20px; min-height: 72px; cursor: pointer; list-style: none; }
+.application-grant-group > summary { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto; align-items: center; gap: 20px; min-height: 72px; cursor: pointer; list-style: none; outline: none; }
 .application-grant-group > summary::-webkit-details-marker { display: none; }
+.application-grant-group > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .application-grant-group > summary > div { display: grid; gap: 3px; min-width: 0; }
 .application-grant-group > summary strong { overflow: hidden; font-size: var(--type-row-title); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .application-grant-group > summary code, .application-grant-group > summary > span { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; white-space: nowrap; }
 .application-grant-group > summary b { color: var(--ink); font-family: var(--mono); font-size: var(--type-action); font-weight: 500; }
 .application-grant-group > summary b::after { content: " +"; color: var(--muted); }
 .application-grant-group[open] > summary b::after { content: " −"; }
-.application-grant-body { padding: 0 0 16px 20px; border-top: 1px solid var(--line); }
+.application-grant-body { padding: 0 0 16px; border-top: 1px solid var(--line); }
 .application-grant-body .grant-list { margin-top: 0; }
-.application-grant-body .grant-row:first-child { border-top: 0; }
 .application-grant-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 12px; }
 .application-grant-actions small { color: var(--muted); font-size: var(--type-action); }
 .collection-card { border-bottom: 1px solid var(--line); }
@@ -96,12 +105,19 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .path { display: block; max-width: 100%; margin: 5px 0 0; padding: 0; overflow: hidden; border: 0; color: var(--muted); background: transparent; font-family: var(--mono); font-size: var(--type-action); text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .path:hover { color: var(--ink); }
 .collection-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--type-supporting); }
-.collection-editor { display: grid; gap: 14px; padding: 16px 0 18px; border-top: 1px solid var(--line); }
-.collection-editor form { display: grid; grid-template-columns: minmax(160px, 0.7fr) minmax(260px, 1.3fr) auto; align-items: end; gap: 14px; }
-.collection-editor label { display: grid; gap: 5px; }
+.collection-editor { border-top: 1px solid var(--line); }
+.collection-editor-form { display: grid; }
+.collection-editor-section { display: grid; grid-template-columns: minmax(170px, 0.38fr) minmax(0, 1fr); gap: 28px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.collection-editor-section > div:first-child { display: grid; align-content: start; gap: 3px; }
+.collection-editor-section > div:first-child > strong { font-size: var(--type-body); }
+.collection-editor-section > div:first-child > small { color: var(--muted); font-size: var(--type-supporting); line-height: 1.45; }
+.collection-fields { display: grid; grid-template-columns: minmax(160px, 0.7fr) minmax(260px, 1.3fr); gap: 14px; }
+.collection-editor label { display: grid; align-content: start; gap: 5px; }
 .collection-editor textarea { min-height: 58px; padding: 8px 10px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--ink); background: var(--paper); font: inherit; font-size: var(--type-body); line-height: 1.45; }
-.editor-actions { display: flex; gap: 7px; }
-.collection-maintenance { display: flex; justify-content: space-between; gap: 12px; padding-top: 2px; }
+.collection-config-actions { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+.collection-editor-footer { padding: 14px 0; }
+.collection-danger-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 0 14px; }
+.collection-danger-row small { color: var(--muted); font-size: var(--type-action); }
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 3px; }
 .empty-state { display: grid; justify-items: start; padding: 32px 0 28px; border-bottom: 1px solid var(--line); text-align: left; }
 .empty-folder { display: none; }
@@ -151,17 +167,10 @@ input, select { width: 100%; min-height: 36px; padding: 0 10px; border: 1px soli
 .request-footer .decision-actions { display: flex; flex: 0 0 auto; }
 fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 fieldset legend { margin-bottom: 6px; }
-.operation-choices { display: grid; grid-template-columns: repeat(2, minmax(105px, 1fr)); gap: 5px 10px; }
-.operation-choices label { display: grid; grid-template-columns: 14px 76px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; cursor: pointer; }
-.operation-choices input { width: 13px; min-height: 13px; margin: 0; accent-color: var(--ink); }
-.operation-choices span { font-family: var(--mono); font-size: var(--type-action); }
-.operation-choices small { overflow: hidden; color: var(--muted); font-size: var(--type-action); text-overflow: ellipsis; white-space: nowrap; }
-.operation-choices.compact { display: flex; flex-wrap: wrap; gap: 7px 12px; }
-.operation-choices.compact label { display: flex; width: auto; padding: 0; border: 0; background: transparent; }
 .decision-actions { display: grid; gap: 6px; }
-.grant-row { display: grid; grid-template-columns: minmax(140px, 0.7fr) minmax(270px, 1.3fr) auto; align-items: center; gap: 18px; min-height: 72px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.grant-row:first-child { border-top: 1px solid var(--line); }
-.grant-identity strong { font-size: var(--type-row-title); font-weight: 700; }
+.grant-review { display: grid; grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr); align-items: start; gap: 32px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.grant-identity { padding-top: 2px; }
+.grant-identity h3 { margin: 0; font-size: 16px; font-weight: 700; }
 
 .manual-grant { display: grid; grid-template-columns: minmax(130px, 0.55fr) minmax(130px, 0.55fr) minmax(260px, 1.2fr) auto; align-items: end; gap: 17px; }
 .manual-grant h3 { margin: 0 0 3px; font-size: var(--type-body); font-weight: 620; }
@@ -213,24 +222,22 @@ fieldset legend { margin-bottom: 6px; }
   .request-panel { grid-template-columns: minmax(130px, 0.32fr) minmax(280px, 1fr); }
   .application-grant-group > summary { grid-template-columns: minmax(150px, 1fr) auto auto; }
   .application-grant-group > summary > span:last-of-type { display: none; }
-  .grant-row { grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1.3fr); }
-  .grant-row .row-actions { grid-column: 1 / -1; }
   .manual-grant { grid-template-columns: 1fr 1fr; }
-  .collection-editor form { grid-template-columns: 1fr 1fr; }
-  .editor-actions { grid-column: 1 / -1; justify-content: flex-end; }
 }
 @media (max-width: 780px) {
   .content { padding-inline: 24px; }
-  .request-panel, .request-section { grid-template-columns: 1fr; }
-  .request-panel { gap: 16px; }
+  .request-panel, .grant-review, .request-section, .collection-editor-section { grid-template-columns: 1fr; }
+  .request-panel, .grant-review { gap: 16px; }
   .request-section { gap: 8px; }
+  .collection-editor-section { gap: 10px; }
+  .collection-fields { grid-template-columns: 1fr; }
   .request-footer { align-items: flex-start; flex-direction: column; }
   .readiness-panel, .pairing-panel { grid-template-columns: 1fr; gap: 24px; }
   .application-grant-group > summary { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 10px 0; }
   .application-grant-group > summary > span { grid-column: 1; }
   .application-grant-group > summary > b { grid-column: 2; grid-row: 1; }
-  .application-grant-body { padding-left: 12px; }
   .application-grant-actions { align-items: flex-start; flex-direction: column; }
+  .collection-danger-row { align-items: flex-start; flex-direction: column; }
   .overview-row { grid-template-columns: 95px minmax(0, 1fr) auto; }
   .pairing-form { grid-template-columns: 1fr; }
   .pairing-form .button { grid-column: 1; }
