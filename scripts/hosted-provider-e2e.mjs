@@ -298,12 +298,19 @@ try {
   const quotaToken = `quota-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    // Exercise the pre-display-name control-plane document during rolling upgrades.
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: {
+      collection_id: quotaCollectionId,
+      template: "tasknotes",
+      display_name: "Quota tasks"
+    }
   });
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: quotaCollectionId, template: "tasknotes" }
+    body: {
+      collection_id: quotaCollectionId,
+      template: "tasknotes",
+      display_name: "Quota tasks"
+    }
   });
   await internalRequest(
     quotaProvider.url,
