@@ -25,6 +25,12 @@ describe("mdbase MCP gateway", () => {
       authorization_servers: ["https://mcp.example"],
       scopes_supported: ["mdbase:read", "mdbase:write"]
     });
+    const manifest = await app.inject({ method: "GET", url: "/.well-known/mdbase-app.json" });
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.json().requirements).toEqual({
+      access: "full_collection",
+      contracts: []
+    });
     const denied = await app.inject({
       method: "POST",
       url: "/mcp",

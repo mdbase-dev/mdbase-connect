@@ -36,7 +36,7 @@ export async function buildApp(options: BuildOptions) {
     name: "mdbase",
     homepage: config.publicUrl,
     redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
-    requirements: { contracts: [] },
+    requirements: { access: "full_collection", contracts: [] },
     provisions: { types: [] }
   };
   const gateway = new ConnectGateway(
