@@ -1122,6 +1122,13 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (typeof collectionId !== "string") {
       throw new MdbaseConnectError("invalid_token_response", "Authorization returned no collection ID.");
     }
+    const scope = parseGrantScope(body.scope);
+    if (!scope) {
+      throw new MdbaseConnectError(
+        "invalid_token_response",
+        "Authorization returned no valid collection scope."
+      );
+    }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
     const token: StoredToken = {
@@ -1131,7 +1138,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       collectionId,
       collectionName: body.collection_name ?? `Collection ${collectionId.slice(0, 8)}`,
       operations: body.operations,
-      scope: body.scope ?? { contracts: [] },
+      scope,
       expiresAt: Date.now() + body.expires_in * 1_000,
       refreshExpiresAt: body.refresh_expires_in
         ? Date.now() + body.refresh_expires_in * 1_000
@@ -1272,7 +1279,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   get scope(): GrantScope {
-    return this.currentToken()?.scope ?? { contracts: [] };
+    const scope = this.currentToken()?.scope;
+    if (!scope) {
+      throw new MdbaseConnectError(
+        "not_authorized",
+        "This collection is no longer authorized for this application."
+      );
+    }
+    return scope;
   }
 
   get directAccess(): DirectAccessStatus {
@@ -2267,7 +2281,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private currentToken(): StoredToken | null {
     const token = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
     if (!token) return null;
-    token.scope ??= { contracts: [] };
+    if (!parseGrantScope(token.scope)) {
+      this.internals.removeToken(this.collectionId, token.keyHandle);
+      return null;
+    }
     if (token.expiresAt <= Date.now()
         && (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now())) {
       // The cloud bearer and the local grant proof have separate lifetimes. Keep an
@@ -2715,6 +2732,20 @@ function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
 function parseStored<T>(value: string | null): T | null {
   if (!value) return null;
   try { return JSON.parse(value) as T; } catch { return null; }
+}
+
+function parseGrantScope(value: unknown): GrantScope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const scope = value as Partial<GrantScope>;
+  if (scope.access !== "contract" && scope.access !== "full_collection") return null;
+  if (!Array.isArray(scope.contracts)) return null;
+  if (scope.contracts.some((contract) =>
+    !contract
+    || typeof contract !== "object"
+    || typeof contract.id !== "string"
+    || !Number.isInteger(contract.version)
+  )) return null;
+  return scope as GrantScope;
 }
 
 function stripTrailingSlash(value: string): string {

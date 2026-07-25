@@ -1013,7 +1013,7 @@ mod tests {
                 application_id,
                 collection_id: collection.id,
                 operations: vec!["describe".to_string()],
-                scope: GrantScope::default(),
+                scope: GrantScope::full_collection(),
                 application_name: "Encrypted application".to_string(),
                 application_homepage: "https://example.test".to_string(),
                 application_origin: "https://example.test".to_string(),

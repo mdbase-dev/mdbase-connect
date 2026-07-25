@@ -181,7 +181,7 @@ impl CollectionRegistry {
                 application_id TEXT NOT NULL,
                 collection_id TEXT NOT NULL,
                 operations TEXT NOT NULL,
-                scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}',
+                scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}',
                 application_name TEXT NOT NULL DEFAULT 'Application',
                 application_homepage TEXT NOT NULL DEFAULT '',
                 application_origin TEXT NOT NULL DEFAULT '',
@@ -245,7 +245,7 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN application_icon TEXT",
             "ALTER TABLE grants ADD COLUMN collection_name TEXT NOT NULL DEFAULT 'Collection'",
             "ALTER TABLE grants ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
-            "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[]}'",
+            "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
             "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE collections ADD COLUMN description TEXT",
@@ -261,6 +261,10 @@ impl CollectionRegistry {
                 }
             }
         }
+        connection.execute(
+            "DELETE FROM grants WHERE json_extract(scope, '$.access') IS NULL",
+            [],
+        )?;
         // Registries created before the bounded replay window cannot safely distinguish a fresh
         // out-of-order counter from one accepted before counters were recorded. Start their
         // reorder window above the previous high-water mark; new keys start at zero.
@@ -902,9 +906,7 @@ impl CollectionRegistry {
         collection: &Collection,
         scope: &GrantScope,
     ) -> Result<Option<BTreeSet<String>>, ConnectError> {
-        if scope.access == Some(mdbase_connect_protocol::ApplicationAccess::FullCollection)
-            || (scope.access.is_none() && scope.contracts.is_empty())
-        {
+        if scope.access == mdbase_connect_protocol::ApplicationAccess::FullCollection {
             return Ok(None);
         }
         if scope.contracts.is_empty() {
@@ -2296,7 +2298,7 @@ mod tests {
                 &json!({}),
                 &GrantScope {
                     contracts: vec![],
-                    access: Some(mdbase_connect_protocol::ApplicationAccess::FullCollection),
+                    access: mdbase_connect_protocol::ApplicationAccess::FullCollection,
                 }
             ),
             Err(ConnectError::AccessDenied(message)) if message.contains("disabled")
@@ -2401,7 +2403,7 @@ schema:
                 id: "some.app".to_string(),
                 version: 1,
             }],
-            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
         };
         assert!(matches!(
             registry.scoped_operation(
@@ -2529,7 +2531,7 @@ x-tasknotes:
                 id: "tasknotes.task".to_string(),
                 version: 1,
             }],
-            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
         };
         let barrier = Arc::new(Barrier::new(3));
 
@@ -2723,12 +2725,12 @@ schema:
                 id: "tasknotes.task".to_string(),
                 version: 1,
             }],
-            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
         };
 
         let empty_contract_scope = GrantScope {
             contracts: vec![],
-            access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
         };
         assert!(matches!(
             registry.scoped_operation(
@@ -2739,14 +2741,11 @@ schema:
             ),
             Err(ConnectError::AccessDenied(message)) if message.contains("at least one")
         ));
-        let legacy_full_scope = GrantScope::default();
-        let legacy_query = registry
-            .scoped_operation(collection.id, "query", &json!({}), &legacy_full_scope)
+        let full_scope = GrantScope::full_collection();
+        let full_query = registry
+            .scoped_operation(collection.id, "query", &json!({}), &full_scope)
             .unwrap();
-        assert_eq!(
-            legacy_query["result"]["results"].as_array().unwrap().len(),
-            2
-        );
+        assert_eq!(full_query["result"]["results"].as_array().unwrap().len(), 2);
 
         assert!(registry
             .is_compatible(
@@ -3041,7 +3040,7 @@ views:
             application_id: Uuid::new_v4(),
             collection_id: Uuid::new_v4(),
             operations: vec!["read".to_string(), "query".to_string()],
-            scope: GrantScope::default(),
+            scope: GrantScope::full_collection(),
             application_name: "Workout Tracker".to_string(),
             application_homepage: "https://workouts.example".to_string(),
             application_origin: "https://workouts.example".to_string(),
@@ -3249,7 +3248,7 @@ views:
             application_id: Uuid::new_v4(),
             collection_id: Uuid::new_v4(),
             operations: vec!["read".to_string()],
-            scope: GrantScope::default(),
+            scope: GrantScope::full_collection(),
             application_name: "Encrypted app".to_string(),
             application_homepage: "https://app.example".to_string(),
             application_origin: "https://app.example".to_string(),

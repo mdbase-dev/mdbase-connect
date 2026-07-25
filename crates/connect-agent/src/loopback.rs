@@ -798,7 +798,7 @@ mod tests {
                 ]
                 .map(str::to_string)
                 .to_vec(),
-                scope: GrantScope::default(),
+                scope: GrantScope::full_collection(),
                 application_name: "Tasks".to_string(),
                 application_homepage: origin.clone(),
                 application_origin: origin.clone(),

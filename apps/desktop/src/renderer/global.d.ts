@@ -56,6 +56,7 @@ interface ApplicationNotifications {
 
 interface GrantScope {
   contracts: ContractRequirement[];
+  access: "contract" | "full_collection";
 }
 
 interface StartupSetting {

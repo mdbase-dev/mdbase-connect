@@ -506,7 +506,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const subscribe = vi.fn().mockResolvedValue({
@@ -589,7 +589,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const getSubscription = vi.fn();
@@ -657,7 +657,7 @@ describe("mobile notifications", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -733,7 +733,7 @@ describe("mobile notifications", () => {
       collectionId: TEST_COLLECTION_ID,
       collectionName: "TaskNotes",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       savedAt: Date.now()
     }));
@@ -922,7 +922,7 @@ describe("authorization renewal", () => {
         collectionId,
         collectionName,
         operations: ["query"],
-        scope: { contracts: [] },
+        scope: { contracts: [], access: "full_collection" },
         expiresAt: Date.now() + 60_000,
         savedAt: Date.now()
       }));
@@ -945,6 +945,36 @@ describe("authorization renewal", () => {
     manager.connection(TEST_COLLECTION_ID)!.forget();
     expect(manager.connection(TEST_COLLECTION_ID)).toBeNull();
     expect(manager.connection(secondId)?.displayName).toBe("Studio tasks");
+  });
+
+  it("drops saved authorizations that predate explicit collection scope", () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/manifest.json";
+    const tokenKey = storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID);
+    storage.setItem(tokenKey, JSON.stringify({
+      accessToken: "legacy-token",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Old tasks",
+      operations: ["query"],
+      expiresAt: Date.now() + 60_000,
+      savedAt: Date.now(),
+    }));
+    storage.setItem(
+      `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
+      JSON.stringify([TEST_COLLECTION_ID]),
+    );
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest: manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+    });
+
+    expect(manager.connection(TEST_COLLECTION_ID)).toBeNull();
+    expect(manager.connections()).toEqual([]);
+    expect(storage.getItem(tokenKey)).toBeNull();
   });
 
   it("passes an exact collection hint and return location through authorization", async () => {
@@ -1009,7 +1039,7 @@ describe("authorization renewal", () => {
       collectionId: TEST_COLLECTION_ID,
       collectionName: "Saved tasks",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       savedAt: Date.now()
     }));
@@ -1058,7 +1088,7 @@ describe("authorization renewal", () => {
       collection_id: TEST_COLLECTION_ID,
       collection_name: "Tasks",
       operations: ["query"],
-      scope: { contracts: [] }
+      scope: { contracts: [], access: "full_collection" }
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const connect = new MdbaseConnect({
       serverUrl,
@@ -1094,7 +1124,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "read"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000
     }));
@@ -1150,7 +1180,7 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [] },
+      scope: { contracts: [], access: "full_collection" },
       expiresAt: Date.now() + 60_000
     }));
     const manager = new MdbaseConnect({
@@ -1220,7 +1250,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: {
+        contracts: [{ id: "tasknotes.task", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1260,7 +1293,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "create", "update", "delete"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: {
+        contracts: [{ id: "tasknotes.task", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
       hosted: {
@@ -1313,7 +1349,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: {
+        contracts: [{ id: "tasknotes.task", version: 1 }],
+        access: "contract",
+      },
       expiresAt: Date.now() - 1,
       refreshExpiresAt: Date.now() + 60_000
     }));
@@ -1325,7 +1364,10 @@ describe("authorization renewal", () => {
         refresh_expires_in: 2_592_000,
         collection_id: "00000000-0000-0000-0000-000000000002",
         operations: ["query"],
-        scope: { contracts: [{ id: "tasknotes.task", version: 1 }] }
+        scope: {
+          contracts: [{ id: "tasknotes.task", version: 1 }],
+          access: "contract",
+        }
       }), { status: 200, headers: { "content-type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ok: true,
@@ -1359,7 +1401,10 @@ describe("authorization renewal", () => {
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
-      scope: { contracts: [{ id: "tasknotes.task", version: 1 }] },
+      scope: {
+        contracts: [{ id: "tasknotes.task", version: 1 }],
+        access: "contract",
+      },
       refreshExpiresAt: Date.now() + 60_000
     };
     storage.setItem(tokenKey, JSON.stringify({
@@ -1728,7 +1773,7 @@ async function encryptedConnection() {
       "describe", "changes", "read", "query", "list_views", "execute_view", "validate", "create", "update", "delete", "rename",
       "read_type", "create_type", "update_type"
     ],
-    scope: { contracts: [] },
+    scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     refreshExpiresAt: Date.now() + 120_000,
     grantId: "01911111-1111-7111-8111-111111111111",
@@ -1766,7 +1811,7 @@ function progressConnection() {
     collectionId: TEST_COLLECTION_ID,
     collectionName: "Tasks",
     operations: ["rename", "delete"],
-    scope: { contracts: [] },
+    scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     grantId: "00000000-0000-0000-0000-000000000003",
     encryption: {

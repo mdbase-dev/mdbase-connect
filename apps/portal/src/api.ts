@@ -146,4 +146,5 @@ export interface ApplicationNotifications {
 
 export interface GrantScope {
   contracts: ContractRequirement[];
+  access: "contract" | "full_collection";
 }

@@ -454,7 +454,7 @@ mod tests {
             operations: vec!["changes".to_string()],
             scope: GrantScope {
                 contracts: Vec::new(),
-                access: Some(ApplicationAccess::Contract),
+                access: ApplicationAccess::Contract,
             },
             notification_criteria: vec![NotificationCriterion {
                 id: "task.ready".to_string(),
@@ -499,7 +499,7 @@ mod tests {
                 application_id: Uuid::new_v4(),
                 collection_id: collection.id,
                 operations: vec!["changes".to_string()],
-                scope: GrantScope::default(),
+                scope: GrantScope::full_collection(),
                 application_name: "Tasks".to_string(),
                 application_homepage: "https://tasks.example".to_string(),
                 application_origin: "https://tasks.example".to_string(),
@@ -674,7 +674,7 @@ mod tests {
                 application_id: Uuid::new_v4(),
                 collection_id: collection.id,
                 operations: vec!["reconcile_timers".to_string()],
-                scope: GrantScope::default(),
+                scope: GrantScope::full_collection(),
                 application_name: "Tasks".to_string(),
                 application_homepage: "https://tasks.example".to_string(),
                 application_origin: "https://tasks.example".to_string(),

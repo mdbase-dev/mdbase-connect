@@ -250,7 +250,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
         collection_id: second ? secondCollectionId : firstCollectionId,
         collection_name: second ? "Second collection" : "First collection",
         operations: ["describe", "changes", "read", "query", "validate", "read_type", "create", "update", "delete", "rename", "create_type", "update_type"],
-        scope: { contracts: [] },
+        scope: { contracts: [], access: "full_collection" },
         grant_id: second ? secondGrantId : firstGrantId,
         encryption: second ? null : {
           protocol_version: 1,

@@ -537,13 +537,20 @@ pub struct NotificationPresentation {
     pub tag: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrantScope {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
-    /// Explicit collection boundary. `None` is retained for legacy grants only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access: Option<ApplicationAccess>,
+    pub access: ApplicationAccess,
+}
+
+impl GrantScope {
+    pub fn full_collection() -> Self {
+        Self {
+            contracts: Vec::new(),
+            access: ApplicationAccess::FullCollection,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -560,7 +567,6 @@ pub struct GrantSummary {
     pub collection_id: Uuid,
     pub collection_name: String,
     pub operations: Vec<String>,
-    #[serde(default)]
     pub scope: GrantScope,
     #[serde(default)]
     pub notification_criteria: Vec<NotificationCriterion>,
@@ -629,7 +635,6 @@ pub struct GrantPolicy {
     pub application_id: Uuid,
     pub collection_id: Uuid,
     pub operations: Vec<String>,
-    #[serde(default)]
     pub scope: GrantScope,
     #[serde(default = "default_application_name")]
     pub application_name: String,
@@ -851,7 +856,7 @@ mod tests {
                     application_id: ids[3],
                     collection_id: ids[2],
                     operations: vec!["query".to_string()],
-                    scope: GrantScope::default(),
+                    scope: GrantScope::full_collection(),
                     application_name: "Tasks".to_string(),
                     application_homepage: "https://tasks.example".to_string(),
                     application_origin: "https://tasks.example".to_string(),
