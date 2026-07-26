@@ -61,5 +61,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=mdbase-editor --branch=main
-          packageManager: pnpm
+          packageManager: npm
           wranglerVersion: "4.114.0"
