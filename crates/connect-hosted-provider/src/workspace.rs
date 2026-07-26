@@ -380,6 +380,14 @@ fn operation_input(
             if let Some(revision) = &mutation.base_revision {
                 input.insert("if_revision".to_string(), Value::String(revision.clone()));
             }
+            if mutation
+                .input
+                .get("include_document")
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                input.insert("include_document".to_string(), Value::Bool(true));
+            }
             Ok((Value::Object(input), Some(from.to_string())))
         }
         SyncMutationOperation::Delete => {
@@ -595,6 +603,62 @@ schema:
                 .frontmatter
                 .get("status"),
             Some(&json!("done"))
+        );
+    }
+
+    #[test]
+    fn reads_and_replaces_exact_markdown_documents() {
+        let record_id = Uuid::new_v4();
+        let replica_id = Uuid::new_v4();
+        let original =
+            "\u{feff}---\r\ntype: task\r\ntitle: \"Exact title\" # keep this\r\ncustom: null\r\n---\r\nBody  \r\n";
+        let mut workspace = WorkingSet::materialize(
+            resources(),
+            [StoredDocument {
+                record_id,
+                path: "tasks/exact.md".to_string(),
+                document: original.to_string(),
+            }],
+        )
+        .unwrap();
+
+        let read = workspace
+            .read_operation(
+                "read",
+                &json!({"path": "tasks/exact.md", "include_document": true}),
+            )
+            .unwrap();
+        assert!(read.valid, "{:?}", read.diagnostics);
+        assert_eq!(read.result["document"], json!(original));
+        let revision = read.result["revision"].as_str().unwrap().to_string();
+
+        let replacement =
+            "---\r\ntype: task\r\ntitle: 'Replacement'\r\ncustom: null # persisted null\r\n---\r\nNew body\r\n";
+        let updated = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Update,
+                record_id,
+                base_revision: Some(revision),
+                input: Map::from_iter([("document".to_string(), json!(replacement))]),
+                created_at: "2026-07-21T00:00:01Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+
+        assert!(updated.envelope.valid, "{:?}", updated.envelope.diagnostics);
+        assert_eq!(updated.envelope.result["document"], json!(replacement));
+        assert_eq!(updated.changed[0].2.as_deref(), Some(replacement));
+        assert_eq!(
+            updated.changed[0]
+                .1
+                .as_ref()
+                .unwrap()
+                .frontmatter
+                .get("custom"),
+            Some(&Value::Null)
         );
     }
 

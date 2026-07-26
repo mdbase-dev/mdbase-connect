@@ -2672,6 +2672,11 @@ impl HostedProvider {
                 ))
             });
         }
+        let include_document = operation_input
+            .get("include_document")
+            .and_then(Value::as_bool)
+            == Some(true)
+            || operation_input.contains_key("document");
         let mutation = SyncMutation {
             mutation_id: Uuid::new_v4(),
             replica_id: replica.id,
@@ -2708,7 +2713,10 @@ impl HostedProvider {
                         .execute_read_operation(
                             collection_id,
                             "read",
-                            &json!({"path": record.path.clone()}),
+                            &json!({
+                                "path": record.path.clone(),
+                                "include_document": include_document,
+                            }),
                         )
                         .await?;
                     if !document.valid {

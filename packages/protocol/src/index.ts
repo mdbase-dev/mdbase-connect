@@ -574,6 +574,12 @@ export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
   frontmatter: Frontmatter;
   effective_frontmatter: Frontmatter;
   body: string;
+  /**
+   * The exact UTF-8 Markdown source, including frontmatter delimiters,
+   * comments, quoting, whitespace, line endings, and trailing newline.
+   * Returned only when the operation requests it.
+   */
+  document?: string;
   file: CollectionFileMetadata;
 }
 

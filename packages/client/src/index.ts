@@ -342,6 +342,8 @@ export function showMdbasePushNotification(
 
 export interface ReadInput {
   path: string;
+  /** Include the exact UTF-8 Markdown source in `result.document`. */
+  include_document?: boolean;
 }
 
 export interface QueryInput {
@@ -436,14 +438,33 @@ export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   frontmatter: Partial<Frontmatter> & JsonObject;
   body?: string;
   if_revision?: string;
+  /** Include the resulting exact Markdown source in `result.document`. */
+  include_document?: boolean;
 }
 
-export interface UpdateInput<Frontmatter extends JsonObject = JsonObject> {
+interface UpdateInputBase {
   path: string;
-  patch: Partial<Frontmatter> & JsonObject;
-  body?: string;
   if_revision?: string;
+  /** Include the resulting exact Markdown source in `result.document`. */
+  include_document?: boolean;
 }
+
+export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInputBase & (
+  | {
+    patch: Partial<Frontmatter> & JsonObject;
+    body?: string;
+    document?: never;
+  }
+  | {
+    /**
+     * Replace the complete Markdown source. This is mutually exclusive with
+     * `patch` and `body`, and implies `include_document`.
+     */
+    document: string;
+    patch?: never;
+    body?: never;
+  }
+);
 
 export interface DeleteInput {
   path: string;
@@ -470,6 +491,8 @@ export interface RenameInput {
   to: string;
   update_refs?: boolean;
   if_revision?: string;
+  /** Include the resulting exact Markdown source in `result.document`. */
+  include_document?: boolean;
 }
 
 export interface RenameResult extends RecordDocument {
