@@ -400,7 +400,9 @@ Before changing files, a Node mirror takes an exclusive device-local folder
 lease. `mdbase-mirror watch` holds it until the watcher stops; one-shot sync and
 conflict operations hold it for their complete critical section. Another
 desktop process receives `mirror_folder_in_use` rather than running a second
-engine over the same folder.
+engine over the same folder. Lease files use one OS-user-wide namespace that
+cannot be redirected with `MDBASE_CONNECT_MIRROR_STATE_DIR`, so clients with
+separate credential/state roots still contend for the same physical folder.
 
 Incoming documents use temporary files and atomic rename where the platform
 supports them. The watcher recognizes writes made by the mirror from the saved

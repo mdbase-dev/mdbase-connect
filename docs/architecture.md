@@ -54,8 +54,10 @@ safety.
 Mirror processes also take an exclusive device-local lease keyed by the
 folder's canonical path and filesystem identity. A long-running watcher holds
 the lease for its lifetime, so the desktop mirror and an Obsidian mirror plugin
-cannot manage the same physical folder concurrently. Custom mirror adapters
-must provide the equivalent lease when they cannot use the Node adapter.
+cannot manage the same physical folder concurrently even when the clients keep
+separate application-state directories. The Node adapter uses one fixed
+OS-user-wide lease namespace; custom mirror adapters must provide equivalent
+cross-application exclusion when they cannot use it.
 
 The control plane provides the final identity-level fence. If a connector
 publishes the ID of an active hosted collection, it is retained only as a

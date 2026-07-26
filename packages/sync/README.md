@@ -42,7 +42,8 @@ The folder contains only a non-secret `.mdbase/connect-role.json` marker that
 identifies it as a hosted mirror. A local Connect agent will not register or
 relay that folder. Mirror operations also use an exclusive device-local lease;
 `watch` holds it for its lifetime, so a desktop mirror and an Obsidian mirror
-plugin cannot run over the same physical folder.
+plugin cannot run over the same physical folder. The lock namespace is shared
+per OS user and is independent of each client's credential/state directory.
 
 `promote` requires a converged, full writable mirror and a running local
 `mdbase-connect` agent. It opens a browser confirmation, freezes hosted writes

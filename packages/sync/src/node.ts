@@ -184,17 +184,15 @@ interface MirrorLeaseRecord {
  * Cross-process exclusion for a physical mirror folder.
  *
  * The lease is device-local and keyed by canonical path plus filesystem
- * identity, just like mirror state. It therefore does not leak paths into the
- * collection or travel through another file-sync product.
+ * identity. Unlike credentials and mirror state, its base directory cannot be
+ * overridden per client: Electron and Obsidian must contend in the same
+ * OS-user-wide namespace even when they keep separate application state.
  */
 export class NodeMirrorLease implements MirrorLease {
-  constructor(
-    private readonly root: string,
-    private readonly stateRoot = process.env.MDBASE_CONNECT_MIRROR_STATE_DIR
-  ) {}
+  constructor(private readonly root: string) {}
 
   async acquire(): Promise<AcquiredMirrorLease> {
-    const directory = await mirrorDeviceDirectory(this.root, this.stateRoot);
+    const directory = await mirrorLeaseDirectory(this.root);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, "mirror.lock");
     const record: MirrorLeaseRecord = {
@@ -245,14 +243,7 @@ export class NodeMirrorLease implements MirrorLease {
 }
 
 export async function mirrorDeviceDirectory(root: string, stateRoot?: string): Promise<string> {
-  const resolvedRoot = resolve(root);
-  const canonicalRoot = await realpath(resolvedRoot);
-  const rootIdentity = await stat(canonicalRoot);
-  const digest = createHash("sha256")
-    .update(canonicalRoot)
-    .update("\0")
-    .update(`${rootIdentity.dev}:${rootIdentity.ino}:${rootIdentity.birthtimeMs}`)
-    .digest("hex");
+  const { resolvedRoot, canonicalRoot, digest } = await mirrorFolderIdentity(root);
   const base = stateRoot
     ? resolve(stateRoot)
     : process.platform === "darwin"
@@ -277,6 +268,39 @@ export async function mirrorDeviceDirectory(root: string, stateRoot?: string): P
     );
   }
   return join(base, "mirrors", digest);
+}
+
+/**
+ * Return the one per-user lease directory for a physical folder.
+ *
+ * This deliberately ignores MDBASE_CONNECT_MIRROR_STATE_DIR, XDG_STATE_HOME,
+ * and LOCALAPPDATA. Those are valid per-application state choices, but allowing
+ * them to choose the lock namespace would let two clients bypass exclusion.
+ */
+export async function mirrorLeaseDirectory(root: string): Promise<string> {
+  const { digest } = await mirrorFolderIdentity(root);
+  const base = process.platform === "darwin"
+    ? join(homedir(), "Library", "Application Support", "mdbase-connect")
+    : process.platform === "win32"
+      ? join(homedir(), "AppData", "Local", "mdbase-connect")
+      : join(homedir(), ".local", "state", "mdbase-connect");
+  return join(base, "mirror-leases", digest);
+}
+
+async function mirrorFolderIdentity(root: string): Promise<{
+  resolvedRoot: string;
+  canonicalRoot: string;
+  digest: string;
+}> {
+  const resolvedRoot = resolve(root);
+  const canonicalRoot = await realpath(resolvedRoot);
+  const rootIdentity = await stat(canonicalRoot);
+  const digest = createHash("sha256")
+    .update(canonicalRoot)
+    .update("\0")
+    .update(`${rootIdentity.dev}:${rootIdentity.ino}:${rootIdentity.birthtimeMs}`)
+    .digest("hex");
+  return { resolvedRoot, canonicalRoot, digest };
 }
 
 function isWithinDirectory(candidate: string, directory: string): boolean {
