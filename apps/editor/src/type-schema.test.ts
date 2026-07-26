@@ -86,9 +86,9 @@ describe("visual type source editing", () => {
   it("reports how a change affects currently indexed notes", () => {
     const next = setTypeFieldRequired(addTypeField(source), "field", true);
     const notes: NoteSummary[] = [
-      { path: "one.md", frontmatter: { type: "task", title: "One" }, types: ["task"] },
-      { path: "two.md", frontmatter: { type: "task", title: "Two", field: "present" }, types: ["task"] },
-      { path: "other.md", frontmatter: {}, types: [] }
+      noteSummary("one.md", { type: "task", title: "One" }, ["task"]),
+      noteSummary("two.md", { type: "task", title: "Two", field: "present" }, ["task"]),
+      noteSummary("other.md", {}, [])
     ];
 
     expect(typeImpact(source, next, notes, "task")).toMatchObject({
@@ -247,9 +247,9 @@ describe("recursive visual type source editing", () => {
     const value = contacts.item!.fields.find((field) => field.name === "value")!;
     const next = setTypeFieldRequired(recursiveSource, value.path, true);
     const notes: NoteSummary[] = [
-      { path: "complete.md", frontmatter: { type: "person", contacts: [{ kind: "email", value: "a@example.com" }] }, types: ["person"] },
-      { path: "missing.md", frontmatter: { type: "person", contacts: [{ kind: "phone" }] }, types: ["person"] },
-      { path: "without-optional-list.md", frontmatter: { type: "person" }, types: ["person"] }
+      noteSummary("complete.md", { type: "person", contacts: [{ kind: "email", value: "a@example.com" }] }, ["person"]),
+      noteSummary("missing.md", { type: "person", contacts: [{ kind: "phone" }] }, ["person"]),
+      noteSummary("without-optional-list.md", { type: "person" }, ["person"])
     ];
     expect(typeImpact(recursiveSource, next, notes, "person")).toMatchObject({
       newlyRequired: ["contacts[].value"],
@@ -284,3 +284,23 @@ describe("recursive visual type source editing", () => {
     expect(readVisualType(next)).toMatchObject({ pathGlobs: [], fieldsPresent: [] });
   });
 });
+
+function noteSummary(
+  path: string,
+  frontmatter: NoteSummary["frontmatter"],
+  types: string[]
+): NoteSummary {
+  return {
+    path,
+    frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
+    types,
+    file: {
+      path,
+      name: path,
+      folder: "",
+      size: 0,
+      mtime: ""
+    }
+  };
+}

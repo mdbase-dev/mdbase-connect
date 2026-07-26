@@ -1,27 +1,25 @@
 import type {
   CollectionDescription,
   CollectionChange,
-  CollectionFileMetadata,
   CollectionTypeDocument,
   JsonObject,
   MdbaseDiagnostic,
   MutationProgress,
   RenamePreflightResult,
   DeletePreflightResult,
-  RecordResult,
-  RecordSummary,
+  RecordDocument,
+  QueryRecord,
   WatchStatus
 } from "@mdbase/connect";
 
 export type NoteFrontmatter = JsonObject;
 
-export interface NoteSummary extends RecordSummary<NoteFrontmatter> {
-  file?: CollectionFileMetadata;
+export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
+  frontmatter: NoteFrontmatter;
+  effective_frontmatter: NoteFrontmatter;
 }
 
-export interface NoteDocument extends RecordResult<NoteFrontmatter> {
-  file?: CollectionFileMetadata;
-}
+export type NoteDocument = RecordDocument<NoteFrontmatter>;
 
 export interface CollectionSnapshot {
   description: CollectionDescription;

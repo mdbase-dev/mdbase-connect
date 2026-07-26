@@ -73,13 +73,14 @@ const eventNote: NoteDocument = {
     event_date: "2026-07-21",
     starts_at: "2026-07-21T05:15:30.000Z"
   },
-  raw_frontmatter: {
+  effective_frontmatter: {
     event_date: "2026-07-21",
     starts_at: "2026-07-21T05:15:30.000Z"
   },
   body: "# Planning\n",
   types: ["event"],
-  revision: "revision-1"
+  revision: "revision-1",
+  file: { name: "planning.md", folder: "Events", size: 0, mtime: "" }
 };
 
 const contactType: CollectionTypeDescriptor = {
@@ -114,11 +115,12 @@ const contactNote: NoteDocument = {
     profile: { display_name: "Ada" },
     contacts: [{ kind: "email", value: "ada@example.com" }]
   },
-  raw_frontmatter: {
+  effective_frontmatter: {
     profile: { display_name: "Ada" },
     contacts: [{ kind: "email", value: "ada@example.com" }]
   },
   body: "# Ada\n",
   types: ["contact"],
-  revision: "revision-2"
+  revision: "revision-2",
+  file: { name: "ada.md", folder: "People", size: 0, mtime: "" }
 };

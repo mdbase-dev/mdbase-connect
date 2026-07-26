@@ -99,7 +99,10 @@ function pathMatchRank(path: string, query: string): number {
 }
 
 function noteAliases(note: NoteSummary): string[] {
-  const values = [note.frontmatter.aliases, note.frontmatter.alias];
+  const values = [
+    note.effective_frontmatter.aliases,
+    note.effective_frontmatter.alias
+  ];
   const aliases = values.flatMap((value) => {
     if (typeof value === "string") return value.split(",");
     if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
@@ -173,7 +176,7 @@ function linkIndex(notes: NoteSummary[]): LinkIndex {
   for (const note of notes) {
     index.paths.set(note.path, note);
     index.foldedPaths.set(note.path.toLocaleLowerCase(), note);
-    const id = note.frontmatter.id;
+    const id = note.effective_frontmatter.id;
     if (typeof id === "string") appendIndex(index.ids, id, note);
     appendIndex(index.filenames, basename(note.path), note);
   }

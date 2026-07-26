@@ -34,6 +34,7 @@ describe("collection links", () => {
       {
         ...note("People/ada.md", "Ada Lovelace"),
         frontmatter: { title: "Ada Lovelace", aliases: ["Ada", "Countess of Lovelace"] },
+        effective_frontmatter: { title: "Ada Lovelace", aliases: ["Ada", "Countess of Lovelace"] },
         types: ["person", "legacy"]
       },
       { ...note("Notes/ada.md", "Ada notes"), types: ["note"] }
@@ -55,7 +56,8 @@ function note(path: string, title: string, links: unknown[] = [], embeds: unknow
   return {
     path,
     frontmatter: { title },
+    effective_frontmatter: { title },
     types: [],
-    file: { name: path.split("/").at(-1)!, folder: path.split("/").slice(0, -1).join("/"), size: 1, mtime: "", links, embeds }
+    file: { path, name: path.split("/").at(-1)!, folder: path.split("/").slice(0, -1).join("/"), size: 1, mtime: "", links, embeds }
   };
 }

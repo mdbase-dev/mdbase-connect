@@ -13,7 +13,7 @@ export interface NoteSearchEntry {
 export function buildNoteSearchIndex(notes: NoteSummary[]): NoteSearchEntry[] {
   return notes.map((note) => {
     const metadata: string[] = [...note.types, ...noteTags(note)];
-    collectSearchValues(note.frontmatter, metadata);
+    collectSearchValues(note.effective_frontmatter, metadata);
     return {
       note,
       title: normalize(noteTitle(note)),

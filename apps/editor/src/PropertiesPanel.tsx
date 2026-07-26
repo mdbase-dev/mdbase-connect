@@ -18,7 +18,7 @@ interface PropertiesPanelProps {
 }
 
 export function PropertiesPanel({ note, types, error, onClose, onSave }: PropertiesPanelProps) {
-  const initial = useMemo(() => structuredClone(note.raw_frontmatter ?? {}), [note]);
+  const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const [mode, setMode] = useState<"fields" | "json">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));

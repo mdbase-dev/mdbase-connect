@@ -8,6 +8,7 @@ import {
   type MdbaseOperation as CollectionOperation,
   type JsonObject,
   type MdbaseDiagnostic,
+  type QueryRecord,
   type QueryResult
 } from "@mdbase/connect";
 import { persistedBody, titlePatch } from "./note";
@@ -145,9 +146,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     let snapshot: string | undefined;
     for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
-        include_body: false
+        include_body: false,
+        frontmatter_mode: "both"
       }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE })) {
-      notes.push(...page.results);
+      notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
         notes: [...notes],
@@ -169,9 +171,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
     for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
         ...(snapshot ? { snapshot } : {}),
-        include_body: true
+        include_body: true,
+        frontmatter_mode: "both"
       }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE })) {
-      notes.push(...page.results);
+      notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
         notes: [...notes],
@@ -202,8 +205,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async restore(document: NoteDocument): Promise<NoteDocument> {
     return unwrapOperation(await this.requireConnection().create({
       path: document.path,
-      frontmatter: document.raw_frontmatter ?? document.frontmatter,
-      body: document.body ?? ""
+      frontmatter: document.frontmatter,
+      body: document.body
     }));
   }
 
@@ -328,6 +331,19 @@ function uniquePaths(values: Array<{ path: string }> | undefined): string[] {
 
 function mutationKey(from: string, to: string, revision: string): string {
   return JSON.stringify([from, to, revision]);
+}
+
+function completeSummary(record: QueryRecord<NoteFrontmatter>): NoteSummary {
+  if (!record.frontmatter || !record.effective_frontmatter) {
+    throw new Error(
+      `Query result ${record.path} did not include both frontmatter projections.`
+    );
+  }
+  return {
+    ...record,
+    frontmatter: record.frontmatter,
+    effective_frontmatter: record.effective_frontmatter
+  };
 }
 
 export function gatewayError(error: unknown): string {

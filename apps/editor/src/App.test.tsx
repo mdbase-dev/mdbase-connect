@@ -57,6 +57,9 @@ describe("mdbase editor", () => {
 
   it("opens a collection, selects a note, and autosaves body changes", async () => {
     const gateway = new DemoCollectionGateway(12);
+    const seeded = (await gateway.list())[0]!;
+    const original = await gateway.read(seeded.path);
+    await gateway.updateProperties(original.path, { status: "draft" }, original.revision);
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
@@ -68,6 +71,8 @@ describe("mdbase editor", () => {
     const first = (await gateway.list())[0];
     const saved = await gateway.read(first.path);
     expect(saved.body).toContain("A saved sentence.");
+    await user.click(screen.getByRole("button", { name: "Note properties" }));
+    expect(screen.getByRole("textbox", { name: "status value" })).toHaveValue("draft");
   });
 
   it("does not reload the collection index after saving one note", async () => {
@@ -140,7 +145,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByDisplayValue("A useful note")).toBeInTheDocument();
     await waitFor(async () => expect((await gateway.list()).length).toBe(5));
     const created = await gateway.read("Notes/A useful note.md");
-    expect(created.raw_frontmatter?.title).toBe("A useful note");
+    expect(created.frontmatter.title).toBe("A useful note");
     expect(created.body).toBe("");
   });
 
@@ -539,7 +544,7 @@ describe("mdbase editor", () => {
 
     await waitFor(() => expect(gateway.events).toContain("properties"));
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("properties"));
-    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).raw_frontmatter?.status).toBe("draft");
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).frontmatter.status).toBe("draft");
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   });
 
@@ -928,8 +933,13 @@ class RemoteChangeGateway extends DemoCollectionGateway {
   override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     if (!this.remote) return super.list(onProgress);
     const notes = await super.list();
-    const { revision: _revision, raw_frontmatter: _rawFrontmatter, ...summary } = this.remote;
-    const updated = notes.map((note) => note.path === summary.path ? structuredClone(summary) : note);
+    const { revision: _revision, ...summary } = this.remote;
+    const updated = notes.map((note) => note.path === summary.path
+      ? structuredClone({
+          ...summary,
+          file: { ...summary.file, path: summary.path }
+        })
+      : note);
     onProgress?.({ notes: updated, structureComplete: true, complete: true, total: updated.length });
     return updated;
   }
@@ -964,7 +974,7 @@ class RemoteChangeGateway extends DemoCollectionGateway {
       ...current,
       body: "# Changed on another device\n\nThe remote version is current.\n",
       revision: "remote-2",
-      file: current.file ? { ...current.file, mtime: new Date().toISOString() } : undefined
+      file: { ...current.file, mtime: new Date().toISOString() }
     };
     this.listener?.({
       cursor: 2,

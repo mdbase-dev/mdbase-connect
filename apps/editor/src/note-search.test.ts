@@ -3,10 +3,32 @@ import { buildNoteSearchIndex, searchNotes } from "./note-search";
 import type { NoteSummary } from "./model";
 
 const notes: NoteSummary[] = [
-  { path: "Projects/Release planning.md", frontmatter: { title: "Ship the editor", tags: ["roadmap"] }, types: ["project"], body: "Prepare the launch." },
-  { path: "Reading/Interfaces.md", frontmatter: { title: "Calm interfaces" }, types: ["note"], body: "Good tools leave room." },
-  { path: "Journal/Friday.md", frontmatter: { mood: "quiet" }, types: [], body: "A small daily note." }
+  summary("Projects/Release planning.md", { title: "Ship the editor", tags: ["roadmap"] }, ["project"], "Prepare the launch."),
+  summary("Reading/Interfaces.md", { title: "Calm interfaces" }, ["note"], "Good tools leave room."),
+  summary("Journal/Friday.md", { mood: "quiet" }, [], "A small daily note.")
 ];
+
+function summary(
+  path: string,
+  frontmatter: NoteSummary["frontmatter"],
+  types: string[],
+  body: string
+): NoteSummary {
+  return {
+    path,
+    frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
+    types,
+    body,
+    file: {
+      path,
+      name: path.split("/").at(-1)!,
+      folder: path.split("/").slice(0, -1).join("/"),
+      size: body.length,
+      mtime: ""
+    }
+  };
+}
 
 describe("note search", () => {
   const index = buildNoteSearchIndex(notes);

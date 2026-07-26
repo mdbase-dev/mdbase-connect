@@ -60,7 +60,7 @@ test("chooses a hosted collection and performs CRUD through its provider", async
 interface HostedRecord {
   path: string;
   frontmatter: Record<string, unknown>;
-  raw_frontmatter: Record<string, unknown>;
+  effective_frontmatter: Record<string, unknown>;
   body: string;
   types: string[];
   revision: string;
@@ -246,7 +246,7 @@ class HostedCollectionHarness {
     return {
       path,
       frontmatter,
-      raw_frontmatter: frontmatter,
+      effective_frontmatter: structuredClone(frontmatter),
       body,
       types: typeof frontmatter.type === "string" ? [frontmatter.type] : [],
       revision,
@@ -293,8 +293,12 @@ function envelope<Result>(result: Result) {
 }
 
 function summary(record: HostedRecord, includeBody: boolean) {
-  const { revision: _revision, raw_frontmatter: _rawFrontmatter, body, ...value } = record;
-  return includeBody ? { ...value, body } : value;
+  const { revision: _revision, body, ...value } = record;
+  const projected = {
+    ...value,
+    file: { ...value.file, path: value.path }
+  };
+  return includeBody ? { ...projected, body } : projected;
 }
 
 function object(value: unknown): Record<string, unknown> {

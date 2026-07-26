@@ -80,10 +80,11 @@ function document(frontmatter: Record<string, unknown>, body: string): NoteDocum
   return {
     path: "Notes/note.md",
     frontmatter,
-    raw_frontmatter: frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
     body,
     types: [],
-    revision: "rev-1"
+    revision: "rev-1",
+    file: { name: "note.md", folder: "Notes", size: 0, mtime: "" }
   };
 }
 
@@ -91,7 +92,8 @@ function summary(path: string, frontmatter: Record<string, unknown>, noteTypes: 
   return {
     path,
     frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
     types: noteTypes,
-    file: { name: path.split("/").at(-1)!, folder: "", size: 0, mtime: "", tags: fileTags }
+    file: { path, name: path.split("/").at(-1)!, folder: "", size: 0, mtime: "", tags: fileTags }
   };
 }

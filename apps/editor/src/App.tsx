@@ -1012,7 +1012,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       const draftBefore = session.draft;
       const updated = await runNoteOperation(session, "properties", () => gateway.updateProperties(
         session.document.path,
-        propertyPatch(session.document.raw_frontmatter ?? {}, next),
+        propertyPatch(session.document.frontmatter, next),
         session.document.revision
       ));
       const persistedDraft = editableNote(updated);
@@ -2007,8 +2007,11 @@ function noteRowStatus(session: NoteSession): NoteRowStatus | undefined {
 }
 
 function summaryFromDocument(document: NoteDocument): NoteSummary {
-  const { revision: _revision, raw_frontmatter: _rawFrontmatter, ...summary } = document;
-  return summary;
+  const { revision: _revision, ...summary } = document;
+  return {
+    ...summary,
+    file: { ...document.file, path: document.path }
+  };
 }
 
 function mergeHydratedNotes(current: NoteSummary[], hydrated: NoteSummary[]): NoteSummary[] {

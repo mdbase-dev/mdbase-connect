@@ -80,8 +80,7 @@ export class DemoCollectionGateway implements CollectionGateway {
 
   async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
     await delay(4);
-    const notes = this.notes
-      .map(({ revision: _revision, raw_frontmatter: _raw, ...note }) => note);
+    const notes = this.notes.map(demoSummary);
     const structure = notes.map(({ body: _body, ...note }) => note);
     const firstStructurePage = structure.slice(0, Math.min(200, structure.length));
     const structureComplete = firstStructurePage.length === structure.length;
@@ -119,7 +118,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
-    const notes = this.notes.map(({ revision: _revision, raw_frontmatter: _raw, ...note }) => note);
+    const notes = this.notes.map(demoSummary);
     onProgress?.({
       notes,
       structureComplete: true,
@@ -140,7 +139,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     if (this.notes.some((candidate) => candidate.path === input.path)) throw new Error("A note already uses that path.");
     const note = demoDocument(input.path, input.title, "", this.sequence++);
     note.frontmatter = { ...input.properties, ...(input.type ? { type: input.type } : {}) };
-    note.raw_frontmatter = structuredClone(note.frontmatter);
+    note.effective_frontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
     if (input.titleField) note.body = "";
     this.notes.unshift(note);
@@ -164,7 +163,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     this.assertRevision(note, input.revision);
     note.body = persistedBody(input.title, input.body, input.source);
     note.frontmatter = { ...note.frontmatter, ...titlePatch(input.title, input.source) };
-    note.raw_frontmatter = { ...note.raw_frontmatter, ...titlePatch(input.title, input.source) };
+    note.effective_frontmatter = {
+      ...note.effective_frontmatter,
+      ...titlePatch(input.title, input.source)
+    };
     this.bump(note);
     return clone(note);
   }
@@ -175,10 +177,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const [key, value] of Object.entries(patch)) {
       if (value === null) {
         delete note.frontmatter[key];
-        delete note.raw_frontmatter?.[key];
+        delete note.effective_frontmatter[key];
       } else {
         note.frontmatter[key] = value;
-        if (note.raw_frontmatter) note.raw_frontmatter[key] = value;
+        note.effective_frontmatter[key] = value;
       }
     }
     this.bump(note);
@@ -470,7 +472,7 @@ function demoDocument(path: string, title: string, body: string, sequence: numbe
   return {
     path,
     frontmatter,
-    raw_frontmatter: frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
     body: persisted,
     types: sequence % 4 === 0 ? ["note"] : [],
     revision: `demo-${sequence}`,
@@ -483,6 +485,14 @@ function demoDocument(path: string, title: string, body: string, sequence: numbe
       links: demoLinks(persisted),
       embeds: demoEmbeds(persisted)
     }
+  };
+}
+
+function demoSummary(document: NoteDocument): NoteSummary {
+  const { revision: _revision, ...summary } = document;
+  return {
+    ...summary,
+    file: { ...document.file, path: document.path }
   };
 }
 

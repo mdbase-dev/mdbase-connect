@@ -111,11 +111,12 @@ describe("ConnectCollectionGateway recovery operations", () => {
   it("restores exact Markdown content and lets callers opt out of backlink updates", async () => {
     const document: NoteDocument = {
       path: "Notes/restored.md",
-      frontmatter: { title: "Resolved title" },
-      raw_frontmatter: { title: "Original title", custom: true },
+      frontmatter: { title: "Original title", custom: true },
+      effective_frontmatter: { title: "Resolved title", custom: true },
       body: "# Restored\n\nExact body.\n",
       types: ["note"],
-      revision: "before-delete"
+      revision: "before-delete",
+      file: { name: "restored.md", folder: "Notes", size: 0, mtime: "" }
     };
     const create = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
     const renameWithProgress = vi.fn(async () => ({ valid: true, diagnostics: [], result: { ...document, from: document.path, to: "Archive/restored.md", path: "Archive/restored.md" } }));
@@ -127,7 +128,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
 
     expect(create).toHaveBeenCalledWith({
       path: document.path,
-      frontmatter: document.raw_frontmatter,
+      frontmatter: document.frontmatter,
       body: document.body
     });
     expect(renameWithProgress).toHaveBeenCalledWith({
@@ -176,7 +177,19 @@ describe("ConnectCollectionGateway recovery operations", () => {
 });
 
 function summary(path: string): NoteSummary {
-  return { path, frontmatter: {}, types: [] };
+  return {
+    path,
+    frontmatter: {},
+    effective_frontmatter: {},
+    types: [],
+    file: {
+      path,
+      name: path.split("/").at(-1)!,
+      folder: path.split("/").slice(0, -1).join("/"),
+      size: 0,
+      mtime: ""
+    }
+  };
 }
 
 function injectConnection(

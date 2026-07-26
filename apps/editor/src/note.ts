@@ -5,13 +5,13 @@ const preferredTitleFields = ["title", "name", "subject"];
 
 export function editableNote(note: NoteDocument): EditableNote {
   for (const field of preferredTitleFields) {
-    const value = note.raw_frontmatter?.[field] ?? note.frontmatter[field];
+    const value = note.frontmatter[field] ?? note.effective_frontmatter[field];
     if (typeof value === "string" && value.trim()) {
-      return { title: value.trim(), body: note.body ?? "", source: { kind: "frontmatter", field } };
+      return { title: value.trim(), body: note.body, source: { kind: "frontmatter", field } };
     }
   }
 
-  const body = note.body ?? "";
+  const body = note.body;
   const heading = body.match(/^#\s+(.+?)(?:\r?\n|$)/);
   if (heading) {
     const content = body.slice(heading[0].length).replace(/^\r?\n/, "");
@@ -32,9 +32,11 @@ export function titlePatch(title: string, source: TitleSource): JsonObject {
   return source.kind === "frontmatter" ? { [source.field]: title.trim() || "Untitled" } : {};
 }
 
-export function noteTitle(note: NoteSummary): string {
+export function noteTitle(
+  note: Pick<NoteDocument, "path" | "effective_frontmatter"> & { body?: string }
+): string {
   for (const field of preferredTitleFields) {
-    const value = note.frontmatter[field];
+    const value = note.effective_frontmatter[field];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   if (note.body) {
@@ -46,7 +48,7 @@ export function noteTitle(note: NoteSummary): string {
 
 export function notePreview(note: NoteSummary): string {
   const description = ["summary", "description", "status"]
-    .map((field) => note.frontmatter[field])
+    .map((field) => note.effective_frontmatter[field])
     .find((value) => typeof value === "string" && value.trim());
   if (typeof description === "string") return description.trim();
   if (note.types.length) return note.types.join(" · ");
@@ -90,10 +92,10 @@ export function folders(notes: NoteSummary[]): Array<{ name: string; count: numb
 }
 
 export function noteTags(note: NoteSummary): string[] {
-  const fileTags = Array.isArray(note.file?.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
-  const frontmatterTags = Array.isArray(note.frontmatter.tags)
-    ? note.frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
-    : typeof note.frontmatter.tags === "string" ? [note.frontmatter.tags] : [];
+  const fileTags = Array.isArray(note.file.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  const frontmatterTags = Array.isArray(note.effective_frontmatter.tags)
+    ? note.effective_frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
+    : typeof note.effective_frontmatter.tags === "string" ? [note.effective_frontmatter.tags] : [];
   return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
 }
 
