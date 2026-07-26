@@ -2,9 +2,9 @@
   "manifest_version": 1,
   "id": "dev.mdbase.editor",
   "name": "mdbase editor",
-  "homepage": "https://callumalpass.github.io/mdbase-editor/",
+  "homepage": "https://editor.mdbase.dev/",
   "redirect_uris": [
-    "https://callumalpass.github.io/mdbase-editor/"
+    "https://editor.mdbase.dev/"
   ],
   "requirements": {
     "contracts": [],

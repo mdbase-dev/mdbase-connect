@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const defaultOrigin = "https://callumalpass.github.io";
-const defaultBasePath = "/mdbase-editor/";
+const defaultOrigin = "https://editor.mdbase.dev";
+const defaultBasePath = "/";
 const origin = (process.env.MDBASE_EDITOR_ORIGIN ?? defaultOrigin).replace(/\/$/, "");
 const basePath = normalizeBasePath(process.env.MDBASE_EDITOR_BASE_PATH ?? defaultBasePath);
 const appUrl = new URL(basePath, `${origin}/`).href;

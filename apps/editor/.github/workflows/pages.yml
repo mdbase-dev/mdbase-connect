@@ -29,6 +29,9 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - run: pnpm build
+        env:
+          MDBASE_EDITOR_ORIGIN: https://callumalpass.github.io
+          MDBASE_EDITOR_BASE_PATH: /mdbase-editor/
       - name: Archive Pages artifact
         run: tar --dereference --hard-dereference --directory dist -cvf "$RUNNER_TEMP/artifact.tar" .
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

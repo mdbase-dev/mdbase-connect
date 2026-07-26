@@ -45,11 +45,34 @@ flows, type inspection, settings, responsive navigation, accessibility, and a
 
 ## Deployment
 
-Pushes to `main` run tests, build the application, and deploy it with GitHub
-Pages. The default project URL is
-`https://callumalpass.github.io/mdbase-editor/`.
+The production application is configured for
+`https://editor.mdbase.dev/` on Cloudflare Pages. After transferring the
+repository to `mdbase-dev/mdbase-editor`, connect that repository with
+Cloudflare's native Git integration so each push to `main` is built and
+deployed automatically. Create the Pages project with:
 
-A real full-access grant should use a dedicated origin such as
-`https://editor.mdbase.dev/`. GitHub project sites share browser storage across
-all repositories under `callumalpass.github.io`, which is too broad a trust
-boundary for durable collection credentials.
+- project name: `mdbase-editor`
+- production branch: `main`
+- framework preset: none
+- build command: `pnpm build`
+- build output directory: `dist`
+- root directory: repository root (leave blank)
+- preview branch deployments: disabled
+
+Set these production build variables in Cloudflare:
+
+```text
+NODE_VERSION=22
+PNPM_VERSION=11.15.1
+MDBASE_EDITOR_ORIGIN=https://editor.mdbase.dev
+MDBASE_EDITOR_BASE_PATH=/
+```
+
+No Cloudflare API token or manual artifact upload is required. GitHub Actions
+continues to run the complete verification and browser suites.
+
+The legacy `https://callumalpass.github.io/mdbase-editor/` deployment remains a
+rollback target and is built with an explicit project-site manifest. It must
+not be treated as the production full-access origin because GitHub project
+sites share browser storage across every repository under
+`callumalpass.github.io`.
