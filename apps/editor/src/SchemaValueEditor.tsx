@@ -4,13 +4,14 @@ import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 
-export function SchemaValueEditor({ name, schema, value, required = false, hideLabel = false, onChange }: {
+export function SchemaValueEditor({ name, schema, value, required = false, hideLabel = false, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
   value: unknown;
   required?: boolean;
   hideLabel?: boolean;
   onChange: (value: unknown) => void;
+  onValidityChange?: (valid: boolean) => void;
 }) {
   const supplied = suppliedValue(schema);
   useEffect(() => {
@@ -23,17 +24,24 @@ export function SchemaValueEditor({ name, schema, value, required = false, hideL
     return <div className="schema-value schema-constant">{label}<output>{formatValue(schema.const)}</output></div>;
   }
   if (type === "object" && canEditObject(schema)) {
-    return <ObjectValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} />;
+    return <ObjectValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (type === "array" && canEditArray(schema)) {
-    return <ArrayValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} />;
+    return <ArrayValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (type === "object" || type === "array") {
-    return <JsonSchemaValueEditor name={name} type={type} label={label} value={value} onChange={onChange} />;
+    return <JsonSchemaValueEditor name={name} type={type} label={label} value={value} onChange={onChange} onValidityChange={onValidityChange} />;
   }
-  const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item): item is string => typeof item === "string") : [];
-  if (choices.length) return <label className="schema-value">{label}<select aria-label={name} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)}>
-    <option value="">Choose</option>{choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+  const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item) => item === null || ["string", "number", "boolean"].includes(typeof item)) : [];
+  if (choices.length) return <label className="schema-value">{label}<select
+    aria-label={name}
+    value={choiceKey(value)}
+    onChange={(event) => {
+      const choice = choices.find((item) => choiceKey(item) === event.target.value);
+      if (choice !== undefined || event.target.value === choiceKey(null)) onChange(structuredClone(choice));
+    }}
+  >
+    <option value="">Choose</option>{choices.map((choice, index) => <option key={`${choiceKey(choice)}:${index}`} value={choiceKey(choice)}>{formatValue(choice)}</option>)}
   </select></label>;
   const dateFormat = schemaDateFormat(schema);
   if (dateFormat) return <label className="schema-value">{label}<input
@@ -54,13 +62,14 @@ export function SchemaValueEditor({ name, schema, value, required = false, hideL
   return <label className="schema-value">{label}<input aria-label={name} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
-function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange }: {
+function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
   value: unknown;
   required: boolean;
   hideLabel: boolean;
   onChange: (value: unknown) => void;
+  onValidityChange?: (valid: boolean) => void;
 }) {
   const properties = schemaProperties(schema);
   const requiredFields = schemaRequired(schema);
@@ -98,6 +107,7 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange 
           value={objectValue[field]}
           required={requiredFields.includes(field)}
           onChange={(next) => updateField(field, next)}
+          onValidityChange={onValidityChange}
         />
         {!requiredFields.includes(field) && <button type="button" className="schema-remove-value" aria-label={`Remove ${field}`} onClick={() => removeField(field)}><Trash2 aria-hidden="true" /></button>}
       </div>)}
@@ -111,13 +121,14 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange 
   </fieldset>;
 }
 
-function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange }: {
+function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
   value: unknown;
   required: boolean;
   hideLabel: boolean;
   onChange: (value: unknown) => void;
+  onValidityChange?: (valid: boolean) => void;
 }) {
   const items = isObject(schema?.items) ? schema.items as JsonObject : undefined;
   const list = Array.isArray(value) ? value : [];
@@ -133,7 +144,7 @@ function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange }
     <div className="schema-array-items">
       {list.map((item, index) => <div className="schema-array-item" key={index}>
         <span className="schema-item-number">{index + 1}</span>
-        <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} value={item} hideLabel={!isStructuredSchema(items)} onChange={(next) => updateItem(index, next)} />
+        <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} value={item} hideLabel={!isStructuredSchema(items)} onChange={(next) => updateItem(index, next)} onValidityChange={onValidityChange} />
         <button type="button" className="schema-remove-value" aria-label={`Remove ${name} item ${index + 1}`} onClick={() => removeItem(index)}><Trash2 aria-hidden="true" /></button>
       </div>)}
       {!list.length && <p className="schema-empty-value">No items yet.</p>}
@@ -142,12 +153,13 @@ function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange }
   </fieldset>;
 }
 
-function JsonSchemaValueEditor({ name, type, label, value, onChange }: {
+function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityChange }: {
   name: string;
   type: "array" | "object";
   label: ReactNode;
   value: unknown;
   onChange: (value: unknown) => void;
+  onValidityChange?: (valid: boolean) => void;
 }) {
   const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value]);
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2));
@@ -159,8 +171,10 @@ function JsonSchemaValueEditor({ name, type, label, value, onChange }: {
       if ((type === "array" && !Array.isArray(parsed)) || (type === "object" && !isObject(parsed))) throw new Error(`Enter a JSON ${type}.`);
       onChange(parsed);
       setError(undefined);
+      onValidityChange?.(true);
     } catch (parseError) {
       setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+      onValidityChange?.(false);
     }
   }} />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
 }
@@ -253,6 +267,10 @@ function suppliedValue(schema?: JsonObject): unknown {
 
 function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function choiceKey(value: unknown): string {
+  return value === undefined ? "" : `${typeof value}:${JSON.stringify(value)}`;
 }
 
 function isObject(value: unknown): value is JsonObject {

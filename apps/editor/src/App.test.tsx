@@ -531,11 +531,12 @@ describe("mdbase editor", () => {
     await gateway.updateStarted;
     await user.click(screen.getByRole("button", { name: "Note properties" }));
     await user.click(screen.getByRole("button", { name: "Add property" }));
-    await user.type(screen.getByRole("combobox", { name: "Name" }), "status");
+    await user.click(screen.getByRole("button", { name: "Add a custom property…" }));
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
     await user.click(screen.getByRole("button", { name: "Add" }));
     await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
     await user.click(screen.getByRole("button", { name: "Save properties" }));
-    expect(screen.queryByRole("complementary", { name: "Note properties" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -1171,9 +1172,9 @@ class SlowUpdateGateway extends DemoCollectionGateway {
     return updated;
   }
 
-  override async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
+  override async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> {
     this.events.push("properties");
-    return super.updateProperties(path, patch, revision);
+    return super.updateDocument(path, document, revision);
   }
 
   override async preflightRename(from: string, to: string, revision: string) {

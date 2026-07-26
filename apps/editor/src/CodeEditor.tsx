@@ -50,6 +50,7 @@ export function CodeEditor({
   const completions = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
+  const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
@@ -83,7 +84,7 @@ export function CodeEditor({
           placeholder ? editorPlaceholder(placeholder) : [],
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !syncing.current) {
-              onChangeRef.current?.(update.state.doc.toString());
+              onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
             }
           })
         ]
@@ -135,13 +136,22 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || view.state.doc.toString() === value) return;
+    if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
     syncing.current = false;
   }, [value]);
 
   return <div ref={parentRef} className={`code-editor ${className}`.trim()} />;
+}
+
+export function lineSeparatorFor(value: string): "\n" | "\r\n" {
+  return value.includes("\r\n") ? "\r\n" : "\n";
+}
+
+export function restoreLineSeparators(value: string, separator: "\n" | "\r\n"): string {
+  const normalized = value.replace(/\r\n/g, "\n");
+  return separator === "\r\n" ? normalized.replace(/\n/g, "\r\n") : normalized;
 }
 
 const editorSetup: Extension = [

@@ -129,13 +129,15 @@ describe("ConnectCollectionGateway recovery operations", () => {
     expect(create).toHaveBeenCalledWith({
       path: document.path,
       frontmatter: document.frontmatter,
-      body: document.body
+      body: document.body,
+      include_document: true
     });
     expect(renameWithProgress).toHaveBeenCalledWith({
       from: document.path,
       to: "Archive/restored.md",
       if_revision: document.revision,
-      update_refs: false
+      update_refs: false,
+      include_document: true
     }, {});
   });
 

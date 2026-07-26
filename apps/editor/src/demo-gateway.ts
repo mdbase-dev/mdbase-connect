@@ -8,6 +8,7 @@ import type {
 } from "@mdbase/connect";
 import { parse } from "yaml";
 import { persistedBody, titlePatch } from "./note";
+import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
   ConnectionSummary,
@@ -142,6 +143,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     note.effective_frontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
     if (input.titleField) note.body = "";
+    note.document = composeRecordSource(note.frontmatter, note.body);
     this.notes.unshift(note);
     this.emit("mdbase.record.created", { path: note.path, types: note.types });
     return clone(note);
@@ -153,6 +155,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     }
     const restored = clone(document);
     restored.revision = `demo-${this.sequence++}`;
+    restored.document ??= composeRecordSource(restored.frontmatter, restored.body);
     this.notes.unshift(restored);
     this.emit("mdbase.record.created", { path: restored.path, types: restored.types });
     return clone(restored);
@@ -167,6 +170,19 @@ export class DemoCollectionGateway implements CollectionGateway {
       ...note.effective_frontmatter,
       ...titlePatch(input.title, input.source)
     };
+    note.document = composeRecordSource(note.frontmatter, note.body);
+    this.bump(note);
+    return clone(note);
+  }
+
+  async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> {
+    const note = this.required(path);
+    this.assertRevision(note, revision);
+    const parsed = parseRecordSource(document);
+    note.document = document;
+    note.frontmatter = parsed.frontmatter;
+    note.effective_frontmatter = structuredClone(parsed.frontmatter);
+    note.body = parsed.body;
     this.bump(note);
     return clone(note);
   }
@@ -183,6 +199,7 @@ export class DemoCollectionGateway implements CollectionGateway {
         note.effective_frontmatter[key] = value;
       }
     }
+    note.document = composeRecordSource(note.frontmatter, note.body);
     this.bump(note);
     return clone(note);
   }
@@ -474,6 +491,7 @@ function demoDocument(path: string, title: string, body: string, sequence: numbe
     frontmatter,
     effective_frontmatter: structuredClone(frontmatter),
     body: persisted,
+    document: composeRecordSource(frontmatter, persisted),
     types: sequence % 4 === 0 ? ["note"] : [],
     revision: `demo-${sequence}`,
     file: {

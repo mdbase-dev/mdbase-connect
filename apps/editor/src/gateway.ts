@@ -190,7 +190,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   async read(path: string): Promise<NoteDocument> {
-    return unwrapOperation(await this.requireConnection().read({ path }));
+    return unwrapOperation(await this.requireConnection().read({ path, include_document: true }));
   }
 
   async create(input: CreateNoteInput): Promise<NoteDocument> {
@@ -198,7 +198,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
       path: input.path,
       ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties,
-      body: input.titleField ? "" : `# ${input.title}\n`
+      body: input.titleField ? "" : `# ${input.title}\n`,
+      include_document: true
     }));
   }
 
@@ -206,7 +207,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return unwrapOperation(await this.requireConnection().create({
       path: document.path,
       frontmatter: document.frontmatter,
-      body: document.body
+      body: document.body,
+      include_document: true
     }));
   }
 
@@ -215,12 +217,21 @@ export class ConnectCollectionGateway implements CollectionGateway {
       path: input.path,
       patch: titlePatch(input.title, input.source),
       body: persistedBody(input.title, input.body, input.source),
-      if_revision: input.revision
+      if_revision: input.revision,
+      include_document: true
     }));
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> {
-    return unwrapOperation(await this.requireConnection().update({ path, patch, if_revision: revision }));
+    return unwrapOperation(await this.requireConnection().update({ path, patch, if_revision: revision, include_document: true }));
+  }
+
+  async updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> {
+    return unwrapOperation(await this.requireConnection().update({
+      path,
+      document,
+      if_revision: revision
+    }));
   }
 
   async preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight> {
@@ -246,7 +257,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
         from,
         to,
         if_revision: revision,
-        update_refs: updateRefs
+        update_refs: updateRefs,
+        include_document: true
       }, {
         ...(this.renamePreflights.get(key) ? { preflight: this.renamePreflights.get(key) } : {}),
         ...(options.signal ? { signal: options.signal } : {}),

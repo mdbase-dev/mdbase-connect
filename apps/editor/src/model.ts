@@ -100,6 +100,7 @@ export interface CollectionGateway {
   restore(document: NoteDocument): Promise<NoteDocument>;
   update(input: SaveNoteInput): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
+  updateDocument(path: string, document: string, revision: string): Promise<NoteDocument>;
   preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight>;
   rename(from: string, to: string, revision: string, updateRefs?: boolean, options?: MutationOperationOptions): Promise<NoteDocument>;
   preflightDelete(path: string, revision: string): Promise<DeletePreflight>;

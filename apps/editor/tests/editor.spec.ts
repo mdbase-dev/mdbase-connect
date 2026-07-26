@@ -351,14 +351,42 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("heading", { name: "Properties" })).toBeVisible();
   const tags = panel.getByRole("group", { name: "tags" });
-  await expect(tags.getByRole("button", { name: "Add item" })).toBeVisible();
-  await tags.getByRole("button", { name: "Add item" }).click();
+  await expect(tags.getByRole("button", { name: "Add tag" })).toBeVisible();
+  await tags.getByRole("button", { name: "Add tag" }).click();
   await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
   await panel.getByRole("button", { name: "Save properties" }).click();
   await expect(panel).not.toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: /JSON/ }).click();
   await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"nested editing"');
+});
+
+test("adds schema properties and edits the complete Markdown record", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("option").filter({ hasText: "Ideas for Sunday 12" }).click();
+  await page.getByRole("button", { name: "Note properties" }).click();
+
+  const panel = page.getByRole("complementary", { name: "Note properties" });
+  await panel.getByRole("button", { name: "Add property" }).click();
+  await panel.getByRole("searchbox", { name: "Find a property" }).fill("title");
+  await panel.locator(".property-options button").filter({ hasText: "title" }).click();
+  await expect(panel.getByLabel("title property kind")).toHaveCount(0);
+  await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
+  await panel.getByRole("button", { name: "Save properties" }).click();
+  await expect(panel).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Note properties" }).click();
+  await panel.getByRole("tab", { name: "Source" }).click();
+  const source = panel.getByRole("textbox", { name: "Complete record source" });
+  await expect(source).toContainText("title: Source-backed title");
+  const original = await source.textContent();
+  await source.fill(`${original ?? ""}\nSource tail.\n`);
+  await panel.getByRole("button", { name: "Save source" }).click();
+  await expect(panel).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Note properties" }).click();
+  await panel.getByRole("tab", { name: "Source" }).click();
+  await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
 });
 
 test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {

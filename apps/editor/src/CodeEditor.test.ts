@@ -1,7 +1,7 @@
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { linkCompletion, mentionScope } from "./CodeEditor";
+import { lineSeparatorFor, linkCompletion, mentionScope, restoreLineSeparators } from "./CodeEditor";
 import type { LinkSuggestion } from "./links";
 
 describe("mdbase mention scope", () => {
@@ -37,6 +37,12 @@ describe("mdbase mention scope", () => {
       showTypes: true
     });
   });
+});
+
+it("retains the source document line separator while editing", () => {
+  const separator = lineSeparatorFor("---\r\ntitle: Note\r\n---\r\n");
+  const state = EditorState.create({ doc: "---\r\ntitle: Note\r\n---\r\n" });
+  expect(restoreLineSeparators(state.doc.toString(), separator)).toBe("---\r\ntitle: Note\r\n---\r\n");
 });
 
 describe("object link completion", () => {

@@ -64,7 +64,6 @@ import {
   notePreview,
   noteTimestamp,
   noteTitle,
-  propertyPatch,
   safeRenamePath,
   tags as collectionTags,
   types as collectionTypes
@@ -74,6 +73,7 @@ import { buildNoteSearchIndex, searchNotes } from "./note-search";
 import { KeyedOperationQueue } from "./operation-queue";
 import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { PropertiesPanel } from "./PropertiesPanel";
+import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
 import { NEW_TYPE_SOURCE, TypeInspector, TypeList } from "./TypeBrowser";
@@ -1001,24 +1001,22 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (session) setPathDraft(session.document.path);
   }
 
-  async function saveProperties(next: Record<string, unknown>) {
+  async function saveProperties(next: Record<string, unknown>): Promise<boolean> {
     const session = currentSession.current;
-    if (!session) return;
+    if (!session) return false;
     setPropertiesError(undefined);
-    setPropertiesOpen(false);
-    setBacklinksOpen(false);
     try {
       await flushSession(session);
-      const draftBefore = session.draft;
-      const updated = await runNoteOperation(session, "properties", () => gateway.updateProperties(
+      const source = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body);
+      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
         session.document.path,
-        propertyPatch(session.document.frontmatter, next),
+        replaceDocumentFrontmatter(source, next),
         session.document.revision
       ));
       const persistedDraft = editableNote(updated);
       session.document = updated;
       session.persistedDraft = persistedDraft;
-      if (draftFingerprint(session.draft) === draftFingerprint(draftBefore)) session.draft = persistedDraft;
+      session.draft = persistedDraft;
       session.saveState = sessionDirty(session) ? "waiting" : "saved";
       session.error = undefined;
       updateNoteSummary(updated);
@@ -1028,6 +1026,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setSaveState(session.saveState);
       }
       touchSession(session);
+      return true;
     } catch (error) {
       const message = gatewayError(error);
       session.error = message;
@@ -1036,6 +1035,50 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         ? message
         : `Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
+      return false;
+    }
+  }
+
+  async function saveRecordSource(source: string, previousSource: string): Promise<boolean> {
+    const session = currentSession.current;
+    if (!session) return false;
+    setPropertiesError(undefined);
+    try {
+      await flushSession(session);
+      const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body);
+      if (currentSource !== previousSource) {
+        const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
+        setPropertiesError(message);
+        return false;
+      }
+      const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
+        session.document.path,
+        source,
+        session.document.revision
+      ));
+      const persistedDraft = editableNote(updated);
+      session.document = updated;
+      session.persistedDraft = persistedDraft;
+      session.draft = persistedDraft;
+      session.saveState = "saved";
+      session.error = undefined;
+      updateNoteSummary(updated);
+      if (currentSession.current === session) {
+        setDocument(updated);
+        setDraft(persistedDraft);
+        setSaveState("saved");
+      }
+      touchSession(session);
+      return true;
+    } catch (error) {
+      const message = gatewayError(error);
+      session.error = message;
+      setPropertiesError(message);
+      setNotice(currentSession.current === session
+        ? message
+        : `Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
+      touchSession(session);
+      return false;
     }
   }
 
@@ -1510,7 +1553,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           onRetry={() => void start()}
         />}
       </main>}
-      {propertiesOpen && document && <PropertiesPanel key={document.path} note={document} types={description.types} error={propertiesError} onClose={() => setPropertiesOpen(false)} onSave={(value) => void saveProperties(value)} />}
+      {propertiesOpen && document && <PropertiesPanel
+        key={document.path}
+        note={document}
+        types={description.types}
+        recordPaths={allNotes.map((note) => note.path)}
+        error={propertiesError}
+        onClose={() => setPropertiesOpen(false)}
+        onSave={saveProperties}
+        onSaveDocument={saveRecordSource}
+      />}
       {backlinksOpen && document && <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />}
     </>}
 

@@ -6,6 +6,11 @@ import type { NoteDocument } from "./model";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { schemaDateInputValue } from "./schema-date";
 
+vi.mock("./CodeEditor", () => ({
+  CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) =>
+    <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />
+}));
+
 describe("typed note properties", () => {
   it("edits date and date-time strings with native pickers", async () => {
     const user = userEvent.setup();
@@ -18,7 +23,8 @@ describe("typed note properties", () => {
     expect(eventDate).toHaveValue("2026-07-21");
     expect(startsAt).toHaveAttribute("type", "datetime-local");
     expect((startsAt as HTMLInputElement).value).toContain(schemaDateInputValue("2026-07-21T05:15:30.000Z", "date-time"));
-    expect(screen.getByLabelText("event_date property kind")).toBeDisabled();
+    expect(screen.getAllByTitle("Defined by the mdbase schema")[0]).toHaveTextContent("Date");
+    expect(screen.queryByLabelText("event_date property kind")).not.toBeInTheDocument();
 
     fireEvent.change(eventDate, { target: { value: "2026-07-23" } });
     fireEvent.change(startsAt, { target: { value: "2026-07-23T09:45:00" } });
@@ -52,6 +58,54 @@ describe("typed note properties", () => {
         { kind: "phone", value: "+44 20 0000 0000" }
       ]
     });
+  });
+
+  it("surfaces missing required fields, descriptions, defaults, and effective values", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<PropertiesPanel note={schemaLedNote} types={[schemaLedType]} onClose={() => undefined} onSave={onSave} />);
+
+    const required = screen.getByRole("region", { name: "Missing required properties" });
+    expect(within(required).getByText("A human-readable title.")).toBeInTheDocument();
+    await user.click(within(required).getByRole("button", { name: /title/i }));
+    expect(screen.getByLabelText("title value")).toHaveValue("");
+    expect(screen.queryByLabelText("title property kind")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Computed and defaulted properties" })).toHaveTextContent("Default");
+
+    await user.type(screen.getByLabelText("title value"), "Ready");
+    await user.click(screen.getByRole("button", { name: "Save properties" }));
+    expect(onSave).toHaveBeenCalledWith({ title: "Ready" });
+  });
+
+  it("validates inline and keeps the edited draft open after a failed save", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(false);
+    render(<PropertiesPanel note={invalidNote} types={[schemaLedType]} error="Server rejected the record." onClose={vi.fn()} onSave={onSave} />);
+
+    await user.clear(screen.getByLabelText("title value"));
+    expect(screen.getByText(/at least 3 characters/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save properties" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("title value"), "Edited title");
+    await user.click(screen.getByRole("button", { name: "Save properties" }));
+    expect(onSave).toHaveBeenCalledWith({ title: "Edited title", nullable: null });
+    expect(screen.getByLabelText("title value")).toHaveValue("Edited title");
+    expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Null" })).not.toBeInTheDocument();
+  });
+
+  it("shows and saves the complete exact record source", async () => {
+    const user = userEvent.setup();
+    const onSaveDocument = vi.fn();
+    render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => undefined} onSave={() => undefined} onSaveDocument={onSaveDocument} />);
+
+    await user.click(screen.getByRole("tab", { name: "Source" }));
+    const editor = screen.getByLabelText("Complete record source");
+    const normalized = sourceNote.document!.replace(/\r\n/g, "\n");
+    expect(editor).toHaveValue(normalized);
+    fireEvent.change(editor, { target: { value: `${normalized}More.\n` } });
+    await user.click(screen.getByRole("button", { name: "Save source" }));
+    expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More.\n`, sourceNote.document);
   });
 });
 
@@ -123,4 +177,47 @@ const contactNote: NoteDocument = {
   types: ["contact"],
   revision: "revision-2",
   file: { name: "ada.md", folder: "People", size: 0, mtime: "" }
+};
+
+const schemaLedType: CollectionTypeDescriptor = {
+  name: "note",
+  schema: {
+    type: "object",
+    required: ["title"],
+    properties: {
+      title: { type: "string", minLength: 3, description: "A human-readable title." },
+      status: { type: "string", enum: ["draft", "done"], default: "draft" },
+      nullable: { type: ["string", "null"] }
+    }
+  },
+  extensions: {}
+};
+
+const schemaLedNote: NoteDocument = {
+  path: "Notes/missing.md",
+  frontmatter: {},
+  effective_frontmatter: { status: "draft" },
+  body: "",
+  types: ["note"],
+  revision: "revision-3",
+  file: { name: "missing.md", folder: "Notes", size: 0, mtime: "" }
+};
+
+const invalidNote: NoteDocument = {
+  ...schemaLedNote,
+  path: "Notes/invalid.md",
+  frontmatter: { title: "Valid", nullable: null },
+  effective_frontmatter: { title: "Valid", nullable: null, status: "draft" },
+  revision: "revision-4"
+};
+
+const sourceNote: NoteDocument = {
+  path: "Notes/source.md",
+  frontmatter: { title: "Quoted" },
+  effective_frontmatter: { title: "Quoted" },
+  body: "Body  \r\n",
+  document: "\u{feff}---\r\ntitle: \"Quoted\" # keep\r\n---\r\nBody  \r\n",
+  types: [],
+  revision: "revision-5",
+  file: { name: "source.md", folder: "Notes", size: 0, mtime: "" }
 };

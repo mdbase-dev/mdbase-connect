@@ -1,33 +1,66 @@
-import { Braces, Plus, Trash2, X } from "lucide-react";
+import { Braces, FileCode2, Plus, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteDocument } from "./model";
-import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
-import { isStructuredSchema, SchemaValueEditor } from "./SchemaValueEditor";
+import { composeRecordSource } from "./record-source";
+import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
 
-type PropertyKind = "text" | "number" | "boolean" | "list" | "object" | "null";
+type PropertyKind = "text" | "number" | "boolean" | "list" | "object";
 type PropertyValue = unknown;
 
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
+  recordPaths?: string[];
   error?: string;
   onClose: () => void;
-  onSave: (value: JsonObject) => void;
+  onSave: (value: JsonObject) => Promise<boolean> | boolean | void;
+  onSaveDocument?: (document: string, previousDocument: string) => Promise<boolean> | boolean | void;
 }
 
-export function PropertiesPanel({ note, types, error, onClose, onSave }: PropertiesPanelProps) {
+export function PropertiesPanel({
+  note,
+  types,
+  recordPaths = [],
+  error,
+  onClose,
+  onSave,
+  onSaveDocument
+}: PropertiesPanelProps) {
   const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
+  const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body);
+  const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types]);
   const [draft, setDraft] = useState<JsonObject>(initial);
-  const [mode, setMode] = useState<"fields" | "json">("fields");
+  const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
+  const [source, setSource] = useState(initialDocument);
   const [rawError, setRawError] = useState<string>();
+  const [editorValidity, setEditorValidity] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
+  const [customizing, setCustomizing] = useState(false);
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<PropertyKind>("text");
-  const schemaProperties = mergedSchemaProperties(note.types, types);
+  const [saving, setSaving] = useState(false);
   const changed = JSON.stringify(draft) !== JSON.stringify(initial);
+  const sourceChanged = source !== initialDocument;
+  const available = Object.keys(contract.properties)
+    .filter((name) => !(name in draft))
+    .filter((name) => !search.trim() || name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const missingRequired = contract.required.filter((name) => !(name in draft));
+  const fieldErrors = Object.fromEntries(Object.entries(draft).flatMap(([name, value]) => {
+    const message = validateValue(contract.properties[name], value, name);
+    return message ? [[name, message]] : [];
+  }));
+  for (const name of missingRequired) fieldErrors[name] = "This required property is missing.";
+  for (const [name, valid] of Object.entries(editorValidity)) {
+    if (!valid) fieldErrors[name] = "Fix the JSON value before saving.";
+  }
+  const effective = Object.entries(note.effective_frontmatter).filter(([name, value]) =>
+    !(name in draft) || JSON.stringify(draft[name]) !== JSON.stringify(value)
+  );
+  const canSaveFields = changed && !rawError && Object.keys(fieldErrors).length === 0 && !saving;
 
   function change(next: JsonObject) {
     setDraft(next);
@@ -45,11 +78,18 @@ export function PropertiesPanel({ note, types, error, onClose, onSave }: Propert
     change(next);
   }
 
-  function addField() {
+  function addSchemaProperty(name: string) {
+    updateField(name, schemaInitialValue(contract.properties[name]));
+    setSearch("");
+    setAdding(false);
+  }
+
+  function addCustomProperty() {
     const name = newName.trim();
     if (!name || name in draft) return;
     updateField(name, initialValue(newKind));
     setNewName("");
+    setCustomizing(false);
     setAdding(false);
   }
 
@@ -67,6 +107,22 @@ export function PropertiesPanel({ note, types, error, onClose, onSave }: Propert
     }
   }
 
+  async function saveFields() {
+    if (!canSaveFields) return;
+    setSaving(true);
+    const succeeded = await onSave(draft);
+    setSaving(false);
+    if (succeeded !== false) onClose();
+  }
+
+  async function saveSource() {
+    if (!sourceChanged || saving) return;
+    setSaving(true);
+    const succeeded = await onSaveDocument?.(source, initialDocument);
+    setSaving(false);
+    if (succeeded !== false) onClose();
+  }
+
   return <aside className="properties-panel" aria-label="Note properties">
     <header className="panel-header">
       <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "Untyped record"}</p></div>
@@ -79,76 +135,145 @@ export function PropertiesPanel({ note, types, error, onClose, onSave }: Propert
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>
 
-    <div className="panel-tabs" role="tablist" aria-label="Frontmatter view">
+    <div className="panel-tabs" role="tablist" aria-label="Record view">
       <button role="tab" aria-selected={mode === "fields"} onClick={() => setMode("fields")}>Fields</button>
       <button role="tab" aria-selected={mode === "json"} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
+      <button role="tab" aria-selected={mode === "source"} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
     </div>
 
     {mode === "fields" ? <div className="property-fields">
+      {missingRequired.length > 0 && <section className="missing-properties" aria-label="Missing required properties">
+        <h3>Required</h3>
+        <p>These properties must be persisted before this record is valid.</p>
+        {missingRequired.map((name) => <button key={name} onClick={() => addSchemaProperty(name)}>
+          <span><strong>{name}</strong>{description(contract.properties[name]) && <small>{description(contract.properties[name])}</small>}</span>
+          <Plus aria-hidden="true" />
+        </button>)}
+      </section>}
+
       {Object.entries(draft).map(([name, value]) => <PropertyRow
         key={name}
         name={name}
         value={value}
-        schema={schemaProperties[name]}
+        schema={contract.properties[name]}
+        required={contract.required.includes(name)}
+        error={fieldErrors[name]}
+        recordPaths={recordPaths}
         onChange={(next) => updateField(name, next)}
+        onValidityChange={(valid) => setEditorValidity((current) => ({ ...current, [name]: valid }))}
         onRemove={() => removeField(name)}
       />)}
-      {!Object.keys(draft).length && <p className="quiet-empty">This note has no persisted properties.</p>}
-      {adding ? <div className="add-property-row">
-        <label><span>Name</span><input autoFocus list="available-properties" value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
-        <datalist id="available-properties">
-          {Object.keys(schemaProperties).filter((name) => !(name in draft)).map((name) => <option key={name} value={name} />)}
-        </datalist>
-        <label><span>Kind</span><select value={newKind} onChange={(event) => setNewKind(event.target.value as PropertyKind)}>
-          <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
-          <option value="list">List</option><option value="object">Object</option><option value="null">Null</option>
-        </select></label>
-        <button className="small-button" disabled={!newName.trim() || newName.trim() in draft} onClick={addField}>Add</button>
-        <button className="icon-button" aria-label="Cancel adding property" onClick={() => setAdding(false)}><X aria-hidden="true" /></button>
+      {!Object.keys(draft).length && !missingRequired.length && <p className="quiet-empty">This note has no persisted properties.</p>}
+
+      {adding ? <div className="property-picker">
+        <label className="property-search"><Search aria-hidden="true" /><span className="sr-only">Find a property</span><input
+          autoFocus
+          type="search"
+          value={search}
+          placeholder="Find a property"
+          onChange={(event) => setSearch(event.target.value)}
+        /></label>
+        {!customizing ? <>
+          <div className="property-options">
+            {available.map((name) => <button key={name} onClick={() => addSchemaProperty(name)}>
+              <span><strong>{name}</strong><small>{description(contract.properties[name]) || schemaKind(contract.properties[name])}</small></span>
+              {contract.required.includes(name) && <em>Required</em>}
+            </button>)}
+            {!available.length && <p>No matching schema properties.</p>}
+          </div>
+          <button className="custom-property-trigger" onClick={() => { setNewName(search); setCustomizing(true); }}>Add a custom property…</button>
+        </> : <div className="custom-property">
+          <label><span>Name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
+          <label><span>Kind</span><select value={newKind} onChange={(event) => setNewKind(event.target.value as PropertyKind)}>
+            <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
+            <option value="list">List</option><option value="object">Object</option>
+          </select></label>
+          <div><button onClick={() => setCustomizing(false)}>Back</button><button className="small-button" disabled={!newName.trim() || newName.trim() in draft} onClick={addCustomProperty}>Add</button></div>
+        </div>}
+        <button className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> Cancel</button>
       </div> : <button className="add-property" onClick={() => setAdding(true)}><Plus aria-hidden="true" /> Add property</button>}
-    </div> : <div className="raw-properties">
+
+      {effective.length > 0 && <section className="effective-properties" aria-label="Computed and defaulted properties">
+        <div><h3>Effective values</h3><p>Calculated at read time and not stored in this file.</p></div>
+        {effective.map(([name, value]) => <div className="effective-property" key={name}>
+          <span><strong>{name}</strong><small>{Object.prototype.hasOwnProperty.call(contract.properties[name] ?? {}, "default") ? "Default" : "Computed"}</small></span>
+          <output>{formatValue(value)}</output>
+        </div>)}
+      </section>}
+    </div> : mode === "json" ? <div className="raw-properties">
+      <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
+    </div> : <div className="record-source">
+      <p>Exact Markdown source, including YAML frontmatter and body.</p>
+      <CodeEditor value={source} onChange={setSource} label="Complete record source" language="markdown" lineWrapping={false} />
     </div>}
 
-    {(error || (!rawError && changed)) && <div className="property-footer">
+    {(error || changed || sourceChanged || saving) && <div className="property-footer">
       {error && <p className="property-error" role="alert">{error}</p>}
-      <button className="property-save" disabled={!changed || Boolean(rawError)} onClick={() => onSave(draft)}>Save properties</button>
+      {mode === "source"
+        ? <button className="property-save" disabled={!sourceChanged || saving} onClick={() => void saveSource()}>{saving ? "Saving…" : "Save source"}</button>
+        : <button className="property-save" disabled={!canSaveFields} onClick={() => void saveFields()}>{saving ? "Saving…" : "Save properties"}</button>}
     </div>}
   </aside>;
 }
 
-function PropertyRow({ name, value, schema, onChange, onRemove }: {
+function PropertyRow({ name, value, schema, required, error, recordPaths, onChange, onValidityChange, onRemove }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
+  required: boolean;
+  error?: string;
+  recordPaths: string[];
   onChange: (value: PropertyValue) => void;
+  onValidityChange: (valid: boolean) => void;
   onRemove: () => void;
 }) {
+  const defined = Boolean(schema);
   const kind = propertyKind(value);
-  const dateFormat = schemaDateFormat(schema);
-  return <div className="property-row">
-    <div className="property-row-label"><span>{name}</span>{dateFormat
-      ? <select aria-label={`${name} property kind`} value={dateFormat} disabled title="Defined by the mdbase schema">
-        <option value={dateFormat}>{dateFormat === "date" ? "Date" : "Date & time"}</option>
-      </select>
-      : <select aria-label={`${name} property kind`} value={kind} onChange={(event) => onChange(initialValue(event.target.value as PropertyKind))}>
-        <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
-        <option value="list">List</option><option value="object">Object</option><option value="null">Null</option>
-      </select>}</div>
-    <PropertyValue name={name} value={value} schema={schema} onChange={onChange} />
+  return <div className={`property-row${error ? " invalid" : ""}`}>
+    <div className="property-row-label">
+      <span><strong>{name}</strong>{required && <small>Required</small>}</span>
+      {defined
+        ? <span className="property-kind" title="Defined by the mdbase schema">{schemaKind(schema)}</span>
+        : <select aria-label={`${name} property kind`} value={kind} onChange={(event) => onChange(initialValue(event.target.value as PropertyKind))}>
+          {kind === "null" && <option value="null" disabled>Null</option>}
+          <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
+          <option value="list">List</option><option value="object">Object</option>
+        </select>}
+    </div>
+    {description(schema) && <p className="property-description">{description(schema)}</p>}
+    <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} />
+    {schemaAllowsNull(schema) && value !== null && <button className="set-null-property" onClick={() => onChange(null)}>Set to null</button>}
+    {error && <p className="field-error" role="alert">{error}</p>}
     <button className="remove-property" aria-label={`Remove ${name} property`} onClick={onRemove}><Trash2 aria-hidden="true" /></button>
   </div>;
 }
 
-function PropertyValue({ name, value, schema, onChange }: {
+function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityChange }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
+  recordPaths: string[];
   onChange: (value: PropertyValue) => void;
+  onValidityChange: (valid: boolean) => void;
 }) {
-  if (isStructuredSchema(schema) && (Array.isArray(value) || (value && typeof value === "object"))) {
-    return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} />;
+  if (value === null) return <div className="null-property"><span>Persisted null</span><button onClick={() => onChange(schemaInitialValue(schema))}>Set a value</button></div>;
+  if (isStringList(name, schema, value)) {
+    const itemSchema = isObject(schema?.items) ? schema.items : undefined;
+    return <StringListEditor
+      name={name}
+      value={Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []}
+      suggestions={isLinkSchema(itemSchema) ? recordPaths : []}
+      onChange={onChange}
+    />;
+  }
+  if (isLinkSchema(schema) && typeof value === "string") {
+    return <><input aria-label={`${name} value`} list="record-property-paths" value={value} onChange={(event) => onChange(event.target.value)} />
+      <datalist id="record-property-paths">{recordPaths.map((path) => <option key={path} value={path} />)}</datalist></>;
+  }
+  if (schema) {
+    return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (typeof value === "boolean") {
     return <label className="boolean-property"><input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? "True" : "False"}</span></label>;
@@ -157,55 +282,113 @@ function PropertyValue({ name, value, schema, onChange }: {
     return <input aria-label={`${name} value`} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />;
   }
   if (typeof value === "string") {
-    const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item): item is string => typeof item === "string") : [];
-    if (choices.length) return <select aria-label={`${name} value`} value={value} onChange={(event) => onChange(event.target.value)}>
-      {!choices.includes(value) && <option value={value}>{value}</option>}
-      {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-    </select>;
-    const dateFormat = schemaDateFormat(schema);
-    if (dateFormat) return <input
-      aria-label={`${name} value`}
-      type={schemaDateInputType(dateFormat)}
-      step={dateFormat === "date-time" ? 1 : undefined}
-      value={schemaDateInputValue(value, dateFormat)}
-      onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
-    />;
     return <input aria-label={`${name} value`} value={value} onChange={(event) => onChange(event.target.value)} />;
   }
-  if (value === null) return <span className="null-property">null</span>;
-  return <JsonValueEditor name={name} value={value} onChange={onChange} />;
+  return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} />;
 }
 
-function JsonValueEditor({ name, value, onChange }: { name: string; value: PropertyValue; onChange: (value: PropertyValue) => void }) {
+function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
+  const listId = `property-${name.replace(/[^a-z0-9_-]+/gi, "-")}-suggestions`;
+  return <div className="property-string-list" role="group" aria-label={name}>
+    {value.map((item, index) => <div key={index}>
+      <input aria-label={`${name} value item ${index + 1}`} list={suggestions.length ? listId : undefined} value={item} onChange={(event) => onChange(value.map((current, itemIndex) => itemIndex === index ? event.target.value : current))} />
+      <button aria-label={`Remove ${name} item ${index + 1}`} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><X aria-hidden="true" /></button>
+    </div>)}
+    {suggestions.length > 0 && <datalist id={listId}>{suggestions.map((path) => <option key={path} value={path} />)}</datalist>}
+    <button onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> Add {name === "tags" ? "tag" : "item"}</button>
+  </div>;
+}
+
+function JsonValueEditor({ name, value, onChange, onValidityChange }: {
+  name: string;
+  value: PropertyValue;
+  onChange: (value: PropertyValue) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));
-  const [error, setError] = useState(false);
-  return <div className={`nested-property${error ? " invalid" : ""}`}>
+  const [invalid, setInvalid] = useState(false);
+  return <div className={`nested-property${invalid ? " invalid" : ""}`}>
     <CodeEditor value={text} label={`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {
       setText(next);
       try {
         onChange(JSON.parse(next) as unknown);
-        setError(false);
+        setInvalid(false);
+        onValidityChange(true);
       } catch {
-        setError(true);
+        setInvalid(true);
+        onValidityChange(false);
       }
     }} />
   </div>;
 }
 
-function mergedSchemaProperties(typeNames: string[], types: CollectionTypeDescriptor[]): Record<string, JsonObject> {
-  const result: Record<string, JsonObject> = {};
+function mergedSchema(typeNames: string[], types: CollectionTypeDescriptor[]): { properties: Record<string, JsonObject>; required: string[] } {
+  const properties: Record<string, JsonObject> = {};
+  const required = new Set<string>();
   for (const typeName of typeNames) {
     const descriptor = types.find((type) => type.name.toLocaleLowerCase() === typeName.toLocaleLowerCase());
-    const properties = descriptor?.schema.properties;
-    if (!properties || Array.isArray(properties) || typeof properties !== "object") continue;
-    for (const [name, schema] of Object.entries(properties)) {
-      if (schema && !Array.isArray(schema) && typeof schema === "object") result[name] = schema as JsonObject;
+    const declared = descriptor?.schema.properties;
+    if (declared && !Array.isArray(declared) && typeof declared === "object") {
+      for (const [name, schema] of Object.entries(declared)) {
+        if (schema && !Array.isArray(schema) && typeof schema === "object") properties[name] = schema as JsonObject;
+      }
+    }
+    if (Array.isArray(descriptor?.schema.required)) {
+      for (const name of descriptor.schema.required) if (typeof name === "string") required.add(name);
     }
   }
-  return result;
+  return { properties, required: [...required] };
 }
 
-function propertyKind(value: PropertyValue): PropertyKind {
+function validateValue(schema: JsonObject | undefined, value: unknown, path: string): string | undefined {
+  if (!schema) return undefined;
+  if (value === null) {
+    const nullable = schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null")) || (Array.isArray(schema.enum) && schema.enum.includes(null));
+    return nullable ? undefined : `${path} cannot be null.`;
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((choice) => JSON.stringify(choice) === JSON.stringify(value))) {
+    return `Choose one of the allowed values.`;
+  }
+  const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
+  if (type === "string") {
+    if (typeof value !== "string") return "Enter text.";
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) return `Enter at least ${schema.minLength} characters.`;
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) return `Enter no more than ${schema.maxLength} characters.`;
+    if (typeof schema.pattern === "string") {
+      try { if (!new RegExp(schema.pattern).test(value)) return "This value does not match the required format."; } catch { /* schema validation reports invalid patterns */ }
+    }
+  }
+  if (type === "number" || type === "integer") {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "Enter a number.";
+    if (type === "integer" && !Number.isInteger(value)) return "Enter a whole number.";
+    if (typeof schema.minimum === "number" && value < schema.minimum) return `Enter ${schema.minimum} or more.`;
+    if (typeof schema.maximum === "number" && value > schema.maximum) return `Enter ${schema.maximum} or less.`;
+  }
+  if (type === "boolean" && typeof value !== "boolean") return "Choose true or false.";
+  if (type === "array") {
+    if (!Array.isArray(value)) return "Enter a list.";
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) return `Add at least ${schema.minItems} items.`;
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return `Use no more than ${schema.maxItems} items.`;
+    const itemSchema = isObject(schema.items) ? schema.items : undefined;
+    for (let index = 0; index < value.length; index += 1) {
+      const error = validateValue(itemSchema, value[index], `${path} item ${index + 1}`);
+      if (error) return error;
+    }
+  }
+  if (type === "object") {
+    if (!isObject(value)) return "Enter an object.";
+    const properties = isObject(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
+    for (const name of required) {
+      if (!(name in value)) return `${name} is required.`;
+      const error = validateValue(isObject(properties[name]) ? properties[name] : undefined, value[name], `${path}.${name}`);
+      if (error) return error;
+    }
+  }
+  return undefined;
+}
+
+function propertyKind(value: PropertyValue): PropertyKind | "null" {
   if (value === null) return "null";
   if (Array.isArray(value)) return "list";
   if (typeof value === "object") return "object";
@@ -219,8 +402,55 @@ function initialValue(kind: PropertyKind): PropertyValue {
   if (kind === "boolean") return false;
   if (kind === "list") return [];
   if (kind === "object") return {};
-  if (kind === "null") return null;
   return "";
+}
+
+function schemaKind(schema?: JsonObject): string {
+  if (!schema) return "Custom";
+  if (Array.isArray(schema.enum)) return "Choice";
+  if (schema.format === "date") return "Date";
+  if (schema.format === "date-time") return "Date & time";
+  if (isLinkSchema(schema)) return "Record link";
+  const type = Array.isArray(schema.type) ? schema.type.filter((item) => item !== "null").join(" or ") : schema.type;
+  if (type === "array") return "List";
+  if (type === "boolean") return "Boolean";
+  if (type === "integer") return "Integer";
+  if (type === "number") return "Number";
+  if (type === "object") return "Object";
+  return "Text";
+}
+
+function description(schema?: JsonObject): string {
+  return typeof schema?.description === "string" ? schema.description : "";
+}
+
+function isLinkSchema(schema?: JsonObject): boolean {
+  const format = typeof schema?.format === "string" ? schema.format.toLocaleLowerCase() : "";
+  return format.includes("link") || format.includes("record") || schema?.["x-mdbase-kind"] === "record-link";
+}
+
+function schemaAllowsNull(schema?: JsonObject): boolean {
+  return schema?.type === "null"
+    || (Array.isArray(schema?.type) && schema.type.includes("null"))
+    || (Array.isArray(schema?.enum) && schema.enum.includes(null));
+}
+
+function isStringList(name: string, schema: JsonObject | undefined, value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  if (name.toLocaleLowerCase() === "tags") return value.every((item) => typeof item === "string");
+  return schema?.type === "array"
+    && isObject(schema.items)
+    && (schema.items as JsonObject).type === "string"
+    && !Array.isArray((schema.items as JsonObject).enum);
+}
+
+function isObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
 }
 
 function formatBytes(value?: number): string {
