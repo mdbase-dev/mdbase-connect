@@ -48,6 +48,45 @@ describe("mdbase connect server", () => {
     });
   });
 
+  it("keeps malformed and oversized request bodies out of the server-error path", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const malformed = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      headers: { "content-type": "application/json" },
+      payload: "{"
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toEqual({
+      error: {
+        code: "invalid_request",
+        message: "The request body is invalid."
+      }
+    });
+
+    const oversized = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ padding: "x".repeat(2 * 1024 * 1024 + 1) })
+    });
+    expect(oversized.statusCode).toBe(413);
+    expect(oversized.json()).toEqual({
+      error: {
+        code: "payload_too_large",
+        message: "The request body exceeds the allowed size."
+      }
+    });
+  });
+
   it("registers exact bundled declarations as immutable application identities", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

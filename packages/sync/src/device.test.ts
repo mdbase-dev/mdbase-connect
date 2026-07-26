@@ -27,6 +27,7 @@ import {
 } from "./device.js";
 import {
   mirrorDeviceDirectory,
+  mirrorLeaseDirectory,
   NodeMirrorLease,
   NodeMirrorStateStore
 } from "./node.js";
@@ -203,10 +204,14 @@ describe("device-local mirror storage", () => {
 
   it("allows only one mirror process to own a physical folder", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
-    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+    const firstStateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-a-"));
+    const secondStateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-b-"));
+    const leaseDirectory = await mirrorLeaseDirectory(root);
     try {
-      const first = new NodeMirrorLease(root, stateRoot);
-      const second = new NodeMirrorLease(root, stateRoot);
+      expect(await mirrorDeviceDirectory(root, firstStateRoot))
+        .not.toBe(await mirrorDeviceDirectory(root, secondStateRoot));
+      const first = new NodeMirrorLease(root);
+      const second = new NodeMirrorLease(root);
       const acquired = await first.acquire();
       await expect(second.acquire())
         .rejects.toMatchObject({ code: "mirror_folder_in_use" });
@@ -215,7 +220,9 @@ describe("device-local mirror storage", () => {
       await reacquired.release();
     } finally {
       await rm(root, { recursive: true, force: true });
-      await rm(stateRoot, { recursive: true, force: true });
+      await rm(firstStateRoot, { recursive: true, force: true });
+      await rm(secondStateRoot, { recursive: true, force: true });
+      await rm(leaseDirectory, { recursive: true, force: true });
     }
   });
 
@@ -225,26 +232,26 @@ describe("device-local mirror storage", () => {
       const parent = await mkdtemp(join(tmpdir(), "mdbase-mirror-parent-"));
       const root = join(parent, "mirror");
       const alias = join(parent, "mirror-alias");
-      const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+      let leaseDirectory: string | null = null;
       try {
         await mkdir(root);
         await symlink(root, alias, "dir");
-        const acquired = await new NodeMirrorLease(root, stateRoot).acquire();
-        await expect(new NodeMirrorLease(alias, stateRoot).acquire())
+        leaseDirectory = await mirrorLeaseDirectory(root);
+        const acquired = await new NodeMirrorLease(root).acquire();
+        await expect(new NodeMirrorLease(alias).acquire())
           .rejects.toMatchObject({ code: "mirror_folder_in_use" });
         await acquired.release();
       } finally {
         await rm(parent, { recursive: true, force: true });
-        await rm(stateRoot, { recursive: true, force: true });
+        if (leaseDirectory) await rm(leaseDirectory, { recursive: true, force: true });
       }
     }
   );
 
   it("recovers a lease left behind by a dead process", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
-    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+    const directory = await mirrorLeaseDirectory(root);
     try {
-      const directory = await mirrorDeviceDirectory(root, stateRoot);
       await mkdir(directory, { recursive: true });
       await writeFile(join(directory, "mirror.lock"), JSON.stringify({
         version: 1,
@@ -252,13 +259,13 @@ describe("device-local mirror storage", () => {
         pid: 999_999_999,
         acquired_at: new Date().toISOString()
       }));
-      const acquired = await new NodeMirrorLease(root, stateRoot).acquire();
+      const acquired = await new NodeMirrorLease(root).acquire();
       await acquired.release();
       await expect(access(join(directory, "mirror.lock")))
         .rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(root, { recursive: true, force: true });
-      await rm(stateRoot, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true });
     }
   });
 

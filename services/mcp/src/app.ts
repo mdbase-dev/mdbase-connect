@@ -76,6 +76,19 @@ export async function buildApp(options: BuildOptions) {
         issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message }))
       });
     }
+    const statusCode = httpErrorStatus(error);
+    if (statusCode === 413) {
+      return reply.code(413).send({
+        error: "invalid_request",
+        error_description: "The request body exceeds the allowed size."
+      });
+    }
+    if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
+      return reply.code(statusCode).send({
+        error: "invalid_request",
+        error_description: "The request body is invalid."
+      });
+    }
     request.log.error({ err: error }, "MCP gateway request failed");
     return reply.code(500).send({ error: "server_error", error_description: "The MCP gateway request failed." });
   });
@@ -201,6 +214,14 @@ export async function buildApp(options: BuildOptions) {
 async function authenticateRequest(authorization: string | undefined, oauth: OAuthService) {
   if (!authorization?.startsWith("Bearer ")) return null;
   return oauth.authenticate(authorization.slice(7));
+}
+
+function httpErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("statusCode" in error)) {
+    return undefined;
+  }
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === "number" ? statusCode : undefined;
 }
 
 function unauthorized(reply: any, resourceMetadataUrl: string) {
