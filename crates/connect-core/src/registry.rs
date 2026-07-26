@@ -23,6 +23,8 @@ use uuid::Uuid;
 const ENCRYPTED_REPLAY_WINDOW: u64 = 1024;
 const CONNECT_EXTENSION: &str = "x-mdbase-connect";
 const CONNECT_COLLECTION_ID: &str = "collection_id";
+const HOSTED_MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
+const HOSTED_MIRROR_MARKER_FILE: &str = "connect-role.json";
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -43,6 +45,12 @@ pub enum ConnectError {
         collection_id: Uuid,
         existing_path: String,
     },
+    #[error(
+        "This folder is a mirror of hosted collection {collection_id}. A hosted mirror cannot also be registered as a local-authority collection."
+    )]
+    HostedMirrorCannotRegister { collection_id: Uuid },
+    #[error("Hosted mirror role marker is invalid: {0}")]
+    InvalidHostedMirrorMarker(String),
     #[error("The selected folder is not a registered collection copy: {0}")]
     NotARegisteredCollectionCopy(String),
     #[error("Unsupported collection operation: {0}")]
@@ -79,6 +87,8 @@ impl ConnectError {
             Self::CollectionInit(_) => "collection_init_failed",
             Self::CollectionOpen(_) => "collection_open_failed",
             Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
+            Self::HostedMirrorCannotRegister { .. } => "hosted_mirror_cannot_register",
+            Self::InvalidHostedMirrorMarker(_) => "invalid_hosted_mirror_marker",
             Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::AccessDenied(_) => "access_denied",
@@ -341,6 +351,10 @@ impl CollectionRegistry {
         drop(statement);
         drop(connection);
         for collection in &mut collections {
+            if hosted_mirror_collection_id(Path::new(&collection.path))?.is_some() {
+                collection.enabled = false;
+                continue;
+            }
             let _ = self.refresh_summary_metadata(collection);
             if let Ok(description) = self.describe(collection.id) {
                 collection.contracts = description
@@ -377,6 +391,7 @@ impl CollectionRegistry {
             ));
         }
         let path = requested_path.canonicalize()?;
+        assert_local_authority_folder(&path)?;
         if !path.join("mdbase.yaml").is_file() {
             return Err(ConnectError::NotACollection(path.display().to_string()));
         }
@@ -440,6 +455,7 @@ impl CollectionRegistry {
             ));
         }
         let path = requested_path.canonicalize()?;
+        assert_local_authority_folder(&path)?;
         if !path.join("mdbase.yaml").is_file() {
             return Err(ConnectError::NotACollection(path.display().to_string()));
         }
@@ -573,6 +589,7 @@ impl CollectionRegistry {
         }
 
         let registered = self.get(id)?;
+        assert_local_authority_folder(Path::new(&registered.path))?;
         let config_path = Path::new(&registered.path).join("mdbase.yaml");
         let source = fs::read_to_string(&config_path)?;
         let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
@@ -616,6 +633,10 @@ impl CollectionRegistry {
     }
 
     pub fn set_enabled(&self, id: Uuid, enabled: bool) -> Result<CollectionSummary, ConnectError> {
+        if enabled {
+            let registered = self.get(id)?;
+            assert_local_authority_folder(Path::new(&registered.path))?;
+        }
         let changed = self.connection()?.execute(
             "UPDATE collections SET enabled = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
             params![id.to_string(), enabled],
@@ -646,7 +667,11 @@ impl CollectionRegistry {
                 },
             )
             .optional()?;
-        row.ok_or(ConnectError::CollectionNotFound(id))
+        let mut collection = row.ok_or(ConnectError::CollectionNotFound(id))?;
+        if hosted_mirror_collection_id(Path::new(&collection.path))?.is_some() {
+            collection.enabled = false;
+        }
+        Ok(collection)
     }
 
     pub fn remove(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
@@ -681,6 +706,7 @@ impl CollectionRegistry {
         synchronize: impl FnOnce(&CollectionInvalidation),
     ) -> Result<Value, ConnectError> {
         let registered = self.get(id)?;
+        assert_local_authority_folder(Path::new(&registered.path))?;
         if operation == "changes" {
             return serde_json::to_value(self.changes(id, input)?).map_err(ConnectError::from);
         }
@@ -999,6 +1025,7 @@ impl CollectionRegistry {
         &self,
         registered: &CollectionSummary,
     ) -> Result<Arc<FilesystemProvider>, ConnectError> {
+        assert_local_authority_folder(Path::new(&registered.path))?;
         let mut providers = self
             .providers
             .lock()
@@ -2092,6 +2119,61 @@ struct CollectionMetadata {
     description: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct HostedMirrorMarker {
+    version: u8,
+    role: String,
+    collection_id: Uuid,
+}
+
+fn assert_local_authority_folder(root: &Path) -> Result<(), ConnectError> {
+    if let Some(collection_id) = hosted_mirror_collection_id(root)? {
+        return Err(ConnectError::HostedMirrorCannotRegister { collection_id });
+    }
+    Ok(())
+}
+
+fn hosted_mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
+    let marker_directory = root.join(HOSTED_MIRROR_MARKER_DIRECTORY);
+    let directory_metadata = match fs::symlink_metadata(&marker_directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
+        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+            "{} must be an ordinary directory.",
+            marker_directory.display()
+        )));
+    }
+    let marker_path = marker_directory.join(HOSTED_MIRROR_MARKER_FILE);
+    let marker_metadata = match fs::symlink_metadata(&marker_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if marker_metadata.file_type().is_symlink() || !marker_metadata.is_file() {
+        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+            "{} must be an ordinary file.",
+            marker_path.display()
+        )));
+    }
+    let marker: HostedMirrorMarker = serde_json::from_str(&fs::read_to_string(&marker_path)?)
+        .map_err(|error| {
+            ConnectError::InvalidHostedMirrorMarker(format!(
+                "{} could not be read: {error}",
+                marker_path.display()
+            ))
+        })?;
+    if marker.version != 1 || marker.role != "hosted_mirror" {
+        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+            "{} has an unsupported role or version.",
+            marker_path.display()
+        )));
+    }
+    Ok(Some(marker.collection_id))
+}
+
 fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
     if let Some(id) = read_collection_id(root)? {
         return Ok(id);
@@ -2522,6 +2604,21 @@ mod tests {
     use std::thread;
     use tempfile::tempdir;
 
+    fn mark_hosted_mirror(root: &Path, collection_id: Uuid) {
+        let directory = root.join(HOSTED_MIRROR_MARKER_DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join(HOSTED_MIRROR_MARKER_FILE),
+            serde_json::to_vec_pretty(&json!({
+                "version": 1,
+                "role": "hosted_mirror",
+                "collection_id": collection_id,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn portable_mutation_results_produce_targeted_invalidations() {
         let output = serde_json::to_value(mdbase::v03::OperationResult {
@@ -2593,6 +2690,52 @@ mod tests {
             "unregistering must not delete collection files"
         );
         assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn hosted_mirror_cannot_be_registered_as_a_local_authority() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("hosted-mirror");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let hosted_collection_id = Uuid::new_v4();
+
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        mark_hosted_mirror(&root, hosted_collection_id);
+
+        assert!(matches!(
+            registry.add(&root),
+            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
+                if collection_id == hosted_collection_id
+        ));
+        assert_eq!(read_collection_id(&root).unwrap(), None);
+        assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_registered_folder_stops_being_available_when_it_becomes_a_hosted_mirror() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let created = registry.create(&root, Some("Notes")).unwrap();
+        let hosted_collection_id = Uuid::new_v4();
+
+        mark_hosted_mirror(&root, hosted_collection_id);
+
+        assert!(!registry.get(created.id).unwrap().enabled);
+        assert!(!registry.list().unwrap()[0].enabled);
+        assert!(matches!(
+            registry.operation(created.id, "describe", &json!({})),
+            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
+                if collection_id == hosted_collection_id
+        ));
+        assert!(matches!(
+            registry.set_enabled(created.id, true),
+            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
+                if collection_id == hosted_collection_id
+        ));
     }
 
     #[test]

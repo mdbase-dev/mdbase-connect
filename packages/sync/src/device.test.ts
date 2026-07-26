@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertHostedMirror,
+  clearHostedMirrorMarker,
   loadAuthorityPromotionCheckpoint,
+  loadHostedMirrorMarker,
   loadMirrorProfile,
+  markHostedMirror,
   mirrorProfileDirectory,
   restoreCollectionConfiguration,
   retireMirrorAfterPromotion,
@@ -12,9 +16,47 @@ import {
   saveMirrorProfile,
   setHostedCollectionIdentity
 } from "./device.js";
-import { NodeMirrorStateStore } from "./node.js";
+import { NodeMirrorLease, NodeMirrorStateStore } from "./node.js";
 
 describe("device-local mirror storage", () => {
+  it("marks a hosted mirror without putting device role state in hosted resources", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    const collectionId = crypto.randomUUID();
+    try {
+      await writeFile(join(root, "mdbase.yaml"), "spec_version: 0.3.0\n");
+      await markHostedMirror(root, collectionId);
+      await assertHostedMirror(root, collectionId);
+      expect(await loadHostedMirrorMarker(root)).toEqual({
+        version: 1,
+        role: "hosted_mirror",
+        collection_id: collectionId
+      });
+      expect(await readFile(join(root, "mdbase.yaml"), "utf8"))
+        .toBe("spec_version: 0.3.0\n");
+      await expect(markHostedMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "hosted_mirror_identity_conflict" });
+      await clearHostedMirrorMarker(root, collectionId);
+      expect(await loadHostedMirrorMarker(root)).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires an authority transfer before a local collection folder becomes a hosted mirror", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    try {
+      await writeFile(
+        join(root, "mdbase.yaml"),
+        `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${crypto.randomUUID()}\n`
+      );
+      await expect(markHostedMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "local_authority_requires_transfer" });
+      expect(await loadHostedMirrorMarker(root)).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("sets the hosted identity atomically and can restore the original collection config", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     const collectionId = crypto.randomUUID();
@@ -140,6 +182,24 @@ describe("device-local mirror storage", () => {
       await expect(access(join(root, ".mdbase", "connect-mirror.json"))).rejects.toMatchObject({
         code: "ENOENT"
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("allows only one mirror process to own a physical folder", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+    try {
+      const first = new NodeMirrorLease(root, stateRoot);
+      const second = new NodeMirrorLease(root, stateRoot);
+      const acquired = await first.acquire();
+      await expect(second.acquire())
+        .rejects.toMatchObject({ code: "mirror_folder_in_use" });
+      await acquired.release();
+      const reacquired = await second.acquire();
+      await reacquired.release();
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(stateRoot, { recursive: true, force: true });

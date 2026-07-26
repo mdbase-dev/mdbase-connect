@@ -6,6 +6,7 @@ import { MemoryHostedAuthority } from "./index.js";
 import {
   authorityManifestDigest,
   DirectoryMirror,
+  MemoryMirrorLease,
   MemoryMirrorStateStore,
   MirrorDivergenceError,
   WritableDirectoryMirror,
@@ -15,7 +16,10 @@ import {
 } from "./node.js";
 
 function deviceState(): DirectoryMirrorOptions {
-  return { stateStore: new MemoryMirrorStateStore() };
+  return {
+    stateStore: new MemoryMirrorStateStore(),
+    lease: new MemoryMirrorLease()
+  };
 }
 
 class MemoryMirrorFileSystem implements MirrorFileSystem {
@@ -264,7 +268,11 @@ describe("writable Markdown mirror", () => {
       "/virtual",
       replicaId,
       hosted.transport(replicaId),
-      { stateStore: new MemoryMirrorStateStore(), fileSystem }
+      {
+        stateStore: new MemoryMirrorStateStore(),
+        fileSystem,
+        lease: new MemoryMirrorLease()
+      }
     );
     await mirror.sync();
 
@@ -282,7 +290,11 @@ describe("writable Markdown mirror", () => {
       "/virtual",
       readOnlyId,
       hosted.transport(readOnlyId),
-      { stateStore: new MemoryMirrorStateStore(), fileSystem: new MemoryMirrorFileSystem() }
+      {
+        stateStore: new MemoryMirrorStateStore(),
+        fileSystem: new MemoryMirrorFileSystem(),
+        lease: new MemoryMirrorLease()
+      }
     );
     await readOnly.sync();
     await expect(readOnly.authorityPromotionManifest()).rejects.toMatchObject({
@@ -295,7 +307,11 @@ describe("writable Markdown mirror", () => {
       "/virtual",
       writableId,
       hosted.transport(writableId),
-      { stateStore: new MemoryMirrorStateStore(), fileSystem }
+      {
+        stateStore: new MemoryMirrorStateStore(),
+        fileSystem,
+        lease: new MemoryMirrorLease()
+      }
     );
     await writable.sync();
     fileSystem.files.set("unmanaged.md", "---\ntitle: Unmanaged\n---\n");
