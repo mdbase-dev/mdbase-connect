@@ -13,7 +13,7 @@ import {
 } from "@mdbase/connect-sync";
 import {
   authorityManifestDigest
-} from "@mdbase/connect-sync/node";
+} from "@mdbase/connect-sync/mirror";
 import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 

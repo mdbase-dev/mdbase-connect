@@ -52,7 +52,10 @@ reference path through a real HTTP server:
   durable journals, and explicit conflict resolution;
 - hosted collection and mirror controls in the Electron app, including folder
   selection, background sync state, conflict decisions, and revocation without
-  a command-line onboarding step.
+  a command-line onboarding step;
+- a browser/mobile-safe mirror state machine with injected filesystem,
+  durable-state, lease, hashing, clock, and identity adapters; the Node entry
+  point is now a compatibility adapter around that same core.
 
 The network end-to-end test creates a hosted collection, queues a record
 offline, synchronizes two clients, materializes Markdown, returns a stale-write

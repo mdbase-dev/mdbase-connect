@@ -5,8 +5,8 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "@mdbase/connect-sync/node",
-        replacement: fileURLToPath(new URL("../../packages/sync/src/node.ts", import.meta.url))
+        find: "@mdbase/connect-sync/mirror",
+        replacement: fileURLToPath(new URL("../../packages/sync/src/mirror.ts", import.meta.url))
       },
       {
         find: /^@mdbase\/connect-sync$/,

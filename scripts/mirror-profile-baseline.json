@@ -1,0 +1,51 @@
+{
+  "profile_version": 1,
+  "captured_before_portable_extraction": true,
+  "runtime": {
+    "node": "v22.22.0",
+    "platform": "linux-x64"
+  },
+  "parameters": {
+    "records": 10000,
+    "changes": 100,
+    "rounds": 3,
+    "snapshot_page_size": 200
+  },
+  "medians": {
+    "read_only_initial": {
+      "wall_ms": 512.101,
+      "peak_heap_delta_mib": 40.575,
+      "fs_reads": 20000,
+      "fs_writes": 10000,
+      "state_writes": 1
+    },
+    "read_only_noop": {
+      "wall_ms": 207.114,
+      "peak_heap_delta_mib": 40.087,
+      "fs_reads": 10000,
+      "fs_writes": 0,
+      "state_writes": 2
+    },
+    "read_only_incremental": {
+      "wall_ms": 208.859,
+      "peak_heap_delta_mib": 40.474,
+      "fs_reads": 10100,
+      "fs_writes": 100,
+      "state_writes": 2
+    },
+    "read_write_initial": {
+      "wall_ms": 754.196,
+      "peak_heap_delta_mib": 69.555,
+      "fs_reads": 30000,
+      "fs_writes": 10000,
+      "state_writes": 3
+    },
+    "read_write_noop": {
+      "wall_ms": 208.449,
+      "peak_heap_delta_mib": 40.86,
+      "fs_reads": 10000,
+      "fs_writes": 0,
+      "state_writes": 2
+    }
+  }
+}

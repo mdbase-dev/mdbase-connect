@@ -16,6 +16,118 @@ tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted
 PostgreSQL storage, durable receipts and snapshot leases, and canonical
 operation execution through `mdbase-rs`.
 
+## Embedded mirror enrollment
+
+Applications that materialize a hosted collection into their own filesystem
+can use the browser-approval client without copying the CLI workflow:
+
+```ts
+import { MirrorEnrollmentClient } from "@mdbase/connect-sync/enrollment";
+
+const client = new MirrorEnrollmentClient();
+
+const enrollment = await client.enroll({
+  controlUrl: "https://connect.mdbase.dev",
+  mirrorName: "Obsidian vault",
+  mode: "read_write",
+  collectionId
+}, {
+  signal,
+  onVerification: ({ verificationUri, expiresAt }) => {
+    showApproval(verificationUri, expiresAt);
+  },
+  onStatus: ({ state, retryAt }) => {
+    showEnrollmentStatus(state, retryAt);
+  }
+});
+```
+
+The client starts approval, polls until the user decides, validates the
+selected collection and mirror mode, rejects an untrusted verification URI,
+and returns the provider URL, replica identity, access token, renewal
+credential, and expiries. `renew(enrollment)` rotates the short-lived access
+token without changing the replica. When using `enroll()`, the verification
+callback receives only public approval details; the short-lived enrollment
+credential stays inside the enrollment flow.
+
+The enrollment client deliberately does not persist credentials, mark a
+folder, open a browser, or choose a filesystem. A host must keep the renewal
+credential in device-local secret state, never in the mirrored collection.
+Node hosts can use the profile and marker helpers from
+`@mdbase/connect-sync/device`, then construct `DirectoryMirror` or
+`WritableDirectoryMirror` from `@mdbase/connect-sync/node`. The enrollment
+and portable mirror entry points have no Node dependency and can run in a
+mobile host.
+
+## Portable directory mirrors
+
+`@mdbase/connect-sync/mirror` contains the complete mirror state machine,
+Markdown codec, collision preflight, durable mutation journal, reset handling,
+and conflict resolution without importing Node filesystem, path, process, or
+Buffer APIs. A mobile application supplies its own filesystem and durable-state
+adapters:
+
+```ts
+import {
+  DirectoryMirror,
+  type MirrorFileSystem,
+  type MirrorStateStore
+} from "@mdbase/connect-sync/mirror";
+
+const mirror = new DirectoryMirror(replicaId, transport, {
+  fileSystem: mobileVaultAdapter satisfies MirrorFileSystem,
+  stateStore: deviceLocalState satisfies MirrorStateStore,
+  lease: hostLifecycleLease
+});
+
+await mirror.sync();
+```
+
+The filesystem adapter deals only in collection-relative POSIX paths and
+ordinary UTF-8 strings. The state store must live in device-local application
+state, not inside the mirrored collection. A host should provide a lease that
+excludes concurrent mirror owners for the same vault; the default memory lease
+only protects overlapping calls in one JavaScript process.
+
+The portable runtime uses audited JavaScript SHA-256 and `crypto.randomUUID`.
+A host may inject `MirrorRuntime` to use an equivalent native primitive. The
+Node entry point remains source-compatible and injects native hashing, atomic
+filesystem writes, symlink/path-containment checks, device-local state, and a
+cross-process lease.
+
+This makes the engine mobile-safe; it does not force always-on mobile sync.
+Obsidian or another host still owns background scheduling, battery/network
+policy, secret storage, and translation from its vault API to
+`MirrorFileSystem`.
+
+### Performance and adversarial profiling
+
+The repository keeps the pre-extraction 10,000-record baseline and checks both
+the Node and portable adapters against it:
+
+```bash
+pnpm profile:mirror:check
+pnpm check:mirror:mobile
+pnpm profile:mirror:vault -- --source /path/to/large/vault
+```
+
+The regression check measures initial materialization, steady no-op sync,
+100-record incremental receive, writable initialization, and writable no-op
+sync across three rounds. It records wall time, peak/retained heap, filesystem
+operations, state checkpoints, and transport calls. Stable operation counts
+and bundle-size budgets are enforced in addition to timing/heap ceilings. The
+live-vault harness uses a disposable target, injects divergence, update,
+rename, delete, create, and a collision on the final snapshot path, then
+verifies no partial initialization state was committed. Unit coverage injects
+adapter failure and snapshot-boundary corruption before durable state advances.
+
+If a request fails transiently while approval is pending, the client retries
+until the server-provided deadline. Cancellation, expiry, malformed responses,
+collection substitution, mode substitution, and permanent server errors fail
+with a stable `MirrorEnrollmentError.code`.
+
+## Command line
+
 ```bash
 # Recommended: approve the folder in a browser and sync both ways
 mdbase-mirror connect ./tasks --server https://connect.mdbase.dev \

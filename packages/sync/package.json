@@ -23,9 +23,17 @@
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     },
+    "./mirror": {
+      "types": "./dist/mirror.d.ts",
+      "import": "./dist/mirror.js"
+    },
     "./device": {
       "types": "./dist/device.d.ts",
       "import": "./dist/device.js"
+    },
+    "./enrollment": {
+      "types": "./dist/enrollment.d.ts",
+      "import": "./dist/enrollment.js"
     }
   },
   "files": [
@@ -34,6 +42,7 @@
   ],
   "dependencies": {
     "@mdbase/connect-protocol": "workspace:*",
+    "@noble/hashes": "^2.2.0",
     "yaml": "^2.9.0"
   },
   "scripts": {

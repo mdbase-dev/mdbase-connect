@@ -18,6 +18,9 @@ importers:
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
 
   apps/desktop:
     dependencies:
@@ -203,6 +206,9 @@ importers:
       '@mdbase/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.2.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -840,6 +846,10 @@ packages:
   '@nats-io/transport-node@3.4.0':
     resolution: {integrity: sha512-hH7u7ejIBTFEJIZ8rIcMrHJI6wl+HhpO5sVFs1+ppmXa8RuB2+Lh1+UwTzZ5xTNNm1TKcRkYy+2qCV56qp8RxA==}
     engines: {node: '>= 18.0.0'}
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -4516,6 +4526,8 @@ snapshots:
       '@nats-io/nats-core': 3.4.0
       '@nats-io/nkeys': 2.0.3
       '@nats-io/nuid': 3.0.0
+
+  '@noble/hashes@2.2.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:

@@ -11,6 +11,10 @@
     "e2e:provider": "pnpm build && cargo build -p mdbase-connect-hosted-provider && node scripts/hosted-provider-e2e.mjs",
     "e2e:authority:stress": "MDBASE_CONNECT_PROVIDER_E2E_PROMOTION_COUNT=2500 pnpm e2e:provider",
     "e2e:provider:stress": "MDBASE_CONNECT_PROVIDER_E2E_BULK_COUNT=10000 pnpm e2e:provider",
+    "profile:mirror": "node --expose-gc scripts/mirror-profile.mjs",
+    "profile:mirror:check": "pnpm --filter @mdbase/connect-sync build && node scripts/assert-mirror-performance.mjs",
+    "profile:mirror:vault": "pnpm --filter @mdbase/connect-sync build && node scripts/mirror-live-vault.mjs",
+    "check:mirror:mobile": "node scripts/check-mirror-mobile.mjs",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "package:consumer": "node scripts/pack-consumer-sdk.mjs",
     "profile:connect": "cargo run --release -p mdbase-connect-core --bin connect-profile --",
@@ -21,6 +25,7 @@
     "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.61.1",
+    "esbuild": "^0.28.1"
   }
 }

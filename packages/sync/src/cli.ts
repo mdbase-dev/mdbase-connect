@@ -31,6 +31,11 @@ import {
   type AuthorityPromotionCheckpoint,
   type StoredMirrorProfile
 } from "./device.js";
+import {
+  MirrorEnrollmentClient,
+  canonicalConnectOrigin,
+  type MirrorEnrollment
+} from "./enrollment.js";
 
 const parsed = parseArgs({
   allowPositionals: true,
@@ -65,6 +70,7 @@ if (
 }
 
 const root = resolve(directoryValue);
+const enrollmentClient = new MirrorEnrollmentClient();
 
 try {
   if (command === "connect") {
@@ -77,7 +83,7 @@ try {
     const token = process.env.MDBASE_CONNECT_REPLICA_TOKEN ?? await hiddenTokenPrompt();
     if (token.length < 32) throw new Error("Replica token is missing or invalid.");
     const mode = parsed.values.writable ? "read_write" : "read_only";
-    const providerUrl = canonicalProviderUrl(providerUrlValue);
+    const providerUrl = canonicalConnectOrigin(providerUrlValue);
     const transport = new HttpSyncTransport(providerUrl, collectionId, token);
     const session = await transport.openSession();
     if (session.replica_id !== replicaId || session.mode !== mode) {
@@ -269,42 +275,17 @@ async function currentProfile(root: string): Promise<StoredMirrorProfile> {
     && expiry
     && Date.parse(expiry) - Date.now() < 24 * 60 * 60 * 1000
   ) {
-    const renewed = await mirrorEnrollmentRequest<MirrorExchangeResponse>(
-      stored.profile.control_url,
-      stored.profile.enrollment_id,
-      "renew",
-      stored.credentials.refresh_token
-    );
+    const renewed = await enrollmentClient.renew(storedEnrollment(stored));
     stored = await updateMirrorCredentials(
       root,
       {
-        access_token: renewed.token,
+        access_token: renewed.accessToken,
         refresh_token: stored.credentials.refresh_token
       },
-      renewed.token_expires_at
+      renewed.accessTokenExpiresAt
     );
   }
   return stored;
-}
-
-interface MirrorPairingResponse {
-  pairing_id: string;
-  pairing_secret: string;
-  verification_uri: string;
-  expires_in: number;
-}
-
-interface MirrorExchangeResponse {
-  status: "paired";
-  replica: {
-    id: string;
-    collection_id: string;
-    name: string;
-    mode: "read_only" | "read_write";
-  };
-  token: string;
-  token_expires_at: string;
-  sync_url: string;
 }
 
 interface AuthorityTransfer {
@@ -336,58 +317,37 @@ interface AuthorityTransferCompletion {
 
 async function connect(root: string): Promise<void> {
   await mkdir(root, { recursive: true });
-  const controlUrl = canonicalProviderUrl(required(parsed.values.server, "--server"));
+  const controlUrl = canonicalConnectOrigin(required(parsed.values.server, "--server"));
   const mode = parsed.values["read-only"] ? "read_only" : "read_write";
   const name = parsed.values.name?.trim() || `${hostname() || "This computer"} mirror`;
-  const created = await jsonRequest<MirrorPairingResponse>(
-    `${controlUrl}/v1/mirror-pairing-requests`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mirror_name: name,
-        mode,
-        ...(parsed.values.collection ? { collection_id: parsed.values.collection } : {})
-      })
+  const enrolled = await enrollmentClient.enroll({
+    controlUrl,
+    mirrorName: name,
+    mode,
+    ...(parsed.values.collection ? { collectionId: parsed.values.collection } : {})
+  }, {
+    onVerification: ({ verificationUri }) => {
+      process.stdout.write(`Approve this folder in your browser:\n${verificationUri}\n`);
+      if (!parsed.values["no-open"]) openBrowser(verificationUri);
     }
-  );
-  process.stdout.write(`Approve this folder in your browser:\n${created.verification_uri}\n`);
-  if (!parsed.values["no-open"]) openBrowser(created.verification_uri);
-  const deadline = Date.now() + created.expires_in * 1_000;
-  while (Date.now() < deadline) {
-    const response = await fetch(
-      `${controlUrl}/v1/mirror-pairing-requests/${encodeURIComponent(created.pairing_id)}/exchange`,
-      { method: "POST", headers: { authorization: `Bearer ${created.pairing_secret}` } }
-    );
-    if (response.status === 202) {
-      await delay(1_500);
-      continue;
-    }
-    const exchanged = await responseJson<MirrorExchangeResponse>(response);
-    await markHostedMirror(root, exchanged.replica.collection_id);
-    await saveMirrorProfile(
-      root,
-      {
-        version: 1,
-        provider_url: canonicalProviderUrl(exchanged.sync_url),
-        control_url: controlUrl,
-        collection_id: exchanged.replica.collection_id,
-        replica_id: exchanged.replica.id,
-        mode: exchanged.replica.mode,
-        name: exchanged.replica.name,
-        enrollment_id: created.pairing_id,
-        access_token_expires_at: exchanged.token_expires_at
-      },
-      {
-        access_token: exchanged.token,
-        refresh_token: created.pairing_secret
-      }
-    );
-    await initialSync(root);
-    process.stdout.write(`Sync connected at ${root}\n`);
-    return;
-  }
-  throw new Error("Browser approval expired. Run the connect command again.");
+  });
+  await markHostedMirror(root, enrolled.collectionId);
+  await saveMirrorProfile(root, {
+    version: 1,
+    provider_url: enrolled.providerUrl,
+    control_url: enrolled.controlUrl,
+    collection_id: enrolled.collectionId,
+    replica_id: enrolled.replicaId,
+    mode: enrolled.mode,
+    name: enrolled.name,
+    enrollment_id: enrolled.enrollmentId,
+    access_token_expires_at: enrolled.accessTokenExpiresAt
+  }, {
+    access_token: enrolled.accessToken,
+    refresh_token: enrolled.refreshCredential
+  });
+  await initialSync(root);
+  process.stdout.write(`Sync connected at ${root}\n`);
 }
 
 async function promote(root: string): Promise<void> {
@@ -405,7 +365,7 @@ async function promote(root: string): Promise<void> {
       "Authority can move only from a browser-paired, two-way full collection mirror."
     );
   }
-  const controlUrl = canonicalProviderUrl(stored.profile.control_url);
+  const controlUrl = canonicalConnectOrigin(stored.profile.control_url);
   const authentication = { authorization: `Bearer ${stored.credentials.refresh_token}` };
   if (unfinished) {
     if (unfinished.collection_id !== stored.profile.collection_id) {
@@ -640,18 +600,6 @@ function collectionIdFromControlResult(result: unknown): string | null {
   return typeof id === "string" ? id : null;
 }
 
-async function mirrorEnrollmentRequest<Result>(
-  controlUrl: string,
-  enrollmentId: string,
-  action: "renew",
-  refreshToken: string
-): Promise<Result> {
-  return jsonRequest<Result>(
-    `${canonicalProviderUrl(controlUrl)}/v1/mirror-pairing-requests/${encodeURIComponent(enrollmentId)}/${action}`,
-    { method: "POST", headers: { authorization: `Bearer ${refreshToken}` } }
-  );
-}
-
 async function jsonRequest<Result>(url: string, init: RequestInit): Promise<Result> {
   return responseJson<Result>(await fetch(url, init));
 }
@@ -761,18 +709,6 @@ async function hiddenTokenPrompt(): Promise<string> {
   });
 }
 
-function canonicalProviderUrl(value: string): string {
-  const url = new URL(value);
-  if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
-    throw new Error("Provider URL must be an origin without credentials, path, query, or fragment.");
-  }
-  const loopback = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new Error("Provider URL must use HTTPS outside loopback development.");
-  }
-  return url.origin;
-}
-
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is required for mirror initialization.`);
   return value;
@@ -780,6 +716,30 @@ function required(value: string | undefined, name: string): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function storedEnrollment(stored: StoredMirrorProfile): MirrorEnrollment {
+  const profile = stored.profile;
+  if (
+    !profile.control_url
+    || !profile.enrollment_id
+    || !profile.access_token_expires_at
+    || !stored.credentials.refresh_token
+  ) {
+    throw new Error("This mirror does not have renewable browser enrollment.");
+  }
+  return {
+    controlUrl: profile.control_url,
+    providerUrl: profile.provider_url,
+    collectionId: profile.collection_id,
+    replicaId: profile.replica_id,
+    mode: profile.mode,
+    name: profile.name ?? "This computer mirror",
+    enrollmentId: profile.enrollment_id,
+    accessToken: stored.credentials.access_token,
+    refreshCredential: stored.credentials.refresh_token,
+    accessTokenExpiresAt: profile.access_token_expires_at
+  };
 }
 
 function usage(): void {
