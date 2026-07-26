@@ -202,6 +202,10 @@ describe("mdbase MCP gateway", () => {
     });
     expect(upstream.localInputs).toContainEqual({ types: ["note"], limit: 5 });
     expect(upstream.operationAuthorizations).toContain("Bearer upstream-access-one");
+    expect(upstream.operationOrigins).toEqual([
+      "https://mcp.example",
+      "https://mcp.example"
+    ]);
 
     await client.close();
     await app.close();
@@ -224,6 +228,7 @@ function testConfig(): McpRuntimeConfig {
 async function fakeUpstream(realFetch: typeof fetch) {
   const applicationPublicKeys: string[] = [];
   const operationAuthorizations: string[] = [];
+  const operationOrigins: string[] = [];
   const localInputs: unknown[] = [];
   const connectorKeys = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
@@ -270,7 +275,9 @@ async function fakeUpstream(realFetch: typeof fetch) {
       });
     }
     if (url.origin === "https://connect.example" && url.pathname.endsWith("/operations/query")) {
-      operationAuthorizations.push(new Headers(init?.headers).get("authorization")!);
+      const headers = new Headers(init?.headers);
+      operationAuthorizations.push(headers.get("authorization")!);
+      operationOrigins.push(headers.get("origin")!);
       const envelope = JSON.parse(String(init?.body));
       const input = await decryptConnectorRequest(connectorKeys.privateKey, applicationPublicKeys[0], envelope);
       localInputs.push(input);
@@ -282,7 +289,9 @@ async function fakeUpstream(realFetch: typeof fetch) {
       return Response.json({ envelope: responseEnvelope });
     }
     if (url.origin === "https://sync.example" && url.pathname.endsWith("/operations/query")) {
-      operationAuthorizations.push(new Headers(init?.headers).get("authorization")!);
+      const headers = new Headers(init?.headers);
+      operationAuthorizations.push(headers.get("authorization")!);
+      operationOrigins.push(headers.get("origin")!);
       return Response.json({
         result: {
           valid: true,
@@ -294,7 +303,7 @@ async function fakeUpstream(realFetch: typeof fetch) {
     if (url.hostname === "127.0.0.1") return realFetch(input, init);
     return Response.json({ error: { code: "unexpected_fetch", message: url.href } }, { status: 500 });
   });
-  return { fetch: fetchMock, applicationPublicKeys, operationAuthorizations, localInputs };
+  return { fetch: fetchMock, applicationPublicKeys, operationAuthorizations, operationOrigins, localInputs };
 }
 
 async function decryptConnectorRequest(privateKey: CryptoKey, applicationPublicKey: string, envelope: any): Promise<unknown> {

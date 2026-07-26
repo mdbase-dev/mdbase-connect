@@ -86,6 +86,8 @@ interface ConnectionRow {
 }
 
 export class ConnectGateway {
+  private readonly applicationOrigin: string;
+
   constructor(
     private readonly db: DatabasePool,
     private readonly secrets: SecretBox,
@@ -93,7 +95,9 @@ export class ConnectGateway {
     readonly connectUrl: string,
     private readonly manifest: MdbaseAppManifest,
     readonly callbackUrl: string
-  ) {}
+  ) {
+    this.applicationOrigin = new URL(callbackUrl).origin;
+  }
 
   async registerApplication(): Promise<{ id: string }> {
     const response = await fetch(`${this.connectUrl}/v1/apps/register`, {
@@ -226,7 +230,8 @@ export class ConnectGateway {
       method: "POST",
       headers: {
         authorization: `Bearer ${bearer}`,
-        "content-type": "application/json"
+        "content-type": "application/json",
+        origin: this.applicationOrigin
       },
       body: JSON.stringify(body)
     });
