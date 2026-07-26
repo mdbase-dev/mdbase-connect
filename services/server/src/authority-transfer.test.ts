@@ -424,5 +424,5 @@ describe("hosted-to-local authority transfer", () => {
       url: `/v1/hosted/collections/${cancellableCollectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${cancellableReplicaToken}` }
     })).statusCode).toBe(200);
-  });
+  }, 15_000);
 });

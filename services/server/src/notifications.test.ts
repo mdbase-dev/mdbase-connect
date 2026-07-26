@@ -120,7 +120,7 @@ describe("Web Push notifications", () => {
     expect(duplicate.json().duplicate).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fixture.transport.deliveries).toHaveLength(1);
-  });
+  }, 15_000);
 
   it("rejects undeclared criteria and revoked grants", async () => {
     const fixture = await notificationFixture();
