@@ -59,9 +59,9 @@ replica revocation and token-renewal denial.
 The TypeScript authority remains a deterministic protocol test double. The
 production route uses `mdbase-connect-hosted-provider`, and hosted validation,
 matching, queries, lifecycle behavior, and reference rewrites run through
-`mdbase-rs`. Paid PostgreSQL point-in-time recovery is provisioned on Render; a
-restore drill and long-retention logical-export procedure remain operational
-launch gates.
+`mdbase-rs`. A production operator must provide PostgreSQL point-in-time
+recovery or equivalent encrypted backups; a restore drill and long-retention
+logical-export procedure remain operational launch gates.
 
 ## Design commitments
 

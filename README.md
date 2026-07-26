@@ -15,7 +15,7 @@ authority installs the declared type during approval, verifies the resulting
 contract scope, and creates the grant afterward. Setup does not grant the
 application general type-management access.
 
-This is a functional private-beta foundation. The tested path covers creating a local
+This is a functional beta foundation. The tested path covers creating a local
 collection, pairing an outbound-only connector, discovering an independent web
 app, approving exact operations locally or from the authenticated account
 portal, reading and writing records directly on the same computer or through
@@ -156,11 +156,14 @@ docker compose up --build
 Open the desktop app, enter `http://localhost:8787` when prompted, and choose
 **Pair this computer**. Sign in and approve the pairing in the browser; no
 connector token is shown or copied. See
-[`docs/self-hosting.md`](docs/self-hosting.md) for important limitations.
+[`docs/self-hosting.md`](docs/self-hosting.md) for the separate production
+self-hosting path.
 
-The private hosted relay is defined by [`render.yaml`](render.yaml). See
-[`docs/deploying-render.md`](docs/deploying-render.md) for the one-user Render
-deployment, DNS, and verification checklist, and
+The software behind the managed mdbase connect service is this repository.
+Production service configuration, secrets, capacity choices, and operational
+runbooks are maintained separately from the open-source product. Public
+deployments should use immutable beta release tags rather than `main`. See
+[`docs/releasing.md`](docs/releasing.md) for the version policy and
 [`docs/google-auth.md`](docs/google-auth.md) for Google sign-in setup.
 
 The hosted MCP endpoint is `https://mcp.mdbase.dev/mcp`; users add that URL as
@@ -191,12 +194,12 @@ the grant's exact browser origin, an exact loopback `Host`, non-simple JSON, and
 application-key proof on every operation; its desktop administration socket is
 not exposed to browsers.
 
-The private Render deployment can use GitHub OAuth and Google Identity Services
-with allowlists of immutable provider subjects. The server refuses development
+Production deployments can use GitHub OAuth and Google Identity Services with
+allowlists of immutable provider subjects. The server refuses development
 authentication on non-loopback origins, and development email login must never
 be exposed publicly. Hosted Markdown is encrypted under per-collection data
 keys; record paths are represented in PostgreSQL by keyed lookup tokens. Public
-registration, a live Render restore drill, signed desktop releases, and
+registration, a live restore drill, signed desktop releases, and
 abuse-response operations remain release gates.
 
 See [`docs/architecture.md`](docs/architecture.md),

@@ -5,9 +5,8 @@
 `services/mcp` is the deployable `mdbase-mcp` service. It gives OAuth-capable
 MCP hosts one remote endpoint:
 
-```text
-https://mcp.mdbase.dev/mcp
-```
+The managed endpoint is `https://mcp.mdbase.dev/mcp`; a self-hosted gateway
+uses the operator's own HTTPS origin.
 
 It remains in the `mdbase-connect` repository because its upstream grants,
 relay cryptography, and request path must stay compatible with Connect. It is a
@@ -117,29 +116,23 @@ marker and fails closed when the configured key does not match the database.
 
 ## Production finalization
 
-The Render Blueprint already defines the `mdbase-mcp` service, its private
-PostgreSQL database, health check, migration command, generated master key, and
-`mcp.mdbase.dev` custom domain.
+Deploy the gateway from the same immutable mdbase connect release as the
+control plane. Give it a separate PostgreSQL database, stable master key,
+health check, migration step, and HTTPS origin. The production Compose example
+and backup requirements are documented in
+[`self-hosting.md`](./self-hosting.md).
 
-After deploying the branch:
+After deployment:
 
-1. In Render, create or update the Blueprint and confirm the MCP service and
-   `mdbase-mcp-db` are provisioned in the same region as Connect.
-2. Preserve the generated `MDBASE_MCP_MASTER_KEY`; do not regenerate it on
-   routine deploys.
-3. Add `mcp.mdbase.dev` as the service's custom domain. Render will show the
-   exact DNS target for that service.
-4. At the authoritative DNS provider, create a CNAME named `mcp` pointing to
-   that Render target. Remove any conflicting A, AAAA, or CNAME record first.
-5. Wait for Render to verify the domain and issue TLS before testing OAuth.
-6. Confirm these endpoints return success over HTTPS:
+1. Preserve `MDBASE_MCP_MASTER_KEY`; do not regenerate it on routine deploys.
+2. Confirm these endpoints return success over HTTPS:
    `/health`, `/ready`, `/.well-known/oauth-protected-resource/mcp`,
    `/.well-known/oauth-authorization-server`, and
    `/.well-known/mdbase-app.json`.
-7. Add `https://mcp.mdbase.dev/mcp` as a Claude custom connector or a ChatGPT
-   developer-mode app. Complete OAuth, approve one collection, call
+3. Add the deployment's `/mcp` URL as an MCP connector. Complete OAuth, approve
+   one collection, call
    `list_connections`, then use `add_connection` to approve a second.
-8. Revoke one collection grant in mdbase connect and verify its next tool call
+4. Revoke one collection grant in mdbase connect and verify its next tool call
    fails while the other collection remains available.
 
 For a public launch, `MDBASE_CONNECT_REGISTRATION` must either be `open` or the

@@ -1,86 +1,198 @@
-# Development self-hosting
+# Production self-hosting
 
-The Docker Compose deployment is for local development. The repository also
-contains a hardened single-user Render configuration; see
-[Private Render deployment](./deploying-render.md).
+mdbase connect is open-source software whose primary distribution is the
+managed service at `connect.mdbase.dev`. Advanced operators can run the same
+control plane themselves. This guide describes a single-host production
+deployment with PostgreSQL, Core NATS, and an existing TLS reverse proxy.
 
-```bash
-cp .env.example .env
-docker compose up --build
-```
+The deployment is suitable for a small trusted installation. The operator owns
+availability, upgrades, authentication configuration, backups, monitoring,
+abuse response, and incident recovery.
 
-Open `http://localhost:8787`. Development authentication is enabled by
-default, so the portal accepts an email address without proving ownership.
-Never expose that mode to the public internet.
+## Choose an immutable release
 
-The stack consists of:
-
-- one or more Connect servers serving the portal, HTTP API, OAuth endpoints,
-  and WebSocket relay;
-- PostgreSQL for accounts, connector metadata, discovered applications,
-  grants, tokens, and audit metadata;
-- Core NATS for transient cross-instance relay delivery;
-- no storage for collection paths or record contents.
-
-Core NATS is optional. A small self-host can omit
-`MDBASE_CONNECT_RELAY_NATS_URL` and `MDBASE_CONNECT_RELAY_NATS_TOKEN`; Connect
-then uses an in-process relay with no additional service. To run more than one
-Connect process, give every process the same PostgreSQL database and NATS
-cluster URLs and token. The broker uses request/reply only: JetStream is not
-enabled, there is no relay stream, and operation payloads are not persisted.
-The included broker image listens for NATS clients on 4222 and serves monitoring
-on `PORT` (10000 in Docker Compose). Normal NATS clients remain authenticated
-and restricted to relay and reply subjects. The entrypoint suppresses only the
-exact parser diagnostic produced by Render's loopback HTTP port discovery;
-all other NATS logs pass through unchanged.
-
-Every connector WebSocket acquires a monotonically increasing generation in
-PostgreSQL. Requests are addressed to that exact generation, so an older
-instance cannot receive new work after a reconnect even if its socket takes
-time to close. Core NATS can itself be clustered by supplying comma-separated
-URLs. A single NATS process removes the Connect scaling constraint but remains
-an availability dependency; use a three-node NATS cluster when broker failover
-is required.
-
-The server applies security headers, a global request limit, a 2 MiB request
-body limit, and public-address checks for legacy application manifest
-discovery. `MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1` also permits loopback
-origins in bundled development declarations and private-network legacy
-manifest hosts. It is intended only for local staging.
-
-The process refuses development authentication on a non-loopback public URL and
-refuses to start unless exactly one authentication mode is enabled. An external
-provider mode may offer GitHub and Google together. Registration is closed by
-default and uses immutable provider-subject allowlists; public account creation
-must be enabled explicitly. See [Google authentication](./google-auth.md). TLS,
-secret storage, backups, monitoring, scaling, and incident response remain
-deployment responsibilities.
-
-## Connect the desktop app
-
-Start mdbase connect, use `http://localhost:8787` as the service address, and
-choose **Pair this computer**. The app opens the portal in the system browser.
-Sign in with the development form and approve the named computer. The browser
-then returns to mdbase connect, which exchanges a short-lived secret and stores
-the resulting connector credential securely. The credential is never rendered
-in the portal or copied through the clipboard.
-
-Once paired, use the local app to create or register collections, inspect app
-declarations, approve pending requests, edit or revoke grants, pause all remote
-access, and review local activity. The portal remains available for account
-state, computer naming and revocation, remote grant review, narrowing, and
-revocation.
-
-For headless development, the agent still accepts an explicitly provisioned
-connector token:
+Production deployments must use a signed or annotated release tag, never
+`main`. Beta releases are for testing and may require manual migrations.
 
 ```bash
-mdbase-connect-agent \
-  --server-url http://localhost:8787 \
-  --connector-token con_REPLACE_ME
+git clone https://github.com/mdbase-dev/mdbase-connect.git
+cd mdbase-connect
+git checkout v0.1.0-beta.2
+test "$(git describe --tags --exact-match)" = "v0.1.0-beta.2"
 ```
 
-The agent sends collection IDs, display names, spec versions, availability
-metadata, and its relay public key. Local filesystem paths are not included in
-the sync payload. SDK-created grants use encrypted relay protocol 1 by default,
-so the service routes operation ciphertext without receiving record content.
+Copy the production environment template:
+
+```bash
+cp deploy/self-host/.env.example deploy/self-host/.env
+chmod 600 deploy/self-host/.env
+```
+
+Keep the checkout and its `.env` file outside a web root. The populated file is
+ignored by Git and must not be copied into images or backups.
+
+## DNS, TLS, and authentication
+
+Choose a public HTTPS origin such as `https://connect.example.com`. Create a
+GitHub OAuth application with:
+
+- homepage: the exact Connect origin;
+- callback: `<Connect origin>/auth/github/callback`;
+- device flow disabled.
+
+Fill `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and
+`ALLOWED_GITHUB_USER_IDS`. The allowlist contains immutable numeric GitHub user
+IDs. Leave registration `closed` until account creation is deliberately opened.
+
+The Compose stack binds application ports to host loopback. Terminate TLS in a
+reverse proxy on the same host and forward to `127.0.0.1:8787`. An example
+Caddy configuration is in
+[`deploy/self-host/Caddyfile.example`](../deploy/self-host/Caddyfile.example).
+Do not publish port 8787 directly.
+
+## Generate deployment secrets
+
+Generate independent values for every password or token:
+
+```bash
+openssl rand -hex 32
+openssl rand -base64 32
+```
+
+Use URL-safe hexadecimal values for database passwords and the NATS/internal
+tokens. `HOSTED_PROVIDER_MASTER_KEY` must be the base64 encoding of 32 random
+bytes. Never replace the hosted-provider or MCP master key after data has been
+written: doing so makes existing encrypted key material unreadable.
+
+## Start the control plane
+
+The default stack connects applications to collections whose authority remains
+on a paired computer:
+
+```bash
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  build --pull
+
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  up -d
+```
+
+The stack runs the database migration as a one-shot service before starting
+Connect. Confirm that the service and its dependencies are healthy:
+
+```bash
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  ps
+
+curl --fail https://connect.example.com/ready
+```
+
+Pair the desktop app through the public HTTPS origin and verify an encrypted
+create, read, query, update, rename, and delete path before inviting another
+account.
+
+## Optional hosted collections
+
+Hosted collections add a separately encrypted PostgreSQL authority. Set
+`HOSTED_COLLECTIONS=1`, configure the hosted-provider values, add the provider
+hostname to the reverse proxy, and start the profile:
+
+```bash
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  --profile hosted \
+  up -d --build
+
+curl --fail https://sync.example.com/ready
+curl --fail https://connect.example.com/ready
+```
+
+Record payloads travel directly between authorized clients and the provider.
+Keep the control-plane and hosted databases in different volumes and backup
+sets. The provider master key must be available to a restore but must not be
+stored beside the database backup.
+
+## Optional remote MCP gateway
+
+The MCP gateway has its own PostgreSQL database and stable master key. Configure
+the MCP values, add its hostname to the reverse proxy, then run:
+
+```bash
+docker compose \
+  --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  --profile mcp \
+  up -d --build
+
+curl --fail https://mcp.example.com/ready
+```
+
+Its MCP resource URL is `https://mcp.example.com/mcp`.
+
+## Backups and restore drills
+
+Back up each enabled database independently:
+
+```bash
+docker compose --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  exec -T control-db pg_dump -U mdbase_connect -Fc mdbase_connect \
+  > mdbase-connect-control.dump
+```
+
+Repeat for `hosted-db/mdbase_connect_hosted` and `mcp-db/mdbase_mcp` when those
+profiles are enabled. Encrypt backups, retain copies outside the host, and
+periodically restore them into an isolated deployment. A backup that has not
+completed a restore drill is not a recovery plan.
+
+For hosted collections, restore the database together with the same provider
+master key. For MCP, restore its database with the same MCP master key. Verify
+complete snapshots and current heads before changing production database URLs.
+
+## Upgrades and rollback
+
+Review the release notes, take verified backups, fetch the next immutable tag,
+and update `MDBASE_CONNECT_VERSION` to match it:
+
+```bash
+git fetch --tags
+git checkout v0.1.0-beta.3
+docker compose --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  --profile hosted --profile mcp \
+  build --pull
+docker compose --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  --profile hosted --profile mcp \
+  up -d
+```
+
+Only include profiles actually in use. Database migrations run before the
+corresponding service starts. Do not roll application code back across an
+irreversible migration; restore the pre-upgrade database into an isolated
+environment and verify it first.
+
+## Production checklist
+
+- Public origins use HTTPS and resolve only to the TLS proxy.
+- Application, database, NATS, and monitoring ports are not publicly exposed.
+- Development and Tailscale authentication are disabled.
+- Registration is closed or intentionally open with abuse controls.
+- Every secret is unique, stable where required, and stored outside Git.
+- Databases have encrypted off-host backups and a tested restore procedure.
+- `/ready`, resource exhaustion, certificate expiry, and backup failures alert
+  an operator.
+- Logs exclude authorization headers, request bodies, decrypted Markdown,
+  private keys, and database credentials.
+- Deployments use immutable release tags and record the exact Git commit.
+
+For architecture and data boundaries, read
+[`architecture.md`](./architecture.md), [`encryption.md`](./encryption.md), and
+[`hosted-provider.md`](./hosted-provider.md).

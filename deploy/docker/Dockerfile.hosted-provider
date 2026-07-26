@@ -21,7 +21,7 @@ RUN cargo build --locked --release -p mdbase-connect-hosted-provider
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends ca-certificates \
+ && apt-get install --yes --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 mdbase
 
@@ -33,4 +33,6 @@ ENV HOST=0.0.0.0 \
 
 EXPOSE 8790
 USER mdbase
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl --fail --silent http://127.0.0.1:8790/ready >/dev/null || exit 1
 CMD ["mdbase-connect-hosted-provider"]

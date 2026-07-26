@@ -1,6 +1,6 @@
 {
   "name": "mdbase-connect",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "private": true,
   "packageManager": "pnpm@11.15.1",
   "scripts": {
@@ -17,7 +17,8 @@
     "profile:rs": "cargo run --release --manifest-path ../mdbase-rs/Cargo.toml --bin mdb-profile -- --scenario queries",
     "profile:views:rs": "cargo run --release --manifest-path ../mdbase-rs/Cargo.toml --bin mdb-profile -- --scenario views",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "version:check": "node scripts/check-release-version.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"

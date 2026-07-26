@@ -8,6 +8,7 @@
 /.env
 /.env.*
 !.env.example
+/deploy/self-host/.env
 *.log
 *.sock
 .DS_Store

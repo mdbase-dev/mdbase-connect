@@ -1,0 +1,12 @@
+connect.example.com {
+	reverse_proxy 127.0.0.1:8787
+}
+
+# Include these sites only when the matching Compose profiles are enabled.
+sync.example.com {
+	reverse_proxy 127.0.0.1:8790
+}
+
+mcp.example.com {
+	reverse_proxy 127.0.0.1:8791
+}

@@ -4,12 +4,19 @@ mdbase connect desktop bundles contain the Electron controller and the matching
 Rust connector agent. A release is one tested unit; mixing controller and agent
 versions is unsupported.
 
+Until the stable `0.1.0` contract is ready, releases use
+`0.1.0-beta.N`. Beta tags and their matching `releases/v0.1.0-beta.N`
+branches are immutable test releases: increment `N` for every published build,
+including a rebuild made only to correct packaging. Production and managed
+test deployments pin the exact tag commit and never deploy `main`.
+
 ## Local package verification
 
 From the repository root:
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm version:check
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -90,11 +97,16 @@ all platform artifacts without creating a GitHub release. Require the macOS
 Apple Silicon, macOS Intel, Windows, Linux, and Windows Store smoke-test jobs to
 pass before tagging.
 
-The tag must exactly match the root and desktop package version:
+The tag must exactly match every package and the Rust workspace version. Create
+an immutable release branch at the same commit because Git-backed Render
+services require a branch reference; deploy tooling separately verifies and
+deploys the exact tag commit:
 
 ```bash
-git tag -a v0.1.0-beta.1 -m "mdbase connect 0.1.0-beta.1"
-git push origin v0.1.0-beta.1
+pnpm version:check v0.1.0-beta.2
+git branch releases/v0.1.0-beta.2
+git tag -a v0.1.0-beta.2 -m "mdbase connect 0.1.0-beta.2"
+git push origin releases/v0.1.0-beta.2 v0.1.0-beta.2
 ```
 
 When platform publisher configuration is wholly absent, the workflow publishes

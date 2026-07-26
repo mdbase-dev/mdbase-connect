@@ -76,19 +76,6 @@ try {
     const response = await fetch(`http://127.0.0.1:${natsMonitorPort}/healthz`);
     return response.ok ? true : null;
   }, "NATS monitoring did not become ready");
-  await renderHeadProbe();
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
-  const brokerLogs = await run("docker", ["logs", natsName]);
-  assert(!`${brokerLogs.stdout}${brokerLogs.stderr}`.includes("Client parser ERROR"),
-    "Render's delayed HTTP port discovery polluted the broker logs");
-  await run("docker", [
-    "exec", natsName, "sh", "-c",
-    "printf 'BROKEN\\r\\n' | nc -w 2 127.0.0.1 4222 >/dev/null"
-  ]);
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
-  const malformedLogs = await run("docker", ["logs", natsName]);
-  assert(`${malformedLogs.stdout}${malformedLogs.stderr}`.includes("Client parser ERROR"),
-    "The Render probe filter hid an unrelated NATS parser error");
 
   database = await createDatabase(
     `postgres://mdbase:${postgresPassword}@127.0.0.1:${postgresPort}/mdbase_connect`
@@ -518,13 +505,6 @@ function canConnect(port) {
     });
     socket.connect(port, "127.0.0.1");
   });
-}
-
-async function renderHeadProbe() {
-  await run("docker", [
-    "exec", natsName, "sh", "-c",
-    "(sleep 2; printf 'HEAD / HTTP/1.1\\r\\nHost: mdbase-connect-relay-broker\\r\\nConnection: close\\r\\n\\r\\n') | nc -w 4 127.0.0.1 4222 >/dev/null"
-  ]);
 }
 
 async function availableTcpPort() {

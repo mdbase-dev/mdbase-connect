@@ -1,0 +1,226 @@
+name: mdbase-connect
+
+x-connect-image: &connect-image
+  image: mdbase-connect-server:${MDBASE_CONNECT_VERSION}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile.server
+
+x-mcp-image: &mcp-image
+  image: mdbase-connect-mcp:${MDBASE_CONNECT_VERSION}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile.mcp
+
+services:
+  control-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mdbase_connect
+      POSTGRES_USER: mdbase_connect
+      POSTGRES_PASSWORD: ${CONTROL_DATABASE_PASSWORD}
+    volumes:
+      - control-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdbase_connect -d mdbase_connect"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  relay-broker:
+    image: mdbase-connect-nats:${MDBASE_CONNECT_VERSION}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.nats
+    environment:
+      PORT: "10000"
+      NATS_AUTH_TOKEN: ${RELAY_NATS_TOKEN}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:10000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  control-migrate:
+    <<: *connect-image
+    command: ["node", "services/server/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://mdbase_connect:${CONTROL_DATABASE_PASSWORD}@control-db:5432/mdbase_connect
+    depends_on:
+      control-db:
+        condition: service_healthy
+    restart: "no"
+
+  connect:
+    <<: *connect-image
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      PUBLIC_URL: ${CONNECT_PUBLIC_URL}
+      DATABASE_URL: postgres://mdbase_connect:${CONTROL_DATABASE_PASSWORD}@control-db:5432/mdbase_connect
+      MDBASE_CONNECT_DEV_AUTH: "0"
+      MDBASE_CONNECT_TAILSCALE_AUTH: "0"
+      MDBASE_CONNECT_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      MDBASE_CONNECT_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS: ${ALLOWED_GITHUB_USER_IDS}
+      MDBASE_CONNECT_REGISTRATION: ${REGISTRATION_MODE:-closed}
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: ${HOSTED_COLLECTIONS:-0}
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: ${HOSTED_PROVIDER_PUBLIC_URL:-}
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: ${HOSTED_PROVIDER_INTERNAL_TOKEN:-}
+      MDBASE_CONNECT_TRUST_PROXY: "1"
+      MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: "0"
+      MDBASE_CONNECT_RELAY_NATS_URL: nats://relay-broker:4222
+      MDBASE_CONNECT_RELAY_NATS_TOKEN: ${RELAY_NATS_TOKEN}
+    depends_on:
+      control-migrate:
+        condition: service_completed_successfully
+      relay-broker:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CONNECT_BIND_PORT:-8787}:8787"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  hosted-db:
+    profiles: ["hosted"]
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: mdbase_connect_hosted
+      POSTGRES_USER: mdbase_connect_hosted
+      POSTGRES_PASSWORD: ${HOSTED_DATABASE_PASSWORD}
+    volumes:
+      - hosted-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdbase_connect_hosted -d mdbase_connect_hosted"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  hosted-provider:
+    profiles: ["hosted"]
+    image: mdbase-connect-hosted-provider:${MDBASE_CONNECT_VERSION}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.hosted-provider
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8790"
+      DATABASE_URL: postgres://mdbase_connect_hosted:${HOSTED_DATABASE_PASSWORD}@hosted-db:5432/mdbase_connect_hosted
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: ${HOSTED_PROVIDER_INTERNAL_TOKEN}
+      MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY: ${HOSTED_PROVIDER_MASTER_KEY}
+      MDBASE_CONNECT_CONTROL_PLANE_URL: ${CONNECT_PUBLIC_URL}
+      MDBASE_CONNECT_HOSTED_MAX_RECORDS_PER_COLLECTION: ${HOSTED_MAX_RECORDS_PER_COLLECTION:-100000}
+      MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_COLLECTION: ${HOSTED_MAX_BYTES_PER_COLLECTION:-1073741824}
+      MDBASE_CONNECT_HOSTED_MAX_BYTES_PER_DOCUMENT: ${HOSTED_MAX_BYTES_PER_DOCUMENT:-2097152}
+      MDBASE_CONNECT_HOSTED_MAX_REPLICAS_PER_COLLECTION: ${HOSTED_MAX_REPLICAS_PER_COLLECTION:-100}
+      MDBASE_CONNECT_HOSTED_RETAIN_CHANGES: ${HOSTED_RETAIN_CHANGES:-10000}
+      MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: ${HOSTED_MAINTENANCE_INTERVAL_SECONDS:-300}
+      MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: ${HOSTED_NOTIFICATION_INTERVAL_SECONDS:-5}
+    depends_on:
+      hosted-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${HOSTED_PROVIDER_BIND_PORT:-8790}:8790"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8790/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  mcp-db:
+    profiles: ["mcp"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: mdbase_mcp
+      POSTGRES_USER: mdbase_mcp
+      POSTGRES_PASSWORD: ${MCP_DATABASE_PASSWORD}
+    volumes:
+      - mcp-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdbase_mcp -d mdbase_mcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mcp-migrate:
+    profiles: ["mcp"]
+    <<: *mcp-image
+    command: ["node", "services/mcp/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://mdbase_mcp:${MCP_DATABASE_PASSWORD}@mcp-db:5432/mdbase_mcp
+    depends_on:
+      mcp-db:
+        condition: service_healthy
+    restart: "no"
+
+  mcp:
+    profiles: ["mcp"]
+    <<: *mcp-image
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8790"
+      PUBLIC_URL: ${MCP_PUBLIC_URL}
+      DATABASE_URL: postgres://mdbase_mcp:${MCP_DATABASE_PASSWORD}@mcp-db:5432/mdbase_mcp
+      MDBASE_CONNECT_URL: ${CONNECT_PUBLIC_URL}
+      MDBASE_MCP_MASTER_KEY: ${MCP_MASTER_KEY}
+      MDBASE_MCP_TRUST_PROXY: "1"
+    depends_on:
+      mcp-migrate:
+        condition: service_completed_successfully
+      connect:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${MCP_BIND_PORT:-8791}:8790"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  control-db:
+  hosted-db:
+  mcp-db:
