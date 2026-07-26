@@ -1,4 +1,13 @@
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,7 +25,11 @@ import {
   saveMirrorProfile,
   setHostedCollectionIdentity
 } from "./device.js";
-import { NodeMirrorLease, NodeMirrorStateStore } from "./node.js";
+import {
+  mirrorDeviceDirectory,
+  NodeMirrorLease,
+  NodeMirrorStateStore
+} from "./node.js";
 
 describe("device-local mirror storage", () => {
   it("marks a hosted mirror without putting device role state in hosted resources", async () => {
@@ -205,6 +218,86 @@ describe("device-local mirror storage", () => {
       await rm(stateRoot, { recursive: true, force: true });
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "uses one lease for aliases of the same physical folder",
+    async () => {
+      const parent = await mkdtemp(join(tmpdir(), "mdbase-mirror-parent-"));
+      const root = join(parent, "mirror");
+      const alias = join(parent, "mirror-alias");
+      const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+      try {
+        await mkdir(root);
+        await symlink(root, alias, "dir");
+        const acquired = await new NodeMirrorLease(root, stateRoot).acquire();
+        await expect(new NodeMirrorLease(alias, stateRoot).acquire())
+          .rejects.toMatchObject({ code: "mirror_folder_in_use" });
+        await acquired.release();
+      } finally {
+        await rm(parent, { recursive: true, force: true });
+        await rm(stateRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it("recovers a lease left behind by a dead process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
+    try {
+      const directory = await mirrorDeviceDirectory(root, stateRoot);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "mirror.lock"), JSON.stringify({
+        version: 1,
+        owner_id: crypto.randomUUID(),
+        pid: 999_999_999,
+        acquired_at: new Date().toISOString()
+      }));
+      const acquired = await new NodeMirrorLease(root, stateRoot).acquire();
+      await acquired.release();
+      await expect(access(join(directory, "mirror.lock")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the hosted mirror marker is malformed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    try {
+      await mkdir(join(root, ".mdbase"));
+      await writeFile(join(root, ".mdbase", "connect-role.json"), "{broken");
+      await expect(loadHostedMirrorMarker(root))
+        .rejects.toMatchObject({ code: "invalid_hosted_mirror_marker" });
+      await expect(markHostedMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "invalid_hosted_mirror_marker" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a symlinked hosted mirror marker",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+      const outside = await mkdtemp(join(tmpdir(), "mdbase-mirror-outside-"));
+      try {
+        await mkdir(join(root, ".mdbase"));
+        const target = join(outside, "connect-role.json");
+        await writeFile(target, JSON.stringify({
+          version: 1,
+          role: "hosted_mirror",
+          collection_id: crypto.randomUUID()
+        }));
+        await symlink(target, join(root, ".mdbase", "connect-role.json"));
+        await expect(loadHostedMirrorMarker(root))
+          .rejects.toMatchObject({ code: "unsafe_hosted_mirror_marker" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("does not attach an old writable journal to a folder recreated at the same path", async () => {
     const parent = await mkdtemp(join(tmpdir(), "mdbase-mirror-parent-"));

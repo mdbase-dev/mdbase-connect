@@ -2739,6 +2739,67 @@ mod tests {
     }
 
     #[test]
+    fn a_malformed_hosted_mirror_marker_fails_closed() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("hosted-mirror");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+
+        fs::create_dir_all(root.join(HOSTED_MIRROR_MARKER_DIRECTORY)).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        fs::write(
+            root.join(HOSTED_MIRROR_MARKER_DIRECTORY)
+                .join(HOSTED_MIRROR_MARKER_FILE),
+            "{broken",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            registry.add(&root),
+            Err(ConnectError::InvalidHostedMirrorMarker(_))
+        ));
+        assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_hosted_mirror_marker_fails_closed() {
+        use std::os::unix::fs::symlink;
+
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let root = collection_parent.path().join("hosted-mirror");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+
+        fs::create_dir_all(root.join(HOSTED_MIRROR_MARKER_DIRECTORY)).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        let target = outside.path().join(HOSTED_MIRROR_MARKER_FILE);
+        fs::write(
+            &target,
+            serde_json::to_vec(&json!({
+                "version": 1,
+                "role": "hosted_mirror",
+                "collection_id": Uuid::new_v4(),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        symlink(
+            &target,
+            root.join(HOSTED_MIRROR_MARKER_DIRECTORY)
+                .join(HOSTED_MIRROR_MARKER_FILE),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            registry.add(&root),
+            Err(ConnectError::InvalidHostedMirrorMarker(_))
+        ));
+        assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
     fn collection_identity_survives_a_folder_move() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();

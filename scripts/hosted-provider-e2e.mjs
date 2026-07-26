@@ -1030,23 +1030,31 @@ schema:
   const symlinkOutsideRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-symlink-outside-"));
   try {
     await symlink(symlinkOutsideRoot, join(symlinkMirrorRoot, ".mdbase"), "dir");
-    await execute(process.execPath, [
-      join(repoRoot, "packages", "sync", "dist", "cli.js"),
-      "init",
-      symlinkMirrorRoot,
-      "--server", provider.url,
-      "--collection", collectionId,
-      "--replica", mirror.id
-    ], {
-      env: { ...process.env, MDBASE_CONNECT_REPLICA_TOKEN: mirror.token }
-    });
+    await assert.rejects(
+      () => execute(process.execPath, [
+        join(repoRoot, "packages", "sync", "dist", "cli.js"),
+        "init",
+        symlinkMirrorRoot,
+        "--server", provider.url,
+        "--collection", collectionId,
+        "--replica", mirror.id
+      ], {
+        env: { ...process.env, MDBASE_CONNECT_REPLICA_TOKEN: mirror.token }
+      }),
+      (error) => error.stderr.includes(
+        ".mdbase must be an ordinary directory inside the mirrored folder."
+      )
+    );
     await assert.rejects(
       () => readFile(join(symlinkOutsideRoot, "connect-mirror.json"), "utf8"),
       { code: "ENOENT" }
     );
-    assert.equal(
-      (await stat(join(await mirrorProfileDirectory(symlinkMirrorRoot), "credentials.json"))).mode & 0o777,
-      0o600
+    await assert.rejects(
+      async () => stat(join(
+        await mirrorProfileDirectory(symlinkMirrorRoot),
+        "credentials.json"
+      )),
+      { code: "ENOENT" }
     );
   } finally {
     await rm(symlinkMirrorRoot, { recursive: true, force: true });

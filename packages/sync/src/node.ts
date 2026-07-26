@@ -214,9 +214,9 @@ export class NodeMirrorLease implements MirrorLease {
           runExclusive: async <Value>(operation: () => Promise<Value>) => operation(),
           release: async () => {
             if (released) return;
-            released = true;
             const current = await readLeaseRecord(path);
             if (current?.owner_id === record.owner_id) await unlinkOptional(path);
+            released = true;
           }
         };
       } catch (error) {
