@@ -1654,6 +1654,7 @@ dependencies = [
  "mdbase-connect-protocol",
  "mdbase-connect-runtime",
  "mdbase-runtime",
+ "p256",
  "rand_core 0.6.4",
  "reqwest",
  "serde",
