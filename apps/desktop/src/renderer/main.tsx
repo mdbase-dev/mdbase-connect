@@ -21,8 +21,16 @@ import { presentConnection, type ConnectionDotState } from "./connection-state.m
 import "./styles.css";
 
 type Route = "overview" | "collections" | "access" | "activity" | "settings";
+interface AuthorizationCollection {
+  id: string;
+  display_name: string;
+  spec_version: string;
+  contracts: ContractRequirement[];
+  kind: "local" | "hosted";
+  provisionable: boolean;
+}
 
-const allOperations = ["read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
+const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
     eyebrow: "This computer",
@@ -30,9 +38,9 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
     lede: "Collections, application access, and connection status in one place."
   },
   collections: {
-    eyebrow: "Local collections",
-    title: "Your files stay here.",
-    lede: "Choose which mdbase folders this computer can make available."
+    eyebrow: "Collection authority",
+    title: "Your collections, in one place.",
+    lede: "Manage folders owned by this computer and collections hosted by mdbase."
   },
   access: {
     eyebrow: "Application access",
@@ -58,6 +66,8 @@ function App() {
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
+  const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections: [], grants: [], pending_authorizations: [] });
+  const [mirrors, setMirrors] = useState<DesktopMirrorSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +76,8 @@ function App() {
   const [copiedCollectionPath, setCopiedCollectionPath] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newPath, setNewPath] = useState("");
+  const [newAuthority, setNewAuthority] = useState<"local" | "hosted">("local");
+  const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
 
   const refresh = useCallback(async (quiet = false) => {
     try {
@@ -75,7 +87,11 @@ function App() {
         window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
         window.mdbaseConnect.getCloudConfig().then(setCloud),
         window.mdbaseConnect.accessSnapshot().then(setAccess),
-        window.mdbaseConnect.listActivity(100).then(setActivity)
+        window.mdbaseConnect.listActivity(100).then(setActivity),
+        window.mdbaseConnect.hostedSnapshot().then(setHosted).catch(() => {
+          setHosted((current) => ({ ...current, online: false }));
+        }),
+        window.mdbaseConnect.listMirrors().then(setMirrors)
       ]);
       const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failed) throw failed.reason;
@@ -89,6 +105,11 @@ function App() {
     void refresh();
     const timer = window.setInterval(() => void refresh(true), 5_000);
     const removeNavigation = window.mdbaseConnect.onNavigate((next) => {
+      if (next.startsWith("collections:mirror:")) {
+        setMirrorTarget(next.slice("collections:mirror:".length));
+        setRoute("collections");
+        return;
+      }
       if (["overview", "collections", "access", "activity", "settings"].includes(next)) {
         setRoute(next as Route);
       }
@@ -143,16 +164,40 @@ function App() {
 
   async function createCollection() {
     await act(async () => {
-      const created = await window.mdbaseConnect.createCollection({ path: newPath, name: newName });
+      if (newAuthority === "hosted") {
+        const result = await window.mdbaseConnect.createHostedCollection(newName);
+        setNotice(`${result.collection.display_name} is now hosted by mdbase.`);
+      } else {
+        const created = await window.mdbaseConnect.createCollection({ path: newPath, name: newName });
+        setNotice(`${created.display_name} was created on this computer.`);
+      }
       setCreateOpen(false);
       setNewName("");
       setNewPath("");
-      setNotice(`${created.display_name} was created and registered.`);
+      setNewAuthority("local");
     });
   }
 
   const copy = routeCopy[route];
   const connection = presentConnection(status, cloud);
+  const combinedAccess = useMemo<AccessSnapshot>(() => {
+    const grants = new Map<string, GrantSummary>();
+    for (const grant of access.grants) grants.set(grant.id, {
+      ...grant,
+      collection_kind: grant.collection_kind ?? "local"
+    });
+    for (const grant of hosted.grants) grants.set(grant.id, grant);
+    const pending = new Map<string, PendingAuthorization>();
+    for (const request of hosted.pending_authorizations) pending.set(request.id, request);
+    for (const request of access.pending_authorizations) pending.set(request.id, request);
+    return {
+      ...access,
+      online: access.online || hosted.online,
+      grants: [...grants.values()],
+      pending_authorizations: [...pending.values()]
+    };
+  }, [access, hosted]);
+  const collectionCount = collections.length + hosted.hosted_collections.length;
 
   return (
     <div className="shell">
@@ -161,7 +206,7 @@ function App() {
           <Brand />
           <div className="product-header-meta" role="status" aria-live="polite">
             <StatusDot state={connection.dot} />
-            <div className="product-header-meta-copy"><strong>{connection.label}</strong><small>{access.account?.connector_name ?? "This computer"} · {status ? `${status.registered_collections} registered` : "Checking local connector"}</small></div>
+            <div className="product-header-meta-copy"><strong>{connection.label}</strong><small>{access.account?.connector_name ?? "This computer"} · {collectionCount} {plural(collectionCount, "collection", "collections")}</small></div>
           </div>
         </div>
       </header>
@@ -169,8 +214,8 @@ function App() {
       <nav className="view-tabs" aria-label="mdbase connect views">
         <div className="view-tabs-inner">
           <NavButton route="overview" current={route} label="Overview" onSelect={setRoute} />
-          <NavButton route="collections" current={route} label="Collections" count={collections.length} onSelect={setRoute} />
-          <NavButton route="access" current={route} label="App access" attention={access.pending_authorizations.length} onSelect={setRoute} />
+          <NavButton route="collections" current={route} label="Collections" count={collectionCount} onSelect={setRoute} />
+          <NavButton route="access" current={route} label="App access" attention={combinedAccess.pending_authorizations.length} onSelect={setRoute} />
           <NavButton route="activity" current={route} label="Activity" onSelect={setRoute} />
           <NavButton route="settings" current={route} label="Settings" onSelect={setRoute} />
         </div>
@@ -190,8 +235,8 @@ function App() {
           <Overview
             status={status}
             cloud={cloud}
-            access={access}
-            collections={collections}
+            access={combinedAccess}
+            collectionCount={collectionCount}
             busy={busy}
             onNavigate={setRoute}
             onPause={(paused) => void act(async () => {
@@ -202,6 +247,10 @@ function App() {
         ) : route === "collections" ? (
           <Collections
             collections={collections}
+            hosted={hosted}
+            cloudConfigured={cloud.configured}
+            mirrors={mirrors}
+            mirrorTarget={mirrorTarget}
             authorityConflicts={access.authority_conflicts}
             busy={busy}
             copiedCollectionPath={copiedCollectionPath}
@@ -209,14 +258,16 @@ function App() {
             onCancelCopy={() => setCopiedCollectionPath(null)}
             onCreate={() => setCreateOpen(true)}
             onRegisterCopy={() => void registerCopiedCollection()}
+            onMirrorTargetHandled={() => setMirrorTarget(null)}
             onAct={act}
             onNotice={setNotice}
           />
         ) : route === "access" ? (
           <Access
             cloud={cloud}
-            access={access}
+            access={combinedAccess}
             collections={collections}
+            hostedCollections={hosted.hosted_collections}
             busy={busy}
             onAct={act}
             onNotice={setNotice}
@@ -237,14 +288,25 @@ function App() {
       {createOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && setCreateOpen(false)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()}>
-            <p className="eyebrow">New local collection</p>
+            <p className="eyebrow">New collection</p>
             <h2 id="create-title">Create an mdbase collection</h2>
-            <p>mdbase connect will add a canonical <code>mdbase.yaml</code> and type folder. Existing files are left alone.</p>
+            <p>Choose the authority deliberately. You can mirror a hosted collection onto this computer after creating it.</p>
+            <fieldset className="authority-choice">
+              <legend>Collection authority</legend>
+              <label className={newAuthority === "local" ? "selected" : ""}>
+                <input type="radio" name="authority" value="local" checked={newAuthority === "local"} onChange={() => setNewAuthority("local")} />
+                <span><strong>On this computer</strong><small>A folder here is the final authority.</small></span>
+              </label>
+              <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured ? "" : "disabled"}`}>
+                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={!cloud?.configured} onChange={() => setNewAuthority("hosted")} />
+                <span><strong>Hosted by mdbase</strong><small>{cloud?.configured ? "Available while this computer is offline; optional local mirror." : "Connect this computer to your account first."}</small></span>
+              </label>
+            </fieldset>
             <label><span>Collection name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
-            <label><span>Folder</span><button className="folder-picker" onClick={() => void chooseCreateFolder()}>{newPath || "Choose a folder…"}</button></label>
+            {newAuthority === "local" && <label><span>Folder</span><button className="folder-picker" onClick={() => void chooseCreateFolder()}>{newPath || "Choose a folder…"}</button></label>}
             <div className="modal-actions">
               <button className="button secondary" disabled={busy} onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button className="button primary" disabled={busy || !newName.trim() || !newPath} onClick={() => void createCollection()}>Create collection</button>
+              <button className="button primary" disabled={busy || !newName.trim() || (newAuthority === "local" && !newPath)} onClick={() => void createCollection()}>Create collection</button>
             </div>
           </section>
         </div>
@@ -260,11 +322,11 @@ function ConnectionProgress() {
   </div>;
 }
 
-function Overview({ status, cloud, access, collections, busy, onNavigate, onPause }: {
+function Overview({ status, cloud, access, collectionCount, busy, onNavigate, onPause }: {
   status: AgentStatus | null;
   cloud: CloudSetting;
   access: AccessSnapshot;
-  collections: CollectionSummary[];
+  collectionCount: number;
   busy: boolean;
   onNavigate(route: Route): void;
   onPause(paused: boolean): void;
@@ -277,7 +339,7 @@ function Overview({ status, cloud, access, collections, busy, onNavigate, onPaus
       {access.pending_authorizations.length > 0 && (
         <button className="pending-banner" onClick={() => onNavigate("access")}>
           <span>{access.pending_authorizations.length}</span>
-          <div><strong>{plural(access.pending_authorizations.length, "application is", "applications are")} waiting for a decision</strong><small>Review the requested collection operations on this computer.</small></div>
+          <div><strong>{plural(access.pending_authorizations.length, "application is", "applications are")} waiting for a decision</strong><small>Review the requested collection and operations.</small></div>
           <b>Review requests</b>
         </button>
       )}
@@ -298,7 +360,7 @@ function Overview({ status, cloud, access, collections, busy, onNavigate, onPaus
         />
       </section>
       <section className="overview-list" aria-label="Connector summary">
-        <OverviewRow label="Collections" value={`${collections.length} registered`} detail="Only enabled local folders can be reached" action="Manage" onClick={() => onNavigate("collections")} />
+        <OverviewRow label="Collections" value={`${collectionCount} managed`} detail="Computer-owned and hosted authorities stay explicit" action="Manage" onClick={() => onNavigate("collections")} />
         <OverviewRow label="Application access" value={`${access.grants.length} active`} detail="Each grant is limited to one collection" action="Manage" onClick={() => onNavigate("access")} />
         <OverviewRow label="Portal" value={access.account?.user_email ?? cloud.serverUrl ?? "Configured"} detail={access.account?.connector_name ?? "Cloud identity unavailable while offline"} action="Settings" onClick={() => onNavigate("settings")} />
       </section>
@@ -310,8 +372,28 @@ function OverviewRow({ label, value, detail, action, onClick }: { label: string;
   return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
 }
 
-function Collections({ collections, authorityConflicts, busy, copiedCollectionPath, onAdd, onCancelCopy, onCreate, onRegisterCopy, onAct, onNotice }: {
+function Collections({
+  collections,
+  hosted,
+  cloudConfigured,
+  mirrors,
+  mirrorTarget,
+  authorityConflicts,
+  busy,
+  copiedCollectionPath,
+  onAdd,
+  onCancelCopy,
+  onCreate,
+  onRegisterCopy,
+  onMirrorTargetHandled,
+  onAct,
+  onNotice
+}: {
   collections: CollectionSummary[];
+  hosted: HostedControlSnapshot;
+  cloudConfigured: boolean;
+  mirrors: DesktopMirrorSummary[];
+  mirrorTarget: string | null;
   authorityConflicts: AuthorityConflict[];
   busy: boolean;
   copiedCollectionPath: string | null;
@@ -319,12 +401,13 @@ function Collections({ collections, authorityConflicts, busy, copiedCollectionPa
   onCancelCopy(): void;
   onCreate(): void;
   onRegisterCopy(): void;
+  onMirrorTargetHandled(): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
   return (
     <section className="collection-section">
-      <SectionHeading title="Collections" note="Removing a collection never deletes its files.">
+      <SectionHeading title="Collections" note="Authority and local copies are shown separately.">
         <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
         <button className="button primary" disabled={busy} onClick={onCreate}>Create collection</button>
       </SectionHeading>
@@ -364,13 +447,45 @@ function Collections({ collections, authorityConflicts, busy, copiedCollectionPa
           </div>
         </section>
       ))}
-      {collections.length === 0 ? (
-        <Empty title="No collections registered" text="Add a folder with an existing mdbase.yaml, or create a new collection." action="Create the first collection" onAction={onCreate} />
-      ) : (
-        <div className="collection-list">
-          {collections.map((collection) => <CollectionRow key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} />)}
-        </div>
-      )}
+      <div className="collection-authority-group">
+        <SectionHeading title="On this computer" note="These folders are authoritative here." count={collections.length} />
+        {collections.length === 0 ? (
+          <Empty title="No computer-owned collections" text="Add a folder with an existing mdbase.yaml, or create one here." />
+        ) : (
+          <div className="collection-list">
+            {collections.map((collection) => <CollectionRow key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} />)}
+          </div>
+        )}
+      </div>
+      <div className="collection-authority-group">
+        <SectionHeading
+          title="Hosted by mdbase"
+          note={!cloudConfigured
+            ? "Connect this computer to manage hosted collections."
+            : hosted.online
+              ? "Available to approved apps without this computer."
+              : "Hosted controls are offline; last known state is shown."}
+          count={hosted.hosted_collections.length}
+        />
+        {hosted.hosted_collections.length === 0 ? (
+          <Empty title="No hosted collections" text="Create one to keep its authority online, with an optional folder mirror here." />
+        ) : (
+          <div className="collection-list">
+            {hosted.hosted_collections.map((collection) => (
+              <HostedCollectionRow
+                key={collection.id}
+                collection={collection}
+                mirrors={mirrors}
+                openMirror={mirrorTarget === collection.id}
+                busy={busy}
+                onTargetHandled={onMirrorTargetHandled}
+                onAct={onAct}
+                onNotice={onNotice}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -437,10 +552,171 @@ function CollectionRow({ collection, busy, onAct, onNotice }: {
   );
 }
 
-function Access({ cloud, access, collections, busy, onAct, onNotice }: {
+function HostedCollectionRow({
+  collection,
+  mirrors,
+  openMirror,
+  busy,
+  onTargetHandled,
+  onAct,
+  onNotice
+}: {
+  collection: HostedCollectionSummary;
+  mirrors: DesktopMirrorSummary[];
+  openMirror: boolean;
+  busy: boolean;
+  onTargetHandled(): void;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [editing, setEditing] = useState(openMirror);
+  const [name, setName] = useState(collection.display_name);
+  const [path, setPath] = useState("");
+  const [mode, setMode] = useState<"read_only" | "read_write">("read_write");
+  const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
+  const activeReplicas = collection.replicas.filter((replica) => replica.revoked_at === null);
+
+  useEffect(() => {
+    if (openMirror) {
+      setEditing(true);
+      onTargetHandled();
+    }
+  }, [onTargetHandled, openMirror]);
+  useEffect(() => {
+    if (!editing) setName(collection.display_name);
+  }, [collection.display_name, editing]);
+
+  async function chooseMirrorFolder() {
+    const selected = await window.mdbaseConnect.chooseMirrorFolder();
+    if (selected) setPath(selected);
+  }
+
+  const state = mirrorState(mirror);
+  return (
+    <article className={`collection-card hosted-collection ${editing ? "editing" : ""}`}>
+      <div className="collection-summary">
+        <div className="collection-copy">
+          <div className="collection-title-row">
+            <h3>{collection.display_name}</h3>
+            <span className="version">v{collection.spec_version}</span>
+          </div>
+          <span className="authority-label">Hosted authority · {activeReplicas.length} {plural(activeReplicas.length, "mirror", "mirrors")}</span>
+        </div>
+        <div className="collection-status"><StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />{collection.authority_state === "active" ? "Available" : collection.authority_state}</div>
+        <div className="row-actions">
+          <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Mirror" : "Details"}</button>
+        </div>
+      </div>
+      {editing && <div className="collection-editor hosted-editor">
+        <form className="collection-editor-form" onSubmit={(event) => {
+          event.preventDefault();
+          void onAct(async () => {
+            await window.mdbaseConnect.renameHostedCollection({ collectionId: collection.id, name });
+            onNotice(`${name.trim()} was renamed.`);
+          });
+        }}>
+          <section className="collection-editor-section">
+            <div><strong>Details</strong><small>The name is stored with the hosted authority.</small></div>
+            <div className="collection-fields">
+              <label><span>Name</span><input value={name} maxLength={200} required onChange={(event) => setName(event.target.value)} /></label>
+              <button className="button secondary" disabled={busy || !name.trim() || name.trim() === collection.display_name}>Save name</button>
+            </div>
+          </section>
+        </form>
+        <section className="collection-editor-section mirror-section">
+          <div>
+            <strong>Mirror on this computer</strong>
+            <small>A mirror is a local copy. The hosted collection remains authoritative.</small>
+          </div>
+          {mirror ? (
+            <div className="mirror-control">
+              <div className="mirror-state-row">
+                <StatusDot state={state.dot} />
+                <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>{mirror.path}</button></div>
+                <code>{mirror.mode === "read_write" ? "two-way" : "receive-only"}</code>
+              </div>
+              {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
+              {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
+              {mirror.conflicts.length > 0 && (
+                <div className="mirror-conflicts">
+                  {mirror.conflicts.map((conflict) => <div key={conflict.record_id}>
+                    <div><strong>{conflict.path ?? conflict.record_id}</strong><small>{conflict.message}</small></div>
+                    <div className="row-actions">
+                      <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, recordId: conflict.record_id, resolution: "local" });
+                        onNotice("The local version was kept and synchronized.");
+                      })}>Keep local</button>
+                      <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => {
+                        await window.mdbaseConnect.resolveMirrorConflict({ replicaId: mirror.replica_id, recordId: conflict.record_id, resolution: "remote" });
+                        onNotice("The hosted version was applied.");
+                      })}>Use hosted</button>
+                    </div>
+                  </div>)}
+                </div>
+              )}
+              <div className="mirror-actions">
+                <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
+                  await window.mdbaseConnect.syncMirror(mirror.replica_id);
+                  onNotice(`${collection.display_name} is synchronized.`);
+                })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
+                <button className="quiet-action" disabled={busy} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>Open folder</button>
+                <button className="quiet-action danger" disabled={busy} onClick={() => {
+                  if (!window.confirm(`Stop mirroring ${collection.display_name} on this computer? The folder and its files will remain.`)) return;
+                  void onAct(async () => {
+                    await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
+                    onNotice(`The mirror was disconnected. Files remain at ${mirror.path}.`);
+                  });
+                }}>Stop mirror</button>
+              </div>
+            </div>
+          ) : (
+            <div className="mirror-setup">
+              <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
+              <label><span>Synchronization</span><select value={mode} onChange={(event) => setMode(event.target.value as "read_only" | "read_write")}><option value="read_write">Two-way</option><option value="read_only">Receive-only</option></select></label>
+              <small>Two-way mirrors upload local edits. Receive-only mirrors replace their local view with hosted changes.</small>
+              <button className="button primary" disabled={busy || !path} onClick={() => void onAct(async () => {
+                await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode });
+                setPath("");
+                onNotice(`${collection.display_name} is now mirrored on this computer.`);
+              })}>Start mirror</button>
+            </div>
+          )}
+        </section>
+        {activeReplicas.some((replica) => replica.id !== mirror?.replica_id) && (
+          <section className="collection-editor-section">
+            <div><strong>Other mirrors</strong><small>Mirrors connected from another installation or through the command line.</small></div>
+            <div className="replica-list">{activeReplicas.filter((replica) => replica.id !== mirror?.replica_id).map((replica) => (
+              <div key={replica.id}><span>{replica.name}</span><code>{replica.mode === "read_write" ? "two-way" : "receive-only"}</code><small>{replica.sync_status?.last_seen_at ? `Seen ${relativeTime(replica.sync_status.last_seen_at)}` : "Not synchronized yet"}</small><button className="quiet-action danger" disabled={busy} onClick={() => {
+                if (!window.confirm(`Revoke ${replica.name}? Its local files will remain, but it will no longer synchronize.`)) return;
+                void onAct(async () => {
+                  await window.mdbaseConnect.revokeHostedReplica(replica.id);
+                  onNotice(`${replica.name} was revoked.`);
+                });
+              }}>Revoke</button></div>
+            ))}</div>
+          </section>
+        )}
+        <div className="collection-danger-row">
+          <small>Deleting a hosted collection permanently removes its hosted records. Local mirror files remain.</small>
+          <button className="quiet-action danger" disabled={busy} onClick={() => {
+            if (!window.confirm(`Permanently delete the hosted collection ${collection.display_name}? This cannot be undone.`)) return;
+            void onAct(async () => {
+              if (mirror) await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
+              await window.mdbaseConnect.deleteHostedCollection(collection.id);
+              onNotice(`${collection.display_name} was deleted. Any local mirror files remain.`);
+            });
+          }}>Delete hosted collection</button>
+        </div>
+      </div>}
+    </article>
+  );
+}
+
+function Access({ cloud, access, collections, hostedCollections, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
+  hostedCollections: HostedCollectionSummary[];
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -452,10 +728,10 @@ function Access({ cloud, access, collections, busy, onAct, onNotice }: {
       <section>
         <SectionHeading title="Pending requests" note="An application cannot continue until you decide here." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
-          <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here while this computer is online." />
+          <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here." />
         ) : (
           <div className="request-list">
-            {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} busy={busy} onAct={onAct} onNotice={onNotice} />)}
+            {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} hostedCollections={hostedCollections} busy={busy} onAct={onAct} onNotice={onNotice} />)}
           </div>
         )}
       </section>
@@ -495,34 +771,72 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
           <GrantEditor key={grant.id} grant={grant} busy={busy} onAct={onAct} onNotice={onNotice} />
         ))}</div>
         <div className="application-grant-actions">
-          <small>Revokes this application from every collection on this computer.</small>
+          <small>Revokes this application from every collection listed above.</small>
           <button className="quiet-action danger" disabled={busy} onClick={() => {
-            if (!window.confirm(`Revoke all ${group.applicationName} access from this computer?`)) return;
+            if (!window.confirm(`Revoke all ${group.applicationName} collection access?`)) return;
             void onAct(async () => {
-              for (const grant of group.grants) await window.mdbaseConnect.revokeGrant(grant.id);
-              onNotice(`${group.applicationName} access from this computer was revoked.`);
+              for (const grant of group.grants) {
+                if (grant.collection_kind === "hosted") {
+                  await window.mdbaseConnect.revokeHostedGrant(grant.id);
+                } else {
+                  await window.mdbaseConnect.revokeGrant(grant.id);
+                }
+              }
+              onNotice(`${group.applicationName} collection access was revoked.`);
             });
-          }}>Revoke from this computer</button>
+          }}>Revoke all access</button>
         </div>
       </div>
     </details>
   );
 }
 
-function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
+function AuthorizationRequest({ request, collections, hostedCollections, busy, onAct, onNotice }: {
   request: PendingAuthorization;
   collections: CollectionSummary[];
+  hostedCollections: HostedCollectionSummary[];
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
-  const available = useMemo(
-    () => collections.filter((collection) =>
-      request.compatible_collection_ids.includes(collection.id)
-      || request.provisionable_collection_ids.includes(collection.id)
-    ),
-    [collections, request.compatible_collection_ids, request.provisionable_collection_ids]
-  );
+  const available = useMemo<AuthorizationCollection[]>(() => [
+    ...collections
+      .filter((collection) =>
+        request.requirements.collection_kind !== "hosted"
+        && (
+          request.compatible_collection_ids.includes(collection.id)
+          || request.provisionable_collection_ids.includes(collection.id)
+        )
+      )
+      .map((collection) => ({
+        ...collection,
+        kind: "local" as const,
+        provisionable: request.provisionable_collection_ids.includes(collection.id)
+      })),
+    ...hostedCollections
+      .filter((collection) =>
+        collection.authority_state === "active"
+        && hostedCollectionCompatible(request, collection)
+      )
+      .map((collection) => ({
+        id: collection.id,
+        display_name: collection.display_name,
+        spec_version: collection.spec_version,
+        contracts: collection.contracts,
+        kind: "hosted" as const,
+        provisionable: request.requirements.contracts.some(
+          (requirement) => !hasContract(collection.contracts, requirement)
+        )
+      }))
+  ], [
+    collections,
+    hostedCollections,
+    request.compatible_collection_ids,
+    request.provisionable_collection_ids,
+    request.requirements,
+    request.provisions,
+    request.requested_operations
+  ]);
   const [collectionId, setCollectionId] = useState(
     available.some((collection) => collection.id === request.collection_hint)
       ? request.collection_hint!
@@ -530,7 +844,7 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
   );
   const [operations, setOperations] = useState(request.requested_operations);
   const selected = available.find((collection) => collection.id === collectionId);
-  const setup = selected && request.provisionable_collection_ids.includes(selected.id)
+  const setup = selected?.provisionable
     ? neededProvisions(request.requirements, request.provisions, selected)
     : [];
   const permissionGroups = useMemo(
@@ -549,8 +863,8 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
         <section className="request-section">
           <div><strong>Collection</strong><small>Choose where {request.application_name} can work.</small></div>
           <div className="request-section-content">
-            <label><span>Collection on this computer</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name}{request.provisionable_collection_ids.includes(collection.id) ? " · setup required" : ""}</option>)}</select></label>
-            {available.length === 0 && <small>No registered collection supports all requested operations and contracts.</small>}
+            <label><span>Collection</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "hosted" : "this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
+            {available.length === 0 && <small>No available local or hosted collection supports all requested operations and contracts.</small>}
             {setup.length > 0 && <small>Setup needed: allowing access will add {provisionNames(setup)} to this collection.</small>}
           </div>
         </section>
@@ -561,11 +875,18 @@ function AuthorizationRequest({ request, collections, busy, onAct, onNotice }: {
         <NotificationAccess notifications={request.notifications} />
         <footer className="request-footer">
           <p>{selected
-            ? `${request.application_name} will use ${selected.display_name} on this computer until you revoke access.`
+            ? `${request.application_name} will use ${selected.display_name}, ${selected.kind === "hosted" ? "hosted by mdbase" : "on this computer"}, until you revoke access.`
             : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
           <div className="decision-actions">
             <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
-            <button className="button primary" disabled={busy || !collectionId || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations }); onNotice(`${request.application_name} can now use the selected operations.`); })}>Allow {request.application_name}</button>
+            <button className="button primary" disabled={busy || !selected || operations.length === 0} onClick={() => void onAct(async () => {
+              if (selected?.kind === "hosted") {
+                await window.mdbaseConnect.approveHostedAuthorization({ requestId: request.id, collectionId, operations });
+              } else {
+                await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations });
+              }
+              onNotice(`${request.application_name} can now use the selected operations.`);
+            })}>Allow {request.application_name}</button>
           </div>
         </footer>
       </div>
@@ -637,9 +958,10 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   );
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
+  const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
   return (
     <article className="grant-review">
-      <div className="grant-identity"><p className="eyebrow">Collection access</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted local access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
+      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
       <div className="request-decision">
         <section className="request-section">
           <div><strong>Permissions</strong><small>{allowedOperations.length} available actions across {permissionGroups.length} {plural(permissionGroups.length, "category", "categories")}.</small></div>
@@ -648,8 +970,16 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
         <footer className="request-footer">
           <p>{grant.application_name} can use the selected actions on {grant.collection_name} until you revoke access.</p>
           <div className="decision-actions">
-            <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => { await window.mdbaseConnect.revokeGrant(grant.id); onNotice(`${grant.application_name} access was revoked.`); }); }}>Revoke</button>
-            <button className="button primary" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => { await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations }); onNotice(`${grant.application_name} permissions were updated.`); })}>Save changes</button>
+            <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => {
+              if (grant.collection_kind === "hosted") await window.mdbaseConnect.revokeHostedGrant(grant.id);
+              else await window.mdbaseConnect.revokeGrant(grant.id);
+              onNotice(`${grant.application_name} access was revoked.`);
+            }); }}>Revoke</button>
+            <button className="button primary" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => {
+              if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
+              else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });
+              onNotice(`${grant.application_name} permissions were updated.`);
+            })}>Save changes</button>
           </div>
         </footer>
       </div>
@@ -731,7 +1061,7 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice }: {
           </div>
         </div>
       </section>
-      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Local paths are never synchronized.</strong><p>The portal receives collection names, versions, stable identifiers, and grant metadata. Same-computer apps connect directly when allowed; remote operations remain end-to-end encrypted through the relay.</p></div></section>
+      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never synchronized.</strong><p>Computer-owned collection content stays on this computer. Hosted Markdown is stored by the encrypted hosted provider and optional mirrors synchronize directly with it; the account portal receives only collection and access metadata.</p></div></section>
     </div>
   );
 }
@@ -899,12 +1229,52 @@ function SettingSwitch({ className, label, description, checked, disabled, state
 function neededProvisions(
   requirements: ApplicationRequirements,
   provisions: ApplicationProvisions | undefined,
-  collection: CollectionSummary
+  collection: Pick<AuthorizationCollection, "contracts">
 ): TypeProvision[] {
   const missing = requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
   return (provisions?.types ?? []).filter((provision) =>
     provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
   );
+}
+
+const MDBASE_03_OPERATIONS = new Set([
+  "query",
+  "list_views",
+  "execute_view",
+  "read_type",
+  "create_type",
+  "update_type"
+]);
+
+function hostedCollectionCompatible(
+  request: PendingAuthorization,
+  collection: HostedCollectionSummary
+): boolean {
+  if (
+    request.requested_operations.some((operation) => MDBASE_03_OPERATIONS.has(operation))
+    && !/^0\.3(?:\.|$)/.test(collection.spec_version)
+  ) {
+    return false;
+  }
+  return request.requirements.contracts.every((required) =>
+    hasContract(collection.contracts, required)
+    || request.provisions.types.some((provision) =>
+      provision.provides.some((provided) => sameContract(provided, required))
+    )
+  );
+}
+
+function mirrorState(mirror: DesktopMirrorSummary | undefined): {
+  dot: ConnectionDotState;
+  label: string;
+} {
+  if (!mirror) return { dot: "idle", label: "Not mirrored" };
+  if (mirror.syncing) return { dot: "connecting", label: "Synchronizing" };
+  if (mirror.error || mirror.state === "offline") return { dot: "danger", label: "Mirror needs attention" };
+  if (mirror.conflicts.length > 0 || mirror.state === "attention") return { dot: "paused", label: "Conflicts need a decision" };
+  if (mirror.state === "changes_waiting" || mirror.pending > 0) return { dot: "connecting", label: "Changes waiting" };
+  if (mirror.state === "not_initialized") return { dot: "idle", label: "Not synchronized yet" };
+  return { dot: "connected", label: "Up to date" };
 }
 
 function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }

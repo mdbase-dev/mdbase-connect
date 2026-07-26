@@ -37,9 +37,9 @@ models, and interfaces live in their owning applications.
 - `crates/connect-runtime`: the small Connect adapter that compiles exact grant
   criteria into provider-neutral `mdbase-runtime` workflows.
 - `crates/connect-cli`: local administration and operation CLI.
-- `apps/desktop`: Electron controller for collection registration, application
-  metadata and availability, application access, browser pairing, local
-  activity, tray operation, and launch-at-login.
+- `apps/desktop`: Electron controller for local and hosted collections,
+  filesystem mirrors, application access, browser pairing, local activity,
+  tray operation, and launch-at-login.
 - `services/server`: Fastify control plane and transient, horizontally scalable
   relay backed by PostgreSQL and optional Core NATS request/reply. It also owns
   Web Push installations and a durable, privacy-minimal delivery outbox.
@@ -49,9 +49,9 @@ models, and interfaces live in their owning applications.
 - `crates/connect-hosted-provider`: encrypted PostgreSQL authority for hosted
   collections, with direct app operations and the versioned sync data plane.
 - `apps/portal`: deliberately small account, computer management, secure
-  pairing, remote approval, and grant-review surface. Routine collection
-  configuration stays in the local controller, and there is no developer
-  portal.
+  pairing, remote approval, and emergency grant-review surface. Routine
+  collection and mirror configuration stays in the desktop controller, and
+  there is no developer portal.
 - `packages/client`: browser SDK using authorization code or portable device
   authorization with PKCE, plus a dependency-free CDN/SRI browser build.
 - `packages/protocol`: shared versioned web/relay contracts.

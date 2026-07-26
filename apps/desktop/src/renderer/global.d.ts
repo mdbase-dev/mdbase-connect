@@ -24,6 +24,8 @@ interface ContractRequirement {
 
 interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  access?: "contract" | "full_collection";
+  collection_kind?: "hosted";
 }
 
 interface TypeProvision {
@@ -79,6 +81,7 @@ interface ConnectorAccount {
 interface GrantSummary {
   id: string;
   application_id: string;
+  application_family_id?: string;
   application_name: string;
   application_distribution: "web" | "portable";
   application_homepage: string;
@@ -87,6 +90,7 @@ interface GrantSummary {
   application_icon?: string;
   collection_id: string;
   collection_name: string;
+  collection_kind?: "local" | "hosted";
   operations: string[];
   scope: GrantScope;
   created_at: string;
@@ -119,6 +123,67 @@ interface AccessSnapshot {
   grants: GrantSummary[];
   pending_authorizations: PendingAuthorization[];
   authority_conflicts: AuthorityConflict[];
+}
+
+interface HostedReplicaSummary {
+  id: string;
+  name: string;
+  mode: "read_only" | "read_write";
+  allowed_types: string[];
+  revoked_at: string | null;
+  created_at: string;
+  sync_status: {
+    head: number;
+    acknowledged_sequence: number;
+    last_seen_at: string | null;
+    token_expires_at: string;
+  } | null;
+}
+
+interface HostedCollectionSummary {
+  id: string;
+  display_name: string;
+  template: "mdbase";
+  provider_url: string;
+  spec_version: string;
+  contracts: ContractRequirement[];
+  authority_state: "active" | "transferring" | "transferred";
+  authority_epoch: number;
+  transferred_collection_id: string | null;
+  created_at: string;
+  replicas: HostedReplicaSummary[];
+}
+
+interface HostedControlSnapshot {
+  online: boolean;
+  hosted_collections: HostedCollectionSummary[];
+  grants: GrantSummary[];
+  pending_authorizations: PendingAuthorization[];
+}
+
+interface DesktopMirrorSummary {
+  collection_id: string;
+  replica_id: string;
+  name: string;
+  mode: "read_only" | "read_write";
+  path: string;
+  state: "not_initialized" | "up_to_date" | "changes_waiting" | "attention" | "offline";
+  pending: number;
+  conflicts: Array<{
+    record_id: string;
+    path: string | null;
+    kind: "conflicted" | "rejected";
+    message: string;
+  }>;
+  cursor: number | null;
+  last_synced_at: string | null;
+  syncing: boolean;
+  progress?: {
+    phase: "uploading" | "applying";
+    completed: number;
+    total: number | null;
+  };
+  error?: string;
 }
 
 interface AuthorityConflict {
@@ -179,6 +244,21 @@ interface Window {
     approveAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     denyAuthorization(requestId: string): Promise<unknown>;
     listActivity(limit?: number): Promise<ActivityEntry[]>;
+    hostedSnapshot(): Promise<HostedControlSnapshot>;
+    createHostedCollection(name: string): Promise<{ collection: HostedCollectionSummary }>;
+    renameHostedCollection(input: { collectionId: string; name: string }): Promise<{ collection: { id: string; display_name: string } }>;
+    deleteHostedCollection(collectionId: string): Promise<{ ok: true }>;
+    approveHostedAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<{ ok: true }>;
+    updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
+    revokeHostedGrant(grantId: string): Promise<unknown>;
+    revokeHostedReplica(replicaId: string): Promise<{ ok: true }>;
+    listMirrors(): Promise<DesktopMirrorSummary[]>;
+    chooseMirrorFolder(): Promise<string | null>;
+    connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string }): Promise<DesktopMirrorSummary>;
+    syncMirror(replicaId: string): Promise<DesktopMirrorSummary>;
+    resolveMirrorConflict(input: { replicaId: string; recordId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
+    disconnectMirror(replicaId: string): Promise<{ ok: true }>;
+    openMirror(replicaId: string): Promise<string>;
     onNavigate(listener: (route: string) => void): () => void;
   };
 }

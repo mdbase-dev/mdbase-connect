@@ -477,7 +477,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
       </span>
       <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
       <div className="computer-actions">
-        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync folder</button>}
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Mirror</button>}
         {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button>}
         <button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button>
       </div>
@@ -512,16 +512,11 @@ function mirrorStatus(replica: HostedCollection["replicas"][number]): string {
 }
 
 function MirrorSetup({ collectionId }: { collectionId: string }) {
-  const command = `mdbase-mirror connect ./collection --server ${location.origin} --collection ${collectionId}`;
-  const [copied, setCopied] = useState(false);
-  async function copy(value: string) {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-  }
+  const desktopUrl = `mdbase-connect://mirror?collection=${encodeURIComponent(collectionId)}`;
   return <div className="mirror-setup" aria-live="polite">
-    <p><strong>Run this on the computer that owns the folder.</strong> Your browser will ask you to approve this collection. No credential is displayed or saved inside the folder.</p>
-    <div className="copy-row"><code>{command}</code><button className="quiet-action" type="button" onClick={() => void copy(command)}>{copied ? "Copied" : "Copy command"}</button></div>
-    <p>Existing Markdown is reviewed against the hosted collection before upload. Path collisions stop for an explicit decision.</p>
+    <p><strong>Choose the folder in mdbase connect.</strong> The desktop app controls synchronization and keeps mirror credentials in private application storage.</p>
+    <div className="mirror-setup-actions"><a className="button primary" href={desktopUrl}>Open mdbase connect</a></div>
+    <p>Existing Markdown is reviewed before upload. Path collisions stop for an explicit decision, and the hosted collection remains authoritative.</p>
   </div>;
 }
 

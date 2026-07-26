@@ -45,6 +45,40 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:authorizations:approve", input),
   denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
   listActivity: (limit = 100) => ipcRenderer.invoke("connect:activity:list", limit),
+  hostedSnapshot: () => ipcRenderer.invoke("connect:hosted:snapshot"),
+  createHostedCollection: (name: string) => ipcRenderer.invoke("connect:hosted:create", name),
+  renameHostedCollection: (input: { collectionId: string; name: string }) =>
+    ipcRenderer.invoke("connect:hosted:rename", input),
+  deleteHostedCollection: (collectionId: string) =>
+    ipcRenderer.invoke("connect:hosted:delete", collectionId),
+  approveHostedAuthorization: (input: {
+    requestId: string;
+    collectionId: string;
+    operations: string[];
+  }) => ipcRenderer.invoke("connect:hosted:authorization-approve", input),
+  updateHostedGrant: (input: { grantId: string; operations: string[] }) =>
+    ipcRenderer.invoke("connect:hosted:grant-update", input),
+  revokeHostedGrant: (grantId: string) =>
+    ipcRenderer.invoke("connect:hosted:grant-revoke", grantId),
+  revokeHostedReplica: (replicaId: string) =>
+    ipcRenderer.invoke("connect:hosted:replica-revoke", replicaId),
+  listMirrors: () => ipcRenderer.invoke("connect:mirrors:list"),
+  chooseMirrorFolder: () => ipcRenderer.invoke("connect:mirrors:choose-folder"),
+  connectMirror: (input: {
+    collectionId: string;
+    path: string;
+    mode: "read_only" | "read_write";
+    name?: string;
+  }) => ipcRenderer.invoke("connect:mirrors:connect", input),
+  syncMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:sync", replicaId),
+  resolveMirrorConflict: (input: {
+    replicaId: string;
+    recordId: string;
+    resolution: "local" | "remote";
+  }) => ipcRenderer.invoke("connect:mirrors:resolve", input),
+  disconnectMirror: (replicaId: string) =>
+    ipcRenderer.invoke("connect:mirrors:disconnect", replicaId),
+  openMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:open", replicaId),
   onNavigate: (listener: (route: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, route: string) => listener(route);
     ipcRenderer.on("connect:navigate", handler);
