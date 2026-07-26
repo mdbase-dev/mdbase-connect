@@ -13,12 +13,12 @@ import {
 import { createHash } from "node:crypto";
 import { ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { AgentControlError, requestAgent } from "./control-client";
 import { relaunchAfterAgentStops } from "./agent-lifecycle";
-import { MirrorManager } from "./mirror-manager";
+import { MirrorManager, pathsOverlap } from "./mirror-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -531,14 +531,20 @@ function registerIpc(): void {
     if (!["read_only", "read_write"].includes(String(value.mode))) {
       throw new Error("Choose receive-only or two-way synchronization.");
     }
+    const mirrorPath = await realpath(resolve(value.path));
     const registered = await requestReadyAgent<Array<{ path: string }>>("collections.list");
-    if (registered.some((collection) => pathsOverlap(collection.path, value.path as string))) {
+    const registeredPaths = await Promise.all(
+      registered.map(async (collection) =>
+        realpath(resolve(collection.path)).catch(() => resolve(collection.path))
+      )
+    );
+    if (registeredPaths.some((path) => pathsOverlap(path, mirrorPath))) {
       throw new Error("That folder overlaps a computer-owned collection. Choose another folder.");
     }
     const cloud = await requiredCloudConfig();
     return mirrors().connect({
       collectionId: value.collectionId,
-      path: value.path,
+      path: mirrorPath,
       mode: value.mode as "read_only" | "read_write",
       name: typeof value.name === "string" ? value.name : undefined,
       cloud
@@ -587,16 +593,6 @@ function registerIpc(): void {
 function asObject(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
   return value as Record<string, unknown>;
-}
-
-function pathsOverlap(left: string, right: string): boolean {
-  const resolvedLeft = resolve(left);
-  const resolvedRight = resolve(right);
-  const fromLeft = relative(resolvedLeft, resolvedRight);
-  const fromRight = relative(resolvedRight, resolvedLeft);
-  return fromLeft === ""
-    || (!fromLeft.startsWith("..") && !isAbsolute(fromLeft))
-    || (!fromRight.startsWith("..") && !isAbsolute(fromRight));
 }
 
 function stringArray(value: unknown, message: string): string[] {
@@ -910,7 +906,9 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   createTray();
-  await mirrors().start();
+  await mirrors().start().catch((error) => {
+    console.error("Hosted mirror settings could not be initialized", error);
+  });
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await ensureAgent();

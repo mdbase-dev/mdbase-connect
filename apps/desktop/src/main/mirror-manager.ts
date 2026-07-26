@@ -440,7 +440,7 @@ function canonicalOrigin(value: string): string {
   return url.origin;
 }
 
-function pathsOverlap(left: string, right: string): boolean {
+export function pathsOverlap(left: string, right: string): boolean {
   const fromLeft = relative(left, right);
   const fromRight = relative(right, left);
   return fromLeft === ""
