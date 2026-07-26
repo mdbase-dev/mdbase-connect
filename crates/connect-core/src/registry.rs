@@ -1,4 +1,5 @@
 use directories::ProjectDirs;
+use mdbase::frontmatter::parser::{is_parse_error, parse_document, yaml_mapping_to_json};
 use mdbase::runtime::FilesystemProvider;
 use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::{
@@ -924,17 +925,37 @@ impl CollectionRegistry {
                 let current = execute_loaded(collection, "read", &json!({ "path": path }))?;
                 ensure_result_in_scope(&current, &allowed_types)?;
                 let current_types = result_types(&current);
-                let mut prospective = current
-                    .pointer("/result/frontmatter")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                if let Some(fields) = input.get("patch").and_then(Value::as_object) {
-                    for (field, value) in fields {
-                        if value.is_null() {
-                            prospective.remove(field);
-                        } else {
-                            prospective.insert(field.clone(), value.clone());
+                let mut prospective =
+                    if let Some(document) = input.get("document").and_then(Value::as_str) {
+                        let candidate = parse_document(document);
+                        match candidate.frontmatter.as_ref() {
+                            Some(frontmatter) if is_parse_error(frontmatter) => {
+                                return execute_loaded(collection, operation, input);
+                            }
+                            Some(serde_yaml::Value::Mapping(mapping)) => {
+                                yaml_mapping_to_json(mapping)
+                                    .as_object()
+                                    .cloned()
+                                    .unwrap_or_default()
+                            }
+                            Some(_) => return execute_loaded(collection, operation, input),
+                            None => serde_json::Map::new(),
+                        }
+                    } else {
+                        current
+                            .pointer("/result/frontmatter")
+                            .and_then(Value::as_object)
+                            .cloned()
+                            .unwrap_or_default()
+                    };
+                if input.get("document").is_none() {
+                    if let Some(fields) = input.get("patch").and_then(Value::as_object) {
+                        for (field, value) in fields {
+                            if value.is_null() {
+                                prospective.remove(field);
+                            } else {
+                                prospective.insert(field.clone(), value.clone());
+                            }
                         }
                     }
                 }
@@ -3403,6 +3424,22 @@ schema:
                 collection.id,
                 "update",
                 &json!({ "path": "tasks/one.md", "patch": { "type": "private" } }),
+                &scope
+            ),
+            Err(ConnectError::AccessDenied(_))
+        ));
+        let unchanged = registry
+            .operation(collection.id, "read", &json!({ "path": "tasks/one.md" }))
+            .unwrap();
+        assert_eq!(unchanged["result"]["frontmatter"]["type"], "task");
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "update",
+                &json!({
+                    "path": "tasks/one.md",
+                    "document": "---\ntype: private\nsecret: Forged from source\n---\n"
+                }),
                 &scope
             ),
             Err(ConnectError::AccessDenied(_))
