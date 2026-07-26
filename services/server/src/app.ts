@@ -2643,11 +2643,9 @@ export async function buildApp(options: BuildOptions) {
     ];
     return {
       authorization: authorization.rows[0],
-      collections: authorization.rows[0].distribution === "portable"
-        ? availableCollections.filter((collection) => collection.kind === "local")
-        : requiresHostedCollection(authorization.rows[0].requirements)
-          ? availableCollections.filter((collection) => collection.kind === "hosted")
-          : availableCollections
+      collections: requiresHostedCollection(authorization.rows[0].requirements)
+        ? availableCollections.filter((collection) => collection.kind === "hosted")
+        : availableCollections
     };
   });
 
@@ -3892,11 +3890,15 @@ async function approveHostedAuthorization(
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
       notifications: ApplicationNotifications;
+      relay_protocol: number | null;
+      application_public_key: string | null;
+      flow: "authorization_code" | "device_code";
     }>(
       `SELECT ar.application_id, a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
-              a.requirements, a.provisions, a.notifications
+              a.requirements, a.provisions, a.notifications,
+              ar.relay_protocol, ar.application_public_key, ar.flow
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
@@ -3909,9 +3911,21 @@ async function approveHostedAuthorization(
       await connection.query("ROLLBACK");
       return false;
     }
-    if (pending.distribution === "portable") {
+    if (
+      pending.distribution === "portable"
+      && (
+        pending.flow !== "device_code"
+        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || !pending.application_public_key
+      )
+    ) {
       throw new RequestValidationError(
-        "Downloaded applications can currently authorize local collections only."
+        "Downloaded applications require a key-bound device authorization request."
+      );
+    }
+    if (pending.flow === "device_code" && pending.distribution !== "portable") {
+      throw new RequestValidationError(
+        "Device authorization is reserved for downloaded applications."
       );
     }
     if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
@@ -3952,14 +3966,17 @@ async function approveHostedAuthorization(
     await provider.renameCollection(input.collectionId, input.displayName);
     const operations = [...new Set(input.operations)];
     const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
-    const applicationUrl = new URL(pending.redirect_uri!);
-    const allowedOrigin = ["http:", "https:"].includes(applicationUrl.protocol)
-      ? applicationUrl.origin
-      : undefined;
-    const applicationOrigin = applicationOriginForRedirect(
-      pending.redirect_uri!,
-      pending.application_homepage
-    );
+    const applicationOrigin = pending.flow === "device_code"
+      ? "null"
+      : applicationOriginForRedirect(
+          pending.redirect_uri!,
+          pending.application_homepage
+        );
+    const allowedOrigin = pending.flow === "device_code"
+      ? "null"
+      : ["http:", "https:"].includes(new URL(pending.redirect_uri!).protocol)
+        ? new URL(pending.redirect_uri!).origin
+        : undefined;
     const grantId = randomUUID();
     notificationGrantId = grantId;
     replicaId = randomUUID();

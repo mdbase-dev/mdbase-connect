@@ -520,6 +520,84 @@ describe("provider-neutral collection client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("accepts a scoped hosted capability from the same portable device flow", async () => {
+    vi.useFakeTimers();
+    const keyStore = new MemoryGrantKeyStore();
+    const deleteKey = vi.spyOn(keyStore, "delete");
+    const opened = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({
+          application: {
+            id: "00000000-0000-0000-0000-000000000001",
+            name: "Portable hosted notes",
+            distribution: "portable"
+          }
+        });
+      }
+      if (url.endsWith("/oauth/device_authorization")) {
+        return jsonResponse({
+          device_code: "hosted-device-secret",
+          user_code: "HOST-CODE",
+          verification_uri: "https://connect.example/device",
+          verification_uri_complete: "https://connect.example/device?user_code=HOST-CODE",
+          expires_in: 600,
+          interval: 1
+        });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return jsonResponse({
+          access_token: "mdb_portable_hosted",
+          refresh_token: "ref_portable_hosted",
+          token_type: "Bearer",
+          expires_in: 900,
+          refresh_expires_in: 86_400,
+          collection_id: TEST_COLLECTION_ID,
+          collection_name: "Portable hosted notes",
+          operations: ["describe", "query"],
+          scope: { contracts: [], access: "full_collection" },
+          grant_id: "00000000-0000-0000-0000-000000000003",
+          application_origin: "null",
+          encryption: null,
+          hosted: {
+            provider_url: "https://provider.example",
+            replica_id: "00000000-0000-0000-0000-000000000005",
+            access_token: "hsa_portable_hosted"
+          }
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        ...portableManifest(),
+        requirements: {
+          contracts: [],
+          access: "full_collection",
+          collection_kind: "hosted"
+        }
+      },
+      keyStore
+    });
+
+    const authorization = connect.authorize({
+      operations: ["describe", "query"],
+      openVerification: opened
+    });
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const result = await authorization;
+    expect(result.connection).toMatchObject({
+      collectionId: TEST_COLLECTION_ID,
+      route: "hosted"
+    });
+    expect(deleteKey).toHaveBeenCalledOnce();
+    expect(connect.connections()).toHaveLength(1);
+  });
+
   it("returns the verification details when a portable approval popup is blocked", async () => {
     const keyStore = new MemoryGrantKeyStore();
     vi.spyOn(globalThis, "fetch")

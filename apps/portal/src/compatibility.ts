@@ -17,14 +17,6 @@ export function collectionCompatibility(
   request: Pick<PendingAuthorization, "distribution" | "requirements" | "provisions" | "requested_operations">,
   collection: AvailableCollection
 ): CollectionCompatibility {
-  if (request.distribution === "portable" && collection.kind !== "local") {
-    return {
-      compatible: false,
-      code: "collection_kind",
-      label: "Computer-owned collection required",
-      detail: "Downloaded applications currently connect only through your local mdbase connector."
-    };
-  }
   if (request.requirements.collection_kind === "hosted" && collection.kind !== "hosted") {
     return {
       compatible: false,

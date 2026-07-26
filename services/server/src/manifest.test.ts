@@ -57,7 +57,7 @@ describe("portable application manifests", () => {
     expect(registered.manifest).not.toHaveProperty("redirect_uris");
   });
 
-  it("rejects web identity fields, cross-origin icons, and hosted-only portable access", () => {
+  it("rejects web identity fields and cross-origin icons", () => {
     const base = {
       manifest_version: 1,
       distribution: "portable",
@@ -75,12 +75,12 @@ describe("portable application manifests", () => {
       project_url: "https://workouts.example/source",
       icon: "https://tracking.example/icon.svg"
     })).toThrow("Portable application icons must use the project URL origin.");
-    expect(() => registerApplicationManifest({
+    expect(registerApplicationManifest({
       ...base,
       requirements: {
         contracts: [],
         collection_kind: "hosted"
       }
-    })).toThrow("Portable applications cannot request hosted-only collection access.");
+    }).manifest.requirements.collection_kind).toBe("hosted");
   });
 });

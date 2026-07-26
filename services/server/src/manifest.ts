@@ -179,11 +179,6 @@ function validateManifestIdentity(
   allowInsecure: boolean
 ): void {
   if (manifest.distribution === "portable") {
-    if (manifest.requirements.collection_kind === "hosted") {
-      throw new ApplicationManifestError(
-        "Portable applications cannot request hosted-only collection access."
-      );
-    }
     if (manifest.project_url) {
       const project = new URL(manifest.project_url);
       if (project.protocol !== "https:") {

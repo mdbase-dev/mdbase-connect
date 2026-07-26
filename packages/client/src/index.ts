@@ -1371,20 +1371,35 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             tokenResponse.status
           );
         }
-        if (
-          tokenBody.hosted
-          || !tokenBody.encryption
-          || tokenBody.encryption.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
-          || tokenBody.encryption.suite !== RELAY_ENCRYPTION_SUITE
-          || tokenBody.encryption.application_public_key !== grantKey.publicKey
-          || tokenBody.application_origin !== "null"
-        ) {
+        const hosted = validHostedTokenResponse(tokenBody.hosted);
+        const localEncryption = tokenBody.encryption
+          && tokenBody.encryption.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
+          && tokenBody.encryption.suite === RELAY_ENCRYPTION_SUITE
+          && tokenBody.encryption.application_public_key === grantKey.publicKey;
+        if (tokenBody.application_origin !== "null") {
           throw new MdbaseConnectError(
-            "encryption_required",
-            "Authorization did not establish the expected key-bound portable grant."
+            "invalid_token_response",
+            "Authorization did not bind the portable grant to its opaque application origin."
           );
         }
-        const token = this.storeTokenResponse(tokenBody, application.id, keyHandle);
+        if (tokenBody.hosted && (!hosted || tokenBody.encryption != null)) {
+          throw new MdbaseConnectError(
+            "invalid_token_response",
+            "Authorization returned an invalid hosted capability for the portable grant."
+          );
+        }
+        if (!tokenBody.hosted && !localEncryption) {
+          throw new MdbaseConnectError(
+            "encryption_required",
+            "Authorization did not establish the expected key-bound local portable grant."
+          );
+        }
+        if (hosted) await this.keyStore.delete(keyHandle);
+        const token = this.storeTokenResponse(
+          tokenBody,
+          application.id,
+          hosted ? undefined : keyHandle
+        );
         if (options.collectionId && options.collectionId !== token.collectionId) {
           this.removeToken(token.collectionId, token.keyHandle);
           throw new MdbaseConnectError(
@@ -3125,6 +3140,33 @@ function apiError(body: any, fallbackCode: string, fallbackMessage: string, stat
 
 function oauthErrorCode(body: any): string | undefined {
   return typeof body?.error === "string" ? body.error : undefined;
+}
+
+function validHostedTokenResponse(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const hosted = value as {
+    provider_url?: unknown;
+    replica_id?: unknown;
+    access_token?: unknown;
+  };
+  if (
+    typeof hosted.provider_url !== "string"
+    || typeof hosted.replica_id !== "string"
+    || hosted.replica_id.length === 0
+    || typeof hosted.access_token !== "string"
+    || hosted.access_token.length === 0
+  ) return false;
+  try {
+    const provider = new URL(hosted.provider_url);
+    return ["http:", "https:"].includes(provider.protocol)
+      && !provider.username
+      && !provider.password
+      && provider.pathname === "/"
+      && !provider.search
+      && !provider.hash;
+  } catch {
+    return false;
+  }
 }
 
 function parseDeviceAuthorization(body: any): MdbaseDeviceAuthorization {

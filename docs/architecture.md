@@ -198,9 +198,11 @@ Downloaded HTML applications use the v1 portable distribution profile described
 in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
 single-use OAuth device code plus PKCE and the existing per-grant P-256 key.
 Their browser origin is the exact opaque value `null`, tokens and non-extractable
-keys are memory-only by default, and the local connector still requires a
-matching encrypted grant for every operation. Portable grants are currently
-limited to local-authority collections.
+keys are memory-only by default. A local connector requires a matching
+encrypted grant for every operation. A hosted provider instead receives a
+short-lived capability bound to the exact grant, collection, operation set,
+record scope, expiry, and opaque `null` origin. The SDK exposes the same
+connection API for both routes.
 Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when
 cloud policy is stale.

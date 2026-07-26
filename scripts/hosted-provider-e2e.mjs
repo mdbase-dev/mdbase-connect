@@ -37,6 +37,7 @@ const authorityMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-author
 const promotionMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-promotion-mirror-"));
 const promotionToolRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-promotion-tool-"));
 const mirrorStateRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-mirror-state-"));
+const portableRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-portable-"));
 process.env.MDBASE_CONNECT_MIRROR_STATE_DIR = mirrorStateRoot;
 const children = new Set();
 let postgresStarted = false;
@@ -836,6 +837,10 @@ schema:
     { method: "POST", token: appToken, headers: { origin: manifest.origin }, body: {} }
   );
   assert.equal(revokedApp.status, 401);
+
+  phase("authorizing a real file URL directly against the hosted data plane");
+  await portableHostedFileE2E(controlUrl, cookie, genericCollectionId, portableRoot);
+
   assert.equal(
     (
       await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
@@ -1601,10 +1606,149 @@ schema:
   await rm(promotionMirrorRoot, { recursive: true, force: true });
   await rm(promotionToolRoot, { recursive: true, force: true });
   await rm(mirrorStateRoot, { recursive: true, force: true });
+  await rm(portableRoot, { recursive: true, force: true });
 }
 
 function phase(message) {
   process.stdout.write(`[provider-e2e] ${message}\n`);
+}
+
+async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory) {
+  const bundle = (await readFile(
+    join(repoRoot, "packages", "client", "dist", "browser", "mdbase-connect.min.js"),
+    "utf8"
+  )).replaceAll("</script", "<\\/script");
+  const file = join(directory, "portable-hosted.html");
+  await writeFile(file, `<!doctype html>
+<meta charset="utf-8">
+<title>Portable hosted mdbase E2E</title>
+<button id="connect">Connect</button>
+<output id="code"></output>
+<script>${bundle}</script>
+<script>
+  const manager = new MdbaseConnect.MdbaseConnect({
+    serverUrl: ${JSON.stringify(controlUrl)},
+    manifest: {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.portable-hosted-e2e",
+      name: "Portable Hosted E2E",
+      project_url: "https://apps.example/portable-hosted-e2e",
+      requirements: {
+        access: "full_collection",
+        contracts: [],
+        collection_kind: "hosted"
+      }
+    }
+  });
+  globalThis.portableHarness = {
+    environment: manager.environment(),
+    initialConnections: manager.connections().length
+  };
+  document.querySelector("#connect").onclick = () => {
+    manager.authorize({
+      operations: ["describe", "query", "create"],
+      openVerification() {},
+      onDeviceCode(authorization) {
+        globalThis.portableHarness.authorization = authorization;
+        document.querySelector("#code").textContent = authorization.userCode;
+      }
+    }).then(async ({ connection }) => {
+      const created = await connection.create({
+        path: "portable-hosted-e2e.md",
+        frontmatter: { title: "Created from a downloaded file" },
+        body: "Direct to the hosted provider."
+      });
+      const description = await connection.describe();
+      const records = await connection.query({
+        where: 'file.path == "portable-hosted-e2e.md"'
+      });
+      globalThis.portableHarness.result = {
+        route: connection.route,
+        collectionId: connection.collectionId,
+        displayName: description.display_name,
+        created: created.valid,
+        records: records.result.results.length,
+        connections: manager.connections().length
+      };
+    }).catch((error) => {
+      globalThis.portableHarness.error = {
+        code: error && error.code,
+        message: error && error.message
+      };
+    });
+  };
+</script>`);
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(new URL(`file://${file}`).href);
+    const environment = await page.evaluate(() => globalThis.portableHarness);
+    assert.equal(environment.environment.applicationOrigin, "null");
+    assert.equal(environment.environment.credentialStorage, "memory");
+    assert.equal(environment.initialConnections, 0);
+    await page.click("#connect");
+    await page.waitForFunction(() => Boolean(globalThis.portableHarness.authorization));
+    const authorization = await page.evaluate(
+      () => globalThis.portableHarness.authorization
+    );
+    const claimed = await controlRequest(
+      controlUrl,
+      "/v1/device-authorization-requests/lookup",
+      cookie,
+      {
+        method: "POST",
+        body: { user_code: authorization.userCode }
+      }
+    );
+    const pending = await controlRequest(
+      controlUrl,
+      `/v1/authorization-requests/${claimed.request_id}`,
+      cookie
+    );
+    assert.ok(pending.collections.length > 0);
+    assert.ok(pending.collections.every((collection) => collection.kind === "hosted"));
+    assert.ok(pending.collections.some((collection) => collection.id === collectionId));
+    await controlRequest(
+      controlUrl,
+      `/v1/authorization-requests/${claimed.request_id}/approve`,
+      cookie,
+      {
+        method: "POST",
+        body: {
+          collection_id: collectionId,
+          operations: ["describe", "query", "create"]
+        }
+      }
+    );
+    await page.waitForFunction(
+      () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
+      undefined,
+      { timeout: 20_000 }
+    );
+    const result = await page.evaluate(() => globalThis.portableHarness);
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.result, {
+      route: "hosted",
+      collectionId,
+      displayName: "Hosted writing",
+      created: true,
+      records: 1,
+      connections: 1
+    });
+
+    const independentPage = await context.newPage();
+    await independentPage.goto(new URL(`file://${file}`).href);
+    const independent = await independentPage.evaluate(() => globalThis.portableHarness);
+    assert.equal(independent.initialConnections, 0);
+    assert.equal(independent.environment.credentialStorage, "memory");
+    await independentPage.close();
+    await context.close();
+  } finally {
+    await browser.close();
+  }
 }
 
 async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {

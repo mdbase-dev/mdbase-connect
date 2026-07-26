@@ -937,6 +937,185 @@ describe("mdbase connect server", () => {
     })).json()).toMatchObject({ error: "expired_token" });
   });
 
+  it("authorizes a portable v1 application directly against a hosted collection", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypes: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Portable cloud owner", email: "portable-cloud@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/hosted/collections",
+      headers: { cookie },
+      payload: { display_name: "Portable cloud notes", template: "mdbase" }
+    });
+    expect(created.statusCode).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    const manifest: MdbaseAppManifest = {
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.portable-cloud-notes",
+      name: "Portable cloud notes",
+      project_url: "https://apps.example/portable-cloud-notes",
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        collection_kind: "hosted"
+      }
+    };
+    const registration = await app.inject({
+      method: "POST",
+      url: "/v1/apps/register",
+      payload: { manifest }
+    });
+    expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
+    const applicationId = registration.json().application.id as string;
+    const applicationKey = createECDH("prime256v1");
+    applicationKey.generateKeys();
+    const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
+    const device = await app.inject({
+      method: "POST",
+      url: "/oauth/device_authorization",
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        operations: "describe,query,create,update",
+        collection_hint: collectionId,
+        code_challenge: pkceChallenge(verifier),
+        code_challenge_method: "S256",
+        relay_protocol: "1",
+        application_public_key: applicationKey
+          .getPublicKey(undefined, "uncompressed")
+          .toString("base64url")
+      }).toString()
+    });
+    expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
+    const lookup = await app.inject({
+      method: "POST",
+      url: "/v1/device-authorization-requests/lookup",
+      headers: { cookie },
+      payload: { user_code: device.json().user_code }
+    });
+    expect(lookup.statusCode).toBe(200);
+    const requestId = lookup.json().request_id as string;
+    const pending = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${requestId}`,
+      headers: { cookie }
+    });
+    expect(pending.json().collections).toEqual([
+      expect.objectContaining({ id: collectionId, kind: "hosted" })
+    ]);
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["describe", "query", "create", "update"]
+      }
+    });
+    expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({
+        purpose: "application",
+        fullCollection: true,
+        allowedOperations: ["describe", "query", "create", "update"],
+        allowedOrigin: "null"
+      })
+    );
+    const token = await pollDeviceToken(app, {
+      applicationId,
+      deviceCode: device.json().device_code,
+      verifier
+    });
+    expect(token.statusCode, JSON.stringify(token.json())).toBe(200);
+    expect(token.json()).toMatchObject({
+      collection_id: collectionId,
+      application_origin: "null",
+      operations: ["describe", "query", "create", "update"],
+      encryption: null,
+      hosted: {
+        provider_url: "https://sync.example"
+      }
+    });
+    expect(token.json().hosted.replica_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
+    expect(token.json().hosted.access_token).toMatch(/^hsa_/);
+    expect(hostedProvider.rotateReplicaToken).toHaveBeenCalledWith(
+      token.json().hosted.replica_id,
+      token.json().hosted.access_token,
+      3_600
+    );
+
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      payload: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: token.json().refresh_token,
+        client_id: applicationId
+      }).toString(),
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded"
+      }
+    });
+    expect(refreshed.statusCode, JSON.stringify(refreshed.json())).toBe(200);
+    expect(refreshed.json()).toMatchObject({
+      collection_id: collectionId,
+      application_origin: "null",
+      encryption: null,
+      hosted: {
+        provider_url: "https://sync.example",
+        replica_id: token.json().hosted.replica_id
+      }
+    });
+    expect(refreshed.json().hosted.access_token).not.toBe(token.json().hosted.access_token);
+    const grant = await db.query<{ application_origin: string; encryption: unknown }>(
+      "SELECT application_origin, encryption FROM grants WHERE id = $1",
+      [token.json().grant_id]
+    );
+    expect(grant.rows[0]).toEqual({
+      application_origin: "null",
+      encryption: null
+    });
+  });
+
   it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

@@ -29,43 +29,57 @@ Connect identifies the exact normalized declaration by its SHA-256 digest.
 Changing any declared field creates a different application identity and
 requires approval again.
 
-Portable applications currently authorize computer-owned collections only.
-Hosted provider capabilities remain unavailable until they can be
-sender-constrained to the portable installation key.
+Portable applications can authorize either computer-owned or hosted
+collections through the same `MdbaseConnection` API. Add
+`"collection_kind": "hosted"` to `requirements` when the application
+specifically needs a durable cloud collection; omit it to let the user choose
+any compatible local or hosted collection.
 
 ## Authorization
 
 The SDK uses OAuth device authorization with PKCE:
 
-1. The file registers its inline manifest and generates a P-256 relay key.
+1. The file registers its inline manifest and generates an ephemeral P-256 key
+   so a local collection remains available as a choice.
 2. Connect returns a random, short-lived device code and an eight-character
    user code.
 3. The SDK opens Connect's approval page in a popup and also returns the code
    through `onDeviceCode`.
 4. The signed-in user confirms the same code, reviews the unverified downloaded
-   file warning, selects a local collection, and narrows the operations.
-5. The SDK polls at the server-provided interval. A successful token response
-   must contain the same application public key, encrypted relay protocol 1,
-   and the opaque application origin `null`.
+   file warning, selects a compatible local or hosted collection, and narrows
+   the operations.
+5. The SDK polls at the server-provided interval. Every successful response is
+   bound to the opaque application origin `null`. A local grant must also
+   contain the same application public key and encrypted relay protocol 1; a
+   hosted grant instead contains a scoped provider capability.
 
 Device codes expire after ten minutes, are stored only as hashes by the control
 plane, are rate limited, and can be consumed once. Polling faster than the
 returned interval receives `slow_down`. PKCE prevents a copied device code from
 being exchanged by another installation.
 
-The local connector remains the final authorization boundary. It accepts the
-opaque `Origin: null` only when an active local grant has that exact origin and
-encrypted relay binding. Every operation must then authenticate the grant,
-application, connector, collection, key ID, epoch, counter, request ID, and
-ciphertext. CORS permission alone is never an operation capability.
+For a local collection, the connector remains the final authorization boundary.
+It accepts the opaque `Origin: null` only when an active local grant has that
+exact origin and encrypted relay binding. Every operation must authenticate the
+grant, application, connector, collection, key ID, epoch, counter, request ID,
+and ciphertext.
+
+For a hosted collection, the SDK sends operations directly to the hosted data
+provider. Its short-lived bearer capability is limited to one replica,
+collection, grant, operation set, record scope, expiry, and the exact
+`Origin: null` value. The provider checks those fields for each request.
+Refreshing rotates both the Connect credential and provider capability. CORS
+permission alone is never an operation capability.
 
 ## Storage and `file://`
 
 All local files have an opaque browser origin serialized as `null`. A portable
 SDK instance therefore uses process-memory token storage and a non-extractable
-process-memory private key by default. Another downloaded file cannot inherit
-those values through `localStorage` or IndexedDB. Reloading or reopening the
-file requires authorization again.
+process-memory private key by default. The key is discarded after a hosted
+collection is selected because hosted requests do not use the encrypted local
+relay. Another downloaded file cannot inherit the credentials through
+`localStorage` or IndexedDB. Reloading or reopening the file requires
+authorization again.
 
 An embedding shell may inject custom `storage` and `keyStore` adapters. That is
 an explicit trust decision by the application. `connect.environment()` reports
@@ -127,6 +141,11 @@ or omit SRI in a downloaded application.
   };
 </script>
 ```
+
+The application code does not choose a transport. The returned connection uses
+the local connector, relay, or hosted provider as required; `describe`,
+`query`, `create`, and the other collection methods remain the same. The
+read-only `connection.route` property can be used for diagnostics.
 
 Authorization must start from a user gesture so browsers permit the approval
 popup. If a caller supplies `openVerification`, it is responsible for showing

@@ -3774,24 +3774,26 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                 &input.allowed_operations,
             )?;
             if let Some(origin) = input.allowed_origin.as_deref() {
-                let url = url::Url::parse(origin).map_err(|_| {
-                    ApiError::bad_request(
-                        "invalid_application_origin",
-                        "Application origin must be an absolute HTTP(S) origin.",
-                    )
-                })?;
-                if !matches!(url.scheme(), "http" | "https")
-                    || !url.username().is_empty()
-                    || url.password().is_some()
-                    || url.path() != "/"
-                    || url.query().is_some()
-                    || url.fragment().is_some()
-                    || url.origin().ascii_serialization() != origin
-                {
-                    return Err(ApiError::bad_request(
-                        "invalid_application_origin",
-                        "Application origin must be a canonical HTTP(S) origin.",
-                    ));
+                if origin != "null" {
+                    let url = url::Url::parse(origin).map_err(|_| {
+                        ApiError::bad_request(
+                            "invalid_application_origin",
+                            "Application origin must be `null` or an absolute HTTP(S) origin.",
+                        )
+                    })?;
+                    if !matches!(url.scheme(), "http" | "https")
+                        || !url.username().is_empty()
+                        || url.password().is_some()
+                        || url.path() != "/"
+                        || url.query().is_some()
+                        || url.fragment().is_some()
+                        || url.origin().ascii_serialization() != origin
+                    {
+                        return Err(ApiError::bad_request(
+                            "invalid_application_origin",
+                            "Application origin must be `null` or a canonical HTTP(S) origin.",
+                        ));
+                    }
                 }
             }
         }
@@ -4154,6 +4156,31 @@ mod tests {
             token_ttl_seconds: Some(3600),
         };
         validate_replica_capability(&capability).unwrap();
+        let mut portable_capability = capability.clone();
+        portable_capability.allowed_origin = Some("null".to_string());
+        validate_replica_capability(&portable_capability).unwrap();
+        let portable_replica = Replica {
+            id: portable_capability.replica_id,
+            purpose: portable_capability.purpose,
+            mode: portable_capability.mode,
+            allowed_types: portable_capability.allowed_types,
+            full_collection: portable_capability.full_collection,
+            allowed_operations: portable_capability.allowed_operations,
+            allowed_origin: portable_capability.allowed_origin,
+            grant_id: portable_capability.grant_id,
+            scope_epoch: 1,
+        };
+        authorize_application_operation(&portable_replica, "query", Some("null")).unwrap();
+        assert_eq!(
+            authorize_application_operation(
+                &portable_replica,
+                "query",
+                Some("https://tasks.example")
+            )
+            .unwrap_err()
+            .code,
+            "origin_denied"
+        );
         let mut missing_grant = capability.clone();
         missing_grant.grant_id = None;
         assert_eq!(

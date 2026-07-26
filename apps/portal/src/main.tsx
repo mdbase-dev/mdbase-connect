@@ -1225,7 +1225,7 @@ function ApprovalForm({
           <p className="eyebrow">Downloaded file, unverified origin</p>
           <strong>Only continue if you intentionally opened this HTML file.</strong>
         </div>
-        {request.user_code && <p>Confirm that it shows <code>{request.user_code}</code>. The code binds this approval to the file’s temporary encryption key.</p>}
+        {request.user_code && <p>Confirm that it shows <code>{request.user_code}</code>. The code binds this approval to the file’s one-time device request.</p>}
         <p>{request.project_url
           ? `${host(request.project_url)} is a developer-supplied project link, not proof that the downloaded file came from that site.`
           : "A downloaded file has no website origin that mdbase can verify."}</p>
@@ -1250,16 +1250,13 @@ function ApprovalForm({
             <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
           </details>}
           {compatible.length === 0 && <div className="authorization-empty-collection">
-            <p className="field-note">{request.distribution === "portable"
-              ? "No compatible computer-owned collection is currently available through mdbase connect."
-              : "No compatible collection is ready."}</p>
-            {request.distribution !== "portable" &&
+            <p className="field-note">No compatible collection is ready.</p>
             <button
               className="button secondary"
               type="button"
               disabled={submitting !== null}
               onClick={() => void createCloudCollection()}
-            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>}
+            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
           </div>}
           {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
         </div>
@@ -1280,7 +1277,7 @@ function ApprovalForm({
       {error && <div className="message error compact">{error}</div>}
       <footer className="approval-footer">
         <p>{selected
-          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. ${request.distribution === "portable" ? "The local connector checks every encrypted operation." : "Access lasts until you revoke it."}`
+          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. Every operation is checked against this grant, and access lasts until you revoke it.`
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
