@@ -9,12 +9,13 @@
   "scripts": {
     "build": "pnpm build:main && pnpm build:renderer",
     "build:sync": "pnpm --filter @mdbase/connect-protocol build && pnpm --filter @mdbase/connect-sync build",
-    "build:main": "pnpm build:sync && tsc -p tsconfig.main.json && node scripts/build-main.mjs",
+    "build:main": "tsc -p tsconfig.main.json && node scripts/build-main.mjs",
     "build:renderer": "vite build",
+    "build:standalone": "pnpm build:sync && pnpm build",
     "dev:agent": "cargo build --manifest-path ../../Cargo.toml -p mdbase-connect-agent",
-    "start": "pnpm dev:agent && pnpm build && electron .",
-    "make": "pnpm dev:agent --release && pnpm build && electron-forge make",
-    "package": "pnpm dev:agent --release && pnpm build && electron-forge package && node scripts/verify-package.mjs",
+    "start": "pnpm dev:agent && pnpm build:standalone && electron .",
+    "make": "pnpm dev:agent --release && pnpm build:standalone && electron-forge make",
+    "package": "pnpm dev:agent --release && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",
     "test": "pnpm build:main && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
