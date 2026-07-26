@@ -16,7 +16,7 @@
     "profile:connect": "cargo run --release -p mdbase-connect-core --bin connect-profile --",
     "profile:rs": "cargo run --release --manifest-path ../mdbase-rs/Cargo.toml --bin mdb-profile -- --scenario queries",
     "profile:views:rs": "cargo run --release --manifest-path ../mdbase-rs/Cargo.toml --bin mdb-profile -- --scenario views",
-    "test": "pnpm -r test",
+    "test": "pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
     "typecheck": "pnpm -r typecheck",
     "version:check": "node scripts/check-release-version.mjs"
   },
