@@ -595,7 +595,19 @@ try {
     const { connection: inlineConnection } = await inlineSdk.completeAuthorization(inlineCallback);
     const inlineToken = inlineStorage.token();
     assert.equal(inlineToken.hosted.providerUrl, provider.url);
-    const inlineDescription = await inlineConnection.describe();
+    const inlineOriginalFetch = globalThis.fetch;
+    globalThis.fetch = (input, init = {}) => {
+      const url = String(input);
+      if (!url.startsWith(`${provider.url}/v1/hosted/`)) {
+        return inlineOriginalFetch(input, init);
+      }
+      const headers = new Headers(init.headers);
+      headers.set("origin", inlineManifest.origin);
+      return inlineOriginalFetch(input, { ...init, headers });
+    };
+    const inlineDescription = await inlineConnection.describe().finally(() => {
+      globalThis.fetch = inlineOriginalFetch;
+    });
     assert.equal(inlineDescription.contracts[0]?.id, "workout.record");
   } finally {
     await new Promise((resolveClose) => inlineManifest.server.close(resolveClose));
@@ -1358,8 +1370,9 @@ schema:
   assert.ok(Number.isInteger(bulkCount) && bulkCount >= 205 && bulkCount <= 20_000);
   const stressRun = bulkCount >= 10_000;
   let finalBulkRecordId;
+  const bulkStartSession = await writerTransport.openSession();
   const recordsBeforeBulk = (
-    await snapshotAll(writerTransport, await writerTransport.openSession())
+    await snapshotAll(writerTransport, bulkStartSession)
   ).length;
   const mutationLatencies = [];
   for (let index = 0; index < bulkCount; index += 1) {
@@ -1394,7 +1407,10 @@ schema:
 
   if (stressRun) {
     const changeLatencies = [];
-    let changeCursor = 0;
+    // Resource changes intentionally require a fresh snapshot. Start from the
+    // snapshot immediately before this record-only bulk phase so the benchmark
+    // measures its change pages instead of rediscovering that earlier reset.
+    let changeCursor = bulkStartSession.head;
     while (changeCursor < pagedSession.head) {
       const changesStarted = performance.now();
       const changes = await writerTransport.changes(changeCursor, 200);
@@ -1645,6 +1661,19 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
     environment: manager.environment(),
     initialConnections: manager.connections().length
   };
+  const nativeFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url.includes("/v1/hosted/collections/") && init.headers?.authorization) {
+      globalThis.portableHarness.capturedRequest = {
+        url,
+        method: init.method,
+        headers: { ...init.headers },
+        body: init.body
+      };
+    }
+    return nativeFetch(input, init);
+  };
   document.querySelector("#connect").onclick = () => {
     manager.authorize({
       operations: ["describe", "query", "create"],
@@ -1738,6 +1767,50 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
       records: 1,
       connections: 1
     });
+    const captured = result.capturedRequest;
+    assert.ok(captured.headers["x-mdbase-proof-signature"]);
+    const noProof = await fetch(captured.url, {
+      method: captured.method,
+      headers: {
+        authorization: captured.headers.authorization,
+        "content-type": captured.headers["content-type"],
+        origin: "null"
+      },
+      body: captured.body
+    });
+    assert.equal(noProof.status, 401);
+    assert.equal((await noProof.json()).error.code, "hosted_proof_required");
+    const noProofOrOrigin = await fetch(captured.url, {
+      method: captured.method,
+      headers: {
+        authorization: captured.headers.authorization,
+        "content-type": captured.headers["content-type"]
+      },
+      body: captured.body
+    });
+    assert.equal(noProofOrOrigin.status, 403);
+    assert.equal((await noProofOrOrigin.json()).error.code, "origin_denied");
+    const replay = await fetch(captured.url, {
+      method: captured.method,
+      headers: { ...captured.headers, origin: "null" },
+      body: captured.body
+    });
+    assert.equal(replay.status, 401);
+    assert.equal((await replay.json()).error.code, "hosted_proof_replayed");
+    const tampered = await fetch(captured.url, {
+      method: captured.method,
+      headers: { ...captured.headers, origin: "null" },
+      body: `${captured.body} `
+    });
+    assert.equal(tampered.status, 401);
+    assert.equal((await tampered.json()).error.code, "invalid_hosted_proof");
+    const missingOrigin = await fetch(captured.url, {
+      method: captured.method,
+      headers: captured.headers,
+      body: captured.body
+    });
+    assert.equal(missingOrigin.status, 403);
+    assert.equal((await missingOrigin.json()).error.code, "origin_denied");
 
     const independentPage = await context.newPage();
     await independentPage.goto(new URL(`file://${file}`).href);

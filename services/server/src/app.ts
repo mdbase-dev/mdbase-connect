@@ -60,6 +60,10 @@ import {
   HostedProviderUnavailableError
 } from "./hosted-provider.js";
 import {
+  HostedProofError,
+  verifyHostedRequestProof
+} from "./hosted-proof.js";
+import {
   exchangeGitHubCode,
   GitHubIdentityError,
   type GitHubAuthConfig
@@ -3140,8 +3144,12 @@ export async function buildApp(options: BuildOptions) {
       return issueApplicationTokens(options.db, options.hostedProvider, authorizationCode.grant_id);
     }
 
-    const refresh = await options.db.query<{ id: string; grant_id: string }>(
-      `SELECT rt.id, rt.grant_id
+    const refresh = await options.db.query<{
+      id: string;
+      grant_id: string;
+      proof_public_key: string | null;
+    }>(
+      `SELECT rt.id, rt.grant_id, g.proof_public_key
        FROM refresh_tokens rt
        JOIN grants g ON g.id = rt.grant_id
        WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
@@ -3152,6 +3160,31 @@ export async function buildApp(options: BuildOptions) {
     const current = refresh.rows[0];
     if (!current) {
       return reply.code(400).send(apiError("invalid_grant", "Refresh token is invalid or expired."));
+    }
+    if (current.proof_public_key) {
+      const refreshBody = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: input.refresh_token,
+        client_id: input.client_id
+      }).toString();
+      try {
+        verifyHostedRequestProof(
+          request.headers,
+          current.proof_public_key,
+          {
+            method: "POST",
+            target: "/oauth/token",
+            body: refreshBody,
+            credential: input.refresh_token
+          }
+        );
+      } catch (error) {
+        if (!(error instanceof HostedProofError)) throw error;
+        return reply.code(400).send(oauthError(
+          "invalid_grant",
+          "The refresh request is not signed by the approved application key."
+        ));
+      }
     }
     const rotated = await options.db.query(
       `UPDATE refresh_tokens SET used_at = now()
@@ -4681,6 +4714,9 @@ async function approveHostedAuthorization(
       fullCollection: pending.requirements.access === "full_collection",
       allowedOperations: operations,
       allowedOrigin,
+      proofPublicKey: pending.flow === "device_code"
+        ? pending.application_public_key!
+        : undefined,
       grantId,
       token: bootstrapToken,
       tokenTtlSeconds: 3_600
@@ -4700,9 +4736,9 @@ async function approveHostedAuthorization(
     await connection.query(
       `INSERT INTO grants
           (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
-          operations, scope, encryption, application_origin,
+          operations, scope, encryption, proof_public_key, application_origin,
           notification_criteria)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9, $10::jsonb)`,
       [
         grantId,
         input.userId,
@@ -4711,6 +4747,7 @@ async function approveHostedAuthorization(
         replicaId,
         JSON.stringify(operations),
         JSON.stringify(scope),
+        pending.flow === "device_code" ? pending.application_public_key : null,
         applicationOrigin,
         JSON.stringify(pending.notifications.criteria)
       ]
@@ -4831,6 +4868,7 @@ async function issueApplicationTokens(
     provider_url: string;
     replica_id: string;
     access_token: string;
+    proof_public_key?: string;
   };
 }> {
   const grant = await db.query<{
@@ -4842,12 +4880,13 @@ async function issueApplicationTokens(
     operations: string[];
     scope: GrantScope;
     encryption: GrantEncryption | null;
+    proof_public_key: string | null;
     application_origin: string;
   }>(
     `SELECT COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
-            g.operations, g.scope, g.encryption,
+            g.operations, g.scope, g.encryption, g.proof_public_key,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
@@ -4861,7 +4900,12 @@ async function issueApplicationTokens(
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
-  let hosted: { provider_url: string; replica_id: string; access_token: string } | undefined;
+  let hosted: {
+    provider_url: string;
+    replica_id: string;
+    access_token: string;
+    proof_public_key?: string;
+  } | undefined;
   if (grant.rows[0].hosted_collection_id) {
     if (!hostedProvider || !grant.rows[0].hosted_replica_id || !grant.rows[0].provider_url) {
       throw new RequestValidationError("The hosted application capability is unavailable.");
@@ -4871,7 +4915,10 @@ async function issueApplicationTokens(
     hosted = {
       provider_url: grant.rows[0].provider_url,
       replica_id: grant.rows[0].hosted_replica_id,
-      access_token: providerToken
+      access_token: providerToken,
+      ...(grant.rows[0].proof_public_key
+        ? { proof_public_key: grant.rows[0].proof_public_key }
+        : {})
     };
   }
   await db.query(

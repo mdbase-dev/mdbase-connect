@@ -20,8 +20,10 @@ Application capabilities also authorize the scoped replication stream used by
 offline caches. Session and snapshot reads require record-read access, change
 pages require change access, and each queued mutation requires its corresponding
 create, update, rename, or delete permission. Browser requests are checked
-against the exact origin stored on that application capability, including the
-opaque `null` origin used by downloaded portable applications. Mirror
+against the exact origin stored on that application capability. Opaque `null`
+capabilities used by downloaded portable applications also require a P-256
+signature over the request and consume a one-use nonce. Missing origins, stale
+or replayed proofs, and body or credential substitutions are rejected. Mirror
 credentials have no browser origin and are rejected when presented by browser
 JavaScript.
 

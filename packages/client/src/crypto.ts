@@ -1,5 +1,8 @@
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  HOSTED_PROOF_DOMAIN,
+  HOSTED_PROOF_HEADERS,
+  HOSTED_PROOF_VERSION,
   RELAY_ENCRYPTION_SUITE,
   type CollectionOperation,
   type EncryptedRelayOperationRequest,
@@ -16,6 +19,7 @@ const RESPONSE_INFO = "mdbase-connect relay response key v1";
 export interface GrantKeyRecord {
   handle: string;
   privateKey: CryptoKey;
+  signingKey?: CryptoKey;
   publicKey: string;
 }
 
@@ -46,7 +50,12 @@ export class IndexedDbGrantKeyStore implements GrantKeyStore {
     const value = await idbRequest<PersistedGrantKey | undefined>(
       database.transaction(STORE_NAME).objectStore(STORE_NAME).get(handle)
     );
-    return value ? { handle: value.handle, privateKey: value.privateKey, publicKey: value.publicKey } : null;
+    return value ? {
+      handle: value.handle,
+      privateKey: value.privateKey,
+      signingKey: value.signingKey,
+      publicKey: value.publicKey
+    } : null;
   }
 
   async nextCounter(handle: string): Promise<string> {
@@ -123,7 +132,12 @@ export class MemoryGrantKeyStore implements GrantKeyStore {
 
   async get(handle: string): Promise<GrantKeyRecord | null> {
     const value = this.records.get(handle);
-    return value ? { handle: value.handle, privateKey: value.privateKey, publicKey: value.publicKey } : null;
+    return value ? {
+      handle: value.handle,
+      privateKey: value.privateKey,
+      signingKey: value.signingKey,
+      publicKey: value.publicKey
+    } : null;
   }
 
   nextCounter(handle: string): Promise<string> {
@@ -152,6 +166,69 @@ export interface RelayBinding {
   grantId: string;
   applicationId: string;
   encryption: GrantEncryption;
+}
+
+export interface HostedProofInput {
+  method: string;
+  target: string;
+  body?: string;
+  credential: string;
+  timestamp?: number;
+  nonce?: string;
+}
+
+/** Sign one hosted-provider or token-refresh request with the approved grant key. */
+export async function signHostedRequest(
+  store: GrantKeyStore,
+  handle: string,
+  expectedPublicKey: string,
+  input: HostedProofInput
+): Promise<Record<string, string>> {
+  const record = await requireKey(store, handle, expectedPublicKey);
+  if (!record.signingKey) {
+    throw new RelayCryptoError(
+      "missing_grant_key",
+      "The hosted grant signing key is unavailable. Reconnect this application."
+    );
+  }
+  const timestamp = input.timestamp ?? Math.floor(Date.now() / 1_000);
+  const nonce = input.nonce ?? crypto.randomUUID();
+  const message = await hostedProofMessage({ ...input, timestamp, nonce });
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    record.signingKey,
+    new TextEncoder().encode(message)
+  );
+  return {
+    [HOSTED_PROOF_HEADERS.version]: String(HOSTED_PROOF_VERSION),
+    [HOSTED_PROOF_HEADERS.timestamp]: String(timestamp),
+    [HOSTED_PROOF_HEADERS.nonce]: nonce,
+    [HOSTED_PROOF_HEADERS.signature]: bytesToBase64Url(new Uint8Array(signature))
+  };
+}
+
+export async function hostedProofMessage(
+  input: Required<Pick<HostedProofInput, "method" | "target" | "credential" | "timestamp" | "nonce">>
+    & Pick<HostedProofInput, "body">
+): Promise<string> {
+  const method = input.method.toUpperCase();
+  const bodyHash = await sha256Base64Url(input.body ?? "");
+  const credentialHash = await sha256Base64Url(input.credential);
+  for (const value of [method, input.target, String(input.timestamp), input.nonce]) {
+    if (!value || value.includes("\n") || value.includes("\r")) {
+      throw new RelayCryptoError("invalid_proof_input", "Hosted request proof metadata is invalid.");
+    }
+  }
+  return [
+    HOSTED_PROOF_DOMAIN,
+    HOSTED_PROOF_VERSION,
+    method,
+    input.target,
+    bodyHash,
+    credentialHash,
+    input.timestamp,
+    input.nonce
+  ].join("\n");
 }
 
 export async function encryptRelayRequest(
@@ -226,9 +303,9 @@ export class RelayCryptoError extends Error {
 
 async function generateGrantKey(handle: string): Promise<GrantKeyRecord> {
   const generated = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
+    { name: "ECDSA", namedCurve: "P-256" },
     true,
-    ["deriveBits"]
+    ["sign", "verify"]
   ) as CryptoKeyPair;
   const publicKey = bytesToBase64Url(new Uint8Array(
     await crypto.subtle.exportKey("raw", generated.publicKey)
@@ -241,7 +318,14 @@ async function generateGrantKey(handle: string): Promise<GrantKeyRecord> {
     false,
     ["deriveBits"]
   );
-  return { handle, privateKey, publicKey };
+  const signingKey = await crypto.subtle.importKey(
+    "pkcs8",
+    privatePkcs8,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+  return { handle, privateKey, signingKey, publicKey };
 }
 
 async function requireKey(store: GrantKeyStore, handle: string, expectedPublicKey: string): Promise<GrantKeyRecord> {
@@ -373,6 +457,11 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+async function sha256Base64Url(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(digest));
 }
 
 function base64UrlToBytes(value: string): Uint8Array {

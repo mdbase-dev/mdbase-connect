@@ -39,8 +39,8 @@ any compatible local or hosted collection.
 
 The SDK uses OAuth device authorization with PKCE:
 
-1. The file registers its inline manifest and generates an ephemeral P-256 key
-   so a local collection remains available as a choice.
+1. The file registers its inline manifest and generates a non-extractable P-256
+   grant key.
 2. Connect returns a random, short-lived device code and an eight-character
    user code.
 3. The SDK opens Connect's approval page in a popup and also returns the code
@@ -51,7 +51,8 @@ The SDK uses OAuth device authorization with PKCE:
 5. The SDK polls at the server-provided interval. Every successful response is
    bound to the opaque application origin `null`. A local grant must also
    contain the same application public key and encrypted relay protocol 1; a
-   hosted grant instead contains a scoped provider capability.
+   hosted grant instead contains a scoped provider capability bound to the same
+   public key.
 
 Device codes expire after ten minutes, are stored only as hashes by the control
 plane, are rate limited, and can be consumed once. Polling faster than the
@@ -65,25 +66,32 @@ grant, application, connector, collection, key ID, epoch, counter, request ID,
 and ciphertext.
 
 For a hosted collection, the SDK sends operations directly to the hosted data
-provider. Its short-lived bearer capability is limited to one replica,
-collection, grant, operation set, record scope, expiry, and the exact
-`Origin: null` value. The provider checks those fields for each request.
-Refreshing rotates both the Connect credential and provider capability. CORS
-permission alone is never an operation capability.
+provider. Its short-lived bearer capability selects one replica, collection,
+grant, operation set, record scope, and expiry. Every request additionally
+carries an ECDSA proof from the approved P-256 key over the method, target, body,
+credential, timestamp, and a one-use nonce. The provider requires the exact
+`Origin: null`, verifies the signature, and persists the nonce before serving
+the operation. Refreshing is signed by the same key and rotates both the Connect
+credential and provider capability. A copied bearer or refresh token is
+therefore insufficient, and CORS permission alone is never an operation
+capability.
 
 ## Storage and `file://`
 
 All local files have an opaque browser origin serialized as `null`. A portable
 SDK instance therefore uses process-memory token storage and a non-extractable
-process-memory private key by default. The key is discarded after a hosted
-collection is selected because hosted requests do not use the encrypted local
-relay. Another downloaded file cannot inherit the credentials through
+process-memory private key by default. Portable hosted capabilities keep that
+key for request and refresh signing. Another downloaded file cannot inherit the
+credentials through
 `localStorage` or IndexedDB. Reloading or reopening the file requires
 authorization again.
 
 An embedding shell may inject custom `storage` and `keyStore` adapters. That is
-an explicit trust decision by the application. `connect.environment()` reports
-whether the defaults are `memory`, `persistent`, or `custom`.
+an explicit trust decision by the application. A custom key store used with
+portable hosted collections must preserve and return the `signingKey` included
+in `GrantKeyRecord`; existing local-collection adapters remain compatible.
+`connect.environment()` reports whether the defaults are `memory`, `persistent`,
+or `custom`.
 
 Code running inside an already approved page has the page's authorized access,
 as it would for a website application. A portable app must therefore avoid

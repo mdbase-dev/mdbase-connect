@@ -201,7 +201,9 @@ Their browser origin is the exact opaque value `null`, tokens and non-extractabl
 keys are memory-only by default. A local connector requires a matching
 encrypted grant for every operation. A hosted provider instead receives a
 short-lived capability bound to the exact grant, collection, operation set,
-record scope, expiry, and opaque `null` origin. The SDK exposes the same
+record scope, expiry, opaque `null` origin, and application public key. Every
+hosted request and refresh carries a replay-protected ECDSA proof over its
+method, target, body, credential, timestamp, and nonce. The SDK exposes the same
 connection API for both routes.
 Collections that do not provide the required contracts are excluded from the
 decision. Local pause and revocation take effect at the connector even when

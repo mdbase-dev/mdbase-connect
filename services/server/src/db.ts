@@ -157,6 +157,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       scope jsonb NOT NULL DEFAULT '{"contracts":[],"access":"full_collection"}'::jsonb,
       notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb,
       encryption jsonb,
+      proof_public_key text,
       application_origin text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
       activated_at timestamptz DEFAULT now(),
@@ -525,6 +526,13 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "application_origin",
     "ALTER TABLE grants ADD COLUMN application_origin text NOT NULL DEFAULT ''"
   );
+  await ensureColumn(
+    db,
+    "grants",
+    "proof_public_key",
+    "ALTER TABLE grants ADD COLUMN proof_public_key text"
+  );
+  await revokeLegacyHostedBearerGrants(db);
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
   await ensureColumn(db, "authorization_requests", "collection_hint", "ALTER TABLE authorization_requests ADD COLUMN collection_hint uuid");
@@ -772,6 +780,36 @@ export async function backfillSessionProviders(db: DatabaseQueryable): Promise<v
      WHERE sessions.provider = 'session'
        AND external_identities.user_id = sessions.user_id
        AND external_identities.provider = 'github'`
+  );
+}
+
+export async function revokeLegacyHostedBearerGrants(db: DatabaseQueryable): Promise<void> {
+  await db.query(
+    `UPDATE grants
+     SET revoked_at = COALESCE(revoked_at, now())
+     WHERE hosted_collection_id IS NOT NULL
+       AND application_origin = 'null'
+       AND proof_public_key IS NULL`
+  );
+  await db.query(
+    `UPDATE access_tokens
+     SET revoked_at = COALESCE(revoked_at, now())
+     WHERE grant_id IN (
+       SELECT id FROM grants
+       WHERE hosted_collection_id IS NOT NULL
+         AND application_origin = 'null'
+         AND proof_public_key IS NULL
+     )`
+  );
+  await db.query(
+    `UPDATE refresh_tokens
+     SET revoked_at = COALESCE(revoked_at, now())
+     WHERE grant_id IN (
+       SELECT id FROM grants
+       WHERE hosted_collection_id IS NOT NULL
+         AND application_origin = 'null'
+         AND proof_public_key IS NULL
+     )`
   );
 }
 

@@ -4,6 +4,15 @@ export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
+export const HOSTED_PROOF_VERSION = 1 as const;
+export const HOSTED_PROOF_ALGORITHM = "P256-SHA256" as const;
+export const HOSTED_PROOF_DOMAIN = "mdbase-hosted-request-proof-v1" as const;
+export const HOSTED_PROOF_HEADERS = {
+  version: "x-mdbase-proof-version",
+  timestamp: "x-mdbase-proof-timestamp",
+  nonce: "x-mdbase-proof-nonce",
+  signature: "x-mdbase-proof-signature"
+} as const;
 
 /**
  * Validate a native OAuth callback against the publisher of its web manifest.

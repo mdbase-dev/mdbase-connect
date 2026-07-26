@@ -42,6 +42,7 @@ import {
   IndexedDbGrantKeyStore,
   MemoryGrantKeyStore,
   RelayCryptoError,
+  signHostedRequest,
   type GrantKeyStore
 } from "./crypto.js";
 
@@ -835,6 +836,7 @@ interface StoredToken {
     providerUrl: string;
     replicaId: string;
     accessToken: string;
+    proofPublicKey?: string;
   };
 }
 
@@ -1382,10 +1384,17 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             "Authorization did not bind the portable grant to its opaque application origin."
           );
         }
-        if (tokenBody.hosted && (!hosted || tokenBody.encryption != null)) {
+        if (
+          tokenBody.hosted
+          && (
+            !hosted
+            || tokenBody.encryption != null
+            || tokenBody.hosted.proof_public_key !== grantKey.publicKey
+          )
+        ) {
           throw new MdbaseConnectError(
             "invalid_token_response",
-            "Authorization returned an invalid hosted capability for the portable grant."
+            "Authorization returned a hosted capability that is not bound to this portable grant key."
           );
         }
         if (!tokenBody.hosted && !localEncryption) {
@@ -1394,11 +1403,10 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             "Authorization did not establish the expected key-bound local portable grant."
           );
         }
-        if (hosted) await this.keyStore.delete(keyHandle);
         const token = this.storeTokenResponse(
           tokenBody,
           application.id,
-          hosted ? undefined : keyHandle
+          keyHandle
         );
         if (options.collectionId && options.collectionId !== token.collectionId) {
           this.removeToken(token.collectionId, token.keyHandle);
@@ -1490,11 +1498,26 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization did not establish the required encrypted relay grant."
       );
     }
-    if (body.hosted && pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
+    if (body.hosted?.proof_public_key) {
+      if (
+        !pending.keyHandle
+        || !pending.applicationPublicKey
+        || body.hosted.proof_public_key !== pending.applicationPublicKey
+      ) {
+        if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
+        this.storage.removeItem(pendingKey);
+        throw new MdbaseConnectError(
+          "invalid_token_response",
+          "Authorization returned a hosted capability bound to another application key."
+        );
+      }
+    } else if (body.hosted && pending.keyHandle) {
+      await this.keyStore.delete(pending.keyHandle);
+    }
     const token = this.storeTokenResponse(
       body,
       pending.clientId,
-      body.hosted ? undefined : pending.keyHandle
+      body.hosted?.proof_public_key ? pending.keyHandle : body.hosted ? undefined : pending.keyHandle
     );
     if (pending.collectionId && pending.collectionId !== token.collectionId) {
       this.removeToken(token.collectionId, token.keyHandle);
@@ -1572,7 +1595,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       hosted: body.hosted ? {
         providerUrl: body.hosted.provider_url,
         replicaId: body.hosted.replica_id,
-        accessToken: body.hosted.access_token
+        accessToken: body.hosted.access_token,
+        proofPublicKey: body.hosted.proof_public_key
       } : undefined
     };
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
@@ -2449,7 +2473,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return body as Result;
   }
 
-  private sendHostedSyncRequest(
+  private async sendHostedSyncRequest(
     token: StoredToken,
     collectionId: string,
     method: "GET" | "POST",
@@ -2459,15 +2483,19 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     if (!token.hosted) {
       throw new MdbaseConnectError("not_hosted", "This authorization is not for a hosted collection.");
     }
+    const url = `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(collectionId)}/sync/${path}`;
+    const body = input === undefined ? undefined : JSON.stringify(input);
+    const proof = await this.hostedProofHeaders(token, method, url, body, token.hosted.accessToken);
     return fetch(
-      `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(collectionId)}/sync/${path}`,
+      url,
       {
         method,
         headers: {
           authorization: `Bearer ${token.hosted.accessToken}`,
-          ...(input === undefined ? {} : { "content-type": "application/json" })
+          ...(input === undefined ? {} : { "content-type": "application/json" }),
+          ...proof
         },
-        ...(input === undefined ? {} : { body: JSON.stringify(input) })
+        ...(body === undefined ? {} : { body })
       }
     );
   }
@@ -2595,13 +2623,24 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     const operationUrl = token.hosted
       ? `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`
       : `${this.serverUrl}/v1/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
+    const operationBody = JSON.stringify(body);
+    const proof = token.hosted
+      ? await this.hostedProofHeaders(
+          token,
+          "POST",
+          operationUrl,
+          operationBody,
+          token.hosted.accessToken
+        )
+      : {};
     const response = await fetch(operationUrl, {
         method: "POST",
         headers: {
           authorization: `Bearer ${token.hosted?.accessToken ?? token.accessToken}`,
-          "content-type": "application/json"
+          "content-type": "application/json",
+          ...proof
         },
-        body: JSON.stringify(body),
+        body: operationBody,
         signal: options.signal
       });
     if (response.ok) this.setRoute(token.hosted ? "hosted" : "relay");
@@ -2766,14 +2805,28 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       );
     }
     const attemptedRefreshToken = current.refreshToken;
-    const response = await fetch(`${this.serverUrl}/oauth/token`, {
+    const refreshUrl = `${this.serverUrl}/oauth/token`;
+    const refreshBody = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: current.refreshToken,
+      client_id: current.clientId
+    }).toString();
+    const proof = current.hosted
+      ? await this.hostedProofHeaders(
+          current,
+          "POST",
+          refreshUrl,
+          refreshBody,
+          current.refreshToken
+        )
+      : {};
+    const response = await fetch(refreshUrl, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: current.refreshToken,
-        client_id: current.clientId
-      })
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        ...proof
+      },
+      body: refreshBody
     });
     const body = await response.json();
     if (!response.ok) {
@@ -2787,6 +2840,41 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
     }
     return this.storeTokenResponse(body, current.clientId, current.keyHandle);
+  }
+
+  private async hostedProofHeaders(
+    token: StoredToken,
+    method: string,
+    url: string,
+    body: string | undefined,
+    credential: string
+  ): Promise<Record<string, string>> {
+    if (!token.hosted?.proofPublicKey) return {};
+    if (!token.keyHandle) {
+      throw new MdbaseConnectError(
+        "missing_grant_key",
+        "Reconnect this application to restore hosted request signing."
+      );
+    }
+    try {
+      const target = new URL(url);
+      return await signHostedRequest(
+        this.keyStore,
+        token.keyHandle,
+        token.hosted.proofPublicKey,
+        {
+          method,
+          target: `${target.pathname}${target.search}`,
+          body,
+          credential
+        }
+      );
+    } catch (error) {
+      if (error instanceof RelayCryptoError) {
+        throw new MdbaseConnectError(error.code, error.message);
+      }
+      throw error;
+    }
   }
 
   private storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
@@ -3148,6 +3236,7 @@ function validHostedTokenResponse(value: unknown): boolean {
     provider_url?: unknown;
     replica_id?: unknown;
     access_token?: unknown;
+    proof_public_key?: unknown;
   };
   if (
     typeof hosted.provider_url !== "string"
@@ -3155,6 +3244,7 @@ function validHostedTokenResponse(value: unknown): boolean {
     || hosted.replica_id.length === 0
     || typeof hosted.access_token !== "string"
     || hosted.access_token.length === 0
+    || (hosted.proof_public_key !== undefined && typeof hosted.proof_public_key !== "string")
   ) return false;
   try {
     const provider = new URL(hosted.provider_url);

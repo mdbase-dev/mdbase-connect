@@ -17,6 +17,7 @@ mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
 mdbase-runtime = { workspace = true, features = ["postgres"] }
+p256.workspace = true
 rand_core.workspace = true
 reqwest.workspace = true
 serde.workspace = true

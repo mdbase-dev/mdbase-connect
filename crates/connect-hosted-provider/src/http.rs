@@ -1,8 +1,9 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, Request, State},
+    body::Bytes,
+    extract::{DefaultBodyLimit, OriginalUri, Path, Query, Request, State},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE, ORIGIN},
-        HeaderMap, HeaderName, Method, StatusCode,
+        HeaderMap, HeaderName, Method, StatusCode, Uri,
     },
     middleware::{self, Next},
     response::Response,
@@ -11,7 +12,8 @@ use axum::{
 };
 use mdbase_connect_protocol::{
     GrantSummary, SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession,
-    SyncSnapshotPage, TypeProvision,
+    SyncSnapshotPage, TypeProvision, HOSTED_PROOF_NONCE_HEADER, HOSTED_PROOF_SIGNATURE_HEADER,
+    HOSTED_PROOF_TIMESTAMP_HEADER, HOSTED_PROOF_VERSION_HEADER,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -29,15 +31,14 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     provider::{
-        validate_limit, HostedProvider, PrepareAuthorityTransfer, RegisterReplica,
-        UpdateApplicationReplica,
+        validate_limit, HostedProvider, HostedRequestProof, PrepareAuthorityTransfer,
+        RegisterReplica, UpdateApplicationReplica,
     },
 };
 
 // Leave room for the mutation envelope, frontmatter, and JSON escaping around
 // the default 2 MiB canonical-document quota.
 const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
-
 #[derive(Clone)]
 pub struct AppState {
     provider: HostedProvider,
@@ -125,7 +126,14 @@ pub fn app(state: AppState) -> Router {
     // requests are bound to the origin stored with that provider capability.
     let cors = CorsLayer::new()
         .allow_origin(Any)
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_headers([
+            AUTHORIZATION,
+            CONTENT_TYPE,
+            HeaderName::from_static(HOSTED_PROOF_VERSION_HEADER),
+            HeaderName::from_static(HOSTED_PROOF_TIMESTAMP_HEADER),
+            HeaderName::from_static(HOSTED_PROOF_NONCE_HEADER),
+            HeaderName::from_static(HOSTED_PROOF_SIGNATURE_HEADER),
+        ])
         .allow_methods([Method::GET, Method::POST])
         .max_age(std::time::Duration::from_secs(600));
     let internal = Router::new()
@@ -444,10 +452,16 @@ async fn abort_authority_transfer(
 async fn open_session(
     State(state): State<AppState>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(collection_id): Path<Uuid>,
 ) -> ApiResult<Json<SyncSession>> {
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
+    let proof = request_proof(&headers, Method::POST, &uri, &[])?;
+    state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
     Ok(Json(
         state
             .provider
@@ -459,11 +473,17 @@ async fn open_session(
 async fn snapshot(
     State(state): State<AppState>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(collection_id): Path<Uuid>,
     Query(query): Query<SnapshotQuery>,
 ) -> ApiResult<Json<SyncSnapshotPage>> {
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
+    let proof = request_proof(&headers, Method::GET, &uri, &[])?;
+    state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
     Ok(Json(
         state
             .provider
@@ -481,12 +501,18 @@ async fn snapshot(
 async fn changes(
     State(state): State<AppState>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(collection_id): Path<Uuid>,
     Query(query): Query<ChangesQuery>,
 ) -> ApiResult<Json<SyncChangesPage>> {
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
     let limit = validate_limit(query.limit)?;
+    let proof = request_proof(&headers, Method::GET, &uri, &[])?;
+    state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
     Ok(Json(
         state
             .provider
@@ -498,11 +524,20 @@ async fn changes(
 async fn mutate(
     State(state): State<AppState>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(collection_id): Path<Uuid>,
-    Json(mutation): Json<SyncMutation>,
+    body: Bytes,
 ) -> ApiResult<Json<SyncMutationReceipt>> {
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
+    let proof = request_proof(&headers, Method::POST, &uri, &body)?;
+    state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
+    let mutation = serde_json::from_slice::<SyncMutation>(&body).map_err(|_| {
+        ApiError::bad_request("invalid_json", "The hosted mutation body is invalid.")
+    })?;
     Ok(Json(
         state
             .provider
@@ -532,11 +567,20 @@ async fn provision_types(
 async fn operation(
     State(state): State<AppState>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path((collection_id, operation)): Path<(Uuid, String)>,
-    Json(input): Json<Value>,
+    body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let token = bearer(&headers)?;
     let origin = request_origin(&headers);
+    let proof = request_proof(&headers, Method::POST, &uri, &body)?;
+    state
+        .provider
+        .authorize_request(collection_id, token, origin, proof.as_ref())
+        .await?;
+    let input = serde_json::from_slice::<Value>(&body).map_err(|_| {
+        ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
+    })?;
     let result = state
         .provider
         .operation(collection_id, token, &operation, input, origin)
@@ -546,6 +590,70 @@ async fn operation(
 
 fn request_origin(headers: &HeaderMap) -> Option<&str> {
     headers.get(ORIGIN).and_then(|value| value.to_str().ok())
+}
+
+fn request_proof(
+    headers: &HeaderMap,
+    method: Method,
+    uri: &Uri,
+    body: &[u8],
+) -> ApiResult<Option<HostedRequestProof>> {
+    let values = [
+        header_text(headers, HOSTED_PROOF_VERSION_HEADER),
+        header_text(headers, HOSTED_PROOF_TIMESTAMP_HEADER),
+        header_text(headers, HOSTED_PROOF_NONCE_HEADER),
+        header_text(headers, HOSTED_PROOF_SIGNATURE_HEADER),
+    ];
+    if values.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let [Some(version), Some(timestamp), Some(nonce), Some(signature)] = values else {
+        return Err(ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof is incomplete.",
+        ));
+    };
+    let version = version.parse::<u32>().map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof version is invalid.",
+        )
+    })?;
+    let timestamp = timestamp.parse::<i64>().map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof timestamp is invalid.",
+        )
+    })?;
+    let nonce = Uuid::parse_str(nonce).map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof nonce is invalid.",
+        )
+    })?;
+    if signature.is_empty() {
+        return Err(ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof signature is invalid.",
+        ));
+    }
+    Ok(Some(HostedRequestProof {
+        version,
+        timestamp,
+        nonce,
+        signature: signature.to_string(),
+        method: method.to_string(),
+        target: uri
+            .path_and_query()
+            .map(|value| value.as_str())
+            .unwrap_or_else(|| uri.path())
+            .to_string(),
+        body: body.to_vec(),
+    }))
+}
+
+fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
 }
 
 fn bearer(headers: &HeaderMap) -> ApiResult<&str> {

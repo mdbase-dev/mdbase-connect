@@ -17,6 +17,7 @@ import type {
   GrantEncryption,
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
+import { HOSTED_PROOF_HEADERS } from "@mdbase/connect-protocol";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -525,7 +526,9 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
     const opened = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+    let applicationPublicKey = "";
+    let providerHeaders: Record<string, string> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
@@ -537,6 +540,8 @@ describe("provider-neutral collection client", () => {
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
+        applicationPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_public_key")!;
         return jsonResponse({
           device_code: "hosted-device-secret",
           user_code: "HOST-CODE",
@@ -563,8 +568,16 @@ describe("provider-neutral collection client", () => {
           hosted: {
             provider_url: "https://provider.example",
             replica_id: "00000000-0000-0000-0000-000000000005",
-            access_token: "hsa_portable_hosted"
+            access_token: "hsa_portable_hosted",
+            proof_public_key: applicationPublicKey
           }
+        });
+      }
+      if (url.includes("/operations/query")) {
+        providerHeaders = init?.headers as Record<string, string>;
+        return jsonResponse({
+          ok: true,
+          result: { valid: true, result: { results: [] }, diagnostics: [] }
         });
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -594,8 +607,11 @@ describe("provider-neutral collection client", () => {
       collectionId: TEST_COLLECTION_ID,
       route: "hosted"
     });
-    expect(deleteKey).toHaveBeenCalledOnce();
+    expect(deleteKey).not.toHaveBeenCalled();
     expect(connect.connections()).toHaveLength(1);
+    expect((await result.connection.query()).valid).toBe(true);
+    expect(providerHeaders?.[HOSTED_PROOF_HEADERS.version]).toBe("1");
+    expect(providerHeaders?.[HOSTED_PROOF_HEADERS.signature]).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
   it("returns the verification details when a portable approval popup is blocked", async () => {

@@ -10,6 +10,13 @@ pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
+pub const HOSTED_PROOF_VERSION: u32 = 1;
+pub const HOSTED_PROOF_ALGORITHM: &str = "P256-SHA256";
+pub const HOSTED_PROOF_DOMAIN: &str = "mdbase-hosted-request-proof-v1";
+pub const HOSTED_PROOF_VERSION_HEADER: &str = "x-mdbase-proof-version";
+pub const HOSTED_PROOF_TIMESTAMP_HEADER: &str = "x-mdbase-proof-timestamp";
+pub const HOSTED_PROOF_NONCE_HEADER: &str = "x-mdbase-proof-nonce";
+pub const HOSTED_PROOF_SIGNATURE_HEADER: &str = "x-mdbase-proof-signature";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControlRequest {

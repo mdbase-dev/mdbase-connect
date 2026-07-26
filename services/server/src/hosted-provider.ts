@@ -19,6 +19,7 @@ export interface HostedReplicaEnrollment {
   fullCollection?: boolean;
   allowedOperations?: string[];
   allowedOrigin?: string;
+  proofPublicKey?: string;
   grantId?: string;
   token: string;
   tokenTtlSeconds?: number;
@@ -105,6 +106,7 @@ export class HostedProviderClient {
         full_collection: replica.fullCollection ?? false,
         allowed_operations: replica.allowedOperations ?? [],
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
+        ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
         token: replica.token,
         ...(replica.tokenTtlSeconds ? { token_ttl_seconds: replica.tokenTtlSeconds } : {})

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
@@ -11,8 +12,9 @@ use mdbase_connect_protocol::{
     GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
     SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
     SyncResourceDocument, SyncSession, SyncSnapshotPage, TypeProvision, CONTROL_PROTOCOL_VERSION,
-    SYNC_PROTOCOL_VERSION,
+    HOSTED_PROOF_DOMAIN, HOSTED_PROOF_VERSION, SYNC_PROTOCOL_VERSION,
 };
+use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -80,6 +82,8 @@ pub struct RegisterReplica {
     pub allowed_operations: Vec<String>,
     #[serde(default)]
     pub allowed_origin: Option<String>,
+    #[serde(default)]
+    pub proof_public_key: Option<String>,
     #[serde(default)]
     pub grant_id: Option<Uuid>,
     pub token: String,
@@ -152,8 +156,20 @@ struct Replica {
     full_collection: bool,
     allowed_operations: Vec<String>,
     allowed_origin: Option<String>,
+    proof_public_key: Option<String>,
     grant_id: Option<Uuid>,
     scope_epoch: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct HostedRequestProof {
+    pub version: u32,
+    pub timestamp: i64,
+    pub nonce: Uuid,
+    pub signature: String,
+    pub method: String,
+    pub target: String,
+    pub body: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -469,7 +485,8 @@ impl HostedProvider {
         let max_replicas = number(collection.get::<i64, _>("max_replicas"), "replica quota")?;
         if let Some(existing) = sqlx::query(
             r#"SELECT collection_id, name, purpose, mode, allowed_types, full_collection,
-                      allowed_operations, allowed_origin, grant_id, token_hash, revoked_at
+                      allowed_operations, allowed_origin, proof_public_key, grant_id,
+                      token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
         .bind(input.replica_id)
@@ -488,6 +505,10 @@ impl HostedProvider {
                     .get::<Option<String>, _>("allowed_origin")
                     .as_deref()
                     == input.allowed_origin.as_deref()
+                && existing
+                    .get::<Option<String>, _>("proof_public_key")
+                    .as_deref()
+                    == input.proof_public_key.as_deref()
                 && existing.get::<Option<Uuid>, _>("grant_id") == input.grant_id
                 && existing
                     .get::<Option<chrono::DateTime<Utc>>, _>("revoked_at")
@@ -518,9 +539,10 @@ impl HostedProvider {
         let result = sqlx::query(
             r#"INSERT INTO hosted_provider_replicas
                  (id, collection_id, name, purpose, mode, allowed_types, full_collection,
-                  allowed_operations, allowed_origin, grant_id, token_hash, token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                       now() + ($12 * interval '1 second'))"#,
+                  allowed_operations, allowed_origin, proof_public_key, grant_id, token_hash,
+                  token_expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       now() + ($13 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -531,6 +553,7 @@ impl HostedProvider {
         .bind(input.full_collection)
         .bind(input.allowed_operations)
         .bind(input.allowed_origin)
+        .bind(input.proof_public_key)
         .bind(input.grant_id)
         .bind(requested_token_hash)
         .bind(to_i64(token_ttl_seconds, "replica credential lifetime")?)
@@ -939,6 +962,81 @@ impl HostedProvider {
                 "Active replica not found.",
             ));
         }
+        Ok(())
+    }
+
+    pub async fn authorize_request(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        request_origin: Option<&str>,
+        proof: Option<&HostedRequestProof>,
+    ) -> ApiResult<()> {
+        // Originless mirror traffic is authenticated again inside the requested
+        // operation. Avoid a duplicate database round trip for that hot path.
+        // Application capabilities with an allowed origin still fail closed in
+        // the operation-level origin check when the header is omitted.
+        if request_origin.is_none() && proof.is_none() {
+            return Ok(());
+        }
+        let mut transaction = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+                      allowed_origin, proof_public_key, grant_id, scope_epoch
+               FROM hosted_provider_replicas
+               WHERE collection_id = $1 AND token_hash = $2
+                 AND revoked_at IS NULL AND token_expires_at > now()
+               FOR SHARE"#,
+        )
+        .bind(collection_id)
+        .bind(token_hash(token))
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let replica = replica_from_row(row)?;
+        match replica.purpose {
+            ReplicaPurpose::Mirror => {
+                if request_origin.is_some() || proof.is_some() {
+                    return Err(ApiError::forbidden(
+                        "origin_denied",
+                        "Mirror credentials cannot be used by browser applications.",
+                    ));
+                }
+            }
+            ReplicaPurpose::Application => {
+                authorize_application_origin(&replica, request_origin)?;
+                if let Some(public_key) = replica.proof_public_key.as_deref() {
+                    let proof = proof.ok_or_else(|| {
+                        ApiError::unauthorized(
+                            "hosted_proof_required",
+                            "The hosted capability requires proof from its approved application key.",
+                        )
+                    })?;
+                    verify_hosted_request_proof(public_key, token, proof)?;
+                    let inserted = sqlx::query(
+                        r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
+                           VALUES ($1, $2)
+                           ON CONFLICT (replica_id, nonce) DO NOTHING
+                           RETURNING nonce"#,
+                    )
+                    .bind(replica.id)
+                    .bind(proof.nonce)
+                    .fetch_optional(&mut *transaction)
+                    .await?;
+                    if inserted.is_none() {
+                        return Err(ApiError::unauthorized(
+                            "hosted_proof_replayed",
+                            "The hosted request proof has already been used.",
+                        ));
+                    }
+                    sqlx::query(
+                        "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
+                    )
+                    .execute(&mut *transaction)
+                    .await?;
+                }
+            }
+        }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -3033,7 +3131,7 @@ impl HostedProvider {
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                      allowed_origin, grant_id, scope_epoch
+                      allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
                  AND revoked_at IS NULL AND token_expires_at > now()"#,
@@ -3055,7 +3153,7 @@ impl HostedProvider {
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                      allowed_origin, grant_id, scope_epoch
+                      allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
                  AND revoked_at IS NULL AND token_expires_at > now()"#,
@@ -3121,7 +3219,7 @@ async fn authenticate_in(
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
         r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                  allowed_origin, grant_id, scope_epoch
+                  allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
              AND revoked_at IS NULL AND token_expires_at > now()
@@ -3144,7 +3242,7 @@ async fn authenticate_in_for_sync(
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
         r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
-                  allowed_origin, grant_id, scope_epoch
+                  allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2
              AND revoked_at IS NULL AND token_expires_at > now()
@@ -3187,6 +3285,7 @@ fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
         full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
         allowed_origin: row.get("allowed_origin"),
+        proof_public_key: row.get("proof_public_key"),
         grant_id: row.get("grant_id"),
         scope_epoch: number(row.get::<i64, _>("scope_epoch"), "scope epoch")?,
     })
@@ -3446,13 +3545,15 @@ fn authorize_application_operation(
             "The application is not allowed to perform this operation.",
         ));
     }
-    if let Some(origin) = request_origin {
-        if replica.allowed_origin.as_deref() != Some(origin) {
-            return Err(ApiError::forbidden(
-                "origin_denied",
-                "The application origin does not match this capability.",
-            ));
-        }
+    authorize_application_origin(replica, request_origin)
+}
+
+fn authorize_application_origin(replica: &Replica, request_origin: Option<&str>) -> ApiResult<()> {
+    if replica.allowed_origin.as_deref() != request_origin {
+        return Err(ApiError::forbidden(
+            "origin_denied",
+            "The application origin does not match this capability.",
+        ));
     }
     Ok(())
 }
@@ -3740,12 +3841,115 @@ fn replica_purpose(purpose: ReplicaPurpose) -> &'static str {
     }
 }
 
+fn verify_hosted_request_proof(
+    public_key: &str,
+    credential: &str,
+    proof: &HostedRequestProof,
+) -> ApiResult<()> {
+    if proof.version != HOSTED_PROOF_VERSION {
+        return Err(ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof version is unsupported.",
+        ));
+    }
+    if Utc::now().timestamp().abs_diff(proof.timestamp) > 5 * 60 {
+        return Err(ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof timestamp is invalid or expired.",
+        ));
+    }
+    if proof.method.is_empty()
+        || proof.target.is_empty()
+        || [proof.method.as_str(), proof.target.as_str()]
+            .iter()
+            .any(|value| value.contains('\n') || value.contains('\r'))
+    {
+        return Err(ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof metadata is invalid.",
+        ));
+    }
+    let verifying_key = proof_verifying_key(public_key).map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof key is invalid.",
+        )
+    })?;
+    let signature_bytes = decode_base64url(&proof.signature).map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof signature is invalid.",
+        )
+    })?;
+    let signature = Signature::from_slice(&signature_bytes).map_err(|_| {
+        ApiError::unauthorized(
+            "invalid_hosted_proof",
+            "The hosted request proof signature is invalid.",
+        )
+    })?;
+    verifying_key
+        .verify(
+            hosted_proof_message(credential, proof).as_bytes(),
+            &signature,
+        )
+        .map_err(|_| {
+            ApiError::unauthorized(
+                "invalid_hosted_proof",
+                "The hosted request proof signature is invalid.",
+            )
+        })
+}
+
+fn hosted_proof_message(credential: &str, proof: &HostedRequestProof) -> String {
+    [
+        HOSTED_PROOF_DOMAIN.to_string(),
+        HOSTED_PROOF_VERSION.to_string(),
+        proof.method.to_uppercase(),
+        proof.target.clone(),
+        digest_base64url(&proof.body),
+        digest_base64url(credential.as_bytes()),
+        proof.timestamp.to_string(),
+        proof.nonce.to_string(),
+    ]
+    .join("\n")
+}
+
+fn digest_base64url(value: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(value))
+}
+
+fn decode_base64url(value: &str) -> Result<Vec<u8>, ()> {
+    let decoded = URL_SAFE_NO_PAD.decode(value).map_err(|_| ())?;
+    if URL_SAFE_NO_PAD.encode(&decoded) != value {
+        return Err(());
+    }
+    Ok(decoded)
+}
+
+fn proof_verifying_key(value: &str) -> Result<VerifyingKey, ()> {
+    let bytes = decode_base64url(value)?;
+    if bytes.len() != 65 || bytes[0] != 4 {
+        return Err(());
+    }
+    VerifyingKey::from_sec1_bytes(&bytes).map_err(|_| ())
+}
+
+fn validate_proof_public_key(value: &str) -> ApiResult<()> {
+    proof_verifying_key(value).map(|_| ()).map_err(|_| {
+        ApiError::bad_request(
+            "invalid_hosted_proof_key",
+            "Hosted proof keys must be uncompressed P-256 public keys.",
+        )
+    })
+}
+
 fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
     validate_operations(&input.allowed_operations, input.mode)?;
     match input.purpose {
         ReplicaPurpose::Mirror => {
             if !input.allowed_operations.is_empty()
                 || input.allowed_origin.is_some()
+                || input.proof_public_key.is_some()
                 || input.grant_id.is_some()
                 || input.full_collection
             {
@@ -3773,7 +3977,19 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                 &input.allowed_types,
                 &input.allowed_operations,
             )?;
+            if input.proof_public_key.is_some() && input.allowed_origin.is_none() {
+                return Err(ApiError::bad_request(
+                    "invalid_hosted_proof_key",
+                    "Hosted proof keys require an exact application origin.",
+                ));
+            }
             if let Some(origin) = input.allowed_origin.as_deref() {
+                if origin == "null" && input.proof_public_key.is_none() {
+                    return Err(ApiError::bad_request(
+                        "hosted_proof_required",
+                        "Opaque-origin application capabilities require a proof-of-possession key.",
+                    ));
+                }
                 if origin != "null" {
                     let url = url::Url::parse(origin).map_err(|_| {
                         ApiError::bad_request(
@@ -3795,6 +4011,9 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                         ));
                     }
                 }
+            }
+            if let Some(public_key) = input.proof_public_key.as_deref() {
+                validate_proof_public_key(public_key)?;
             }
         }
     }
@@ -4151,6 +4370,7 @@ mod tests {
                 "execute_view".to_string(),
             ],
             allowed_origin: Some("https://tasks.example".to_string()),
+            proof_public_key: None,
             grant_id: Some(Uuid::new_v4()),
             token: "x".repeat(40),
             token_ttl_seconds: Some(3600),
@@ -4158,7 +4378,24 @@ mod tests {
         validate_replica_capability(&capability).unwrap();
         let mut portable_capability = capability.clone();
         portable_capability.allowed_origin = Some("null".to_string());
+        let signing_key = p256::ecdsa::SigningKey::random(&mut rand_core::OsRng);
+        portable_capability.proof_public_key = Some(
+            URL_SAFE_NO_PAD.encode(
+                signing_key
+                    .verifying_key()
+                    .to_encoded_point(false)
+                    .as_bytes(),
+            ),
+        );
         validate_replica_capability(&portable_capability).unwrap();
+        let mut proof_without_origin = portable_capability.clone();
+        proof_without_origin.allowed_origin = None;
+        assert_eq!(
+            validate_replica_capability(&proof_without_origin)
+                .unwrap_err()
+                .code,
+            "invalid_hosted_proof_key"
+        );
         let portable_replica = Replica {
             id: portable_capability.replica_id,
             purpose: portable_capability.purpose,
@@ -4167,10 +4404,17 @@ mod tests {
             full_collection: portable_capability.full_collection,
             allowed_operations: portable_capability.allowed_operations,
             allowed_origin: portable_capability.allowed_origin,
+            proof_public_key: portable_capability.proof_public_key,
             grant_id: portable_capability.grant_id,
             scope_epoch: 1,
         };
         authorize_application_operation(&portable_replica, "query", Some("null")).unwrap();
+        assert_eq!(
+            authorize_application_operation(&portable_replica, "query", None)
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
         assert_eq!(
             authorize_application_operation(
                 &portable_replica,
@@ -4205,6 +4449,7 @@ mod tests {
             full_collection: capability.full_collection,
             allowed_operations: capability.allowed_operations,
             allowed_origin: capability.allowed_origin,
+            proof_public_key: capability.proof_public_key,
             grant_id: capability.grant_id,
             scope_epoch: 1,
         };
@@ -4241,6 +4486,54 @@ mod tests {
     }
 
     #[test]
+    fn hosted_request_proofs_bind_the_body_credential_and_timestamp() {
+        use p256::ecdsa::{signature::Signer, SigningKey};
+
+        let signing_key = SigningKey::random(&mut rand_core::OsRng);
+        let public_key = URL_SAFE_NO_PAD.encode(
+            signing_key
+                .verifying_key()
+                .to_encoded_point(false)
+                .as_bytes(),
+        );
+        let mut proof = HostedRequestProof {
+            version: HOSTED_PROOF_VERSION,
+            timestamp: Utc::now().timestamp(),
+            nonce: Uuid::new_v4(),
+            signature: String::new(),
+            method: "POST".to_string(),
+            target: "/v1/hosted/collections/example/operations/create".to_string(),
+            body: br#"{"title":"proof"}"#.to_vec(),
+        };
+        let signature: Signature =
+            signing_key.sign(hosted_proof_message("hsa_secret", &proof).as_bytes());
+        proof.signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+        verify_hosted_request_proof(&public_key, "hsa_secret", &proof).unwrap();
+
+        proof.body = br#"{"title":"tampered"}"#.to_vec();
+        assert_eq!(
+            verify_hosted_request_proof(&public_key, "hsa_secret", &proof)
+                .unwrap_err()
+                .code,
+            "invalid_hosted_proof"
+        );
+        proof.body = br#"{"title":"proof"}"#.to_vec();
+        assert_eq!(
+            verify_hosted_request_proof(&public_key, "hsa_other", &proof)
+                .unwrap_err()
+                .code,
+            "invalid_hosted_proof"
+        );
+        proof.timestamp -= 301;
+        assert_eq!(
+            verify_hosted_request_proof(&public_key, "hsa_secret", &proof)
+                .unwrap_err()
+                .code,
+            "invalid_hosted_proof"
+        );
+    }
+
+    #[test]
     fn mirror_sync_credentials_are_not_browser_capabilities() {
         let replica = Replica {
             id: Uuid::new_v4(),
@@ -4250,6 +4543,7 @@ mod tests {
             full_collection: false,
             allowed_operations: Vec::new(),
             allowed_origin: None,
+            proof_public_key: None,
             grant_id: None,
             scope_epoch: 1,
         };
@@ -4293,6 +4587,7 @@ mod tests {
             full_collection: false,
             allowed_operations: vec!["create".to_string()],
             allowed_origin: Some("https://tasks.example".to_string()),
+            proof_public_key: None,
             grant_id: Some(Uuid::new_v4()),
             token: "x".repeat(40),
             token_ttl_seconds: Some(3600),

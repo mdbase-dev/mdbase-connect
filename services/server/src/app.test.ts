@@ -1,12 +1,22 @@
-import { createECDH } from "node:crypto";
+import {
+  createECDH,
+  generateKeyPairSync,
+  randomUUID,
+  sign
+} from "node:crypto";
 import type {
   ApplicationRequirements,
   MdbaseAppManifest
+} from "@mdbase/connect-protocol";
+import {
+  HOSTED_PROOF_HEADERS,
+  HOSTED_PROOF_VERSION
 } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
+import { hostedProofMessage } from "./hosted-proof.js";
 import { pkceChallenge } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -688,8 +698,13 @@ describe("mdbase connect server", () => {
     });
     const applicationId = registration.json().application.id as string;
 
-    const applicationKey = createECDH("prime256v1");
-    applicationKey.generateKeys();
+    const applicationKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const applicationJwk = applicationKeys.publicKey.export({ format: "jwk" });
+    const applicationPublicKey = Buffer.concat([
+      Buffer.from([4]),
+      Buffer.from(applicationJwk.x!, "base64url"),
+      Buffer.from(applicationJwk.y!, "base64url")
+    ]).toString("base64url");
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
     const device = await app.inject({
       method: "POST",
@@ -705,9 +720,7 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: applicationKey
-          .getPublicKey(undefined, "uncompressed")
-          .toString("base64url")
+        application_public_key: applicationPublicKey
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -862,9 +875,7 @@ describe("mdbase connect server", () => {
         protocol_version: 1,
         connector_id: connector.connector.id,
         collection_id: localCollectionId,
-        application_public_key: applicationKey
-          .getPublicKey(undefined, "uncompressed")
-          .toString("base64url")
+        application_public_key: applicationPublicKey
       }
     });
     const policy = await app.inject({
@@ -1017,8 +1028,13 @@ describe("mdbase connect server", () => {
     });
     expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
     const applicationId = registration.json().application.id as string;
-    const applicationKey = createECDH("prime256v1");
-    applicationKey.generateKeys();
+    const applicationKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const applicationJwk = applicationKeys.publicKey.export({ format: "jwk" });
+    const applicationPublicKey = Buffer.concat([
+      Buffer.from([4]),
+      Buffer.from(applicationJwk.x!, "base64url"),
+      Buffer.from(applicationJwk.y!, "base64url")
+    ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
     const device = await app.inject({
       method: "POST",
@@ -1034,9 +1050,7 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: applicationKey
-          .getPublicKey(undefined, "uncompressed")
-          .toString("base64url")
+        application_public_key: applicationPublicKey
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -1073,7 +1087,8 @@ describe("mdbase connect server", () => {
         purpose: "application",
         fullCollection: true,
         allowedOperations: ["describe", "query", "create", "update"],
-        allowedOrigin: "null"
+        allowedOrigin: "null",
+        proofPublicKey: applicationPublicKey
       })
     );
     const token = await pollDeviceToken(app, {
@@ -1088,7 +1103,8 @@ describe("mdbase connect server", () => {
       operations: ["describe", "query", "create", "update"],
       encryption: null,
       hosted: {
-        provider_url: "https://sync.example"
+        provider_url: "https://sync.example",
+        proof_public_key: applicationPublicKey
       }
     });
     expect(token.json().hosted.replica_id).toMatch(
@@ -1101,17 +1117,47 @@ describe("mdbase connect server", () => {
       3_600
     );
 
-    const refreshed = await app.inject({
+    const refreshBody = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: token.json().refresh_token,
+      client_id: applicationId
+    }).toString();
+    const unsignedRefresh = await app.inject({
       method: "POST",
       url: "/oauth/token",
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.json().refresh_token,
-        client_id: applicationId
-      }).toString(),
+      payload: refreshBody,
       headers: {
         origin: "null",
         "content-type": "application/x-www-form-urlencoded"
+      }
+    });
+    expect(unsignedRefresh.statusCode).toBe(400);
+    expect(unsignedRefresh.json()).toMatchObject({ error: "invalid_grant" });
+    const proofTimestamp = Math.floor(Date.now() / 1_000);
+    const proofNonce = randomUUID();
+    const proofSignature = sign(
+      "sha256",
+      Buffer.from(hostedProofMessage({
+        method: "POST",
+        target: "/oauth/token",
+        body: refreshBody,
+        credential: token.json().refresh_token,
+        timestamp: proofTimestamp,
+        nonce: proofNonce
+      })),
+      { key: applicationKeys.privateKey, dsaEncoding: "ieee-p1363" }
+    ).toString("base64url");
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      payload: refreshBody,
+      headers: {
+        origin: "null",
+        "content-type": "application/x-www-form-urlencoded",
+        [HOSTED_PROOF_HEADERS.version]: String(HOSTED_PROOF_VERSION),
+        [HOSTED_PROOF_HEADERS.timestamp]: String(proofTimestamp),
+        [HOSTED_PROOF_HEADERS.nonce]: proofNonce,
+        [HOSTED_PROOF_HEADERS.signature]: proofSignature
       }
     });
     expect(refreshed.statusCode, JSON.stringify(refreshed.json())).toBe(200);
@@ -1121,17 +1167,23 @@ describe("mdbase connect server", () => {
       encryption: null,
       hosted: {
         provider_url: "https://sync.example",
-        replica_id: token.json().hosted.replica_id
+        replica_id: token.json().hosted.replica_id,
+        proof_public_key: applicationPublicKey
       }
     });
     expect(refreshed.json().hosted.access_token).not.toBe(token.json().hosted.access_token);
-    const grant = await db.query<{ application_origin: string; encryption: unknown }>(
-      "SELECT application_origin, encryption FROM grants WHERE id = $1",
+    const grant = await db.query<{
+      application_origin: string;
+      encryption: unknown;
+      proof_public_key: string | null;
+    }>(
+      "SELECT application_origin, encryption, proof_public_key FROM grants WHERE id = $1",
       [token.json().grant_id]
     );
     expect(grant.rows[0]).toEqual({
       application_origin: "null",
-      encryption: null
+      encryption: null,
+      proof_public_key: applicationPublicKey
     });
   });
 

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { GrantEncryption } from "@mdbase/connect-protocol";
 import {
   encryptRelayRequest,
+  hostedProofMessage,
   MemoryGrantKeyStore,
-  RelayCryptoError
+  RelayCryptoError,
+  signHostedRequest
 } from "./crypto.js";
+import { HOSTED_PROOF_HEADERS } from "@mdbase/connect-protocol";
 
 const ids = {
   grant: "01911111-1111-7111-8111-111111111111",
@@ -103,4 +106,54 @@ describe("encrypted relay client", () => {
       {}
     )).rejects.toEqual(expect.objectContaining<Partial<RelayCryptoError>>({ code: "invalid_public_key" }));
   });
+
+  it("uses the same non-extractable P-256 key for hosted ECDSA proofs", async () => {
+    const store = new MemoryGrantKeyStore();
+    const record = await store.create("hosted");
+    expect(record.privateKey.algorithm.name).toBe("ECDH");
+    expect(record.signingKey?.algorithm.name).toBe("ECDSA");
+    expect(record.signingKey?.extractable).toBe(false);
+    const timestamp = 1_785_000_000;
+    const nonce = "01955555-5555-4555-8555-555555555555";
+    const headers = await signHostedRequest(store, "hosted", record.publicKey, {
+      method: "POST",
+      target: "/v1/hosted/collections/one/operations/create",
+      body: "{\"title\":\"proof\"}",
+      credential: "hsa_secret",
+      timestamp,
+      nonce
+    });
+    const publicKey = await crypto.subtle.importKey(
+      "raw",
+      base64UrlBytes(record.publicKey),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+    const message = await hostedProofMessage({
+      method: "POST",
+      target: "/v1/hosted/collections/one/operations/create",
+      body: "{\"title\":\"proof\"}",
+      credential: "hsa_secret",
+      timestamp,
+      nonce
+    });
+    expect(await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      base64UrlBytes(headers[HOSTED_PROOF_HEADERS.signature]),
+      new TextEncoder().encode(message)
+    )).toBe(true);
+  });
 });
+
+function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
