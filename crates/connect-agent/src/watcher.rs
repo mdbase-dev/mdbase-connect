@@ -245,6 +245,24 @@ fn persist_event(
     event: &mdbase::watch::WatchEvent,
     runtime_events: Option<&tokio::sync::mpsc::UnboundedSender<CollectionRuntimeEvent>>,
 ) {
+    match registry.get(collection_id) {
+        Ok(collection) if collection.enabled => {}
+        Ok(_) => {
+            tracing::debug!(
+                collection_id = %collection_id,
+                "ignored a filesystem event for an unavailable collection"
+            );
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(
+                collection_id = %collection_id,
+                %error,
+                "ignored a filesystem event because collection authority could not be confirmed"
+            );
+            return;
+        }
+    }
     match registry.append_change(collection_id, event) {
         Err(error) => {
             tracing::warn!(collection_id = %collection_id, %error, "failed to persist collection change");

@@ -50,9 +50,18 @@ export interface MirrorStateStore {
   write(state: MirrorState): Promise<void>;
 }
 
+export interface MirrorLease {
+  runExclusive<Value>(operation: () => Promise<Value>): Promise<Value>;
+}
+
+export interface AcquiredMirrorLease extends MirrorLease {
+  release(): Promise<void>;
+}
+
 export interface DirectoryMirrorOptions {
   stateStore?: MirrorStateStore;
   fileSystem?: MirrorFileSystem;
+  lease?: MirrorLease;
   onProgress?: (progress: MirrorProgress) => void;
 }
 
@@ -109,6 +118,26 @@ export class MemoryMirrorStateStore implements MirrorStateStore {
   }
 }
 
+/** In-process lease for filesystem-neutral adapters and deterministic tests. */
+export class MemoryMirrorLease implements MirrorLease {
+  private held = false;
+
+  async runExclusive<Value>(operation: () => Promise<Value>): Promise<Value> {
+    if (this.held) {
+      throw new SyncError(
+        "mirror_folder_in_use",
+        "Another mdbase mirror process is already using this folder."
+      );
+    }
+    this.held = true;
+    try {
+      return await operation();
+    } finally {
+      this.held = false;
+    }
+  }
+}
+
 export class NodeMirrorStateStore implements MirrorStateStore {
   private statePath: Promise<string> | null = null;
 
@@ -141,6 +170,77 @@ export class NodeMirrorStateStore implements MirrorStateStore {
     this.statePath ??= mirrorDeviceDirectory(this.root, this.stateRoot)
       .then((directory) => join(directory, "mirror-state.json"));
     return this.statePath;
+  }
+}
+
+interface MirrorLeaseRecord {
+  version: 1;
+  owner_id: string;
+  pid: number;
+  acquired_at: string;
+}
+
+/**
+ * Cross-process exclusion for a physical mirror folder.
+ *
+ * The lease is device-local and keyed by canonical path plus filesystem
+ * identity, just like mirror state. It therefore does not leak paths into the
+ * collection or travel through another file-sync product.
+ */
+export class NodeMirrorLease implements MirrorLease {
+  constructor(
+    private readonly root: string,
+    private readonly stateRoot = process.env.MDBASE_CONNECT_MIRROR_STATE_DIR
+  ) {}
+
+  async acquire(): Promise<AcquiredMirrorLease> {
+    const directory = await mirrorDeviceDirectory(this.root, this.stateRoot);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const path = join(directory, "mirror.lock");
+    const record: MirrorLeaseRecord = {
+      version: 1,
+      owner_id: randomUUID(),
+      pid: process.pid,
+      acquired_at: new Date().toISOString()
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await writeFile(path, `${JSON.stringify(record)}\n`, {
+          flag: "wx",
+          mode: 0o600
+        });
+        let released = false;
+        return {
+          runExclusive: async <Value>(operation: () => Promise<Value>) => operation(),
+          release: async () => {
+            if (released) return;
+            const current = await readLeaseRecord(path);
+            if (current?.owner_id === record.owner_id) await unlinkOptional(path);
+            released = true;
+          }
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (attempt === 0 && await removeStaleLease(path)) continue;
+        throw new SyncError(
+          "mirror_folder_in_use",
+          "Another mdbase mirror process is already using this folder."
+        );
+      }
+    }
+    throw new SyncError(
+      "mirror_folder_in_use",
+      "Another mdbase mirror process is already using this folder."
+    );
+  }
+
+  async runExclusive<Value>(operation: () => Promise<Value>): Promise<Value> {
+    const acquired = await this.acquire();
+    try {
+      return await operation();
+    } finally {
+      await acquired.release();
+    }
   }
 }
 
@@ -265,6 +365,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private readonly root: string;
   private readonly stateStore: MirrorStateStore;
   private readonly fileSystem: MirrorFileSystem;
+  private readonly lease: MirrorLease;
   private readonly onProgress?: (progress: MirrorProgress) => void;
 
   constructor(
@@ -277,17 +378,22 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     this.root = resolve(root);
     this.stateStore = options.stateStore ?? new NodeMirrorStateStore(this.root);
     this.fileSystem = options.fileSystem ?? new NodeMirrorFileSystem(this.root);
+    this.lease = options.lease ?? new NodeMirrorLease(this.root);
     this.onProgress = options.onProgress;
   }
 
   async sync(): Promise<void> {
+    await this.lease.runExclusive(() => this.syncUnlocked());
+  }
+
+  private async syncUnlocked(): Promise<void> {
     const state = await this.readState();
     if (!state) {
       await this.rebuild();
       // A writable first sync is also the import path for an existing local
       // directory: rebuild establishes the remote baseline, then a normal
       // pass journals and conditionally uploads files that were not remote.
-      if (this.mode === "read_write") await this.sync();
+      if (this.mode === "read_write") await this.syncUnlocked();
       return;
     }
     if (this.mode === "read_write") {
@@ -387,6 +493,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
    * authority cursor. The digest contains no paths or record content.
    */
   async authorityPromotionManifest(): Promise<AuthorityPromotionManifest> {
+    return this.lease.runExclusive(() => this.authorityPromotionManifestUnlocked());
+  }
+
+  private async authorityPromotionManifestUnlocked(): Promise<AuthorityPromotionManifest> {
     if (this.mode !== "read_write") {
       throw new SyncError(
         "promotion_requires_writable_mirror",
@@ -673,6 +783,13 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   async resolveConflict(recordId: string, resolution: "local" | "remote"): Promise<void> {
+    await this.lease.runExclusive(() => this.resolveConflictUnlocked(recordId, resolution));
+  }
+
+  private async resolveConflictUnlocked(
+    recordId: string,
+    resolution: "local" | "remote"
+  ): Promise<void> {
     if (this.mode !== "read_write") {
       throw new SyncError("mirror_read_only", "Receive-only mirrors do not contain writable conflicts.");
     }
@@ -1193,6 +1310,59 @@ async function readOptional(path: string): Promise<string | null> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
+  }
+}
+
+async function readLeaseRecord(path: string): Promise<MirrorLeaseRecord | null> {
+  const source = await readOptional(path);
+  if (source === null) return null;
+  try {
+    const record = JSON.parse(source) as Partial<MirrorLeaseRecord>;
+    if (
+      record.version !== 1
+      || typeof record.owner_id !== "string"
+      || !Number.isSafeInteger(record.pid)
+      || record.pid! <= 0
+      || typeof record.acquired_at !== "string"
+    ) return null;
+    return record as MirrorLeaseRecord;
+  } catch {
+    return null;
+  }
+}
+
+async function removeStaleLease(path: string): Promise<boolean> {
+  const record = await readLeaseRecord(path);
+  if (record === null || processIsAlive(record.pid)) return false;
+  const current = await readLeaseRecord(path);
+  if (
+    current === null
+    || current.owner_id !== record.owner_id
+    || current.pid !== record.pid
+  ) return false;
+  try {
+    await unlink(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function unlinkOptional(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 

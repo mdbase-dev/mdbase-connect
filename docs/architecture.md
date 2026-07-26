@@ -43,6 +43,27 @@ the connector has proved that the selected path is a copy of a different,
 still-registered folder. It refuses the registered original, a moved folder,
 and a collection that can be registered normally.
 
+A physical folder has exactly one Connect storage role. A hosted mirror stores
+this non-secret device role in `.mdbase/connect-role.json`, outside the
+receive-only `mdbase.yaml` resource. The local connector refuses to register
+such a folder as a filesystem authority. If a folder was registered before it
+became a hosted mirror, the connector immediately reports it as unavailable and
+denies operations; it does not rely on the next control-plane heartbeat for
+safety.
+
+Mirror processes also take an exclusive device-local lease keyed by the
+folder's canonical path and filesystem identity. A long-running watcher holds
+the lease for its lifetime, so the desktop mirror and an Obsidian mirror plugin
+cannot manage the same physical folder concurrently. Custom mirror adapters
+must provide the equivalent lease when they cannot use the Node adapter.
+
+The control plane provides the final identity-level fence. If a connector
+publishes the ID of an active hosted collection, it is retained only as a
+disabled authority candidate until an approved authority transfer completes.
+This is defense in depth: the folder marker prevents a same-folder/different-ID
+mistake locally, while the server prevents two active authorities for the same
+ID.
+
 The browser SDK is multi-collection by default. `MdbaseConnect` manages the
 saved authorization set, `MdbaseConnection` is permanently bound to one
 collection, and `MdbaseBrowserLocation` owns bookmark selection and OAuth
@@ -266,6 +287,12 @@ Every collection has one write authority:
 - a local connector for a filesystem-backed collection;
 - a hosted collection provider for the managed service;
 - a self-hosted provider implementing the same Connect API.
+
+A hosted-authority folder may be mirrored into ordinary Markdown, but that
+folder cannot also be relayed by the local connector. Changing roles is an
+explicit authority transfer: converge and fence the current authority, verify
+the complete mirror, change the folder role, then activate the new authority.
+Rollback restores the hosted-mirror role before hosted writes resume.
 
 The hosted vertical slice implements stable IDs, pinned snapshots, ordered
 scoped changes, conditional replay-safe mutations, offline caches, conflicts,

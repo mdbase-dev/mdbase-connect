@@ -390,6 +390,18 @@ Connect keeps replica state outside ordinary Markdown files:
 - pending local mutations and conflicts;
 - resource revisions for config and type files.
 
+Each physical mirror folder also contains the non-secret
+`.mdbase/connect-role.json` marker. It binds that folder to one hosted
+collection and prevents the local connector from exposing it as another write
+authority. Credentials, cursors, pending mutations, and conflicts remain in
+device-local state outside the collection.
+
+Before changing files, a Node mirror takes an exclusive device-local folder
+lease. `mdbase-mirror watch` holds it until the watcher stops; one-shot sync and
+conflict operations hold it for their complete critical section. Another
+desktop process receives `mirror_folder_in_use` rather than running a second
+engine over the same folder.
+
 Incoming documents use temporary files and atomic rename where the platform
 supports them. The watcher recognizes writes made by the mirror from the saved
 revision and avoids uploading them again.

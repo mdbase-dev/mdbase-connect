@@ -8,14 +8,19 @@ import { parseArgs } from "node:util";
 import { HttpSyncTransport } from "./index.js";
 import {
   DirectoryMirror,
+  NodeMirrorLease,
   WritableDirectoryMirror,
+  type MirrorLease,
   type MirrorProgress,
   type MirrorStatus
 } from "./node.js";
 import {
+  assertHostedMirror,
+  clearHostedMirrorMarker,
   clearAuthorityPromotionCheckpoint,
   loadMirrorProfile,
   loadAuthorityPromotionCheckpoint,
+  markHostedMirror,
   readCollectionConfiguration,
   restoreCollectionConfiguration,
   retireMirrorAfterPromotion,
@@ -78,6 +83,7 @@ try {
     if (session.replica_id !== replicaId || session.mode !== mode) {
       throw new Error(`Replica is not the requested ${mode.replace("_", "-")} mirror capability.`);
     }
+    await markHostedMirror(root, collectionId);
     await saveMirrorProfile(
       root,
       {
@@ -121,25 +127,42 @@ try {
     if (!Number.isInteger(interval) || interval < 250) {
       throw new Error("--interval must be an integer of at least 250 milliseconds.");
     }
-    process.stdout.write(`Watching hosted collection into ${root}. Press Ctrl+C to stop.\n`);
-    let lastLine = "";
-    while (true) {
-      try {
-        await sync(root);
-        const status = await mirrorFor(root, await currentProfile(root)).status();
-        const line = statusLine(status);
-        if (line !== lastLine) {
-          process.stdout.write(`${line}\n`);
-          lastLine = line;
+    const acquiredLease = await new NodeMirrorLease(root).acquire();
+    let stopping = false;
+    const stop = () => { stopping = true; };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    process.once("SIGHUP", stop);
+    try {
+      process.stdout.write(`Watching hosted collection into ${root}. Press Ctrl+C to stop.\n`);
+      let lastLine = "";
+      while (!stopping) {
+        try {
+          await sync(root, acquiredLease);
+          const status = await mirrorFor(
+            root,
+            await currentProfile(root),
+            acquiredLease
+          ).status();
+          const line = statusLine(status);
+          if (line !== lastLine) {
+            process.stdout.write(`${line}\n`);
+            lastLine = line;
+          }
+        } catch (error) {
+          const line = `Offline: ${error instanceof Error ? error.message : String(error)}`;
+          if (line !== lastLine) {
+            process.stderr.write(`${line}\n`);
+            lastLine = line;
+          }
         }
-      } catch (error) {
-        const line = `Offline: ${error instanceof Error ? error.message : String(error)}`;
-        if (line !== lastLine) {
-          process.stderr.write(`${line}\n`);
-          lastLine = line;
-        }
+        if (!stopping) await delay(interval);
       }
-      await delay(interval);
+    } finally {
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
+      process.removeListener("SIGHUP", stop);
+      await acquiredLease.release();
     }
   }
 } catch (error) {
@@ -147,9 +170,9 @@ try {
   process.exitCode = 1;
 }
 
-async function sync(root: string): Promise<void> {
+async function sync(root: string, lease?: MirrorLease): Promise<void> {
   const configuration = await currentProfile(root);
-  await mirrorFor(root, configuration).sync();
+  await mirrorFor(root, configuration, lease).sync();
 }
 
 async function initialSync(root: string): Promise<void> {
@@ -179,13 +202,17 @@ async function initialSync(root: string): Promise<void> {
   await mirror.sync();
 }
 
-function mirrorFor(root: string, configuration: StoredMirrorProfile) {
+function mirrorFor(
+  root: string,
+  configuration: StoredMirrorProfile,
+  lease?: MirrorLease
+) {
   const transport = new HttpSyncTransport(
     configuration.profile.provider_url,
     configuration.profile.collection_id,
     configuration.credentials.access_token
   );
-  const options = { onProgress: mirrorProgressReporter() };
+  const options = { onProgress: mirrorProgressReporter(), ...(lease ? { lease } : {}) };
   return configuration.profile.mode === "read_write"
     ? new WritableDirectoryMirror(root, configuration.profile.replica_id, transport, options)
     : new DirectoryMirror(root, configuration.profile.replica_id, transport, options);
@@ -232,6 +259,8 @@ function mirrorProgressReporter(): (progress: MirrorProgress) => void {
 
 async function currentProfile(root: string): Promise<StoredMirrorProfile> {
   let stored = await loadMirrorProfile(root);
+  await markHostedMirror(root, stored.profile.collection_id);
+  await assertHostedMirror(root, stored.profile.collection_id);
   const expiry = stored.profile.access_token_expires_at;
   if (
     stored.profile.control_url
@@ -335,6 +364,7 @@ async function connect(root: string): Promise<void> {
       continue;
     }
     const exchanged = await responseJson<MirrorExchangeResponse>(response);
+    await markHostedMirror(root, exchanged.replica.collection_id);
     await saveMirrorProfile(
       root,
       {
@@ -383,6 +413,7 @@ async function promote(root: string): Promise<void> {
     }
     process.stdout.write("Resuming the materialized authority handoff.\n");
     await setHostedCollectionIdentity(root, unfinished.collection_id);
+    await clearHostedMirrorMarker(root, unfinished.collection_id);
     await registerPromotedCollection(root, unfinished.collection_id);
     await completePromotion(root, controlUrl, authentication, unfinished);
     return;
@@ -450,6 +481,7 @@ async function promote(root: string): Promise<void> {
     };
     await saveAuthorityPromotionCheckpoint(root, checkpoint);
     await setHostedCollectionIdentity(root, prepared.collection_id);
+    await clearHostedMirrorMarker(root, prepared.collection_id);
     const added = await runConnectCli(["collection", "add", root]);
     const registeredId = collectionIdFromControlResult(added);
     if (registeredId !== prepared.collection_id) {
@@ -464,6 +496,7 @@ async function promote(root: string): Promise<void> {
     const saved = await loadAuthorityPromotionCheckpoint(root);
     if (saved?.transfer_id === prepared.id) {
       await restoreCollectionConfiguration(root, saved.original_configuration).catch(() => undefined);
+      await markHostedMirror(root, saved.collection_id).catch(() => undefined);
       await clearAuthorityPromotionCheckpoint(root).catch(() => undefined);
     }
     await fetch(
@@ -560,6 +593,7 @@ async function rollbackMaterializedPromotion(
 ): Promise<void> {
   await runConnectCli(["collection", "remove", checkpoint.collection_id]);
   await restoreCollectionConfiguration(root, checkpoint.original_configuration);
+  await markHostedMirror(root, checkpoint.collection_id);
   await clearAuthorityPromotionCheckpoint(root);
 }
 
