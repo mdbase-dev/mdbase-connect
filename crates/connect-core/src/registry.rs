@@ -1060,7 +1060,7 @@ impl CollectionRegistry {
         let mut types = Vec::new();
         let mut contracts = Vec::new();
         let mut configuration = None;
-        if collection.spec_profile == SpecProfile::V03 {
+        if collection.spec_profile() == SpecProfile::V03 {
             let report = mdbase::v03::inspect_collection(Path::new(&registered.path));
             if !report.valid {
                 let message = report
@@ -1132,7 +1132,7 @@ impl CollectionRegistry {
             collection_id: registered.id,
             display_name: registered.display_name.clone(),
             spec_version: registered.spec_version.clone(),
-            operations: supported_operations(collection.spec_profile)
+            operations: supported_operations(collection.spec_profile())
                 .iter()
                 .map(|value| (*value).to_string())
                 .collect(),
@@ -2218,7 +2218,7 @@ fn execute_loaded(
     operation: &str,
     input: &Value,
 ) -> Result<Value, ConnectError> {
-    if collection.spec_profile == SpecProfile::V03 {
+    if collection.spec_profile() == SpecProfile::V03 {
         let operations = collection
             .v03_operations()
             .map_err(|diagnostic| ConnectError::CollectionOpen(diagnostic.message.clone()))?;
@@ -2244,14 +2244,180 @@ fn execute_loaded(
         return serde_json::to_value(result).map_err(ConnectError::from);
     }
 
-    Ok(match operation {
-        "read" => collection.read(input),
+    let result = match operation {
+        "read" => {
+            let request = serde_json::from_value::<mdbase::api::ReadRequest>(input.clone())
+                .map_err(|error| mdbase::api::MdbaseError::InvalidRequest {
+                    message: error.to_string(),
+                });
+            typed_result(collection, request, |typed, request| typed.read(request))
+        }
+        "query" => {
+            let request = parse_v02_query(input);
+            typed_result(collection, request, |typed, request| typed.query(request))
+        }
         "validate" => collection.validate_op(input),
-        "create" => collection.create(input),
-        "update" => collection.update(input),
-        "delete" => collection.delete(input),
-        "rename" => collection.rename(input),
+        "create" | "update" | "delete" | "rename" => migration_required_result(operation),
         other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
+    };
+    Ok(result)
+}
+
+fn typed_result<Request, Output>(
+    collection: &Collection,
+    request: Result<Request, mdbase::api::MdbaseError>,
+    execute: impl FnOnce(
+        mdbase::api::TypedCollection<'_>,
+        Request,
+    ) -> mdbase::api::MdbaseResult<mdbase::api::OperationOutcome<Output>>,
+) -> Value
+where
+    Output: serde::Serialize,
+{
+    let result =
+        request.and_then(|request| collection.typed().and_then(|typed| execute(typed, request)));
+    match result {
+        Ok(outcome) => json!({
+            "valid": true,
+            "result": outcome.value,
+            "diagnostics": outcome.diagnostics,
+        }),
+        Err(error) => typed_error_result(error),
+    }
+}
+
+fn typed_error_result(error: mdbase::api::MdbaseError) -> Value {
+    use mdbase::api::MdbaseError;
+
+    let (code, message, diagnostics) = match error {
+        MdbaseError::InvalidPath(error) => ("invalid_path", error.to_string(), Vec::<Value>::new()),
+        MdbaseError::UnsupportedProfile => (
+            "migration_required",
+            "This operation requires migrating the collection to v0.3.".to_string(),
+            Vec::new(),
+        ),
+        MdbaseError::MigrationRequired { operation } => (
+            "migration_required",
+            format!("Operation '{operation}' requires migrating this v0.2 collection to v0.3."),
+            Vec::new(),
+        ),
+        MdbaseError::LossyMigration { diagnostics } => (
+            "migration_lossy",
+            "The v0.2 migration requires explicit approval for lossy translations.".to_string(),
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| json!(diagnostic))
+                .collect(),
+        ),
+        MdbaseError::InvalidRequest { message } => ("invalid_request", message, Vec::new()),
+        MdbaseError::Operation { diagnostics } => (
+            "operation_failed",
+            "The mdbase operation failed.".to_string(),
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| json!(diagnostic))
+                .collect(),
+        ),
+        MdbaseError::InvalidResult { message } => ("invalid_result", message, Vec::new()),
+    };
+    let diagnostics = if diagnostics.is_empty() {
+        vec![json!({
+            "severity": "error",
+            "code": code,
+            "message": message,
+        })]
+    } else {
+        diagnostics
+    };
+    json!({
+        "valid": false,
+        "result": {},
+        "diagnostics": diagnostics,
+    })
+}
+
+fn migration_required_result(operation: &str) -> Value {
+    json!({
+        "valid": false,
+        "result": {},
+        "diagnostics": [{
+            "severity": "error",
+            "code": "migration_required",
+            "message": format!(
+                "Operation '{operation}' requires migrating this v0.2 collection to v0.3."
+            ),
+        }],
+    })
+}
+
+fn parse_v02_query(input: &Value) -> mdbase::api::MdbaseResult<mdbase::api::QueryRequest> {
+    use mdbase::api::MdbaseError;
+
+    let input = input.get("query").unwrap_or(input);
+    let source = input
+        .as_object()
+        .ok_or_else(|| MdbaseError::InvalidRequest {
+            message: "query input must be an object".to_string(),
+        })?;
+    const SUPPORTED: &[&str] = &[
+        "types",
+        "context",
+        "projections",
+        "where",
+        "select",
+        "order_by",
+        "group_by",
+        "groupBy",
+        "limit",
+        "offset",
+        "snapshot",
+        "include_body",
+        "frontmatter",
+    ];
+    if let Some(field) = source
+        .keys()
+        .find(|field| !SUPPORTED.contains(&field.as_str()))
+    {
+        return Err(MdbaseError::InvalidRequest {
+            message: format!("v0.2 compatibility queries do not support the '{field}' constraint"),
+        });
+    }
+
+    let mut typed = source.clone();
+    if let Some(context) = typed.get("context").cloned() {
+        let path = context
+            .as_str()
+            .or_else(|| context.pointer("/this/path").and_then(Value::as_str))
+            .ok_or_else(|| MdbaseError::InvalidRequest {
+                message: "query context must identify this.path".to_string(),
+            })?;
+        typed.insert("context".to_string(), Value::String(path.to_string()));
+    }
+    if let Some(projections) = typed.get("projections").and_then(Value::as_object) {
+        let projections = projections
+            .iter()
+            .map(|(name, value)| {
+                value
+                    .as_str()
+                    .or_else(|| value.get("expr").and_then(Value::as_str))
+                    .map(|expression| (name.clone(), Value::String(expression.to_string())))
+                    .ok_or_else(|| MdbaseError::InvalidRequest {
+                        message: format!("query projection '{name}' must contain an expression"),
+                    })
+            })
+            .collect::<Result<serde_json::Map<_, _>, _>>()?;
+        typed.insert("projections".to_string(), Value::Object(projections));
+    }
+    if !typed.contains_key("group_by") {
+        if let Some(group_by) = typed.remove("groupBy") {
+            typed.insert("group_by".to_string(), group_by);
+        }
+    } else {
+        typed.remove("groupBy");
+    }
+
+    serde_json::from_value(Value::Object(typed)).map_err(|error| MdbaseError::InvalidRequest {
+        message: error.to_string(),
     })
 }
 
@@ -2315,11 +2481,8 @@ fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
             "describe",
             "changes",
             "read",
+            "query",
             "validate",
-            "create",
-            "update",
-            "delete",
-            "rename",
             "list_timers",
             "put_timer",
             "cancel_timer",
@@ -2657,9 +2820,84 @@ mod tests {
         let description = registry.describe(collection.id).unwrap();
 
         assert!(description.operations.contains(&"read".to_string()));
+        assert!(description.operations.contains(&"query".to_string()));
         assert!(description.operations.contains(&"validate".to_string()));
-        assert!(!description.operations.contains(&"query".to_string()));
+        for operation in ["create", "update", "delete", "rename"] {
+            assert!(!description.operations.contains(&operation.to_string()));
+        }
         assert!(!description.operations.contains(&"read_type".to_string()));
+    }
+
+    #[test]
+    fn legacy_records_are_read_only_until_explicit_migration() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("legacy");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.1\n").unwrap();
+        let document = "---\ntitle: Legacy\n---\nBody\n";
+        fs::write(root.join("legacy.md"), document).unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.add(&root).unwrap();
+
+        let read = registry
+            .operation(collection.id, "read", &json!({"path": "legacy.md"}))
+            .unwrap();
+        assert_eq!(read["valid"], true, "{read}");
+        assert_eq!(read["result"]["frontmatter"]["title"], "Legacy");
+
+        let query = registry
+            .operation(
+                collection.id,
+                "query",
+                &json!({"where": "title == 'Legacy'", "include_body": true}),
+            )
+            .unwrap();
+        assert_eq!(query["valid"], true, "{query}");
+        assert_eq!(query["result"]["results"].as_array().unwrap().len(), 1);
+        assert_eq!(query["result"]["results"][0]["body"], "Body\n");
+
+        let unsupported_query = registry
+            .operation(collection.id, "query", &json!({"folder": "private"}))
+            .unwrap();
+        assert_eq!(unsupported_query["valid"], false, "{unsupported_query}");
+        assert_eq!(
+            unsupported_query["diagnostics"][0]["code"],
+            "invalid_request"
+        );
+
+        let operations = [
+            (
+                "create",
+                json!({
+                    "path": "new.md",
+                    "frontmatter": {"title": "New"},
+                    "body": ""
+                }),
+            ),
+            (
+                "update",
+                json!({"path": "legacy.md", "patch": {"title": "Changed"}}),
+            ),
+            ("delete", json!({"path": "legacy.md"})),
+            ("rename", json!({"from": "legacy.md", "to": "renamed.md"})),
+        ];
+        for (operation, input) in operations {
+            let result = registry
+                .operation(collection.id, operation, &input)
+                .unwrap();
+            assert_eq!(result["valid"], false, "{operation}: {result}");
+            assert_eq!(
+                result["diagnostics"][0]["code"], "migration_required",
+                "{operation}: {result}"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(root.join("legacy.md")).unwrap(),
+            document
+        );
+        assert!(!root.join("new.md").exists());
+        assert!(!root.join("renamed.md").exists());
     }
 
     #[test]

@@ -438,7 +438,48 @@ mod tests {
         ApplicationAccess, ContractRequirement, GrantPolicy, GrantScope, NotificationCriterion,
         NotificationPresentation, RuntimeExpression,
     };
+    use rusqlite::Connection;
     use tempfile::tempdir;
+
+    #[test]
+    fn local_notification_runtime_upgrades_unversioned_state() {
+        let state_dir = tempdir().unwrap();
+        let runtime_dir = state_dir.path().join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let collection_id = Uuid::new_v4();
+        let path = runtime_dir.join(format!("{collection_id}.sqlite"));
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE runtime_events (
+                    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_runtime TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    envelope_json TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    UNIQUE(source_runtime, event_id)
+                );
+                ",
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut service = RuntimeNotificationService {
+            runtime_dir,
+            local_registry: CollectionRegistry::open(state_dir.path()).unwrap(),
+            cloud: None,
+            runtimes: HashMap::new(),
+        };
+        service.runtime(collection_id).unwrap();
+        drop(service);
+
+        let connection = Connection::open(path).unwrap();
+        let version = connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .unwrap();
+        assert_eq!(version, mdbase_runtime::SQLITE_SCHEMA_VERSION);
+    }
 
     #[test]
     fn compiled_workflows_keep_record_data_out_of_action_input() {
