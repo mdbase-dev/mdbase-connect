@@ -62,3 +62,34 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 5 --retry-all-errors "$MANIFEST_URL" --output "$RUNNER_TEMP/mdbase-app.json"
           node -e 'const manifest = require(process.env.RUNNER_TEMP + "/mdbase-app.json"); if (manifest.name !== "mdbase editor" || manifest.requirements?.access !== "full_collection") process.exit(1)'
+
+  deploy-cloudflare:
+    if: github.event_name == 'push' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-pages
+      url: https://editor.mdbase.dev/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build Cloudflare Pages application
+        run: pnpm build
+        env:
+          MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
+          MDBASE_EDITOR_BASE_PATH: /
+      - name: Verify Cloudflare Pages manifest
+        run: node -e 'const manifest = require("./dist/.well-known/mdbase-app.json"); if (manifest.homepage !== "https://editor.mdbase.dev/" || manifest.redirect_uris?.[0] !== "https://editor.mdbase.dev/" || manifest.requirements?.access !== "full_collection") process.exit(1)'
+      - name: Deploy Cloudflare Pages
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=mdbase-editor --branch=main
+          packageManager: pnpm
+          wranglerVersion: "4.114.0"

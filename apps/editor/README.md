@@ -46,30 +46,14 @@ flows, type inspection, settings, responsive navigation, accessibility, and a
 ## Deployment
 
 The production application is configured for
-`https://editor.mdbase.dev/` on Cloudflare Pages. After transferring the
-repository to `mdbase-dev/mdbase-editor`, connect that repository with
-Cloudflare's native Git integration so each push to `main` is built and
-deployed automatically. Create the Pages project with:
+`https://editor.mdbase.dev/` on Cloudflare Pages. GitHub Actions runs the
+complete verification and browser suites, rebuilds the application for its
+dedicated origin, then uploads `dist` with Wrangler. Create a Direct Upload
+Pages project named `mdbase-editor` with production branch `main`.
 
-- project name: `mdbase-editor`
-- production branch: `main`
-- framework preset: none
-- build command: `pnpm build`
-- build output directory: `dist`
-- root directory: repository root (leave blank)
-- preview branch deployments: disabled
-
-Set these production build variables in Cloudflare:
-
-```text
-NODE_VERSION=22
-PNPM_VERSION=11.15.1
-MDBASE_EDITOR_ORIGIN=https://editor.mdbase.dev
-MDBASE_EDITOR_BASE_PATH=/
-```
-
-No Cloudflare API token or manual artifact upload is required. GitHub Actions
-continues to run the complete verification and browser suites.
+Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
+repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
+to `1`.
 
 The legacy `https://callumalpass.github.io/mdbase-editor/` deployment remains a
 rollback target and is built with an explicit project-site manifest. It must
