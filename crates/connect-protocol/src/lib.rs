@@ -773,7 +773,7 @@ pub enum RelayMessage {
         collection_id: Uuid,
         requirements: ApplicationRequirements,
         provisions: ApplicationProvisions,
-        grant: GrantPolicy,
+        grant: Box<GrantPolicy>,
     },
     AuthorizationActivationResponse {
         protocol_version: u32,

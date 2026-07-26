@@ -1213,7 +1213,7 @@ mod tests {
                     access: Some(ApplicationAccess::FullCollection),
                 },
                 provisions: ApplicationProvisions::default(),
-                grant: grant.clone(),
+                grant: Box::new(grant.clone()),
             })
             .unwrap();
         assert!(matches!(
