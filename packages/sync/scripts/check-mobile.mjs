@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { gzipSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const result = await build({
-  entryPoints: ["packages/sync/src/mirror.ts"],
-  absWorkingDir: process.cwd(),
+  entryPoints: ["src/mirror.ts"],
+  absWorkingDir: packageRoot,
   bundle: true,
   format: "esm",
   minify: true,

@@ -18,9 +18,6 @@ importers:
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
-      esbuild:
-        specifier: ^0.28.1
-        version: 0.28.1
 
   apps/desktop:
     dependencies:
@@ -216,6 +213,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
