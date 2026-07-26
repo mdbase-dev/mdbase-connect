@@ -13,16 +13,18 @@ import {
 import { createHash } from "node:crypto";
 import { ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { AgentControlError, requestAgent } from "./control-client";
 import { relaunchAfterAgentStops } from "./agent-lifecycle";
+import { MirrorManager, pathsOverlap } from "./mirror-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let agentProcess: ChildProcess | null = null;
 let agentStartup: Promise<void> | null = null;
+let mirrorManager: MirrorManager | null = null;
 let quitting = false;
 const activePairings = new Map<string, { serverUrl: string; secret: string }>();
 
@@ -30,6 +32,9 @@ interface StoredCloudConfig {
   server_url: string;
   encrypted_token: string;
 }
+
+const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
+if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -147,6 +152,11 @@ async function chooseFolder(): Promise<string | null> {
     ? await dialog.showOpenDialog(mainWindow, options)
     : await dialog.showOpenDialog(options);
   return result.canceled ? null : result.filePaths[0] ?? null;
+}
+
+function mirrors(): MirrorManager {
+  mirrorManager ??= new MirrorManager(app.getPath("userData"));
+  return mirrorManager;
 }
 
 function registerIpc(): void {
@@ -419,6 +429,165 @@ function registerIpc(): void {
     const value = typeof limit === "number" ? Math.max(1, Math.min(500, Math.floor(limit))) : 100;
     return requestReadyAgent("activity.list", { limit: value });
   });
+  ipcMain.handle("connect:hosted:snapshot", async (event) => {
+    trustedIpc(event);
+    return connectorRequest("GET", "/v1/connectors/hosted-control");
+  });
+  ipcMain.handle("connect:hosted:create", async (event, name: unknown) => {
+    trustedIpc(event);
+    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 200) {
+      throw new Error("Collection name must be between 1 and 200 characters.");
+    }
+    return connectorRequest("POST", "/v1/connectors/hosted/collections", {
+      display_name: name.trim(),
+      template: "mdbase"
+    });
+  });
+  ipcMain.handle("connect:hosted:rename", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid hosted collection details.");
+    if (typeof value.collectionId !== "string") throw new Error("Invalid collection ID.");
+    if (typeof value.name !== "string" || value.name.trim().length === 0 || [...value.name.trim()].length > 200) {
+      throw new Error("Collection name must be between 1 and 200 characters.");
+    }
+    return connectorRequest(
+      "PATCH",
+      `/v1/connectors/hosted/collections/${encodeURIComponent(value.collectionId)}`,
+      { display_name: value.name.trim() }
+    );
+  });
+  ipcMain.handle("connect:hosted:delete", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    return connectorRequest(
+      "DELETE",
+      `/v1/connectors/hosted/collections/${encodeURIComponent(collectionId)}`
+    );
+  });
+  ipcMain.handle("connect:hosted:authorization-approve", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid authorization decision.");
+    if (typeof value.requestId !== "string" || typeof value.collectionId !== "string") {
+      throw new Error("Choose a hosted collection for this request.");
+    }
+    return connectorRequest(
+      "POST",
+      `/v1/connectors/hosted/authorization-requests/${encodeURIComponent(value.requestId)}/approve`,
+      {
+        collection_id: value.collectionId,
+        operations: stringArray(value.operations, "Choose at least one operation.")
+      }
+    );
+  });
+  ipcMain.handle("connect:hosted:grant-update", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid hosted application access.");
+    if (typeof value.grantId !== "string") throw new Error("Invalid grant ID.");
+    return connectorRequest(
+      "PATCH",
+      `/v1/connectors/hosted/grants/${encodeURIComponent(value.grantId)}`,
+      { operations: stringArray(value.operations, "Choose at least one operation.") }
+    );
+  });
+  ipcMain.handle("connect:hosted:grant-revoke", async (event, grantId: unknown) => {
+    trustedIpc(event);
+    if (typeof grantId !== "string") throw new Error("Invalid grant ID.");
+    return connectorRequest(
+      "DELETE",
+      `/v1/connectors/hosted/grants/${encodeURIComponent(grantId)}`
+    );
+  });
+  ipcMain.handle("connect:hosted:replica-revoke", async (event, replicaId: unknown) => {
+    trustedIpc(event);
+    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
+    return connectorRequest(
+      "DELETE",
+      `/v1/connectors/hosted/replicas/${encodeURIComponent(replicaId)}`
+    );
+  });
+  ipcMain.handle("connect:mirrors:list", async (event) => {
+    trustedIpc(event);
+    return mirrors().list();
+  });
+  ipcMain.handle("connect:mirrors:choose-folder", async (event) => {
+    trustedIpc(event);
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, {
+          title: "Choose a folder for this hosted collection",
+          properties: ["openDirectory", "createDirectory"]
+        })
+      : await dialog.showOpenDialog({
+          title: "Choose a folder for this hosted collection",
+          properties: ["openDirectory", "createDirectory"]
+        });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle("connect:mirrors:connect", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid mirror settings.");
+    if (typeof value.collectionId !== "string" || typeof value.path !== "string") {
+      throw new Error("Choose a hosted collection and folder.");
+    }
+    if (!["read_only", "read_write"].includes(String(value.mode))) {
+      throw new Error("Choose receive-only or two-way synchronization.");
+    }
+    const mirrorPath = await realpath(resolve(value.path));
+    const registered = await requestReadyAgent<Array<{ path: string }>>("collections.list");
+    const registeredPaths = await Promise.all(
+      registered.map(async (collection) =>
+        realpath(resolve(collection.path)).catch(() => resolve(collection.path))
+      )
+    );
+    if (registeredPaths.some((path) => pathsOverlap(path, mirrorPath))) {
+      throw new Error("That folder overlaps a computer-owned collection. Choose another folder.");
+    }
+    const cloud = await requiredCloudConfig();
+    return mirrors().connect({
+      collectionId: value.collectionId,
+      path: mirrorPath,
+      mode: value.mode as "read_only" | "read_write",
+      name: typeof value.name === "string" ? value.name : undefined,
+      cloud
+    });
+  });
+  ipcMain.handle("connect:mirrors:sync", async (event, replicaId: unknown) => {
+    trustedIpc(event);
+    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
+    return mirrors().syncNow(replicaId);
+  });
+  ipcMain.handle("connect:mirrors:resolve", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid conflict resolution.");
+    if (
+      typeof value.replicaId !== "string"
+      || typeof value.recordId !== "string"
+      || !["local", "remote"].includes(String(value.resolution))
+    ) {
+      throw new Error("Choose the local or hosted version.");
+    }
+    return mirrors().resolveConflict(
+      value.replicaId,
+      value.recordId,
+      value.resolution as "local" | "remote"
+    );
+  });
+  ipcMain.handle("connect:mirrors:disconnect", async (event, replicaId: unknown) => {
+    trustedIpc(event);
+    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
+    await connectorRequest(
+      "DELETE",
+      `/v1/connectors/hosted/replicas/${encodeURIComponent(replicaId)}`
+    );
+    await mirrors().remove(replicaId);
+    return { ok: true };
+  });
+  ipcMain.handle("connect:mirrors:open", async (event, replicaId: unknown) => {
+    trustedIpc(event);
+    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
+    const path = mirrors().pathFor(replicaId);
+    if (!path) throw new Error("That mirror is not controlled by this computer.");
+    return shell.openPath(path);
+  });
 }
 
 function asObject(value: unknown, message: string): Record<string, unknown> {
@@ -491,6 +660,36 @@ async function effectiveCloudConfig(): Promise<{ serverUrl: string; connectorTok
   return { serverUrl: validateServerUrl(serverUrl), connectorToken };
 }
 
+async function requiredCloudConfig(): Promise<{ serverUrl: string; connectorToken: string }> {
+  const cloud = await effectiveCloudConfig();
+  if (!cloud) throw new Error("Connect this computer to an account first.");
+  return cloud;
+}
+
+async function connectorRequest<Result = unknown>(
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<Result> {
+  const cloud = await requiredCloudConfig();
+  const response = await fetch(`${cloud.serverUrl}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${cloud.connectorToken}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" })
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30_000)
+  });
+  const value = await response.json().catch(() => null) as {
+    error?: { message?: string };
+  } | null;
+  if (!response.ok) {
+    throw new Error(value?.error?.message ?? `Account request failed with HTTP ${response.status}.`);
+  }
+  return value as Result;
+}
+
 async function writeCloudConfig(serverUrl: string, connectorToken: string): Promise<void> {
   const url = new URL(validateServerUrl(serverUrl));
   if (!connectorToken.startsWith("con_") || connectorToken.length < 24) {
@@ -553,6 +752,9 @@ function handleDeepLink(value: string | undefined): void {
       showRoute("access");
     } else if (url.hostname === "paired") {
       showRoute("overview");
+    } else if (url.hostname === "mirror") {
+      const collectionId = url.searchParams.get("collection");
+      showRoute(collectionId ? `collections:mirror:${collectionId}` : "collections");
     }
   } catch {
     // Ignore malformed protocol invocations.
@@ -704,6 +906,9 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   createTray();
+  await mirrors().start().catch((error) => {
+    console.error("Hosted mirror settings could not be initialized", error);
+  });
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await ensureAgent();
@@ -733,5 +938,6 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   quitting = true;
+  mirrorManager?.stop();
   agentProcess?.kill();
 });

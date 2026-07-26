@@ -2203,6 +2203,204 @@ export async function buildApp(options: BuildOptions) {
     return { ok: true };
   });
 
+  app.get("/v1/connectors/hosted-control", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    return hostedControlSnapshot(options, hostedReference, publicUrl, connector.user_id);
+  });
+
+  app.post("/v1/connectors/hosted/collections", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const input = z.object({
+      display_name: z.string().trim().min(1).max(200),
+      template: z.literal("mdbase").default("mdbase")
+    }).strict().parse(request.body);
+    const collection = await createHostedCollectionForUser(
+      options,
+      hostedReference,
+      publicUrl,
+      connector.user_id,
+      input.display_name,
+      input.template
+    );
+    return reply.code(201).send({ collection });
+  });
+
+  app.patch("/v1/connectors/hosted/collections/:collectionId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      display_name: z.string().trim().min(1).max(200)
+    }).strict().parse(request.body);
+    const collection = await renameHostedCollectionForUser(
+      options,
+      connector.user_id,
+      collectionId,
+      input.display_name
+    );
+    if (!collection) {
+      return reply.code(404).send(apiError(
+        "hosted_collection_not_found",
+        "Hosted collection not found."
+      ));
+    }
+    return { collection };
+  });
+
+  app.delete("/v1/connectors/hosted/collections/:collectionId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    if (!await deleteHostedCollectionForUser(
+      options,
+      hostedReference,
+      connector.user_id,
+      collectionId
+    )) {
+      return reply.code(404).send(apiError(
+        "hosted_collection_not_found",
+        "Hosted collection not found."
+      ));
+    }
+    return { ok: true };
+  });
+
+  app.post(
+    "/v1/connectors/mirror-pairing-requests/:pairingId/approve",
+    async (request, reply) => {
+      const connector = await requireConnector(request, reply, options.db);
+      if (!connector) return;
+      const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
+      const input = z.object({ collection_id: z.uuid() }).strict().parse(request.body);
+      const approved = await options.db.query<{
+        id: string;
+        mode: "read_only" | "read_write";
+      }>(
+        `UPDATE mirror_pairing_requests
+         SET user_id = $2, collection_id = $3, approved_at = now()
+         WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
+           AND expires_at > now()
+           AND EXISTS (
+             SELECT 1 FROM hosted_collections
+             WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
+           )
+         RETURNING id, mode`,
+        [pairingId, connector.user_id, input.collection_id]
+      );
+      if (!approved.rows[0]) {
+        return reply.code(404).send(apiError(
+          "mirror_pairing_not_found",
+          "Mirror setup expired, was already used, or the collection was not found."
+        ));
+      }
+      await audit(options.db, connector.user_id, "hosted_replica.pairing_approved", pairingId, {
+        collection_id: input.collection_id,
+        connector_id: connector.id,
+        mode: approved.rows[0].mode,
+        source: "desktop"
+      });
+      return { ok: true };
+    }
+  );
+
+  app.delete("/v1/connectors/hosted/replicas/:replicaId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { replicaId } = z.object({ replicaId: z.uuid() }).parse(request.params);
+    if (!await revokeHostedReplicaForUser(
+      options,
+      hostedReference,
+      connector.user_id,
+      replicaId
+    )) {
+      return reply.code(404).send(apiError("replica_not_found", "Active mirror not found."));
+    }
+    return { ok: true };
+  });
+
+  app.post(
+    "/v1/connectors/hosted/authorization-requests/:requestId/approve",
+    async (request, reply) => {
+      const connector = await requireConnector(request, reply, options.db);
+      if (!connector) return;
+      const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
+      const input = z.object({
+        collection_id: z.uuid(),
+        operations: z.array(operationSchema).min(1)
+      }).strict().parse(request.body);
+      if (!options.hostedProvider) {
+        return reply.code(503).send(apiError(
+          "hosted_provider_unavailable",
+          "Hosted application access is temporarily unavailable."
+        ));
+      }
+      const hosted = await options.db.query<{
+        id: string;
+        template: HostedTemplate;
+        display_name: string;
+        contracts: CollectionContractDescriptor[];
+      }>(
+        `SELECT id, template, display_name, contracts FROM hosted_collections
+         WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
+        [input.collection_id, connector.user_id]
+      );
+      const collection = hosted.rows[0];
+      if (!collection) {
+        return reply.code(404).send(apiError(
+          "hosted_collection_not_found",
+          "Hosted collection not found."
+        ));
+      }
+      const approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
+        requestId,
+        userId: connector.user_id,
+        collectionId: collection.id,
+        operations: input.operations,
+        template: collection.template,
+        displayName: collection.display_name,
+        contracts: collection.contracts
+      });
+      if (!approved) {
+        return reply.code(404).send(apiError(
+          "authorization_not_found",
+          "Authorization request expired or was not found."
+        ));
+      }
+      return { ok: true };
+    }
+  );
+
+  app.patch("/v1/connectors/hosted/grants/:grantId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      operations: z.array(operationSchema).min(1)
+    }).strict().parse(request.body);
+    const grant = await narrowHostedGrantForUser(
+      options,
+      connector.user_id,
+      grantId,
+      input.operations
+    );
+    if (!grant) {
+      return reply.code(404).send(apiError("grant_not_found", "Active hosted grant not found."));
+    }
+    return { grant };
+  });
+
+  app.delete("/v1/connectors/hosted/grants/:grantId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
+    if (!await revokeHostedGrantForUser(options, connector.user_id, grantId)) {
+      return reply.code(404).send(apiError("grant_not_found", "Active hosted grant not found."));
+    }
+    return { ok: true };
+  });
+
   app.post("/v1/hosted/collections", async (request, reply) => {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
@@ -5366,6 +5564,390 @@ function authorityTransferResponse(
       Math.floor((new Date(transfer.expires_at).getTime() - Date.now()) / 1_000)
     )
   };
+}
+
+async function hostedControlSnapshot(
+  options: BuildOptions,
+  hostedReference: HostedAuthorityRegistry | undefined,
+  publicUrl: string,
+  userId: string
+): Promise<Record<string, unknown>> {
+  if (!options.hostedCollections) {
+    return {
+      online: true,
+      hosted_collections: [],
+      grants: [],
+      pending_authorizations: []
+    };
+  }
+  await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+  const collections = await options.db.query<{
+    id: string;
+    display_name: string;
+    template: HostedTemplate;
+    contracts: CollectionContractDescriptor[];
+    provider_url: string | null;
+    authority_state: "active" | "transferring" | "transferred";
+    authority_epoch: string | number;
+    transferred_collection_id: string | null;
+    created_at: string;
+  }>(
+    `SELECT id, display_name, template, provider_url, contracts, authority_state,
+            authority_epoch, transferred_collection_id, created_at
+     FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
+    [userId]
+  );
+  const replicas = collections.rows.length
+    ? await options.db.query<{
+        id: string;
+        collection_id: string;
+        name: string;
+        mode: "read_only" | "read_write";
+        allowed_types: string[];
+        revoked_at: string | null;
+        created_at: string;
+      }>(
+        `SELECT replica.id, replica.collection_id, replica.name, replica.mode,
+                replica.allowed_types, replica.revoked_at, replica.created_at
+         FROM hosted_replicas replica
+         JOIN hosted_collections collection ON collection.id = replica.collection_id
+         WHERE collection.user_id = $1 AND replica.purpose = 'mirror'
+         ORDER BY replica.created_at`,
+        [userId]
+      )
+    : { rows: [] };
+  const statuses = new Map<string, {
+    head: number;
+    acknowledged_sequence: number;
+    last_seen_at: string | null;
+    token_expires_at: string;
+  }>();
+  if (options.hostedProvider) {
+    const groups = await Promise.all(collections.rows.map(async (collection) => {
+      try {
+        return await options.hostedProvider!.replicaStatuses(collection.id);
+      } catch {
+        return [];
+      }
+    }));
+    for (const status of groups.flat()) statuses.set(status.id, status);
+  }
+  const grants = await options.db.query(
+    `SELECT g.id, g.application_id, a.family_identity AS application_family_id,
+            a.name AS application_name,
+            a.distribution AS application_distribution,
+            a.homepage AS application_homepage,
+            a.project_url AS application_project_url,
+            CASE WHEN g.application_origin = '' THEN a.homepage
+                 ELSE g.application_origin END AS application_origin,
+            a.icon AS application_icon,
+            h.id AS collection_id, h.display_name AS collection_name,
+            'hosted' AS collection_kind,
+            g.operations, g.scope, g.notification_criteria, g.created_at
+     FROM grants g
+     JOIN applications a ON a.id = g.application_id
+     JOIN hosted_collections h ON h.id = g.hosted_collection_id
+     WHERE g.user_id = $1 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL
+     ORDER BY a.name, h.display_name`,
+    [userId]
+  );
+  const pending = await options.db.query(
+    `SELECT ar.id, ar.application_id,
+            a.name AS application_name,
+            a.distribution AS application_distribution,
+            a.homepage AS application_homepage,
+            a.project_url AS application_project_url,
+            a.icon AS application_icon,
+            ar.flow, ar.user_code, ar.requested_operations,
+            ar.collection_hint, ar.expires_at,
+            a.requirements, a.provisions, a.notifications
+     FROM authorization_requests ar
+     JOIN applications a ON a.id = ar.application_id
+     WHERE ar.user_id = $1 AND ar.completed_at IS NULL
+       AND ar.denied_at IS NULL AND ar.expires_at > now()
+     ORDER BY ar.expires_at`,
+    [userId]
+  );
+  return {
+    online: true,
+    hosted_collections: collections.rows.map((collection) => ({
+      ...collection,
+      provider_url: collection.provider_url ?? publicUrl,
+      spec_version: "0.3.0",
+      authority_epoch: Number(collection.authority_epoch),
+      contracts: contractRequirements(
+        effectiveHostedContractDescriptors(collection.contracts, collection.template)
+      ),
+      replicas: replicas.rows
+        .filter((replica) => replica.collection_id === collection.id)
+        .map((replica) => ({
+          ...replica,
+          sync_status: statuses.get(replica.id) ?? null
+        }))
+    })),
+    grants: grants.rows.map((grant) => ({
+      ...grant,
+      application_origin: normalizedApplicationOrigin(grant.application_origin)
+    })),
+    pending_authorizations: pending.rows.map((authorization) => ({
+      ...authorization,
+      compatible_collection_ids: [],
+      provisionable_collection_ids: []
+    }))
+  };
+}
+
+async function createHostedCollectionForUser(
+  options: BuildOptions,
+  hostedReference: HostedAuthorityRegistry | undefined,
+  publicUrl: string,
+  userId: string,
+  displayName: string,
+  template: HostedTemplate
+): Promise<Record<string, unknown>> {
+  if (!options.hostedCollections) {
+    throw new RequestValidationError("Hosted collections are not enabled.");
+  }
+  const collectionId = randomUUID();
+  try {
+    if (options.hostedProvider) {
+      await options.hostedProvider.createCollection(collectionId, template, displayName);
+    } else {
+      await hostedReference!.create(collectionId, template);
+    }
+    await options.db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, provider_url, contracts)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [
+        collectionId,
+        userId,
+        displayName,
+        template,
+        options.hostedProvider?.url ?? null,
+        JSON.stringify(hostedContractDescriptors(template))
+      ]
+    );
+  } catch (error) {
+    if (options.hostedProvider) {
+      await options.hostedProvider.deleteCollection(collectionId).catch(() => undefined);
+    } else {
+      await hostedReference?.delete(collectionId).catch(() => undefined);
+    }
+    throw error;
+  }
+  await audit(options.db, userId, "hosted_collection.created", collectionId, {
+    template,
+    source: "desktop"
+  });
+  return {
+    id: collectionId,
+    display_name: displayName,
+    template,
+    provider_url: options.hostedProvider?.url ?? publicUrl,
+    spec_version: "0.3.0",
+    contracts: contractRequirements(hostedContractDescriptors(template)),
+    authority_state: "active",
+    authority_epoch: 1,
+    transferred_collection_id: null,
+    created_at: new Date().toISOString(),
+    replicas: []
+  };
+}
+
+async function renameHostedCollectionForUser(
+  options: BuildOptions,
+  userId: string,
+  collectionId: string,
+  displayName: string
+): Promise<{ id: string; display_name: string } | null> {
+  if (!await ownsHostedCollection(options.db, userId, collectionId)) return null;
+  if (options.hostedProvider) {
+    await options.hostedProvider.renameCollection(collectionId, displayName);
+  }
+  const renamed = await options.db.query<{ id: string; display_name: string }>(
+    `UPDATE hosted_collections SET display_name = $3
+     WHERE id = $1 AND user_id = $2 RETURNING id, display_name`,
+    [collectionId, userId, displayName]
+  );
+  await audit(options.db, userId, "hosted_collection.renamed", collectionId, {
+    display_name: displayName,
+    source: "desktop"
+  });
+  return renamed.rows[0] ?? null;
+}
+
+async function deleteHostedCollectionForUser(
+  options: BuildOptions,
+  hostedReference: HostedAuthorityRegistry | undefined,
+  userId: string,
+  collectionId: string
+): Promise<boolean> {
+  if (!await ownsHostedCollection(options.db, userId, collectionId)) return false;
+  if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
+  else await hostedReference!.delete(collectionId);
+  const connection = await options.db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query(
+      "DELETE FROM grants WHERE hosted_collection_id = $1 AND user_id = $2",
+      [collectionId, userId]
+    );
+    await connection.query(
+      "DELETE FROM hosted_collections WHERE id = $1 AND user_id = $2",
+      [collectionId, userId]
+    );
+    await audit(connection, userId, "hosted_collection.deleted", collectionId, {
+      source: "desktop"
+    });
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return true;
+}
+
+async function revokeHostedReplicaForUser(
+  options: BuildOptions,
+  hostedReference: HostedAuthorityRegistry | undefined,
+  userId: string,
+  replicaId: string
+): Promise<boolean> {
+  const found = await options.db.query<{
+    collection_id: string;
+    revoked_at: string | null;
+  }>(
+    `SELECT replica.collection_id, replica.revoked_at FROM hosted_replicas replica
+     JOIN hosted_collections collection ON collection.id = replica.collection_id
+     WHERE replica.id = $1 AND replica.purpose = 'mirror'
+       AND collection.user_id = $2`,
+    [replicaId, userId]
+  );
+  const replica = found.rows[0];
+  if (!replica) return false;
+  if (replica.revoked_at) return true;
+  if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId);
+  else await hostedReference!.revokeReplica(replica.collection_id, replicaId);
+  await options.db.query(
+    "UPDATE hosted_replicas SET revoked_at = now(), token_hash = NULL WHERE id = $1",
+    [replicaId]
+  );
+  await options.db.query("DELETE FROM mirror_pairing_requests WHERE replica_id = $1", [replicaId]);
+  await audit(options.db, userId, "hosted_replica.revoked", replicaId, {
+    source: "desktop"
+  });
+  return true;
+}
+
+async function narrowHostedGrantForUser(
+  options: BuildOptions,
+  userId: string,
+  grantId: string,
+  requestedOperations: string[]
+): Promise<{ id: string; operations: string[] } | null> {
+  const active = await options.db.query<{
+    id: string;
+    hosted_replica_id: string;
+    operations: string[];
+    scope: GrantScope;
+    requirements: ApplicationRequirements;
+    template: HostedTemplate;
+    hosted_contracts: CollectionContractDescriptor[];
+  }>(
+    `SELECT g.id, g.hosted_replica_id, g.operations, g.scope,
+            a.requirements, h.template,
+            h.contracts AS hosted_contracts
+     FROM grants g
+     JOIN applications a ON a.id = g.application_id
+     JOIN hosted_collections h ON h.id = g.hosted_collection_id
+     WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
+    [grantId, userId]
+  );
+  const current = active.rows[0];
+  if (!current) return null;
+  const operations = [...new Set(requestedOperations)];
+  if (operations.some((operation) => !current.operations.includes(operation))) {
+    throw new RequestValidationError(
+      "Existing access can be narrowed here, but broader access requires a new application request."
+    );
+  }
+  assertOperationsAllowedByRequirements(operations, current.requirements);
+  if (!options.hostedProvider) {
+    throw new RequestValidationError("Hosted application access is temporarily unavailable.");
+  }
+  const write = operations.some((operation) => [
+    "create",
+    "update",
+    "delete",
+    "rename",
+    "create_type",
+    "update_type",
+    "create_view_source",
+    "update_view_source",
+    "delete_view_source",
+    "put_timer",
+    "cancel_timer",
+    "reconcile_timers"
+  ].includes(operation));
+  await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
+    grantId,
+    mode: write ? "read_write" : "read_only",
+    allowedTypes: typesForContracts(
+      effectiveHostedContractDescriptors(current.hosted_contracts, current.template),
+      current.scope.contracts
+    ),
+    fullCollection: current.scope.access === "full_collection",
+    allowedOperations: operations
+  });
+  const updated = await options.db.query<{ id: string; operations: string[] }>(
+    "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
+    [grantId, JSON.stringify(operations)]
+  );
+  await audit(options.db, userId, "grant.narrowed", grantId, {
+    previous_operations: current.operations,
+    operations,
+    source: "desktop"
+  });
+  return updated.rows[0] ?? null;
+}
+
+async function revokeHostedGrantForUser(
+  options: BuildOptions,
+  userId: string,
+  grantId: string
+): Promise<boolean> {
+  const active = await options.db.query<{
+    hosted_collection_id: string;
+    hosted_replica_id: string;
+  }>(
+    `SELECT g.hosted_collection_id, g.hosted_replica_id
+     FROM grants g
+     JOIN hosted_collections h ON h.id = g.hosted_collection_id
+     WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
+    [grantId, userId]
+  );
+  const current = active.rows[0];
+  if (!current) return false;
+  if (!options.hostedProvider) {
+    throw new RequestValidationError("Hosted application access is temporarily unavailable.");
+  }
+  await options.hostedProvider.revokeReplica(current.hosted_replica_id);
+  await options.hostedProvider.revokeNotificationGrant(current.hosted_collection_id, grantId);
+  await options.db.query(
+    "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
+    [current.hosted_replica_id]
+  );
+  await options.db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grantId]);
+  await options.db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
+  await options.db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
+  await audit(options.db, userId, "grant.revoked", grantId, { source: "desktop" });
+  return true;
 }
 
 async function ownsHostedCollection(

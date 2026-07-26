@@ -38,6 +38,8 @@ const promotionMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-promot
 const promotionToolRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-promotion-tool-"));
 const mirrorStateRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-mirror-state-"));
 const portableRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-portable-"));
+const desktopMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-desktop-mirror-"));
+const desktopMirrorData = await mkdtemp(join(tmpdir(), "mdbase-provider-desktop-data-"));
 process.env.MDBASE_CONNECT_MIRROR_STATE_DIR = mirrorStateRoot;
 const children = new Set();
 let postgresStarted = false;
@@ -63,6 +65,7 @@ const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
+const { MirrorManager } = await import("../apps/desktop/dist/main/mirror-manager.js");
 
 try {
   phase("starting disposable PostgreSQL 18");
@@ -543,6 +546,50 @@ try {
     ).status,
     421
   );
+
+  phase("controlling a writable mirror through the Electron mirror engine");
+  const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
+    method: "POST",
+    body: { name: "Desktop mirror controller" }
+  });
+  const desktopMirrors = new MirrorManager(desktopMirrorData);
+  const desktopMirror = await desktopMirrors.connect({
+    collectionId,
+    path: desktopMirrorRoot,
+    mode: "read_write",
+    name: "Desktop-managed mirror",
+    cloud: {
+      serverUrl: controlUrl,
+      connectorToken: connector.token
+    }
+  });
+  assert.equal(desktopMirror.collection_id, collectionId);
+  assert.equal(desktopMirror.mode, "read_write");
+  assert.equal(desktopMirror.state, "up_to_date");
+  assert.match(await readFile(join(desktopMirrorRoot, "mdbase.yaml"), "utf8"), /spec_version: 0\.3\.0/);
+  assert.equal((await stat(join(desktopMirrorData, "mirrors.json"))).mode & 0o777, 0o600);
+  await mkdir(join(desktopMirrorRoot, "tasks"), { recursive: true });
+  await writeFile(
+    join(desktopMirrorRoot, "tasks", "desktop-managed.md"),
+    "---\ntype: task\ntitle: Desktop managed\nstatus: open\n---\n"
+  );
+  await desktopMirrors.syncNow(desktopMirror.replica_id);
+  const desktopRecord = (
+    await snapshotAll(
+      transport(provider.url, collectionId, writer),
+      await transport(provider.url, collectionId, writer).openSession()
+    )
+  ).find((record) => record.path === "tasks/desktop-managed.md");
+  assert.equal(desktopRecord?.frontmatter.title, "Desktop managed");
+  const desktopRevoked = await rawRequest(
+    controlUrl,
+    `/v1/connectors/hosted/replicas/${desktopMirror.replica_id}`,
+    { method: "DELETE", token: connector.token }
+  );
+  assert.equal(desktopRevoked.status, 200);
+  await desktopMirrors.remove(desktopMirror.replica_id);
+  assert.deepEqual(await desktopMirrors.list(), []);
+  desktopMirrors.stop();
 
   phase("exercising hosted lifecycle and writable enrollment in a real browser");
   await portalLifecycleE2E(controlUrl, browserMirrorRoot);
@@ -1664,6 +1711,8 @@ schema:
   await rm(promotionToolRoot, { recursive: true, force: true });
   await rm(mirrorStateRoot, { recursive: true, force: true });
   await rm(portableRoot, { recursive: true, force: true });
+  await rm(desktopMirrorRoot, { recursive: true, force: true });
+  await rm(desktopMirrorData, { recursive: true, force: true });
 }
 
 function phase(message) {
@@ -1890,10 +1939,11 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     const collectionId = dashboard.hosted_collections.find(
       (collection) => collection.display_name === "Browser E2E collection"
     ).id;
-    await row.getByRole("button", { name: "Sync folder" }).click();
-    await expect(row.locator("code").filter({ hasText: "mdbase-mirror connect" }))
-      .toContainText(`--collection ${collectionId}`);
-    await expect(row).toContainText("No credential is displayed or saved inside the folder");
+    await row.getByRole("button", { name: "Mirror" }).click();
+    await expect(row.getByRole("link", { name: "Open mdbase connect" }))
+      .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
+    await expect(row).toContainText("Choose the folder in mdbase connect");
+    await expect(row).not.toContainText("mdbase-mirror connect");
 
     const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
     connector = spawn(process.execPath, [

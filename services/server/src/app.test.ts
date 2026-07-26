@@ -1226,6 +1226,170 @@ describe("mdbase connect server", () => {
     });
   });
 
+  it("lets a paired desktop manage only its owner's hosted collections and mirrors", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const hostedProvider = {
+      url: "https://sync.example",
+      ready: vi.fn(),
+      createCollection: vi.fn(),
+      renameCollection: vi.fn(),
+      deleteCollection: vi.fn(),
+      provisionTypes: vi.fn(),
+      registerReplica: vi.fn(),
+      updateApplicationReplica: vi.fn(),
+      revokeReplica: vi.fn(),
+      replicaStatuses: vi.fn().mockResolvedValue([]),
+      upsertNotificationGrant: vi.fn(),
+      revokeNotificationGrant: vi.fn(),
+      rotateReplicaToken: vi.fn(),
+      compactThrough: vi.fn()
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const ownerSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Desktop owner", email: "desktop-owner@example.com" }
+    });
+    const ownerCookieHeader = ownerSession.headers["set-cookie"]!;
+    const ownerCookie = (Array.isArray(ownerCookieHeader) ? ownerCookieHeader[0] : ownerCookieHeader)
+      .split(";")[0];
+    const ownerConnector = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie: ownerCookie },
+      payload: { name: "Owner desktop" }
+    });
+    const ownerToken = ownerConnector.json().token as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/hosted/collections",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { display_name: "Desktop notes", template: "mdbase" }
+    });
+    expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
+    const collectionId = created.json().collection.id as string;
+    expect(hostedProvider.createCollection).toHaveBeenCalledWith(
+      collectionId,
+      "mdbase",
+      "Desktop notes"
+    );
+
+    const snapshot = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/hosted-control",
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    expect(snapshot.statusCode, JSON.stringify(snapshot.json())).toBe(200);
+    expect(snapshot.json().hosted_collections).toEqual([
+      expect.objectContaining({
+        id: collectionId,
+        display_name: "Desktop notes",
+        authority_state: "active",
+        replicas: []
+      })
+    ]);
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/v1/connectors/hosted/collections/${collectionId}`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { display_name: "Desktop journal" }
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(hostedProvider.renameCollection).toHaveBeenCalledWith(
+      collectionId,
+      "Desktop journal"
+    );
+
+    const otherSession = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Other owner", email: "desktop-other@example.com" }
+    });
+    const otherCookieHeader = otherSession.headers["set-cookie"]!;
+    const otherCookie = (Array.isArray(otherCookieHeader) ? otherCookieHeader[0] : otherCookieHeader)
+      .split(";")[0];
+    const otherConnector = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie: otherCookie },
+      payload: { name: "Other desktop" }
+    });
+    const forbiddenRename = await app.inject({
+      method: "PATCH",
+      url: `/v1/connectors/hosted/collections/${collectionId}`,
+      headers: { authorization: `Bearer ${otherConnector.json().token}` },
+      payload: { display_name: "Stolen" }
+    });
+    expect(forbiddenRename.statusCode).toBe(404);
+
+    const pairing = await app.inject({
+      method: "POST",
+      url: "/v1/mirror-pairing-requests",
+      payload: {
+        mirror_name: "Owner desktop mirror",
+        mode: "read_write",
+        collection_id: collectionId
+      }
+    });
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/mirror-pairing-requests/${pairing.json().pairing_id}/approve`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { collection_id: collectionId }
+    });
+    expect(approved.statusCode).toBe(200);
+    const exchanged = await app.inject({
+      method: "POST",
+      url: `/v1/mirror-pairing-requests/${pairing.json().pairing_id}/exchange`,
+      headers: { authorization: `Bearer ${pairing.json().pairing_secret}` }
+    });
+    expect(exchanged.statusCode, JSON.stringify(exchanged.json())).toBe(200);
+    expect(exchanged.json()).toMatchObject({
+      status: "paired",
+      sync_url: "https://sync.example",
+      replica: {
+        collection_id: collectionId,
+        name: "Owner desktop mirror",
+        mode: "read_write"
+      }
+    });
+    expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
+      collectionId,
+      expect.objectContaining({
+        id: exchanged.json().replica.id,
+        name: "Owner desktop mirror",
+        mode: "read_write"
+      })
+    );
+
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/hosted/replicas/${exchanged.json().replica.id}`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(exchanged.json().replica.id);
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/hosted/collections/${collectionId}`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(hostedProvider.deleteCollection).toHaveBeenCalledWith(collectionId);
+  });
+
   it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -1329,6 +1493,14 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` }
     });
     expect(connectorControl.json().pending_authorizations).toEqual([]);
+    const hostedControl = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/hosted-control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(hostedControl.json().pending_authorizations).toEqual([
+      expect.objectContaining({ id: requestId, application_name: "Writing Editor" })
+    ]);
     const localApproval = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${requestId}/approve`,
@@ -1341,8 +1513,8 @@ describe("mdbase connect server", () => {
     expect(localApproval.statusCode).toBe(404);
     const approved = await app.inject({
       method: "POST",
-      url: `/v1/authorization-requests/${requestId}/approve`,
-      headers: { cookie },
+      url: `/v1/connectors/hosted/authorization-requests/${requestId}/approve`,
+      headers: { authorization: `Bearer ${connector.token}` },
       payload: {
         collection_id: collectionId,
         operations: ["describe", "query", "create", "update"]
@@ -1383,6 +1555,39 @@ describe("mdbase connect server", () => {
       [provisioned.rows[0].id]
     );
     expect(reconciled.rows[0].allowed_types).toEqual([]);
+
+    const activeControl = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/hosted-control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    const grantId = activeControl.json().grants[0].id as string;
+    const narrowed = await app.inject({
+      method: "PATCH",
+      url: `/v1/connectors/hosted/grants/${grantId}`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { operations: ["describe", "query"] }
+    });
+    expect(narrowed.statusCode, JSON.stringify(narrowed.json())).toBe(200);
+    expect(narrowed.json().grant.operations).toEqual(["describe", "query"]);
+    expect(hostedProvider.updateApplicationReplica).toHaveBeenLastCalledWith(
+      provisioned.rows[0].id,
+      expect.objectContaining({ mode: "read_only", allowedOperations: ["describe", "query"] })
+    );
+    const broadened = await app.inject({
+      method: "PATCH",
+      url: `/v1/connectors/hosted/grants/${grantId}`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { operations: ["describe", "query", "create"] }
+    });
+    expect(broadened.statusCode).toBe(400);
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/hosted/grants/${grantId}`,
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(provisioned.rows[0].id);
   });
 
   it("provisions required types before creating a full-collection grant", async () => {

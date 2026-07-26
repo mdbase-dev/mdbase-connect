@@ -16,9 +16,10 @@ need to understand relays, OAuth, or networking to control access.
 ## Product Purpose
 
 mdbase connect makes a user's local and hosted collections safely available to
-applications they choose. The local desktop client controls computer-owned
-collections; the account portal controls mdbase-hosted collections and shared
-application access. The hosted service supplies identity, short-lived
+applications they choose. The desktop client is the primary surface for both
+computer-owned and mdbase-hosted collections, application access, and optional
+local mirrors. The account portal handles sign-in, pairing, account recovery,
+and remote revocation. The hosted service supplies identity, short-lived
 authorization, routing, an outbound-only relay for local authorities, and a
 durable authority for hosted collections. Hosted collections are always mdbase
 collections—application contracts are optional consumers, never the storage

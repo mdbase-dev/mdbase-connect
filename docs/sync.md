@@ -49,7 +49,10 @@ reference path through a real HTTP server:
   an offline client for optimistic create, update, rename, and delete;
 - contract discovery from each hosted sync session, a generic offline replica,
   and receive-only or writable Markdown directory mirrors with atomic writes,
-  durable journals, and explicit conflict resolution.
+  durable journals, and explicit conflict resolution;
+- hosted collection and mirror controls in the Electron app, including folder
+  selection, background sync state, conflict decisions, and revocation without
+  a command-line onboarding step.
 
 The network end-to-end test creates a hosted collection, queues a record
 offline, synchronizes two clients, materializes Markdown, returns a stale-write
@@ -539,7 +542,7 @@ Markdown records and type definitions.
 - materialize a full hosted collection as Markdown;
 - preserve identity, paths, resources, and cursor state locally;
 - detect local divergence and pause before replacement;
-- approve enrollment in the account portal without copying a credential;
+- approve enrollment from the Electron controller without copying a credential;
 - verify complete rebuild after replica metadata loss.
 
 ### 5. Writable Connect mirror
