@@ -193,6 +193,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
         relay_public_key: connectorKey.getPublicKey(undefined, "uncompressed").toString("base64url"),
+        inventory_revision: 1,
         collections: [{
           id: localCollectionId,
           display_name: "Workouts",
@@ -327,10 +328,13 @@ describe("mdbase connect server", () => {
     expect(pending.statusCode).toBe(200);
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
     expect(pending.json().authorization.collection_hint).toBe(collectionId);
-    expect(pending.json().collections).toContainEqual(expect.objectContaining({
-      display_name: "Legacy workouts",
-      spec_version: "0.2.0"
-    }));
+    expect(pending.json().collections).toEqual([]);
+    expect(pending.json().unavailable_connectors).toContainEqual(
+      expect.objectContaining({
+        connector_name: "Home computer",
+        reason: "offline"
+      })
+    );
 
     const portalLegacyApproval = await app.inject({
       method: "POST",
@@ -341,8 +345,7 @@ describe("mdbase connect server", () => {
         operations: ["read", "query"]
       }
     });
-    expect(portalLegacyApproval.statusCode).toBe(400);
-    expect(portalLegacyApproval.json().error.message).toContain("does not support the query operation");
+    expect(portalLegacyApproval.statusCode).toBe(404);
 
     const localControl = await app.inject({
       method: "GET",
@@ -511,7 +514,11 @@ describe("mdbase connect server", () => {
     const portalRequestId = portalAuthorization.headers.location!.split("/").at(-1)!;
     const waitingDashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
     expect(waitingDashboard.json().pending_authorizations).toEqual([
-      expect.objectContaining({ id: portalRequestId, application_name: "Workout Tracker" })
+      expect.objectContaining({
+        id: portalRequestId,
+        application_name: "Workout Tracker",
+        available_collections: []
+      })
     ]);
     const portalApproved = await app.inject({
       method: "POST",
@@ -519,8 +526,15 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: { collection_id: collectionId, operations: ["read"] }
     });
-    expect(portalApproved.statusCode).toBe(200);
-    expect(portalApproved.json()).toEqual({ ok: true });
+    expect(portalApproved.statusCode).toBe(404);
+    const locallyApproved = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authorization-requests/${portalRequestId}/approve`,
+      headers: { authorization: `Bearer ${connector.token}` },
+      payload: { collection_id: localCollectionId, operations: ["read"] }
+    });
+    expect(locallyApproved.statusCode).toBe(200);
+    expect(locallyApproved.json()).toEqual({ ok: true });
     const policyAfterPortalApproval = await app.inject({
       method: "GET",
       url: "/v1/connectors/control",
@@ -639,6 +653,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
         relay_public_key: connectorKey.getPublicKey(undefined, "uncompressed").toString("base64url"),
+        inventory_revision: 1,
         collections: [{
           id: localCollectionId,
           display_name: "Portable notes",
@@ -787,8 +802,12 @@ describe("mdbase connect server", () => {
       user_code: device.json().user_code,
       requested_operations: ["describe", "query"]
     });
-    expect(pending.json().collections).toEqual([
-      expect.objectContaining({ id: collectionId, kind: "local" })
+    expect(pending.json().collections).toEqual([]);
+    expect(pending.json().unavailable_connectors).toEqual([
+      expect.objectContaining({
+        connector_name: "Portable computer",
+        reason: "offline"
+      })
     ]);
 
     const control = await app.inject({
@@ -1163,6 +1182,7 @@ describe("mdbase connect server", () => {
       url: "/v1/connectors/sync",
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
+        inventory_revision: 1,
         collections: [{
           id: localCollectionId,
           display_name: "Local writing",
@@ -1227,10 +1247,7 @@ describe("mdbase connect server", () => {
         operations: ["describe", "query", "create", "update"]
       }
     });
-    expect(localApproval.statusCode).toBe(400);
-    expect(localApproval.json().error.message).toBe(
-      "This application requires an mdbase cloud collection."
-    );
+    expect(localApproval.statusCode).toBe(404);
     const approved = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${requestId}/approve`,

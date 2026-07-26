@@ -40,6 +40,10 @@ pub enum ControlCommand {
     CollectionAdd(CollectionPathParams),
     #[serde(rename = "collections.add-copy")]
     CollectionAddCopy(CollectionPathParams),
+    #[serde(rename = "collections.make-independent")]
+    CollectionMakeIndependent(CollectionIdParams),
+    #[serde(rename = "collections.take-authority")]
+    CollectionTakeAuthority(CollectionIdParams),
     #[serde(rename = "collections.create")]
     CollectionCreate(CollectionCreateParams),
     #[serde(rename = "collections.update-metadata")]
@@ -622,6 +626,13 @@ pub struct ConnectorAccount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityConflict {
+    pub collection_id: Uuid,
+    pub display_name: String,
+    pub active_connector_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessSnapshot {
     pub configured: bool,
     pub online: bool,
@@ -629,6 +640,8 @@ pub struct AccessSnapshot {
     pub account: Option<ConnectorAccount>,
     pub grants: Vec<GrantSummary>,
     pub pending_authorizations: Vec<PendingAuthorization>,
+    #[serde(default)]
+    pub authority_conflicts: Vec<AuthorityConflict>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -673,6 +686,15 @@ pub struct GrantPolicy {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encryption: Option<GrantEncryption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizationCollectionOffer {
+    pub collection_id: Uuid,
+    pub display_name: String,
+    pub spec_version: String,
+    #[serde(default)]
+    pub contracts: Vec<ContractRequirement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -725,6 +747,35 @@ pub enum RelayMessage {
     PolicySnapshot {
         protocol_version: u32,
         grants: Vec<GrantPolicy>,
+    },
+    AuthorizationOfferRequest {
+        protocol_version: u32,
+        request_id: Uuid,
+        authorization_id: Uuid,
+    },
+    AuthorizationOfferResponse {
+        protocol_version: u32,
+        request_id: Uuid,
+        paused: bool,
+        collections: Vec<AuthorizationCollectionOffer>,
+    },
+    AuthorizationActivationRequest {
+        protocol_version: u32,
+        request_id: Uuid,
+        authorization_id: Uuid,
+        collection_id: Uuid,
+        requirements: ApplicationRequirements,
+        provisions: ApplicationProvisions,
+        grant: GrantPolicy,
+    },
+    AuthorizationActivationResponse {
+        protocol_version: u32,
+        request_id: Uuid,
+        ok: bool,
+        #[serde(default)]
+        contracts: Vec<ContractRequirement>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<ControlError>,
     },
     OperationRequest {
         protocol_version: u32,
@@ -879,6 +930,29 @@ mod tests {
             Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap(),
         ];
         for message in [
+            RelayMessage::AuthorizationOfferRequest {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: ids[0],
+                authorization_id: ids[1],
+            },
+            RelayMessage::AuthorizationOfferResponse {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: ids[0],
+                paused: false,
+                collections: vec![AuthorizationCollectionOffer {
+                    collection_id: ids[2],
+                    display_name: "My tasks".to_string(),
+                    spec_version: "0.3.0".to_string(),
+                    contracts: Vec::new(),
+                }],
+            },
+            RelayMessage::AuthorizationActivationResponse {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: ids[0],
+                ok: true,
+                contracts: Vec::new(),
+                error: None,
+            },
             RelayMessage::OperationRequest {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
                 request_id: ids[0],

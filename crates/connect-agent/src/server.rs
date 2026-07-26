@@ -8,8 +8,10 @@ use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
 };
 use mdbase_connect_protocol::{
-    AgentConnectionState, AgentStatus, ControlCommand, ControlError, ControlRequest,
-    ControlResponse, RelayMessage, CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    AgentConnectionState, AgentStatus, ApplicationAccess, ApplicationRequirements,
+    AuthorizationCollectionOffer, ContractRequirement, ControlCommand, ControlError,
+    ControlRequest, ControlResponse, GrantScope, RelayMessage, CONTROL_PROTOCOL_VERSION,
+    ENCRYPTED_RELAY_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -103,6 +105,10 @@ impl AgentState {
         &self,
     ) -> Result<Vec<mdbase_connect_protocol::CollectionSummary>, ConnectError> {
         self.registry.list()
+    }
+
+    pub fn next_inventory_revision(&self) -> Result<u64, ConnectError> {
+        self.registry.next_inventory_revision()
     }
 
     pub fn origin_allowed(&self, origin: &str) -> bool {
@@ -208,6 +214,110 @@ impl AgentState {
                     tracing::debug!(grants = grants.len(), "relay policy snapshot applied");
                 }
                 None
+            }
+            RelayMessage::AuthorizationOfferRequest {
+                request_id,
+                authorization_id: _,
+                ..
+            } => {
+                let paused = self.registry.paused().unwrap_or(true);
+                let collections = if paused {
+                    Vec::new()
+                } else {
+                    self.registry
+                        .list()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|collection| collection.enabled)
+                        .filter_map(|collection| {
+                            let description = self.registry.describe(collection.id).ok()?;
+                            Some(AuthorizationCollectionOffer {
+                                collection_id: collection.id,
+                                display_name: description.display_name,
+                                spec_version: description.spec_version,
+                                contracts: contract_requirements(&description.contracts),
+                            })
+                        })
+                        .collect()
+                };
+                Some(RelayMessage::AuthorizationOfferResponse {
+                    protocol_version: CONTROL_PROTOCOL_VERSION,
+                    request_id,
+                    paused,
+                    collections,
+                })
+            }
+            RelayMessage::AuthorizationActivationRequest {
+                request_id,
+                collection_id,
+                requirements,
+                provisions,
+                grant,
+                ..
+            } => {
+                let result = (|| {
+                    if self.registry.paused()? {
+                        return Err(ConnectError::AccessDenied(
+                            "Remote access is paused on this computer.".to_string(),
+                        ));
+                    }
+                    if grant.collection_id != collection_id {
+                        return Err(ConnectError::AccessDenied(
+                            "The proposed grant names a different collection.".to_string(),
+                        ));
+                    }
+                    if !scope_matches_requirements(&grant.scope, &requirements) {
+                        return Err(ConnectError::AccessDenied(
+                            "The proposed grant scope does not match the application request."
+                                .to_string(),
+                        ));
+                    }
+                    let registered = self.registry.get(collection_id)?;
+                    if !registered.enabled {
+                        return Err(ConnectError::AccessDenied(
+                            "This collection is disabled on its computer.".to_string(),
+                        ));
+                    }
+                    let before = self.registry.describe(collection_id)?;
+                    if let Some(operation) = grant
+                        .operations
+                        .iter()
+                        .find(|operation| !before.operations.contains(operation))
+                    {
+                        return Err(ConnectError::AccessDenied(format!(
+                            "{} does not support the requested {operation} operation.",
+                            before.display_name
+                        )));
+                    }
+                    let contracts = self.registry.provision_types(
+                        collection_id,
+                        &requirements,
+                        &provisions.types,
+                    )?;
+                    self.watcher.rescan(collection_id);
+                    self.registry.upsert_grant(&grant)?;
+                    Ok(contracts)
+                })();
+                Some(match result {
+                    Ok(contracts) => RelayMessage::AuthorizationActivationResponse {
+                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        request_id,
+                        ok: true,
+                        contracts,
+                        error: None,
+                    },
+                    Err(error) => RelayMessage::AuthorizationActivationResponse {
+                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        request_id,
+                        ok: false,
+                        contracts: Vec::new(),
+                        error: Some(ControlError {
+                            code: error.code().to_string(),
+                            message: error.to_string(),
+                            details: None,
+                        }),
+                    },
+                })
             }
             RelayMessage::OperationRequest {
                 request_id,
@@ -339,6 +449,8 @@ impl AgentState {
                 Some(self.handle_encrypted_operation(envelope))
             }
             RelayMessage::OperationResponse { .. }
+            | RelayMessage::AuthorizationOfferResponse { .. }
+            | RelayMessage::AuthorizationActivationResponse { .. }
             | RelayMessage::EncryptedOperationResponse { .. }
             | RelayMessage::EncryptedOperationRejected { .. } => None,
         }
@@ -549,6 +661,17 @@ impl AgentState {
                 }
                 result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
             }
+            ControlCommand::CollectionMakeIndependent(params) => {
+                let result = self.registry.make_independent(params.collection_id);
+                if result.is_ok() {
+                    self.refresh_watchers();
+                }
+                result.and_then(|value| serde_json::to_value(value).map_err(ConnectError::from))
+            }
+            ControlCommand::CollectionTakeAuthority(params) => match self.cloud() {
+                Ok(cloud) => cloud.take_collection_authority(params.collection_id).await,
+                Err(error) => Err(error),
+            },
             ControlCommand::CollectionCreate(params) => {
                 let result = self.registry.create(params.path, params.name.as_deref());
                 if result.is_ok() {
@@ -666,7 +789,6 @@ impl AgentState {
         }
         let contracts = self
             .ensure_application_types(
-                cloud,
                 params.collection_id,
                 &pending.requirements,
                 &pending.provisions,
@@ -683,7 +805,6 @@ impl AgentState {
         let application = cloud.application(params.application_id).await?;
         let contracts = self
             .ensure_application_types(
-                cloud,
                 params.collection_id,
                 &application.requirements,
                 &application.provisions,
@@ -694,7 +815,6 @@ impl AgentState {
 
     async fn ensure_application_types(
         &self,
-        cloud: &CloudControlClient,
         collection_id: uuid::Uuid,
         requirements: &mdbase_connect_protocol::ApplicationRequirements,
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
@@ -711,7 +831,6 @@ impl AgentState {
         self.watcher.rescan(collection_id);
         let mut collection = self.registry.get(collection_id)?;
         collection.contracts = contracts;
-        cloud.sync_collection(&collection).await?;
         Ok(collection.contracts)
     }
 
@@ -723,6 +842,7 @@ impl AgentState {
                 account: None,
                 grants: self.registry.list_grants()?,
                 pending_authorizations: Vec::new(),
+                authority_conflicts: Vec::new(),
             })
             .map_err(ConnectError::from);
         };
@@ -739,6 +859,7 @@ impl AgentState {
                     account: None,
                     grants: self.registry.list_grants()?,
                     pending_authorizations: Vec::new(),
+                    authority_conflicts: Vec::new(),
                 }
             }
         };
@@ -799,6 +920,48 @@ impl AgentState {
         }
         serde_json::to_value(snapshot).map_err(ConnectError::from)
     }
+}
+
+fn contract_requirements(
+    contracts: &[mdbase_connect_protocol::CollectionContractDescriptor],
+) -> Vec<ContractRequirement> {
+    let mut contracts = contracts
+        .iter()
+        .map(|contract| ContractRequirement {
+            id: contract.id.clone(),
+            version: contract.version,
+        })
+        .collect::<Vec<_>>();
+    contracts.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    contracts.dedup();
+    contracts
+}
+
+fn scope_matches_requirements(scope: &GrantScope, requirements: &ApplicationRequirements) -> bool {
+    let expected_access = requirements.access.unwrap_or(ApplicationAccess::Contract);
+    let mut actual_contracts = scope.contracts.clone();
+    let mut expected_contracts = if expected_access == ApplicationAccess::FullCollection {
+        Vec::new()
+    } else {
+        requirements.contracts.clone()
+    };
+    actual_contracts.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    expected_contracts.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    actual_contracts.dedup();
+    expected_contracts.dedup();
+    scope.access == expected_access && actual_contracts == expected_contracts
 }
 
 fn requirements_can_be_provisioned(
@@ -940,7 +1103,8 @@ mod tests {
     use mdbase_connect_core::CollectionRegistry;
     use mdbase_connect_protocol::crypto::{RelayDirection, RelayMetadata};
     use mdbase_connect_protocol::{
-        GrantEncryption, GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
+        ApplicationAccess, ApplicationProvisions, ApplicationRequirements, GrantEncryption,
+        GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
     };
     use std::fs;
     use tokio::net::UnixStream;
@@ -983,6 +1147,84 @@ mod tests {
 
         server.abort();
         let _ = server.await;
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[test]
+    fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
+        let test_root = std::env::temp_dir().join(format!(
+            "mdbase-connect-authorization-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
+        let collection = registry
+            .create(test_root.join("collection"), Some("Live notes"))
+            .unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry.clone(), watcher, None);
+        let authorization_id = Uuid::new_v4();
+        let offer_request_id = Uuid::new_v4();
+        let offer = state
+            .handle_relay_message(RelayMessage::AuthorizationOfferRequest {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: offer_request_id,
+                authorization_id,
+            })
+            .unwrap();
+        let RelayMessage::AuthorizationOfferResponse {
+            request_id,
+            paused,
+            collections,
+            ..
+        } = offer
+        else {
+            panic!("expected authorization offer")
+        };
+        assert_eq!(request_id, offer_request_id);
+        assert!(!paused);
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].collection_id, collection.id);
+
+        let grant = GrantPolicy {
+            id: Uuid::new_v4(),
+            application_id: Uuid::new_v4(),
+            collection_id: collection.id,
+            operations: vec!["describe".to_string()],
+            scope: GrantScope::full_collection(),
+            application_name: "Live application".to_string(),
+            application_distribution: "web".to_string(),
+            application_homepage: "https://example.test".to_string(),
+            application_project_url: None,
+            application_origin: "https://example.test".to_string(),
+            application_icon: None,
+            collection_name: collection.display_name,
+            notification_criteria: Vec::new(),
+            created_at: "2026-07-26T00:00:00Z".to_string(),
+            encryption: None,
+        };
+        let activation = state
+            .handle_relay_message(RelayMessage::AuthorizationActivationRequest {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: Uuid::new_v4(),
+                authorization_id,
+                collection_id: collection.id,
+                requirements: ApplicationRequirements {
+                    contracts: Vec::new(),
+                    access: Some(ApplicationAccess::FullCollection),
+                },
+                provisions: ApplicationProvisions::default(),
+                grant: grant.clone(),
+            })
+            .unwrap();
+        assert!(matches!(
+            activation,
+            RelayMessage::AuthorizationActivationResponse {
+                ok: true,
+                error: None,
+                ..
+            }
+        ));
+        assert_eq!(registry.list_grants().unwrap()[0].id, grant.id);
         fs::remove_dir_all(test_root).unwrap();
     }
 

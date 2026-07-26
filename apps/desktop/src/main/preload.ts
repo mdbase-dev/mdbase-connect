@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
   addCopiedCollection: (path: string) =>
     ipcRenderer.invoke("connect:collections:add-copy", path),
+  makeCollectionIndependent: (collectionId: string) =>
+    ipcRenderer.invoke("connect:collections:make-independent", collectionId),
+  takeCollectionAuthority: (collectionId: string) =>
+    ipcRenderer.invoke("connect:collections:take-authority", collectionId),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
   createCollection: (input: { path: string; name: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),

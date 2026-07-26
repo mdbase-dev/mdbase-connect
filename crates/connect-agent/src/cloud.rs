@@ -1,7 +1,7 @@
 use mdbase_connect_core::ConnectError;
 use mdbase_connect_protocol::{
     AccessSnapshot, ApplicationSummary, AuthorizationApproveParams, AuthorizationIdParams,
-    CollectionSummary, ComputerNameParams, GrantCreateParams, GrantIdParams, GrantUpdateParams,
+    ComputerNameParams, GrantCreateParams, GrantIdParams, GrantUpdateParams,
 };
 use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
@@ -40,6 +40,18 @@ impl CloudControlClient {
         .await
     }
 
+    pub async fn take_collection_authority(
+        &self,
+        collection_id: uuid::Uuid,
+    ) -> Result<Value, ConnectError> {
+        self.json(
+            Method::POST,
+            &format!("/v1/connectors/authority-conflicts/{collection_id}/move"),
+            None,
+        )
+        .await
+    }
+
     pub async fn application(
         &self,
         application_id: uuid::Uuid,
@@ -52,28 +64,6 @@ impl CloudControlClient {
             )
             .await?;
         serde_json::from_value(value["application"].clone()).map_err(ConnectError::from)
-    }
-
-    pub async fn sync_collection(
-        &self,
-        collection: &CollectionSummary,
-    ) -> Result<(), ConnectError> {
-        let _: Value = self
-            .json(
-                Method::POST,
-                "/v1/connectors/sync",
-                Some(serde_json::json!({
-                    "collections": [{
-                        "id": collection.id,
-                        "display_name": collection.display_name,
-                        "spec_version": collection.spec_version,
-                        "enabled": collection.enabled,
-                        "contracts": collection.contracts,
-                    }]
-                })),
-            )
-            .await?;
-        Ok(())
     }
 
     pub async fn create_grant(

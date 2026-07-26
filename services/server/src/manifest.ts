@@ -120,6 +120,7 @@ export type AppManifest = WebAppManifest | PortableAppManifest;
 export interface RegisteredApplicationManifest {
   manifest: AppManifest;
   canonicalIdentity: string;
+  familyIdentity: string;
 }
 
 export class ApplicationManifestError extends Error {
@@ -146,7 +147,8 @@ export function registerApplicationManifest(
       .digest("hex");
     return {
       manifest,
-      canonicalIdentity: `bundle:${parsed.id}:sha256:${digest}`
+      canonicalIdentity: `bundle:${parsed.id}:sha256:${digest}`,
+      familyIdentity: `bundle:${parsed.id}`
     };
   } catch (error) {
     throw asManifestError(error);

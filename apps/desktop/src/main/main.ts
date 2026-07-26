@@ -179,6 +179,24 @@ function registerIpc(): void {
     if (typeof path !== "string" || path.length === 0) throw new Error("Choose a folder.");
     return requestReadyAgent("collections.add-copy", { path });
   });
+  ipcMain.handle("connect:collections:make-independent", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    return requestReadyAgent(
+      "collections.make-independent",
+      { collection_id: collectionId },
+      10_000
+    );
+  });
+  ipcMain.handle("connect:collections:take-authority", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    return requestReadyAgent(
+      "collections.take-authority",
+      { collection_id: collectionId },
+      15_000
+    );
+  });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);
     return chooseFolder();

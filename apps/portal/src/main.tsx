@@ -27,7 +27,8 @@ import {
   type DashboardData,
   type HostedCollection,
   type PendingAuthorization,
-  type TypeProvision
+  type TypeProvision,
+  type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
 import "./styles.css";
@@ -309,8 +310,7 @@ function Dashboard() {
                 <ApprovalForm
                   request={request}
                   collections={[
-                    ...data.collections.filter((collection) => collection.enabled)
-                      .map((collection) => ({ ...collection, kind: "local" as const })),
+                    ...(request.available_collections ?? []),
                     ...data.hosted_collections
                       .filter((collection) => collection.authority_state === "active")
                       .map((collection) => ({
@@ -319,6 +319,7 @@ function Dashboard() {
                       connector_name: "Hosted by mdbase"
                     }))
                   ]}
+                  unavailableConnectors={request.unavailable_connectors}
                   onDecision={refresh}
                   onCollectionCreated={() => void refresh()}
                 />
@@ -349,7 +350,9 @@ function Dashboard() {
           {data.connectors.length === 0 ? <Empty title="No computers connected" text="Open mdbase connect on a computer and choose Connect this computer." /> : (
             <div className="computer-list">{data.connectors.map((connector) => {
               const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
-              return <ComputerRow key={connector.id} connector={connector} collectionCount={collections.length} availableCount={collections.filter((collection) => collection.enabled).length} onChanged={refresh} onError={setError} />;
+              const online = connector.last_seen_at !== null
+                && Date.now() - new Date(connector.last_seen_at).getTime() < 45_000;
+              return <ComputerRow key={connector.id} connector={connector} collectionCount={collections.length} availableCount={online ? collections.filter((collection) => collection.enabled).length : 0} onChanged={refresh} onError={setError} />;
             })}</div>
           )}
         </section>
@@ -1035,6 +1038,7 @@ function Authorization({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
     collections: AvailableCollection[];
+    unavailable_connectors: UnavailableConnector[];
   } | null>(null);
   const [status, setStatus] = useState<"pending" | "approved" | "denied">("pending");
   const [error, setError] = useState("");
@@ -1042,12 +1046,33 @@ function Authorization({ requestId }: { requestId: string }) {
   useSystemTheme();
 
   useEffect(() => {
-    api<{ authorization: PendingAuthorization; collections: AvailableCollection[] }>(`/v1/authorization-requests/${requestId}`)
-      .then(setRequest)
-      .catch((reason) => {
-        if (reason instanceof ApiError && reason.status === 401) location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
-        else setError(message(reason));
-      });
+    let active = true;
+    async function refreshCollections() {
+      try {
+        const next = await api<{
+          authorization: PendingAuthorization;
+          collections: AvailableCollection[];
+          unavailable_connectors: UnavailableConnector[];
+        }>(`/v1/authorization-requests/${requestId}`);
+        if (active) {
+          setRequest(next);
+          setError("");
+        }
+      } catch (reason) {
+        if (!active) return;
+        if (reason instanceof ApiError && reason.status === 401) {
+          location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+        } else if (!(reason instanceof ApiError && reason.status === 404)) {
+          setError(message(reason));
+        }
+      }
+    }
+    void refreshCollections();
+    const timer = window.setInterval(() => void refreshCollections(), 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [requestId]);
 
   useEffect(() => {
@@ -1085,6 +1110,7 @@ function Authorization({ requestId }: { requestId: string }) {
           <ApprovalForm
             request={authorization}
             collections={request.collections}
+            unavailableConnectors={request.unavailable_connectors}
             onDecision={(decision) => setStatus(decision)}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
@@ -1123,11 +1149,13 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
 function ApprovalForm({
   request,
   collections,
+  unavailableConnectors = [],
   onDecision,
   onCollectionCreated
 }: {
   request: PendingAuthorization;
   collections: AvailableCollection[];
+  unavailableConnectors?: UnavailableConnector[];
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
@@ -1180,7 +1208,11 @@ function ApprovalForm({
       await api(`/v1/authorization-requests/${request.id}/${decision === "approved" ? "approve" : "deny"}`, {
         method: "POST",
         ...(decision === "approved" ? {
-          body: JSON.stringify({ collection_id: collectionId, operations: [...operations] })
+          body: JSON.stringify({
+            collection_id: collectionId,
+            ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
+            operations: [...operations]
+          })
         } : {})
       });
       await onDecision(decision);
@@ -1249,6 +1281,11 @@ function ApprovalForm({
               : `${unavailable.length} ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`}</summary>
             <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
           </details>}
+          {unavailableConnectors.length > 0 && <div className="field-note" role="status">
+            {unavailableConnectors.map((connector) => connector.reason === "paused"
+              ? `${connector.connector_name} has remote access paused.`
+              : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
+          </div>}
           {compatible.length === 0 && <div className="authorization-empty-collection">
             <p className="field-note">No compatible collection is ready.</p>
             <button
@@ -1258,7 +1295,7 @@ function ApprovalForm({
               onClick={() => void createCloudCollection()}
             >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
           </div>}
-          {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this hosted collection.</p>}
+          {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this collection through its live authority.</p>}
         </div>
       </section>
       <section className="approval-section">

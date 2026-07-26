@@ -315,6 +315,12 @@ export async function buildApp(options: BuildOptions) {
     if (error instanceof RequestValidationError) {
       return reply.code(400).send(apiError("invalid_request", error.message));
     }
+    if (error instanceof RelayUnavailableError) {
+      return reply.code(409).send(apiError("connector_offline", error.message));
+    }
+    if (error instanceof ConnectorOperationError) {
+      return reply.code(409).send(apiError(error.code, error.message));
+    }
     if (error instanceof SyncError) {
       const denied = error.code === "replica_revoked" || error.code === "scope_denied" || error.code === "read_only_replica";
       return reply.code(denied ? 403 : 400).send(apiError(error.code, error.message));
@@ -1426,6 +1432,7 @@ export async function buildApp(options: BuildOptions) {
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
        WHERE c.user_id = $1 AND col.authority_state = 'active'
+         AND col.present = true
        ORDER BY col.display_name`,
       [user.id]
     );
@@ -1486,7 +1493,9 @@ export async function buildApp(options: BuildOptions) {
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
-              a.id AS application_id, a.distribution, a.name AS application_name,
+              a.id AS application_id,
+              a.family_identity AS application_family_id,
+              a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
               COALESCE(col.display_name, hosted.display_name) AS collection_name,
               CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
@@ -1494,7 +1503,9 @@ export async function buildApp(options: BuildOptions) {
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-       WHERE g.user_id = $1 ORDER BY g.created_at DESC`,
+       WHERE g.user_id = $1
+         AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
+       ORDER BY g.created_at DESC`,
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
@@ -1535,7 +1546,21 @@ export async function buildApp(options: BuildOptions) {
         ...grant,
         application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
-      pending_authorizations: pendingAuthorizations.rows
+      pending_authorizations: await Promise.all(pendingAuthorizations.rows.map(async (authorization) => {
+        const live = requiresHostedCollection(authorization.requirements)
+          ? { collections: [], unavailable_connectors: [] }
+          : await liveAuthorizationCollections(
+              options.db,
+              relay,
+              user.id,
+              authorization.id
+            );
+        return {
+          ...authorization,
+          available_collections: live.collections,
+          unavailable_connectors: live.unavailable_connectors
+        };
+      }))
     };
   });
 
@@ -1600,6 +1625,7 @@ export async function buildApp(options: BuildOptions) {
     if (!connector) return;
     const input = z.object({
       relay_public_key: z.string().min(80).max(200).refine(isP256PublicKey).optional(),
+      inventory_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
       collections: z.array(z.object({
         id: z.uuid(),
         display_name: z.string().min(1).max(200),
@@ -1608,85 +1634,279 @@ export async function buildApp(options: BuildOptions) {
         contracts: z.array(contractRequirementSchema).max(100).default([])
       })).max(1_000)
     }).parse(request.body);
-    if (input.relay_public_key) {
-      await options.db.query(
-        "UPDATE connectors SET relay_public_key = $2 WHERE id = $1",
-        [connector.id, input.relay_public_key]
-      );
+    if (new Set(input.collections.map((collection) => collection.id)).size !== input.collections.length) {
+      throw new RequestValidationError("A collection may appear only once in an inventory.");
     }
-    const synchronized = [];
-    for (const collection of input.collections) {
-      const existing = await options.db.query<{
-        id: string;
-        authority_state: "active" | "candidate" | "retired";
-        authority_epoch: string | number;
-      }>(
-        `SELECT id, authority_state, authority_epoch
-         FROM collections WHERE connector_id = $1 AND local_id = $2`,
-        [connector.id, collection.id]
-      );
-      const hosted = await options.db.query<{
-        authority_state: "active" | "transferring" | "transferred";
-        authority_epoch: string | number;
-        transferred_collection_id: string | null;
-      }>(
-        `SELECT authority_state, authority_epoch, transferred_collection_id
-         FROM hosted_collections WHERE id = $1 AND user_id = $2`,
-        [collection.id, connector.user_id]
-      );
-      const hostedCollection = hosted.rows[0];
-      const isActivatedTransfer = Boolean(
-        hostedCollection?.authority_state === "transferred"
-        && hostedCollection.transferred_collection_id
-        && hostedCollection.transferred_collection_id === existing.rows[0]?.id
-      );
-      const authorityState = hostedCollection
-        ? (isActivatedTransfer ? "active" : "candidate")
-        : (existing.rows[0]?.authority_state ?? "active");
-      const authorityEpoch = Number(
-        hostedCollection?.authority_epoch
-        ?? existing.rows[0]?.authority_epoch
-        ?? 1
-      );
-      const enabled = authorityState === "active" ? collection.enabled : false;
-      const row = await options.db.query<{
-        id: string;
-        local_id: string;
-        authority_state: "active" | "candidate" | "retired";
-        authority_epoch: string | number;
-      }>(
-        `INSERT INTO collections
-           (id, connector_id, local_id, display_name, spec_version, enabled,
-            authority_state, authority_epoch, contracts)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-         ON CONFLICT(connector_id, local_id) DO UPDATE SET
-           display_name = excluded.display_name,
-           spec_version = excluded.spec_version,
-           enabled = excluded.enabled,
-           authority_state = excluded.authority_state,
-           authority_epoch = excluded.authority_epoch,
-           contracts = excluded.contracts,
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [
+        connector.user_id
+      ]);
+      const accepted = await connection.query(
+        `UPDATE connectors SET
+           inventory_revision = $2,
+           relay_public_key = COALESCE($3, relay_public_key),
            last_seen_at = now()
-         RETURNING id, local_id, authority_state, authority_epoch`,
-        [
-          randomUUID(),
-          connector.id,
-          collection.id,
-          collection.display_name,
-          collection.spec_version,
-          enabled,
-          authorityState,
-          authorityEpoch,
-          JSON.stringify(collection.contracts)
-        ]
+         WHERE id = $1 AND inventory_revision < $2
+         RETURNING id`,
+        [connector.id, input.inventory_revision, input.relay_public_key ?? null]
       );
-      synchronized.push({
-        ...row.rows[0],
-        authority_epoch: Number(row.rows[0].authority_epoch)
-      });
+      if (!accepted.rows[0]) {
+        const current = await connection.query<{ inventory_revision: string | number }>(
+          "SELECT inventory_revision FROM connectors WHERE id = $1",
+          [connector.id]
+        );
+        await connection.query("COMMIT");
+        return {
+          accepted: false,
+          inventory_revision: Number(current.rows[0]?.inventory_revision ?? 0),
+          collections: []
+        };
+      }
+
+      const synchronized = [];
+      for (const collection of input.collections) {
+        const existing = await connection.query<{
+          id: string;
+          authority_state: "active" | "candidate" | "retired";
+          authority_epoch: string | number;
+        }>(
+          `SELECT id, authority_state, authority_epoch
+           FROM collections WHERE connector_id = $1 AND local_id = $2`,
+          [connector.id, collection.id]
+        );
+        const activeAuthority = await connection.query<{
+          id: string;
+          authority_epoch: string | number;
+        }>(
+          `SELECT id, authority_epoch FROM collections
+           WHERE user_id = $1 AND local_id = $2 AND authority_state = 'active'`,
+          [connector.user_id, collection.id]
+        );
+        const hosted = await connection.query<{
+          authority_state: "active" | "transferring" | "transferred";
+          authority_epoch: string | number;
+          transferred_collection_id: string | null;
+        }>(
+          `SELECT authority_state, authority_epoch, transferred_collection_id
+           FROM hosted_collections WHERE id = $1 AND user_id = $2`,
+          [collection.id, connector.user_id]
+        );
+        const existingCollection = existing.rows[0];
+        const currentAuthority = activeAuthority.rows[0];
+        const hostedCollection = hosted.rows[0];
+        const isActivatedTransfer = Boolean(
+          hostedCollection?.authority_state === "transferred"
+          && hostedCollection.transferred_collection_id
+          && hostedCollection.transferred_collection_id === existingCollection?.id
+        );
+        const authorityState: "active" | "candidate" = hostedCollection
+          ? (isActivatedTransfer ? "active" : "candidate")
+          : (currentAuthority && currentAuthority.id !== existingCollection?.id
+            ? "candidate"
+            : "active");
+        const authorityEpoch = Number(
+          hostedCollection?.authority_epoch
+          ?? currentAuthority?.authority_epoch
+          ?? existingCollection?.authority_epoch
+          ?? 1
+        );
+        const enabled = authorityState === "active" && collection.enabled;
+        const row = await connection.query<{
+          id: string;
+          local_id: string;
+          authority_state: "active" | "candidate" | "retired";
+          authority_epoch: string | number;
+        }>(
+          `INSERT INTO collections
+             (id, user_id, connector_id, local_id, display_name, spec_version, enabled,
+              reported_enabled, present, authority_state, authority_epoch, contracts,
+              last_inventory_revision)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11::jsonb, $12)
+           ON CONFLICT(connector_id, local_id) DO UPDATE SET
+             user_id = excluded.user_id,
+             display_name = excluded.display_name,
+             spec_version = excluded.spec_version,
+             enabled = excluded.enabled,
+             reported_enabled = excluded.reported_enabled,
+             present = true,
+             authority_state = excluded.authority_state,
+             authority_epoch = excluded.authority_epoch,
+             contracts = excluded.contracts,
+             last_inventory_revision = excluded.last_inventory_revision,
+             last_seen_at = now(),
+             removed_at = NULL
+           RETURNING id, local_id, authority_state, authority_epoch`,
+          [
+            randomUUID(),
+            connector.user_id,
+            connector.id,
+            collection.id,
+            collection.display_name,
+            collection.spec_version,
+            enabled,
+            collection.enabled,
+            authorityState,
+            authorityEpoch,
+            JSON.stringify(collection.contracts),
+            input.inventory_revision
+          ]
+        );
+        synchronized.push({
+          ...row.rows[0],
+          authority_epoch: Number(row.rows[0].authority_epoch)
+        });
+      }
+
+      const removed = await connection.query<{ id: string }>(
+        `UPDATE collections SET
+           present = false,
+           enabled = false,
+           authority_state = 'retired',
+           removed_at = now()
+         WHERE connector_id = $1 AND present = true
+           AND last_inventory_revision < $2
+         RETURNING id`,
+        [connector.id, input.inventory_revision]
+      );
+      for (const collection of removed.rows) {
+        const revoked = await connection.query<{ id: string }>(
+          `UPDATE grants SET revoked_at = COALESCE(revoked_at, now())
+           WHERE collection_id = $1 AND revoked_at IS NULL
+           RETURNING id`,
+          [collection.id]
+        );
+        for (const grant of revoked.rows) {
+          await connection.query(
+            "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+            [grant.id]
+          );
+          await connection.query(
+            "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+            [grant.id]
+          );
+        }
+      }
+      await connection.query("COMMIT");
+      return {
+        accepted: true,
+        inventory_revision: input.inventory_revision,
+        collections: synchronized
+      };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
     }
-    await options.db.query("UPDATE connectors SET last_seen_at = now() WHERE id = $1", [connector.id]);
-    return { collections: synchronized };
+  });
+
+  app.post("/v1/connectors/authority-conflicts/:collectionId/move", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    const connection = await options.db.connect();
+    const affectedConnectors = new Set<string>([connector.id]);
+    try {
+      await connection.query("BEGIN");
+      await connection.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [
+        connector.user_id
+      ]);
+      const candidate = await connection.query<{
+        id: string;
+        reported_enabled: boolean;
+        authority_epoch: string | number;
+      }>(
+        `SELECT id, reported_enabled, authority_epoch FROM collections
+         WHERE connector_id = $1 AND user_id = $2 AND local_id = $3
+           AND present = true AND authority_state = 'candidate'
+         FOR UPDATE`,
+        [connector.id, connector.user_id, collectionId]
+      );
+      if (!candidate.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "authority_conflict_not_found",
+          "This folder no longer has an authority conflict."
+        ));
+      }
+      const hosted = await connection.query<{ authority_state: string }>(
+        `SELECT authority_state FROM hosted_collections
+         WHERE id = $1 AND user_id = $2 AND authority_state <> 'transferred'`,
+        [collectionId, connector.user_id]
+      );
+      if (hosted.rows[0]) {
+        throw new RequestValidationError(
+          "Use the hosted collection transfer flow before moving this authority."
+        );
+      }
+      const current = await connection.query<{
+        id: string;
+        connector_id: string;
+        authority_epoch: string | number;
+      }>(
+        `SELECT id, connector_id, authority_epoch FROM collections
+         WHERE user_id = $1 AND local_id = $2 AND authority_state = 'active'
+         FOR UPDATE`,
+        [connector.user_id, collectionId]
+      );
+      const nextEpoch = Math.max(
+        Number(candidate.rows[0].authority_epoch),
+        ...current.rows.map((authority) => Number(authority.authority_epoch))
+      ) + 1;
+      for (const authority of current.rows) {
+        affectedConnectors.add(authority.connector_id);
+        await connection.query(
+          `UPDATE collections SET authority_state = 'retired', enabled = false,
+                                  authority_epoch = $2
+           WHERE id = $1`,
+          [authority.id, nextEpoch]
+        );
+        const revoked = await connection.query<{ id: string }>(
+          `UPDATE grants SET revoked_at = COALESCE(revoked_at, now())
+           WHERE collection_id = $1 AND revoked_at IS NULL RETURNING id`,
+          [authority.id]
+        );
+        for (const grant of revoked.rows) {
+          await connection.query(
+            "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+            [grant.id]
+          );
+          await connection.query(
+            "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+            [grant.id]
+          );
+        }
+      }
+      await connection.query(
+        `UPDATE collections SET authority_state = 'active',
+                                authority_epoch = $2,
+                                enabled = reported_enabled
+         WHERE id = $1`,
+        [candidate.rows[0].id, nextEpoch]
+      );
+      await connection.query(
+        `DELETE FROM authorization_collection_offers
+         WHERE collection_id = $1 OR collection_id IN (
+           SELECT id FROM collections
+           WHERE user_id = $2 AND local_id = $3
+         )`,
+        [candidate.rows[0].id, connector.user_id, collectionId]
+      );
+      await audit(connection, connector.user_id, "collection.authority_moved", collectionId, {
+        connector_id: connector.id,
+        authority_epoch: nextEpoch
+      });
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    for (const connectorId of affectedConnectors) await relay.pushPolicy(connectorId);
+    return { ok: true };
   });
 
   app.get("/v1/connectors/control", async (request, reply) => {
@@ -1721,6 +1941,7 @@ export async function buildApp(options: BuildOptions) {
        JOIN applications a ON a.id = g.application_id
        JOIN collections col ON col.id = g.collection_id
        WHERE col.connector_id = $1 AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
        ORDER BY a.name, col.display_name`,
       [connector.id]
     );
@@ -1741,6 +1962,22 @@ export async function buildApp(options: BuildOptions) {
        ORDER BY ar.expires_at`,
       [connector.user_id, connector.id]
     );
+    const authorityConflicts = await options.db.query(
+      `SELECT candidate.local_id AS collection_id,
+              candidate.display_name,
+              COALESCE(active_connector.name, 'mdbase cloud') AS active_connector_name
+       FROM collections candidate
+       LEFT JOIN collections active
+         ON active.user_id = candidate.user_id
+        AND active.local_id = candidate.local_id
+        AND active.authority_state = 'active'
+       LEFT JOIN connectors active_connector ON active_connector.id = active.connector_id
+       WHERE candidate.connector_id = $1
+         AND candidate.present = true
+         AND candidate.authority_state = 'candidate'
+       ORDER BY candidate.display_name`,
+      [connector.id]
+    );
     return {
       configured: true,
       online: true,
@@ -1750,7 +1987,8 @@ export async function buildApp(options: BuildOptions) {
         application_origin: normalizedApplicationOrigin(grant.application_origin)
       })),
       pending_authorizations: pendingAuthorizations.rows
-        .filter((authorization) => !requiresHostedCollection(authorization.requirements))
+        .filter((authorization) => !requiresHostedCollection(authorization.requirements)),
+      authority_conflicts: authorityConflicts.rows
     };
   });
 
@@ -1782,12 +2020,15 @@ export async function buildApp(options: BuildOptions) {
     if (input.contracts) {
       await options.db.query(
         `UPDATE collections SET contracts = $3::jsonb, last_seen_at = now()
-         WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+         WHERE connector_id = $1 AND local_id = $2 AND enabled = true
+           AND present = true AND authority_state = 'active'`,
         [connector.id, input.collection_id, JSON.stringify(input.contracts)]
       );
     }
     const collection = await options.db.query<{ id: string; contracts: ContractRequirement[]; spec_version: string }>(
-      `SELECT id, contracts, spec_version FROM collections WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+      `SELECT id, contracts, spec_version FROM collections
+       WHERE connector_id = $1 AND local_id = $2 AND enabled = true
+         AND present = true AND authority_state = 'active'`,
       [connector.id, input.collection_id]
     );
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not synchronized yet."));
@@ -1852,7 +2093,8 @@ export async function buildApp(options: BuildOptions) {
       `SELECT a.requirements, col.spec_version FROM grants g
        JOIN applications a ON a.id = g.application_id
        JOIN collections col ON col.id = g.collection_id
-       WHERE g.id = $1 AND g.revoked_at IS NULL AND g.collection_id IN
+       WHERE g.id = $1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND g.collection_id IN
          (SELECT id FROM collections WHERE connector_id = $2)`,
       [grantId, connector.id]
     );
@@ -1861,7 +2103,8 @@ export async function buildApp(options: BuildOptions) {
     assertCollectionSupportsOperations(current.rows[0].spec_version, input.operations);
     const grant = await options.db.query(
       `UPDATE grants SET operations = $3::jsonb
-       WHERE id = $1 AND revoked_at IS NULL AND collection_id IN
+       WHERE id = $1 AND revoked_at IS NULL AND activated_at IS NOT NULL
+         AND collection_id IN
          (SELECT id FROM collections WHERE connector_id = $2)
        RETURNING id, operations`,
       [grantId, connector.id, JSON.stringify([...new Set(input.operations)])]
@@ -1879,7 +2122,8 @@ export async function buildApp(options: BuildOptions) {
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
     const active = await options.db.query(
       `UPDATE grants SET revoked_at = now()
-       WHERE id = $1 AND revoked_at IS NULL AND collection_id IN
+       WHERE id = $1 AND revoked_at IS NULL AND activated_at IS NOT NULL
+         AND collection_id IN
          (SELECT id FROM collections WHERE connector_id = $2)
        RETURNING id`,
       [grantId, connector.id]
@@ -1904,13 +2148,15 @@ export async function buildApp(options: BuildOptions) {
     if (input.contracts) {
       await options.db.query(
         `UPDATE collections SET contracts = $3::jsonb, last_seen_at = now()
-         WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+         WHERE connector_id = $1 AND local_id = $2 AND enabled = true
+           AND present = true AND authority_state = 'active'`,
         [connector.id, input.collection_id, JSON.stringify(input.contracts)]
       );
     }
     const collection = await options.db.query<{ id: string }>(
       `SELECT id FROM collections
-       WHERE connector_id = $1 AND local_id = $2 AND enabled = true`,
+       WHERE connector_id = $1 AND local_id = $2 AND enabled = true
+         AND present = true AND authority_state = 'active'`,
       [connector.id, input.collection_id]
     );
     if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not available on this computer."));
@@ -2399,7 +2645,8 @@ export async function buildApp(options: BuildOptions) {
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
+       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL`,
       [grantId, user.id]
     );
     const current = active.rows[0];
@@ -2453,7 +2700,8 @@ export async function buildApp(options: BuildOptions) {
     }>(
       `SELECT g.id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL`,
+       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL`,
       [grantId, user.id]
     );
     if (!active.rows[0]) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
@@ -2605,19 +2853,14 @@ export async function buildApp(options: BuildOptions) {
               a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar JOIN applications a ON a.id = ar.application_id
-       WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()`,
+       WHERE ar.id = $1 AND ar.user_id = $2 AND ar.expires_at > now()
+         AND ar.completed_at IS NULL AND ar.denied_at IS NULL`,
       [requestId, user.id]
     );
     if (!authorization.rows[0]) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
-    const collections = await options.db.query(
-      `SELECT col.id, col.display_name, col.spec_version, col.contracts,
-              c.name AS connector_name
-       FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 AND col.enabled = true
-         AND col.authority_state = 'active'
-       ORDER BY col.display_name`,
-      [user.id]
-    );
+    const local = requiresHostedCollection(authorization.rows[0].requirements)
+      ? { collections: [], unavailable_connectors: [] }
+      : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
     const hosted = options.hostedCollections
       ? await options.db.query<{
           id: string;
@@ -2632,7 +2875,7 @@ export async function buildApp(options: BuildOptions) {
         )
       : { rows: [] };
     const availableCollections = [
-      ...collections.rows.map((collection) => ({ ...collection, kind: "local" as const })),
+      ...local.collections,
       ...hosted.rows.map((collection) => ({
         ...collection,
         kind: "hosted" as const,
@@ -2643,6 +2886,7 @@ export async function buildApp(options: BuildOptions) {
     ];
     return {
       authorization: authorization.rows[0],
+      unavailable_connectors: local.unavailable_connectors,
       collections: requiresHostedCollection(authorization.rows[0].requirements)
         ? availableCollections.filter((collection) => collection.kind === "hosted")
         : availableCollections
@@ -2700,22 +2944,19 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
-    const input = z.object({ collection_id: z.uuid(), operations: z.array(operationSchema).min(1) }).parse(request.body);
-    const collection = await options.db.query<{ connector_id: string }>(
-      `SELECT col.connector_id FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE col.id = $1 AND c.user_id = $2 AND col.enabled = true
-         AND col.authority_state = 'active'`,
-      [input.collection_id, user.id]
-    );
+    const input = z.object({
+      collection_id: z.uuid(),
+      offer_id: z.uuid().optional(),
+      operations: z.array(operationSchema).min(1)
+    }).parse(request.body);
     let approved: boolean;
-    if (collection.rows[0]) {
-      approved = await approveAuthorization(options.db, relay, {
+    if (input.offer_id) {
+      approved = await approvePortalAuthorization(options.db, relay, {
         requestId,
         userId: user.id,
-        connectorId: collection.rows[0].connector_id,
+        offerId: input.offer_id,
         collectionId: input.collection_id,
-        operations: input.operations,
-        source: "portal"
+        operations: input.operations
       });
     } else {
       const hosted = await options.db.query<{ id: string; template: string; display_name: string; contracts: CollectionContractDescriptor[] }>(
@@ -2904,7 +3145,8 @@ export async function buildApp(options: BuildOptions) {
        FROM refresh_tokens rt
        JOIN grants g ON g.id = rt.grant_id
        WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
-         AND rt.expires_at > now() AND g.revoked_at IS NULL AND g.application_id = $2`,
+         AND rt.expires_at > now() AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL AND g.application_id = $2`,
       [tokenHash(input.refresh_token), input.client_id]
     );
     const current = refresh.rows[0];
@@ -2986,7 +3228,8 @@ export async function buildApp(options: BuildOptions) {
         `SELECT a.notifications, g.notification_criteria
          FROM grants g
          JOIN applications a ON a.id = g.application_id
-         WHERE g.id = $1 AND g.revoked_at IS NULL`,
+         WHERE g.id = $1 AND g.revoked_at IS NULL
+           AND g.activated_at IS NOT NULL`,
         [grant.grant_id]
       );
       const declared = new Set(
@@ -3126,7 +3369,8 @@ export async function buildApp(options: BuildOptions) {
        FROM grants g
        LEFT JOIN push_channels pc
          ON pc.grant_id = g.id AND pc.id = $2 AND pc.disabled_at IS NULL
-       WHERE g.id = $1 AND g.revoked_at IS NULL`,
+       WHERE g.id = $1 AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL`,
       [grant.grant_id, input.channel_id]
     );
     const row = application.rows[0];
@@ -3187,7 +3431,7 @@ export async function buildApp(options: BuildOptions) {
       `SELECT g.notification_criteria
        FROM grants g
        WHERE g.id = $1 AND g.hosted_collection_id IS NOT NULL
-         AND g.revoked_at IS NULL`,
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL`,
       [input.grant_id]
     );
     const authorized = authorization.rows[0]?.notification_criteria.some(
@@ -3231,7 +3475,9 @@ export async function buildApp(options: BuildOptions) {
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        WHERE g.id = $1 AND c.connector_id = $2
-         AND g.revoked_at IS NULL AND c.enabled = true`,
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND c.enabled = true AND c.present = true
+         AND c.authority_state = 'active'`,
       [input.grant_id, connector.id]
     );
     const authorized = authorization.rows[0]?.notification_criteria.some(
@@ -3274,7 +3520,9 @@ export async function buildApp(options: BuildOptions) {
        JOIN grants g ON g.id = tok.grant_id
        JOIN collections col ON col.id = g.collection_id
        WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
-         AND g.revoked_at IS NULL AND col.id = $2 AND col.enabled = true`,
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND col.id = $2 AND col.enabled = true AND col.present = true
+         AND col.authority_state = 'active'`,
       [tokenHash(bearer), params.collectionId]
     );
     const grant = authorized.rows[0];
@@ -3366,6 +3614,7 @@ async function upsertApplication(
   icon: string | null;
   redirect_uris: string[];
   canonical_identity: string;
+  family_identity: string;
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;
@@ -3379,16 +3628,18 @@ async function upsertApplication(
     icon: string | null;
     redirect_uris: string[];
     canonical_identity: string;
+    family_identity: string;
     requirements: ApplicationRequirements;
     provisions: ApplicationProvisions;
     notifications: ApplicationNotifications;
   }>(
     `INSERT INTO applications
-       (id, canonical_identity, manifest_version, distribution, name, homepage,
+       (id, canonical_identity, family_identity, manifest_version, distribution, name, homepage,
         project_url, icon, redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb,
-             $11::jsonb, $12::jsonb)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb,
+             $12::jsonb, $13::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
+       family_identity = excluded.family_identity,
        manifest_version = excluded.manifest_version,
        distribution = excluded.distribution,
        name = excluded.name,
@@ -3401,10 +3652,11 @@ async function upsertApplication(
        notifications = excluded.notifications,
        updated_at = now()
      RETURNING id, distribution, name, homepage, project_url, icon, redirect_uris,
-               canonical_identity, requirements, provisions, notifications`,
+               canonical_identity, family_identity, requirements, provisions, notifications`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
+      discovered.familyIdentity,
       discovered.manifest.manifest_version,
       discovered.manifest.distribution === "portable" ? "portable" : "web",
       discovered.manifest.name,
@@ -3443,7 +3695,8 @@ async function createOrUpdateGrant(
   const operations = [...new Set(input.operations)];
   const existing = await db.query<{ id: string; encryption: GrantEncryption | null }>(
     `SELECT id, encryption FROM grants WHERE user_id = $1 AND application_id = $2
-     AND collection_id = $3 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+     AND collection_id = $3 AND revoked_at IS NULL AND activated_at IS NOT NULL
+     ORDER BY created_at DESC LIMIT 1`,
     [input.userId, input.applicationId, input.collectionId]
   );
   const grant = existing.rows[0]
@@ -3511,7 +3764,8 @@ async function syncHostedNotificationGrant(
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     WHERE g.id = $1 AND g.revoked_at IS NULL`,
+     WHERE g.id = $1 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
     [grantId]
   );
   const row = result.rows[0];
@@ -3572,7 +3826,8 @@ async function reconcileApplicationGrants(
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
-     WHERE g.application_id = $1 AND g.revoked_at IS NULL`,
+     WHERE g.application_id = $1 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
     [application.id]
   );
   const changedConnectors = new Set<string>();
@@ -3709,6 +3964,441 @@ function sameStrings(left: string[], right: string[]): boolean {
     && [...leftValues].every((value) => rightValues.has(value));
 }
 
+interface LiveAuthorizationCollection {
+  id: string;
+  offer_id: string;
+  kind: "local";
+  connector_name: string;
+  display_name: string;
+  spec_version: string;
+  contracts: ContractRequirement[];
+}
+
+async function liveAuthorizationCollections(
+  db: DatabasePool,
+  relay: RelayHub,
+  userId: string,
+  authorizationId: string
+): Promise<{
+  collections: LiveAuthorizationCollection[];
+  unavailable_connectors: Array<{
+    connector_id: string;
+    connector_name: string;
+    reason: "offline" | "paused";
+  }>;
+}> {
+  await db.query(
+    `DELETE FROM authorization_collection_offers
+     WHERE authorization_id = $1 AND expires_at <= now()`,
+    [authorizationId]
+  );
+  const connectors = await db.query<{
+    id: string;
+    name: string;
+    inventory_revision: string | number;
+  }>(
+    `SELECT id, name, inventory_revision FROM connectors
+     WHERE user_id = $1 ORDER BY created_at`,
+    [userId]
+  );
+  const settled = await Promise.allSettled(connectors.rows.map(async (connector) => ({
+    connector,
+    response: await relay.authorizationOffers(connector.id, authorizationId)
+  })));
+  const collections: LiveAuthorizationCollection[] = [];
+  const unavailableConnectors: Array<{
+    connector_id: string;
+    connector_name: string;
+    reason: "offline" | "paused";
+  }> = [];
+
+  for (const [index, result] of settled.entries()) {
+    const connector = connectors.rows[index];
+    if (result.status === "rejected") {
+      unavailableConnectors.push({
+        connector_id: connector.id,
+        connector_name: connector.name,
+        reason: "offline"
+      });
+      continue;
+    }
+    if (result.value.response.paused) {
+      unavailableConnectors.push({
+        connector_id: connector.id,
+        connector_name: connector.name,
+        reason: "paused"
+      });
+      continue;
+    }
+    const authoritative = await db.query<{
+      id: string;
+      local_id: string;
+      authority_epoch: string | number;
+    }>(
+      `SELECT id, local_id, authority_epoch FROM collections
+       WHERE user_id = $1 AND connector_id = $2
+         AND present = true AND enabled = true AND authority_state = 'active'`,
+      [userId, connector.id]
+    );
+    const byLocalId = new Map(authoritative.rows.map((collection) => [
+      collection.local_id,
+      collection
+    ]));
+    for (const offered of result.value.response.collections) {
+      const collection = byLocalId.get(offered.collection_id);
+      if (!collection) continue;
+      const offer = await db.query<{ id: string }>(
+        `INSERT INTO authorization_collection_offers
+           (id, authorization_id, user_id, connector_id, collection_id, local_id,
+            authority_epoch, inventory_revision, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now() + interval '45 seconds')
+         ON CONFLICT(authorization_id, connector_id, collection_id) DO UPDATE SET
+           local_id = excluded.local_id,
+           authority_epoch = excluded.authority_epoch,
+           inventory_revision = excluded.inventory_revision,
+           expires_at = excluded.expires_at
+         WHERE authorization_collection_offers.consumed_at IS NULL
+         RETURNING id`,
+        [
+          randomUUID(),
+          authorizationId,
+          userId,
+          connector.id,
+          collection.id,
+          offered.collection_id,
+          Number(collection.authority_epoch),
+          Number(connector.inventory_revision)
+        ]
+      );
+      if (!offer.rows[0]) continue;
+      collections.push({
+        id: collection.id,
+        offer_id: offer.rows[0].id,
+        kind: "local",
+        connector_name: connector.name,
+        display_name: offered.display_name,
+        spec_version: offered.spec_version,
+        contracts: offered.contracts
+      });
+    }
+  }
+
+  collections.sort((left, right) =>
+    left.display_name.localeCompare(right.display_name, undefined, { sensitivity: "base" })
+    || left.connector_name.localeCompare(right.connector_name, undefined, { sensitivity: "base" })
+  );
+  return {
+    collections,
+    unavailable_connectors: unavailableConnectors
+  };
+}
+
+async function approvePortalAuthorization(
+  db: DatabasePool,
+  relay: RelayHub,
+  input: {
+    requestId: string;
+    userId: string;
+    offerId: string;
+    collectionId: string;
+    operations: string[];
+  }
+): Promise<boolean> {
+  const connection = await db.connect();
+  const grantId = randomUUID();
+  let connectorId = "";
+  let localCollectionId = "";
+  let requirements: ApplicationRequirements;
+  let provisions: ApplicationProvisions;
+  let grant: GrantPolicy;
+  try {
+    await connection.query("BEGIN");
+    const authorization = await connection.query<{
+      application_id: string;
+      application_name: string;
+      distribution: "web" | "portable";
+      application_homepage: string;
+      application_project_url: string | null;
+      application_icon: string | null;
+      requested_operations: string[];
+      requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      notifications: ApplicationNotifications;
+      relay_protocol: number | null;
+      application_public_key: string | null;
+      flow: "authorization_code" | "device_code";
+      redirect_uri: string | null;
+      grant_id: string | null;
+      activation_started_at: string | Date | null;
+    }>(
+      `SELECT ar.application_id, a.name AS application_name,
+              a.distribution, a.homepage AS application_homepage,
+              a.project_url AS application_project_url, a.icon AS application_icon,
+              ar.requested_operations, a.requirements, a.provisions, a.notifications,
+              ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri,
+              ar.grant_id, ar.activation_started_at
+       FROM authorization_requests ar
+       JOIN applications a ON a.id = ar.application_id
+       WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
+         AND ar.denied_at IS NULL AND ar.expires_at > now()
+       FOR UPDATE`,
+      [input.requestId, input.userId]
+    );
+    const pending = authorization.rows[0];
+    if (!pending) {
+      await connection.query("ROLLBACK");
+      return false;
+    }
+    if (pending.grant_id) {
+      const started = pending.activation_started_at
+        ? new Date(pending.activation_started_at).getTime()
+        : Date.now();
+      if (Date.now() - started < 60_000) {
+        throw new RequestValidationError(
+          "This authorization is already being activated. Wait a moment and try again."
+        );
+      }
+      await connection.query(
+        `UPDATE authorization_requests
+         SET grant_id = NULL, activation_started_at = NULL
+         WHERE id = $1`,
+        [input.requestId]
+      );
+      await connection.query(
+        "DELETE FROM grants WHERE id = $1 AND activated_at IS NULL",
+        [pending.grant_id]
+      );
+    }
+    if (
+      pending.distribution === "portable"
+      && (
+        pending.flow !== "device_code"
+        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+        || !pending.application_public_key
+      )
+    ) {
+      throw new RequestValidationError(
+        "Downloaded applications require a key-bound device authorization request."
+      );
+    }
+    if (pending.flow === "device_code" && pending.distribution !== "portable") {
+      throw new RequestValidationError(
+        "Device authorization is reserved for downloaded applications."
+      );
+    }
+    if (requiresHostedCollection(pending.requirements)) {
+      throw new RequestValidationError("This application requires an mdbase cloud collection.");
+    }
+    const operations = [...new Set(input.operations)];
+    if (operations.some((operation) => !pending.requested_operations.includes(operation))) {
+      throw new RequestValidationError(
+        "Approved operations must be requested by the application."
+      );
+    }
+    assertOperationsAllowedByRequirements(operations, pending.requirements);
+    const offer = await connection.query<{
+      connector_id: string;
+      local_id: string;
+      display_name: string;
+      spec_version: string;
+      relay_public_key: string | null;
+      authority_epoch: string | number;
+    }>(
+      `SELECT offer.connector_id, offer.local_id, col.display_name, col.spec_version,
+              con.relay_public_key, col.authority_epoch
+       FROM authorization_collection_offers offer
+       JOIN collections col ON col.id = offer.collection_id
+       JOIN connectors con ON con.id = offer.connector_id
+       WHERE offer.id = $1 AND offer.authorization_id = $2
+         AND offer.user_id = $3 AND offer.collection_id = $4
+         AND offer.consumed_at IS NULL AND offer.expires_at > now()
+         AND col.user_id = $3 AND col.present = true AND col.enabled = true
+         AND col.authority_state = 'active'
+         AND col.authority_epoch = offer.authority_epoch
+         AND con.inventory_revision >= offer.inventory_revision
+       FOR UPDATE`,
+      [input.offerId, input.requestId, input.userId, input.collectionId]
+    );
+    const selected = offer.rows[0];
+    if (!selected) {
+      throw new RequestValidationError(
+        "That collection is no longer being offered by a live connector. Refresh and choose again."
+      );
+    }
+    assertCollectionSupportsOperations(selected.spec_version, operations);
+    const scope = scopeForRequirements(pending.requirements);
+    let encryption: GrantEncryption | undefined;
+    if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
+      if (!pending.application_public_key || !selected.relay_public_key) {
+        throw new RequestValidationError(
+          "Encrypted relay protocol 1 requires an up-to-date connector."
+        );
+      }
+      encryption = {
+        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        suite: RELAY_ENCRYPTION_SUITE,
+        key_id: `enc_${randomUUID()}`,
+        scope_epoch: 1,
+        connector_id: selected.connector_id,
+        collection_id: selected.local_id,
+        application_public_key: pending.application_public_key,
+        connector_public_key: selected.relay_public_key
+      };
+    }
+    const applicationOrigin = pending.flow === "device_code"
+      ? "null"
+      : applicationOriginForRedirect(
+          pending.redirect_uri!,
+          pending.application_homepage
+        );
+    const inserted = await connection.query<{ created_at: string | Date }>(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope, encryption,
+          application_origin, notification_criteria, activated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb, NULL)
+       RETURNING created_at`,
+      [
+        grantId,
+        input.userId,
+        pending.application_id,
+        input.collectionId,
+        JSON.stringify(operations),
+        JSON.stringify(scope),
+        encryption ? JSON.stringify(encryption) : null,
+        applicationOrigin,
+        JSON.stringify(pending.notifications.criteria)
+      ]
+    );
+    await connection.query(
+      `UPDATE authorization_requests
+       SET grant_id = $2, activation_started_at = now()
+       WHERE id = $1`,
+      [input.requestId, grantId]
+    );
+    connectorId = selected.connector_id;
+    localCollectionId = selected.local_id;
+    requirements = pending.requirements;
+    provisions = pending.provisions;
+    grant = {
+      id: grantId,
+      application_id: pending.application_id,
+      collection_id: selected.local_id,
+      operations: operations as GrantPolicy["operations"],
+      scope,
+      application_name: pending.application_name,
+      application_distribution: pending.distribution,
+      application_homepage: pending.application_homepage,
+      ...(pending.application_project_url
+        ? { application_project_url: pending.application_project_url }
+        : {}),
+      application_origin: normalizedApplicationOrigin(applicationOrigin),
+      ...(pending.application_icon ? { application_icon: pending.application_icon } : {}),
+      collection_name: selected.display_name,
+      notification_criteria: pending.notifications.criteria,
+      created_at: new Date(inserted.rows[0].created_at).toISOString(),
+      ...(encryption ? { encryption } : {})
+    };
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  let activation: Awaited<ReturnType<RelayHub["activateAuthorization"]>>;
+  try {
+    activation = await relay.activateAuthorization(connectorId, {
+      authorizationId: input.requestId,
+      collectionId: localCollectionId,
+      requirements: requirements!,
+      provisions: provisions!,
+      grant: grant!
+    });
+  } catch (error) {
+    await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
+    await relay.pushPolicy(connectorId);
+    throw error;
+  }
+
+  const finalize = await db.connect();
+  try {
+    await finalize.query("BEGIN");
+    const completed = await finalize.query(
+      `UPDATE authorization_requests SET
+         completed_at = now(),
+         activation_started_at = NULL
+       WHERE id = $1 AND user_id = $2 AND grant_id = $3
+         AND completed_at IS NULL AND denied_at IS NULL
+       RETURNING id`,
+      [input.requestId, input.userId, grantId]
+    );
+    if (!completed.rows[0]) {
+      throw new RequestValidationError(
+        "The authorization request changed before activation completed."
+      );
+    }
+    await finalize.query(
+      "UPDATE grants SET activated_at = now() WHERE id = $1 AND activated_at IS NULL",
+      [grantId]
+    );
+    await finalize.query(
+      `UPDATE authorization_collection_offers SET consumed_at = now()
+       WHERE id = $1 AND authorization_id = $2`,
+      [input.offerId, input.requestId]
+    );
+    await finalize.query(
+      `UPDATE collections SET contracts = $2::jsonb, last_seen_at = now()
+       WHERE id = $1`,
+      [input.collectionId, JSON.stringify(activation.contracts)]
+    );
+    await finalize.query("COMMIT");
+  } catch (error) {
+    await finalize.query("ROLLBACK");
+    await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
+    await relay.pushPolicy(connectorId);
+    throw error;
+  } finally {
+    finalize.release();
+  }
+  await relay.pushPolicy(connectorId);
+  await audit(db, input.userId, "authorization.approved", input.requestId, {
+    connector_id: connectorId,
+    collection_id: input.collectionId,
+    operations: input.operations,
+    scope: grant!.scope,
+    source: "portal_live_offer"
+  });
+  return true;
+}
+
+async function abandonPendingAuthorizationGrant(
+  db: DatabasePool,
+  authorizationId: string,
+  grantId: string
+): Promise<void> {
+  const connection = await db.connect();
+  try {
+    await connection.query("BEGIN");
+    await connection.query(
+      `UPDATE authorization_requests
+       SET grant_id = NULL, activation_started_at = NULL
+       WHERE id = $1 AND grant_id = $2`,
+      [authorizationId, grantId]
+    );
+    await connection.query(
+      "DELETE FROM grants WHERE id = $1 AND activated_at IS NULL",
+      [grantId]
+    );
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 async function approveAuthorization(
   db: DatabasePool,
   relay: RelayHub,
@@ -3744,7 +4434,7 @@ async function approveAuthorization(
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
      WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
-       AND ar.denied_at IS NULL AND ar.expires_at > now()
+       AND ar.grant_id IS NULL AND ar.denied_at IS NULL AND ar.expires_at > now()
      FOR UPDATE`,
     [input.requestId, input.userId]
     );
@@ -3785,7 +4475,8 @@ async function approveAuthorization(
     }>(
     `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
      FROM collections col JOIN connectors con ON con.id = col.connector_id
-     WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true`,
+     WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true
+       AND col.present = true AND col.authority_state = 'active'`,
     [input.collectionId, input.connectorId]
     );
     scope = scopeForRequirements(pending.requirements);
@@ -3902,7 +4593,7 @@ async function approveHostedAuthorization(
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
-         AND ar.expires_at > now()
+         AND ar.grant_id IS NULL AND ar.denied_at IS NULL AND ar.expires_at > now()
        FOR UPDATE`,
       [input.requestId, input.userId]
     );
@@ -4063,7 +4754,8 @@ async function denyAuthorization(
 ): Promise<boolean> {
   const pending = await db.query<{ id: string }>(
     `UPDATE authorization_requests SET completed_at = now(), denied_at = now()
-     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL AND expires_at > now()
+     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
+       AND grant_id IS NULL AND expires_at > now()
      RETURNING id`,
     [input.requestId, input.userId]
   );
@@ -4162,7 +4854,8 @@ async function issueApplicationTokens(
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     WHERE g.id = $1 AND g.revoked_at IS NULL`,
+     WHERE g.id = $1 AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
@@ -4352,7 +5045,8 @@ function matchesGrantIdentity(
 
 async function rotateGrantEncryption(db: DatabasePool, grantId: string): Promise<void> {
   const grant = await db.query<{ encryption: GrantEncryption | null }>(
-    "SELECT encryption FROM grants WHERE id = $1 AND revoked_at IS NULL",
+    `SELECT encryption FROM grants
+     WHERE id = $1 AND revoked_at IS NULL AND activated_at IS NOT NULL`,
     [grantId]
   );
   const encryption = grant.rows[0]?.encryption;

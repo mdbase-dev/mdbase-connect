@@ -1936,6 +1936,7 @@ if (action === "add") {
         "content-type": "application/json"
       },
       body: JSON.stringify({
+        inventory_revision: 1,
         collections: [{
           id,
           display_name: "Promotion E2E collection",

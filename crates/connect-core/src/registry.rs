@@ -481,6 +481,55 @@ impl CollectionRegistry {
         self.add(path)
     }
 
+    pub fn make_independent(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
+        let collection = self.get(id)?;
+        let path = PathBuf::from(&collection.path);
+        let new_id = Uuid::new_v4();
+        write_collection_id(&path, new_id)?;
+        let result = (|| {
+            let mut connection = self.connection()?;
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute(
+                "DELETE FROM grant_crypto_state
+                 WHERE grant_id IN (SELECT id FROM grants WHERE collection_id = ?1)",
+                [id.to_string()],
+            )?;
+            transaction.execute(
+                "DELETE FROM grant_crypto_requests
+                 WHERE grant_id IN (SELECT id FROM grants WHERE collection_id = ?1)",
+                [id.to_string()],
+            )?;
+            transaction.execute(
+                "DELETE FROM grants WHERE collection_id = ?1",
+                [id.to_string()],
+            )?;
+            transaction.execute(
+                "DELETE FROM collection_changes WHERE collection_id = ?1",
+                [id.to_string()],
+            )?;
+            transaction.execute(
+                "UPDATE collections SET id = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+                params![new_id.to_string(), id.to_string()],
+            )?;
+            transaction.commit()?;
+            Ok::<(), ConnectError>(())
+        })();
+        if let Err(error) = result {
+            let _ = write_collection_id(&path, id);
+            return Err(error);
+        }
+        let mut providers = self
+            .providers
+            .lock()
+            .map_err(|_| ConnectError::CollectionOpen("provider registry lock poisoned".into()))?;
+        if let Some(provider) = providers.remove(&id) {
+            providers.insert(new_id, provider);
+        }
+        drop(providers);
+        self.get(new_id)
+    }
+
     pub fn create(
         &self,
         path: impl AsRef<Path>,
@@ -1330,6 +1379,77 @@ impl CollectionRegistry {
         Ok(())
     }
 
+    pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
+        let connection = self.connection()?;
+        connection.execute(
+            "INSERT INTO grants
+               (id, application_id, collection_id, operations, scope, application_name,
+                application_distribution, application_homepage, application_project_url,
+                application_origin, application_icon, collection_name, created_at, encryption,
+                notification_criteria)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+             ON CONFLICT(id) DO UPDATE SET
+               application_id = excluded.application_id,
+               collection_id = excluded.collection_id,
+               operations = excluded.operations,
+               scope = excluded.scope,
+               application_name = excluded.application_name,
+               application_distribution = excluded.application_distribution,
+               application_homepage = excluded.application_homepage,
+               application_project_url = excluded.application_project_url,
+               application_origin = excluded.application_origin,
+               application_icon = excluded.application_icon,
+               collection_name = excluded.collection_name,
+               created_at = excluded.created_at,
+               encryption = excluded.encryption,
+               notification_criteria = excluded.notification_criteria,
+               updated_at = CURRENT_TIMESTAMP",
+            params![
+                grant.id.to_string(),
+                grant.application_id.to_string(),
+                grant.collection_id.to_string(),
+                serde_json::to_string(&grant.operations)?,
+                serde_json::to_string(&grant.scope)?,
+                grant.application_name,
+                grant.application_distribution,
+                grant.application_homepage,
+                grant.application_project_url,
+                grant.application_origin,
+                grant.application_icon,
+                grant.collection_name,
+                grant.created_at,
+                grant
+                    .encryption
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+                serde_json::to_string(&grant.notification_criteria)?,
+            ],
+        )?;
+        if let Some(encryption) = &grant.encryption {
+            connection.execute(
+                "DELETE FROM grant_crypto_state
+                 WHERE grant_id = ?1 AND key_id <> ?2",
+                params![grant.id.to_string(), encryption.key_id],
+            )?;
+            connection.execute(
+                "DELETE FROM grant_crypto_requests
+                 WHERE grant_id = ?1 AND key_id <> ?2",
+                params![grant.id.to_string(), encryption.key_id],
+            )?;
+        } else {
+            connection.execute(
+                "DELETE FROM grant_crypto_state WHERE grant_id = ?1",
+                [grant.id.to_string()],
+            )?;
+            connection.execute(
+                "DELETE FROM grant_crypto_requests WHERE grant_id = ?1",
+                [grant.id.to_string()],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn replace_grant_summaries(&self, grants: &[GrantSummary]) -> Result<(), ConnectError> {
         self.replace_grants(
             &grants
@@ -1444,6 +1564,28 @@ impl CollectionRegistry {
             )
             .optional()?;
         Ok(value.as_deref() == Some("true"))
+    }
+
+    pub fn next_inventory_revision(&self) -> Result<u64, ConnectError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = transaction
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'inventory_revision'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0);
+        let next = current.saturating_add(1);
+        transaction.execute(
+            "INSERT INTO settings (key, value) VALUES ('inventory_revision', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+            [next.to_string()],
+        )?;
+        transaction.commit()?;
+        Ok(next)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2380,6 +2522,38 @@ mod tests {
                 if message.contains("registered original")
         ));
         assert_eq!(read_collection_id(&original).unwrap(), Some(created.id));
+    }
+
+    #[test]
+    fn registered_conflict_can_become_independent_without_moving_files() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let created = registry.create(&root, Some("Notes")).unwrap();
+
+        let independent = registry.make_independent(created.id).unwrap();
+
+        assert_ne!(independent.id, created.id);
+        assert_eq!(independent.path, created.path);
+        assert_eq!(read_collection_id(&root).unwrap(), Some(independent.id));
+        assert!(matches!(
+            registry.get(created.id),
+            Err(ConnectError::CollectionNotFound(id)) if id == created.id
+        ));
+        assert_eq!(registry.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn inventory_revisions_are_monotonic_across_registry_restarts() {
+        let state = tempdir().unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        assert_eq!(registry.next_inventory_revision().unwrap(), 1);
+        assert_eq!(registry.next_inventory_revision().unwrap(), 2);
+        drop(registry);
+
+        let reopened = CollectionRegistry::open(state.path()).unwrap();
+        assert_eq!(reopened.next_inventory_revision().unwrap(), 3);
     }
 
     #[test]

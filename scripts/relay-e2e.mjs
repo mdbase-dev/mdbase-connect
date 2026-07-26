@@ -50,7 +50,7 @@ try {
     } catch {
       return null;
     }
-  }, "PostgreSQL did not become ready", 200, 100);
+  }, "PostgreSQL did not become ready", 600, 100);
   // The image briefly starts a bootstrap server before restarting PostgreSQL
   // as PID 1. Do not mistake that initialization window for final readiness.
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
@@ -360,9 +360,10 @@ async function seed(db, hash) {
     [connectorId, userId, "Relay E2E connector", hash(connectorToken)]
   );
   await db.query(
-    `INSERT INTO collections (id, connector_id, local_id, display_name, spec_version, contracts)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    [collectionId, connectorId, localCollectionId, "Relay E2E collection", "0.3.0", "[]"]
+    `INSERT INTO collections
+       (id, user_id, connector_id, local_id, display_name, spec_version, contracts)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+    [collectionId, userId, connectorId, localCollectionId, "Relay E2E collection", "0.3.0", "[]"]
   );
   await db.query(
     `INSERT INTO applications

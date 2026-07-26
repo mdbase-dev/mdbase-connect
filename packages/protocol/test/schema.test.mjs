@@ -332,6 +332,37 @@ test("relay request and response discriminators reject malformed wire messages",
   };
   assert.equal(validate(response), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...response, result: {} }), false);
+
+  const offer = {
+    type: "authorization_offer_response",
+    protocol_version: 1,
+    request_id: request.request_id,
+    paused: false,
+    collections: [{
+      collection_id: request.collection_id,
+      display_name: "Tasks",
+      spec_version: "0.3.0",
+      contracts: []
+    }]
+  };
+  assert.equal(validate(offer), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...offer,
+    collections: [{ ...offer.collections[0], path: "/private/vault" }]
+  }), false);
+
+  const activation = {
+    type: "authorization_activation_response",
+    protocol_version: 1,
+    request_id: request.request_id,
+    ok: true,
+    contracts: []
+  };
+  assert.equal(validate(activation), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...activation,
+    ok: false
+  }), false);
 });
 
 test("collection descriptions and operation envelopes have addressable schemas", () => {

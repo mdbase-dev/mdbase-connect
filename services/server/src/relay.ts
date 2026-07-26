@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ApplicationProvisions,
+  ApplicationRequirements,
+  AuthorizationActivationResponse,
+  AuthorizationOfferResponse,
   EncryptedRelayEnvelope,
   EncryptedRelayOperationRequest,
-  EncryptedRelayOperationResponse
+  EncryptedRelayOperationResponse,
+  GrantPolicy
 } from "@mdbase/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
@@ -17,6 +22,8 @@ import type { WebSocket } from "ws";
 
 const OPERATION_TIMEOUT_MS = 30_000;
 const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
+const OFFER_TIMEOUT_MS = 3_000;
+const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
 const POLICY_TIMEOUT_MS = 5_000;
 
 interface PendingRequest {
@@ -25,6 +32,7 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
   socket: WebSocket;
   expectedEncrypted?: EncryptedRelayEnvelope;
+  expectedType?: "operation_response" | "authorization_offer_response" | "authorization_activation_response";
 }
 
 interface ConnectorSession {
@@ -101,6 +109,9 @@ export class RelayHub {
           key_id?: string;
           counter?: string;
           ciphertext?: string;
+          paused?: boolean;
+          collections?: unknown[];
+          contracts?: unknown[];
         };
         if (!message.request_id) return;
         const pending = this.pending.get(message.request_id);
@@ -133,7 +144,54 @@ export class RelayHub {
           this.resolvePending(message.request_id, message);
           return;
         }
+        if (message.type === "authorization_offer_response") {
+          if (pending.expectedType !== "authorization_offer_response") {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                "invalid_relay_response",
+                "The connector returned the wrong relay response type."
+              )
+            );
+            return;
+          }
+          this.resolvePending(message.request_id, message);
+          return;
+        }
+        if (message.type === "authorization_activation_response") {
+          if (pending.expectedType !== "authorization_activation_response") {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                "invalid_relay_response",
+                "The connector returned the wrong relay response type."
+              )
+            );
+            return;
+          }
+          if (message.ok) this.resolvePending(message.request_id, message);
+          else {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                message.error?.code ?? "authorization_activation_failed",
+                message.error?.message ?? "The connector could not activate this authorization."
+              )
+            );
+          }
+          return;
+        }
         if (message.type !== "operation_response") return;
+        if (pending.expectedType !== "operation_response") {
+          this.rejectPending(
+            message.request_id,
+            new ConnectorOperationError(
+              "invalid_relay_response",
+              "The connector returned the wrong relay response type."
+            )
+          );
+          return;
+        }
         if (message.ok) this.resolvePending(message.request_id, message.result);
         else {
           this.rejectPending(
@@ -204,7 +262,8 @@ export class RelayHub {
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
-       WHERE c.connector_id = $1 AND g.revoked_at IS NULL`,
+       WHERE c.connector_id = $1 AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL`,
       [connectorId]
     );
     const generation = await this.currentGeneration(connectorId);
@@ -288,6 +347,46 @@ export class RelayHub {
     return response as EncryptedRelayOperationResponse;
   }
 
+  async authorizationOffers(
+    connectorId: string,
+    authorizationId: string
+  ): Promise<AuthorizationOfferResponse> {
+    const generation = await this.requireCurrentGeneration(connectorId);
+    const requestId = randomUUID();
+    const response = await this.deliver(connectorId, generation, {
+      type: "authorization_offer_request",
+      protocol_version: 1,
+      request_id: requestId,
+      authorization_id: authorizationId
+    }, BROKER_OFFER_TIMEOUT_MS);
+    return response as AuthorizationOfferResponse;
+  }
+
+  async activateAuthorization(
+    connectorId: string,
+    input: {
+      authorizationId: string;
+      collectionId: string;
+      requirements: ApplicationRequirements;
+      provisions: ApplicationProvisions;
+      grant: GrantPolicy;
+    }
+  ): Promise<AuthorizationActivationResponse> {
+    const generation = await this.requireCurrentGeneration(connectorId);
+    const requestId = randomUUID();
+    const response = await this.deliver(connectorId, generation, {
+      type: "authorization_activation_request",
+      protocol_version: 1,
+      request_id: requestId,
+      authorization_id: input.authorizationId,
+      collection_id: input.collectionId,
+      requirements: input.requirements,
+      provisions: input.provisions,
+      grant: input.grant
+    });
+    return response as AuthorizationActivationResponse;
+  }
+
   async ready(): Promise<void> {
     await this.broker.ready();
   }
@@ -307,7 +406,8 @@ export class RelayHub {
   private async deliver(
     connectorId: string,
     generation: string,
-    message: unknown
+    message: unknown,
+    timeoutMs = BROKER_OPERATION_TIMEOUT_MS
   ): Promise<unknown> {
     let reply: RelayBrokerReply;
     try {
@@ -315,7 +415,7 @@ export class RelayHub {
         connectorId,
         generation,
         { version: 1, kind: "deliver", message },
-        BROKER_OPERATION_TIMEOUT_MS
+        timeoutMs
       );
     } catch (error) {
       if (error instanceof RelayBrokerUnavailableError) throw new RelayUnavailableError();
@@ -351,12 +451,16 @@ export class RelayHub {
       return brokerError("internal", "invalid_relay_request", "The relay request did not contain a request ID.");
     }
     const expectedEncrypted = encryptedRequestFromMessage(command.message);
+    const expectedType = expectedEncrypted
+      ? undefined
+      : expectedResponseType(command.message);
     try {
       const value = await this.sendToConnector(
         session.socket,
         requestId,
         command.message,
-        expectedEncrypted
+        expectedEncrypted,
+        expectedType
       );
       return { version: 1, ok: true, value };
     } catch (error) {
@@ -374,7 +478,8 @@ export class RelayHub {
     socket: WebSocket,
     requestId: string,
     message: unknown,
-    expectedEncrypted?: EncryptedRelayEnvelope
+    expectedEncrypted?: EncryptedRelayEnvelope,
+    expectedType?: PendingRequest["expectedType"]
   ): Promise<unknown> {
     if (this.pending.has(requestId)) {
       return Promise.reject(new ConnectorOperationError(
@@ -389,8 +494,17 @@ export class RelayHub {
           "connector_timeout",
           "The connector operation timed out."
         ));
-      }, OPERATION_TIMEOUT_MS);
-      this.pending.set(requestId, { resolve, reject, timer, socket, expectedEncrypted });
+      }, expectedType === "authorization_offer_response"
+        ? OFFER_TIMEOUT_MS
+        : OPERATION_TIMEOUT_MS);
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        socket,
+        expectedEncrypted,
+        expectedType
+      });
       try {
         socket.send(JSON.stringify(message), (error) => {
           if (error) this.rejectPending(requestId, new RelayUnavailableError());
@@ -449,6 +563,20 @@ function encryptedRequestFromMessage(message: unknown): EncryptedRelayEnvelope |
   return (message as { type?: unknown }).type === "encrypted_operation_request"
     ? message as EncryptedRelayEnvelope
     : undefined;
+}
+
+function expectedResponseType(message: unknown): PendingRequest["expectedType"] {
+  if (typeof message !== "object" || message === null || Array.isArray(message)) return undefined;
+  switch ((message as { type?: unknown }).type) {
+    case "operation_request":
+      return "operation_response";
+    case "authorization_offer_request":
+      return "authorization_offer_response";
+    case "authorization_activation_request":
+      return "authorization_activation_response";
+    default:
+      return undefined;
+  }
 }
 
 function brokerError(

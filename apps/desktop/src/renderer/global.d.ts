@@ -118,6 +118,13 @@ interface AccessSnapshot {
   account?: ConnectorAccount;
   grants: GrantSummary[];
   pending_authorizations: PendingAuthorization[];
+  authority_conflicts: AuthorityConflict[];
+}
+
+interface AuthorityConflict {
+  collection_id: string;
+  display_name: string;
+  active_connector_name: string;
 }
 
 interface ActivityEntry {
@@ -142,6 +149,8 @@ interface Window {
       | null
     >;
     addCopiedCollection(path: string): Promise<CollectionSummary>;
+    makeCollectionIndependent(collectionId: string): Promise<CollectionSummary>;
+    takeCollectionAuthority(collectionId: string): Promise<{ ok: true }>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { path: string; name: string }): Promise<CollectionSummary>;
     updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;

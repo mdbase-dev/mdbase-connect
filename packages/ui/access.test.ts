@@ -30,6 +30,26 @@ test("does not mutate the incoming grant order", () => {
   assert.deepEqual(grants.map((item) => item.id), ["newest", "oldest"]);
 });
 
+test("groups manifest revisions by application family without changing grant identity", () => {
+  const groups = groupApplicationAccess([
+    {
+      ...grant("old", "revision-a", "Notes", "collection-a", "2026-07-22T01:00:00Z"),
+      application_family_id: "bundle:dev.mdbase.notes"
+    },
+    {
+      ...grant("new", "revision-b", "Archive", "collection-b", "2026-07-22T02:00:00Z"),
+      application_family_id: "bundle:dev.mdbase.notes"
+    }
+  ]);
+
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].applicationId, "bundle:dev.mdbase.notes");
+  assert.deepEqual(new Set(groups[0].grants.map((item) => item.application_id)), new Set([
+    "revision-a",
+    "revision-b"
+  ]));
+});
+
 test("groups requested operations into plain-language permission categories", () => {
   assert.deepEqual(
     groupAuthorizationOperations(["read", "query", "create", "delete", "create_view_source"]),

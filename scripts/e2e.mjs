@@ -215,6 +215,77 @@ secret: connector scope test
       || !token.body.grant_id) {
     throw new Error(`Authorization did not establish encrypted relay protocol 1: ${JSON.stringify(token.body)}`);
   }
+
+  const portalVerifier = "portal-live-offer-pkce-verifier-with-forty-three-characters";
+  const portalChallenge = createHash("sha256").update(portalVerifier).digest("base64url");
+  const portalAuthorize = await fetch(
+    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${portalChallenge}&code_challenge_method=S256&state=portal-e2e&operations=describe`,
+    { headers: { cookie }, redirect: "manual" }
+  );
+  if (portalAuthorize.status !== 302) {
+    throw new Error(`Portal authorization start returned HTTP ${portalAuthorize.status}`);
+  }
+  const portalAuthorizationId = portalAuthorize.headers.get("location")?.split("/").at(-1);
+  if (!portalAuthorizationId) throw new Error("Portal authorization request ID missing");
+  const portalRequest = await request(
+    `/v1/authorization-requests/${portalAuthorizationId}`,
+    { cookie }
+  );
+  const portalOffer = portalRequest.body.collections?.find(
+    (candidate) => candidate.id === collection.id
+  );
+  if (!portalOffer?.offer_id || portalOffer.connector_name !== "MVP computer") {
+    throw new Error(
+      `The live connector did not offer its local collection to the portal: ${JSON.stringify(portalRequest.body)}`
+    );
+  }
+  await request(`/v1/authorization-requests/${portalAuthorizationId}/approve`, {
+    method: "POST",
+    cookie,
+    body: {
+      collection_id: portalOffer.id,
+      offer_id: portalOffer.offer_id,
+      operations: ["describe"]
+    }
+  });
+  const portalCompleted = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${portalAuthorizationId}/status`,
+      { cookie }
+    );
+    return current.body.redirect_uri ? current : null;
+  }, "portal-approved local authorization did not complete");
+  const portalCallback = new URL(portalCompleted.body.redirect_uri);
+  const portalToken = await request("/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: portalCallback.searchParams.get("code"),
+      client_id: appId,
+      redirect_uri: manifest.redirectUri,
+      code_verifier: portalVerifier
+    }
+  });
+  const portalDescription = await fetch(
+    `${serverUrl}/v1/collections/${collection.id}/operations/describe`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${portalToken.body.access_token}`,
+        "content-type": "application/json"
+      },
+      body: "{}"
+    }
+  );
+  const portalDescriptionBody = await portalDescription.json();
+  if (portalDescription.status !== 200
+      || portalDescriptionBody.result?.display_name !== "Workouts") {
+    throw new Error(
+      `Portal-activated local grant could not describe its collection: ${JSON.stringify(portalDescriptionBody)}`
+    );
+  }
+  await cliJson(["access", "revoke", portalToken.body.grant_id]);
+
   relayContext = {
     store: applicationKeyStore,
     handle: "e2e-grant",

@@ -229,6 +229,7 @@ describe("hosted-to-local authority transfer", () => {
       url: "/v1/connectors/sync",
       headers: { authorization: `Bearer ${connector.json().token}` },
       payload: {
+        inventory_revision: 1,
         collections: [{
           id: collectionId,
           display_name: "Writing",
@@ -317,6 +318,7 @@ describe("hosted-to-local authority transfer", () => {
       url: "/v1/connectors/sync",
       headers: { authorization: `Bearer ${connector.json().token}` },
       payload: {
+        inventory_revision: 2,
         collections: [{
           id: collectionId,
           display_name: "Writing",
@@ -385,6 +387,7 @@ describe("hosted-to-local authority transfer", () => {
       url: "/v1/connectors/sync",
       headers: { authorization: `Bearer ${connector.json().token}` },
       payload: {
+        inventory_revision: 3,
         collections: [{
           id: cancellableCollectionId,
           display_name: "Keep hosted",

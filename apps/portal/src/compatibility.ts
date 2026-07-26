@@ -35,9 +35,9 @@ export function collectionCompatibility(
   }
   const unavailable = request.requirements.contracts.filter((requirement) =>
     !hasContract(collection.contracts, requirement)
-    && !(collection.kind === "hosted" && request.provisions.types.some((provision) =>
+    && !request.provisions.types.some((provision) =>
       provision.provides.some((provided) => sameContract(provided, requirement))
-    ))
+    )
   );
   if (unavailable.length > 0) {
     return {

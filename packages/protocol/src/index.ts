@@ -380,6 +380,34 @@ export interface RelayPolicySnapshot {
   grants: GrantPolicy[];
 }
 
+export interface AuthorizationCollectionOffer {
+  collection_id: string;
+  display_name: string;
+  spec_version: string;
+  contracts: ContractRequirement[];
+}
+
+export interface AuthorizationOfferResponse {
+  type: "authorization_offer_response";
+  protocol_version: 1;
+  request_id: string;
+  paused: boolean;
+  collections: AuthorizationCollectionOffer[];
+}
+
+export interface AuthorizationActivationResponse {
+  type: "authorization_activation_response";
+  protocol_version: 1;
+  request_id: string;
+  ok: boolean;
+  contracts: ContractRequirement[];
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
 export interface ConnectorCollection {
   id: string;
   display_name: string;

@@ -48,6 +48,7 @@ export interface DashboardData {
     collection_name: string;
     collection_kind: "local" | "hosted";
     application_id: string;
+    application_family_id?: string;
     application_name: string;
     distribution: "web" | "portable";
     homepage: string;
@@ -118,15 +119,24 @@ export interface PendingAuthorization {
   requirements: ApplicationRequirements;
   provisions: ApplicationProvisions;
   notifications: ApplicationNotifications;
+  available_collections?: AvailableCollection[];
+  unavailable_connectors?: UnavailableConnector[];
 }
 
 export interface AvailableCollection {
   id: string;
+  offer_id?: string;
   kind?: "local" | "hosted";
   connector_name: string;
   display_name: string;
   spec_version: string;
   contracts: ContractRequirement[];
+}
+
+export interface UnavailableConnector {
+  connector_id: string;
+  connector_name: string;
+  reason: "offline" | "paused";
 }
 
 export interface ContractRequirement {

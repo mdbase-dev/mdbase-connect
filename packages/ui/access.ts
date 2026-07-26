@@ -1,5 +1,6 @@
 export interface ApplicationAccessGrant {
   application_id: string;
+  application_family_id?: string;
   application_name: string;
   collection_id: string;
   collection_name: string;
@@ -102,13 +103,14 @@ export function groupApplicationAccess<Grant extends ApplicationAccessGrant>(
   const groups = new Map<string, ApplicationAccessGroup<Grant>>();
 
   for (const grant of grants) {
-    const current = groups.get(grant.application_id);
+    const groupId = grant.application_family_id || grant.application_id;
+    const current = groups.get(groupId);
     if (current) {
       current.grants.push(grant);
       continue;
     }
-    groups.set(grant.application_id, {
-      applicationId: grant.application_id,
+    groups.set(groupId, {
+      applicationId: groupId,
       applicationName: grant.application_name,
       collectionCount: 0,
       grants: [grant]

@@ -57,7 +57,7 @@ function App() {
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
-  const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [] });
+  const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +202,7 @@ function App() {
         ) : route === "collections" ? (
           <Collections
             collections={collections}
+            authorityConflicts={access.authority_conflicts}
             busy={busy}
             copiedCollectionPath={copiedCollectionPath}
             onAdd={() => void addExisting()}
@@ -309,8 +310,9 @@ function OverviewRow({ label, value, detail, action, onClick }: { label: string;
   return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
 }
 
-function Collections({ collections, busy, copiedCollectionPath, onAdd, onCancelCopy, onCreate, onRegisterCopy, onAct, onNotice }: {
+function Collections({ collections, authorityConflicts, busy, copiedCollectionPath, onAdd, onCancelCopy, onCreate, onRegisterCopy, onAct, onNotice }: {
   collections: CollectionSummary[];
+  authorityConflicts: AuthorityConflict[];
   busy: boolean;
   copiedCollectionPath: string | null;
   onAdd(): void;
@@ -341,6 +343,27 @@ function Collections({ collections, busy, copiedCollectionPath, onAdd, onCancelC
           </div>
         </section>
       )}
+      {authorityConflicts.map((conflict) => (
+        <section className="copy-registration" aria-labelledby={`authority-${conflict.collection_id}`} key={conflict.collection_id}>
+          <div>
+            <p className="eyebrow">Collection identity conflict</p>
+            <h2 id={`authority-${conflict.collection_id}`}>{conflict.display_name} is already active elsewhere.</h2>
+            <p>This folder has the same embedded collection ID as the copy on {conflict.active_connector_name}. Choose which identity this folder should keep.</p>
+            <small>Moving authority revokes the old computer’s application grants. Making this folder independent writes a new ID to only this folder’s <code>mdbase.yaml</code>.</small>
+          </div>
+          <div className="copy-registration-actions">
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
+              const independent = await window.mdbaseConnect.makeCollectionIndependent(conflict.collection_id);
+              onNotice(`${independent.display_name} now has an independent collection identity.`);
+            })}>Make independent</button>
+            <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
+              if (!window.confirm(`Move ${conflict.display_name} authority from ${conflict.active_connector_name} to this computer? Existing application access through the old computer will be revoked.`)) return;
+              await window.mdbaseConnect.takeCollectionAuthority(conflict.collection_id);
+              onNotice(`${conflict.display_name} now uses this computer as its authority.`);
+            })}>Use this computer</button>
+          </div>
+        </section>
+      ))}
       {collections.length === 0 ? (
         <Empty title="No collections registered" text="Add a folder with an existing mdbase.yaml, or create a new collection." action="Create the first collection" onAction={onCreate} />
       ) : (

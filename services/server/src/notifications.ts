@@ -167,7 +167,8 @@ export class NotificationService {
          JOIN push_channels pc ON pc.id = ns.channel_id
          JOIN grants g ON g.id = ns.grant_id
          WHERE ns.grant_id = $1 AND ns.criterion_id = $2
-           AND pc.disabled_at IS NULL AND g.revoked_at IS NULL`,
+           AND pc.disabled_at IS NULL AND g.revoked_at IS NULL
+           AND g.activated_at IS NOT NULL`,
         [input.grantId, input.criterionId]
       );
       let deliveries = 0;
@@ -187,7 +188,8 @@ export class NotificationService {
         `SELECT a.notifications
          FROM grants g
          JOIN applications a ON a.id = g.application_id
-         WHERE g.id = $1 AND g.revoked_at IS NULL`,
+         WHERE g.id = $1 AND g.revoked_at IS NULL
+           AND g.activated_at IS NOT NULL`,
         [input.grantId]
       );
       const nativeDelivery = route.rows[0]?.notifications.native_delivery;
@@ -244,6 +246,7 @@ export class NotificationService {
          OR (nd.status = 'sending' AND nd.leased_until < now())
        )
          AND pc.disabled_at IS NULL AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
        ORDER BY nd.created_at, nd.id
        LIMIT $1`,
       [limit]
@@ -286,7 +289,7 @@ export class NotificationService {
          (nwd.status IN ('pending', 'retry') AND nwd.available_at <= now())
          OR (nwd.status = 'sending' AND nwd.leased_until < now())
        )
-         AND g.revoked_at IS NULL
+         AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
        ORDER BY nwd.created_at, nwd.id
        LIMIT $1`,
       [limit]
@@ -526,7 +529,8 @@ export async function activeGrantForToken(
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
      WHERE tok.token_hash = $1 AND tok.expires_at > now()
-       AND tok.revoked_at IS NULL AND g.revoked_at IS NULL`,
+       AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
+       AND g.activated_at IS NOT NULL`,
     [tokenHash]
   );
   return result.rows[0] ?? null;

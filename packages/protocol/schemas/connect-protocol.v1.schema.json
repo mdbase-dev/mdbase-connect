@@ -6,7 +6,11 @@
   "oneOf": [
     { "$ref": "#/$defs/relayOperationRequest" },
     { "$ref": "#/$defs/relayOperationResponse" },
-    { "$ref": "#/$defs/relayPolicySnapshot" }
+    { "$ref": "#/$defs/relayPolicySnapshot" },
+    { "$ref": "#/$defs/authorizationOfferRequest" },
+    { "$ref": "#/$defs/authorizationOfferResponse" },
+    { "$ref": "#/$defs/authorizationActivationRequest" },
+    { "$ref": "#/$defs/authorizationActivationResponse" }
   ],
   "$defs": {
     "uuid": {
@@ -144,6 +148,140 @@
         "created_at": { "type": "string", "format": "date-time" },
         "encryption": { "$ref": "#/$defs/grantEncryption" }
       }
+    },
+    "authorizationCollectionOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collection_id", "display_name", "spec_version", "contracts"],
+      "properties": {
+        "collection_id": { "$ref": "#/$defs/uuid" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "spec_version": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "contracts": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/contractRequirement" }
+        }
+      }
+    },
+    "applicationRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contracts"],
+      "properties": {
+        "contracts": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/contractRequirement" }
+        },
+        "access": { "enum": ["contract", "full_collection"] }
+      }
+    },
+    "typeProvision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "document", "provides"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "document": { "type": "string", "minLength": 1, "maxLength": 262144 },
+        "provides": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/contractRequirement" }
+        }
+      }
+    },
+    "applicationProvisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["types"],
+      "properties": {
+        "types": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/typeProvision" }
+        }
+      }
+    },
+    "authorizationOfferRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "authorization_id"],
+      "properties": {
+        "type": { "const": "authorization_offer_request" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "authorization_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "authorizationOfferResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "paused", "collections"],
+      "properties": {
+        "type": { "const": "authorization_offer_response" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "paused": { "type": "boolean" },
+        "collections": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/authorizationCollectionOffer" }
+        }
+      }
+    },
+    "authorizationActivationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "authorization_id", "collection_id", "requirements", "provisions", "grant"],
+      "properties": {
+        "type": { "const": "authorization_activation_request" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "authorization_id": { "$ref": "#/$defs/uuid" },
+        "collection_id": { "$ref": "#/$defs/uuid" },
+        "requirements": { "$ref": "#/$defs/applicationRequirements" },
+        "provisions": { "$ref": "#/$defs/applicationProvisions" },
+        "grant": { "$ref": "#/$defs/grantPolicy" }
+      }
+    },
+    "authorizationActivationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "ok", "contracts"],
+      "properties": {
+        "type": { "const": "authorization_activation_response" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "ok": { "type": "boolean" },
+        "contracts": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/contractRequirement" }
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 },
+            "details": true
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ok": { "const": true } }, "required": ["ok"] },
+          "then": {
+            "not": { "properties": { "error": true }, "required": ["error"] }
+          },
+          "else": {
+            "required": ["error"]
+          }
+        }
+      ]
     },
     "notificationCriterion": {
       "type": "object",

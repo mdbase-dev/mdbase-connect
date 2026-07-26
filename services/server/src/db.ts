@@ -81,21 +81,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       name text NOT NULL,
       token_hash text NOT NULL UNIQUE,
       relay_generation bigint NOT NULL DEFAULT 0,
+      inventory_revision bigint NOT NULL DEFAULT 0,
       last_seen_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS collections (
       id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
       local_id uuid NOT NULL,
       display_name text NOT NULL,
       spec_version text NOT NULL,
       enabled boolean NOT NULL DEFAULT true,
+      reported_enabled boolean NOT NULL DEFAULT true,
+      present boolean NOT NULL DEFAULT true,
       authority_state text NOT NULL DEFAULT 'active'
         CHECK (authority_state IN ('active', 'candidate', 'retired')),
       authority_epoch bigint NOT NULL DEFAULT 1,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
+      last_inventory_revision bigint NOT NULL DEFAULT 0,
       last_seen_at timestamptz NOT NULL DEFAULT now(),
+      removed_at timestamptz,
       UNIQUE(connector_id, local_id)
     );
     CREATE TABLE IF NOT EXISTS hosted_collections (
@@ -125,6 +131,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     CREATE TABLE IF NOT EXISTS applications (
       id uuid PRIMARY KEY,
       canonical_identity text NOT NULL UNIQUE,
+      family_identity text NOT NULL DEFAULT '',
       manifest_version integer NOT NULL DEFAULT 1,
       distribution text NOT NULL DEFAULT 'web'
         CHECK (distribution IN ('web', 'portable')),
@@ -152,6 +159,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       encryption jsonb,
       application_origin text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
+      activated_at timestamptz DEFAULT now(),
       revoked_at timestamptz,
       CHECK ((collection_id IS NULL) <> (hosted_collection_id IS NULL))
     );
@@ -176,8 +184,23 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       last_polled_at timestamptz,
       device_consumed_at timestamptz,
       expires_at timestamptz NOT NULL,
+      activation_started_at timestamptz,
       completed_at timestamptz,
       denied_at timestamptz
+    );
+    CREATE TABLE IF NOT EXISTS authorization_collection_offers (
+      id uuid PRIMARY KEY,
+      authorization_id uuid NOT NULL REFERENCES authorization_requests(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      connector_id uuid NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+      collection_id uuid NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      local_id uuid NOT NULL,
+      authority_epoch bigint NOT NULL,
+      inventory_revision bigint NOT NULL,
+      expires_at timestamptz NOT NULL,
+      consumed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE(authorization_id, connector_id, collection_id)
     );
     CREATE TABLE IF NOT EXISTS pairing_requests (
       id uuid PRIMARY KEY,
@@ -359,10 +382,75 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(
     db,
+    "connectors",
+    "inventory_revision",
+    "ALTER TABLE connectors ADD COLUMN inventory_revision bigint NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "user_id",
+    "ALTER TABLE collections ADD COLUMN user_id uuid REFERENCES users(id) ON DELETE CASCADE"
+  );
+  await db.query(
+    `UPDATE collections SET user_id = connectors.user_id
+     FROM connectors WHERE collections.connector_id = connectors.id
+       AND collections.user_id IS NULL`
+  );
+  await ensureNotNullable(db, "collections", "user_id");
+  await ensureColumn(
+    db,
+    "collections",
+    "present",
+    "ALTER TABLE collections ADD COLUMN present boolean NOT NULL DEFAULT true"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "reported_enabled",
+    "ALTER TABLE collections ADD COLUMN reported_enabled boolean NOT NULL DEFAULT true"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "last_inventory_revision",
+    "ALTER TABLE collections ADD COLUMN last_inventory_revision bigint NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    db,
+    "collections",
+    "removed_at",
+    "ALTER TABLE collections ADD COLUMN removed_at timestamptz"
+  );
+  await ensureColumn(
+    db,
     "applications",
     "manifest_version",
     "ALTER TABLE applications ADD COLUMN manifest_version integer NOT NULL DEFAULT 1"
   );
+  await ensureColumn(
+    db,
+    "applications",
+    "family_identity",
+    "ALTER TABLE applications ADD COLUMN family_identity text DEFAULT ''"
+  );
+  const applicationsWithoutFamily = await db.query<{
+    id: string;
+    canonical_identity: string;
+  }>(
+    `SELECT id, canonical_identity FROM applications
+     WHERE family_identity IS NULL OR family_identity = ''`
+  );
+  for (const application of applicationsWithoutFamily.rows) {
+    await db.query(
+      "UPDATE applications SET family_identity = $2 WHERE id = $1",
+      [
+        application.id,
+        application.canonical_identity.replace(/:sha256:[a-f0-9]+$/i, "")
+      ]
+    );
+  }
+  await ensureNotNullable(db, "applications", "family_identity");
   await ensureColumn(
     db,
     "applications",
@@ -411,6 +499,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "grants",
     "notification_criteria",
     "ALTER TABLE grants ADD COLUMN notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb"
+  );
+  await ensureColumn(
+    db,
+    "grants",
+    "activated_at",
+    "ALTER TABLE grants ADD COLUMN activated_at timestamptz DEFAULT now()"
   );
   await db.query(
     `UPDATE grants
@@ -469,6 +563,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "authorization_requests",
     "last_polled_at",
     "ALTER TABLE authorization_requests ADD COLUMN last_polled_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "authorization_requests",
+    "activation_started_at",
+    "ALTER TABLE authorization_requests ADD COLUMN activation_started_at timestamptz"
   );
   await ensureColumn(
     db,
@@ -633,6 +733,36 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_authority_state_check
      CHECK (authority_state IN ('active', 'transferring', 'transferred'))`
   );
+  const activeAuthorities = await db.query<{
+    id: string;
+    user_id: string;
+    local_id: string;
+  }>(
+    `SELECT id, user_id, local_id FROM collections
+     WHERE authority_state = 'active'
+     ORDER BY last_seen_at DESC, id`
+  );
+  const retainedAuthorities = new Set<string>();
+  for (const authority of activeAuthorities.rows) {
+    const identity = `${authority.user_id}:${authority.local_id}`;
+    if (retainedAuthorities.has(identity)) {
+      await db.query(
+        `UPDATE collections SET authority_state = 'candidate', enabled = false
+         WHERE id = $1`,
+        [authority.id]
+      );
+    } else {
+      retainedAuthorities.add(identity);
+    }
+  }
+  await db.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS collections_active_authority_idx
+     ON collections(user_id, local_id) WHERE authority_state = 'active'`
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS authorization_collection_offers_lookup_idx
+     ON authorization_collection_offers(authorization_id, expires_at)`
+  );
 }
 
 export async function backfillSessionProviders(db: DatabaseQueryable): Promise<void> {
@@ -653,6 +783,21 @@ async function ensureNullable(db: DatabaseQueryable, table: string, column: stri
   );
   if (result.rows[0]?.is_nullable === "NO") {
     await db.query(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP NOT NULL`);
+  }
+}
+
+async function ensureNotNullable(
+  db: DatabaseQueryable,
+  table: string,
+  column: string
+): Promise<void> {
+  const result = await db.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_name = $1 AND column_name = $2`,
+    [table, column]
+  );
+  if (result.rows[0]?.is_nullable === "YES") {
+    await db.query(`ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`);
   }
 }
 

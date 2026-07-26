@@ -400,9 +400,9 @@ async function notificationFixture(
   );
   await db.query(
     `INSERT INTO collections
-       (id, connector_id, local_id, display_name, spec_version, enabled)
-     VALUES ($1, $2, $3, $4, $5, true)`,
-    [collectionId, connectorId, localCollectionId, "Tasks", "0.3.0"]
+       (id, user_id, connector_id, local_id, display_name, spec_version, enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, true)`,
+    [collectionId, userId, connectorId, localCollectionId, "Tasks", "0.3.0"]
   );
   if (hosted) {
     await db.query(
