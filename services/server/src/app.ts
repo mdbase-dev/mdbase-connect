@@ -357,6 +357,19 @@ export async function buildApp(options: BuildOptions) {
         "Google sign-in could not be completed. Please try again."
       ));
     }
+    const statusCode = httpErrorStatus(error);
+    if (statusCode === 413) {
+      return reply.code(413).send(apiError(
+        "payload_too_large",
+        "The request body exceeds the allowed size."
+      ));
+    }
+    if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
+      return reply.code(statusCode).send(apiError(
+        "invalid_request",
+        "The request body is invalid."
+      ));
+    }
     request.log.error(error);
     return reply.code(500).send(apiError("internal_error", "The request could not be completed."));
   });
@@ -5548,6 +5561,14 @@ async function audit(
 
 function apiError(code: string, message: string) {
   return { error: { code, message } };
+}
+
+function httpErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("statusCode" in error)) {
+    return undefined;
+  }
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === "number" ? statusCode : undefined;
 }
 
 function oauthError(error: string, errorDescription: string) {

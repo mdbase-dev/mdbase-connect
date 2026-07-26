@@ -42,6 +42,38 @@ describe("mdbase MCP gateway", () => {
     await db.end();
   });
 
+  it("keeps malformed and oversized request bodies out of the server-error path", async () => {
+    const db = await createDatabase("memory");
+    const { app } = await buildApp({ db, config: testConfig() });
+
+    const malformed = await app.inject({
+      method: "POST",
+      url: "/oauth/register",
+      headers: { "content-type": "application/json" },
+      payload: "{"
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(malformed.json()).toEqual({
+      error: "invalid_request",
+      error_description: "The request body is invalid."
+    });
+
+    const oversized = await app.inject({
+      method: "POST",
+      url: "/oauth/register",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ padding: "x".repeat(2 * 1024 * 1024 + 1) })
+    });
+    expect(oversized.statusCode).toBe(413);
+    expect(oversized.json()).toEqual({
+      error: "invalid_request",
+      error_description: "The request body exceeds the allowed size."
+    });
+
+    await app.close();
+    await db.end();
+  });
+
   it("authorizes a host, adds multiple collections, and routes MCP tools by connection ID", async () => {
     const upstream = await fakeUpstream(globalThis.fetch);
     vi.stubGlobal("fetch", upstream.fetch);
