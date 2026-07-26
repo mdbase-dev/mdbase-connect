@@ -54,9 +54,3 @@ Pages project named `mdbase-editor` with production branch `main`.
 Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
 repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
 to `1`.
-
-The legacy `https://callumalpass.github.io/mdbase-editor/` deployment remains a
-rollback target and is built with an explicit project-site manifest. It must
-not be treated as the production full-access origin because GitHub project
-sites share browser storage across every repository under
-`callumalpass.github.io`.

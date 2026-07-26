@@ -30,41 +30,11 @@ jobs:
       - run: pnpm test:e2e
       - run: pnpm build
         env:
-          MDBASE_EDITOR_ORIGIN: https://callumalpass.github.io
-          MDBASE_EDITOR_BASE_PATH: /mdbase-editor/
-      - name: Archive Pages artifact
-        run: tar --dereference --hard-dereference --directory dist -cvf "$RUNNER_TEMP/artifact.tar" .
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: github-pages
-          path: ${{ runner.temp }}/artifact.tar
-          retention-days: 1
-          if-no-files-found: error
-
-  deploy:
-    if: github.event_name == 'push'
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
-      - name: Verify application manifest
-        env:
-          MANIFEST_URL: https://callumalpass.github.io/mdbase-editor/.well-known/mdbase-app.json?commit=${{ github.sha }}
-        run: |
-          curl --fail --silent --show-error --retry 5 --retry-all-errors "$MANIFEST_URL" --output "$RUNNER_TEMP/mdbase-app.json"
-          node -e 'const manifest = require(process.env.RUNNER_TEMP + "/mdbase-app.json"); if (manifest.name !== "mdbase editor" || manifest.requirements?.access !== "full_collection") process.exit(1)'
+          MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
+          MDBASE_EDITOR_BASE_PATH: /
 
   deploy-cloudflare:
-    if: github.event_name == 'push' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
+    if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'
     needs: test
     runs-on: ubuntu-latest
     environment:
