@@ -18,8 +18,8 @@ import type {
   MdbaseAppManifest,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
-  RecordSummary,
-  RecordResult,
+  QueryRecord,
+  RecordDocument,
   ReadViewSourceInput,
   SavedViewExecution,
   SavedViewList,
@@ -76,8 +76,8 @@ export type {
   NotificationCriterion,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
-  RecordResult,
-  RecordSummary,
+  RecordDocument,
+  QueryRecord,
   SavedNamedView,
   SavedViewDocument,
   SavedViewExecution,
@@ -353,11 +353,12 @@ export interface QueryInput {
   /** Opaque token returned by the first metadata page for consistent, fast pagination. */
   snapshot?: string;
   include_body?: boolean;
+  frontmatter_mode?: "effective" | "persisted" | "both";
   [key: string]: unknown;
 }
 
 export interface QueryResult<Record extends JsonObject = JsonObject> {
-  results: Array<RecordSummary<Record> & JsonObject>;
+  results: Array<QueryRecord<Record> & JsonObject>;
   meta?: {
     total_count: number;
     has_more: boolean;
@@ -471,7 +472,7 @@ export interface RenameInput {
   if_revision?: string;
 }
 
-export interface RenameResult extends RecordResult {
+export interface RenameResult extends RecordDocument {
   from: string;
   to: string;
   references_updated?: JsonObject[];
@@ -555,7 +556,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.operation("changes", input, options);
   }
 
-  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.operation("read", input);
   }
 
@@ -654,11 +655,11 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.operation("delete_view_source", input);
   }
 
-  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.operation("create", input);
   }
 
-  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.operation("update", input);
   }
 
@@ -2125,7 +2126,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.changes(input, options);
   }
 
-  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.collectionClient.read(input);
   }
 
@@ -2165,11 +2166,11 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.deleteViewSource(input);
   }
 
-  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.collectionClient.create(input);
   }
 
-  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordResult<Frontmatter>>> {
+  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
     return this.collectionClient.update(input);
   }
 

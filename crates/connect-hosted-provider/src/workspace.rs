@@ -4,10 +4,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use mdbase::{
-    v03::{Diagnostic, OperationResult},
-    Collection,
-};
+use mdbase::{v03::OperationResult, Collection};
 use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
@@ -170,11 +167,7 @@ impl WorkingSet {
         match operation {
             "read" => Ok(operations.read(input)),
             "read_type" => Ok(operations.read_type(input)),
-            // Query execution remains entirely in mdbase-rs. Its v0.3 query
-            // facade is newer than the minimum path dependency supported by
-            // the hosted build, so only the common legacy envelope is adapted
-            // at this storage boundary.
-            "query" => Ok(query_result(&collection, input)),
+            "query" => Ok(operations.query(input)),
             "list_views" => Ok(operations.list_views(input)),
             "execute_view" => Ok(operations.execute_view(input)),
             "read_view_source" => Ok(operations.read_view_source(input)),
@@ -343,39 +336,6 @@ impl WorkingSet {
     }
 }
 
-fn query_result(collection: &Collection, input: &Value) -> OperationResult {
-    let legacy = collection.query(input);
-    let mut result = legacy.as_object().cloned().unwrap_or_default();
-    let diagnostic = result.get("error").map(|error| {
-        let code = error
-            .get("code")
-            .and_then(Value::as_str)
-            .unwrap_or("query_failed");
-        let message = error
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("The hosted query failed.");
-        Diagnostic::error(code, message, None)
-    });
-    for key in ["valid", "error", "issues", "validation", "warnings"] {
-        result.remove(key);
-    }
-    if input.get("include_body").and_then(Value::as_bool) != Some(true) {
-        if let Some(records) = result.get_mut("results").and_then(Value::as_array_mut) {
-            for record in records {
-                if let Some(object) = record.as_object_mut() {
-                    object.remove("body");
-                }
-            }
-        }
-    }
-    OperationResult {
-        valid: diagnostic.is_none(),
-        result: Value::Object(result),
-        diagnostics: diagnostic.into_iter().collect(),
-    }
-}
-
 fn operation_input(
     mutation: &SyncMutation,
     current_path: Option<&str>,
@@ -440,8 +400,7 @@ fn sync_record(record_id: Uuid, result: &Value) -> ApiResult<SyncRecord> {
     safe_relative(&path)?;
     let revision = required_string(result, "revision")?.to_string();
     let frontmatter = result
-        .get("raw_frontmatter")
-        .or_else(|| result.get("frontmatter"))
+        .get("frontmatter")
         .and_then(Value::as_object)
         .cloned()
         .ok_or_else(|| ApiError::internal("mdbase-rs returned invalid record frontmatter."))?;

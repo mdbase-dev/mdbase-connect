@@ -11,7 +11,7 @@ import type {
   CollectionOperation,
   JsonObject,
   MdbaseOperationEnvelope,
-  RecordResult
+  RecordDocument
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
@@ -190,7 +190,7 @@ implements MdbaseCollectionTransport {
     };
   }
 
-  private read(input: JsonObject): MdbaseOperationEnvelope<RecordResult<Frontmatter>> {
+  private read(input: JsonObject): MdbaseOperationEnvelope<RecordDocument<Frontmatter>> {
     const path = string(input.path, "path");
     const record = this.records.get(path);
     if (!record) return invalid("file_not_found", `File not found: ${path}`, path);
@@ -213,8 +213,21 @@ implements MdbaseCollectionTransport {
     const offset = integer(input.offset ?? 0, "offset", 0);
     const limit = integer(input.limit ?? all.length, "limit", 0);
     const selected = all.slice(offset, offset + limit).map((record) => {
-      const result = this.recordResult(record) as RecordResult<Frontmatter> & JsonObject;
+      const document = this.recordResult(record);
+      const result: JsonObject = {
+        path: document.path,
+        types: document.types,
+        file: { ...document.file, path: document.path }
+      };
+      const mode = input.frontmatter_mode ?? "effective";
+      if (mode === "persisted" || mode === "both") {
+        result.frontmatter = document.frontmatter;
+      }
+      if (mode === "effective" || mode === "both") {
+        result.effective_frontmatter = document.effective_frontmatter;
+      }
       if (input.include_body !== true) delete result.body;
+      else result.body = document.body;
       return result;
     });
     return envelope({
@@ -226,7 +239,7 @@ implements MdbaseCollectionTransport {
     });
   }
 
-  private create(input: JsonObject): MdbaseOperationEnvelope<RecordResult<Frontmatter>> {
+  private create(input: JsonObject): MdbaseOperationEnvelope<RecordDocument<Frontmatter>> {
     const path = string(input.path, "path");
     assertSafePath(path);
     if (this.records.has(path)) return invalid("path_conflict", `File already exists: ${path}`, path);
@@ -246,7 +259,7 @@ implements MdbaseCollectionTransport {
     return envelope(this.recordResult(record));
   }
 
-  private update(input: JsonObject): MdbaseOperationEnvelope<RecordResult<Frontmatter>> {
+  private update(input: JsonObject): MdbaseOperationEnvelope<RecordDocument<Frontmatter>> {
     const path = string(input.path, "path");
     const current = this.records.get(path);
     if (!current) return invalid("file_not_found", `File not found: ${path}`, path);
@@ -319,7 +332,7 @@ implements MdbaseCollectionTransport {
     };
   }
 
-  private recordResult(record: StoredRecord<Frontmatter>): RecordResult<Frontmatter> {
+  private recordResult(record: StoredRecord<Frontmatter>): RecordDocument<Frontmatter> {
     const effective = clone(record.frontmatter) as JsonObject;
     for (const typeName of record.types) {
       const type = this.description.types.find((candidate) => candidate.name === typeName);
@@ -330,11 +343,12 @@ implements MdbaseCollectionTransport {
     }
     return {
       path: record.path,
-      frontmatter: effective as Frontmatter,
-      raw_frontmatter: clone(record.frontmatter),
+      frontmatter: clone(record.frontmatter),
+      effective_frontmatter: effective as Frontmatter,
       body: record.body,
       types: [...record.types],
-      revision: record.revision
+      revision: record.revision,
+      file: sandboxFileMetadata(record)
     };
   }
 
@@ -347,6 +361,22 @@ implements MdbaseCollectionTransport {
       payload: { ...clone(payload), revision: record.revision }
     });
   }
+}
+
+function sandboxFileMetadata<Frontmatter extends JsonObject>(
+  record: StoredRecord<Frontmatter>
+) {
+  const segments = record.path.split("/");
+  const name = segments.at(-1) ?? record.path;
+  const folder = segments.slice(0, -1).join("/");
+  const revision = Number(record.revision.split(":").at(-1) ?? 0);
+  const serialized = `---\n${JSON.stringify(record.frontmatter)}\n---\n${record.body}`;
+  return {
+    name,
+    folder,
+    size: new TextEncoder().encode(serialized).byteLength,
+    mtime: new Date(revision).toISOString()
+  };
 }
 
 export function formatValidationIssues(issues: ValidationIssue[]): string {

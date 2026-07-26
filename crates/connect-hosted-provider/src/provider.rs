@@ -16,7 +16,7 @@ use mdbase_connect_protocol::{
 };
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
@@ -2704,38 +2704,30 @@ impl HostedProvider {
                             "The hosted operation did not return its resulting record.",
                         )
                     })?;
-                    let mut value = Map::from_iter([
-                        ("path".to_string(), Value::String(record.path.clone())),
-                        (
-                            "revision".to_string(),
-                            Value::String(record.revision.clone()),
-                        ),
-                        (
-                            "frontmatter".to_string(),
-                            Value::Object(record.frontmatter.clone()),
-                        ),
-                        (
-                            "raw_frontmatter".to_string(),
-                            Value::Object(record.frontmatter),
-                        ),
-                        ("body".to_string(), Value::String(record.body)),
-                        (
-                            "types".to_string(),
-                            Value::Array(record.types.into_iter().map(Value::String).collect()),
-                        ),
-                    ]);
+                    let mut document = self
+                        .execute_read_operation(
+                            collection_id,
+                            "read",
+                            &json!({"path": record.path.clone()}),
+                        )
+                        .await?;
+                    if !document.valid {
+                        return Err(ApiError::internal(
+                            "The hosted mutation succeeded but its record document could not be read.",
+                        ));
+                    }
                     if operation == "rename" {
+                        let value = document.result.as_object_mut().ok_or_else(|| {
+                            ApiError::internal("mdbase-rs returned a non-object record document.")
+                        })?;
                         value.insert(
                             "from".to_string(),
                             Value::String(previous_path.unwrap_or_default()),
                         );
                         value.insert("to".to_string(), Value::String(record.path));
+                        value.insert("references_updated".to_string(), Value::Array(Vec::new()));
                     }
-                    OperationResult {
-                        valid: true,
-                        result: Value::Object(value),
-                        diagnostics: Vec::new(),
-                    }
+                    document
                 }
             }
             SyncMutationReceipt::Rejected { error, .. } => {
@@ -4258,6 +4250,7 @@ pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Map;
 
     #[test]
     fn authority_manifest_matches_the_node_promotion_fixture() {

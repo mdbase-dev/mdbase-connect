@@ -703,19 +703,52 @@ try {
   });
   assert.equal(sdkCreated.valid, true);
   assert.deepEqual(sdkCreated.result.types, []);
+  assert.deepEqual(sdkCreated.result.frontmatter, {
+    title: "Created through hosted SDK"
+  });
+  assert.deepEqual(sdkCreated.result.effective_frontmatter, {
+    title: "Created through hosted SDK"
+  });
+  assert.equal(sdkCreated.result.body, "Generic mdbase Markdown.\n");
+  assert.equal(sdkCreated.result.file.name, "Draft.md");
   const sdkUpdated = await hostedConnection.update({
     path: "Draft.md",
     patch: { title: "Updated through hosted SDK" },
     if_revision: sdkCreated.result.revision
   });
   assert.equal(sdkUpdated.valid, true);
+  assert.equal(sdkUpdated.result.frontmatter.title, "Updated through hosted SDK");
+  assert.equal(
+    sdkUpdated.result.effective_frontmatter.title,
+    "Updated through hosted SDK"
+  );
+  assert.equal(sdkUpdated.result.file.name, "Draft.md");
   const sdkRenamed = await hostedConnection.rename({
     from: "Draft.md",
     to: "Writing/Draft.md",
     if_revision: sdkUpdated.result.revision
   });
   assert.equal(sdkRenamed.valid, true);
-  assert.equal((await hostedConnection.query()).result.results[0].path, "Writing/Draft.md");
+  assert.equal(sdkRenamed.result.path, "Writing/Draft.md");
+  assert.equal(sdkRenamed.result.frontmatter.title, "Updated through hosted SDK");
+  assert.equal(sdkRenamed.result.file.folder, "Writing");
+  const defaultQuery = await hostedConnection.query();
+  assert.equal(defaultQuery.result.results[0].path, "Writing/Draft.md");
+  assert.equal(
+    defaultQuery.result.results[0].effective_frontmatter.title,
+    "Updated through hosted SDK"
+  );
+  assert.equal(defaultQuery.result.results[0].frontmatter, undefined);
+  assert.equal(defaultQuery.result.results[0].file.path, "Writing/Draft.md");
+  const bothQuery = await hostedConnection.query({ frontmatter_mode: "both" });
+  assert.equal(
+    bothQuery.result.results[0].frontmatter.title,
+    "Updated through hosted SDK"
+  );
+  assert.equal(
+    bothQuery.result.results[0].effective_frontmatter.title,
+    "Updated through hosted SDK"
+  );
   const viewType = await hostedConnection.createType({
     document: `---
 kind: mdbase.type

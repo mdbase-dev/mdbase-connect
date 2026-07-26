@@ -529,7 +529,7 @@ export interface ExecuteViewInput {
 }
 
 export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject> {
-  results: Array<RecordSummary<Frontmatter> & { values?: JsonObject }>;
+  results: Array<QueryRecord<Frontmatter> & { values?: JsonObject }>;
   meta: {
     total_count: number;
     has_more: boolean;
@@ -553,18 +553,28 @@ export interface CollectionFileMetadata extends JsonObject {
   embeds?: unknown[];
 }
 
-export interface RecordSummary<Frontmatter extends JsonObject = JsonObject> {
+/**
+ * A projected query row. Frontmatter members are optional because
+ * `frontmatter_mode` selects which fixed-semantics representation is returned.
+ */
+export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   path: string;
-  frontmatter: Frontmatter;
-  raw_frontmatter?: Frontmatter;
+  frontmatter?: Frontmatter;
+  effective_frontmatter?: Frontmatter;
   body?: string;
   types: string[];
-  file?: CollectionFileMetadata;
+  file: CollectionFileMetadata & { path: string };
 }
 
-export interface RecordResult<Frontmatter extends JsonObject = JsonObject>
-  extends RecordSummary<Frontmatter> {
+/** A complete authoritative record returned by read and successful mutations. */
+export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
+  path: string;
   revision: string;
+  types: string[];
+  frontmatter: Frontmatter;
+  effective_frontmatter: Frontmatter;
+  body: string;
+  file: CollectionFileMetadata;
 }
 
 export interface CollectionTypeDescriptor {

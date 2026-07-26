@@ -3,8 +3,8 @@ import type {
   CollectionDescription,
   CollectionTypeDescriptor,
   JsonObject,
-  RecordResult,
-  RecordSummary
+  RecordDocument,
+  QueryRecord
 } from "@mdbase/connect-protocol";
 import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
 
@@ -124,6 +124,10 @@ export interface PickleClient {
   ): ReturnType<MdbaseConnection<PickleFrontmatter>["create"]>;
 }
 
+type PickleQueryRecord = QueryRecord<PickleFrontmatter> & {
+  effective_frontmatter: PickleFrontmatter;
+};
+
 export function resolvePickleContract(
   description: CollectionDescription
 ): PickleContract {
@@ -171,14 +175,16 @@ export class PickleCollection {
     const { collection, contract } = await this.describe();
     const requestQuery = await this.connect.queryAll({
       types: [contract.requestTypeName],
-      include_body: true
+      include_body: true,
+      frontmatter_mode: "effective"
     });
+    const requests = requestQuery.results.map(requireEffectiveFrontmatter);
     const responseTypes = [
       ...new Set(
-        requestQuery.results
+        requests
           .map((record) =>
             stringField(
-              record.frontmatter,
+              record.effective_frontmatter,
               role(contract, "response_type", "response_type")
             )
           )
@@ -189,11 +195,12 @@ export class PickleCollection {
       ? (
           await this.connect.queryAll({
             types: responseTypes,
-            include_body: true
+            include_body: true,
+            frontmatter_mode: "effective"
           })
-        ).results
+        ).results.map(requireEffectiveFrontmatter)
       : [];
-    return requestQuery.results
+    return requests
       .map((record) =>
         normalizeRequest(record, responses, collection, contract)
       )
@@ -206,7 +213,7 @@ export class PickleCollection {
     request: PickleRequest,
     payload: JsonObject,
     options: RespondOptions = {}
-  ): Promise<RecordResult<PickleFrontmatter>> {
+  ): Promise<RecordDocument<PickleFrontmatter>> {
     if (request.state !== "pending") {
       throw new PickleContractError(
         request.state === "conflict"
@@ -243,21 +250,21 @@ export class PickleCollection {
 export class PickleContractError extends Error {}
 
 function normalizeRequest(
-  record: RecordSummary<PickleFrontmatter>,
-  responseRecords: Array<RecordSummary<PickleFrontmatter>>,
+  record: PickleQueryRecord,
+  responseRecords: PickleQueryRecord[],
   description: CollectionDescription,
   contract: PickleContract
 ): PickleRequest {
   const responseType =
     stringField(
-      record.frontmatter,
+      record.effective_frontmatter,
       role(contract, "response_type", "response_type")
     ) || "pickle_response_approval";
   const linked = responseRecords.filter((candidate) =>
-    linkTargets(candidate.frontmatter.request, record.path)
+    linkTargets(candidate.effective_frontmatter.request, record.path)
   );
   const status = stringField(
-    record.frontmatter,
+    record.effective_frontmatter,
     role(contract, "status", "status")
   );
   const state: PickleRequestState =
@@ -272,26 +279,26 @@ function normalizeRequest(
     linked.length === 1 ? normalizeResponse(linked[0]) : undefined;
   return {
     id:
-      stringField(record.frontmatter, role(contract, "id", "id")) ||
+      stringField(record.effective_frontmatter, role(contract, "id", "id")) ||
       record.path,
     path: record.path,
     title:
-      stringField(record.frontmatter, role(contract, "title", "title")) ||
+      stringField(record.effective_frontmatter, role(contract, "title", "title")) ||
       record.path,
     source:
-      stringField(record.frontmatter, role(contract, "source", "source")) ||
+      stringField(record.effective_frontmatter, role(contract, "source", "source")) ||
       "agent",
     message: stringField(
-      record.frontmatter,
+      record.effective_frontmatter,
       role(contract, "message", "message")
     ),
     body: record.body ?? "",
     kind:
-      stringField(record.frontmatter, role(contract, "kind", "kind")) ||
+      stringField(record.effective_frontmatter, role(contract, "kind", "kind")) ||
       "approval",
     priority:
       stringField(
-        record.frontmatter,
+        record.effective_frontmatter,
         role(contract, "priority", "priority")
       ) || "normal",
     status: status || undefined,
@@ -303,38 +310,38 @@ function normalizeRequest(
     ),
     createdAt:
       stringField(
-        record.frontmatter,
+        record.effective_frontmatter,
         role(contract, "created_at", "created_at")
       ) || undefined,
-    dueAt: stringField(record.frontmatter, "due_at") || undefined,
+    dueAt: stringField(record.effective_frontmatter, "due_at") || undefined,
     tags: stringList(
-      getField(record.frontmatter, role(contract, "tags", "tags"))
+      getField(record.effective_frontmatter, role(contract, "tags", "tags"))
     ),
     links: links(
-      getField(record.frontmatter, role(contract, "links", "links"))
+      getField(record.effective_frontmatter, role(contract, "links", "links"))
     ),
     attachments: attachments(
       getField(
-        record.frontmatter,
+        record.effective_frontmatter,
         role(contract, "attachment_paths", "attachment_paths")
       )
     ),
     metadata:
       asObject(
         getField(
-          record.frontmatter,
+          record.effective_frontmatter,
           role(contract, "metadata", "metadata")
         )
       ) ?? {},
     response,
-    frontmatter: record.frontmatter
+    frontmatter: record.effective_frontmatter
   };
 }
 
 function normalizeResponse(
-  record: RecordSummary<PickleFrontmatter>
+  record: PickleQueryRecord
 ): PickleResponse {
-  const frontmatter = record.frontmatter;
+  const frontmatter = record.effective_frontmatter;
   return {
     path: record.path,
     type:
@@ -348,6 +355,17 @@ function normalizeResponse(
     ),
     frontmatter
   };
+}
+
+function requireEffectiveFrontmatter(
+  record: QueryRecord<PickleFrontmatter>
+): PickleQueryRecord {
+  if (!record.effective_frontmatter) {
+    throw new PickleContractError(
+      `Query result ${record.path} omitted effective_frontmatter.`
+    );
+  }
+  return record as PickleQueryRecord;
 }
 
 function parseConfiguration(value: JsonObject): PickleContractConfiguration {

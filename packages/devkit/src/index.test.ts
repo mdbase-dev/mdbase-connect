@@ -169,8 +169,20 @@ describe("developer sandbox", () => {
 
     const seed = await client.read({ path: "tasks/seed.md" });
     expect(seed.valid).toBe(true);
-    expect(seed.result.frontmatter.status).toBe("open");
-    expect(seed.result.raw_frontmatter).not.toHaveProperty("status");
+    expect(seed.result.effective_frontmatter.status).toBe("open");
+    expect(seed.result.frontmatter).not.toHaveProperty("status");
+    expect(seed.result).toEqual(expect.objectContaining({
+      path: "tasks/seed.md",
+      revision: expect.any(String),
+      types: ["task"],
+      body: "",
+      file: expect.objectContaining({
+        name: "seed.md",
+        folder: "tasks",
+        size: expect.any(Number),
+        mtime: expect.any(String)
+      })
+    }));
 
     const created = await client.create({
       type: "task",
@@ -185,6 +197,12 @@ describe("developer sandbox", () => {
     });
     expect(updated.valid).toBe(true);
     expect(updated.result.frontmatter.title).toBe("Updated");
+    expect(updated.result.effective_frontmatter).toEqual({
+      type: "task",
+      title: "Updated",
+      status: "open"
+    });
+    expect(updated.result.file.name).toBe("new.md");
 
     const stale = await client.update({
       path: "tasks/new.md",
@@ -209,7 +227,15 @@ describe("developer sandbox", () => {
     expect(await client.changes()).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
     const page = await client.query({ types: ["task"], offset: 1, limit: 1 });
     expect(page.result.results.map((record) => record.path)).toEqual(["tasks/b.md"]);
+    expect(page.result.results[0]).toHaveProperty("effective_frontmatter");
+    expect(page.result.results[0]?.file.path).toBe("tasks/b.md");
+    expect(page.result.results[0]).not.toHaveProperty("frontmatter");
     expect(page.result.meta).toEqual({ total_count: 2, has_more: false });
+    const both = await client.query({ types: ["task"], limit: 1, frontmatter_mode: "both" });
+    expect(both.result.results[0]).toEqual(expect.objectContaining({
+      frontmatter: expect.objectContaining({ title: "A" }),
+      effective_frontmatter: expect.objectContaining({ title: "A" })
+    }));
 
     await client.create({ path: "tasks/c.md", type: "task", frontmatter: { type: "task", title: "C" } });
     await client.create({ path: "tasks/d.md", type: "task", frontmatter: { type: "task", title: "D" } });

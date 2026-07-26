@@ -925,7 +925,7 @@ impl CollectionRegistry {
                 ensure_result_in_scope(&current, &allowed_types)?;
                 let current_types = result_types(&current);
                 let mut prospective = current
-                    .pointer("/result/raw_frontmatter")
+                    .pointer("/result/frontmatter")
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
@@ -971,7 +971,7 @@ impl CollectionRegistry {
                 ensure_result_in_scope(&current, &allowed_types)?;
                 let current_types = result_types(&current);
                 let frontmatter = current
-                    .pointer("/result/raw_frontmatter")
+                    .pointer("/result/frontmatter")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
                 let prospective_types = collection.determine_types_for_path(&frontmatter, Some(to));
@@ -2799,12 +2799,39 @@ mod tests {
             .unwrap();
         assert_eq!(result["valid"], true);
         assert!(result["result"]["revision"].as_str().is_some());
+        for field in [
+            "path",
+            "revision",
+            "types",
+            "frontmatter",
+            "effective_frontmatter",
+            "body",
+            "file",
+        ] {
+            assert!(
+                result["result"].get(field).is_some(),
+                "create omitted {field}: {result:#}"
+            );
+        }
 
         let read = registry
             .operation(collection.id, "read", &json!({ "path": "hello.md" }))
             .unwrap();
         assert_eq!(read["valid"], true);
         assert_eq!(read["result"]["frontmatter"]["title"], "Hello");
+        assert_eq!(read["result"]["effective_frontmatter"]["title"], "Hello");
+
+        let update = registry
+            .operation(
+                collection.id,
+                "update",
+                &json!({ "path": "hello.md", "patch": { "status": "done" } }),
+            )
+            .unwrap();
+        assert_eq!(update["valid"], true);
+        assert_eq!(update["result"]["frontmatter"]["status"], "done");
+        assert_eq!(update["result"]["effective_frontmatter"]["status"], "done");
+        assert_eq!(update["result"]["file"]["name"], "hello.md");
     }
 
     #[test]
