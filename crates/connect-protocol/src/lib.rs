@@ -325,6 +325,8 @@ pub struct ControlError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStatus {
     pub protocol_version: u32,
+    #[serde(default)]
+    pub binary_version: String,
     pub state: AgentConnectionState,
     pub registered_collections: usize,
     pub paused: bool,

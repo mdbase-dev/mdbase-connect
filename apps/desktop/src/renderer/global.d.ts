@@ -1,5 +1,6 @@
 interface AgentStatus {
   protocol_version: number;
+  binary_version?: string;
   state: "local_only" | "connecting" | "connected" | "offline";
   registered_collections: number;
   paused: boolean;
@@ -64,6 +65,29 @@ interface GrantScope {
 interface StartupSetting {
   enabled: boolean;
   available: boolean;
+}
+
+interface DesktopUpdateStatus {
+  phase:
+    | "unavailable"
+    | "idle"
+    | "checking"
+    | "deferred"
+    | "downloading"
+    | "ready"
+    | "external"
+    | "installing"
+    | "recovery"
+    | "failed";
+  current_version: string;
+  channel: "stable" | "beta";
+  target_version?: string;
+  checked_at?: string;
+  progress?: number;
+  message: string;
+  release_url?: string;
+  can_check: boolean;
+  can_install: boolean;
 }
 
 interface CloudSetting {
@@ -225,6 +249,9 @@ interface ActivityEntry {
 interface Window {
   mdbaseConnect: {
     status(): Promise<AgentStatus>;
+    updateStatus(): Promise<DesktopUpdateStatus>;
+    checkForUpdates(): Promise<DesktopUpdateStatus>;
+    installUpdate(): Promise<DesktopUpdateStatus>;
     listCollections(): Promise<CollectionSummary[]>;
     addCollection(): Promise<
       | { status: "added"; collection: CollectionSummary }
@@ -287,5 +314,6 @@ interface Window {
     disconnectMirror(replicaId: string): Promise<{ ok: true }>;
     openMirror(replicaId: string): Promise<string>;
     onNavigate(listener: (route: string) => void): () => void;
+    onUpdateStatus(listener: (status: DesktopUpdateStatus) => void): () => void;
   };
 }

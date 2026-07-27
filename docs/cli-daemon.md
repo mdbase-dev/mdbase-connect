@@ -71,12 +71,17 @@ its stable ID.
 `daemon run` is the foreground primitive used by service managers, containers,
 tests, and debugging. `daemon install` registers a per-user launch agent,
 systemd user unit, or Windows per-user background task. It must not require an
-administrator or run as a different operating-system user.
+administrator or run as a different operating-system user. Installation first
+copies the invoking binary atomically into the private
+`<state>/runtime/mdbase-connect` path and registers that stable path. A service
+never points into a versioned Electron bundle, package extraction directory, or
+developer checkout.
 
 ## State and secrets
 
 The daemon state directory contains:
 
+- the stable installed service runtime;
 - the local collection registry;
 - the hosted mirror registry and durable mirror journals;
 - the relay identity;
@@ -134,10 +139,12 @@ mirror registry, cloud credential, retry loop, or agent child process.
 
 At startup the desktop:
 
-1. connects to the standard daemon endpoint;
-2. asks the installed per-user service to start if the endpoint is absent;
-3. presents a repair action if the service cannot start;
-4. subscribes or polls for versioned status.
+1. compares a reachable daemon's binary version with the bundled CLI;
+2. replaces and re-registers a stale or stopped installed runtime;
+3. connects to the standard daemon endpoint;
+4. asks a matching installed per-user service to start if the endpoint is absent;
+5. presents a repair action if the service cannot start;
+6. subscribes or polls for versioned status.
 
 Desktop exit closes only its control connection.
 

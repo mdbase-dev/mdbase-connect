@@ -127,6 +127,11 @@ module.exports = {
     executableName: "mdbase-connect",
     icon: platformIcon,
     protocols: [{ name: "mdbase connect", schemes: ["mdbase-connect"] }],
+    extendInfo: {
+      NSAppTransportSecurity: {
+        NSAllowsLocalNetworking: true
+      }
+    },
     ...macSigning,
     extraResource: fs.existsSync(connector)
       ? [connector]

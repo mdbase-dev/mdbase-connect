@@ -59,6 +59,7 @@ jobs:
       WINDOWS_STORE_IDENTITY_NAME: ${{ vars.WINDOWS_STORE_IDENTITY_NAME }}
       WINDOWS_STORE_PUBLISHER: ${{ vars.WINDOWS_STORE_PUBLISHER }}
       WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}
+      WINDOWS_STORE_PRODUCT_ID: ${{ vars.WINDOWS_STORE_PRODUCT_ID }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -172,7 +173,8 @@ jobs:
           $identityValues = @(
             $env:WINDOWS_STORE_IDENTITY_NAME,
             $env:WINDOWS_STORE_PUBLISHER,
-            $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME
+            $env:WINDOWS_STORE_PUBLISHER_DISPLAY_NAME,
+            $env:WINDOWS_STORE_PRODUCT_ID
           )
           $configured = @($identityValues | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
           if ($configured -eq 0) {
@@ -181,7 +183,7 @@ jobs:
             exit 0
           }
           if ($configured -ne $identityValues.Count) {
-            throw "Microsoft Store identity is partially configured; provide all three Partner Center values or remove them."
+            throw "Microsoft Store identity is partially configured; provide all four Partner Center values or remove them."
           }
 
           $build = [int]$env:GITHUB_RUN_NUMBER
@@ -273,11 +275,28 @@ jobs:
               "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.dmg"
             cp "$portable" \
               "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.zip"
-            cp docs/macos-unsigned-preview.txt release-artifacts/
+            cp docs/macos-unsigned-preview.txt \
+              "release-artifacts/macos-${{ matrix.arch }}-unsigned-preview.txt"
           else
-            find apps/desktop/out/make -type f \
-              \( -name '*.dmg' -o -name '*.zip' -o -name '*.deb' -o -name '*.rpm' \) \
-              -exec cp '{}' release-artifacts/ ';'
+            if [ "${{ matrix.platform }}" = "macos" ]; then
+              dmg="$(find apps/desktop/out/make -type f -name '*.dmg' -print -quit)"
+              portable="$(find apps/desktop/out/make -type f -name '*.zip' -print -quit)"
+              test -n "$dmg"
+              test -n "$portable"
+              cp "$dmg" \
+                "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}.dmg"
+              cp "$portable" \
+                "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}.zip"
+            else
+              deb="$(find apps/desktop/out/make -type f -name '*.deb' -print -quit)"
+              rpm="$(find apps/desktop/out/make -type f -name '*.rpm' -print -quit)"
+              test -n "$deb"
+              test -n "$rpm"
+              cp "$deb" \
+                "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-linux-${{ matrix.arch }}.deb"
+              cp "$rpm" \
+                "release-artifacts/mdbase-connect-${{ steps.version.outputs.value }}-linux-${{ matrix.arch }}.rpm"
+            fi
           fi
           test -n "$(find release-artifacts -type f -print -quit)"
 
@@ -306,6 +325,53 @@ jobs:
           else
             sha256sum * > "SHA256SUMS-${{ matrix.platform }}-${{ matrix.arch }}"
           fi
+
+      - name: Describe platform update
+        shell: bash
+        run: |
+          arguments=(
+            --directory release-artifacts
+            --platform "${{ matrix.platform }}"
+            --arch "${{ matrix.arch }}"
+          )
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            if [ "$MACOS_RELEASE_MODE" = "signed" ]; then
+              arguments+=(
+                --mode automatic
+                --action-url '$RELEASE_URL'
+                --artifact "mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}.zip"
+              )
+            else
+              arguments+=(
+                --mode manual
+                --action-url '$RELEASE_URL'
+                --artifact "mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.dmg"
+                --artifact "mdbase-connect-${{ steps.version.outputs.value }}-macos-${{ matrix.arch }}-UNSIGNED.zip"
+              )
+            fi
+          elif [ "${{ matrix.platform }}" = "windows" ]; then
+            if [ "$WINDOWS_STORE_MODE" = "store" ]; then
+              arguments+=(
+                --mode store
+                --action-url "https://apps.microsoft.com/detail/$WINDOWS_STORE_PRODUCT_ID"
+              )
+            else
+              arguments+=(
+                --mode manual
+                --action-url '$RELEASE_URL'
+                --artifact "mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-Setup.exe"
+                --artifact "mdbase-connect-${{ steps.version.outputs.value }}-windows-${{ matrix.arch }}-UNSIGNED-portable.zip"
+              )
+            fi
+          else
+            arguments+=(
+              --mode manual
+              --action-url '$RELEASE_URL'
+              --artifact "mdbase-connect-${{ steps.version.outputs.value }}-linux-${{ matrix.arch }}.deb"
+              --artifact "mdbase-connect-${{ steps.version.outputs.value }}-linux-${{ matrix.arch }}.rpm"
+            )
+          fi
+          node scripts/write-update-input.mjs "${arguments[@]}"
 
       - name: Sign and verify Microsoft Store submission provenance
         if: matrix.platform == 'windows' && env.WINDOWS_STORE_MODE == 'store'
@@ -344,11 +410,46 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: desktop-*
           path: release-artifacts
           merge-multiple: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create and verify signed update manifest
+        shell: bash
+        env:
+          UPDATE_ROLLOUT_PERCENTAGE: ${{ vars.UPDATE_ROLLOUT_PERCENTAGE }}
+          UPDATE_BLOCKED_VERSIONS: ${{ vars.UPDATE_BLOCKED_VERSIONS }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          rollout="${UPDATE_ROLLOUT_PERCENTAGE:-100}"
+          node scripts/generate-update-manifest.mjs \
+            --directory release-artifacts \
+            --output release-artifacts/mdbase-connect-update.json \
+            --version "$version" \
+            --repository "$GITHUB_REPOSITORY" \
+            --rollout "$rollout" \
+            --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}"
+          find release-artifacts -maxdepth 1 -type f -name 'update-input-*.json' -delete
+          cosign sign-blob \
+            --yes \
+            --bundle release-artifacts/mdbase-connect-update.json.sigstore.json \
+            release-artifacts/mdbase-connect-update.json
+          cosign verify-blob \
+            --bundle release-artifacts/mdbase-connect-update.json.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            release-artifacts/mdbase-connect-update.json
+          sha256sum \
+            release-artifacts/mdbase-connect-update.json \
+            release-artifacts/mdbase-connect-update.json.sigstore.json \
+            > release-artifacts/SHA256SUMS-update
 
       - name: Publish prerelease
         env:

@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopUpdateStatus } from "./update-coordinator";
 
 contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
+  updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
+  checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
+  installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
   addCopiedCollection: (path: string) =>
@@ -87,5 +91,11 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     const handler = (_event: Electron.IpcRendererEvent, route: string) => listener(route);
     ipcRenderer.on("connect:navigate", handler);
     return () => ipcRenderer.removeListener("connect:navigate", handler);
+  },
+  onUpdateStatus: (listener: (status: DesktopUpdateStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: DesktopUpdateStatus) =>
+      listener(status);
+    ipcRenderer.on("connect:update-status", handler);
+    return () => ipcRenderer.removeListener("connect:update-status", handler);
   }
 });

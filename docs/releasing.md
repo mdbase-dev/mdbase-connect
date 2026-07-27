@@ -75,6 +75,8 @@ to additionally build a Store-submission package:
 - `WINDOWS_STORE_IDENTITY_NAME`: the exact package Identity/Name;
 - `WINDOWS_STORE_PUBLISHER`: the exact package Identity/Publisher;
 - `WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`: the exact publisher display name.
+- `WINDOWS_STORE_PRODUCT_ID`: the Store product ID used by the desktop's update
+  action.
 
 When those values are present, the Windows job creates a Store-submission AppX
 whose manifest is checked against them. The workflow uses
@@ -118,12 +120,23 @@ notarization, signature verification, or Store package identity checks fail.
 The workflow also verifies that GitHub preview executables are unsigned before
 labeling and publishing them. Every downloadable artifact receives a keyless
 Sigstore bundle tied to the workflow's GitHub OIDC identity plus a checksum.
+The publish job creates a strict manifest from those exact artifacts, signs it
+with the same tag-bound workflow identity, verifies it, and only then creates
+the GitHub release.
+
+Set `UPDATE_ROLLOUT_PERCENTAGE` on the `desktop-release` environment to a number
+from 0 through 100; it defaults to 100. Set `UPDATE_BLOCKED_VERSIONS` to a
+comma-separated list of exact versions only when a higher recovery release
+must bypass rollout for affected installations. Both values are captured in
+the signed manifest and require a new immutable tag to change.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local protocol-1, relay, sync, and production-provider end-to-end suites,
 retain checksums for every artifact, verify upgrade and clean-install paths,
-and publish the supported protocol and schema versions. After deployment,
+and publish the supported protocol and schema versions. Exercise the
+interruption and recovery matrix in
+[`desktop-updates.md`](desktop-updates.md) before raising rollout above zero.
+After deployment,
 verify the deployed revision and protocol-1 browser authorization path against
 the actual release environment. Do not use a differently versioned oracle as a
-release gate. Automatic updates should be enabled only after signed rollback
-and staged-rollout behavior has been exercised against a private channel.
+release gate.

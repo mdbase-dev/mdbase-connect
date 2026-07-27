@@ -129,6 +129,11 @@ pnpm --filter @mdbase/connect-desktop package
 This builds the release Rust daemon/CLI, embeds it beside the Electron application,
 and fails if either the application archive or connector binary is absent. See
 [`docs/releasing.md`](docs/releasing.md) for signing and beta-release gates.
+Installed builds expose one signed update experience: notarized macOS releases
+stage automatically, while Windows Store and Linux packages hand replacement
+back to their platform trust channel. See
+[`docs/desktop-updates.md`](docs/desktop-updates.md) for rollout, daemon handoff,
+and recovery behavior.
 
 ## Use the CLI and daemon
 

@@ -9,7 +9,8 @@ pub fn installed() -> bool {
 }
 
 pub fn install(executable: &Path, state_dir: &Path) -> Result<(), String> {
-    platform::install(executable, state_dir)
+    let runtime = install_runtime(executable, state_dir)?;
+    platform::install(&runtime, state_dir)
 }
 
 pub fn uninstall() -> Result<(), String> {
@@ -137,6 +138,77 @@ fn service_file() -> Option<PathBuf> {
     platform::service_file()
 }
 
+fn install_runtime(executable: &Path, state_dir: &Path) -> Result<PathBuf, String> {
+    let directory = state_dir.join("runtime");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not create {}: {error}", directory.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("Could not protect {}: {error}", directory.display()))?;
+    }
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    let destination = directory.join(format!("mdbase-connect{extension}"));
+    if executable == destination {
+        return Ok(destination);
+    }
+    let temporary = directory.join(format!("mdbase-connect.tmp-{}", std::process::id()));
+    let _ = std::fs::remove_file(&temporary);
+    if let Err(error) = std::fs::copy(executable, &temporary) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!(
+            "Could not stage the Connect runtime from {} to {}: {error}",
+            executable.display(),
+            temporary.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) =
+            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o700))
+        {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!(
+                "Could not protect {}: {error}",
+                temporary.display()
+            ));
+        }
+    }
+    if let Err(error) = activate_runtime_file(&temporary, &destination) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!(
+            "Could not activate the Connect runtime at {}: {error}",
+            destination.display()
+        ));
+    }
+    Ok(destination)
+}
+
+#[cfg(not(windows))]
+fn activate_runtime_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::rename(temporary, destination)
+}
+
+#[cfg(windows)]
+fn activate_runtime_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    let previous = destination.with_extension("previous.exe");
+    let _ = std::fs::remove_file(&previous);
+    let had_previous = destination.exists();
+    if had_previous {
+        std::fs::rename(destination, &previous)?;
+    }
+    if let Err(error) = std::fs::rename(temporary, destination) {
+        if had_previous {
+            let _ = std::fs::rename(&previous, destination);
+        }
+        return Err(error);
+    }
+    let _ = std::fs::remove_file(previous);
+    Ok(())
+}
+
 fn run_checked(command: &mut Command, action: &str) -> Result<(), String> {
     let status = command
         .status()
@@ -148,6 +220,57 @@ fn run_checked(command: &mut Command, action: &str) -> Result<(), String> {
             "Could not {action}: command exited with {}.",
             status.code().unwrap_or(-1)
         ))
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+
+    #[test]
+    fn installed_service_runtime_uses_a_stable_private_path_and_is_replaceable() {
+        let root = std::env::temp_dir().join(format!(
+            "mdbase-connect-runtime-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let source = root.join("source");
+        let state = root.join("state");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&source, b"version one").unwrap();
+
+        let installed = install_runtime(&source, &state).unwrap();
+
+        assert_eq!(
+            installed,
+            state.join(if cfg!(windows) {
+                "runtime/mdbase-connect.exe"
+            } else {
+                "runtime/mdbase-connect"
+            })
+        );
+        assert_eq!(std::fs::read(&installed).unwrap(), b"version one");
+        std::fs::write(&source, b"version two").unwrap();
+        assert_eq!(install_runtime(&source, &state).unwrap(), installed);
+        assert_eq!(std::fs::read(&installed).unwrap(), b"version two");
+        assert_eq!(install_runtime(&installed, &state).unwrap(), installed);
+        assert_eq!(std::fs::read(&installed).unwrap(), b"version two");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(state.join("runtime"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(&installed).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

@@ -731,9 +731,38 @@ async fn execute_daemon_command(
         CliError::internal(format!("Could not locate this executable: {error}"))
     })?;
     match command {
-        DaemonCommand::Install => service::install(&executable, state_dir)
-            .map_err(CliError::internal)
-            .map(|_| serde_json::json!({"installed": true})),
+        DaemonCommand::Install => {
+            let installed = service::installed();
+            let running = send(endpoint, ControlRequest::new(ControlCommand::Ping))
+                .await
+                .is_ok_and(|response| response.ok);
+            if installed {
+                match service::stop() {
+                    Ok(()) if running => wait_until_stopped(endpoint).await?,
+                    Ok(()) => {}
+                    Err(error) if running => return Err(CliError::internal(error)),
+                    Err(_) => {}
+                }
+            } else if running {
+                let response = send(
+                    endpoint,
+                    ControlRequest::new(ControlCommand::DaemonShutdown),
+                )
+                .await?;
+                if !response.ok {
+                    return Err(CliError::internal(
+                        response
+                            .error
+                            .map(|error| error.message)
+                            .unwrap_or_else(|| "The daemon refused to stop.".to_string()),
+                    ));
+                }
+                wait_until_stopped(endpoint).await?;
+            }
+            service::install(&executable, state_dir)
+                .map_err(CliError::internal)
+                .map(|_| serde_json::json!({"installed": true}))
+        }
         DaemonCommand::Uninstall => service::uninstall()
             .map_err(CliError::internal)
             .map(|_| serde_json::json!({"installed": false})),

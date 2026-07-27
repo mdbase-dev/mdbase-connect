@@ -4,6 +4,18 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 
+test("packaged macOS builds allow only local-network ATS exceptions for staging", () => {
+  const config = require("../forge.config.cjs");
+  assert.deepEqual(config.packagerConfig.extendInfo?.NSAppTransportSecurity, {
+    NSAllowsLocalNetworking: true
+  });
+  assert.equal(
+    config.packagerConfig.extendInfo?.NSAppTransportSecurity
+      ?.NSAllowsArbitraryLoads,
+    undefined
+  );
+});
+
 test(
   "Linux makers target the packaged executable",
   { skip: process.platform !== "linux" },

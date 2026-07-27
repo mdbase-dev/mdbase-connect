@@ -17,7 +17,7 @@
     "@fastify/formbody": "^8.0.2",
     "@fastify/helmet": "^13.1.0",
     "@fastify/rate-limit": "^11.1.0",
-    "@fastify/static": "^10.1.0",
+    "@fastify/static": "^10.1.2",
     "@fastify/websocket": "^11.3.0",
     "@mdbase/connect-protocol": "workspace:*",
     "@mdbase/connect-sync": "workspace:*",

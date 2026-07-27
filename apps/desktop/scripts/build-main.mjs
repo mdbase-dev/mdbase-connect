@@ -5,7 +5,13 @@ await rm("dist/main", { recursive: true, force: true });
 await build({
   entryPoints: [
     "src/main/main.ts",
-    "src/main/preload.ts"
+    "src/main/preload.ts",
+    "src/main/electron-update-backend.ts",
+    "src/main/release-source.ts",
+    "src/main/update-coordinator.ts",
+    "src/main/update-download.ts",
+    "src/main/update-policy.ts",
+    "src/main/update-state.ts"
   ],
   bundle: true,
   platform: "node",

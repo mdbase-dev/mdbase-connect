@@ -1,5 +1,6 @@
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -16,11 +17,15 @@ import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { AgentControlError, requestAgent } from "./control-client";
+import { ElectronUpdateBackend } from "./electron-update-backend";
+import { UpdateCoordinator } from "./update-coordinator";
+import { UpdateStateStore } from "./update-state";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let agentStartup: Promise<void> | null = null;
 let daemonPaths: { stateDir: string; endpoint: string } | null = null;
+let updater: UpdateCoordinator | null = null;
 let quitting = false;
 const activePairings = new Map<string, { serverUrl: string; secret: string }>();
 const execFile = promisify(execFileCallback);
@@ -30,6 +35,10 @@ if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
+
+autoUpdater.on("before-quit-for-update", () => {
+  quitting = true;
+});
 
 function stateDirectory(): string {
   if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
@@ -171,6 +180,21 @@ function registerIpc(): void {
   ipcMain.handle("connect:status", async (event) => {
     trustedIpc(event);
     return requestReadyAgent("status");
+  });
+  ipcMain.handle("connect:updates:status", (event) => {
+    trustedIpc(event);
+    if (!updater) throw new Error("The updater has not been initialized.");
+    return updater.status();
+  });
+  ipcMain.handle("connect:updates:check", async (event) => {
+    trustedIpc(event);
+    if (!updater) throw new Error("The updater has not been initialized.");
+    return updater.check(true);
+  });
+  ipcMain.handle("connect:updates:install", async (event) => {
+    trustedIpc(event);
+    if (!updater) throw new Error("The updater has not been initialized.");
+    return updater.install();
   });
   ipcMain.handle("connect:collections:list", async (event) => {
     trustedIpc(event);
@@ -834,11 +858,40 @@ function createTray(): void {
   const image = createTrayImage();
   tray = new Tray(image);
   tray.setToolTip("mdbase connect");
+  refreshTrayMenu();
+  tray.on("double-click", () => mainWindow?.show());
+}
+
+function refreshTrayMenu(): void {
+  if (!tray) return;
+  const update = updater?.status();
+  const updateReady = update?.can_install === true;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Show mdbase connect", click: () => mainWindow?.show() },
       { type: "separator" },
       { label: "Local connector running", enabled: false },
+      {
+        label: updateReady
+          ? update?.phase === "ready"
+            ? `Install ${update.target_version}`
+            : `Open ${update?.target_version ?? "update"}`
+          : "Check for updates",
+        enabled: update?.can_check === true || updateReady,
+        click: () => {
+          if (!updater) return;
+          if (updateReady) {
+            void updater.install().catch((error) => {
+              dialog.showErrorBox(
+                "mdbase connect could not install the update",
+                error instanceof Error ? error.message : String(error)
+              );
+            });
+          } else {
+            void updater.check(true);
+          }
+        }
+      },
       { type: "separator" },
       {
         label: "Quit mdbase connect",
@@ -849,7 +902,6 @@ function createTray(): void {
       }
     ])
   );
-  tray.on("double-click", () => mainWindow?.show());
 }
 
 function createTrayImage(): Electron.NativeImage {
@@ -906,11 +958,30 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+  updater = new UpdateCoordinator(
+    new UpdateStateStore(join(app.getPath("userData"), "updates", "state.json")),
+    new ElectronUpdateBackend({
+      currentVersion: app.getVersion(),
+      packaged: app.isPackaged,
+      platform: process.platform,
+      arch: process.arch,
+      userDataDirectory: app.getPath("userData"),
+      binaryPath: connectBinary,
+      stateDirectory,
+      endpoint: controlEndpoint
+    })
+  );
+  const recoveryStatus = await updater.initialize();
+  updater.subscribe((status) => {
+    mainWindow?.webContents.send("connect:update-status", status);
+    refreshTrayMenu();
+  });
   registerIpc();
   createWindow();
   createTray();
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
+    if (recoveryStatus.phase === "failed") throw new Error(recoveryStatus.message);
     await ensureAgent();
   } catch (error) {
     dialog.showErrorBox(
@@ -918,6 +989,10 @@ app.whenReady().then(async () => {
       error instanceof Error ? error.message : String(error)
     );
   }
+  const initialUpdateCheck = setTimeout(() => void updater?.check(false), 30_000);
+  initialUpdateCheck.unref();
+  const updateChecks = setInterval(() => void updater?.check(false), 6 * 60 * 60 * 1000);
+  updateChecks.unref();
 });
 
 app.on("second-instance", (_event, argv) => {

@@ -62,6 +62,7 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
 function App() {
   const [route, setRoute] = useState<Route>("overview");
   const [status, setStatus] = useState<AgentStatus | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
@@ -83,6 +84,7 @@ function App() {
     try {
       const results = await Promise.allSettled([
         window.mdbaseConnect.status().then(setStatus),
+        window.mdbaseConnect.updateStatus().then(setUpdateStatus),
         window.mdbaseConnect.listCollections().then(setCollections),
         window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
         window.mdbaseConnect.getCloudConfig().then(setCloud),
@@ -114,9 +116,11 @@ function App() {
         setRoute(next as Route);
       }
     });
+    const removeUpdateStatus = window.mdbaseConnect.onUpdateStatus(setUpdateStatus);
     return () => {
       window.clearInterval(timer);
       removeNavigation();
+      removeUpdateStatus();
     };
   }, [refresh]);
 
@@ -279,6 +283,7 @@ function App() {
             cloud={cloud}
             access={access}
             status={status}
+            updateStatus={updateStatus}
             busy={busy}
             onAct={act}
             onNotice={setNotice}
@@ -1195,11 +1200,12 @@ function Activity({ entries }: { entries: ActivityEntry[] }) {
   );
 }
 
-function Settings({ startup, cloud, access, status, busy, onAct, onNotice }: {
+function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, onNotice }: {
   startup: StartupSetting;
   cloud: CloudSetting;
   access: AccessSnapshot;
   status: AgentStatus | null;
+  updateStatus: DesktopUpdateStatus | null;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -1246,6 +1252,48 @@ function Settings({ startup, cloud, access, status, busy, onAct, onNotice }: {
               onNotice(checked ? "Application access is available." : "Application access is paused.");
             })}
           />
+        </div>
+      </section>
+      <section>
+        <SectionHeading title="Updates" note="Releases are checked against signed provenance before installation." />
+        <div className="settings-rows">
+          <div className="setting-row">
+            <span>Application</span>
+            <div>
+              <strong>Version {updateStatus?.current_version ?? "checking"}</strong>
+              <small>
+                {updateStatus
+                  ? `${updateStatus.message}${updateStatus.progress !== undefined && updateStatus.phase === "downloading" ? ` ${Math.round(updateStatus.progress)}%` : ""}`
+                  : "Reading update status…"}
+              </small>
+            </div>
+            <button
+              className="quiet-action"
+              disabled={
+                busy ||
+                !updateStatus ||
+                (!updateStatus.can_check && !updateStatus.can_install)
+              }
+              onClick={() =>
+                void onAct(async () => {
+                  if (updateStatus?.can_install) {
+                    await window.mdbaseConnect.installUpdate();
+                  } else {
+                    const next = await window.mdbaseConnect.checkForUpdates();
+                    onNotice(next.message);
+                  }
+                })
+              }
+            >
+              {updateStatus?.can_install
+                ? updateStatus.phase === "ready"
+                  ? "Restart and update"
+                  : "Open update"
+                : updateStatus?.phase === "checking"
+                  ? "Checking…"
+                  : "Check now"}
+            </button>
+          </div>
         </div>
       </section>
       <section>

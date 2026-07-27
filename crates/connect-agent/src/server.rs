@@ -693,6 +693,7 @@ impl AgentState {
             ControlCommand::Status => self.registry.count().map(|registered_collections| {
                 serde_json::to_value(AgentStatus {
                     protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+                    binary_version: env!("CARGO_PKG_VERSION").to_string(),
                     state: self
                         .connection_state
                         .read()
@@ -1682,6 +1683,28 @@ mod tests {
         assert_eq!(
             response.error.expect("protocol error").code,
             "unsupported_local_protocol"
+        );
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn status_reports_the_running_binary_version_for_upgrade_health_checks() {
+        let test_root = std::env::temp_dir().join(format!(
+            "mdbase-connect-version-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = CollectionRegistry::open(&test_root).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry, watcher, None);
+
+        let response = state
+            .execute(ControlRequest::new(ControlCommand::Status))
+            .await;
+
+        assert!(response.ok);
+        assert_eq!(
+            response.result.expect("status result")["binary_version"],
+            env!("CARGO_PKG_VERSION")
         );
         fs::remove_dir_all(test_root).unwrap();
     }
