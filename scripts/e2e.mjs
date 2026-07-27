@@ -33,6 +33,7 @@ const { app } = await buildApp({
   db: database,
   devAuth: true,
   allowInsecureManifests: true,
+  portalDist: join(repoRoot, "apps", "portal", "dist"),
   publicUrl: "http://127.0.0.1"
 });
 await app.listen({ host: "127.0.0.1", port: 0 });
@@ -215,6 +216,26 @@ secret: connector scope test
     throw new Error(`Authorization did not establish encrypted relay protocol 1: ${JSON.stringify(token.body)}`);
   }
 
+  const duplicateCollectionPath = join(scratch, "workouts-duplicate");
+  await run(cliBinary, [
+    "--state-dir", stateDir,
+    "collection", "create", duplicateCollectionPath,
+    "--name", "Workouts"
+  ]);
+  await mkdir(join(duplicateCollectionPath, "_types"), { recursive: true });
+  await writeFile(
+    join(duplicateCollectionPath, "_types", "workout.md"),
+    await readFile(join(collectionPath, "_types", "workout.md"))
+  );
+  await stopAgent(agent);
+  agent = startAgent(["--server-url", serverUrl], connector.body.token);
+  await poll(async () => {
+    const current = await request("/v1/me", { cookie });
+    return current.body.collections.filter(
+      (candidate) => candidate.display_name === "Workouts"
+    ).length === 2 ? current.body : null;
+  }, "same-name collection metadata did not reach the portal");
+
   const portalVerifier = "portal-live-offer-pkce-verifier-with-forty-three-characters";
   const portalChallenge = createHash("sha256").update(portalVerifier).digest("base64url");
   const portalAuthorize = await fetch(
@@ -237,6 +258,46 @@ secret: connector scope test
     throw new Error(
       `The live connector did not offer its local collection to the portal: ${JSON.stringify(portalRequest.body)}`
     );
+  }
+  const portalBrowser = await chromium.launch({ headless: true });
+  try {
+    const portalContext = await portalBrowser.newContext();
+    const cookieSeparator = cookie.indexOf("=");
+    await portalContext.addCookies([{
+      name: cookie.slice(0, cookieSeparator),
+      value: cookie.slice(cookieSeparator + 1),
+      url: serverUrl
+    }]);
+    const portalPage = await portalContext.newPage();
+    await portalPage.goto(`${serverUrl}/authorize/${portalAuthorizationId}`);
+    const duplicateRows = portalPage
+      .locator(".collection-choice-list label")
+      .filter({ hasText: "Workouts" });
+    await duplicateRows.first().waitFor({ state: "visible" });
+    const duplicateRowCount = await duplicateRows.count();
+    if (duplicateRowCount !== 2) {
+      throw new Error(
+        `Expected two same-name collection rows, found ${duplicateRowCount}: `
+        + JSON.stringify(portalRequest.body.collections)
+      );
+    }
+    const radioLabels = await duplicateRows.locator("input[type=radio]").evaluateAll(
+      (inputs) => inputs.map((input) =>
+        input.labels?.[0]?.textContent?.replace(/\s+/g, " ").trim() ?? ""
+      )
+    );
+    if (radioLabels.length !== 2
+        || radioLabels.some((label) => !label.includes("ID …"))
+        || new Set(radioLabels).size !== 2) {
+      throw new Error(`Same-name radio labels remained ambiguous: ${JSON.stringify(radioLabels)}`);
+    }
+    const details = await duplicateRows.locator("small").allTextContents();
+    if (details.length !== 2 || new Set(details).size !== 2) {
+      throw new Error(`Same-name collection details remained ambiguous: ${JSON.stringify(details)}`);
+    }
+    await portalContext.close();
+  } finally {
+    await portalBrowser.close();
   }
   await request(`/v1/authorization-requests/${portalAuthorizationId}/approve`, {
     method: "POST",

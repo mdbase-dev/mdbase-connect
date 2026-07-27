@@ -1308,6 +1308,12 @@ function ApprovalForm({
     () => choices.filter((choice) => choice.compatibility.compatible),
     [choices]
   );
+  const collectionLocations = useMemo(
+    () => disambiguatedCollectionLocations(
+      compatible.map((choice) => choice.collection)
+    ),
+    [compatible]
+  );
   const unavailable = useMemo(
     () => choices.filter((choice) => !choice.compatibility.compatible),
     [choices]
@@ -1431,7 +1437,10 @@ function ApprovalForm({
                     disabled={submitting !== null}
                     onChange={() => setCollectionId(collection.id)}
                   />
-                  <span><strong>{collection.display_name}</strong><small>{collection.connector_name}</small></span>
+                  <span>
+                    <strong>{collection.display_name}</strong>
+                    <small>{collectionLocations.get(collection.id)}</small>
+                  </span>
                   {provisions.length > 0 && <b>Setup needed</b>}
                 </label>;
               })}
@@ -1526,6 +1535,51 @@ function ApprovalForm({
       </footer>
     </div>
   );
+}
+
+function disambiguatedCollectionLocations(
+  collections: AvailableCollection[]
+): Map<string, string> {
+  const groups = new Map<string, AvailableCollection[]>();
+  for (const collection of collections) {
+    const key = [
+      collection.display_name.normalize("NFKC").toLocaleLowerCase(),
+      collection.connector_name.normalize("NFKC").toLocaleLowerCase()
+    ].join("\u0000");
+    const group = groups.get(key) ?? [];
+    group.push(collection);
+    groups.set(key, group);
+  }
+
+  const labels = new Map<string, string>();
+  for (const group of groups.values()) {
+    for (const collection of group) {
+      labels.set(
+        collection.id,
+        group.length === 1
+          ? collection.connector_name
+          : `${collection.connector_name} · ID …${uniqueIdSuffix(
+              collection.id,
+              group.map((candidate) => candidate.id)
+            )}`
+      );
+    }
+  }
+  return labels;
+}
+
+function uniqueIdSuffix(id: string, candidates: string[]): string {
+  let length = Math.min(8, id.length);
+  while (
+    length < id.length &&
+    candidates.some(
+      (candidate) =>
+        candidate !== id && candidate.slice(-length) === id.slice(-length)
+    )
+  ) {
+    length += 1;
+  }
+  return id.slice(-length);
 }
 
 function PermissionChoices({
