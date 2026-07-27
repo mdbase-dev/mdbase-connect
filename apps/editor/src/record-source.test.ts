@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRecordSource, replaceDocumentFrontmatter } from "./record-source";
+import { composeRecordSource, parseRecordSource, replaceDocumentFrontmatter } from "./record-source";
 
 describe("record source", () => {
   it("preserves document framing, comments, CRLF, body whitespace, and explicit nulls", () => {
@@ -20,5 +20,28 @@ describe("record source", () => {
 
   it("adds frontmatter to a body-only record", () => {
     expect(replaceDocumentFrontmatter("Body\n", { title: "Note" })).toBe("---\ntitle: Note\n---\nBody\n");
+  });
+
+  it("keeps empty-frontmatter composition and edits body-only", () => {
+    for (const source of ["", "Body", "Body\n", "---\nHorizontal rule without a closing fence"]) {
+      expect(composeRecordSource({}, source)).toBe(source);
+      expect(replaceDocumentFrontmatter(source, {})).toBe(source);
+      expect(parseRecordSource(source)).toEqual({ frontmatter: {}, body: source });
+    }
+  });
+
+  it("accepts an explicitly empty frontmatter block as an empty object", () => {
+    const source = "---\n---\nBody\n";
+    expect(parseRecordSource(source)).toEqual({ frontmatter: {}, body: "Body\n" });
+    expect(replaceDocumentFrontmatter(source, {})).toBe("Body\n");
+  });
+
+  it("still rejects malformed YAML in a complete frontmatter block", () => {
+    expect(() => parseRecordSource("---\nbroken: [\n---\nBody"))
+      .toThrow();
+    expect(() => parseRecordSource("---\n- scalar\n---\nBody"))
+      .toThrow("Record frontmatter must be a YAML mapping.");
+    expect(() => parseRecordSource("---\nnull\n---\nBody"))
+      .toThrow("Record frontmatter must be a YAML mapping.");
   });
 });

@@ -9,15 +9,20 @@ export interface ParsedRecordSource {
 export function replaceDocumentFrontmatter(source: string, next: JsonObject): string {
   const parts = sourceParts(source);
   if (!parts) {
+    if (Object.keys(next).length === 0) return source;
     const document = new Document(next);
     return `---\n${document.toString({ lineWidth: 0 })}---\n${source}`;
   }
 
   const document = parseDocument(parts.yaml, { keepSourceTokens: true });
   if (document.errors.length) throw new Error(document.errors[0].message);
+  if (document.contents === null && parts.yaml.trim() !== "") {
+    throw new Error("Record frontmatter must be a YAML mapping.");
+  }
   if (document.contents !== null && !isMap(document.contents)) {
     throw new Error("Record frontmatter must be a YAML mapping.");
   }
+  if (Object.keys(next).length === 0) return `${parts.bom}${parts.body}`;
   if (document.contents === null) {
     document.set("__mdbase_placeholder", true);
     document.delete("__mdbase_placeholder");
@@ -44,6 +49,9 @@ export function parseRecordSource(source: string): ParsedRecordSource {
   const document = parseDocument(parts.yaml);
   if (document.errors.length) throw new Error(document.errors[0].message);
   const value = document.toJS() as unknown;
+  if (value === null && parts.yaml.trim() !== "") {
+    throw new Error("Record frontmatter must be a YAML mapping.");
+  }
   if (value !== null && (!value || Array.isArray(value) || typeof value !== "object")) {
     throw new Error("Record frontmatter must be a YAML mapping.");
   }
@@ -51,6 +59,7 @@ export function parseRecordSource(source: string): ParsedRecordSource {
 }
 
 export function composeRecordSource(frontmatter: JsonObject, body: string): string {
+  if (Object.keys(frontmatter).length === 0) return body;
   const document = new Document(frontmatter);
   return `---\n${document.toString({ lineWidth: 0 })}---\n${body}`;
 }
@@ -69,7 +78,7 @@ function sourceParts(source: string): {
   if (!opening) return undefined;
   const afterOpening = content.slice(opening[0].length);
   const closing = /^(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/m.exec(afterOpening);
-  if (!closing || closing.index === undefined) throw new Error("Frontmatter is missing its closing delimiter.");
+  if (!closing || closing.index === undefined) return undefined;
   return {
     bom,
     opening: opening[0],
