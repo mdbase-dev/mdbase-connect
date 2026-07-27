@@ -16,19 +16,10 @@ import {
 } from "./node.js";
 import {
   assertMirror,
-  clearMirrorMarker,
-  clearAuthorityPromotionCheckpoint,
   loadMirrorProfile,
-  loadAuthorityPromotionCheckpoint,
   markMirror,
-  readCollectionConfiguration,
-  restoreCollectionConfiguration,
-  retireMirrorAfterPromotion,
   saveMirrorProfile,
-  saveAuthorityPromotionCheckpoint,
-  setCollectionIdentity,
   updateMirrorCredentials,
-  type AuthorityPromotionCheckpoint,
   type StoredMirrorProfile
 } from "./device.js";
 import {
@@ -36,6 +27,7 @@ import {
   canonicalConnectOrigin,
   type MirrorEnrollment
 } from "./enrollment.js";
+import { promoteMirrorAuthority } from "./promotion.js";
 
 const parsed = parseArgs({
   allowPositionals: true,
@@ -287,33 +279,6 @@ async function currentProfile(root: string): Promise<StoredMirrorProfile> {
   return stored;
 }
 
-interface AuthorityTransfer {
-  id: string;
-  collection_id: string;
-  replica_id: string;
-  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
-  final_head: number | null;
-  authority_epoch: number | null;
-  manifest_digest: string | null;
-  expires_at: string;
-  verification_uri: string;
-  local_collection_id?: string;
-}
-
-interface AuthorityTransferResponse {
-  transfer: AuthorityTransfer;
-  verification_uri?: string;
-  expires_in?: number;
-}
-
-interface AuthorityTransferCompletion {
-  status: "completed" | "waiting_for_connector";
-  collection_id?: string;
-  local_collection_id?: string;
-  authority_epoch?: number;
-  message?: string;
-}
-
 async function connect(root: string): Promise<void> {
   await mkdir(root, { recursive: true });
   const controlUrl = canonicalConnectOrigin(required(parsed.values.server, "--server"));
@@ -350,210 +315,41 @@ async function connect(root: string): Promise<void> {
 }
 
 async function promote(root: string): Promise<void> {
-  const unfinished = await loadAuthorityPromotionCheckpoint(root);
-  // A committed provider has already revoked the mirror access token. Resume
-  // from the durable proof without attempting ordinary token renewal.
-  const stored = unfinished ? await loadMirrorProfile(root) : await currentProfile(root);
-  if (
-    stored.profile.mode !== "read_write"
-    || !stored.profile.control_url
-    || !stored.profile.enrollment_id
-    || !stored.credentials.refresh_token
-  ) {
-    throw new Error(
-      "Authority can move only from a browser-paired, two-way full collection mirror."
-    );
-  }
-  const controlUrl = canonicalConnectOrigin(stored.profile.control_url);
-  const authentication = { authorization: `Bearer ${stored.credentials.refresh_token}` };
-  if (unfinished) {
-    if (unfinished.collection_id !== stored.profile.collection_id) {
-      throw new Error("The saved authority promotion belongs to another collection.");
-    }
-    process.stdout.write("Resuming the materialized authority handoff.\n");
-    await setCollectionIdentity(root, unfinished.collection_id);
-    await clearMirrorMarker(root, unfinished.collection_id);
-    await registerPromotedCollection(root, unfinished.collection_id);
-    await completePromotion(root, controlUrl, authentication, unfinished);
-    return;
-  }
-
-  await initialSync(root);
-  const requested = await jsonRequest<AuthorityTransferResponse>(
-    `${controlUrl}/v1/mirror-pairing-requests/${encodeURIComponent(stored.profile.enrollment_id)}/authority-transfers`,
-    {
-      method: "POST",
-      headers: { ...authentication, "content-type": "application/json" },
-      body: "{}"
-    }
-  );
-  const verificationUri = requested.verification_uri ?? requested.transfer.verification_uri;
-  process.stdout.write(
-    `Confirm moving the source of truth to this computer:\n${verificationUri}\n`
-  );
-  if (!parsed.values["no-open"]) openBrowser(verificationUri);
-  const deadline = new Date(requested.transfer.expires_at).getTime();
-  let prepared = requested.transfer;
-  while (prepared.state !== "prepared" && Date.now() < deadline) {
-    const response = await fetch(
-      `${controlUrl}/v1/authority-transfers/${encodeURIComponent(prepared.id)}/prepare`,
-      { method: "POST", headers: { ...authentication, "content-type": "application/json" }, body: "{}" }
-    );
-    if (response.status === 202) {
-      await delay(1_500);
-      continue;
-    }
-    prepared = (await responseJson<AuthorityTransferResponse>(response)).transfer;
-  }
-  if (
-    prepared.state !== "prepared"
-    || prepared.final_head === null
-    || prepared.authority_epoch === null
-    || !prepared.manifest_digest
-  ) {
-    throw new Error("Authority transfer approval expired. Run the promote command again.");
-  }
-
-  let localRegistered = false;
-  let checkpoint: Omit<AuthorityPromotionCheckpoint, "version"> | null = null;
-  try {
-    const configuration = await currentProfile(root);
-    const mirror = mirrorFor(root, configuration);
-    await mirror.sync();
-    const manifest = await mirror.authorityPromotionManifest();
-    if (
-      manifest.cursor !== prepared.final_head
-      || manifest.digest !== prepared.manifest_digest
-    ) {
-      throw new Error(
-        "The local folder does not exactly match the fenced collection authority."
+  const result = await promoteMirrorAuthority(root, {
+    registeredCollectionPath: async (collectionId) => {
+      const collections = await runConnectCli(["collection", "list"]);
+      return collectionPathFromControlResult(collections, collectionId);
+    },
+    registerCollection: async (path) => {
+      const added = await runConnectCli(["collection", "add", path]);
+      return collectionIdFromControlResult(added) ?? "";
+    },
+    validateCollection: async (collectionId) => {
+      await runConnectCli(["collection", "validate", collectionId]);
+    },
+    removeCollection: async (collectionId) => {
+      await runConnectCli(["collection", "remove", collectionId]);
+    },
+    onVerification: (verificationUri) => {
+      process.stdout.write(
+        `Confirm moving the source of truth to this computer:\n${verificationUri}\n`
       );
-    }
-    const originalConfiguration = await readCollectionConfiguration(root);
-    checkpoint = {
-      transfer_id: prepared.id,
-      collection_id: prepared.collection_id,
-      manifest_digest: prepared.manifest_digest,
-      authority_epoch: prepared.authority_epoch,
-      expires_at: prepared.expires_at,
-      original_configuration: originalConfiguration
-    };
-    await saveAuthorityPromotionCheckpoint(root, checkpoint);
-    await setCollectionIdentity(root, prepared.collection_id);
-    await clearMirrorMarker(root, prepared.collection_id);
-    const added = await runConnectCli(["collection", "add", root]);
-    const registeredId = collectionIdFromControlResult(added);
-    if (registeredId !== prepared.collection_id) {
-      throw new Error("The local agent registered a different collection identity.");
-    }
-    localRegistered = true;
-    await runConnectCli(["collection", "validate", prepared.collection_id]);
-  } catch (error) {
-    if (localRegistered) {
-      await runConnectCli(["collection", "remove", prepared.collection_id]).catch(() => undefined);
-    }
-    const saved = await loadAuthorityPromotionCheckpoint(root);
-    if (saved?.transfer_id === prepared.id) {
-      await restoreCollectionConfiguration(root, saved.original_configuration).catch(() => undefined);
-      await markMirror(root, saved.collection_id).catch(() => undefined);
-      await clearAuthorityPromotionCheckpoint(root).catch(() => undefined);
-    }
-    await fetch(
-      `${controlUrl}/v1/authority-transfers/${encodeURIComponent(prepared.id)}`,
-      { method: "DELETE", headers: authentication }
-    ).catch(() => undefined);
-    throw error;
-  }
-
-  if (!checkpoint) throw new Error("Authority promotion checkpoint was not created.");
-  process.stdout.write("Local collection registered. Waiting for this computer to publish it.\n");
-  await completePromotion(root, controlUrl, authentication, checkpoint);
-}
-
-async function registerPromotedCollection(root: string, collectionId: string): Promise<void> {
-  const added = await runConnectCli(["collection", "add", root]);
-  const registeredId = collectionIdFromControlResult(added);
-  if (registeredId !== collectionId) {
-    throw new Error("The local agent registered a different collection identity.");
-  }
-  await runConnectCli(["collection", "validate", collectionId]);
-}
-
-async function completePromotion(
-  root: string,
-  controlUrl: string,
-  authentication: { authorization: string },
-  checkpoint: Omit<AuthorityPromotionCheckpoint, "version">
-): Promise<void> {
-  const deadline = new Date(checkpoint.expires_at).getTime();
-  let attempted = false;
-  while (!attempted || Date.now() < deadline) {
-    attempted = true;
-    let response: Response;
-    try {
-      response = await fetch(
-        `${controlUrl}/v1/authority-transfers/${encodeURIComponent(checkpoint.transfer_id)}/complete`,
-        {
-          method: "POST",
-          headers: { ...authentication, "content-type": "application/json" },
-          body: JSON.stringify({ manifest_digest: checkpoint.manifest_digest })
-        }
-      );
-    } catch {
-      if (Date.now() >= deadline) break;
-      await delay(2_000);
-      continue;
-    }
-    if (response.status === 202) {
-      if (Date.now() >= deadline) break;
-      await delay(2_000);
-      continue;
-    }
-    let completed: AuthorityTransferCompletion;
-    try {
-      completed = await responseJson<AuthorityTransferCompletion>(response);
-    } catch (error) {
-      if (
-        error instanceof ApiRequestError
-        && error.status === 409
-        && ["authority_transfer_expired", "authority_transfer_inactive"].includes(error.code)
-      ) {
-        await rollbackMaterializedPromotion(root, checkpoint);
+      if (!parsed.values["no-open"]) openBrowser(verificationUri);
+    },
+    onPhase: (phase) => {
+      if (phase === "resuming") {
+        process.stdout.write("Resuming the materialized authority handoff.\n");
+      } else if (phase === "registered") {
+        process.stdout.write(
+          "Local collection registered. Waiting for this computer to publish it.\n"
+        );
       }
-      throw error;
-    }
-    if (
-      completed.status !== "completed"
-      || completed.collection_id !== checkpoint.collection_id
-      || completed.authority_epoch !== checkpoint.authority_epoch
-    ) {
-      if (Date.now() >= deadline) break;
-      await delay(2_000);
-      continue;
-    }
-    await retireMirrorAfterPromotion(root, {
-      collection_id: checkpoint.collection_id,
-      authority_epoch: completed.authority_epoch
-    });
-    process.stdout.write(
-      `Authority moved to ${root}. Remote writes are retired at epoch ${completed.authority_epoch}.\n`
-    );
-    return;
-  }
-  throw new Error(
-    "The local collection is ready, but activation did not finish. "
-    + "Leave the folder and local agent running, then run promote again."
+    },
+    onProgress: mirrorProgressReporter()
+  });
+  process.stdout.write(
+    `Authority moved to ${result.path}. Remote writes are retired at epoch ${result.authorityEpoch}.\n`
   );
-}
-
-async function rollbackMaterializedPromotion(
-  root: string,
-  checkpoint: Omit<AuthorityPromotionCheckpoint, "version">
-): Promise<void> {
-  await runConnectCli(["collection", "remove", checkpoint.collection_id]);
-  await restoreCollectionConfiguration(root, checkpoint.original_configuration);
-  await markMirror(root, checkpoint.collection_id);
-  await clearAuthorityPromotionCheckpoint(root);
 }
 
 async function runConnectCli(args: string[]): Promise<unknown> {
@@ -599,31 +395,23 @@ function collectionIdFromControlResult(result: unknown): string | null {
   return typeof id === "string" ? id : null;
 }
 
-async function jsonRequest<Result>(url: string, init: RequestInit): Promise<Result> {
-  return responseJson<Result>(await fetch(url, init));
-}
-
-async function responseJson<Result>(response: Response): Promise<Result> {
-  const value = await response.json().catch(() => null);
-  if (!response.ok) {
-    const error = value as { error?: { code?: string; message?: string } } | null;
-    throw new ApiRequestError(
-      response.status,
-      error?.error?.code ?? "request_failed",
-      error?.error?.message ?? `Request failed with status ${response.status}.`
-    );
+function collectionPathFromControlResult(
+  result: unknown,
+  collectionId: string
+): string | null {
+  if (!Array.isArray(result)) {
+    throw new Error("The local mdbase connect agent returned an invalid collection list.");
   }
-  return value as Result;
-}
-
-class ApiRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string
-  ) {
-    super(message);
+  const collection = result.find((candidate) =>
+    candidate
+    && typeof candidate === "object"
+    && (candidate as Record<string, unknown>).id === collectionId
+  ) as Record<string, unknown> | undefined;
+  if (!collection) return null;
+  if (typeof collection.path !== "string") {
+    throw new Error("The local mdbase connect agent returned an invalid collection path.");
   }
+  return collection.path;
 }
 
 function openBrowser(url: string): void {

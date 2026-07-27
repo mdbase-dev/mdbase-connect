@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     recordId: string;
     resolution: "local" | "remote";
   }) => ipcRenderer.invoke("connect:mirrors:resolve", input),
+  promoteMirrorAuthority: (replicaId: string) =>
+    ipcRenderer.invoke("connect:mirrors:promote", replicaId),
   disconnectMirror: (replicaId: string) =>
     ipcRenderer.invoke("connect:mirrors:disconnect", replicaId),
   openMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:open", replicaId),

@@ -615,6 +615,7 @@ function HostedCollectionRow({
   const [name, setName] = useState(collection.display_name);
   const [path, setPath] = useState("");
   const [mode, setMode] = useState<"read_only" | "read_write">("read_write");
+  const [promotionStarting, setPromotionStarting] = useState(false);
   const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
   const activeReplicas = collection.replicas.filter((replica) => replica.revoked_at === null);
 
@@ -634,6 +635,7 @@ function HostedCollectionRow({
   }
 
   const state = mirrorState(mirror);
+  const promotion = authorityPromotionState(collection, mirror, promotionStarting);
   return (
     <article className={`collection-card hosted-collection ${editing ? "editing" : ""}`}>
       <div className="collection-summary">
@@ -642,9 +644,22 @@ function HostedCollectionRow({
             <h3>{collection.display_name}</h3>
             <span className="version">v{collection.spec_version}</span>
           </div>
-          <span className="authority-label">Hosted authority · {activeReplicas.length} {plural(activeReplicas.length, "mirror", "mirrors")}</span>
+          <span className="authority-label">
+            {collection.authority_state === "transferred"
+              ? "Retired hosted copy · authority moved"
+              : collection.authority_state === "transferring"
+                ? "Authority transfer in progress"
+                : `Hosted authority · ${activeReplicas.length} ${plural(activeReplicas.length, "mirror", "mirrors")}`}
+          </span>
         </div>
-        <div className="collection-status"><StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />{collection.authority_state === "active" ? "Available" : collection.authority_state}</div>
+        <div className="collection-status">
+          <StatusDot state={collection.authority_state === "active" ? "connected" : "idle"} />
+          {collection.authority_state === "active"
+            ? "Available"
+            : collection.authority_state === "transferred"
+              ? "Moved"
+              : "Moving"}
+        </div>
         <div className="row-actions">
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Mirror" : "Details"}</button>
         </div>
@@ -665,7 +680,7 @@ function HostedCollectionRow({
             </div>
           </section>
         </form>
-        <section className="collection-editor-section mirror-section">
+        {collection.authority_state !== "transferred" && <section className="collection-editor-section mirror-section">
           <div>
             <strong>Mirror on this computer</strong>
             <small>A mirror is a local copy. The hosted collection remains authoritative.</small>
@@ -733,7 +748,72 @@ function HostedCollectionRow({
               })}>Start mirror</button>
             </div>
           )}
-        </section>
+        </section>}
+        {collection.authority_state === "transferred" ? (
+          <section className="collection-editor-section">
+            <div>
+              <strong>Authority</strong>
+              <small>This hosted copy is retained for recovery but no longer accepts changes.</small>
+            </div>
+            <div className="authority-transfer-control">
+              <div>
+                <strong>Source of truth moved to this computer</strong>
+                <small>The collection now appears under On this computer. Applications need fresh access to the computer-owned collection.</small>
+              </div>
+            </div>
+          </section>
+        ) : mirror && (
+          <section className="collection-editor-section">
+            <div>
+              <strong>Authority</strong>
+              <small>Make this synchronized folder the source of truth.</small>
+            </div>
+            <div className="authority-transfer-control">
+              <div>
+                <strong>{promotion.title}</strong>
+                <small>{promotion.detail}</small>
+              </div>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy || !promotion.enabled}
+                onClick={() => {
+                  if (
+                    !mirror.promotion_pending
+                    && !window.confirm(
+                      `Move ${collection.display_name} authority to this computer? `
+                      + `${mirror.path} will become the source of truth. Hosted writes will stop, `
+                      + "and existing application access and other mirrors will be revoked. "
+                      + "You will confirm this change in your browser."
+                    )
+                  ) return;
+                  setPromotionStarting(true);
+                  void onAct(async () => {
+                    onNotice(
+                      mirror.promotion_pending
+                        ? "Resuming the authority transfer. Keep mdbase connect open."
+                        : "Confirm the authority transfer in your browser, then return to mdbase connect."
+                    );
+                    try {
+                      const result = await window.mdbaseConnect.promoteMirrorAuthority(
+                        mirror.replica_id
+                      );
+                      setEditing(false);
+                      onNotice(
+                        `${collection.display_name} now uses this computer as its authority at epoch `
+                        + `${result.authority_epoch}. Applications need fresh access.`
+                      );
+                    } finally {
+                      setPromotionStarting(false);
+                    }
+                  });
+                }}
+              >
+                {promotion.button}
+              </button>
+            </div>
+          </section>
+        )}
         {activeReplicas.some((replica) => replica.id !== mirror?.replica_id) && (
           <section className="collection-editor-section">
             <div><strong>Other mirrors</strong><small>Mirrors connected from another installation or through the command line.</small></div>
@@ -1386,6 +1466,12 @@ function mirrorState(mirror: DesktopMirrorSummary | undefined): {
   label: string;
 } {
   if (!mirror) return { dot: "idle", label: "Not mirrored" };
+  if (mirror.promotion) {
+    return {
+      dot: "connecting",
+      label: authorityPromotionPhaseLabel(mirror.promotion.phase)
+    };
+  }
   if (mirror.syncing) return { dot: "connecting", label: "Synchronizing" };
   if (mirror.error || mirror.state === "offline") return { dot: "danger", label: "Mirror needs attention" };
   if (mirror.conflicts.length > 0) return { dot: "paused", label: "Conflicts need a decision" };
@@ -1393,6 +1479,112 @@ function mirrorState(mirror: DesktopMirrorSummary | undefined): {
   if (mirror.state === "changes_waiting" || mirror.pending > 0) return { dot: "connecting", label: "Changes waiting" };
   if (mirror.state === "not_initialized") return { dot: "idle", label: "Not synchronized yet" };
   return { dot: "connected", label: "Up to date" };
+}
+
+function authorityPromotionState(
+  collection: HostedCollectionSummary,
+  mirror: DesktopMirrorSummary | undefined,
+  starting: boolean
+): { enabled: boolean; title: string; detail: string; button: string } {
+  if (!mirror) {
+    return {
+      enabled: false,
+      title: "A two-way mirror is required",
+      detail: "Create and synchronize a two-way mirror on this computer first.",
+      button: "Move authority to this computer"
+    };
+  }
+  if (starting && !mirror.promotion) {
+    return {
+      enabled: false,
+      title: "Preparing authority transfer",
+      detail: "Checking the folder before opening browser confirmation.",
+      button: "Preparing transfer…"
+    };
+  }
+  if (mirror.promotion) {
+    const label = authorityPromotionPhaseLabel(mirror.promotion.phase);
+    return {
+      enabled: false,
+      title: label,
+      detail: mirror.promotion.phase === "awaiting_approval"
+        ? "Approve the move in your browser. Hosted writes continue until approval."
+        : "Keep mdbase connect open while the handoff finishes.",
+      button: `${label}…`
+    };
+  }
+  if (mirror.promotion_pending) {
+    return {
+      enabled: true,
+      title: "Authority transfer ready to resume",
+      detail: "The folder was already verified. Finish activating it as the source of truth.",
+      button: "Resume authority move"
+    };
+  }
+  if (mirror.mode !== "read_write") {
+    return {
+      enabled: false,
+      title: "A two-way mirror is required",
+      detail: "Receive-only folders cannot become authoritative. Recreate this mirror as two-way.",
+      button: "Move authority to this computer"
+    };
+  }
+  if (collection.authority_state !== "active") {
+    return {
+      enabled: false,
+      title: "Authority transfer already in progress",
+      detail: "Return to the browser confirmation or wait for the current request to expire.",
+      button: "Move authority to this computer"
+    };
+  }
+  if (mirror.syncing) {
+    return {
+      enabled: false,
+      title: "Mirror is synchronizing",
+      detail: "Authority can move after the current synchronization finishes.",
+      button: "Move authority to this computer"
+    };
+  }
+  if (
+    mirror.error
+    || mirror.state === "offline"
+    || mirror.conflicts.length > 0
+    || mirror.local_issues.length > 0
+    || mirror.state === "attention"
+  ) {
+    return {
+      enabled: false,
+      title: "Mirror needs attention",
+      detail: "Resolve mirror errors and file conflicts before moving authority.",
+      button: "Move authority to this computer"
+    };
+  }
+  if (mirror.state !== "up_to_date" || mirror.pending > 0) {
+    return {
+      enabled: false,
+      title: "Synchronize this mirror first",
+      detail: "The folder must match the hosted collection before it can become authoritative.",
+      button: "Move authority to this computer"
+    };
+  }
+  return {
+    enabled: true,
+    title: "Move authority to this computer",
+    detail: "Browser confirmation will pause hosted writes, verify this folder, and revoke existing application access.",
+    button: "Move authority to this computer"
+  };
+}
+
+function authorityPromotionPhaseLabel(
+  phase: NonNullable<DesktopMirrorSummary["promotion"]>["phase"]
+): string {
+  if (phase === "synchronizing") return "Synchronizing mirror";
+  if (phase === "awaiting_approval") return "Waiting for browser approval";
+  if (phase === "verifying") return "Verifying exact folder contents";
+  if (phase === "registering") return "Registering local authority";
+  if (phase === "registered" || phase === "activating") return "Activating local authority";
+  if (phase === "resuming") return "Resuming authority transfer";
+  return "Finishing authority transfer";
 }
 
 function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }

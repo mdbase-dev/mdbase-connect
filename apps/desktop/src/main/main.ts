@@ -601,6 +601,44 @@ function registerIpc(): void {
       value.resolution as "local" | "remote"
     );
   });
+  ipcMain.handle("connect:mirrors:promote", async (event, replicaId: unknown) => {
+    trustedIpc(event);
+    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
+    return mirrors().promoteAuthority(replicaId, {
+      registeredCollectionPath: async (collectionId) => {
+        const registered = await requestReadyAgent<Array<{ id: string; path: string }>>(
+          "collections.list"
+        );
+        const existing = registered.find(
+          (collection) => collection.id === collectionId
+        );
+        return existing?.path ?? null;
+      },
+      registerCollection: async (path) => {
+        const added = await requestReadyAgent<{ id: string }>(
+          "collections.add",
+          { path },
+          10_000
+        );
+        return added.id;
+      },
+      validateCollection: async (collectionId) => {
+        await requestReadyAgent(
+          "collections.validate",
+          { collection_id: collectionId },
+          10_000
+        );
+      },
+      removeCollection: async (collectionId) => {
+        await requestReadyAgent(
+          "collections.remove",
+          { collection_id: collectionId },
+          10_000
+        );
+      },
+      onVerification: (verificationUri) => shell.openExternal(verificationUri)
+    });
+  });
   ipcMain.handle("connect:mirrors:disconnect", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");

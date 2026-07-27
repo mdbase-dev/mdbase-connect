@@ -2234,7 +2234,7 @@ process.stdout.write(JSON.stringify({
   id: crypto.randomUUID(),
   protocol_version: 1,
   ok: true,
-  result: action === "add" ? { id } : { valid: true }
+  result: action === "list" ? [] : action === "add" ? { id } : { valid: true }
 }) + "\\n");
 `, { mode: 0o700 });
 

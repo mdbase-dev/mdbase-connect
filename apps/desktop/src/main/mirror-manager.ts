@@ -32,6 +32,18 @@ export interface DesktopMirrorSummary {
   cursor: number | null;
   last_synced_at: string | null;
   syncing: boolean;
+  promotion_pending: boolean;
+  promotion?: {
+    phase:
+      | "synchronizing"
+      | "awaiting_approval"
+      | "verifying"
+      | "registering"
+      | "registered"
+      | "activating"
+      | "completed"
+      | "resuming";
+  };
   progress?: {
     phase: "uploading" | "applying";
     completed: number;
@@ -74,8 +86,24 @@ interface MirrorExchangeResponse {
 
 interface RuntimeState {
   syncing: boolean;
+  promoting?: boolean;
+  promotionPhase?: NonNullable<DesktopMirrorSummary["promotion"]>["phase"];
   progress?: DesktopMirrorSummary["progress"];
   error?: string;
+}
+
+export interface DesktopAuthorityPromotionOptions {
+  registeredCollectionPath(collectionId: string): Promise<string | null>;
+  registerCollection(path: string, collectionId: string): Promise<string>;
+  validateCollection(collectionId: string): Promise<void>;
+  removeCollection(collectionId: string): Promise<void>;
+  onVerification(verificationUri: string): void | Promise<void>;
+}
+
+export interface DesktopAuthorityPromotionResult {
+  collection_id: string;
+  authority_epoch: number;
+  path: string;
 }
 
 const SYNC_INTERVAL_MS = 5_000;
@@ -245,6 +273,79 @@ export class MirrorManager {
     return this.summary(entry);
   }
 
+  async promoteAuthority(
+    replicaId: string,
+    options: DesktopAuthorityPromotionOptions
+  ): Promise<DesktopAuthorityPromotionResult> {
+    await this.start();
+    const entry = this.entry(replicaId);
+    if (entry.mode !== "read_write") {
+      throw new Error("Authority can move only from a two-way mirror.");
+    }
+    const runtime = this.runtime.get(replicaId);
+    if (runtime?.syncing || runtime?.promoting) {
+      throw new Error("Wait for the current mirror operation to finish.");
+    }
+    this.runtime.set(replicaId, {
+      syncing: false,
+      promoting: true,
+      promotionPhase: "synchronizing"
+    });
+    try {
+      const { promoteMirrorAuthority } = await import("@mdbase/connect-sync/promotion");
+      const result = await promoteMirrorAuthority(entry.path, {
+        stateRoot: this.mirrorStateRoot(),
+        registeredCollectionPath: options.registeredCollectionPath,
+        registerCollection: options.registerCollection,
+        validateCollection: options.validateCollection,
+        removeCollection: options.removeCollection,
+        onVerification: options.onVerification,
+        onPhase: (phase) => {
+          this.runtime.set(replicaId, {
+            syncing: false,
+            promoting: true,
+            promotionPhase: phase
+          });
+        },
+        onProgress: (progress) => {
+          const current = this.runtime.get(replicaId);
+          this.runtime.set(replicaId, {
+            syncing: false,
+            promoting: true,
+            promotionPhase: current?.promotionPhase ?? "synchronizing",
+            progress: {
+              phase: progress.phase,
+              completed: progress.completed,
+              total: progress.total
+            }
+          });
+        }
+      });
+      const previous = this.entries;
+      this.entries = this.entries.filter(
+        (candidate) => candidate.replica_id !== replicaId
+      );
+      try {
+        await this.writeRegistry();
+      } catch (error) {
+        this.entries = previous;
+        throw error;
+      }
+      this.runtime.delete(replicaId);
+      return {
+        collection_id: result.collectionId,
+        authority_epoch: result.authorityEpoch,
+        path: result.path
+      };
+    } catch (error) {
+      this.runtime.set(replicaId, {
+        syncing: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
   async remove(replicaId: string): Promise<void> {
     await this.start();
     const entry = this.entry(replicaId);
@@ -271,9 +372,10 @@ export class MirrorManager {
 
   private async sync(entry: MirrorRegistryEntry): Promise<void> {
     const current = this.runtime.get(entry.replica_id);
-    if (current?.syncing) return;
-    this.runtime.set(entry.replica_id, { syncing: true });
+    if (current?.syncing || current?.promoting) return;
     try {
+      if (await this.promotionPending(entry)) return;
+      this.runtime.set(entry.replica_id, { syncing: true });
       const mirror = await this.mirrorFor(entry, (progress) => {
         this.runtime.set(entry.replica_id, {
           syncing: true,
@@ -303,6 +405,50 @@ export class MirrorManager {
 
   private async summary(entry: MirrorRegistryEntry): Promise<DesktopMirrorSummary> {
     const runtime = this.runtime.get(entry.replica_id) ?? { syncing: false };
+    let promotionPending: boolean;
+    try {
+      promotionPending = await this.promotionPending(entry);
+    } catch (error) {
+      return {
+        collection_id: entry.collection_id,
+        replica_id: entry.replica_id,
+        name: entry.name,
+        mode: entry.mode,
+        path: entry.path,
+        state: "attention",
+        pending: 0,
+        conflicts: [],
+        local_issues: [],
+        cursor: null,
+        last_synced_at: null,
+        syncing: false,
+        promotion_pending: false,
+        error: `Authority transfer recovery data could not be read: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      };
+    }
+    if (runtime.promoting) {
+      return {
+        collection_id: entry.collection_id,
+        replica_id: entry.replica_id,
+        name: entry.name,
+        mode: entry.mode,
+        path: entry.path,
+        state: "up_to_date",
+        pending: 0,
+        conflicts: [],
+        local_issues: [],
+        cursor: null,
+        last_synced_at: null,
+        syncing: false,
+        promotion_pending: promotionPending,
+        promotion: {
+          phase: runtime.promotionPhase ?? "synchronizing"
+        },
+        ...(runtime.progress ? { progress: runtime.progress } : {})
+      };
+    }
     try {
       const status = await (await this.mirrorFor(entry)).status();
       return {
@@ -313,6 +459,7 @@ export class MirrorManager {
         ...status,
         mode: entry.mode,
         syncing: runtime.syncing,
+        promotion_pending: promotionPending,
         ...(runtime.progress ? { progress: runtime.progress } : {}),
         ...(runtime.error ? { error: runtime.error } : {})
       };
@@ -330,9 +477,18 @@ export class MirrorManager {
         cursor: null,
         last_synced_at: null,
         syncing: runtime.syncing,
+        promotion_pending: promotionPending,
         error: runtime.error ?? (error instanceof Error ? error.message : String(error))
       };
     }
+  }
+
+  private async promotionPending(entry: MirrorRegistryEntry): Promise<boolean> {
+    const { loadAuthorityPromotionCheckpoint } =
+      await import("@mdbase/connect-sync/device");
+    return Boolean(
+      await loadAuthorityPromotionCheckpoint(entry.path, this.mirrorStateRoot())
+    );
   }
 
   private async mirrorFor(

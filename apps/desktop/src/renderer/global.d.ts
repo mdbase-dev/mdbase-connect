@@ -184,6 +184,18 @@ interface DesktopMirrorSummary {
   cursor: number | null;
   last_synced_at: string | null;
   syncing: boolean;
+  promotion_pending: boolean;
+  promotion?: {
+    phase:
+      | "synchronizing"
+      | "awaiting_approval"
+      | "verifying"
+      | "registering"
+      | "registered"
+      | "activating"
+      | "completed"
+      | "resuming";
+  };
   progress?: {
     phase: "uploading" | "applying";
     completed: number;
@@ -267,6 +279,11 @@ interface Window {
     connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string }): Promise<DesktopMirrorSummary>;
     syncMirror(replicaId: string): Promise<DesktopMirrorSummary>;
     resolveMirrorConflict(input: { replicaId: string; recordId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
+    promoteMirrorAuthority(replicaId: string): Promise<{
+      collection_id: string;
+      authority_epoch: number;
+      path: string;
+    }>;
     disconnectMirror(replicaId: string): Promise<{ ok: true }>;
     openMirror(replicaId: string): Promise<string>;
     onNavigate(listener: (route: string) => void): () => void;
