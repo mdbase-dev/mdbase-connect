@@ -1207,6 +1207,18 @@ export async function buildApp(options: BuildOptions) {
         adoption: authorityAdoptionView(adoption)
       };
     }
+    if (adoption.state === "expired") {
+      return reply.code(409).send(apiError(
+        "authority_adoption_expired",
+        "Collection adoption expired before hosted activation began."
+      ));
+    }
+    if (adoption.state === "cancelled") {
+      return reply.code(409).send(apiError(
+        "authority_adoption_cancelled",
+        "Collection adoption was cancelled before hosted activation began."
+      ));
+    }
     if (!["approved", "prepared"].includes(adoption.state)) {
       return reply.code(409).send(apiError(
         "authority_adoption_inactive",

@@ -297,6 +297,14 @@ describe("portable local collection adoption", () => {
       url: `/v1/authority-adoptions/${adoptionId}`,
       headers: { authorization: `Bearer ${secret}` }
     })).statusCode).toBe(200);
+    const cancelledExchange = await app.inject({
+      method: "POST",
+      url: `/v1/authority-adoptions/${adoptionId}/exchange`,
+      headers: { authorization: `Bearer ${secret}` },
+      payload: {}
+    });
+    expect(cancelledExchange.statusCode).toBe(409);
+    expect(cancelledExchange.json().error.code).toBe("authority_adoption_cancelled");
     expect(aborts).toBe(2);
     expect((await db.query(
       "SELECT id FROM hosted_collections WHERE id = $1",
@@ -343,6 +351,7 @@ describe("portable local collection adoption", () => {
       }
     });
     const adoptionId = begun.json().adoption_id as string;
+    const secret = begun.json().adoption_secret as string;
     expect((await app.inject({
       method: "POST",
       url: `/v1/authority-adoptions/${adoptionId}/approve`,
@@ -382,6 +391,14 @@ describe("portable local collection adoption", () => {
       "SELECT cleanup_completed FROM authority_adoption_requests WHERE id = $1",
       [adoptionId]
     )).rows[0].cleanup_completed).toBe(true);
+    const expiredExchange = await app.inject({
+      method: "POST",
+      url: `/v1/authority-adoptions/${adoptionId}/exchange`,
+      headers: { authorization: `Bearer ${secret}` },
+      payload: {}
+    });
+    expect(expiredExchange.statusCode).toBe(409);
+    expect(expiredExchange.json().error.code).toBe("authority_adoption_expired");
   });
 });
 

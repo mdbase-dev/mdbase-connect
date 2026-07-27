@@ -686,8 +686,7 @@ impl HostedProvider {
         .bind(to_i64(manifest.record_count, "record count")?)
         .fetch_one(&mut *transaction)
         .await?;
-        let mut result = provider_authority_import(&saved)?;
-        result.contracts = manifest.resources.contracts.clone();
+        let result = provider_authority_import(&saved)?;
         transaction.commit().await?;
         Ok(result)
     }
@@ -975,7 +974,7 @@ impl HostedProvider {
         .fetch_one(&mut *transaction)
         .await?;
         let mut result = provider_authority_import(&saved)?;
-        result.contracts = authority_import_contracts(self, &row)?;
+        result.contracts = manifest.resources.contracts.clone();
         transaction.commit().await?;
         self.working_sets.lock().await.remove(&collection_id);
         Ok(result)

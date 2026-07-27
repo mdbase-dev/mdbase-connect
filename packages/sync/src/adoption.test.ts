@@ -50,6 +50,36 @@ describe("portable authority snapshot", () => {
       }]
     })).toThrow(/unsafe/);
   });
+
+  it("matches the mdbase-rs portable snapshot digest fixture", () => {
+    const fixture = buildPortableAuthoritySnapshot({
+      collectionId,
+      specVersion: "0.3.0",
+      resources: [
+        {
+          path: "mdbase.yaml",
+          kind: "configuration",
+          document:
+            "spec_version: 0.3.0\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n"
+        },
+        {
+          path: "views/tasks.base",
+          kind: "view",
+          document: "views: []\n"
+        }
+      ],
+      records: [{
+        path: "notes/one.md",
+        document: "---\ntitle: One\n---\nBody\n"
+      }]
+    });
+    expect(fixture.resources.revision).toBe(
+      "sha256:09367b66bc7e29a90ee2cafa992f3477dd523d09558f542fb9fe4418312984a8"
+    );
+    expect(fixture.source_revision).toBe(
+      "sha256:b01ab663203cd44b2a837e0a2fcf73f06bd0cae8787efb3148c3821f255e4806"
+    );
+  });
 });
 
 describe("AuthorityAdoptionClient", () => {
@@ -134,6 +164,25 @@ describe("AuthorityAdoptionClient", () => {
     });
     await expect(client.exchange(session())).rejects.toMatchObject({
       code: "invalid_authority_adoption_response"
+    });
+  });
+
+  it("preserves authenticated terminal-state errors so a local fence can be released", async () => {
+    const client = new AuthorityAdoptionClient({
+      now: () => now,
+      request: async () => ({
+        status: 409,
+        body: {
+          error: {
+            code: "authority_adoption_expired",
+            message: "Collection adoption expired before hosted activation began."
+          }
+        }
+      })
+    });
+    await expect(client.exchange(session())).rejects.toMatchObject({
+      code: "authority_adoption_expired",
+      status: 409
     });
   });
 });

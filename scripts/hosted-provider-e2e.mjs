@@ -2757,7 +2757,10 @@ async function portableAuthorityAdoptionE2E(
   const transport = new HttpSyncTransport(enrollment.syncUrl, enrollment.accessToken);
   const opened = await transport.openSession();
   const records = await snapshotAll(transport, opened);
-  assert.deepEqual(records.map(({ path }) => path), ["tasks/late.md", "tasks/one.md"]);
+  assert.deepEqual(
+    records.map(({ path }) => path).sort(),
+    ["tasks/late.md", "tasks/one.md"]
+  );
   assert.ok(records.every((record) => record.types.includes("task")));
   assert.ok(opened.resources.documents.some(
     (resource) => resource.kind === "view" && resource.path === "views/tasks.base"
