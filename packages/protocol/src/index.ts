@@ -576,8 +576,18 @@ export interface ExecuteViewInput {
   render?: boolean;
 }
 
+/**
+ * A saved-view row always includes the canonical frontmatter used to evaluate
+ * the view. Empty-frontmatter Markdown is represented by an empty object.
+ */
+export interface SavedViewRecord<Frontmatter extends JsonObject = JsonObject>
+  extends Omit<QueryRecord<Frontmatter>, "effective_frontmatter"> {
+  effective_frontmatter: Frontmatter;
+  values?: JsonObject;
+}
+
 export interface SavedViewExecution<Frontmatter extends JsonObject = JsonObject> {
-  results: Array<QueryRecord<Frontmatter> & { values?: JsonObject }>;
+  results: Array<SavedViewRecord<Frontmatter>>;
   meta: {
     total_count: number;
     has_more: boolean;
