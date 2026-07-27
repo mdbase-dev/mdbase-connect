@@ -79,16 +79,54 @@ export function basename(path: string): string {
   return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || "Untitled";
 }
 
-export function folders(notes: NoteSummary[]): Array<{ name: string; count: number }> {
-  const counts = new Map<string, number>();
+export interface FolderTreeNode {
+  name: string;
+  path: string;
+  count: number;
+  children: FolderTreeNode[];
+}
+
+interface MutableFolderTreeNode extends Omit<FolderTreeNode, "children"> {
+  children: Map<string, MutableFolderTreeNode>;
+}
+
+const facetCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function folderTree(notes: NoteSummary[]): FolderTreeNode[] {
+  const roots = new Map<string, MutableFolderTreeNode>();
   for (const note of notes) {
-    const name = folder(note.path);
-    if (!name) continue;
-    const top = name.split("/")[0];
-    counts.set(top, (counts.get(top) ?? 0) + 1);
+    const directory = folder(note.path);
+    if (!directory) continue;
+    let siblings = roots;
+    let parentPath = "";
+    for (const name of directory.split("/").filter(Boolean)) {
+      const path = parentPath ? `${parentPath}/${name}` : name;
+      let node = siblings.get(name);
+      if (!node) {
+        node = { name, path, count: 0, children: new Map() };
+        siblings.set(name, node);
+      }
+      node.count += 1;
+      parentPath = path;
+      siblings = node.children;
+    }
   }
-  return [...counts].map(([name, count]) => ({ name, count }))
-    .sort((left, right) => left.name.localeCompare(right.name));
+
+  const freeze = (nodes: Map<string, MutableFolderTreeNode>): FolderTreeNode[] =>
+    [...nodes.values()]
+      .sort((left, right) => facetCollator.compare(left.name, right.name))
+      .map((node) => ({
+        name: node.name,
+        path: node.path,
+        count: node.count,
+        children: freeze(node.children)
+      }));
+
+  return freeze(roots);
+}
+
+export function folders(notes: NoteSummary[]): Array<{ name: string; count: number }> {
+  return folderTree(notes).map(({ name, count }) => ({ name, count }));
 }
 
 export function noteTags(note: NoteSummary): string[] {

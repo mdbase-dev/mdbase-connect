@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Copy,
   FilePlus2,
   Folder,
   FolderPlus,
@@ -38,6 +39,7 @@ import {
   type ReactNode
 } from "react";
 import { ActionMenu } from "./ActionMenu";
+import { ContextMenu } from "./ContextMenu";
 import { ConflictResolver } from "./ConflictResolver";
 import { ConfirmDialog, Dialog } from "./Dialog";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
@@ -62,7 +64,7 @@ import type {
 } from "./model";
 import {
   editableNote,
-  folders,
+  folderTree,
   noteTags,
   notePreview,
   noteTimestamp,
@@ -71,6 +73,7 @@ import {
   tags as collectionTags,
   types as collectionTypes
 } from "./note";
+import type { FolderTreeNode } from "./note";
 import { NewNoteComposer } from "./NewNoteComposer";
 import { buildNoteSearchIndex, searchNotes } from "./note-search";
 import { KeyedOperationQueue } from "./operation-queue";
@@ -112,6 +115,12 @@ interface Draft {
   title: string;
   body: string;
   source: TitleSource;
+}
+
+interface CreationContext {
+  folder?: string;
+  tag?: string;
+  type?: string;
 }
 
 interface NoteSession {
@@ -182,6 +191,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [noteLoading, setNoteLoading] = useState(false);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
+  const [creationContext, setCreationContext] = useState<CreationContext>({});
   const [creationDirty, setCreationDirty] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -406,6 +416,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNoteLoading(false);
     setPendingNotePath(undefined);
     setCreationMode(undefined);
+    setCreationContext({});
     setEditingPath(false);
     setNotice(session.error);
     localStorage.setItem("mdbase-editor:last-note", session.document.path);
@@ -484,6 +495,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const cached = sessions.current.get(path);
     if (cached?.deleted) return false;
     setCreationMode(undefined);
+    setCreationContext({});
     setNotice(undefined);
     setPropertiesError(undefined);
     setPropertiesOpen(false);
@@ -931,6 +943,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setSelectedPath(undefined);
     setPendingNotePath(undefined);
     setCreationMode(undefined);
+    setCreationContext({});
     setCreationDirty(false);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
@@ -1009,7 +1022,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     });
   }
 
-  function beginCreation(mode: "note" | "folder") {
+  function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
     navigationGeneration.current += 1;
     setPendingNotePath(undefined);
     setNotice(undefined);
@@ -1020,16 +1033,69 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setRenamePlan(undefined);
     renameRequest.current = undefined;
     setCreationDirty(false);
+    setCreationContext(context);
     setCreationMode(mode);
     setMobilePane("editor");
   }
 
   function beginCreate() {
-    beginCreation("note");
+    const context = noteFilter?.kind === "folder"
+      ? { folder: noteFilter.value }
+      : noteFilter?.kind === "tag"
+        ? { tag: noteFilter.value }
+        : noteFilter?.kind === "type"
+          ? { type: noteFilter.value }
+          : {};
+    beginCreation("note", context);
   }
 
   function beginFolderCreate() {
-    beginCreation("folder");
+    beginCreation("folder", noteFilter?.kind === "folder" ? { folder: noteFilter.value } : {});
+  }
+
+  function beginNoteInFolder(folder: string) {
+    setNoteFilter({ kind: "folder", value: folder });
+    beginCreation("note", { folder });
+  }
+
+  function beginSubfolder(parent: string) {
+    setNoteFilter({ kind: "folder", value: parent });
+    beginCreation("folder", { folder: parent });
+  }
+
+  function beginNoteWithTag(tag: string) {
+    setNoteFilter({ kind: "tag", value: tag });
+    beginCreation("note", { tag });
+  }
+
+  function beginNoteWithType(type: string) {
+    setNoteFilter({ kind: "type", value: type });
+    beginCreation("note", { type });
+  }
+
+  function copyFacet(value: string, label: string) {
+    void navigator.clipboard.writeText(value)
+      .then(() => setNotice(`Copied ${label}.`))
+      .catch(() => setNotice(`Couldn’t copy ${label}.`));
+  }
+
+  function openTypeFromRail(name: string) {
+    const open = () => {
+      finishSelectSurface("types");
+      setSelectedTypeName(name);
+      void loadTypeSource(name);
+    };
+    if (typeDraftDirty() && (typeCreating || selectedTypeName !== name)) {
+      setConfirmation({
+        title: "Discard type changes?",
+        body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
+        confirmLabel: "Discard changes",
+        tone: "danger",
+        onConfirm: open
+      });
+      return;
+    }
+    open();
   }
 
   async function createNote(input: CreateNoteInput) {
@@ -1046,6 +1112,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setBacklinksOpen(false);
     setDeletePlan(undefined);
     setCreationDirty(false);
+    setCreationContext({});
     setMobilePane("editor");
     adoptDocument(created);
   }
@@ -1517,6 +1584,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     saveCurrentInBackground();
     setSurface(next);
     setCreationMode(undefined);
+    setCreationContext({});
     setCreationDirty(false);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
@@ -1549,6 +1617,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function finishCancelCreation() {
     setCreationMode(undefined);
+    setCreationContext({});
     setCreationDirty(false);
     returnToMobilePane("notes");
   }
@@ -1684,6 +1753,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     style={{ "--collection-track": `${collectionTrack}px`, "--list-track": `${listTrack}px` } as CSSProperties}
   >
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
+      collectionId={description.collection_id}
       name={description.display_name}
       count={collectionTotal ?? allNotes.length}
       typeCount={description.types.length}
@@ -1694,6 +1764,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       surface={surface}
       onFilter={(filter) => { setNoteFilter(filter); selectSurface("notes"); }}
       onCreateFolder={beginFolderCreate}
+      onCreateNoteInFolder={beginNoteInFolder}
+      onCreateSubfolder={beginSubfolder}
+      onCreateNoteWithTag={beginNoteWithTag}
+      onCreateNoteWithType={beginNoteWithType}
+      onOpenType={openTypeFromRail}
+      onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
       onShortcuts={() => setShortcutsOpen(true)}
@@ -1730,7 +1806,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
       {creationMode ? <NewNoteComposer
         types={description.types}
-        defaultFolder={noteFilter?.kind === "folder" ? noteFilter.value : undefined}
+        defaultFolder={creationContext.folder}
+        defaultTag={creationContext.tag}
+        defaultType={creationContext.type}
         purpose={creationMode}
         leadingActions={editorLeadingActions}
         onCreate={createNote}
@@ -2054,7 +2132,8 @@ function Wordmark() {
   return <div className="wordmark"><MdbaseMark /><span className="wordmark-label">mdbase <strong>editor</strong></span></div>;
 }
 
-function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onTypes, onSettings, onShortcuts, onReconnect, onSwitch, onCollapse }: {
+function CollectionRail({ collectionId, name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onSwitch, onCollapse }: {
+  collectionId: string;
   name: string;
   count: number;
   typeCount: number;
@@ -2067,6 +2146,12 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   connectionIssue?: string;
   onFilter: (filter?: NoteFilter) => void;
   onCreateFolder: () => void;
+  onCreateNoteInFolder: (folder: string) => void;
+  onCreateSubfolder: (parent: string) => void;
+  onCreateNoteWithTag: (tag: string) => void;
+  onCreateNoteWithType: (type: string) => void;
+  onOpenType: (type: string) => void;
+  onCopyFacet: (value: string, label: string) => void;
   onTypes: () => void;
   onSettings: () => void;
   onShortcuts: () => void;
@@ -2074,9 +2159,10 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   onSwitch: () => void;
   onCollapse: () => void;
 }) {
-  const collectionFolders = folders(notes);
-  const tagFacets = collectionTags(notes);
-  const typeFacets = collectionTypes(notes, typeNames);
+  const typeNamesKey = typeNames.join("\u0000");
+  const collectionFolders = useMemo(() => folderTree(notes), [notes]);
+  const tagFacets = useMemo(() => collectionTags(notes), [notes]);
+  const typeFacets = useMemo(() => collectionTypes(notes, typeNames), [notes, typeNamesKey]);
   return <aside className="collection-rail" aria-label="Collection navigation">
     <div className="rail-header"><Wordmark /><PaneControl label="Hide collections sidebar" action="hide" onClick={onCollapse} /></div>
     <nav>
@@ -2084,9 +2170,38 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
       <button className={surface === "notes" && !activeFilter ? "selected" : ""} aria-label={`Notes, ${count} total`} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
       <button className={surface === "types" ? "selected" : ""} aria-label={`Types (${typeCount})`} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{typeCount}</small></button>
       <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
-      <RailFilterSection label="Folders" kind="folder" items={collectionFolders} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} defaultOpen onFilter={onFilter} onCreate={onCreateFolder} />
-      <RailFilterSection label="Tags" kind="tag" items={tagFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
-      <RailFilterSection label="Types" kind="type" items={typeFacets} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} onFilter={onFilter} />
+      <FolderFilterSection
+        collectionId={collectionId}
+        items={collectionFolders}
+        activeFilter={surface === "notes" ? activeFilter : undefined}
+        loading={foldersLoading}
+        onFilter={onFilter}
+        onCreate={onCreateFolder}
+        onCreateNote={onCreateNoteInFolder}
+        onCreateSubfolder={onCreateSubfolder}
+        onCopy={(path) => onCopyFacet(path, "folder path")}
+      />
+      <RailFilterSection
+        label="Tags"
+        kind="tag"
+        items={tagFacets}
+        activeFilter={surface === "notes" ? activeFilter : undefined}
+        loading={foldersLoading}
+        onFilter={onFilter}
+        onCreateNote={onCreateNoteWithTag}
+        onCopy={(tag) => onCopyFacet(tag, "tag")}
+      />
+      <RailFilterSection
+        label="Types"
+        kind="type"
+        items={typeFacets}
+        activeFilter={surface === "notes" ? activeFilter : undefined}
+        loading={foldersLoading}
+        onFilter={onFilter}
+        onCreateNote={onCreateNoteWithType}
+        onOpenType={onOpenType}
+        onCopy={(type) => onCopyFacet(type, "type name")}
+      />
     </nav>
     <footer className="connection-footer">
       <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>
@@ -2096,35 +2211,243 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   </aside>;
 }
 
-function RailFilterSection({ label, kind, items, activeFilter, loading, defaultOpen = false, onFilter, onCreate }: {
+function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreate, onCreateNote, onCreateSubfolder, onCopy }: {
+  collectionId: string;
+  items: FolderTreeNode[];
+  activeFilter?: NoteFilter;
+  loading: boolean;
+  onFilter: (filter: NoteFilter) => void;
+  onCreate: () => void;
+  onCreateNote: (folder: string) => void;
+  onCreateSubfolder: (parent: string) => void;
+  onCopy: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(() => loadExpandedFolders(collectionId));
+  const listId = "rail-folder-filters";
+
+  useEffect(() => {
+    setExpanded(loadExpandedFolders(collectionId));
+  }, [collectionId]);
+  useEffect(() => {
+    localStorage.setItem(expandedFoldersKey(collectionId), JSON.stringify([...expanded]));
+  }, [collectionId, expanded]);
+  useEffect(() => {
+    if (activeFilter?.kind !== "folder") return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      const parts = activeFilter.value.split("/");
+      for (let index = 1; index <= parts.length; index += 1) {
+        next.add(parts.slice(0, index).join("/"));
+      }
+      return setsEqual(current, next) ? current : next;
+    });
+  }, [activeFilter]);
+
+  const toggle = (path: string) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    return next;
+  });
+  const setDescendants = (node: FolderTreeNode, shouldExpand: boolean) => setExpanded((current) => {
+    const next = new Set(current);
+    for (const path of expandableFolderPaths(node)) {
+      if (shouldExpand) next.add(path);
+      else next.delete(path);
+    }
+    return next;
+  });
+
+  return <div className="rail-filter-section" role="group" aria-label="Folders" aria-busy={loading}>
+    <RailSectionHeader
+      label="Folders"
+      open={open}
+      listId={listId}
+      loading={loading}
+      onToggle={() => setOpen((value) => !value)}
+      onCreate={onCreate}
+    />
+    {open && <div id={listId} className="rail-filter-items folder-tree">
+      {items.length > 0 && <ul>
+        {items.map((node) => <FolderTreeRow
+          key={node.path}
+          node={node}
+          expanded={expanded}
+          activeFilter={activeFilter}
+          loading={loading}
+          onFilter={onFilter}
+          onToggle={toggle}
+          onSetDescendants={setDescendants}
+          onCreateNote={onCreateNote}
+          onCreateSubfolder={onCreateSubfolder}
+          onCopy={onCopy}
+        />)}
+      </ul>}
+      {!items.length && <p className="folder-placeholder">{loading ? "Finding folders…" : "No folders"}</p>}
+    </div>}
+  </div>;
+}
+
+function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onToggle, onSetDescendants, onCreateNote, onCreateSubfolder, onCopy }: {
+  node: FolderTreeNode;
+  expanded: Set<string>;
+  activeFilter?: NoteFilter;
+  loading: boolean;
+  onFilter: (filter: NoteFilter) => void;
+  onToggle: (path: string) => void;
+  onSetDescendants: (node: FolderTreeNode, expanded: boolean) => void;
+  onCreateNote: (folder: string) => void;
+  onCreateSubfolder: (parent: string) => void;
+  onCopy: (path: string) => void;
+}) {
+  const hasChildren = node.children.length > 0;
+  const isExpanded = expanded.has(node.path);
+  const descendantPaths = expandableFolderPaths(node);
+  const descendantsExpanded = descendantPaths.length > 0 && descendantPaths.every((path) => expanded.has(path));
+  return <li>
+    <ContextMenu
+      className="rail-tree-row"
+      label={`${node.path} folder actions`}
+      items={[
+        { label: "New note here", icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote(node.path) },
+        { label: "New subfolder", icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder(node.path) },
+        { label: "Copy path", icon: <Copy aria-hidden="true" />, onSelect: () => onCopy(node.path) },
+        ...(hasChildren ? [{
+          label: descendantsExpanded ? "Collapse descendants" : "Expand descendants",
+          icon: descendantsExpanded ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />,
+          onSelect: () => onSetDescendants(node, !descendantsExpanded)
+        }] : [])
+      ]}
+    >
+      {hasChildren
+        ? <button
+          className="folder-disclosure"
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.path}`}
+          aria-expanded={isExpanded}
+          onClick={() => onToggle(node.path)}
+        >{isExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}</button>
+        : <span className="folder-disclosure-spacer" aria-hidden="true" />}
+      <button
+        className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
+        aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
+        onClick={() => onFilter({ kind: "folder", value: node.path })}
+      >
+        <span><Folder aria-hidden="true" />{node.name}</span>
+        <small aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}>{node.count}{loading && "+"}</small>
+      </button>
+    </ContextMenu>
+    {hasChildren && isExpanded && <ul>
+      {node.children.map((child) => <FolderTreeRow
+        key={child.path}
+        node={child}
+        expanded={expanded}
+        activeFilter={activeFilter}
+        loading={loading}
+        onFilter={onFilter}
+        onToggle={onToggle}
+        onSetDescendants={onSetDescendants}
+        onCreateNote={onCreateNote}
+        onCreateSubfolder={onCreateSubfolder}
+        onCopy={onCopy}
+      />)}
+    </ul>}
+  </li>;
+}
+
+function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter, onCreateNote, onOpenType, onCopy }: {
   label: string;
-  kind: NoteFilter["kind"];
+  kind: "tag" | "type";
   items: Array<{ name: string; count: number }>;
   activeFilter?: NoteFilter;
   loading: boolean;
-  defaultOpen?: boolean;
   onFilter: (filter: NoteFilter) => void;
-  onCreate?: () => void;
+  onCreateNote: (value: string) => void;
+  onOpenType?: (type: string) => void;
+  onCopy: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const Icon = kind === "folder" ? Folder : kind === "tag" ? Tag : Braces;
+  const [open, setOpen] = useState(false);
+  const Icon = kind === "tag" ? Tag : Braces;
   const listId = `rail-${kind}-filters`;
   return <div className="rail-filter-section" role="group" aria-label={label} aria-busy={loading}>
-    <div className="rail-section-header">
-      <button className="rail-section-toggle" aria-expanded={open} aria-controls={listId} onClick={() => setOpen((value) => !value)}>
-        <span>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}{label}</span>
-        {loading && <span className="folder-loading" role="status"><i aria-hidden="true" />Loading</span>}
-      </button>
-      {onCreate && <button className="rail-section-create" aria-label={`New ${kind}`} title={`New ${kind}`} onClick={onCreate}><FolderPlus aria-hidden="true" /></button>}
-    </div>
+    <RailSectionHeader label={label} open={open} listId={listId} loading={loading} onToggle={() => setOpen((value) => !value)} />
     {open && <div id={listId} className="rail-filter-items">
-      {items.map((item) => <button key={item.name} className={activeFilter?.kind === kind && activeFilter.value === item.name ? "selected" : ""} onClick={() => onFilter({ kind, value: item.name })}>
-        <span><Icon aria-hidden="true" />{kind === "tag" ? `#${item.name}` : item.name}</span>
-        <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
-      </button>)}
+      {items.map((item) => <ContextMenu
+        key={item.name}
+        className="rail-facet-row"
+        label={`${kind === "tag" ? `#${item.name}` : item.name} ${kind} actions`}
+        items={[
+          { label: "Show notes", icon: <NotebookPen aria-hidden="true" />, onSelect: () => onFilter({ kind, value: item.name }) },
+          ...(kind === "type" && onOpenType ? [{
+            label: "Open definition",
+            icon: <Braces aria-hidden="true" />,
+            onSelect: () => onOpenType(item.name)
+          }] : []),
+          {
+            label: kind === "tag" ? "New note with tag" : "New note of type",
+            icon: <FilePlus2 aria-hidden="true" />,
+            onSelect: () => onCreateNote(item.name)
+          },
+          {
+            label: kind === "tag" ? "Copy tag" : "Copy type name",
+            icon: <Copy aria-hidden="true" />,
+            onSelect: () => onCopy(item.name)
+          }
+        ]}
+      >
+        <button
+          className={`rail-row-action${activeFilter?.kind === kind && activeFilter.value === item.name ? " selected" : ""}`}
+          aria-label={`${kind === "tag" ? `Show notes tagged #${item.name}` : `Show notes with type ${item.name}`}, ${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"}`}
+          onClick={() => onFilter({ kind, value: item.name })}
+        >
+          <span><Icon aria-hidden="true" />{kind === "tag" ? `#${item.name}` : item.name}</span>
+          <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
+        </button>
+      </ContextMenu>)}
       {!items.length && <p className="folder-placeholder">{loading ? `Finding ${label.toLocaleLowerCase()}…` : `No ${label.toLocaleLowerCase()}`}</p>}
     </div>}
   </div>;
+}
+
+function RailSectionHeader({ label, open, listId, loading, onToggle, onCreate }: {
+  label: string;
+  open: boolean;
+  listId: string;
+  loading: boolean;
+  onToggle: () => void;
+  onCreate?: () => void;
+}) {
+  return <div className="rail-section-header">
+    <button className="rail-section-toggle" aria-expanded={open} aria-controls={listId} onClick={onToggle}>
+      <span>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}{label}</span>
+      {loading && <span className="folder-loading" role="status"><i aria-hidden="true" />Loading</span>}
+    </button>
+    {onCreate && <button className="rail-section-create" aria-label="New folder" title="New folder" onClick={onCreate}><FolderPlus aria-hidden="true" /></button>}
+  </div>;
+}
+
+function expandedFoldersKey(collectionId: string): string {
+  return `mdbase-editor:expanded-folders:${collectionId}`;
+}
+
+function loadExpandedFolders(collectionId: string): Set<string> {
+  try {
+    const value = JSON.parse(localStorage.getItem(expandedFoldersKey(collectionId)) ?? "[]");
+    return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function expandableFolderPaths(node: FolderTreeNode): string[] {
+  return [
+    ...(node.children.length > 0 ? [node.path] : []),
+    ...node.children.flatMap(expandableFolderPaths)
+  ];
+}
+
+function setsEqual(left: Set<string>, right: Set<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
 }
 
 function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: number }, loading: boolean): string {

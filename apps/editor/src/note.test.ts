@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   editableNote,
+  folderTree,
   folders,
   noteTags,
   noteTitle,
@@ -46,6 +47,17 @@ describe("collection helpers", () => {
     expect(folders(notes)).toEqual([
       { name: "Personal", count: 1 },
       { name: "Work", count: 2 }
+    ]);
+    expect(folderTree(notes)).toEqual([
+      { name: "Personal", path: "Personal", count: 1, children: [] },
+      {
+        name: "Work",
+        path: "Work",
+        count: 2,
+        children: [
+          { name: "Deep", path: "Work/Deep", count: 1, children: [] }
+        ]
+      }
     ]);
   });
 

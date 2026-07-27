@@ -183,7 +183,85 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
     expect(await gateway.read("Research/Reading list.md")).toBeDefined();
-    expect(within(folderNavigation).getByRole("button", { name: /Research/ })).toBeInTheDocument();
+    expect(within(folderNavigation).getByRole("button", { name: /^Show notes in Research,/ })).toBeInTheDocument();
+  });
+
+  it("reveals nested folders on demand and remembers their disclosure state", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    await gateway.create({
+      title: "Nested plan",
+      path: "Projects/Alpha/Nested plan.md",
+      properties: {}
+    });
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const folders = screen.getByRole("group", { name: "Folders" });
+    expect(within(folders).queryByRole("button", { name: /^Show notes in Projects\/Alpha,/ })).not.toBeInTheDocument();
+    const disclosure = within(folders).getByRole("button", { name: "Expand Projects" });
+    await user.click(disclosure);
+
+    const nestedFolder = within(folders).getByRole("button", { name: /^Show notes in Projects\/Alpha,/ });
+    await user.click(nestedFolder);
+    expect(screen.getByRole("heading", { name: "Projects/Alpha" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem("mdbase-editor:expanded-folders:00000000-0000-4000-8000-000000000001") ?? "[]")).toContain("Projects");
+  });
+
+  it("creates a nested folder from a folder context menu", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const folders = screen.getByRole("group", { name: "Folders" });
+    fireEvent.contextMenu(within(folders).getByRole("button", { name: /^Show notes in Projects,/ }), {
+      clientX: 60,
+      clientY: 120
+    });
+    const menu = await screen.findByRole("menu", { name: "Projects folder actions" });
+    expect(within(menu).getByRole("menuitem", { name: "New note here" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
+    await user.click(within(menu).getByRole("menuitem", { name: "New subfolder" }));
+
+    await user.type(screen.getByRole("textbox", { name: "Folder name" }), "Roadmap");
+    await user.type(screen.getByRole("textbox", { name: "First note" }), "Index");
+    expect(screen.getByText("Projects/Roadmap/Index.md")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+    expect(await gateway.read("Projects/Roadmap/Index.md")).toBeDefined();
+  });
+
+  it("seeds new notes from tag and type context menus", async () => {
+    const gateway = new DemoCollectionGateway(12);
+    const user = userEvent.setup();
+    const firstRender = render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const tags = screen.getByRole("group", { name: "Tags" });
+    await user.click(within(tags).getByRole("button", { name: "Tags" }));
+    fireEvent.contextMenu(within(tags).getByRole("button", { name: /^Show notes tagged #ideas,/ }), {
+      clientX: 60,
+      clientY: 160
+    });
+    await user.click(within(await screen.findByRole("menu", { name: "#ideas tag actions" }))
+      .getByRole("menuitem", { name: "New note with tag" }));
+    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Tagged from menu");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+    expect((await gateway.read("Tagged from menu.md")).frontmatter.tags).toEqual(["ideas"]);
+
+    firstRender.unmount();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("heading", { name: "Writing" });
+    const types = screen.getByRole("group", { name: "Types" });
+    await user.click(within(types).getByRole("button", { name: "Types" }));
+    const typeRow = within(types).getByRole("button", { name: /^Show notes with type note,/ });
+    typeRow.focus();
+    fireEvent.keyDown(typeRow, { key: "F10", shiftKey: true });
+    await user.click(within(await screen.findByRole("menu", { name: "note type actions" }))
+      .getByRole("menuitem", { name: "New note of type" }));
+    expect(screen.getByRole("combobox", { name: "Type" })).toHaveValue("note");
+    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/Untitled.md");
   });
 
   it("collapses collection facets, filters notes, and follows backlinks", async () => {
@@ -198,19 +276,19 @@ describe("mdbase editor", () => {
     expect(foldersToggle).toHaveAttribute("aria-expanded", "false");
     expect(within(folders).queryByRole("button", { name: /Archive/ })).not.toBeInTheDocument();
     await user.click(foldersToggle);
-    await user.click(within(folders).getByRole("button", { name: /Archive/ }));
+    await user.click(within(folders).getByRole("button", { name: /^Show notes in Archive,/ }));
     expect(screen.getByRole("heading", { name: "Archive" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(2);
 
     const tags = screen.getByRole("group", { name: "Tags" });
     await user.click(within(tags).getByRole("button", { name: "Tags" }));
-    await user.click(within(tags).getByRole("button", { name: /#ideas/ }));
+    await user.click(within(tags).getByRole("button", { name: /^Show notes tagged #ideas,/ }));
     expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(4);
 
     const types = screen.getByRole("group", { name: "Types" });
     await user.click(within(types).getByRole("button", { name: "Types" }));
-    await user.click(within(types).getByRole("button", { name: /note/ }));
+    await user.click(within(types).getByRole("button", { name: /^Show notes with type note,/ }));
     expect(screen.getByRole("heading", { name: "note" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(3);
 

@@ -5,9 +5,11 @@ import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import { SchemaValueEditor, schemaValueComplete } from "./SchemaValueEditor";
 
-export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadingActions, onCreate, onCancel, onDraftChange }: {
+export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType, purpose = "note", leadingActions, onCreate, onCancel, onDraftChange }: {
   types: CollectionTypeDescriptor[];
   defaultFolder?: string;
+  defaultTag?: string;
+  defaultType?: string;
   purpose?: "note" | "folder";
   leadingActions?: ReactNode;
   onCreate: (input: CreateNoteInput) => Promise<void>;
@@ -15,19 +17,22 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
   onDraftChange?: (hasDraft: boolean) => void;
 }) {
   const folderCreation = purpose === "folder";
+  const initialType = types.find((candidate) => candidate.name === defaultType);
   const [title, setTitle] = useState("");
   const [folderName, setFolderName] = useState("");
-  const [typeName, setTypeName] = useState("");
-  const [path, setPath] = useState(() => suggestedPath("", defaultFolder));
+  const [typeName, setTypeName] = useState(defaultType ?? "");
+  const [path, setPath] = useState(() => suggestedPath("", defaultFolder ?? typeFolder(initialType)));
   const [pathEdited, setPathEdited] = useState(false);
-  const [properties, setProperties] = useState<JsonObject>({});
+  const [properties, setProperties] = useState<JsonObject>(() => seededProperties(initialType, defaultTag));
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const type = types.find((candidate) => candidate.name === typeName);
   const schema = schemaShape(type);
   const titleField = ["title", "name", "subject"].find((field) => field in schema.properties);
   const required = schema.required.filter((field) => field !== "type" && field !== titleField && !schemaSuppliesValue(schema.properties[field]));
-  const resolvedPath = folderCreation ? suggestedPath(title, normalizedFolder(folderName)) : path;
+  const resolvedPath = folderCreation
+    ? suggestedPath(title, joinFolder(defaultFolder, normalizedFolder(folderName)))
+    : path;
   const complete = Boolean(
     title.trim()
     && validPath(resolvedPath)
@@ -43,11 +48,11 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
   );
   useEffect(() => onDraftChange?.(hasDraft), [hasDraft, onDraftChange]);
 
-  const defaults = useMemo(() => schemaDefaults(type), [type]);
+  const defaults = useMemo(() => seededProperties(type, defaultTag), [defaultTag, type]);
 
   function selectType(nextName: string) {
     const nextType = types.find((candidate) => candidate.name === nextName);
-    const nextDefaults = schemaDefaults(nextType);
+    const nextDefaults = seededProperties(nextType, defaultTag);
     setTypeName(nextName);
     setProperties(nextDefaults);
     if (!pathEdited) setPath(suggestedPath(title, defaultFolder ?? typeFolder(nextType)));
@@ -135,6 +140,22 @@ function schemaDefaults(type?: CollectionTypeDescriptor): JsonObject {
   }));
 }
 
+function seededProperties(type?: CollectionTypeDescriptor, tag?: string): JsonObject {
+  const properties = schemaDefaults(type);
+  if (!tag) return properties;
+  const tagSchema = schemaShape(type).properties.tags;
+  if (tagSchema?.type === "string") {
+    properties.tags = tag;
+    return properties;
+  }
+  const existing = properties.tags;
+  const values = Array.isArray(existing)
+    ? existing.filter((value): value is string => typeof value === "string")
+    : typeof existing === "string" ? [existing] : [];
+  properties.tags = [...new Set([...values, tag])];
+  return properties;
+}
+
 function schemaSuppliesValue(schema?: JsonObject): boolean {
   return Boolean(schema && ("default" in schema || "const" in schema));
 }
@@ -165,6 +186,10 @@ function validPath(path: string): boolean {
 
 function normalizedFolder(folder: string): string {
   return safeRenamePath(folder).replace(/\/+$/g, "");
+}
+
+function joinFolder(parent: string | undefined, child: string): string {
+  return [parent?.replace(/^\/+|\/+$/g, ""), child].filter(Boolean).join("/");
 }
 
 function validFolder(folder: string): boolean {

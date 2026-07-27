@@ -120,7 +120,7 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
 
   const tags = page.getByRole("group", { name: "Tags" });
   await tags.getByRole("button", { name: "Tags" }).click();
-  await tags.getByRole("button", { name: /#ideas/ }).click();
+  await tags.getByRole("button", { name: /^Show notes tagged #ideas,/ }).click();
   await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
   await expect(page.getByRole("option")).toHaveCount(4);
 
@@ -224,7 +224,7 @@ test("creates a folder with its first note", async ({ page }) => {
   await create.click();
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Reading list");
-  await expect(folders.getByRole("button", { name: /Research/ })).toBeVisible();
+  await expect(folders.getByRole("button", { name: /^Show notes in Research,/ })).toBeVisible();
 });
 
 test("inspects type definitions and persists editor settings", async ({ page }) => {
