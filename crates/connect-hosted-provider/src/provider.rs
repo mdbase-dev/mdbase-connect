@@ -9,12 +9,12 @@ use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
     authority_manifest_digest as snapshot_manifest_digest, AuthorityImportManifest,
-    AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage,
-    CollectionContractDescriptor, CollectionDescription, GrantSummary, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncConflict, SyncMutation, SyncMutationError, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
-    SyncSnapshotPage, TypeProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION,
-    CONTROL_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
+    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, GrantSummary,
+    SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
+    SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, TypeProvision, AUTHORITY_PROOF_DOMAIN,
+    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -169,6 +169,8 @@ pub struct ProviderAuthorityImport {
     pub manifest_digest: Option<String>,
     pub source_revision: Option<String>,
     pub source_head: Option<u64>,
+    #[serde(default)]
+    pub contracts: Vec<CollectionContractDescriptor>,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -601,7 +603,7 @@ impl HostedProvider {
         for resource in &manifest.resources.documents {
             if !paths.insert(resource.path.as_str())
                 || resource.document.len() as u64 > self.limits.max_bytes_per_document
-                || !matches!(resource.kind.as_str(), "configuration" | "type")
+                || !matches!(resource.kind.as_str(), "configuration" | "type" | "view")
             {
                 return Err(ApiError::bad_request(
                     "invalid_authority_import_manifest",
@@ -623,10 +625,13 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        if row.get::<String, _>("import_state") != "receiving" {
+        if !matches!(
+            row.get::<String, _>("import_state").as_str(),
+            "receiving" | "uploaded"
+        ) {
             return Err(ApiError::conflict(
-                "authority_import_finalized",
-                "A finalized authority import cannot accept another manifest.",
+                "authority_import_inactive",
+                "An inactive authority import cannot accept another manifest.",
             ));
         }
         if row.get::<Uuid, _>("collection_id") != manifest.collection_id {
@@ -681,7 +686,8 @@ impl HostedProvider {
         .bind(to_i64(manifest.record_count, "record count")?)
         .fetch_one(&mut *transaction)
         .await?;
-        let result = provider_authority_import(&saved)?;
+        let mut result = provider_authority_import(&saved)?;
+        result.contracts = manifest.resources.contracts.clone();
         transaction.commit().await?;
         Ok(result)
     }
@@ -704,9 +710,9 @@ impl HostedProvider {
         let mut ids = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for item in &page.records {
-            if item.record.record_id.is_nil()
-                || !ids.insert(item.record.record_id)
-                || !paths.insert(item.record.path.as_str())
+            if item.record_id.is_nil()
+                || !ids.insert(item.record_id)
+                || !paths.insert(item.path.as_str())
                 || item.document.len() as u64 > self.limits.max_bytes_per_document
             {
                 return Err(ApiError::bad_request(
@@ -750,7 +756,7 @@ impl HostedProvider {
             let ciphertext = self.crypto.encrypt_json(
                 &data_key,
                 item,
-                &authority_import_record_aad(import_id, item.record.record_id),
+                &authority_import_record_aad(import_id, item.record_id),
             )?;
             let inserted = sqlx::query(
                 r#"INSERT INTO hosted_provider_authority_import_records
@@ -759,8 +765,8 @@ impl HostedProvider {
             )
             .bind(import_id)
             .bind(to_i64(page.page, "import page")?)
-            .bind(item.record.record_id)
-            .bind(path_token(&data_key, &item.record.path))
+            .bind(item.record_id)
+            .bind(path_token(&data_key, &item.path))
             .bind(ciphertext)
             .bind(to_i64(item.document.len() as u64, "document size")?)
             .execute(&mut *transaction)
@@ -789,7 +795,8 @@ impl HostedProvider {
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
         if row.get::<String, _>("import_state") == "uploaded" {
-            let result = provider_authority_import(&row)?;
+            let mut result = provider_authority_import(&row)?;
+            result.contracts = authority_import_contracts(self, &row)?;
             transaction.commit().await?;
             return Ok(result);
         }
@@ -825,16 +832,16 @@ impl HostedProvider {
                 "Not every authority snapshot record has been uploaded.",
             ));
         }
-        let records = staged
+        let uploaded_records = staged
             .into_iter()
             .map(|record| {
                 let record_id: Uuid = record.get("record_id");
-                let item: AuthoritySnapshotRecord = self.crypto.decrypt_json(
+                let item: AuthorityImportRecord = self.crypto.decrypt_json(
                     &data_key,
                     record.get("payload_ciphertext"),
                     &authority_import_record_aad(import_id, record_id),
                 )?;
-                if item.record.record_id != record_id {
+                if item.record_id != record_id {
                     return Err(ApiError::internal(
                         "Authority import record identity failed authentication.",
                     ));
@@ -842,6 +849,19 @@ impl HostedProvider {
                 Ok(item)
             })
             .collect::<ApiResult<Vec<_>>>()?;
+        let workspace = WorkingSet::materialize(
+            manifest
+                .resources
+                .documents
+                .iter()
+                .map(|resource| (resource.path.clone(), resource.document.clone())),
+            uploaded_records.iter().map(|item| StoredDocument {
+                record_id: item.record_id,
+                path: item.path.clone(),
+                document: item.document.clone(),
+            }),
+        )?;
+        let records = canonicalize_imported_snapshot(&workspace, &manifest, &uploaded_records)?;
         if snapshot_manifest_digest(&manifest.resources.documents, &records)
             != manifest.manifest_digest
         {
@@ -850,22 +870,14 @@ impl HostedProvider {
                 "Uploaded authority snapshot does not match its manifest.",
             ));
         }
-        let workspace = WorkingSet::materialize(
-            manifest
-                .resources
-                .documents
-                .iter()
-                .map(|resource| (resource.path.clone(), resource.document.clone())),
-            records.iter().map(|item| StoredDocument {
-                record_id: item.record.record_id,
-                path: item.record.path.clone(),
-                document: item.document.clone(),
-            }),
-        )?;
-        validate_imported_snapshot(&workspace, &manifest, &records)?;
         let (types, contracts) = workspace.type_resources()?;
         manifest.resources.types = types;
         manifest.resources.contracts = contracts;
+        let canonical_manifest_ciphertext = self.crypto.encrypt_json(
+            &data_key,
+            &manifest,
+            &authority_import_manifest_aad(import_id),
+        )?;
         let content_bytes = records.iter().try_fold(0_u64, |total, item| {
             total
                 .checked_add(item.document.len() as u64)
@@ -953,15 +965,17 @@ impl HostedProvider {
         .await?;
         let saved = sqlx::query(
             r#"UPDATE hosted_provider_authority_imports
-               SET state = 'uploaded', uploaded_at = now()
+               SET state = 'uploaded', manifest_ciphertext = $2, uploaded_at = now()
                WHERE id = $1
                RETURNING id, collection_id, next_authority_epoch, state,
                          manifest_digest, source_revision, source_head, expires_at"#,
         )
         .bind(import_id)
+        .bind(canonical_manifest_ciphertext)
         .fetch_one(&mut *transaction)
         .await?;
-        let result = provider_authority_import(&saved)?;
+        let mut result = provider_authority_import(&saved)?;
+        result.contracts = authority_import_contracts(self, &row)?;
         transaction.commit().await?;
         self.working_sets.lock().await.remove(&collection_id);
         Ok(result)
@@ -986,7 +1000,8 @@ impl HostedProvider {
                     "Completed authority import does not match this snapshot.",
                 ));
             }
-            let result = provider_authority_import(&row)?;
+            let mut result = provider_authority_import(&row)?;
+            result.contracts = authority_import_contracts(self, &row)?;
             transaction.commit().await?;
             return Ok(result);
         }
@@ -1026,7 +1041,8 @@ impl HostedProvider {
         .bind(import_id)
         .fetch_one(&mut *transaction)
         .await?;
-        let result = provider_authority_import(&saved)?;
+        let mut result = provider_authority_import(&saved)?;
+        result.contracts = authority_import_contracts(self, &row)?;
         transaction.commit().await?;
         Ok(result)
     }
@@ -4894,8 +4910,32 @@ fn provider_authority_import(row: &PgRow) -> ApiResult<ProviderAuthorityImport> 
             .unwrap_or(None)
             .map(|value| number(value, "source head"))
             .transpose()?,
+        contracts: Vec::new(),
         expires_at: row.get("expires_at"),
     })
+}
+
+fn authority_import_contracts(
+    provider: &HostedProvider,
+    row: &PgRow,
+) -> ApiResult<Vec<CollectionContractDescriptor>> {
+    let collection_id: Uuid = row.get("collection_id");
+    let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
+    let data_key = provider
+        .crypto
+        .unwrap_data_key(&wrapped_data_key, &collection_key_aad(collection_id))?;
+    let manifest_ciphertext: Option<Vec<u8>> = row.get("manifest_ciphertext");
+    let manifest: AuthorityImportManifest = provider.crypto.decrypt_json(
+        &data_key,
+        &manifest_ciphertext.ok_or_else(|| {
+            ApiError::conflict(
+                "authority_import_not_ready",
+                "Authority import manifest is missing.",
+            )
+        })?,
+        &authority_import_manifest_aad(row.get("id")),
+    )?;
+    Ok(manifest.resources.contracts)
 }
 
 async fn recover_expired_authority_imports_in(
@@ -4936,11 +4976,11 @@ async fn recover_expired_authority_imports_in(
     Ok(expired.len())
 }
 
-fn validate_imported_snapshot(
+fn canonicalize_imported_snapshot(
     workspace: &WorkingSet,
     manifest: &AuthorityImportManifest,
-    records: &[AuthoritySnapshotRecord],
-) -> ApiResult<()> {
+    records: &[AuthorityImportRecord],
+) -> ApiResult<Vec<AuthoritySnapshotRecord>> {
     let canonical = workspace.snapshot()?;
     if canonical.spec_version != manifest.resources.spec_version
         || canonical.resource_revision != manifest.resources.revision
@@ -4969,6 +5009,7 @@ fn validate_imported_snapshot(
                                     "configuration"
                                 }
                                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
+                                mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
                             }
                 })
         })
@@ -4980,17 +5021,13 @@ fn validate_imported_snapshot(
     }
     let declared = records
         .iter()
-        .map(|item| (item.record.path.as_str(), item))
+        .map(|item| (item.path.as_str(), item))
         .collect::<BTreeMap<_, _>>();
     if declared.len() != canonical.records.len()
         || canonical.records.iter().any(|record| {
-            declared.get(record.path.as_str()).is_none_or(|item| {
-                item.record.revision != record.revision
-                    || item.record.frontmatter != record.frontmatter
-                    || item.record.body != record.body
-                    || item.record.types != record.types
-                    || item.document != record.document
-            })
+            declared
+                .get(record.path.as_str())
+                .is_none_or(|item| item.document != record.document)
         })
     {
         return Err(ApiError::bad_request(
@@ -4998,7 +5035,29 @@ fn validate_imported_snapshot(
             "Imported record documents are not canonical.",
         ));
     }
-    Ok(())
+    canonical
+        .records
+        .into_iter()
+        .map(|record| {
+            let uploaded = declared.get(record.path.as_str()).ok_or_else(|| {
+                ApiError::bad_request(
+                    "invalid_authority_snapshot",
+                    "Imported record is missing its stable identity.",
+                )
+            })?;
+            Ok(AuthoritySnapshotRecord {
+                record: SyncRecord {
+                    record_id: uploaded.record_id,
+                    path: record.path,
+                    revision: record.revision,
+                    frontmatter: record.frontmatter,
+                    body: record.body,
+                    types: record.types,
+                },
+                document: record.document,
+            })
+        })
+        .collect()
 }
 
 fn provider_authority_transfer(row: &PgRow) -> ApiResult<ProviderAuthorityTransfer> {
@@ -5152,6 +5211,78 @@ mod tests {
             authority_manifest_digest_from_hashes(entries),
             "c3a6c98f15ed143bf4b9642e32c9f4c775ca8ad4978a42a4dbd69f79f6fc5e0f"
         );
+    }
+
+    #[test]
+    fn portable_imports_are_canonicalized_by_rust_including_types_and_views() {
+        let record_id = Uuid::new_v4();
+        let configuration = "spec_version: 0.3.0\nsettings:\n  types_folder: _types\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n";
+        let type_document = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: tasks/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title:\n        type: string\n---\n\nTask\n";
+        let record_document = "---\ntitle: One\n---\n\nBody\n";
+        let workspace = WorkingSet::materialize(
+            [
+                ("mdbase.yaml".to_string(), configuration.to_string()),
+                ("_types/task.md".to_string(), type_document.to_string()),
+                ("views/tasks.base".to_string(), "views: []\n".to_string()),
+            ],
+            [StoredDocument {
+                record_id,
+                path: "tasks/one.md".to_string(),
+                document: record_document.to_string(),
+            }],
+        )
+        .unwrap();
+        let canonical = workspace.snapshot().unwrap();
+        let documents = canonical
+            .resources
+            .iter()
+            .map(|resource| SyncResourceDocument {
+                path: resource.path.clone(),
+                kind: match resource.kind {
+                    mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
+                        "configuration"
+                    }
+                    mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
+                    mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
+                }
+                .to_string(),
+                revision: resource.revision.clone(),
+                document: resource.document.clone(),
+            })
+            .collect();
+        let manifest = AuthorityImportManifest {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            collection_id: Uuid::new_v4(),
+            source_head: 0,
+            source_revision: canonical.revision,
+            manifest_digest: "unused".to_string(),
+            resources: SyncCollectionResources {
+                revision: canonical.resource_revision,
+                spec_version: canonical.spec_version,
+                types: Vec::new(),
+                contracts: Vec::new(),
+                documents,
+            },
+            record_count: 1,
+        };
+        let records = canonicalize_imported_snapshot(
+            &workspace,
+            &manifest,
+            &[AuthorityImportRecord {
+                record_id,
+                path: "tasks/one.md".to_string(),
+                document: record_document.to_string(),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(records[0].record.record_id, record_id);
+        assert_eq!(records[0].record.types, ["task"]);
+        assert!(manifest
+            .resources
+            .documents
+            .iter()
+            .any(|resource| resource.kind == "view" && resource.path == "views/tasks.base"));
     }
 
     #[test]

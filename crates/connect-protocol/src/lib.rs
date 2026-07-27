@@ -390,10 +390,17 @@ pub struct AuthorityImportManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityImportRecord {
+    pub record_id: Uuid,
+    pub path: String,
+    pub document: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorityImportRecordPage {
     pub protocol_version: u32,
     pub page: u64,
-    pub records: Vec<AuthoritySnapshotRecord>,
+    pub records: Vec<AuthorityImportRecord>,
 }
 
 pub fn authority_manifest_digest(

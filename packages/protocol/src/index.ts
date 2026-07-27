@@ -311,7 +311,7 @@ export interface SyncCollectionResources {
 
 export interface SyncResourceDocument {
   path: string;
-  kind: "configuration" | "type";
+  kind: "configuration" | "type" | "view";
   revision: string;
   document: string;
 }
@@ -341,10 +341,26 @@ export interface AuthorityImportManifest {
   record_count: number;
 }
 
-export interface AuthorityImportRecordPage<Frontmatter extends JsonObject = JsonObject> {
+export interface AuthorityImportRecord {
+  record_id: string;
+  path: string;
+  document: string;
+}
+
+export interface AuthorityImportSnapshot {
+  protocol_version: 1;
+  collection_id: string;
+  source_head: number;
+  source_revision: string;
+  manifest_digest: string;
+  resources: SyncCollectionResources;
+  records: AuthorityImportRecord[];
+}
+
+export interface AuthorityImportRecordPage {
   protocol_version: 1;
   page: number;
-  records: Array<AuthoritySnapshotRecord<Frontmatter>>;
+  records: AuthorityImportRecord[];
 }
 
 export interface SyncSession {

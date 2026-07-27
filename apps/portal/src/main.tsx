@@ -38,12 +38,14 @@ const allOperations = ["describe", "changes", "read", "query", "list_views", "ex
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
+  const authorityAdoptionId = location.pathname.match(/^\/adopt\/([0-9a-f-]+)$/i)?.[1];
   const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
+  if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
   return <Dashboard />;
@@ -839,6 +841,121 @@ function MirrorPairing({ pairingId }: { pairingId: string }) {
               <a className="button primary link-button" href="/">Open your collections</a>
             </div>
           </>}
+        </>}
+      </section>
+    </main>
+  );
+}
+
+function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
+  const [adoption, setAdoption] = useState<{
+    id: string;
+    collection_id: string;
+    display_name: string;
+    source_name: string;
+    retain_mirror: boolean;
+    mirror_name: string | null;
+    state: "requested" | "approved" | "prepared" | "activating" | "completed" | "cancelled" | "expired";
+    authority_epoch: number;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      const result = await api<{ adoption: NonNullable<typeof adoption> }>(
+        `/v1/authority-adoptions/${adoptionId}`
+      );
+      setAdoption(result.adoption);
+      setError("");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        location.href = `/login?return_to=${encodeURIComponent(location.href)}`;
+      } else {
+        setError(message(reason));
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [adoptionId]);
+
+  async function approve() {
+    setBusy(true);
+    try {
+      const result = await api<{ adoption: NonNullable<typeof adoption> }>(
+        `/v1/authority-adoptions/${adoptionId}/approve`,
+        { method: "POST", body: "{}" }
+      );
+      setAdoption(result.adoption);
+      setError("");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!adoption) return <Loading error={error} />;
+  const inactive = adoption.state === "cancelled" || adoption.state === "expired";
+  return (
+    <main className="center-page">
+      <PageBrand label="Collection adoption" />
+      <section className="decision-panel authority-decision">
+        {adoption.state === "completed" ? <>
+          <p className="eyebrow outcome-label">Adoption complete</p>
+          <h1>{adoption.display_name} is now hosted.</h1>
+          <p>
+            mdbase is the authoritative home for this collection.
+            {adoption.retain_mirror
+              ? ` ${adoption.mirror_name ?? adoption.source_name} will continue as a two-way local mirror.`
+              : " The original local files are no longer authoritative."}
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot connected" aria-hidden="true" />
+            <span>Hosted authority, epoch {adoption.authority_epoch}</span>
+          </div>
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : inactive ? <>
+          <p className="eyebrow">Adoption ended</p>
+          <h1>Your local collection was kept.</h1>
+          <p>No hosted authority was activated.</p>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <a className="button primary link-button" href="/">Return to your account</a>
+        </> : adoption.state !== "requested" ? <>
+          <p className="eyebrow outcome-label">Adoption approved</p>
+          <h1>Return to {adoption.source_name}.</h1>
+          <p>
+            The app is uploading and validating a final, fenced collection snapshot.
+            Hosted authority will activate only after that exact snapshot is complete.
+          </p>
+          <div className="transfer-status" role="status">
+            <span className="status-dot paused" aria-hidden="true" />
+            <span>{adoption.state === "activating" ? "Activating hosted authority" : "Waiting for the app"}</span>
+          </div>
+          {error && <div className="message error" role="alert">{error}</div>}
+        </> : <>
+          <p className="eyebrow">Move a local collection to mdbase</p>
+          <h1>{adoption.display_name}</h1>
+          <p>
+            Approving uploads the complete collection from {adoption.source_name}, validates it
+            as one snapshot, and then makes the hosted copy authoritative.
+          </p>
+          <div className="message">
+            {adoption.retain_mirror
+              ? `After activation, ${adoption.mirror_name ?? adoption.source_name} becomes a two-way mirror—not a second authority.`
+              : "After activation, the original local files are no longer authoritative."}
+          </div>
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="decision-actions">
+            <a className="button secondary link-button" href="/">Cancel</a>
+            <button className="button primary" disabled={busy} onClick={() => void approve()}>
+              {busy ? "Approving…" : "Adopt this collection"}
+            </button>
+          </div>
         </>}
       </section>
     </main>

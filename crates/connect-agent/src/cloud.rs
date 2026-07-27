@@ -131,7 +131,11 @@ impl CloudControlClient {
                 page_number += 1;
                 page_bytes = 0;
             }
-            page.push(record.clone());
+            page.push(mdbase_connect_protocol::AuthorityImportRecord {
+                record_id: record.record.record_id,
+                path: record.record.path.clone(),
+                document: record.document.clone(),
+            });
             page_bytes += record_bytes;
         }
         if !page.is_empty() {
@@ -152,7 +156,7 @@ impl CloudControlClient {
         &self,
         capability: &AuthorityImportCapability,
         page: u64,
-        records: Vec<mdbase_connect_protocol::AuthoritySnapshotRecord>,
+        records: Vec<mdbase_connect_protocol::AuthorityImportRecord>,
     ) -> Result<(), ConnectError> {
         self.external_json(
             Method::PUT,

@@ -38,6 +38,10 @@
     "./promotion": {
       "types": "./dist/promotion.d.ts",
       "import": "./dist/promotion.js"
+    },
+    "./adoption": {
+      "types": "./dist/adoption.d.ts",
+      "import": "./dist/adoption.js"
     }
   },
   "files": [

@@ -227,6 +227,34 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS authority_adoption_requests (
+      id uuid PRIMARY KEY,
+      secret_hash text NOT NULL UNIQUE,
+      collection_id uuid NOT NULL,
+      display_name text NOT NULL,
+      source_name text NOT NULL,
+      retain_mirror boolean NOT NULL DEFAULT true,
+      mirror_name text,
+      user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+      state text NOT NULL DEFAULT 'requested'
+        CHECK (state IN ('requested', 'approved', 'prepared', 'activating', 'completed', 'cancelled', 'expired')),
+      next_authority_epoch bigint NOT NULL DEFAULT 2,
+      final_head bigint,
+      manifest_digest text,
+      source_revision text,
+      contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
+      expires_at timestamptz NOT NULL,
+      approved_at timestamptz,
+      prepared_at timestamptz,
+      completed_at timestamptz,
+      cancelled_at timestamptz,
+      cleanup_completed boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    ALTER TABLE authority_adoption_requests
+      ADD COLUMN IF NOT EXISTS cleanup_completed boolean NOT NULL DEFAULT false;
+    CREATE INDEX IF NOT EXISTS authority_adoption_requests_collection_idx
+      ON authority_adoption_requests(collection_id, state);
     CREATE TABLE IF NOT EXISTS authority_transfers (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

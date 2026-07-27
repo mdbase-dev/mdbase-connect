@@ -62,6 +62,14 @@ const {
   WritableDirectoryMirror,
   authorityManifestDigest
 } = await import("../packages/sync/dist/node.js");
+const {
+  AuthorityAdoptionClient,
+  AuthorityAdoptionOutcomeUnknownError,
+  buildPortableAuthoritySnapshot
+} = await import("../packages/sync/dist/adoption.js");
+const {
+  MirrorEnrollmentClient
+} = await import("../packages/sync/dist/enrollment.js");
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
 const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/dist/index.js");
 const { buildApp } = await import("../services/server/dist/app.js");
@@ -592,6 +600,12 @@ try {
   assert.equal(desktopRevoked.status, 200);
 
   await localAuthorityImportE2E(
+    controlUrl,
+    cookie,
+    provider.url,
+    controlDatabase
+  );
+  await portableAuthorityAdoptionE2E(
     controlUrl,
     cookie,
     provider.url,
@@ -2536,12 +2550,22 @@ async function localAuthorityImportE2E(
   const importedRecords = await snapshotAll(importedTransport, importedSession);
   assert.equal(importedRecords.length, recordCount);
   const importedByPath = new Map(importedRecords.map((record) => [record.path, record]));
-  for (const source of [snapshot.records[0].record, snapshot.records.at(-1).record]) {
+  for (const source of [snapshot.records[0], snapshot.records.at(-1)]) {
     assert.equal(importedByPath.get(source.path)?.record_id, source.record_id);
-    assert.equal(importedByPath.get(source.path)?.revision, source.revision);
+    assert.equal(
+      importedByPath.get(source.path)?.revision,
+      `sha256:${sha256Hex(source.document)}`
+    );
+    assert.deepEqual(importedByPath.get(source.path)?.types, ["task"]);
   }
   const importedResources = importedSession.resources.documents;
-  assert.equal(importedResources[0].document, snapshot.manifest.resources.documents[0].document);
+  assert.equal(
+    importedResources.find((resource) => resource.path === "mdbase.yaml")?.document,
+    snapshot.manifest.resources.documents.find((resource) => resource.path === "mdbase.yaml")?.document
+  );
+  assert.ok(importedResources.some(
+    (resource) => resource.kind === "view" && resource.path === "views/imported.base"
+  ));
 
   const resumed = await rawRequest(
     controlUrl,
@@ -2618,60 +2642,221 @@ async function localAuthorityImportE2E(
   assert.equal(removedTarget.rows.length, 0);
 }
 
+async function portableAuthorityAdoptionE2E(
+  controlUrl,
+  cookie,
+  providerUrl,
+  database
+) {
+  phase("adopting a portable local collection with replacement staging and a lost response");
+  const collectionId = crypto.randomUUID();
+  let loseCompletionResponse = true;
+  const request = async ({ url, method, headers, body, signal }) => {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal
+    });
+    const parsed = await response.json().catch(() => ({}));
+    if (
+      loseCompletionResponse
+      && method === "POST"
+      && new URL(url).pathname.endsWith("/complete")
+    ) {
+      loseCompletionResponse = false;
+      throw new Error("simulated response loss after provider activation");
+    }
+    return {
+      status: response.status,
+      body: parsed,
+      retryAfterMs: Number(response.headers.get("retry-after") ?? 0) * 1000 || undefined
+    };
+  };
+  const client = new AuthorityAdoptionClient({ request });
+  const session = await client.begin({
+    controlUrl,
+    collectionId,
+    displayName: "Portable phone notes",
+    sourceName: "Phone",
+    retainMirror: true,
+    mirrorName: "Original phone vault"
+  });
+  assert.equal(session.verificationUri, `${controlUrl}/adopt/${session.adoptionId}`);
+  const adoption = await controlRequest(
+    controlUrl,
+    `/v1/authority-adoptions/${session.adoptionId}`,
+    cookie
+  );
+  assert.equal(adoption.adoption.state, "requested");
+  await controlRequest(
+    controlUrl,
+    `/v1/authority-adoptions/${session.adoptionId}/approve`,
+    cookie,
+    { method: "POST", body: {} }
+  );
+  let prepared = await client.waitForApproval(session, { pollIntervalMs: 250 });
+  const resources = portableAdoptionResources(collectionId);
+  const warm = buildPortableAuthoritySnapshot({
+    collectionId,
+    specVersion: "0.3.0",
+    resources,
+    records: [{
+      path: "tasks/one.md",
+      document: "---\ntitle: One\n---\n\nWarm snapshot\n"
+    }]
+  });
+  await client.uploadSnapshot(session, prepared, warm);
+
+  const fenced = buildPortableAuthoritySnapshot({
+    collectionId,
+    specVersion: "0.3.0",
+    resources,
+    records: [
+      {
+        path: "tasks/one.md",
+        document: "---\ntitle: One\n---\n\nFinal snapshot\n"
+      },
+      {
+        path: "tasks/late.md",
+        document: "---\ntitle: Late\n---\n\nArrived before the fence\n"
+      }
+    ]
+  });
+  prepared = await client.exchange(session);
+  assert.equal(prepared.status, "ready");
+  await client.uploadSnapshot(session, prepared, fenced);
+  await assert.rejects(
+    () => client.complete(session, fenced),
+    (error) => error instanceof AuthorityAdoptionOutcomeUnknownError
+      && error.sourceMustRemainFenced
+  );
+  const recovered = await client.exchange(session);
+  assert.equal(recovered.status, "completed");
+  assert.equal(recovered.adoption.manifest_digest, fenced.manifest_digest);
+
+  const contracts = await database.query(
+    "SELECT contracts, authority_state, authority_epoch FROM hosted_collections WHERE id = $1",
+    [collectionId]
+  );
+  assert.equal(contracts.rows[0].authority_state, "active");
+  assert.equal(Number(contracts.rows[0].authority_epoch), 2);
+  assert.deepEqual(
+    contracts.rows[0].contracts.map(({ id, version, type_name }) => ({ id, version, type_name })),
+    [{ id: "example.work-item", version: 1, type_name: "task" }]
+  );
+
+  const mirrorSession = client.mirrorEnrollmentSession(session, recovered);
+  assert.ok(mirrorSession);
+  const enrollment = await new MirrorEnrollmentClient({ request }).waitForApproval(
+    mirrorSession,
+    { pollIntervalMs: 250 }
+  );
+  assert.equal(enrollment.collectionId, collectionId);
+  assert.equal(enrollment.mode, "read_write");
+  const transport = new HttpSyncTransport(enrollment.syncUrl, enrollment.accessToken);
+  const opened = await transport.openSession();
+  const records = await snapshotAll(transport, opened);
+  assert.deepEqual(records.map(({ path }) => path), ["tasks/late.md", "tasks/one.md"]);
+  assert.ok(records.every((record) => record.types.includes("task")));
+  assert.ok(opened.resources.documents.some(
+    (resource) => resource.kind === "view" && resource.path === "views/tasks.base"
+  ));
+  assert.equal(new URL(enrollment.syncUrl).origin, providerUrl);
+}
+
+function portableAdoptionResources(collectionId) {
+  return [
+    {
+      path: "mdbase.yaml",
+      kind: "configuration",
+      document: `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${collectionId}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`
+    },
+    {
+      path: "_types/task.md",
+      kind: "type",
+      document: WORK_ITEM_PROVISION.document.replace(
+        "schema:\n",
+        "match:\n  path_glob: tasks/**/*.md\nschema:\n"
+      )
+    },
+    {
+      path: "views/tasks.base",
+      kind: "view",
+      document: "views: []\n"
+    }
+  ];
+}
+
 function localAuthoritySnapshot(collectionId, recordCount) {
   const configuration = [
     "spec_version: 0.3.0",
     "name: Imported local authority",
     "x-mdbase-connect:",
     `  collection_id: ${collectionId}`,
+    "x-obsidian:",
+    "  bases:",
+    "    include:",
+    "      - views/**/*.base",
     ""
   ].join("\n");
-  const resource = {
-    path: "mdbase.yaml",
-    kind: "configuration",
-    revision: `sha256:${sha256Hex(configuration)}`,
-    document: configuration
-  };
+  const typeDocument = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: notes/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: { type: string }\n---\n";
+  const viewDocument = "views: []\n";
+  const resources = [
+    {
+      path: "mdbase.yaml",
+      kind: "configuration",
+      revision: `sha256:${sha256Hex(configuration)}`,
+      document: configuration
+    },
+    {
+      path: "_types/task.md",
+      kind: "type",
+      revision: `sha256:${sha256Hex(typeDocument)}`,
+      document: typeDocument
+    },
+    {
+      path: "views/imported.base",
+      kind: "view",
+      revision: `sha256:${sha256Hex(viewDocument)}`,
+      document: viewDocument
+    }
+  ];
   const records = Array.from({ length: recordCount }, (_, index) => {
     const sequence = String(index).padStart(5, "0");
     const title = `Imported ${sequence}`;
     const document = `---\ntitle: ${title}\n---\nBody ${sequence}.\n`;
     return {
-      record: {
-        record_id: crypto.randomUUID(),
-        path: `notes/${sequence}.md`,
-        revision: `sha256:${sha256Hex(document)}`,
-        frontmatter: { title },
-        body: `Body ${sequence}.\n`,
-        types: []
-      },
+      record_id: crypto.randomUUID(),
+      path: `notes/${sequence}.md`,
       document
     };
   });
-  const resourceRevision = lengthPrefixedDigest([
-    resource.path,
-    resource.revision
-  ]);
+  const resourceRevision = lengthPrefixedDigest(
+    resources.flatMap((resource) => [resource.path, resource.revision])
+  );
   const sourceRevision = lengthPrefixedDigest([
-    "resource",
-    resource.path,
-    resource.revision,
-    ...records.flatMap(({ record }) => [
+    ...resources.flatMap((resource) => [
+      "resource",
+      resource.path,
+      resource.revision
+    ]),
+    ...records.flatMap((record) => [
       "record",
       record.path,
-      record.revision
+      `sha256:${sha256Hex(record.document)}`
     ])
   ]);
   const manifestDigest = authorityManifestDigest([
-    {
+    ...resources.map((resource) => ({
       kind: "resource",
       path: resource.path,
       document_hash: sha256Hex(resource.document)
-    },
-    ...records.map(({ record }) => ({
+    })),
+    ...records.map((record) => ({
       kind: "record",
       path: record.path,
-      document_hash: record.revision
+      document_hash: `sha256:${sha256Hex(record.document)}`
     }))
   ]);
   return {
@@ -2686,7 +2871,7 @@ function localAuthoritySnapshot(collectionId, recordCount) {
         spec_version: "0.3.0",
         types: [],
         contracts: [],
-        documents: [resource]
+        documents: resources
       },
       record_count: recordCount
     },

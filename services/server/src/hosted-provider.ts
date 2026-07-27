@@ -52,6 +52,7 @@ export interface AuthorityImport {
   manifest_digest: string | null;
   source_revision: string | null;
   source_head: number | null;
+  contracts: CollectionContractDescriptor[];
   expires_at: string;
 }
 

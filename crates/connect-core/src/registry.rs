@@ -2293,6 +2293,7 @@ fn sync_resources(
             matches!(
                 resource.kind,
                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration
+                    | mdbase::runtime::CollectionSnapshotResourceKind::View
             ) || type_paths.contains(resource.path.as_str())
         })
         .map(|resource| SyncResourceDocument {
@@ -2302,6 +2303,7 @@ fn sync_resources(
                     "configuration".to_string()
                 }
                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type".to_string(),
+                mdbase::runtime::CollectionSnapshotResourceKind::View => "view".to_string(),
             },
             revision: resource.revision.clone(),
             document: resource.document.clone(),
