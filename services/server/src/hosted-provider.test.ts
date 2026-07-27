@@ -14,8 +14,10 @@ describe("hosted provider control client", () => {
     );
     const provider = new HostedProviderClient({
       url: "https://provider.example/path-is-discarded",
+      publicUrl: "https://sync.example/another-discarded-path",
       internalToken: "internal-secret"
     });
+    expect(provider.url).toBe("https://sync.example");
     await provider.registerReplica("collection", {
       id: "replica",
       name: "Laptop",

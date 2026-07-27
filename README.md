@@ -150,14 +150,22 @@ independent collection.
 
 ```bash
 cp .env.example .env
-docker compose up --build
+pnpm dev:environment:up
 ```
 
-Open the desktop app, enter `http://localhost:8787` when prompted, and choose
+Open the desktop app, enter `http://127.0.0.1:8787` when prompted, and choose
 **Pair this computer**. Sign in and approve the pairing in the browser; no
 connector token is shown or copied. See
 [`docs/self-hosting.md`](docs/self-hosting.md) for the separate production
 self-hosting path.
+
+Use `pnpm dev:desktop:fresh` to launch Electron with a clean,
+development-only profile that cannot read the normal desktop configuration.
+`pnpm e2e:container` verifies the packaged server as a black box, while
+`pnpm e2e:desktop:container` runs the native Electron controller and real Rust
+agent against a disposable instance of that image. See
+[`docs/testing-environment.md`](docs/testing-environment.md) for isolation,
+interactive usage, and the reusable consumer-test lifecycle.
 
 The software behind the managed mdbase connect service is this repository.
 Production service configuration, secrets, capacity choices, and operational

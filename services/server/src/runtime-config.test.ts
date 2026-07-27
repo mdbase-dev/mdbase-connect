@@ -13,6 +13,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     registration: "closed" as const,
     hostedCollections: false,
     hostedProvider: null,
+    allowInsecureHostedProvider: false,
     trustProxy: false,
     relayBroker: null,
     vapid: null,
@@ -156,6 +157,28 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
     });
     expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
+
+    const dockerDevelopment = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://host.docker.internal:8790",
+      MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL: "http://127.0.0.1:8790",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
+      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
+    });
+    expect(dockerDevelopment.hostedProvider).toMatchObject({
+      url: "http://host.docker.internal:8790",
+      publicUrl: "http://127.0.0.1:8790"
+    });
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
+      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://provider.example",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
+      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
+    })).toThrow(/development authentication/);
   });
 
   it("validates an optional private NATS relay transport", () => {

@@ -1,3 +1,9 @@
+x-connect-image: &connect-image
+  image: ${MDBASE_CONNECT_SERVER_IMAGE:-mdbase-connect-server:dev}
+  build:
+    context: .
+    dockerfile: deploy/docker/Dockerfile.server
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -14,6 +20,7 @@ services:
       retries: 12
 
   relay-broker:
+    image: ${MDBASE_CONNECT_NATS_IMAGE:-mdbase-connect-nats:dev}
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile.nats
@@ -21,7 +28,7 @@ services:
       PORT: 10000
       NATS_AUTH_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
     ports:
-      - "4222:4222"
+      - "127.0.0.1:${MDBASE_CONNECT_NATS_BIND_PORT:-4222}:4222"
     read_only: true
     cap_drop:
       - ALL
@@ -34,13 +41,21 @@ services:
       retries: 12
     restart: unless-stopped
 
-  connect:
-    build:
-      context: .
-      dockerfile: deploy/docker/Dockerfile.server
+  migrate:
+    image: ${MDBASE_CONNECT_SERVER_IMAGE:-mdbase-connect-server:dev}
     depends_on:
       postgres:
         condition: service_healthy
+    command: ["node", "services/server/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-mdbase}:${POSTGRES_PASSWORD:-replace-this-password}@postgres:5432/${POSTGRES_DB:-mdbase_connect}
+    restart: "no"
+
+  connect:
+    <<: *connect-image
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       relay-broker:
         condition: service_healthy
     environment:
@@ -57,12 +72,18 @@ services:
       MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: ${MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS:-}
       MDBASE_CONNECT_REGISTRATION: ${MDBASE_CONNECT_REGISTRATION:-closed}
       MDBASE_CONNECT_HOSTED_COLLECTIONS: ${MDBASE_CONNECT_HOSTED_COLLECTIONS:-0}
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: ${MDBASE_CONNECT_HOSTED_PROVIDER_URL:-}
+      MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL: ${MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL:-}
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: ${MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN:-}
+      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: ${MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER:-0}
       MDBASE_CONNECT_TRUST_PROXY: ${MDBASE_CONNECT_TRUST_PROXY:-0}
       MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: ${MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS:-0}
       MDBASE_CONNECT_RELAY_NATS_URL: nats://relay-broker:4222
       MDBASE_CONNECT_RELAY_NATS_TOKEN: ${MDBASE_CONNECT_RELAY_NATS_TOKEN:-replace-this-relay-token-with-at-least-32-characters}
     ports:
-      - "8787:8787"
+      - "127.0.0.1:${MDBASE_CONNECT_BIND_PORT:-8787}:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     init: true
     read_only: true
     tmpfs:
