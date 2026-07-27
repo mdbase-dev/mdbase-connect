@@ -232,11 +232,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { allNotesRef.current = allNotes; }, [allNotes]);
-  useEffect(() => gateway.onConnectionChange((connection) => {
-    if (!connection) {
-      setPhase((current) => current === "starting" ? current : "disconnected");
-    }
-  }), [gateway]);
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", updateViewportWidth);
@@ -603,10 +598,16 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => {
     let alive = true;
+    let stopConnectionChanges: (() => void) | undefined;
     void (async () => {
       try {
         await gateway.completeAuthorization();
         if (!alive) return;
+        stopConnectionChanges = gateway.onConnectionChange((connection) => {
+          if (!connection) {
+            setPhase((current) => current === "starting" ? current : "disconnected");
+          }
+        });
         const connection = gateway.connection();
         if (connection && missingCoreOperations(connection).length === 0) await start();
         else {
@@ -618,7 +619,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setPhase("disconnected");
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      stopConnectionChanges?.();
+    };
   }, [gateway, start]);
 
   useEffect(() => {

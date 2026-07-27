@@ -3,6 +3,9 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const collectionId = "10000000-0000-4000-8000-000000000001";
 const replicaId = "20000000-0000-4000-8000-000000000002";
 const grantId = "30000000-0000-4000-8000-000000000003";
+const secondCollectionId = "10000000-0000-4000-8000-000000000011";
+const secondReplicaId = "20000000-0000-4000-8000-000000000012";
+const secondGrantId = "30000000-0000-4000-8000-000000000013";
 const providerOrigin = "https://sync.mdbase.dev";
 
 test("chooses a hosted collection and performs CRUD through its provider", async ({ page }) => {
@@ -55,6 +58,28 @@ test("chooses a hosted collection and performs CRUD through its provider", async
     "update"
   ]));
   expect(hosted.controlPlaneOperations).toBe(0);
+});
+
+test("returns to the newly chosen collection when switching collections", async ({ page }) => {
+  const hosted = new HostedCollectionHarness(page);
+  await hosted.install();
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Choose a collection" }).click();
+  await page.getByRole("button", { name: "Allow access" }).click();
+  await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
+
+  await page.getByRole("button", {
+    name: "Switch collection, current collection Hosted writing"
+  }).click();
+  await page.getByRole("button", { name: "Choose another collection" }).click();
+
+  const collection = page.getByRole("combobox", { name: "Collection" });
+  await collection.selectOption(secondCollectionId);
+  await page.getByRole("button", { name: "Allow access" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`collection=${secondCollectionId}`));
+  await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();
 });
 
 interface HostedRecord {
@@ -120,21 +145,23 @@ class HostedCollectionHarness {
       });
     }
     if (url.pathname === "/oauth/token") {
+      const code = new URLSearchParams(request.postData() ?? "").get("code");
+      const selectedSecondCollection = code === "hosted-code-second";
       return json(route, {
         access_token: "control-plane-access",
         refresh_token: "control-plane-refresh",
         token_type: "Bearer",
         expires_in: 3_600,
         refresh_expires_in: 2_592_000,
-        collection_id: collectionId,
+        collection_id: selectedSecondCollection ? secondCollectionId : collectionId,
         operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
         scope: { contracts: [], access: "full_collection" },
-        grant_id: grantId,
+        grant_id: selectedSecondCollection ? secondGrantId : grantId,
         encryption: null,
         hosted: {
           provider_url: providerOrigin,
-          replica_id: replicaId,
-          access_token: "hosted-provider-access"
+          replica_id: selectedSecondCollection ? secondReplicaId : replicaId,
+          access_token: selectedSecondCollection ? "hosted-provider-access-second" : "hosted-provider-access"
         }
       });
     }
@@ -144,15 +171,19 @@ class HostedCollectionHarness {
 
   private async provider(route: Route) {
     const request = route.request();
-    expect(request.headers().authorization).toBe("Bearer hosted-provider-access");
+    const selectedSecondCollection = request.headers().authorization === "Bearer hosted-provider-access-second";
+    expect([
+      "Bearer hosted-provider-access",
+      "Bearer hosted-provider-access-second"
+    ]).toContain(request.headers().authorization);
     const operation = new URL(request.url()).pathname.split("/").at(-1)!;
     const input = request.postDataJSON() as Record<string, unknown>;
     this.operations.push(operation);
 
     if (operation === "describe") return providerResult(route, {
       protocol_version: 1,
-      collection_id: collectionId,
-      display_name: "Hosted writing",
+      collection_id: selectedSecondCollection ? secondCollectionId : collectionId,
+      display_name: selectedSecondCollection ? "Research" : "Hosted writing",
       spec_version: "0.3.0",
       operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
       change_cursor: this.sequence,
@@ -273,6 +304,7 @@ function authorizationPage(url: URL): string {
         <label>Collection
           <select aria-label="Collection">
             <option value="${collectionId}">Hosted writing · Hosted by mdbase</option>
+            <option value="${secondCollectionId}">Research · Hosted by mdbase</option>
           </select>
         </label>
         <button id="allow">Allow access</button>
@@ -280,7 +312,8 @@ function authorizationPage(url: URL): string {
       <script>
         document.getElementById("allow").addEventListener("click", () => {
           const callback = new URL(${redirectUri});
-          callback.searchParams.set("code", "hosted-code");
+          const collection = document.querySelector("select").value;
+          callback.searchParams.set("code", collection === "${secondCollectionId}" ? "hosted-code-second" : "hosted-code");
           callback.searchParams.set("state", ${state});
           location.href = callback.href;
         });
