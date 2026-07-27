@@ -38,7 +38,7 @@ serde_yaml = "0.9"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "uuid", "json", "chrono", "migrate", "macros"] }
 subtle = "2.6.1"
 jsonschema = { version = "0.18", features = ["draft202012"] }
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "vendored", "crypto-rust"] }
 p256 = { version = "0.13", features = ["ecdh"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
