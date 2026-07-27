@@ -92,6 +92,7 @@ test("restores each note's caret and undo history", async ({ page }) => {
   await page.getByRole("option").filter({ hasText: "The shape of useful tools" }).first().click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
 
+  await expect(body).toBeFocused();
   await page.keyboard.type("X");
   await expect(body).toHaveText("alpha Xbeta");
   await page.keyboard.press("Control+z");
@@ -448,6 +449,13 @@ test("uses the native caret in Vim insert mode", async ({ page }) => {
   const caretColor = await body.evaluate((element) => getComputedStyle(element).caretColor);
   expect(caretColor).not.toBe("transparent");
   expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
+
+  await page.keyboard.press("Control+f");
+  await expect(page.locator(".body-editor .cm-search")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".body-editor .cm-search")).not.toBeVisible();
+  await expect(scroller).toHaveClass(/cm-vimMode/);
+  await expect(blockCursor).toBeVisible();
 });
 
 test("edits structured frontmatter without exposing an undifferentiated textarea", async ({ page }) => {

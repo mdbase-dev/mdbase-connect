@@ -17,8 +17,8 @@ import {
   syntaxTree
 } from "@codemirror/language";
 import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
-import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension, type Range } from "@codemirror/state";
+import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { Compartment, EditorSelection, EditorState, Prec, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -189,9 +189,20 @@ export function CodeEditor({
       return;
     }
     let cancelled = false;
-    void import("@replit/codemirror-vim").then(({ vim }) => {
+    void import("@replit/codemirror-vim").then(({ Vim, getCM, vim }) => {
       if (!cancelled && viewRef.current === view) {
-        view.dispatch({ effects: vimMode.current.reconfigure(vim()) });
+        const exitVimFromSearch = Prec.highest(keymap.of([{
+          key: "Escape",
+          scope: "search-panel",
+          run: (activeView) => {
+            if (!closeSearchPanel(activeView)) return false;
+            const cm = getCM(activeView);
+            if (cm) Vim.handleKey(cm, "<Esc>", "user");
+            activeView.focus();
+            return true;
+          }
+        }]));
+        view.dispatch({ effects: vimMode.current.reconfigure([vim(), exitVimFromSearch]) });
       }
     });
     return () => { cancelled = true; };
