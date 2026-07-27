@@ -1,5 +1,5 @@
 import { Braces, FileCode2, Plus, Search, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteDocument } from "./model";
@@ -15,7 +15,7 @@ interface PropertiesPanelProps {
   recordPaths?: string[];
   error?: string;
   onClose: () => void;
-  onSave: (value: JsonObject) => Promise<boolean> | boolean | void;
+  onSave: (path: string, value: JsonObject) => Promise<void>;
   onSaveDocument?: (document: string, previousDocument: string) => Promise<boolean> | boolean | void;
 }
 
@@ -35,8 +35,10 @@ export function PropertiesPanel({
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
   const [source, setSource] = useState(initialDocument);
+  const sourceBaseline = useRef(initialDocument);
   const [rawError, setRawError] = useState<string>();
   const [editorValidity, setEditorValidity] = useState<Record<string, boolean>>({});
+  const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
   const [customizing, setCustomizing] = useState(false);
@@ -60,7 +62,52 @@ export function PropertiesPanel({
   const effective = Object.entries(note.effective_frontmatter).filter(([name, value]) =>
     !(name in draft) || JSON.stringify(draft[name]) !== JSON.stringify(value)
   );
-  const canSaveFields = changed && !rawError && Object.keys(fieldErrors).length === 0 && !saving;
+  const initialFingerprint = JSON.stringify(initial);
+  const draftFingerprint = JSON.stringify(draft);
+  const fieldErrorFingerprint = JSON.stringify(fieldErrors);
+  const fieldsInvalid = Boolean(rawError) || Object.keys(fieldErrors).length > 0;
+  const latestDraft = useRef(draft);
+  const latestFieldsInvalid = useRef(fieldsInvalid);
+  const saveCallback = useRef(onSave);
+  const lastSubmitted = useRef(initialFingerprint);
+  const saveGeneration = useRef(0);
+
+  useEffect(() => { latestDraft.current = draft; }, [draft]);
+  useEffect(() => { latestFieldsInvalid.current = fieldsInvalid; }, [fieldsInvalid]);
+  useEffect(() => { saveCallback.current = onSave; }, [onSave]);
+  useEffect(() => {
+    const previous = sourceBaseline.current;
+    sourceBaseline.current = initialDocument;
+    setSource((current) => current === previous ? initialDocument : current);
+  }, [initialDocument]);
+  useEffect(() => {
+    if (!changed || fieldsInvalid) {
+      if (!changed) {
+        lastSubmitted.current = draftFingerprint;
+        setAutoSaveState("saved");
+      }
+      return;
+    }
+    setAutoSaveState("waiting");
+    const generation = ++saveGeneration.current;
+    const timer = window.setTimeout(() => {
+      lastSubmitted.current = draftFingerprint;
+      setAutoSaveState("saving");
+      void Promise.resolve(saveCallback.current(note.path, draft)).then(() => {
+        if (generation === saveGeneration.current) setAutoSaveState("saved");
+      }).catch(() => {
+        if (generation === saveGeneration.current) setAutoSaveState("waiting");
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [changed, draft, draftFingerprint, fieldErrorFingerprint, fieldsInvalid, note.path]);
+  useEffect(() => () => {
+    const latest = latestDraft.current;
+    const fingerprint = JSON.stringify(latest);
+    if (!latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {
+      void Promise.resolve(saveCallback.current(note.path, latest)).catch(() => undefined);
+    }
+  }, [note.path]);
 
   function change(next: JsonObject) {
     setDraft(next);
@@ -107,14 +154,6 @@ export function PropertiesPanel({
     }
   }
 
-  async function saveFields() {
-    if (!canSaveFields) return;
-    setSaving(true);
-    const succeeded = await onSave(draft);
-    setSaving(false);
-    if (succeeded !== false) onClose();
-  }
-
   async function saveSource() {
     if (!sourceChanged || saving) return;
     setSaving(true);
@@ -135,13 +174,21 @@ export function PropertiesPanel({
       <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
     </dl>
 
-    <div className="panel-tabs" role="tablist" aria-label="Record view">
-      <button role="tab" aria-selected={mode === "fields"} onClick={() => setMode("fields")}>Fields</button>
-      <button role="tab" aria-selected={mode === "json"} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
-      <button role="tab" aria-selected={mode === "source"} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
+    <div className="panel-tabs" role="tablist" aria-label="Record view" onKeyDown={(event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const modes = ["fields", "json", "source"] as const;
+      const offset = event.key === "ArrowRight" ? 1 : -1;
+      const next = modes[(modes.indexOf(mode) + offset + modes.length) % modes.length];
+      setMode(next);
+      document.getElementById(`properties-${next}-tab`)?.focus();
+    }}>
+      <button id="properties-fields-tab" role="tab" aria-controls="properties-fields-panel" aria-selected={mode === "fields"} tabIndex={mode === "fields" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
+      <button id="properties-json-tab" role="tab" aria-controls="properties-json-panel" aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Braces aria-hidden="true" /> JSON</button>
+      <button id="properties-source-tab" role="tab" aria-controls="properties-source-panel" aria-selected={mode === "source"} tabIndex={mode === "source" ? 0 : -1} onClick={() => setMode("source")}><FileCode2 aria-hidden="true" /> Source</button>
     </div>
 
-    {mode === "fields" ? <div className="property-fields">
+    {mode === "fields" ? <div id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
       {missingRequired.length > 0 && <section className="missing-properties" aria-label="Missing required properties">
         <h3>Required</h3>
         <p>These properties must be persisted before this record is valid.</p>
@@ -150,7 +197,6 @@ export function PropertiesPanel({
           <Plus aria-hidden="true" />
         </button>)}
       </section>}
-
       {Object.entries(draft).map(([name, value]) => <PropertyRow
         key={name}
         name={name}
@@ -192,7 +238,6 @@ export function PropertiesPanel({
         </div>}
         <button className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> Cancel</button>
       </div> : <button className="add-property" onClick={() => setAdding(true)}><Plus aria-hidden="true" /> Add property</button>}
-
       {effective.length > 0 && <section className="effective-properties" aria-label="Computed and defaulted properties">
         <div><h3>Effective values</h3><p>Calculated at read time and not stored in this file.</p></div>
         {effective.map(([name, value]) => <div className="effective-property" key={name}>
@@ -200,21 +245,29 @@ export function PropertiesPanel({
           <output>{formatValue(value)}</output>
         </div>)}
       </section>}
-    </div> : mode === "json" ? <div className="raw-properties">
+    </div> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
       <p className="raw-properties-note">Persisted frontmatter only. For the complete Markdown record, use Source.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
-    </div> : <div className="record-source">
+    </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>
       <CodeEditor value={source} onChange={setSource} label="Complete record source" language="markdown" lineWrapping={false} />
     </div>}
 
-    {(error || changed || sourceChanged || saving) && <div className="property-footer">
+    <div className="property-footer">
       {error && <p className="property-error" role="alert">{error}</p>}
       {mode === "source"
         ? <button className="property-save" disabled={!sourceChanged || saving} onClick={() => void saveSource()}>{saving ? "Saving…" : "Save source"}</button>
-        : <button className="property-save" disabled={!canSaveFields} onClick={() => void saveFields()}>{saving ? "Saving…" : "Save properties"}</button>}
-    </div>}
+        : <p className="property-save-state" aria-live="polite">{rawError
+          ? "Fix the JSON to continue saving"
+          : Object.keys(fieldErrors).length > 0
+            ? "Fix invalid fields to continue saving"
+            : autoSaveState === "saving"
+              ? "Saving changes…"
+              : autoSaveState === "waiting"
+                ? "Changes save automatically"
+                : "All changes saved"}</p>}
+    </div>
   </aside>;
 }
 

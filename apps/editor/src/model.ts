@@ -90,6 +90,7 @@ export interface CollectionGateway {
   selectConnection(collectionId: string): void;
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void;
   authorize(collectionId?: string): Promise<void>;
+  authorizeNewCollection(): Promise<void>;
   completeAuthorization(): Promise<void>;
   disconnect(): void;
   describe(): Promise<CollectionDescription>;

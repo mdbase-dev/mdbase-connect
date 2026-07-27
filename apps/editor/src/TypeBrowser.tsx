@@ -28,22 +28,6 @@ import {
   type VisualTypeDefinition
 } from "./type-schema";
 
-export const NEW_TYPE_SOURCE = `---
-kind: mdbase.type
-name: new-type
-version: 1
-description: Describe when this type should be used.
-schema:
-  dialect: json-schema-2020-12
-  value:
-    type: object
-    additionalProperties: true
-    properties:
-      title:
-        type: string
----
-`;
-
 export function TypeList({ types, selectedName, leadingActions, trailingActions, onSelect, onCreate, onCollections }: {
   types: CollectionTypeDescriptor[];
   selectedName?: string;
@@ -139,18 +123,21 @@ export function TypeInspector({ type, document, source, notes, creating, loading
       </dl>}
     </section>
     <section className="type-source">
-      <div className="type-source-context">
-        <div className="type-source-intro"><h2>Definition</h2><p>Design the record shape or work with its complete YAML source.</p></div>
-        <div className="type-view-switch" role="group" aria-label="Type editor view">
-          <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Design</button>
-          <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
+      {reviewing ? <div className="type-source-context reviewing">
+        <div className="type-source-intro"><h2>Review changes</h2><p>Confirm the collection-wide effect before saving.</p></div>
+      </div> : <div className="type-source-context">
+          <div className="type-source-intro"><h2>Definition</h2><p>Design the note shape or work with its complete YAML source.</p></div>
+          <div className="type-view-switch" role="group" aria-label="Type editor view">
+            <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Design</button>
+            <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
+          </div>
+          <div className="type-editor-actions">
+            <span className="type-change-scope">Collection-wide change</span>
+            <button onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
+            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value}>{saving ? "Saving…" : "Review changes"}</button>
+          </div>
         </div>
-        <div className="type-editor-actions">
-          <span className="type-change-scope">Collection-wide change</span>
-          <button onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-          <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value}>{saving ? "Saving…" : "Review changes"}</button>
-        </div>
-      </div>
+      }
       {(error || visualError || parsed.error) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
       {loading ? <div className="type-source-loading" aria-label="Loading type definition"><span /><span /><span /></div>
         : reviewing && impact ? <TypeChangeReview

@@ -11,12 +11,11 @@ import {
   Info,
   Keyboard,
   Link2,
-  LogOut,
-  MoreHorizontal,
   NotebookPen,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Search,
   Settings2,
   Tag,
@@ -30,13 +29,17 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  Suspense,
+  type CSSProperties,
+  type ReactNode
 } from "react";
-import { CodeEditor } from "./CodeEditor";
+import { ActionMenu } from "./ActionMenu";
 import { ConflictResolver } from "./ConflictResolver";
+import { ConfirmDialog, Dialog } from "./Dialog";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
 import { backlinksFor, linkSuggestions } from "./links";
 import {
@@ -72,11 +75,15 @@ import { NewNoteComposer } from "./NewNoteComposer";
 import { buildNoteSearchIndex, searchNotes } from "./note-search";
 import { KeyedOperationQueue } from "./operation-queue";
 import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
-import { PropertiesPanel } from "./PropertiesPanel";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
-import { NEW_TYPE_SOURCE, TypeInspector, TypeList } from "./TypeBrowser";
+import { NEW_TYPE_SOURCE } from "./type-constants";
+
+const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
+const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
+const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
+const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
 
 type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 type SaveState = "saved" | "waiting" | "saving" | "conflict";
@@ -85,6 +92,21 @@ type Surface = "notes" | "types" | "settings";
 type NoteActivity = "saving" | "properties" | "renaming" | "moving" | "deleting" | "validating";
 type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 type ConnectionState = "connected" | "reconnecting";
+
+interface Confirmation {
+  title: string;
+  body: ReactNode;
+  confirmLabel: string;
+  cancelLabel?: string;
+  tone?: "default" | "danger";
+  onConfirm: () => void | Promise<void>;
+}
+
+interface MobileHistoryState {
+  mdbaseEditor: true;
+  pane: MobilePane;
+  surface: Surface;
+}
 
 interface Draft {
   title: string;
@@ -157,6 +179,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [noteLoading, setNoteLoading] = useState(false);
   const [pendingNotePath, setPendingNotePath] = useState<string>();
   const [creationMode, setCreationMode] = useState<"note" | "folder">();
+  const [creationDirty, setCreationDirty] = useState(false);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
@@ -182,6 +205,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [collectionSwitcherOpen, setCollectionSwitcherOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
@@ -200,6 +225,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const renameRequest = useRef<string | undefined>(undefined);
   const deleteRequest = useRef<string | undefined>(undefined);
   const contentHydration = useRef<Promise<void> | undefined>(undefined);
+  const mobileHistoryInitialized = useRef(false);
+  const ignoreNextMobileHistoryPush = useRef(false);
+  const mobileLayout = viewportWidth <= 760;
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
@@ -214,6 +242,45 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     window.addEventListener("resize", updateViewportWidth);
     return () => window.removeEventListener("resize", updateViewportWidth);
   }, []);
+  useEffect(() => {
+    if (phase !== "ready" || !mobileLayout) {
+      mobileHistoryInitialized.current = false;
+      return;
+    }
+    const onPopState = (event: PopStateEvent) => {
+      if (!isMobileHistoryState(event.state)) return;
+      ignoreNextMobileHistoryPush.current = true;
+      setSurface(event.state.surface);
+      setMobilePane(event.state.pane);
+      setPropertiesOpen(false);
+      setBacklinksOpen(false);
+    };
+    window.addEventListener("popstate", onPopState);
+    if (!mobileHistoryInitialized.current) {
+      const collectionState: MobileHistoryState = { mdbaseEditor: true, pane: "collections", surface: "notes" };
+      history.replaceState(collectionState, "");
+      if (mobilePane !== "collections") {
+        const listSurface = surface === "settings" ? "settings" : surface;
+        const listPane: MobilePane = surface === "settings" ? "editor" : "notes";
+        history.pushState({ mdbaseEditor: true, pane: listPane, surface: listSurface } satisfies MobileHistoryState, "");
+      }
+      if (mobilePane === "editor" && surface !== "settings") {
+        history.pushState({ mdbaseEditor: true, pane: "editor", surface } satisfies MobileHistoryState, "");
+      }
+      mobileHistoryInitialized.current = true;
+    }
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobileLayout, phase]);
+  useEffect(() => {
+    if (phase !== "ready" || !mobileLayout || !mobileHistoryInitialized.current) return;
+    if (ignoreNextMobileHistoryPush.current) {
+      ignoreNextMobileHistoryPush.current = false;
+      return;
+    }
+    const current = history.state as Partial<MobileHistoryState> | null;
+    if (current?.mdbaseEditor && current.pane === mobilePane && current.surface === surface) return;
+    history.pushState({ mdbaseEditor: true, pane: mobilePane, surface } satisfies MobileHistoryState, "");
+  }, [mobileLayout, mobilePane, phase, surface]);
 
   const loadIndex = useCallback(async () => {
     const generation = ++indexGeneration.current;
@@ -754,6 +821,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function navigateToNote(path: string) {
+    if (creationMode && creationDirty) {
+      setConfirmation({
+        title: `Discard this ${creationMode}?`,
+        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
+        confirmLabel: `Discard ${creationMode}`,
+        tone: "danger",
+        onConfirm: () => finishNavigateToNote(path)
+      });
+      return;
+    }
+    finishNavigateToNote(path);
+  }
+
+  function finishNavigateToNote(path: string) {
+    setCreationDirty(false);
     const generation = ++navigationGeneration.current;
     if (path === currentSession.current?.document.path && !noteLoading) {
       setPendingNotePath(undefined);
@@ -819,20 +901,104 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
   }
 
+  async function flushCollectionWork() {
+    await Promise.all([...sessions.current.values()]
+      .filter((session) => !session.deleted)
+      .map((session) => flushSession(session)));
+    await operationQueue.current.waitForIdle();
+  }
+
+  function clearCollectionWorkspace() {
+    navigationGeneration.current += 1;
+    documentGeneration.current += 1;
+    typeGeneration.current += 1;
+    currentSession.current = undefined;
+    sessions.current.clear();
+    setDescription(undefined);
+    setAllNotes([]);
+    setCollectionTotal(undefined);
+    setFoldersLoading(false);
+    setDocument(undefined);
+    setDraft(undefined);
+    setSelectedPath(undefined);
+    setPendingNotePath(undefined);
+    setCreationMode(undefined);
+    setCreationDirty(false);
+    setPropertiesOpen(false);
+    setBacklinksOpen(false);
+    setSelectedTypeName(undefined);
+    setTypeDocument(undefined);
+    setTypeSource("");
+    setTypeCreating(false);
+    setTypeError(undefined);
+    setSearch("");
+    setNoteFilter(undefined);
+    setSurface("notes");
+    setMobilePane("notes");
+  }
+
   async function openSavedCollection(collectionId: string) {
     setNotice(undefined);
-    gateway.selectConnection(collectionId);
-    const selected = gateway.connection();
-    if (missingCoreOperations(selected).length > 0) {
-      try {
+    setCollectionSwitcherOpen(false);
+    try {
+      await flushCollectionWork();
+      gateway.selectConnection(collectionId);
+      const selected = gateway.connection();
+      clearCollectionWorkspace();
+      if (missingCoreOperations(selected).length > 0) {
+        setPhase("disconnected");
         await gateway.authorize(collectionId);
-      } catch (error) {
-        setNotice(gatewayError(error));
+        return;
       }
+      setPhase("loading");
+      await start();
+    } catch (error) {
+      setNotice(gatewayError(error));
+      setPhase("disconnected");
+    }
+  }
+
+  function requestOpenSavedCollection(collectionId: string) {
+    if (collectionId === gateway.connection()?.collectionId) {
+      setCollectionSwitcherOpen(false);
       return;
     }
-    setPhase("loading");
-    await start();
+    if (!typeDraftDirty() && !creationDirty) {
+      void openSavedCollection(collectionId);
+      return;
+    }
+    setConfirmation({
+      title: "Switch collections?",
+      body: <p>{creationDirty
+        ? "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
+        : "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."}</p>,
+      confirmLabel: "Switch collection",
+      onConfirm: () => openSavedCollection(collectionId)
+    });
+  }
+
+  async function connectAnotherCollection() {
+    setNotice(undefined);
+    setCollectionSwitcherOpen(false);
+    try {
+      await flushCollectionWork();
+      await gateway.authorizeNewCollection();
+    } catch (error) {
+      setNotice(gatewayError(error));
+    }
+  }
+
+  function requestConnectAnotherCollection() {
+    if (!typeDraftDirty() && !creationDirty) {
+      void connectAnotherCollection();
+      return;
+    }
+    setConfirmation({
+      title: "Choose another collection?",
+      body: <p>Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.</p>,
+      confirmLabel: "Continue",
+      onConfirm: connectAnotherCollection
+    });
   }
 
   function beginCreation(mode: "note" | "folder") {
@@ -845,6 +1011,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setBacklinksOpen(false);
     setRenamePlan(undefined);
     renameRequest.current = undefined;
+    setCreationDirty(false);
     setCreationMode(mode);
     setMobilePane("editor");
   }
@@ -870,6 +1037,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPropertiesOpen(false);
     setBacklinksOpen(false);
     setDeletePlan(undefined);
+    setCreationDirty(false);
     setMobilePane("editor");
     adoptDocument(created);
   }
@@ -1001,9 +1169,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     if (session) setPathDraft(session.document.path);
   }
 
-  async function saveProperties(next: Record<string, unknown>): Promise<boolean> {
-    const session = currentSession.current;
-    if (!session) return false;
+  async function saveProperties(path: string, next: Record<string, unknown>) {
+    const session = sessions.current.get(path);
+    if (!session) return;
     setPropertiesError(undefined);
     try {
       await flushSession(session);
@@ -1026,7 +1194,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setSaveState(session.saveState);
       }
       touchSession(session);
-      return true;
     } catch (error) {
       const message = gatewayError(error);
       session.error = message;
@@ -1035,7 +1202,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         ? message
         : `Couldn’t update properties for “${session.draft.title || session.document.path}”. ${message}`);
       touchSession(session);
-      return false;
+      throw error;
     }
   }
 
@@ -1224,26 +1391,64 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setMobilePane("editor");
       return;
     }
-    if (typeDraftDirty() && !window.confirm("Discard the unsaved type definition changes?")) return;
-    setSelectedTypeName(name);
-    setMobilePane("editor");
-    void loadTypeSource(name);
+    const select = () => {
+      setSelectedTypeName(name);
+      setMobilePane("editor");
+      void loadTypeSource(name);
+    };
+    if (!typeDraftDirty()) {
+      select();
+      return;
+    }
+    setConfirmation({
+      title: "Discard type changes?",
+      body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
+      confirmLabel: "Discard changes",
+      tone: "danger",
+      onConfirm: select
+    });
   }
 
   function beginTypeCreate() {
-    if (typeDraftDirty() && !window.confirm("Discard the unsaved type definition changes?")) return;
-    typeGeneration.current += 1;
-    setSelectedTypeName(undefined);
-    setTypeDocument(undefined);
-    setTypeSource(NEW_TYPE_SOURCE);
-    setTypeCreating(true);
-    setTypeLoading(false);
-    setTypeSaving(false);
-    setTypeError(undefined);
-    setMobilePane("editor");
+    const begin = () => {
+      typeGeneration.current += 1;
+      setSelectedTypeName(undefined);
+      setTypeDocument(undefined);
+      setTypeSource(NEW_TYPE_SOURCE);
+      setTypeCreating(true);
+      setTypeLoading(false);
+      setTypeSaving(false);
+      setTypeError(undefined);
+      setMobilePane("editor");
+    };
+    if (!typeDraftDirty()) {
+      begin();
+      return;
+    }
+    setConfirmation({
+      title: "Discard type changes?",
+      body: <p>Your unsaved changes to this type definition won’t be kept.</p>,
+      confirmLabel: "Discard changes",
+      tone: "danger",
+      onConfirm: begin
+    });
   }
 
   function cancelTypeCreate() {
+    if (typeDraftDirty()) {
+      setConfirmation({
+        title: "Discard this type?",
+        body: <p>The new type definition hasn’t been saved.</p>,
+        confirmLabel: "Discard type",
+        tone: "danger",
+        onConfirm: finishCancelTypeCreate
+      });
+      return;
+    }
+    finishCancelTypeCreate();
+  }
+
+  function finishCancelTypeCreate() {
     const next = description?.types[0]?.name;
     setTypeCreating(false);
     setTypeError(undefined);
@@ -1284,11 +1489,26 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function selectSurface(next: Surface) {
+    if (creationMode && creationDirty) {
+      setConfirmation({
+        title: `Discard this ${creationMode}?`,
+        body: <p>The unfinished {creationMode} hasn’t been created.</p>,
+        confirmLabel: `Discard ${creationMode}`,
+        tone: "danger",
+        onConfirm: () => finishSelectSurface(next)
+      });
+      return;
+    }
+    finishSelectSurface(next);
+  }
+
+  function finishSelectSurface(next: Surface) {
     navigationGeneration.current += 1;
     setPendingNotePath(undefined);
     saveCurrentInBackground();
     setSurface(next);
     setCreationMode(undefined);
+    setCreationDirty(false);
     setPropertiesOpen(false);
     setBacklinksOpen(false);
     setRenamePlan(undefined);
@@ -1303,25 +1523,56 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  async function disconnect() {
-    navigationGeneration.current += 1;
-    setPendingNotePath(undefined);
+  function cancelCreation(hasDraft: boolean) {
+    if (!hasDraft) {
+      finishCancelCreation();
+      return;
+    }
+    const subject = creationMode === "folder" ? "folder" : "note";
+    setConfirmation({
+      title: `Discard this ${subject}?`,
+      body: <p>The details you entered haven’t been created yet.</p>,
+      confirmLabel: `Discard ${subject}`,
+      tone: "danger",
+      onConfirm: finishCancelCreation
+    });
+  }
+
+  function finishCancelCreation() {
+    setCreationMode(undefined);
+    setCreationDirty(false);
+    returnToMobilePane("notes");
+  }
+
+  function returnToMobilePane(fallback: MobilePane) {
+    if (mobileLayout && isMobileHistoryState(history.state)) {
+      history.back();
+      return;
+    }
+    setMobilePane(fallback);
+  }
+
+  async function forgetCurrentCollection() {
     try {
-      await Promise.all([...sessions.current.values()]
-        .filter((session) => !session.deleted)
-        .map((session) => flushSession(session)));
-      await operationQueue.current.waitForIdle();
+      await flushCollectionWork();
       gateway.disconnect();
-      currentSession.current = undefined;
-      sessions.current.clear();
+      clearCollectionWorkspace();
+      setCollectionSwitcherOpen(false);
       setPhase("disconnected");
-      setAllNotes([]);
-      setFoldersLoading(false);
-      setDocument(undefined);
-      setDraft(undefined);
     } catch (error) {
       setNotice(gatewayError(error));
     }
+  }
+
+  function requestForgetCurrentCollection() {
+    const name = description?.display_name ?? gateway.connection()?.displayName ?? "this collection";
+    setConfirmation({
+      title: `Forget “${name}”?`,
+      body: <p>This removes mdbase editor’s saved access. It does not delete or change any files in the collection.</p>,
+      confirmLabel: "Forget collection",
+      tone: "danger",
+      onConfirm: forgetCurrentCollection
+    });
   }
 
   useEffect(() => {
@@ -1386,7 +1637,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
-  const mobileLayout = viewportWidth <= 760;
   const collectionTrack = layout.collectionCollapsed ? 0 : layout.collectionWidth;
   const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
@@ -1441,7 +1691,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       connectionState={connectionState}
       connectionIssue={connectionIssue}
       onReconnect={() => void refreshAfterConnectionGap()}
-      onDisconnect={() => void disconnect()}
+      onSwitch={() => setCollectionSwitcherOpen(true)}
       onCollapse={() => setLayout((current) => ({ ...current, collectionCollapsed: true }))}
     />}
 
@@ -1465,7 +1715,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onRetryContent={() => void loadContentIndex()}
         onSelect={navigateToNote}
         onCreate={beginCreate}
-        onCollections={() => setMobilePane("collections")}
+        onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide notes sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
@@ -1475,17 +1725,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         purpose={creationMode}
         leadingActions={editorLeadingActions}
         onCreate={createNote}
-        onCancel={() => { setCreationMode(undefined); setMobilePane("notes"); }}
+        onCancel={cancelCreation}
+        onDraftChange={setCreationDirty}
       /> : <main className="editor-pane" aria-label="Note editor">
         {noteLoading ? <NoteSkeleton leadingActions={editorLeadingActions} /> : document && draft ? <>
           <header className="editor-bar">
-            <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => setMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
+            <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} autoFocus />
-              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown file">{document.path}</button>}
+              </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
             {preferences.vim && <span className="vim-label">Vim</span>}
             <SaveIndicator
@@ -1494,25 +1745,26 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
               detail={currentSession.current?.activityDetail}
               onCancel={currentSession.current?.mutationCancellable ? cancelActiveMutation : undefined}
             />
-            <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
+            {!mobileLayout && <button className={`icon-button backlink-button${backlinksOpen ? " active" : ""}`} aria-label="Backlinks" aria-pressed={backlinksOpen} onClick={() => {
               setBacklinksOpen((value) => {
                 if (!value) setPropertiesOpen(false);
                 return !value;
               });
-            }}><Link2 aria-hidden="true" />{backlinkNotes.length > 0 && <span>{backlinkNotes.length}</span>}</button>
-            <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
+            }}><Link2 aria-hidden="true" />{backlinkNotes.length > 0 && <span>{backlinkNotes.length}</span>}</button>}
+            {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
                 return !value;
               });
-            }}><Info aria-hidden="true" /></button>
-            <details className="note-actions">
-              <summary className="icon-button" aria-label="More note actions"><MoreHorizontal aria-hidden="true" /></summary>
-              <div className="action-menu">
-                <button onClick={(event) => { closeActionMenu(event.currentTarget); void validateNote(); }}><Check aria-hidden="true" /> Check note</button>
-                <button className="danger-action" onClick={(event) => { closeActionMenu(event.currentTarget); void requestDelete(); }}><Trash2 aria-hidden="true" /> Delete note</button>
-              </div>
-            </details>
+            }}><Info aria-hidden="true" /></button>}
+            <ActionMenu label="More note actions" items={[
+              ...(mobileLayout ? [
+                { label: "Backlinks", icon: <Link2 aria-hidden="true" />, onSelect: () => { setPropertiesOpen(false); setBacklinksOpen(true); } },
+                { label: "Note properties", icon: <Info aria-hidden="true" />, onSelect: () => { setBacklinksOpen(false); setPropertiesOpen(true); } }
+              ] : []),
+              { label: "Check note", icon: <Check aria-hidden="true" />, onSelect: () => void validateNote() },
+              { label: "Delete note", icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => void requestDelete() }
+            ]} />
           </header>
           {activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {mutationNotice && <div className="notice" role="status">
@@ -1531,20 +1783,22 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
             <label className="sr-only" htmlFor="note-title">Note title</label>
             <input id="note-title" className="title-input" value={draft.title} onChange={(event) => changeActiveDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Untitled" spellCheck="true" />
-            <CodeEditor
-              key={document.path}
-              value={draft.body}
-              onChange={(body) => changeActiveDraft((current) => ({ ...current, body }))}
-              label="Note body"
-              language="markdown"
-              placeholder="Start writing"
-              vimEnabled={preferences.vim}
-              lineWrapping={preferences.lineWrapping}
-              autoFocus
-              className="body-editor"
-              linkSuggestions={linkOptions}
-              linkTypes={linkTypeNames}
-            />
+            <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true"><span /></div>}>
+              <CodeEditor
+                key={document.path}
+                value={draft.body}
+                onChange={(body) => changeActiveDraft((current) => ({ ...current, body }))}
+                label="Note body"
+                language="markdown"
+                placeholder="Start writing"
+                vimEnabled={preferences.vim}
+                lineWrapping={preferences.lineWrapping}
+                autoFocus
+                className="body-editor"
+                linkSuggestions={linkOptions}
+                linkTypes={linkTypeNames}
+              />
+            </Suspense>
           </article>
         </> : <EmptyEditor
           leadingActions={editorLeadingActions}
@@ -1553,23 +1807,25 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           onRetry={() => void start()}
         />}
       </main>}
-      {propertiesOpen && document && <PropertiesPanel
-        key={document.path}
-        note={document}
-        types={description.types}
-        recordPaths={allNotes.map((note) => note.path)}
-        error={propertiesError}
-        onClose={() => setPropertiesOpen(false)}
-        onSave={saveProperties}
-        onSaveDocument={saveRecordSource}
-      />}
+      {propertiesOpen && document && <Suspense fallback={<aside className="properties-panel properties-panel-loading" aria-label="Note properties" aria-busy="true"><div /><span /><span /><span /></aside>}>
+        <PropertiesPanel
+          key={document.path}
+          note={document}
+          types={description.types}
+          recordPaths={allNotes.map((note) => note.path)}
+          error={propertiesError}
+          onClose={() => setPropertiesOpen(false)}
+          onSave={saveProperties}
+          onSaveDocument={saveRecordSource}
+        />
+      </Suspense>}
       {backlinksOpen && document && <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />}
     </>}
 
-    {surface === "types" && (typeAccessMissing.length > 0 ? <TypeAccessPrompt
+    {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{typeAccessMissing.length > 0 ? <TypeAccessPrompt
       leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onAuthorize={() => void connectCollection()}
-      onBack={() => setMobilePane("collections")}
+      onBack={() => returnToMobilePane("collections")}
     /> : <>
       {(!layout.listCollapsed || mobileLayout) && <TypeList
         types={description.types}
@@ -1578,7 +1834,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         trailingActions={<PaneControl label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
         onCreate={beginTypeCreate}
-        onCollections={() => setMobilePane("collections")}
+        onCollections={() => returnToMobilePane("collections")}
       />}
       <TypeInspector
         type={selectedType}
@@ -1599,9 +1855,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         }}
         onCancel={cancelTypeCreate}
         onCreate={beginTypeCreate}
-        onBack={() => setMobilePane("notes")}
+        onBack={() => returnToMobilePane("notes")}
       />
-    </>)}
+    </>}</Suspense>}
 
     {surface === "settings" && <SettingsView
       description={description}
@@ -1609,7 +1865,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       preferences={preferences}
       leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
-      onBack={() => setMobilePane("collections")}
+      onBack={() => returnToMobilePane("collections")}
     />}
 
     {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
@@ -1651,6 +1907,24 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onClose={() => setQuickOpen(false)}
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
+    {collectionSwitcherOpen && <CollectionSwitcher
+      activeCollectionId={gateway.connection()?.collectionId}
+      connections={gateway.connections()}
+      displayName={description.display_name}
+      onOpen={requestOpenSavedCollection}
+      onConnect={requestConnectAnotherCollection}
+      onForget={requestForgetCurrentCollection}
+      onClose={() => setCollectionSwitcherOpen(false)}
+    />}
+    {confirmation && <ConfirmDialog
+      title={confirmation.title}
+      body={confirmation.body}
+      confirmLabel={confirmation.confirmLabel}
+      cancelLabel={confirmation.cancelLabel}
+      tone={confirmation.tone}
+      onConfirm={confirmation.onConfirm}
+      onClose={() => setConfirmation(undefined)}
+    />}
   </div>;
 }
 
@@ -1662,7 +1936,74 @@ function ConnectScreen({ notice, missingOperations = [], connections, onConnect,
   onOpen: (collectionId: string) => void;
 }) {
   const updatingAccess = missingOperations.length > 0;
-  return <main className="connect-screen"><section><Wordmark /><h1>Your notes,<br />as files.</h1><p className="connect-copy">{updatingAccess ? `Allow ${accessSummary(missingOperations)} to keep using this collection.` : "Open a local or hosted mdbase collection and write."}</p>{connections.map((connection) => <button className="connect-button" key={connection.collectionId} onClick={() => onOpen(connection.collectionId)}>Open {connection.displayName ?? "collection"} <ChevronRight aria-hidden="true" /></button>)}<button className="connect-button" onClick={onConnect}>{updatingAccess ? "Update access" : connections.length ? "Connect another collection" : "Choose a collection"} <ChevronRight aria-hidden="true" /></button><p className="access-copy">{updatingAccess ? "mdbase connect will keep the access already approved and ask only for the missing capabilities." : "Choose the collection in mdbase connect, then approve access to view, create, edit, move, validate, and delete notes and to inspect and manage type definitions. Hosted collections stay available without your computer; local collections remain under its connector."}</p><details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>{notice && <p className="connect-error" role="alert">{notice}</p>}</section></main>;
+  return <main className="connect-screen"><section>
+    <Wordmark />
+    <h1>Your notes,<br />as files.</h1>
+    <p className="connect-copy">{updatingAccess
+      ? `Update access to ${accessSummary(missingOperations)} in this collection.`
+      : "Choose the collection you want to write in."}</p>
+    {connections.length > 0 && <div className="saved-collections" aria-label="Recent collections">
+      <p>Recent collections</p>
+      {connections.map((connection) => <button className="saved-collection-row" key={connection.collectionId} onClick={() => onOpen(connection.collectionId)}>
+        <span><strong>{connection.displayName ?? "Untitled collection"}</strong><small>Previously opened in mdbase editor</small></span>
+        <ChevronRight aria-hidden="true" />
+      </button>)}
+    </div>}
+    <button className="connect-button" onClick={onConnect}>{updatingAccess
+      ? "Update access"
+      : connections.length
+        ? "Choose another collection"
+        : "Choose a collection"} <ChevronRight aria-hidden="true" /></button>
+    <p className="access-copy">{updatingAccess
+      ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
+      : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>
+    <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
+    {notice && <p className="connect-error" role="alert">{notice}</p>}
+  </section></main>;
+}
+
+function CollectionSwitcher({ activeCollectionId, connections, displayName, onOpen, onConnect, onForget, onClose }: {
+  activeCollectionId?: string;
+  connections: ConnectionSummary[];
+  displayName: string;
+  onOpen: (collectionId: string) => void;
+  onConnect: () => void;
+  onForget: () => void;
+  onClose: () => void;
+}) {
+  return <Dialog titleId="collection-switcher-title" className="collection-switcher" onClose={onClose}>
+    <header>
+      <div><p className="eyebrow">Collection</p><h2 id="collection-switcher-title">Choose where to write</h2></div>
+      <button className="icon-button" aria-label="Close collection switcher" onClick={onClose}><X aria-hidden="true" /></button>
+    </header>
+    <div className="collection-switcher-list">
+      {connections.map((connection) => {
+        const active = connection.collectionId === activeCollectionId;
+        const name = active ? displayName : connection.displayName ?? "Untitled collection";
+        return <button
+          key={connection.collectionId}
+          className={active ? "current" : undefined}
+          aria-current={active ? "true" : undefined}
+          onClick={() => active ? onClose() : onOpen(connection.collectionId)}
+        >
+          <span><strong>{name}</strong><small>{active ? "Open now" : "Saved in mdbase editor"}</small></span>
+          {active ? <Check aria-hidden="true" /> : <span className="collection-open-label">Open</span>}
+        </button>;
+      })}
+    </div>
+    <footer>
+      <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Choose another collection</button>
+      <button className="collection-forget" onClick={onForget}><Trash2 aria-hidden="true" />Forget “{displayName}”</button>
+      <p>Forgetting removes editor access only. It never deletes collection files.</p>
+    </footer>
+  </Dialog>;
+}
+
+function TypeWorkspaceLoading() {
+  return <>
+    <section className="type-list-pane type-workspace-loading" aria-label="Loading types"><div /><span /><span /><span /></section>
+    <main className="type-inspector type-workspace-loading" aria-label="Loading type definition"><div /><strong /><span /><span /></main>
+  </>;
 }
 
 function OpeningScreen() {
@@ -1698,7 +2039,7 @@ function Wordmark() {
   return <div className="wordmark"><MdbaseMark />mdbase <strong>editor</strong></div>;
 }
 
-function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onTypes, onSettings, onShortcuts, onReconnect, onDisconnect, onCollapse }: {
+function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onTypes, onSettings, onShortcuts, onReconnect, onSwitch, onCollapse }: {
   name: string;
   count: number;
   typeCount: number;
@@ -1715,7 +2056,7 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   onSettings: () => void;
   onShortcuts: () => void;
   onReconnect: () => void;
-  onDisconnect: () => void;
+  onSwitch: () => void;
   onCollapse: () => void;
 }) {
   const collectionFolders = folders(notes);
@@ -1724,8 +2065,8 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
   return <aside className="collection-rail" aria-label="Collection navigation">
     <div className="rail-header"><Wordmark /><PaneControl label="Hide collections sidebar" action="hide" onClick={onCollapse} /></div>
     <nav>
-      <p className="collection-name">{name}</p>
-      <button className={surface === "notes" && !activeFilter ? "selected" : ""} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
+      <button className="collection-name" aria-label={`Switch collection, current collection ${name}`} onClick={onSwitch}><span>{name}</span><ChevronDown aria-hidden="true" /></button>
+      <button className={surface === "notes" && !activeFilter ? "selected" : ""} aria-label={`Notes, ${count} total`} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
       <button className={surface === "types" ? "selected" : ""} aria-label={`Types (${typeCount})`} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{typeCount}</small></button>
       <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
       <RailFilterSection label="Folders" kind="folder" items={collectionFolders} activeFilter={surface === "notes" ? activeFilter : undefined} loading={foldersLoading} defaultOpen onFilter={onFilter} onCreate={onCreateFolder} />
@@ -1736,9 +2077,6 @@ function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes
       <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>
       {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
       <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
-      <button className="disconnect-action" aria-label="Disconnect collection" title="Disconnect collection" onClick={onDisconnect}>
-        <LogOut aria-hidden="true" /><span>Disconnect</span>
-      </button>
     </footer>
   </aside>;
 }
@@ -1940,10 +2278,6 @@ function PaneControl({ label, action, onClick }: { label: string; action: "show"
   return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><Icon aria-hidden="true" /></button>;
 }
 
-function closeActionMenu(action: HTMLButtonElement) {
-  action.closest("details")?.removeAttribute("open");
-}
-
 function PaneResizeHandle({ className, label, value, min, max, onChange, onReset, onDragChange }: {
   className: string;
   label: string;
@@ -2113,4 +2447,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
     || target.matches("input, textarea, select, [role='textbox']")
     || Boolean(target.closest("[contenteditable='true']"))
   );
+}
+
+function isMobileHistoryState(value: unknown): value is MobileHistoryState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<MobileHistoryState>;
+  return state.mdbaseEditor === true
+    && (state.pane === "collections" || state.pane === "notes" || state.pane === "editor")
+    && (state.surface === "notes" || state.surface === "types" || state.surface === "settings");
 }

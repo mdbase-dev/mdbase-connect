@@ -33,7 +33,10 @@ describe("mdbase editor", () => {
     await screen.findByRole("heading", { name: "Writing" });
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
     expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
-    expect(within(collectionRail).getByRole("button", { name: "Disconnect collection" })).toBeInTheDocument();
+    await user.click(within(collectionRail).getByRole("button", { name: "Switch collection, current collection Writing" }));
+    expect(screen.getByRole("dialog", { name: "Choose where to write" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Forget “Writing”" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close collection switcher" }));
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show collections sidebar" }));
@@ -72,7 +75,7 @@ describe("mdbase editor", () => {
     const saved = await gateway.read(first.path);
     expect(saved.body).toContain("A saved sentence.");
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    expect(screen.getByRole("textbox", { name: "status value" })).toHaveValue("draft");
+    expect(await screen.findByRole("textbox", { name: "status value" })).toHaveValue("draft");
   });
 
   it("does not reload the collection index after saving one note", async () => {
@@ -212,7 +215,7 @@ describe("mdbase editor", () => {
     expect(screen.getAllByRole("option")).toHaveLength(3);
 
     const collection = screen.getByRole("complementary", { name: "Collection navigation" });
-    await user.click(within(collection).getAllByRole("button", { name: /^Notes/ })[0]);
+    await user.click(within(collection).getByRole("button", { name: /^Notes, / }));
     await user.click(screen.getByText("The shape of useful tools", { selector: ".note-title" }));
     await user.click(screen.getByRole("button", { name: "Backlinks" }));
     const backlinks = screen.getByRole("complementary", { name: "Backlinks" });
@@ -370,7 +373,7 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(listCalls);
 
     await user.click(screen.getByLabelText("More note actions"));
-    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
     await user.click(await screen.findByRole("button", { name: /^Delete$/ }));
     await waitFor(() => expect(gateway.deleteCalls).toBe(1));
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -530,13 +533,12 @@ describe("mdbase editor", () => {
     await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nBefore properties.");
     await gateway.updateStarted;
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    await user.click(screen.getByRole("button", { name: "Add property" }));
+    await user.click(await screen.findByRole("button", { name: "Add property" }));
     await user.click(screen.getByRole("button", { name: "Add a custom property…" }));
     await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
     await user.click(screen.getByRole("button", { name: "Add" }));
     await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
-    await user.click(screen.getByRole("button", { name: "Save properties" }));
-    expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
+    expect(screen.getByText("Changes save automatically")).toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -639,7 +641,8 @@ describe("mdbase editor", () => {
 
     await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nBefore validation.");
     await gateway.updateStarted;
-    await user.click(screen.getByRole("button", { name: "Check note" }));
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Check note" }));
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
 
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -657,7 +660,8 @@ describe("mdbase editor", () => {
 
     await user.type(await screen.findByRole("textbox", { name: "Note body" }), "\nDiscard with note.");
     await gateway.updateStarted;
-    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(screen.getByRole("button", { name: "More note actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(gateway.events).not.toContain("preflight:delete");
     gateway.releaseUpdate();
@@ -682,7 +686,7 @@ describe("mdbase editor", () => {
     await screen.findByRole("textbox", { name: "Note title" });
     const listCalls = gateway.listCalls;
     await user.click(screen.getByLabelText("More note actions"));
-    await user.click(screen.getByRole("button", { name: "Delete note" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete note" }));
     await user.click(await screen.findByRole("button", { name: "Delete" }));
     await user.click(await screen.findByRole("button", { name: "Undo" }));
 
@@ -697,9 +701,10 @@ describe("mdbase editor", () => {
     disconnected.connection = () => null;
     render(<App gateway={disconnected} />);
     expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
-    expect(screen.getByText(/local or hosted mdbase collection/i)).toBeInTheDocument();
-    expect(await screen.findByText(/inspect and manage type definitions/i)).toBeInTheDocument();
-    expect(screen.getByText(/Hosted collections stay available without your computer/i)).toBeInTheDocument();
+    expect(screen.getByText(/collection you want to write in/i)).toBeInTheDocument();
+    expect(await screen.findByText(/continue to mdbase connect/i)).toBeInTheDocument();
+    expect(screen.getByText(/return here automatically/i)).toBeInTheDocument();
+    expect(screen.getByText(/your files stay where they are/i)).toBeInTheDocument();
     await userEvent.click(screen.getByText("Collection not listed?"));
     expect(screen.getByText(/upgrade a copy, verify that copy/i)).toBeInTheDocument();
     expect(screen.getByText(/original files can stay untouched/i)).toBeInTheDocument();
@@ -729,7 +734,7 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("button", { name: "Update access" })).toBeInTheDocument();
     expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
-    expect(screen.getByText(/ask only for the missing capabilities/i)).toBeInTheDocument();
+    expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
     expect(authorize).toHaveBeenCalledOnce();
   });

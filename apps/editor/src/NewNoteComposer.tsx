@@ -1,17 +1,18 @@
 import { ArrowLeft } from "lucide-react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import { SchemaValueEditor, schemaValueComplete } from "./SchemaValueEditor";
 
-export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadingActions, onCreate, onCancel }: {
+export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadingActions, onCreate, onCancel, onDraftChange }: {
   types: CollectionTypeDescriptor[];
   defaultFolder?: string;
   purpose?: "note" | "folder";
   leadingActions?: ReactNode;
   onCreate: (input: CreateNoteInput) => Promise<void>;
-  onCancel: () => void;
+  onCancel: (hasDraft: boolean) => void;
+  onDraftChange?: (hasDraft: boolean) => void;
 }) {
   const folderCreation = purpose === "folder";
   const [title, setTitle] = useState("");
@@ -33,6 +34,14 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
     && (!folderCreation || validFolder(folderName))
     && required.every((field) => schemaValueComplete(schema.properties[field], properties[field]))
   );
+  const hasDraft = Boolean(
+    title.trim()
+    || folderName.trim()
+    || typeName
+    || pathEdited
+    || Object.keys(properties).length
+  );
+  useEffect(() => onDraftChange?.(hasDraft), [hasDraft, onDraftChange]);
 
   const defaults = useMemo(() => schemaDefaults(type), [type]);
 
@@ -71,18 +80,21 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
   }
 
   return <main className="new-note-composer" aria-label={folderCreation ? "Create folder" : "Create note"}>
-    <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? "Cancel new folder" : "Cancel new note"} onClick={onCancel}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? "New folder" : "New note"}</span></header>
+    <header className="editor-bar"><button className="mobile-back icon-button" aria-label={folderCreation ? "Cancel new folder" : "Cancel new note"} onClick={() => onCancel(hasDraft)}><ArrowLeft aria-hidden="true" /></button>{leadingActions}<span>{folderCreation ? "New folder" : "New note"}</span></header>
     <form onSubmit={(event) => void submit(event)}>
-      <p className="eyebrow">{folderCreation ? "New folder with its first note" : "New Markdown record"}</p>
+      <p className="eyebrow">{folderCreation ? "Create folder" : "Create note"}</p>
       {folderCreation
         ? <label className="new-note-title"><span className="sr-only">Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Folder name" spellCheck="false" /></label>
         : <label className="new-note-title"><span className="sr-only">Title</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>}
+      <p className="new-note-intro">{folderCreation
+        ? "A folder appears when its first note is created."
+        : "Set the file location and any required details. Nothing is created until you choose Create note."}</p>
       <div className="new-note-fields">
         {folderCreation
           ? <label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
-          : <label><span>Path</span><input value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /></label>}
+          : <label><span>File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /><small>Where this Markdown file will live in the collection.</small></label>}
         <label><span>Type</span><select value={typeName} onChange={(event) => selectType(event.target.value)}>
-          <option value="">No explicit type</option>
+          <option value="">General note</option>
           {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
         </select></label>
         {folderCreation && <label className="new-folder-path"><span>Path</span><output>{resolvedPath}</output></label>}
@@ -95,10 +107,9 @@ export function NewNoteComposer({ types, defaultFolder, purpose = "note", leadin
           onChange={(value) => setProperties((current) => ({ ...current, [field]: value }))}
         />)}
       </div>
-      {folderCreation && <p className="new-folder-help">Folders are created when their first note is saved.</p>}
       {type?.description && <p className="new-note-type-help">{type.description}</p>}
       {error && <p className="new-note-error" role="alert">{error}</p>}
-      <div className="new-note-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="create-note-button" disabled={!complete || creating}>{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}</button></div>
+      <div className="new-note-actions"><button type="button" onClick={() => onCancel(hasDraft)}>Cancel</button><button className="create-note-button" disabled={!complete || creating}>{creating ? (folderCreation ? "Creating folder" : "Creating") : (folderCreation ? "Create folder" : "Create note")}</button></div>
     </form>
   </main>;
 }

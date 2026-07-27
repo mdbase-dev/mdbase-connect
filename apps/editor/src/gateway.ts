@@ -128,6 +128,13 @@ export class ConnectCollectionGateway implements CollectionGateway {
     });
   }
 
+  async authorizeNewCollection(): Promise<void> {
+    await this.manager.authorize({
+      operations: FULL_COLLECTION_OPERATIONS,
+      returnTo: this.browserLocation.authorizationReturnTo()
+    });
+  }
+
   async completeAuthorization(): Promise<void> {
     if (!this.browserLocation.isAuthorizationCallback(location.href)) return;
     await this.browserLocation.completeAuthorization();

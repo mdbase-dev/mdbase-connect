@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import { describe, expect, it, vi } from "vitest";
@@ -28,12 +28,10 @@ describe("typed note properties", () => {
 
     fireEvent.change(eventDate, { target: { value: "2026-07-23" } });
     fireEvent.change(startsAt, { target: { value: "2026-07-23T09:45:00" } });
-    await user.click(screen.getByRole("button", { name: "Save properties" }));
-
-    expect(onSave).toHaveBeenCalledWith({
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("Events/planning.md", {
       event_date: "2026-07-23",
       starts_at: new Date("2026-07-23T09:45:00").toISOString()
-    });
+    }), { timeout: 1_500 });
   });
 
   it("edits schema-defined nested objects and lists without raw JSON", async () => {
@@ -49,15 +47,13 @@ describe("typed note properties", () => {
     const values = screen.getAllByLabelText("value");
     await user.selectOptions(kinds[1], "phone");
     await user.type(values[1], "+44 20 0000 0000");
-    await user.click(screen.getByRole("button", { name: "Save properties" }));
-
-    expect(onSave).toHaveBeenCalledWith({
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("People/ada.md", {
       profile: { display_name: "Ada Byron" },
       contacts: [
         { kind: "email", value: "ada@example.com" },
         { kind: "phone", value: "+44 20 0000 0000" }
       ]
-    });
+    }), { timeout: 1_500 });
   });
 
   it("surfaces missing required fields, descriptions, defaults, and effective values", async () => {
@@ -73,22 +69,20 @@ describe("typed note properties", () => {
     expect(screen.getByRole("region", { name: "Computed and defaulted properties" })).toHaveTextContent("Default");
 
     await user.type(screen.getByLabelText("title value"), "Ready");
-    await user.click(screen.getByRole("button", { name: "Save properties" }));
-    expect(onSave).toHaveBeenCalledWith({ title: "Ready" });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("Notes/missing.md", { title: "Ready" }), { timeout: 1_500 });
   });
 
   it("validates inline and keeps the edited draft open after a failed save", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn().mockResolvedValue(false);
+    const onSave = vi.fn().mockRejectedValue(new Error("Server rejected the record."));
     render(<PropertiesPanel note={invalidNote} types={[schemaLedType]} error="Server rejected the record." onClose={vi.fn()} onSave={onSave} />);
 
     await user.clear(screen.getByLabelText("title value"));
     expect(screen.getByText(/at least 3 characters/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save properties" })).toBeDisabled();
+    expect(screen.getByText("Fix invalid fields to continue saving")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("title value"), "Edited title");
-    await user.click(screen.getByRole("button", { name: "Save properties" }));
-    expect(onSave).toHaveBeenCalledWith({ title: "Edited title", nullable: null });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("Notes/invalid.md", { title: "Edited title", nullable: null }), { timeout: 1_500 });
     expect(screen.getByLabelText("title value")).toHaveValue("Edited title");
     expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Null" })).not.toBeInTheDocument();
@@ -97,7 +91,7 @@ describe("typed note properties", () => {
   it("shows and saves the complete exact record source", async () => {
     const user = userEvent.setup();
     const onSaveDocument = vi.fn();
-    render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => undefined} onSave={() => undefined} onSaveDocument={onSaveDocument} />);
+    render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => undefined} onSave={async () => undefined} onSaveDocument={onSaveDocument} />);
 
     await user.click(screen.getByRole("tab", { name: "Source" }));
     const editor = screen.getByLabelText("Complete record source");

@@ -1,5 +1,6 @@
 import { FileText, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Dialog } from "./Dialog";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
 import { searchNotes, type NoteSearchEntry } from "./note-search";
@@ -23,15 +24,14 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
     onClose();
   }
 
-  return <div className="dialog-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="quick-open" role="dialog" aria-modal="true" aria-labelledby="quick-open-title">
+  return <Dialog titleId="quick-open-title" className="quick-open" onClose={onClose}>
       <h2 id="quick-open-title" className="sr-only">Quick open</h2>
       <div className="quick-open-search">
         <Search aria-hidden="true" />
         <label className="sr-only" htmlFor="quick-open-input">Find a note</label>
         <input
           id="quick-open-input"
-          autoFocus
+          data-autofocus
           role="combobox"
           aria-expanded="true"
           aria-controls="quick-open-results"
@@ -71,8 +71,7 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
         {!notes.length && <p>No matching notes.</p>}
       </div>
       <footer><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>Enter</kbd> Open</span><span><kbd>Esc</kbd> Close</span></footer>
-    </section>
-  </div>;
+  </Dialog>;
 }
 
 function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSummary[] {
@@ -94,10 +93,8 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     [`${modifier} Shift L`, "Show or hide the notes sidebar"],
     ["?", "Show this shortcut guide"]
   ];
-  return <div className="dialog-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="shortcut-help" role="dialog" aria-modal="true" aria-labelledby="shortcut-help-title">
+  return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
       <header><div><p className="eyebrow">Keyboard</p><h2 id="shortcut-help-title">Shortcuts</h2></div><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>
       <dl>{shortcuts.map(([keys, label]) => <div key={label}><dt>{label}</dt><dd>{keys.split(" ").map((key, index) => <kbd key={`${key}:${index}`}>{key}</kbd>)}</dd></div>)}</dl>
-    </section>
-  </div>;
+  </Dialog>;
 }

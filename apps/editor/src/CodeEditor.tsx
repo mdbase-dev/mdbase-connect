@@ -1,8 +1,6 @@
 import { autocompletion, startCompletion, type Completion, type CompletionContext } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
-import { yaml } from "@codemirror/lang-yaml";
 import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, highlightSpecialChars, keymap, placeholder as editorPlaceholder } from "@codemirror/view";
@@ -48,6 +46,7 @@ export function CodeEditor({
   const vimMode = useRef(new Compartment());
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
+  const languageMode = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
   const lineSeparator = useRef(lineSeparatorFor(value));
@@ -67,7 +66,7 @@ export function CodeEditor({
           vimMode.current.of([]),
           editorSetup,
           syntaxHighlighting(mdbaseHighlightStyle),
-          languageExtension(language),
+          languageMode.current.of(language === "markdown" ? markdown() : []),
           wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
           completions.current.of(language === "markdown" ? linkAutocomplete(
             () => linkSuggestionsRef.current,
@@ -136,6 +135,29 @@ export function CodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
+    if (!view) return;
+    if (language === "markdown") {
+      view.dispatch({ effects: languageMode.current.reconfigure(markdown()) });
+      return;
+    }
+    if (language === "plain") {
+      view.dispatch({ effects: languageMode.current.reconfigure([]) });
+      return;
+    }
+    let cancelled = false;
+    const load = language === "json"
+      ? import("@codemirror/lang-json").then(({ json }) => json())
+      : import("@codemirror/lang-yaml").then(({ yaml }) => yaml());
+    void load.then((extension) => {
+      if (!cancelled && viewRef.current === view) {
+        view.dispatch({ effects: languageMode.current.reconfigure(extension) });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [language]);
+
+  useEffect(() => {
+    const view = viewRef.current;
     if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
@@ -171,13 +193,6 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.invalid, color: "var(--danger)" }
 ]);
-
-function languageExtension(language: EditorLanguage): Extension {
-  if (language === "markdown") return markdown();
-  if (language === "json") return json();
-  if (language === "yaml") return yaml();
-  return [];
-}
 
 function linkAutocomplete(suggestions: () => LinkSuggestion[], types: () => string[]): Extension {
   return autocompletion({

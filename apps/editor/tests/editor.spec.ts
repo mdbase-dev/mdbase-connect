@@ -51,7 +51,7 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(page.getByRole("heading", { name: "#ideas" })).toBeVisible();
   await expect(page.getByRole("option")).toHaveCount(4);
 
-  await page.locator(".collection-rail nav > button").first().click();
+  await page.getByRole("button", { name: /^Notes, / }).click();
   await page.getByRole("button", { name: "Backlinks" }).click();
   const backlinks = page.getByRole("complementary", { name: "Backlinks" });
   await expect(backlinks.getByText("1 note link here")).toBeVisible();
@@ -169,7 +169,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await vim.click();
   await expect(vim).toHaveAttribute("aria-checked", "true");
 
-  await page.getByRole("button", { name: /Notes/ }).first().click();
+  await page.getByRole("button", { name: /^Notes, / }).click();
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
@@ -354,7 +354,8 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   await expect(tags.getByRole("button", { name: "Add tag" })).toBeVisible();
   await tags.getByRole("button", { name: "Add tag" }).click();
   await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
-  await panel.getByRole("button", { name: "Save properties" }).click();
+  await expect(panel.getByText("All changes saved")).toBeVisible();
+  await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: /JSON/ }).click();
@@ -372,7 +373,8 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await panel.locator(".property-options button").filter({ hasText: "title" }).click();
   await expect(panel.getByLabel("title property kind")).toHaveCount(0);
   await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
-  await panel.getByRole("button", { name: "Save properties" }).click();
+  await expect(panel.getByText("All changes saved")).toBeVisible();
+  await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
 
   await page.getByRole("button", { name: "Note properties" }).click();
@@ -436,6 +438,36 @@ test("uses one navigable pane at mobile width", async ({ page }) => {
   await expect(page.getByRole("complementary", { name: "Collection navigation" })).toBeVisible();
 });
 
+test("maps browser history to the mobile pane stack", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("?demo=40");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByRole("region", { name: "Notes" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Note title" })).not.toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByRole("complementary", { name: "Collection navigation" })).toBeVisible();
+});
+
+test("protects an unfinished note draft with a modal confirmation", async ({ page }) => {
+  await page.goto("?demo=40");
+  await page.getByRole("button", { name: "New note" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("A draft worth keeping");
+  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+
+  const confirmation = page.getByRole("alertdialog", { name: "Discard this note?" });
+  await expect(confirmation).toBeVisible();
+  await expect(page.locator("#root")).toHaveAttribute("aria-hidden", "true");
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("A draft worth keeping");
+
+  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  await confirmation.getByRole("button", { name: "Discard note" }).click();
+  await expect(page.getByRole("main", { name: "Create note" })).not.toBeVisible();
+});
+
 test("keeps every editor action reachable at the minimum mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto("?demo=12");
@@ -457,7 +489,7 @@ test("keeps every editor action reachable at the minimum mobile width", async ({
   expect(bounds.actionRight).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.surfaceRight).toBeLessThanOrEqual(bounds.viewportWidth);
   await page.getByLabel("More note actions").click();
-  await expect(page.getByRole("button", { name: "Check note" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Check note" })).toBeVisible();
 });
 
 test("keeps type editing usable at the minimum mobile width", async ({ page }) => {

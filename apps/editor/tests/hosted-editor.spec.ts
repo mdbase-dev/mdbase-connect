@@ -10,7 +10,7 @@ test("chooses a hosted collection and performs CRUD through its provider", async
   await hosted.install();
 
   await page.goto("/");
-  await expect(page.getByText("Open a local or hosted mdbase collection and write.")).toBeVisible();
+  await expect(page.getByText("Choose the collection you want to write in.")).toBeVisible();
   await page.getByRole("button", { name: "Choose a collection" }).click();
 
   await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
@@ -38,7 +38,7 @@ test("chooses a hosted collection and performs CRUD through its provider", async
   await expect(page.getByRole("button", { name: "Writing/A hosted draft.md" })).toBeVisible();
 
   await page.getByLabel("More note actions").click();
-  await page.getByRole("button", { name: "Delete note" }).click();
+  await page.getByRole("menuitem", { name: "Delete note" }).click();
   const confirmation = page.getByRole("alert");
   await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");

@@ -58,6 +58,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   async authorize(): Promise<void> {}
+  async authorizeNewCollection(): Promise<void> {}
   async completeAuthorization(): Promise<void> {}
   disconnect(): void {}
 
