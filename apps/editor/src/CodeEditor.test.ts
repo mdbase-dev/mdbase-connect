@@ -1,7 +1,7 @@
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { lineSeparatorFor, linkCompletion, mentionScope, restoreLineSeparators } from "./CodeEditor";
+import { lineSeparatorFor, linkCompletion, markdownEdit, mentionScope, restoreLineSeparators } from "./CodeEditor";
 import type { LinkSuggestion } from "./links";
 
 describe("mdbase mention scope", () => {
@@ -45,6 +45,42 @@ it("retains the source document line separator while editing", () => {
   expect(restoreLineSeparators(state.doc.toString(), separator)).toBe("---\r\ntitle: Note\r\n---\r\n");
 });
 
+describe("Markdown formatting", () => {
+  it("wraps and unwraps selected text without losing the selection", () => {
+    expect(markdownEdit("hello world", 6, 11, "bold")).toEqual({
+      insert: "**world**",
+      from: 6,
+      to: 11,
+      anchor: 8,
+      head: 13
+    });
+    expect(markdownEdit("hello **world**", 8, 13, "bold")).toEqual({
+      insert: "world",
+      from: 6,
+      to: 15,
+      anchor: 6,
+      head: 11
+    });
+  });
+
+  it("places the selection in the useful part of inserted syntax", () => {
+    expect(markdownEdit("Ada", 0, 3, "link")).toEqual({
+      insert: "[Ada](https://)",
+      from: 0,
+      to: 3,
+      anchor: 6,
+      head: 14
+    });
+    expect(markdownEdit("", 0, 0, "code")).toEqual({
+      insert: "`code`",
+      from: 0,
+      to: 0,
+      anchor: 1,
+      head: 5
+    });
+  });
+});
+
 describe("object link completion", () => {
   const suggestions: LinkSuggestion[] = [
     { path: "People/ada.md", title: "Ada Lovelace", aliases: ["Ada"], types: ["person"] },
@@ -57,7 +93,7 @@ describe("object link completion", () => {
 
     expect(result?.from).toBe(8);
     expect(result?.options).toMatchObject([
-      { label: "Ada", detail: "person · Ada Lovelace · People/ada.md", apply: "[[People/ada]]" },
+      { label: "Ada", detail: "Ada Lovelace · person · People/ada.md", apply: "[[People/ada]]" },
       { label: "Ada notes", detail: "note · Notes/ada.md", apply: "[[Notes/ada|Ada notes]]" }
     ]);
   });
@@ -70,7 +106,7 @@ describe("object link completion", () => {
 
   it("offers declared mdbase types from @/", () => {
     expect(complete("@/per")?.options).toMatchObject([
-      { label: "/person", detail: "mdbase type", type: "type" }
+      { label: "/person", detail: "Filter links by type", type: "type" }
     ]);
     expect(complete("@/contact")?.options).toEqual([]);
   });

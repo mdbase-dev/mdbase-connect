@@ -115,6 +115,7 @@ interface Draft {
 }
 
 interface NoteSession {
+  editorSessionKey: string;
   document: NoteDocument;
   draft: Draft;
   persistedDraft: Draft;
@@ -129,6 +130,8 @@ interface NoteSession {
   saveAgain?: boolean;
   savePromise?: Promise<void>;
 }
+
+let noteEditorSession = 0;
 
 interface NoteRowStatus {
   label: string;
@@ -412,6 +415,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const adoptDocument = useCallback((next: NoteDocument) => {
     const nextDraft = editableNote(next);
     const session: NoteSession = {
+      editorSessionKey: `note-editor-${++noteEditorSession}`,
       document: next,
       draft: nextDraft,
       persistedDraft: structuredClone(nextDraft),
@@ -1349,6 +1353,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         const restored = await gateway.restore(action.document);
         const restoredDraft = editableNote(restored);
         sessions.current.set(restored.path, {
+          editorSessionKey: `note-editor-${++noteEditorSession}`,
           document: restored,
           draft: restoredDraft,
           persistedDraft: structuredClone(restoredDraft),
@@ -1589,7 +1594,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setShortcutsOpen(false);
         return;
       }
-      if (modifier && key === "k") {
+      if (modifier && (key === "p" || (key === "k" && !isEditableTarget(event.target)))) {
         event.preventDefault();
         setShortcutsOpen(false);
         setQuickOpen(true);
@@ -1789,18 +1794,24 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
             <input id="note-title" className="title-input" value={draft.title} onChange={(event) => changeActiveDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Untitled" spellCheck="true" />
             <Suspense fallback={<div className="body-editor code-editor-loading" role="status" aria-label="Loading note editor" aria-busy="true"><span /></div>}>
               <CodeEditor
-                key={document.path}
+                key={currentSession.current?.editorSessionKey ?? document.path}
                 value={draft.body}
                 onChange={(body) => changeActiveDraft((current) => ({ ...current, body }))}
                 label="Note body"
                 language="markdown"
+                variant="writer"
                 placeholder="Start writing"
                 vimEnabled={preferences.vim}
                 lineWrapping={preferences.lineWrapping}
+                quietMarkdown={preferences.quietMarkdown}
                 autoFocus
                 className="body-editor"
+                documentId={currentSession.current?.editorSessionKey}
+                currentPath={document.path}
+                recentPaths={recentPaths}
                 linkSuggestions={linkOptions}
                 linkTypes={linkTypeNames}
+                onOpenLink={navigateToNote}
               />
             </Suspense>
           </article>
@@ -2148,7 +2159,7 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
     <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, structureLoading, contentComplete, contentIndexing, contentLoaded, total, Boolean(search))}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry full text</button>}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
-    <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search every note</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K</kbd></button>}</div>
+    <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search every note</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={structureLoading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const note = notes[virtualRow.index];

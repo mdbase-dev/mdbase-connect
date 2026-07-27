@@ -14,6 +14,11 @@ export interface LinkMatch {
   rank: number;
 }
 
+export interface LinkMatchContext {
+  currentPath?: string;
+  recentPaths?: string[];
+}
+
 interface LinkReference {
   target: string;
   format?: string;
@@ -27,6 +32,16 @@ interface LinkIndex {
   filenames: Map<string, NoteSummary[]>;
 }
 
+interface IndexedSuggestion {
+  suggestion: LinkSuggestion;
+  title: string;
+  aliases: string[];
+  path: string;
+  types: string[];
+}
+
+const suggestionIndexes = new WeakMap<LinkSuggestion[], IndexedSuggestion[]>();
+
 export function linkSuggestions(notes: NoteSummary[], declaredTypes: string[] = []): LinkSuggestion[] {
   const declared = new Set(declaredTypes);
   return notes
@@ -39,21 +54,33 @@ export function linkSuggestions(notes: NoteSummary[], declaredTypes: string[] = 
     .sort((left, right) => left.title.localeCompare(right.title) || left.path.localeCompare(right.path));
 }
 
-export function linkMatches(suggestions: LinkSuggestion[], query: string, type?: string, limit = Number.POSITIVE_INFINITY): LinkMatch[] {
+export function linkMatches(
+  suggestions: LinkSuggestion[],
+  query: string,
+  type?: string,
+  limit = Number.POSITIVE_INFINITY,
+  context: LinkMatchContext = {}
+): LinkMatch[] {
   const needle = query.trim().toLocaleLowerCase();
   const typeName = type?.toLocaleLowerCase();
-  const candidates = suggestions
-    .filter((suggestion) => !typeName || suggestion.types?.some((candidate) => candidate.toLocaleLowerCase() === typeName));
-  if (!needle) {
-    return candidates.slice(0, limit).map((suggestion) => ({ suggestion, label: suggestion.title, rank: 0 }));
-  }
+  const sourceFolder = context.currentPath ? folder(context.currentPath) : undefined;
+  const recent = new Map((context.recentPaths ?? []).map((path, index) => [path, index]));
+  const candidates = indexedSuggestions(suggestions)
+    .filter((entry) => !typeName || entry.types.includes(typeName));
   return candidates
-    .map((suggestion) => bestLinkMatch(suggestion, needle))
-    .filter((match) => match.rank < 4)
+    .map((entry) => ({
+      ...bestLinkMatch(entry, needle),
+      sameFolder: sourceFolder !== undefined && folder(entry.suggestion.path) === sourceFolder,
+      recent: recent.get(entry.suggestion.path) ?? Number.POSITIVE_INFINITY
+    }))
+    .filter((match) => Number.isFinite(match.rank))
     .sort((left, right) => left.rank - right.rank
+      || left.recent - right.recent
+      || Number(right.sameFolder) - Number(left.sameFolder)
       || left.label.localeCompare(right.label)
       || left.suggestion.path.localeCompare(right.suggestion.path))
-    .slice(0, limit);
+    .slice(0, limit)
+    .map(({ suggestion, label, rank }) => ({ suggestion, label, rank }));
 }
 
 export function backlinksFor(targetPath: string, notes: NoteSummary[]): NoteSummary[] {
@@ -70,32 +97,60 @@ export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title
     : `${target}|${label}`;
 }
 
-function bestLinkMatch(suggestion: LinkSuggestion, query: string): LinkMatch {
-  const aliases = suggestion.aliases ?? [];
-  let best = { label: suggestion.title, rank: textRank(suggestion.title, query) };
-  for (const label of aliases) {
-    const rank = textRank(label, query);
-    const exactAlias = label.toLocaleLowerCase() === query && best.label.toLocaleLowerCase() !== query;
+function bestLinkMatch(entry: IndexedSuggestion, query: string): LinkMatch {
+  const { suggestion } = entry;
+  let best = { label: suggestion.title, rank: textRank(entry.title, query) };
+  for (let index = 0; index < entry.aliases.length; index += 1) {
+    const label = suggestion.aliases![index];
+    const rank = textRank(entry.aliases[index], query);
+    const exactAlias = entry.aliases[index] === query && best.label.toLocaleLowerCase() !== query;
     if (rank < best.rank || (rank === best.rank && exactAlias)) best = { label, rank };
   }
-  const pathRank = pathMatchRank(suggestion.path, query);
+  const pathRank = pathMatchRank(entry.path, query);
   return { suggestion, label: best.label, rank: Math.min(best.rank, pathRank) };
 }
 
 function textRank(value: string, query: string): number {
   if (!query) return 0;
-  const normalized = value.toLocaleLowerCase();
-  if (normalized.startsWith(query)) return 0;
-  if (normalized.includes(query)) return 2;
-  return 4;
+  if (value === query) return 0;
+  if (value.startsWith(query)) return 1;
+  if (value.split(/[\s/_.-]+/).some((part) => part.startsWith(query))) return 2;
+  if (value.includes(query)) return 3;
+  if (isSubsequence(query, value)) return 4;
+  return Number.POSITIVE_INFINITY;
 }
 
 function pathMatchRank(path: string, query: string): number {
   if (!query) return 0;
-  const normalized = path.toLocaleLowerCase();
-  if (normalized.startsWith(query) || normalized.split("/").at(-1)?.startsWith(query)) return 1;
-  if (normalized.includes(query)) return 3;
-  return 4;
+  const filename = path.split("/").at(-1) ?? path;
+  if (filename.startsWith(query)) return 1;
+  if (path.startsWith(query)) return 2;
+  if (path.includes(query)) return 3;
+  if (isSubsequence(query, filename)) return 4;
+  return Number.POSITIVE_INFINITY;
+}
+
+function indexedSuggestions(suggestions: LinkSuggestion[]): IndexedSuggestion[] {
+  const cached = suggestionIndexes.get(suggestions);
+  if (cached) return cached;
+  const indexed = suggestions.map((suggestion) => ({
+    suggestion,
+    title: suggestion.title.toLocaleLowerCase(),
+    aliases: (suggestion.aliases ?? []).map((alias) => alias.toLocaleLowerCase()),
+    path: suggestion.path.toLocaleLowerCase(),
+    types: (suggestion.types ?? []).map((type) => type.toLocaleLowerCase())
+  }));
+  suggestionIndexes.set(suggestions, indexed);
+  return indexed;
+}
+
+function isSubsequence(query: string, value: string): boolean {
+  let queryIndex = 0;
+  for (const character of value) {
+    if (character === query[queryIndex]) queryIndex += 1;
+    if (queryIndex === query.length) return true;
+  }
+  return false;
 }
 
 function noteAliases(note: NoteSummary): string[] {

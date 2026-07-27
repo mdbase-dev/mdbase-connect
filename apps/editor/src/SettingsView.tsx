@@ -27,6 +27,9 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
         <SettingRow title="Wrap long lines" description="Keep Markdown visible within the writing measure.">
           <Toggle checked={preferences.lineWrapping} label="Wrap long lines" onChange={(lineWrapping) => onChange({ ...preferences, lineWrapping })} />
         </SettingRow>
+        <SettingRow title="Quiet Markdown" description="Soften punctuation away from the active line and make tasks checkable.">
+          <Toggle checked={preferences.quietMarkdown} label="Quiet Markdown" onChange={(quietMarkdown) => onChange({ ...preferences, quietMarkdown })} />
+        </SettingRow>
         <SettingRow title="Text size" description="Change note text without changing the surrounding interface.">
           <select aria-label="Editor text size" value={preferences.fontSize} onChange={(event) => onChange({ ...preferences, fontSize: Number(event.target.value) as EditorPreferences["fontSize"] })}>
             <option value="16">Compact</option><option value="17">Comfortable</option><option value="19">Large</option>

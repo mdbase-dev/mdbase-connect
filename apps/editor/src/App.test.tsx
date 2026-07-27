@@ -408,7 +408,7 @@ describe("mdbase editor", () => {
     await user.clear(search);
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
 
-    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     const quickOpen = await screen.findByRole("dialog", { name: "Quick open" });
     expect(within(quickOpen).getByText("Recent notes")).toBeInTheDocument();
     const finder = within(quickOpen).getByRole("combobox", { name: "Find a note" });
@@ -431,6 +431,9 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
     const help = screen.getByRole("dialog", { name: "Shortcuts" });
     expect(help).toHaveTextContent("Quick open");
+    expect(help).toHaveTextContent("Find in note");
+    expect(help).toHaveTextContent("Bold or italic");
+    expect(help).toHaveTextContent("Markdown commands");
     expect(help).toHaveTextContent("Next or previous note");
     await user.click(within(help).getByRole("button", { name: "Close keyboard shortcuts" }));
     expect(screen.queryByRole("dialog", { name: "Shortcuts" })).not.toBeInTheDocument();

@@ -50,6 +50,33 @@ describe("collection links", () => {
     expect(linkMatches(suggestions, "ada", "person")).toHaveLength(1);
     expect(wikilinkFor(suggestions[0], "Countess of Lovelace")).toBe("People/ada|Countess of Lovelace");
   });
+
+  it("ranks nearby and recently opened notes ahead of otherwise equal matches", () => {
+    const suggestions = linkSuggestions([
+      note("Notes/project.md", "Project"),
+      note("Archive/project.md", "Project")
+    ]);
+
+    expect(linkMatches(suggestions, "project", undefined, undefined, {
+      currentPath: "Notes/source.md"
+    })[0].suggestion.path).toBe("Notes/project.md");
+
+    expect(linkMatches(suggestions, "project", undefined, undefined, {
+      currentPath: "Notes/source.md",
+      recentPaths: ["Archive/project.md"]
+    })[0].suggestion.path).toBe("Archive/project.md");
+  });
+
+  it("finds subsequence matches without making short queries noisy", () => {
+    const suggestions = linkSuggestions([
+      note("People/ada-lovelace.md", "Ada Lovelace"),
+      note("Notes/a-different-list.md", "A different list")
+    ]);
+
+    expect(linkMatches(suggestions, "adlv")).toMatchObject([{
+      suggestion: { path: "People/ada-lovelace.md" }
+    }]);
+  });
 });
 
 function note(path: string, title: string, links: unknown[] = [], embeds: unknown[] = []): NoteSummary {

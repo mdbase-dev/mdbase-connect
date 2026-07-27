@@ -87,7 +87,11 @@ function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSummary[] {
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   const modifier = navigator.platform.includes("Mac") ? "⌘" : "Ctrl";
   const shortcuts = [
-    [`${modifier} K`, "Quick open"],
+    [`${modifier} P`, "Quick open"],
+    [`${modifier} F`, "Find in note"],
+    [`${modifier} B / I`, "Bold or italic"],
+    [`${modifier} K`, "Add a link"],
+    ["/", "Markdown commands"],
     ["Alt J / K", "Next or previous note"],
     [`${modifier} Shift N`, "New note"],
     [`${modifier} Shift L`, "Show or hide the notes sidebar"],

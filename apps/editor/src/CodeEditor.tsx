@@ -1,43 +1,103 @@
-import { autocompletion, startCompletion, type Completion, type CompletionContext } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  startCompletion,
+  type Completion,
+  type CompletionContext
+} from "@codemirror/autocomplete";
+import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, highlightSpecialChars, keymap, placeholder as editorPlaceholder } from "@codemirror/view";
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  HighlightStyle,
+  indentOnInput,
+  syntaxHighlighting,
+  syntaxTree
+} from "@codemirror/language";
+import { lintGutter, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { Compartment, EditorSelection, EditorState, type Extension, type Range } from "@codemirror/state";
+import {
+  Decoration,
+  EditorView,
+  highlightSpecialChars,
+  keymap,
+  lineNumbers,
+  placeholder as editorPlaceholder,
+  scrollPastEnd,
+  ViewPlugin,
+  WidgetType,
+  type DecorationSet,
+  type ViewUpdate
+} from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
+import { parseDocument as parseYamlDocument } from "yaml";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 
 type EditorLanguage = "markdown" | "json" | "yaml" | "plain";
+type EditorVariant = "writer" | "source";
+export type MarkdownFormat = "bold" | "italic" | "code" | "link";
 
 interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
   label: string;
   language?: EditorLanguage;
+  variant?: EditorVariant;
   placeholder?: string;
   readOnly?: boolean;
   vimEnabled?: boolean;
   lineWrapping?: boolean;
   autoFocus?: boolean;
+  quietMarkdown?: boolean;
   className?: string;
+  documentId?: string;
+  currentPath?: string;
+  recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
+  onOpenLink?: (path: string) => void;
 }
+
+interface RememberedEditor {
+  state: unknown;
+  scrollTop: number;
+  separator: "\n" | "\r\n";
+}
+
+interface MarkdownEdit {
+  from: number;
+  to: number;
+  insert: string;
+  anchor: number;
+  head: number;
+}
+
+const rememberedEditors = new Map<string, RememberedEditor>();
+const rememberedEditorLimit = 40;
 
 export function CodeEditor({
   value,
   onChange,
   label,
   language = "plain",
+  variant = "source",
   placeholder,
   readOnly = false,
   vimEnabled = false,
   lineWrapping = true,
   autoFocus = false,
+  quietMarkdown = true,
   className = "",
+  documentId,
+  currentPath,
+  recentPaths = [],
   linkSuggestions = [],
-  linkTypes = []
+  linkTypes = [],
+  onOpenLink
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
@@ -47,51 +107,72 @@ export function CodeEditor({
   const wrapping = useRef(new Compartment());
   const completions = useRef(new Compartment());
   const languageMode = useRef(new Compartment());
+  const writerPresentation = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
+  const recentPathsRef = useRef(recentPaths);
+  const currentPathRef = useRef(currentPath);
+  const onOpenLinkRef = useRef(onOpenLink);
   const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
+  recentPathsRef.current = recentPaths;
+  currentPathRef.current = currentPath;
+  onOpenLinkRef.current = onOpenLink;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
   useEffect(() => {
     if (!parentRef.current) return;
-    const view = new EditorView({
-      parent: parentRef.current,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          vimMode.current.of([]),
-          editorSetup,
-          syntaxHighlighting(mdbaseHighlightStyle),
-          languageMode.current.of(language === "markdown" ? markdown() : []),
-          wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
-          completions.current.of(language === "markdown" ? linkAutocomplete(
-            () => linkSuggestionsRef.current,
-            () => linkTypesRef.current
-          ) : []),
-          EditorState.readOnly.of(readOnly),
-          EditorView.editable.of(!readOnly),
-          EditorView.contentAttributes.of({
-            "aria-label": label,
-            "aria-multiline": "true",
-            tabindex: "0",
-            spellcheck: language === "markdown" ? "true" : "false"
-          }),
-          placeholder ? editorPlaceholder(placeholder) : [],
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged && !syncing.current) {
-              onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
-            }
-          })
-        ]
+    const extensions: Extension[] = [
+      vimMode.current.of([]),
+      editorSetup(variant),
+      syntaxHighlighting(mdbaseHighlightStyle),
+      variant === "writer" ? syntaxHighlighting(writerHighlightStyle) : [],
+      languageMode.current.of(language === "markdown" ? markdown() : []),
+      wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
+      completions.current.of(variant === "writer" && language === "markdown" ? writerAutocomplete(
+        () => linkSuggestionsRef.current,
+        () => linkTypesRef.current,
+        () => currentPathRef.current,
+        () => recentPathsRef.current
+      ) : []),
+      writerPresentation.current.of(variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []),
+      variant === "writer" ? writerInteractions(
+        () => linkSuggestionsRef.current,
+        () => currentPathRef.current,
+        () => onOpenLinkRef.current
+      ) : [],
+      EditorState.readOnly.of(readOnly),
+      EditorView.editable.of(!readOnly),
+      EditorView.contentAttributes.of({
+        "aria-label": label,
+        "aria-multiline": "true",
+        tabindex: "0",
+        spellcheck: variant === "writer" && language === "markdown" ? "true" : "false"
+      }),
+      placeholder ? editorPlaceholder(placeholder) : [],
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged && !syncing.current) {
+          onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
+        }
       })
-    });
+    ];
+    const remembered = documentId ? rememberedEditors.get(documentId) : undefined;
+    const config = { extensions };
+    const state = remembered && rememberedValue(remembered) === value
+      ? EditorState.fromJSON(remembered.state, config, { history: historyField })
+      : EditorState.create({ doc: value, extensions });
+    const view = new EditorView({ parent: parentRef.current, state });
     viewRef.current = view;
-    if (autoFocus) requestAnimationFrame(() => view.focus());
+    requestAnimationFrame(() => {
+      if (viewRef.current !== view) return;
+      if (remembered) view.scrollDOM.scrollTop = remembered.scrollTop;
+      if (autoFocus) view.focus();
+    });
     return () => {
+      if (documentId) rememberEditor(documentId, view, lineSeparator.current);
       view.destroy();
       viewRef.current = undefined;
     };
@@ -126,12 +207,24 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: completions.current.reconfigure(language === "markdown" ? linkAutocomplete(
+      effects: completions.current.reconfigure(variant === "writer" && language === "markdown" ? writerAutocomplete(
         () => linkSuggestionsRef.current,
-        () => linkTypesRef.current
+        () => linkTypesRef.current,
+        () => currentPathRef.current,
+        () => recentPathsRef.current
       ) : [])
     });
-  }, [language]);
+  }, [language, variant]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: writerPresentation.current.reconfigure(
+        variant === "writer" && quietMarkdown ? quietMarkdownPresentation : []
+      )
+    });
+  }, [quietMarkdown, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -146,25 +239,37 @@ export function CodeEditor({
     }
     let cancelled = false;
     const load = language === "json"
-      ? import("@codemirror/lang-json").then(({ json }) => json())
-      : import("@codemirror/lang-yaml").then(({ yaml }) => yaml());
+      ? import("@codemirror/lang-json").then(({ json, jsonParseLinter }) => [
+        json(),
+        variant === "source" ? linter(jsonParseLinter()) : []
+      ] as Extension)
+      : import("@codemirror/lang-yaml").then(({ yaml }) => [
+        yaml(),
+        variant === "source" ? linter(yamlLinter) : []
+      ] as Extension);
     void load.then((extension) => {
       if (!cancelled && viewRef.current === view) {
         view.dispatch({ effects: languageMode.current.reconfigure(extension) });
       }
     });
     return () => { cancelled = true; };
-  }, [language]);
+  }, [language, variant]);
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view || restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
     syncing.current = true;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      selection: EditorSelection.cursor(Math.min(view.state.selection.main.head, value.length))
+    });
     syncing.current = false;
   }, [value]);
 
-  return <div ref={parentRef} className={`code-editor ${className}`.trim()} />;
+  return <div
+    ref={parentRef}
+    className={`code-editor code-editor-${variant} ${className}`.trim()}
+  />;
 }
 
 export function lineSeparatorFor(value: string): "\n" | "\r\n" {
@@ -176,11 +281,68 @@ export function restoreLineSeparators(value: string, separator: "\n" | "\r\n"): 
   return separator === "\r\n" ? normalized.replace(/\n/g, "\r\n") : normalized;
 }
 
-const editorSetup: Extension = [
+export function markdownEdit(doc: string, from: number, to: number, format: MarkdownFormat): MarkdownEdit {
+  const selected = doc.slice(from, to);
+  if (format === "link") {
+    const label = selected || "link";
+    const insert = `[${label}](https://)`;
+    return selected
+      ? { from, to, insert, anchor: from + label.length + 3, head: from + label.length + 11 }
+      : { from, to, insert, anchor: from + 1, head: from + 1 + label.length };
+  }
+
+  const [before, after, fallback] = format === "bold"
+    ? ["**", "**", "bold"]
+    : format === "italic"
+      ? ["*", "*", "italic"]
+      : ["`", "`", "code"];
+  if (selected && doc.slice(from - before.length, from) === before && doc.slice(to, to + after.length) === after) {
+    return {
+      from: from - before.length,
+      to: to + after.length,
+      insert: selected,
+      anchor: from - before.length,
+      head: to - before.length
+    };
+  }
+  const content = selected || fallback;
+  return {
+    from,
+    to,
+    insert: `${before}${content}${after}`,
+    anchor: from + before.length,
+    head: from + before.length + content.length
+  };
+}
+
+const editorSetup = (variant: EditorVariant): Extension => [
   highlightSpecialChars(),
   history(),
+  search({ top: true }),
+  highlightSelectionMatches({ minSelectionLength: 2 }),
+  bracketMatching(),
+  variant === "writer" ? scrollPastEnd() : [
+    lineNumbers(),
+    indentOnInput(),
+    closeBrackets(),
+    lintGutter()
+  ],
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-  keymap.of([...defaultKeymap, ...historyKeymap])
+  keymap.of([
+    ...(variant === "writer" ? writerKeymap : []),
+    ...(variant === "source" ? closeBracketsKeymap : []),
+    ...searchKeymap,
+    ...defaultKeymap,
+    ...historyKeymap,
+    ...(variant === "source" ? lintKeymap : [])
+  ])
+];
+
+const writerKeymap = [
+  { key: "Mod-b", run: markdownFormatCommand("bold") },
+  { key: "Mod-i", run: markdownFormatCommand("italic") },
+  { key: "Mod-k", run: markdownFormatCommand("link") },
+  { key: "Mod-Shift-c", run: markdownFormatCommand("code") }
 ];
 
 const mdbaseHighlightStyle = HighlightStyle.define([
@@ -191,23 +353,67 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: [tags.link, tags.url], color: "var(--syntax-link)", textDecoration: "underline" },
   { tag: [tags.heading, tags.strong], color: "var(--syntax-heading)", fontWeight: "700" },
   { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.quote, color: "var(--muted)" },
+  { tag: tags.monospace, fontFamily: "var(--mono)", fontSize: "0.9em" },
   { tag: tags.invalid, color: "var(--danger)" }
 ]);
 
-function linkAutocomplete(suggestions: () => LinkSuggestion[], types: () => string[]): Extension {
+const writerHighlightStyle = HighlightStyle.define([
+  { tag: tags.heading1, fontSize: "1.42em" },
+  { tag: tags.heading2, fontSize: "1.24em" },
+  { tag: tags.heading3, fontSize: "1.1em" }
+]);
+
+function markdownFormatCommand(format: MarkdownFormat) {
+  return (view: EditorView) => {
+    const transaction = view.state.changeByRange((range) => {
+      const edit = markdownEdit(view.state.doc.toString(), range.from, range.to, format);
+      return {
+        changes: { from: edit.from, to: edit.to, insert: edit.insert },
+        range: EditorSelection.range(edit.anchor, edit.head)
+      };
+    });
+    view.dispatch({
+      ...transaction,
+      scrollIntoView: true,
+      userEvent: "input"
+    });
+    return true;
+  };
+}
+
+function writerAutocomplete(
+  suggestions: () => LinkSuggestion[],
+  types: () => string[],
+  currentPath: () => string | undefined,
+  recentPaths: () => string[]
+): Extension {
   return autocompletion({
     activateOnTyping: true,
-    override: [(context) => linkCompletion(context, suggestions(), types())]
+    interactionDelay: 0,
+    override: [(context) => linkCompletion(
+      context,
+      suggestions(),
+      types(),
+      currentPath(),
+      recentPaths()
+    ) ?? slashCompletion(context)]
   });
 }
 
-export function linkCompletion(context: CompletionContext, suggestions: LinkSuggestion[], types: string[]) {
+export function linkCompletion(
+  context: CompletionContext,
+  suggestions: LinkSuggestion[],
+  types: string[],
+  currentPath?: string,
+  recentPaths: string[] = []
+) {
   const wikilink = context.matchBefore(/\[\[[^\]\n]*/);
   const mention = context.matchBefore(/(?:^|[\s([{])@[^@\n]*/);
   if (!wikilink && !mention) return null;
   if (wikilink && (!mention || wikilink.from > mention.from)) {
     const query = wikilink.text.slice(2);
-    return objectCompletions(wikilink.from + 2, context.pos, suggestions, query);
+    return objectCompletions(wikilink.from + 2, context.pos, suggestions, query, currentPath, recentPaths);
   }
 
   const at = mention!.text.lastIndexOf("@");
@@ -219,7 +425,7 @@ export function linkCompletion(context: CompletionContext, suggestions: LinkSugg
     for (const type of types.filter((candidate) => candidate.toLocaleLowerCase().includes(typeQuery))) {
       options.push({
         label: `/${type}`,
-        detail: "mdbase type",
+        detail: "Filter links by type",
         type: "type",
         apply: (view, _completion, applyFrom, applyTo) => {
           const insert = `@/${type}/`;
@@ -230,17 +436,36 @@ export function linkCompletion(context: CompletionContext, suggestions: LinkSugg
     }
   }
   if (!scope.typeQuery || scope.type) {
-    options.push(...objectOptions(suggestions, scope.query, scope.type, true));
+    options.push(...objectOptions(suggestions, scope.query, scope.type, true, currentPath, recentPaths));
   }
   return { from, to: context.pos, options, filter: false };
 }
 
-function objectCompletions(from: number, to: number, suggestions: LinkSuggestion[], query: string) {
-  return { from, to, options: objectOptions(suggestions, query), filter: false };
+function objectCompletions(
+  from: number,
+  to: number,
+  suggestions: LinkSuggestion[],
+  query: string,
+  currentPath?: string,
+  recentPaths: string[] = []
+) {
+  return {
+    from,
+    to,
+    options: objectOptions(suggestions, query, undefined, false, currentPath, recentPaths),
+    filter: false
+  };
 }
 
-function objectOptions(suggestions: LinkSuggestion[], query: string, type?: string, mention = false): Completion[] {
-  return linkMatches(suggestions, query, type, 50).map(({ suggestion, label }) => ({
+function objectOptions(
+  suggestions: LinkSuggestion[],
+  query: string,
+  type?: string,
+  mention = false,
+  currentPath?: string,
+  recentPaths: string[] = []
+): Completion[] {
+  return linkMatches(suggestions, query, type, 50, { currentPath, recentPaths }).map(({ suggestion, label }) => ({
     label,
     detail: suggestionDetail(suggestion, label),
     type: "text",
@@ -249,8 +474,9 @@ function objectOptions(suggestions: LinkSuggestion[], query: string, type?: stri
 }
 
 function suggestionDetail(suggestion: LinkSuggestion, label: string): string {
-  const parts = [suggestion.types?.length ? suggestion.types.join(", ") : "untyped"];
+  const parts: string[] = [];
   if (label !== suggestion.title) parts.push(suggestion.title);
+  if (suggestion.types?.length) parts.push(suggestion.types.join(", "));
   parts.push(suggestion.path);
   return parts.join(" · ");
 }
@@ -273,4 +499,249 @@ export function mentionScope(raw: string, types: string[]): {
     typeQuery: type ? "" : requestedType,
     showTypes: !type
   };
+}
+
+function slashCompletion(context: CompletionContext) {
+  const command = context.matchBefore(/[^\S\n]*\/[^\n]*/);
+  if (!command || command.from !== context.state.doc.lineAt(context.pos).from) return null;
+  const query = command.text.slice(command.text.indexOf("/") + 1).trim().toLocaleLowerCase();
+  const options = slashCommands
+    .filter((item) => !query || item.label.toLocaleLowerCase().includes(query) || item.keywords.some((keyword) => keyword.includes(query)))
+    .map((item) => ({
+      label: item.label,
+      detail: item.detail,
+      type: "keyword",
+      apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
+        const indentation = command.text.slice(0, command.text.indexOf("/"));
+        const insert = `${indentation}${item.insert}`;
+        const cursor = from + indentation.length + item.cursor;
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: EditorSelection.cursor(cursor),
+          scrollIntoView: true
+        });
+      }
+    }));
+  return { from: command.from, to: context.pos, options, filter: false };
+}
+
+const slashCommands = [
+  { label: "Heading 1", detail: "Large section heading", insert: "# ", cursor: 2, keywords: ["title", "h1"] },
+  { label: "Heading 2", detail: "Section heading", insert: "## ", cursor: 3, keywords: ["subtitle", "h2"] },
+  { label: "Heading 3", detail: "Small section heading", insert: "### ", cursor: 4, keywords: ["h3"] },
+  { label: "Bulleted list", detail: "Start a list", insert: "- ", cursor: 2, keywords: ["bullet", "unordered"] },
+  { label: "Numbered list", detail: "Start an ordered list", insert: "1. ", cursor: 3, keywords: ["ordered", "number"] },
+  { label: "Task", detail: "Start a checkable task", insert: "- [ ] ", cursor: 6, keywords: ["todo", "checkbox"] },
+  { label: "Quote", detail: "Set off quoted text", insert: "> ", cursor: 2, keywords: ["blockquote"] },
+  { label: "Code block", detail: "Insert a fenced code block", insert: "```\n\n```", cursor: 4, keywords: ["fence", "preformatted"] },
+  { label: "Divider", detail: "Separate sections", insert: "---", cursor: 3, keywords: ["rule", "separator"] }
+];
+
+const quietMarkdownPresentation = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+
+  constructor(view: EditorView) {
+    this.decorations = markdownDecorations(view);
+  }
+
+  update(update: ViewUpdate) {
+    if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      this.decorations = markdownDecorations(update.view);
+    }
+  }
+}, {
+  decorations: (value) => value.decorations
+});
+
+class TaskCheckboxWidget extends WidgetType {
+  constructor(readonly from: number, readonly checked: boolean) {
+    super();
+  }
+
+  eq(other: TaskCheckboxWidget) {
+    return this.from === other.from && this.checked === other.checked;
+  }
+
+  toDOM() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cm-task-checkbox";
+    button.dataset.taskFrom = String(this.from);
+    button.setAttribute("role", "checkbox");
+    button.setAttribute("aria-checked", String(this.checked));
+    button.setAttribute("aria-label", this.checked ? "Mark task incomplete" : "Mark task complete");
+    button.title = this.checked ? "Mark task incomplete" : "Mark task complete";
+    button.textContent = this.checked ? "✓" : "";
+    return button;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+function markdownDecorations(view: EditorView): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  const activeLines = new Set(view.state.selection.ranges.map((range) => view.state.doc.lineAt(range.head).from));
+  const visibleLines = new Set<number>();
+  for (const visible of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from: visible.from,
+      to: visible.to,
+      enter(node) {
+        if (!markdownMarkerNames.has(node.name) || activeLines.has(view.state.doc.lineAt(node.from).from)) return;
+        ranges.push(Decoration.mark({ class: "cm-markdown-mark" }).range(node.from, node.to));
+      }
+    });
+    let line = view.state.doc.lineAt(visible.from);
+    while (line.from <= visible.to) {
+      if (!visibleLines.has(line.from)) {
+        visibleLines.add(line.from);
+        const task = /^(\s*(?:[-+*]|\d+[.)])\s+)\[([ xX])\](?=\s|$)/.exec(line.text);
+        if (task && !activeLines.has(line.from)) {
+          const from = line.from + task[1].length;
+          ranges.push(Decoration.replace({
+            widget: new TaskCheckboxWidget(from, task[2].toLocaleLowerCase() === "x")
+          }).range(from, from + 3));
+        }
+      }
+      if (line.to >= view.state.doc.length || line.to >= visible.to) break;
+      line = view.state.doc.line(line.number + 1);
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+
+const markdownMarkerNames = new Set([
+  "HeaderMark",
+  "EmphasisMark",
+  "CodeMark",
+  "QuoteMark",
+  "ListMark",
+  "LinkMark"
+]);
+
+function writerInteractions(
+  suggestions: () => LinkSuggestion[],
+  currentPath: () => string | undefined,
+  onOpenLink: () => ((path: string) => void) | undefined
+): Extension {
+  return EditorView.domEventHandlers({
+    mousedown(event, view) {
+      const task = taskTarget(event);
+      if (!task || event.button !== 0) return false;
+      return toggleTask(view, task, event);
+    },
+    keydown(event, view) {
+      const task = taskTarget(event);
+      if (!task || (event.key !== "Enter" && event.key !== " ")) return false;
+      return toggleTask(view, task, event);
+    },
+    click(event, view) {
+      if (!event.metaKey && !event.ctrlKey) return false;
+      const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (position === null) return false;
+      const link = markdownLinkAt(view.state.doc.toString(), position);
+      if (!link) return false;
+      if (/^https?:\/\//i.test(link)) {
+        event.preventDefault();
+        window.open(link, "_blank", "noopener,noreferrer");
+        return true;
+      }
+      const path = resolveSuggestionPath(link, suggestions(), currentPath());
+      const openLink = onOpenLink();
+      if (!path || !openLink) return false;
+      event.preventDefault();
+      openLink(path);
+      return true;
+    }
+  });
+}
+
+function taskTarget(event: Event): HTMLElement | null {
+  return event.target instanceof Element ? event.target.closest<HTMLElement>(".cm-task-checkbox") : null;
+}
+
+function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolean {
+  const from = Number(target.dataset.taskFrom);
+  if (!Number.isFinite(from)) return false;
+  const source = view.state.sliceDoc(from, from + 3);
+  if (!/^\[[ xX]\]$/.test(source)) return false;
+  event.preventDefault();
+  view.dispatch({
+    changes: { from: from + 1, to: from + 2, insert: source[1].toLocaleLowerCase() === "x" ? " " : "x" },
+    scrollIntoView: true,
+    userEvent: "input"
+  });
+  view.focus();
+  return true;
+}
+
+function markdownLinkAt(doc: string, position: number): string | undefined {
+  const lineStart = doc.lastIndexOf("\n", position - 1) + 1;
+  const lineEnd = doc.indexOf("\n", position);
+  const end = lineEnd < 0 ? doc.length : lineEnd;
+  const line = doc.slice(lineStart, end);
+  for (const match of line.matchAll(/\[\[([^\]]+)\]\]|\[[^\]]*\]\(([^)]+)\)/g)) {
+    const from = lineStart + match.index;
+    const to = from + match[0].length;
+    if (position >= from && position <= to) return (match[1] ?? match[2]).split("|", 1)[0].split("#", 1)[0].trim();
+  }
+  return undefined;
+}
+
+function resolveSuggestionPath(target: string, suggestions: LinkSuggestion[], sourcePath?: string): string | undefined {
+  const normalized = target.replaceAll("\\", "/").replace(/^\.?\//, "").replace(/\.md$/i, "").toLocaleLowerCase();
+  const exact = suggestions.find((suggestion) => suggestion.path.replace(/\.md$/i, "").toLocaleLowerCase() === normalized);
+  if (exact) return exact.path;
+  const sourceFolder = sourcePath?.includes("/") ? sourcePath.slice(0, sourcePath.lastIndexOf("/")) : "";
+  const candidates = suggestions.filter((suggestion) => {
+    const filename = suggestion.path.split("/").at(-1)?.replace(/\.md$/i, "").toLocaleLowerCase();
+    return filename === normalized
+      || suggestion.title.toLocaleLowerCase() === normalized
+      || suggestion.aliases?.some((alias) => alias.toLocaleLowerCase() === normalized);
+  });
+  return candidates.sort((left, right) => {
+    const leftFolder = left.path.slice(0, Math.max(0, left.path.lastIndexOf("/")));
+    const rightFolder = right.path.slice(0, Math.max(0, right.path.lastIndexOf("/")));
+    return Number(rightFolder === sourceFolder) - Number(leftFolder === sourceFolder)
+      || left.path.length - right.path.length
+      || left.path.localeCompare(right.path);
+  })[0]?.path;
+}
+
+function yamlLinter(view: EditorView): readonly Diagnostic[] {
+  const parsed = parseYamlDocument(view.state.doc.toString(), { prettyErrors: false });
+  return parsed.errors.map((error) => {
+    const [start = 0, end = start + 1] = error.pos ?? [];
+    const from = Math.min(view.state.doc.length, Math.max(0, start));
+    const to = Math.min(view.state.doc.length, Math.max(from + 1, end));
+    return {
+      from,
+      to,
+      severity: "error" as const,
+      message: error.message
+    };
+  });
+}
+
+function rememberEditor(documentId: string, view: EditorView, separator: "\n" | "\r\n") {
+  rememberedEditors.delete(documentId);
+  rememberedEditors.set(documentId, {
+    state: view.state.toJSON({ history: historyField }),
+    scrollTop: view.scrollDOM.scrollTop,
+    separator
+  });
+  while (rememberedEditors.size > rememberedEditorLimit) {
+    const oldest = rememberedEditors.keys().next().value;
+    if (typeof oldest !== "string") break;
+    rememberedEditors.delete(oldest);
+  }
+}
+
+function rememberedValue(remembered: RememberedEditor): string | undefined {
+  if (!remembered.state || typeof remembered.state !== "object" || !("doc" in remembered.state)) return undefined;
+  const doc = (remembered.state as { doc?: unknown }).doc;
+  if (typeof doc !== "string") return undefined;
+  return restoreLineSeparators(doc, remembered.separator);
 }

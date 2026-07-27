@@ -35,6 +35,78 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
+test("formats, finds, and checks Markdown without adding permanent editor chrome", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.fill("alpha beta");
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Control+b");
+  await expect(body).toHaveText("**alpha beta**");
+
+  await page.keyboard.press("Control+f");
+  const search = page.locator(".body-editor .cm-search");
+  await expect(search).toBeVisible();
+  await search.locator('input[name="search"]').fill("beta");
+  await expect(page.locator(".body-editor .cm-searchMatch")).toHaveCount(1);
+  await search.locator('button[name="close"]').click();
+  await expect(search).not.toBeVisible();
+
+  await body.click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("/task");
+  const completion = page.locator(".cm-tooltip-autocomplete");
+  await expect(completion.getByText("Task", { exact: true })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Finish the polish");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Next thought");
+
+  const task = page.locator(".body-editor .cm-task-checkbox");
+  await expect(task).toHaveAttribute("aria-checked", "false");
+  await task.click();
+  await expect(task).toHaveAttribute("aria-checked", "true");
+  await task.focus();
+  await page.keyboard.press("Space");
+  await expect(task).toHaveAttribute("aria-checked", "false");
+  await task.click();
+  await expect(task).toHaveAttribute("aria-checked", "true");
+  await page.locator(".body-editor .cm-line").filter({ hasText: "Finish the polish" }).click();
+  await expect(body).toContainText("- [x] Finish the polish");
+  await expect(page.locator(".body-editor .cm-markdown-mark").first()).toBeVisible();
+  await expect(page.locator(".body-editor .cm-gutters")).toHaveCount(0);
+});
+
+test("restores each note's caret and undo history", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.fill("alpha beta");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 2_000 });
+
+  await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await page.getByRole("option").filter({ hasText: "The shape of useful tools" }).first().click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+
+  await page.keyboard.type("X");
+  await expect(body).toHaveText("alpha Xbeta");
+  await page.keyboard.press("Control+z");
+  await expect(body).toHaveText("alpha beta");
+});
+
+test("modifier-clicks an internal Markdown link to open its note", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.fill("[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
+  await page.locator(".body-editor .cm-line").filter({ hasText: "Garden notes 2" }).click({ modifiers: ["Control"] });
+
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+});
+
 test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
@@ -128,7 +200,7 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
 
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
   await quickOpen.getByRole("combobox", { name: "Find a note" }).fill("qstn kpng");
@@ -160,19 +232,38 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("heading", { name: "note" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
   await page.getByRole("button", { name: "YAML" }).click();
-  await expect(page.getByRole("textbox", { name: "note type YAML" })).toContainText("kind: mdbase.type");
+  const yaml = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(yaml).toContainText("kind: mdbase.type");
+  await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
   await expect(page.getByText("Collection-wide change")).toBeVisible();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
+  const quietMarkdown = page.getByRole("switch", { name: "Quiet Markdown" });
   await expect(vim).toHaveAttribute("aria-checked", "false");
+  await expect(quietMarkdown).toHaveAttribute("aria-checked", "true");
   await vim.click();
+  await quietMarkdown.click();
   await expect(vim).toHaveAttribute("aria-checked", "true");
+  await expect(quietMarkdown).toHaveAttribute("aria-checked", "false");
 
   await page.getByRole("button", { name: /^Notes, / }).click();
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText("Vim", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("switch", { name: "Quiet Markdown" })).toHaveAttribute("aria-checked", "false");
+});
+
+test("shows line numbers and diagnostics in source mode", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("button", { name: "YAML" }).click();
+  const yaml = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
+  await yaml.fill("---\nname: [\n");
+  await expect(page.locator(".type-source :is(.cm-lintRange-error, .cm-lintPoint-error)")).toBeAttached({ timeout: 3_000 });
+  await expect(page.locator(".type-source .cm-lint-marker-error")).toBeVisible();
 });
 
 test("edits complete type membership, choices, and multiple required fields", async ({ page }) => {
@@ -487,7 +578,8 @@ test("protects an unfinished note draft with a modal confirmation", async ({ pag
 test("keeps every editor action reachable at the minimum mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto("?demo=12");
-  await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await expect(body).toBeVisible();
 
   const bounds = await page.locator(".editor-pane").evaluate((pane) => {
     const action = pane.querySelector<HTMLElement>(".note-actions");
@@ -504,6 +596,19 @@ test("keeps every editor action reachable at the minimum mobile width", async ({
   expect(bounds.paneRight).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.actionRight).toBeLessThanOrEqual(bounds.viewportWidth);
   expect(bounds.surfaceRight).toBeLessThanOrEqual(bounds.viewportWidth);
+
+  await body.click();
+  await page.keyboard.press("Control+f");
+  const searchBounds = await page.locator(".body-editor .cm-search").evaluate((search) => ({
+    right: search.getBoundingClientRect().right,
+    width: search.clientWidth,
+    scrollWidth: search.scrollWidth,
+    viewportWidth: window.innerWidth
+  }));
+  expect(searchBounds.right).toBeLessThanOrEqual(searchBounds.viewportWidth);
+  expect(searchBounds.scrollWidth).toBeLessThanOrEqual(searchBounds.width);
+  await page.locator('.body-editor .cm-search button[name="close"]').click();
+
   await page.getByLabel("More note actions").click();
   await expect(page.getByRole("menuitem", { name: "Check note" })).toBeVisible();
 });
