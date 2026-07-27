@@ -1,4 +1,4 @@
-import { FileText, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "./Dialog";
 import type { NoteSummary } from "./model";
@@ -57,7 +57,7 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
         />
         <button className="icon-button" aria-label="Close quick open" onClick={onClose}><X aria-hidden="true" /></button>
       </div>
-      <p className="quick-open-heading">{query.trim() ? "Best matches" : "Recent notes"}</p>
+      <p className="sr-only" aria-live="polite">{query.trim() ? "Best matches" : "Recent notes"}</p>
       <div id="quick-open-results" className="quick-open-results" role="listbox" aria-label="Matching notes">
         {notes.map((note, noteIndex) => <button
           id={`quick-open-${noteIndex}`}
@@ -67,10 +67,10 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
           key={note.path}
           onMouseEnter={() => setActiveIndex(noteIndex)}
           onClick={() => choose(note)}
-        ><FileText aria-hidden="true" /><span><strong>{noteTitle(note)}</strong><small>{note.path}</small></span></button>)}
+        ><span><strong>{noteTitle(note)}</strong><small>{note.path}</small></span></button>)}
         {!notes.length && <p>No matching notes.</p>}
       </div>
-      <footer><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>Enter</kbd> Open</span><span><kbd>Esc</kbd> Close</span></footer>
+      <footer><span><kbd>↑↓</kbd> choose · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</span></footer>
   </Dialog>;
 }
 
@@ -98,7 +98,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     ["?", "Show this shortcut guide"]
   ];
   return <Dialog titleId="shortcut-help-title" className="shortcut-help" onClose={onClose}>
-      <header><div><p className="eyebrow">Keyboard</p><h2 id="shortcut-help-title">Shortcuts</h2></div><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>
-      <dl>{shortcuts.map(([keys, label]) => <div key={label}><dt>{label}</dt><dd>{keys.split(" ").map((key, index) => <kbd key={`${key}:${index}`}>{key}</kbd>)}</dd></div>)}</dl>
+      <header><h2 id="shortcut-help-title">Shortcuts</h2><button className="icon-button" aria-label="Close keyboard shortcuts" onClick={onClose}><X aria-hidden="true" /></button></header>
+      <dl>{shortcuts.map(([keys, label]) => <div key={label}><dt>{label}</dt><dd><kbd>{keys}</kbd></dd></div>)}</dl>
   </Dialog>;
 }

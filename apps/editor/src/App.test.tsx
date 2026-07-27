@@ -34,8 +34,8 @@ describe("mdbase editor", () => {
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
     expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
     await user.click(within(collectionRail).getByRole("button", { name: "Switch collection, current collection Writing" }));
-    expect(screen.getByRole("dialog", { name: "Choose where to write" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Forget “Writing”" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Choose a collection" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Forget/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close collection switcher" }));
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
@@ -56,6 +56,11 @@ describe("mdbase editor", () => {
       collectionCollapsed: false,
       listCollapsed: false
     });
+
+    await user.click(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Forget collection" }));
+    expect(screen.getByRole("alertdialog", { name: "Forget “Writing”?" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
   });
 
   it("opens a collection, selects a note, and autosaves body changes", async () => {

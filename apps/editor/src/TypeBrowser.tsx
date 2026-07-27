@@ -133,7 +133,7 @@ export function TypeInspector({ type, document, source, notes, creating, loading
           </div>
           <div className="type-editor-actions">
             <span className="type-change-scope">Collection-wide change</span>
-            <button onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
+            <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
             <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value}>{saving ? "Saving…" : "Review changes"}</button>
           </div>
         </div>

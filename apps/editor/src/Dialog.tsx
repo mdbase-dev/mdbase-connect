@@ -120,10 +120,14 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel
       <div>{body}</div>
     </div>
     <footer>
-      <button disabled={busy} onClick={onClose}>{cancelLabel}</button>
+      <button
+        data-autofocus={tone === "danger" ? "true" : undefined}
+        disabled={busy}
+        onClick={onClose}
+      >{cancelLabel}</button>
       <button
         className={tone === "danger" ? "confirm-danger" : "confirm-primary"}
-        data-autofocus
+        data-autofocus={tone === "danger" ? undefined : "true"}
         disabled={busy}
         onClick={() => void confirm()}
       >{busy ? "Working…" : confirmLabel}</button>

@@ -249,9 +249,9 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(quietMarkdown).toHaveAttribute("aria-checked", "false");
 
   await page.getByRole("button", { name: /^Notes, / }).click();
-  await expect(page.getByText("Vim", { exact: true })).toBeVisible();
+  await expect(page.getByText("vim", { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("Vim", { exact: true })).toBeVisible();
+  await expect(page.getByText("vim", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("switch", { name: "Quiet Markdown" })).toHaveAttribute("aria-checked", "false");
 });

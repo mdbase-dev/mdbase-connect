@@ -1,16 +1,17 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import type { CollectionDescription } from "@mdbase/connect";
 import { useEffect, useState, type ReactNode } from "react";
 import type { EditorPreferences } from "./preferences";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
-export function SettingsView({ description, noteCount, preferences, leadingActions, onChange, onBack }: {
+export function SettingsView({ description, noteCount, preferences, leadingActions, onChange, onBack, onForget }: {
   description: CollectionDescription;
   noteCount: number;
   preferences: EditorPreferences;
   leadingActions?: ReactNode;
   onChange: (value: EditorPreferences) => void;
   onBack: () => void;
+  onForget: () => void;
 }) {
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
@@ -55,6 +56,10 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
         <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
         <FactRow label="Operations" value={description.operations.join(", ")} mono />
         <FactRow label="Collection ID" value={description.collection_id} mono />
+        <div className="setting-row connection-action">
+          <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
+          <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget collection</button>
+        </div>
       </section>
     </div>
   </main>;

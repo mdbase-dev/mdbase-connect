@@ -1825,7 +1825,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 <input id="note-path" className="path-input" value={pathDraft} onChange={(event) => setPathDraft(event.target.value)} onBlur={() => void requestRename()} autoFocus />
               </form> : <button className="path-button" onClick={() => setEditingPath(true)} title="Rename Markdown path"><span>{document.path}</span><Pencil aria-hidden="true" /></button>}
             </div>
-            {preferences.vim && <span className="vim-label">Vim</span>}
+            {preferences.vim && <span className="vim-label">vim</span>}
             <SaveIndicator
               state={saveState}
               activity={currentSession.current?.activity}
@@ -1959,6 +1959,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
       onBack={() => returnToMobilePane("collections")}
+      onForget={requestForgetCurrentCollection}
     />}
 
     {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
@@ -2006,7 +2007,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       displayName={description.display_name}
       onOpen={requestOpenSavedCollection}
       onConnect={requestConnectAnotherCollection}
-      onForget={requestForgetCurrentCollection}
       onClose={() => setCollectionSwitcherOpen(false)}
     />}
     {confirmation && <ConfirmDialog
@@ -2055,18 +2055,17 @@ function ConnectScreen({ notice, missingOperations = [], connections, onConnect,
   </section></main>;
 }
 
-function CollectionSwitcher({ activeCollectionId, connections, displayName, onOpen, onConnect, onForget, onClose }: {
+function CollectionSwitcher({ activeCollectionId, connections, displayName, onOpen, onConnect, onClose }: {
   activeCollectionId?: string;
   connections: ConnectionSummary[];
   displayName: string;
   onOpen: (collectionId: string) => void;
   onConnect: () => void;
-  onForget: () => void;
   onClose: () => void;
 }) {
   return <Dialog titleId="collection-switcher-title" className="collection-switcher" onClose={onClose}>
     <header>
-      <div><p className="eyebrow">Collection</p><h2 id="collection-switcher-title">Choose where to write</h2></div>
+      <h2 id="collection-switcher-title">Choose a collection</h2>
       <button className="icon-button" aria-label="Close collection switcher" onClick={onClose}><X aria-hidden="true" /></button>
     </header>
     <div className="collection-switcher-list">
@@ -2079,15 +2078,12 @@ function CollectionSwitcher({ activeCollectionId, connections, displayName, onOp
           aria-current={active ? "true" : undefined}
           onClick={() => active ? onClose() : onOpen(connection.collectionId)}
         >
-          <span><strong>{name}</strong><small>{active ? "Open now" : "Saved in mdbase editor"}</small></span>
-          {active ? <Check aria-hidden="true" /> : <span className="collection-open-label">Open</span>}
+          <span><strong>{name}</strong>{active && <small>Current collection</small>}</span>
         </button>;
       })}
     </div>
     <footer>
       <button className="collection-connect-another" onClick={onConnect}><FilePlus2 aria-hidden="true" />Choose another collection</button>
-      <button className="collection-forget" onClick={onForget}><Trash2 aria-hidden="true" />Forget “{displayName}”</button>
-      <p>Forgetting removes editor access only. It never deletes collection files.</p>
     </footer>
   </Dialog>;
 }
