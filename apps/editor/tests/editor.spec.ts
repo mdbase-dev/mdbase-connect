@@ -300,6 +300,22 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   await expect(page.getByText("10,000 notes")).toBeVisible();
 
   const rail = page.getByRole("complementary", { name: "Collection navigation" });
+  const wordmarkLabel = rail.locator(".wordmark-label");
+  await expect(wordmarkLabel).toBeVisible();
+
+  const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
+  await collectionResize.focus();
+  await page.keyboard.press("Home");
+  await expect(collectionResize).toHaveAttribute("aria-valuenow", "144");
+  await expect(wordmarkLabel).toBeHidden();
+
+  const [markBox, collapseBox] = await Promise.all([
+    rail.locator(".wordmark-mark").boundingBox(),
+    rail.getByRole("button", { name: "Hide collections sidebar" }).boundingBox()
+  ]);
+  if (!markBox || !collapseBox) throw new Error("The collection header controls are not visible.");
+  expect(markBox.x + markBox.width).toBeLessThanOrEqual(collapseBox.x);
+
   const counts = rail.locator(".rail-filter-items small");
   await expect(counts.first()).toBeVisible();
   expect(await counts.evaluateAll((elements) => elements.every((element) => {

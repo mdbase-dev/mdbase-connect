@@ -2040,7 +2040,7 @@ function MdbaseMark() {
 }
 
 function Wordmark() {
-  return <div className="wordmark"><MdbaseMark />mdbase <strong>editor</strong></div>;
+  return <div className="wordmark"><MdbaseMark /><span className="wordmark-label">mdbase <strong>editor</strong></span></div>;
 }
 
 function CollectionRail({ name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onTypes, onSettings, onShortcuts, onReconnect, onSwitch, onCollapse }: {

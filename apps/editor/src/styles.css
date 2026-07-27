@@ -228,6 +228,11 @@ select:focus-visible {
   fill: var(--accent);
 }
 
+.wordmark-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .wordmark strong {
   color: var(--faint);
   font-weight: 500;
@@ -562,6 +567,12 @@ select:focus-visible {
 .rail-header > .wordmark {
   min-width: 0;
   flex: 1;
+}
+
+@container (max-width: 140px) {
+  .rail-header .wordmark-label {
+    display: none;
+  }
 }
 
 .collection-rail nav {
