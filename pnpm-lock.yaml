@@ -58,9 +58,6 @@ importers:
       '@electron-forge/maker-zip':
         specifier: ^7.11.2
         version: 7.11.2(supports-color@8.1.1)
-      '@mdbase/connect-sync':
-        specifier: workspace:*
-        version: link:../../packages/sync
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui

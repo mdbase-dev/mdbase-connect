@@ -218,7 +218,7 @@ impl RuntimeNotificationService {
                     runtime_id: format!("mdbase-connect:{collection_id}"),
                     executor_id: NOTIFICATION_EXECUTOR_ID.to_string(),
                     worker_id: format!("connect-agent:{collection_id}"),
-                    actor_id: "mdbase-connect-agent".to_string(),
+                    actor_id: "mdbase-connect-daemon".to_string(),
                     actor_kind: "service".to_string(),
                     timezone: None,
                     lease_duration: Duration::from_secs(30),
@@ -703,6 +703,7 @@ mod tests {
         assert!(!encoded.contains("private-reminder"));
         assert!(!encoded.contains("timer-state-stays-local"));
         server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -770,5 +771,6 @@ mod tests {
         assert_eq!(result["timers"][0]["id"], "task-a:reminder-a");
         drop(events);
         task.abort();
+        let _ = task.await;
     }
 }

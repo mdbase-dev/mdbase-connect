@@ -6,32 +6,24 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
-  safeStorage,
   shell,
   Tray
 } from "electron";
-import { createHash } from "node:crypto";
-import { ChildProcess, spawn } from "node:child_process";
+import { execFile as execFileCallback } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
+import { promisify } from "node:util";
 import { AgentControlError, requestAgent } from "./control-client";
-import { relaunchAfterAgentStops } from "./agent-lifecycle";
-import { MirrorManager, pathsOverlap } from "./mirror-manager";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let agentProcess: ChildProcess | null = null;
 let agentStartup: Promise<void> | null = null;
-let mirrorManager: MirrorManager | null = null;
+let daemonPaths: { stateDir: string; endpoint: string } | null = null;
 let quitting = false;
 const activePairings = new Map<string, { serverUrl: string; secret: string }>();
-
-interface StoredCloudConfig {
-  server_url: string;
-  encrypted_token: string;
-}
+const execFile = promisify(execFileCallback);
 
 const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
 if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
@@ -40,24 +32,38 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 
 function stateDirectory(): string {
-  return join(app.getPath("userData"), "agent");
+  if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
+  return daemonPaths.stateDir;
 }
 
 function controlEndpoint(): string {
-  const stateDir = stateDirectory();
-  if (process.platform !== "win32") return join(stateDir, "agent.sock");
-  const suffix = createHash("sha256").update(stateDir).digest("hex").slice(0, 16);
-  return `\\\\.\\pipe\\mdbase-connect-${suffix}`;
+  if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
+  return daemonPaths.endpoint;
 }
 
-function agentBinary(): string {
+function connectBinary(): string {
   const extension = process.platform === "win32" ? ".exe" : "";
-  const override = process.env.MDBASE_CONNECT_AGENT_BIN;
+  const override = process.env.MDBASE_CONNECT_BIN;
   if (override) return override;
   if (app.isPackaged) {
-    return join(process.resourcesPath, `mdbase-connect-agent${extension}`);
+    return join(process.resourcesPath, `mdbase-connect${extension}`);
   }
-  return resolve(__dirname, `../../../../target/debug/mdbase-connect-agent${extension}`);
+  return resolve(__dirname, `../../../../target/debug/mdbase-connect${extension}`);
+}
+
+async function resolveDaemonPaths(): Promise<void> {
+  const binary = connectBinary();
+  if (!existsSync(binary)) throw new Error(`Connector runtime is missing: ${binary}`);
+  const { stdout } = await execFile(binary, ["--json", "paths"], {
+    env: process.env,
+    timeout: 10_000,
+    windowsHide: true
+  });
+  const paths = JSON.parse(stdout) as { state_dir?: unknown; endpoint?: unknown };
+  if (typeof paths.state_dir !== "string" || typeof paths.endpoint !== "string") {
+    throw new Error("The connector runtime returned invalid path information.");
+  }
+  daemonPaths = { stateDir: paths.state_dir, endpoint: paths.endpoint };
 }
 
 async function ensureAgent(): Promise<void> {
@@ -88,7 +94,8 @@ async function waitForAgentReady(): Promise<void> {
     try {
       const ping = await requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, 500);
       if (ping.ready !== false) return;
-    } catch {
+    } catch (error) {
+      if (incompatibleDaemon(error)) throw error;
       // The process may still be binding its local endpoint.
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
@@ -102,6 +109,10 @@ function endpointIsUnavailable(error: unknown): boolean {
   return code === "ENOENT" || code === "ECONNREFUSED";
 }
 
+function incompatibleDaemon(error: unknown): boolean {
+  return error instanceof AgentControlError && error.code === "unsupported_local_protocol";
+}
+
 async function startAgent(): Promise<void> {
   let running = false;
   try {
@@ -109,30 +120,32 @@ async function startAgent(): Promise<void> {
     running = true;
     if (ping.ready !== false) return;
   } catch (error) {
+    if (incompatibleDaemon(error)) throw error;
     if (!endpointIsUnavailable(error)) return waitForAgentReady();
   }
   if (running) return waitForAgentReady();
 
-  const binary = agentBinary();
+  const binary = connectBinary();
   if (!existsSync(binary)) {
-    throw new Error(`Connector agent is missing: ${binary}`);
+    throw new Error(`Connector runtime is missing: ${binary}`);
   }
   await mkdir(stateDirectory(), { recursive: true });
-  const cloud = await effectiveCloudConfig();
-  const cloudArgs = cloud
-    ? ["--server-url", cloud.serverUrl, "--connector-token", cloud.connectorToken]
-    : [];
-  const spawned = spawn(
+  await execFile(
     binary,
-    ["--state-dir", stateDirectory(), "--endpoint", controlEndpoint(), ...cloudArgs],
-    { stdio: ["ignore", "pipe", "pipe"] }
+    [
+      "--state-dir",
+      stateDirectory(),
+      "--endpoint",
+      controlEndpoint(),
+      "daemon",
+      "start"
+    ],
+    {
+      env: process.env,
+      timeout: 30_000,
+      windowsHide: true
+    }
   );
-  agentProcess = spawned;
-  spawned.stdout?.on("data", (chunk) => console.info(String(chunk).trim()));
-  spawned.stderr?.on("data", (chunk) => console.error(String(chunk).trim()));
-  spawned.once("exit", () => {
-    if (agentProcess === spawned) agentProcess = null;
-  });
   await waitForAgentReady();
 }
 
@@ -152,11 +165,6 @@ async function chooseFolder(): Promise<string | null> {
     ? await dialog.showOpenDialog(mainWindow, options)
     : await dialog.showOpenDialog(options);
   return result.canceled ? null : result.filePaths[0] ?? null;
-}
-
-function mirrors(): MirrorManager {
-  mirrorManager ??= new MirrorManager(app.getPath("userData"));
-  return mirrorManager;
 }
 
 function registerIpc(): void {
@@ -226,15 +234,16 @@ function registerIpc(): void {
       { collection_id: collectionId, target: "remote" },
       10 * 60 * 1_000
     );
-    const cloud = await requiredCloudConfig();
-    const mirror = await mirrors().connect({
-      collectionId,
-      path: collection.path,
-      mode: "read_write",
-      name: `${hostname().trim() || "This computer"} mirror`,
-      cloud,
-      transferredAuthority: true
-    });
+    const mirror = await requestReadyAgent(
+      "mirrors.add",
+      {
+        collection_id: collectionId,
+        path: collection.path,
+        mode: "read_write",
+        name: `${hostname().trim() || "This computer"} mirror`
+      },
+      2 * 60 * 1_000
+    );
     return { transfer, mirror };
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
@@ -322,8 +331,14 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:cloud:get", async (event) => {
     trustedIpc(event);
-    const cloud = await effectiveCloudConfig();
-    return { configured: Boolean(cloud), serverUrl: cloud?.serverUrl ?? null };
+    const configuration = await requestReadyAgent<{
+      configured: boolean;
+      server_url: string | null;
+    }>("account.configuration");
+    return {
+      configured: configuration.configured,
+      serverUrl: configuration.server_url
+    };
   });
   ipcMain.handle("connect:cloud:set", async (event, input: unknown) => {
     trustedIpc(event);
@@ -335,13 +350,17 @@ function registerIpc(): void {
     if (typeof serverUrl !== "string" || typeof connectorToken !== "string") {
       throw new Error("Server URL and connector token are required.");
     }
-    await writeCloudConfig(serverUrl, connectorToken);
+    await requestReadyAgent(
+      "account.configure",
+      { server_url: serverUrl, connector_token: connectorToken },
+      10_000
+    );
     restartApplication();
     return { configured: true, serverUrl };
   });
   ipcMain.handle("connect:cloud:clear", async (event) => {
     trustedIpc(event);
-    await rm(cloudConfigPath(), { force: true });
+    await requestReadyAgent("account.clear", undefined, 10_000);
     restartApplication();
     return { configured: false, serverUrl: null };
   });
@@ -364,11 +383,25 @@ function registerIpc(): void {
       expires_in?: number;
       error?: { message?: string };
     };
-    if (!response.ok || !body.pairing_id || !body.pairing_secret || !body.verification_uri) {
+    if (
+      !response.ok
+      || !body.pairing_id
+      || !body.pairing_secret
+      || !body.verification_uri
+      || !body.pairing_secret.startsWith("pair_")
+      || body.pairing_secret.length < 24
+      || /\s/.test(body.pairing_secret)
+      || !body.expires_in
+      || body.expires_in > 86_400
+    ) {
       throw new Error(body.error?.message ?? `Pairing failed with HTTP ${response.status}.`);
     }
     const verification = new URL(body.verification_uri);
-    if (verification.origin !== new URL(serverUrl).origin) {
+    if (
+      verification.origin !== new URL(serverUrl).origin
+      || verification.username
+      || verification.password
+    ) {
       throw new Error("The pairing server returned an untrusted verification address.");
     }
     activePairings.set(body.pairing_id, { serverUrl, secret: body.pairing_secret });
@@ -399,7 +432,11 @@ function registerIpc(): void {
       throw new Error(body.error?.message ?? `Pairing failed with HTTP ${response.status}.`);
     }
     activePairings.delete(pairingId);
-    await writeCloudConfig(pairing.serverUrl, body.token);
+    await requestReadyAgent(
+      "account.configure",
+      { server_url: pairing.serverUrl, connector_token: body.token },
+      10_000
+    );
     restartApplication(1_000);
     return { status: "paired", connector: body.connector };
   });
@@ -461,17 +498,18 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:hosted:snapshot", async (event) => {
     trustedIpc(event);
-    return connectorRequest("GET", "/v1/connectors/hosted-control");
+    return requestReadyAgent("hosted.snapshot", undefined, 30_000);
   });
   ipcMain.handle("connect:hosted:create", async (event, name: unknown) => {
     trustedIpc(event);
     if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 200) {
       throw new Error("Collection name must be between 1 and 200 characters.");
     }
-    return connectorRequest("POST", "/v1/connectors/hosted/collections", {
-      display_name: name.trim(),
-      template: "mdbase"
-    });
+    return requestReadyAgent(
+      "hosted.collections.create",
+      { name: name.trim() },
+      30_000
+    );
   });
   ipcMain.handle("connect:hosted:rename", async (event, input: unknown) => {
     trustedIpc(event);
@@ -480,18 +518,19 @@ function registerIpc(): void {
     if (typeof value.name !== "string" || value.name.trim().length === 0 || [...value.name.trim()].length > 200) {
       throw new Error("Collection name must be between 1 and 200 characters.");
     }
-    return connectorRequest(
-      "PATCH",
-      `/v1/connectors/hosted/collections/${encodeURIComponent(value.collectionId)}`,
-      { display_name: value.name.trim() }
+    return requestReadyAgent(
+      "hosted.collections.rename",
+      { collection_id: value.collectionId, name: value.name.trim() },
+      30_000
     );
   });
   ipcMain.handle("connect:hosted:delete", async (event, collectionId: unknown) => {
     trustedIpc(event);
     if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return connectorRequest(
-      "DELETE",
-      `/v1/connectors/hosted/collections/${encodeURIComponent(collectionId)}`
+    return requestReadyAgent(
+      "hosted.collections.delete",
+      { collection_id: collectionId },
+      30_000
     );
   });
   ipcMain.handle("connect:hosted:authorization-approve", async (event, input: unknown) => {
@@ -500,44 +539,50 @@ function registerIpc(): void {
     if (typeof value.requestId !== "string" || typeof value.collectionId !== "string") {
       throw new Error("Choose a hosted collection for this request.");
     }
-    return connectorRequest(
-      "POST",
-      `/v1/connectors/hosted/authorization-requests/${encodeURIComponent(value.requestId)}/approve`,
+    return requestReadyAgent(
+      "hosted.authorizations.approve",
       {
+        request_id: value.requestId,
         collection_id: value.collectionId,
         operations: stringArray(value.operations, "Choose at least one operation.")
-      }
+      },
+      30_000
     );
   });
   ipcMain.handle("connect:hosted:grant-update", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid hosted application access.");
     if (typeof value.grantId !== "string") throw new Error("Invalid grant ID.");
-    return connectorRequest(
-      "PATCH",
-      `/v1/connectors/hosted/grants/${encodeURIComponent(value.grantId)}`,
-      { operations: stringArray(value.operations, "Choose at least one operation.") }
+    return requestReadyAgent(
+      "hosted.grants.update",
+      {
+        grant_id: value.grantId,
+        operations: stringArray(value.operations, "Choose at least one operation.")
+      },
+      30_000
     );
   });
   ipcMain.handle("connect:hosted:grant-revoke", async (event, grantId: unknown) => {
     trustedIpc(event);
     if (typeof grantId !== "string") throw new Error("Invalid grant ID.");
-    return connectorRequest(
-      "DELETE",
-      `/v1/connectors/hosted/grants/${encodeURIComponent(grantId)}`
+    return requestReadyAgent(
+      "hosted.grants.revoke",
+      { grant_id: grantId },
+      30_000
     );
   });
   ipcMain.handle("connect:hosted:replica-revoke", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return connectorRequest(
-      "DELETE",
-      `/v1/connectors/hosted/replicas/${encodeURIComponent(replicaId)}`
+    return requestReadyAgent(
+      "hosted.replicas.revoke",
+      { replica_id: replicaId },
+      30_000
     );
   });
   ipcMain.handle("connect:mirrors:list", async (event) => {
     trustedIpc(event);
-    return mirrors().list();
+    return requestReadyAgent("mirrors.list");
   });
   ipcMain.handle("connect:mirrors:choose-folder", async (event) => {
     trustedIpc(event);
@@ -561,29 +606,17 @@ function registerIpc(): void {
     if (!["read_only", "read_write"].includes(String(value.mode))) {
       throw new Error("Choose receive-only or two-way synchronization.");
     }
-    const mirrorPath = await realpath(resolve(value.path));
-    const registered = await requestReadyAgent<Array<{ path: string }>>("collections.list");
-    const registeredPaths = await Promise.all(
-      registered.map(async (collection) =>
-        realpath(resolve(collection.path)).catch(() => resolve(collection.path))
-      )
-    );
-    if (registeredPaths.some((path) => pathsOverlap(path, mirrorPath))) {
-      throw new Error("That folder overlaps a computer-owned collection. Choose another folder.");
-    }
-    const cloud = await requiredCloudConfig();
-    return mirrors().connect({
-      collectionId: value.collectionId,
-      path: mirrorPath,
+    return requestReadyAgent("mirrors.add", {
+      collection_id: value.collectionId,
+      path: value.path,
       mode: value.mode as "read_only" | "read_write",
-      name: typeof value.name === "string" ? value.name : undefined,
-      cloud
-    });
+      name: typeof value.name === "string" ? value.name : undefined
+    }, 2 * 60 * 1_000);
   });
   ipcMain.handle("connect:mirrors:sync", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return mirrors().syncNow(replicaId);
+    return requestReadyAgent("mirrors.sync", { replica_id: replicaId }, 2 * 60 * 1_000);
   });
   ipcMain.handle("connect:mirrors:resolve", async (event, input: unknown) => {
     trustedIpc(event);
@@ -595,66 +628,50 @@ function registerIpc(): void {
     ) {
       throw new Error("Choose the local or hosted version.");
     }
-    return mirrors().resolveConflict(
-      value.replicaId,
-      value.recordId,
-      value.resolution as "local" | "remote"
+    return requestReadyAgent(
+      "mirrors.resolve",
+      {
+        replica_id: value.replicaId,
+        record_id: value.recordId,
+        resolution: value.resolution
+      },
+      2 * 60 * 1_000
     );
   });
   ipcMain.handle("connect:mirrors:promote", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return mirrors().promoteAuthority(replicaId, {
-      registeredCollectionPath: async (collectionId) => {
-        const registered = await requestReadyAgent<Array<{ id: string; path: string }>>(
-          "collections.list"
-        );
-        const existing = registered.find(
-          (collection) => collection.id === collectionId
-        );
-        return existing?.path ?? null;
-      },
-      registerCollection: async (path) => {
-        const added = await requestReadyAgent<{ id: string }>(
-          "collections.add",
-          { path },
-          10_000
-        );
-        return added.id;
-      },
-      validateCollection: async (collectionId) => {
-        await requestReadyAgent(
-          "collections.validate",
-          { collection_id: collectionId },
-          10_000
-        );
-      },
-      removeCollection: async (collectionId) => {
-        await requestReadyAgent(
-          "collections.remove",
-          { collection_id: collectionId },
-          10_000
-        );
-      },
-      onVerification: (verificationUri) => shell.openExternal(verificationUri)
-    });
+    const begun = await requestReadyAgent<{
+      verification_uri: string;
+    }>(
+      "mirrors.promote.begin",
+      { replica_id: replicaId },
+      2 * 60 * 1_000
+    );
+    await shell.openExternal(begun.verification_uri);
+    return requestReadyAgent(
+      "mirrors.promote.complete",
+      { replica_id: replicaId },
+      10 * 60 * 1_000
+    );
   });
   ipcMain.handle("connect:mirrors:disconnect", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    await connectorRequest(
-      "DELETE",
-      `/v1/connectors/hosted/replicas/${encodeURIComponent(replicaId)}`
+    return requestReadyAgent(
+      "mirrors.remove",
+      { replica_id: replicaId },
+      30_000
     );
-    await mirrors().remove(replicaId);
-    return { ok: true };
   });
   ipcMain.handle("connect:mirrors:open", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    const path = mirrors().pathFor(replicaId);
-    if (!path) throw new Error("That mirror is not controlled by this computer.");
-    return shell.openPath(path);
+    const mirror = (await requestReadyAgent<Array<{ replica_id: string; path: string }>>(
+      "mirrors.list"
+    )).find((candidate) => candidate.replica_id === replicaId);
+    if (!mirror) throw new Error("That mirror is not controlled by this computer.");
+    return shell.openPath(mirror.path);
   });
 }
 
@@ -688,97 +705,15 @@ function grantInput(input: unknown, includeTarget: boolean): Record<string, unkn
   return result;
 }
 
-function cloudConfigPath(): string {
-  return join(app.getPath("userData"), "cloud.json");
-}
-
-async function readCloudConfig(): Promise<{
-  serverUrl: string;
-  connectorToken: string;
-} | null> {
-  let stored: StoredCloudConfig;
-  try {
-    stored = JSON.parse(await readFile(cloudConfigPath(), "utf8")) as StoredCloudConfig;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw new Error("Cloud connection settings could not be read.");
-  }
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("Secure credential storage is unavailable on this computer.");
-  }
-  try {
-    return {
-      serverUrl: stored.server_url,
-      connectorToken: safeStorage.decryptString(Buffer.from(stored.encrypted_token, "base64"))
-    };
-  } catch {
-    throw new Error("The stored connector credential could not be decrypted.");
-  }
-}
-
-async function effectiveCloudConfig(): Promise<{ serverUrl: string; connectorToken: string } | null> {
-  const stored = await readCloudConfig();
-  if (stored) return stored;
-  const serverUrl = process.env.MDBASE_CONNECT_SERVER_URL;
-  const connectorToken = process.env.MDBASE_CONNECT_CONNECTOR_TOKEN;
-  if (!serverUrl && !connectorToken) return null;
-  if (!serverUrl || !connectorToken) {
-    throw new Error("Both MDBASE_CONNECT_SERVER_URL and MDBASE_CONNECT_CONNECTOR_TOKEN are required.");
-  }
-  return { serverUrl: validateServerUrl(serverUrl), connectorToken };
-}
-
-async function requiredCloudConfig(): Promise<{ serverUrl: string; connectorToken: string }> {
-  const cloud = await effectiveCloudConfig();
-  if (!cloud) throw new Error("Connect this computer to an account first.");
-  return cloud;
-}
-
-async function connectorRequest<Result = unknown>(
-  method: "GET" | "POST" | "PATCH" | "DELETE",
-  path: string,
-  body?: unknown
-): Promise<Result> {
-  const cloud = await requiredCloudConfig();
-  const response = await fetch(`${cloud.serverUrl}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${cloud.connectorToken}`,
-      ...(body === undefined ? {} : { "content-type": "application/json" })
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(30_000)
-  });
-  const value = await response.json().catch(() => null) as {
-    error?: { message?: string };
-  } | null;
-  if (!response.ok) {
-    throw new Error(value?.error?.message ?? `Account request failed with HTTP ${response.status}.`);
-  }
-  return value as Result;
-}
-
-async function writeCloudConfig(serverUrl: string, connectorToken: string): Promise<void> {
-  const url = new URL(validateServerUrl(serverUrl));
-  if (!connectorToken.startsWith("con_") || connectorToken.length < 24) {
-    throw new Error("That connector token is not valid.");
-  }
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("Secure credential storage is unavailable on this computer.");
-  }
-  const stored: StoredCloudConfig = {
-    server_url: url.href.replace(/\/$/, ""),
-    encrypted_token: safeStorage.encryptString(connectorToken.trim()).toString("base64")
-  };
-  await writeFile(cloudConfigPath(), JSON.stringify(stored, null, 2), { mode: 0o600 });
-}
-
 function validateServerUrl(serverUrl: unknown): string {
   if (typeof serverUrl !== "string") throw new Error("Enter a server address.");
   const url = new URL(serverUrl.trim());
   const localDevelopment = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (url.protocol !== "https:" && !localDevelopment) {
+  if (!url.hostname || (url.protocol !== "https:" && !localDevelopment)) {
     throw new Error("Remote mdbase connect servers must use HTTPS.");
+  }
+  if (url.username || url.password) {
+    throw new Error("The mdbase connect server address must not contain credentials.");
   }
   url.pathname = "/";
   url.search = "";
@@ -789,18 +724,8 @@ function validateServerUrl(serverUrl: unknown): string {
 function restartApplication(delay = 250): void {
   setTimeout(() => {
     quitting = true;
-    const runningAgent = agentProcess;
-    void relaunchAfterAgentStops(
-      runningAgent,
-      () => app.relaunch(),
-      () => app.exit(0)
-    ).catch((error) => {
-      quitting = false;
-      dialog.showErrorBox(
-        "mdbase connect could not restart",
-        error instanceof Error ? error.message : String(error)
-      );
-    });
+    app.relaunch();
+    app.exit(0);
   }, delay);
 }
 
@@ -971,12 +896,19 @@ app.whenReady().then(async () => {
     });
   });
   registerDeepLinks();
+  try {
+    await resolveDaemonPaths();
+  } catch (error) {
+    dialog.showErrorBox(
+      "mdbase connect could not initialize",
+      error instanceof Error ? error.message : String(error)
+    );
+    app.quit();
+    return;
+  }
   registerIpc();
   createWindow();
   createTray();
-  await mirrors().start().catch((error) => {
-    console.error("Hosted mirror settings could not be initialized", error);
-  });
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await ensureAgent();
@@ -1006,6 +938,4 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   quitting = true;
-  mirrorManager?.stop();
-  agentProcess?.kill();
 });

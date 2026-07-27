@@ -39,9 +39,10 @@ impl LoopbackServer {
         self.port
     }
 
-    pub fn stop(self) {
+    pub async fn stop(self) {
         for task in self.tasks {
             task.abort();
+            let _ = task.await;
         }
     }
 }

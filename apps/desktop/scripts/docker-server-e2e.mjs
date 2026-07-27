@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chromium, _electron as electron } from "playwright-core";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import {
   availablePort,
   startConnectTestEnvironment,
@@ -14,8 +16,9 @@ const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const executable = resolve(
   repoRoot,
-  `target/debug/mdbase-connect-agent${process.platform === "win32" ? ".exe" : ""}`
+  `target/debug/mdbase-connect${process.platform === "win32" ? ".exe" : ""}`
 );
+const run = promisify(execFile);
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-desktop-docker-"));
 const pairingData = join(scratch, "pairing-profile");
 const connectedData = join(scratch, "connected-profile");
@@ -29,11 +32,8 @@ let portalBrowser;
 try {
   phase("pairing an isolated Electron profile with the Docker server");
   pairingApp = await launchDesktop(pairingData);
-  await pairingApp.evaluate(({ app, safeStorage, shell }) => {
+  await pairingApp.evaluate(({ app, shell }) => {
     shell.openExternal = async () => "";
-    safeStorage.isEncryptionAvailable = () => true;
-    safeStorage.encryptString = (value) => Buffer.from(value, "utf8");
-    safeStorage.decryptString = (value) => value.toString("utf8");
     app.relaunch = () => {};
     app.exit = () => {};
   });
@@ -89,13 +89,16 @@ try {
     .waitFor();
 
   const stored = JSON.parse(
-    await readFile(join(pairingData, "cloud.json"), "utf8")
+    await readFile(join(pairingData, "connect-home", "cloud.json"), "utf8")
   );
   assert.equal(stored.server_url, environment.serverUrl);
-  const connectorToken = Buffer.from(
-    stored.encrypted_token,
-    "base64"
-  ).toString("utf8");
+  const secrets = JSON.parse(
+    await readFile(
+      join(pairingData, "connect-home", "test-secrets.json"),
+      "utf8"
+    )
+  );
+  const connectorToken = secrets.values.connector;
   assert.match(connectorToken, /^con_/);
   await pairingApp.close();
   pairingApp = undefined;
@@ -293,6 +296,14 @@ try {
   await environment.compose(["logs", "--no-color"]).catch(() => {});
   throw error;
 } finally {
+  for (const userData of [pairingData, connectedData]) {
+    await run(executable, [
+      "--state-dir",
+      resolve(userData, "connect-home"),
+      "daemon",
+      "stop"
+    ]).catch(() => {});
+  }
   await connectedApp?.close().catch(() => {});
   await pairingApp?.close().catch(() => {});
   await portalBrowser?.close().catch(() => {});
@@ -306,7 +317,10 @@ function launchDesktop(userData, connectorToken) {
     args: [".", `--user-data-dir=${userData}`],
     env: {
       ...process.env,
-      MDBASE_CONNECT_AGENT_BIN: executable,
+      MDBASE_CONNECT_BIN: executable,
+      MDBASE_CONNECT_HOME: resolve(userData, "connect-home"),
+      MDBASE_CONNECT_ENV: "test",
+      MDBASE_CONNECT_SECRET_BACKEND: "insecure-test-file",
       MDBASE_CONNECT_LOOPBACK_PORT: String(loopbackPort),
       MDBASE_CONNECT_USER_DATA_DIR: userData,
       ...(connectorToken

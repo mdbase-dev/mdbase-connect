@@ -62,6 +62,56 @@ impl CloudControlClient {
         self.json(Method::GET, "/v1/connectors/control", None).await
     }
 
+    pub fn server_url(&self) -> &str {
+        &self.server_url
+    }
+
+    pub(crate) async fn connector_request<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<T, ConnectError> {
+        self.json(method, path, body).await
+    }
+
+    pub(crate) async fn revoke_hosted_replica(
+        &self,
+        replica_id: uuid::Uuid,
+    ) -> Result<(), ConnectError> {
+        let response = self
+            .client
+            .delete(format!(
+                "{}/v1/connectors/hosted/replicas/{replica_id}",
+                self.server_url
+            ))
+            .timeout(Duration::from_secs(15))
+            .bearer_auth(&self.connector_token)
+            .send()
+            .await
+            .map_err(cloud_error)?;
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(cloud_error)?;
+        if status.is_success() {
+            return Ok(());
+        }
+        let body = serde_json::from_slice::<Value>(&bytes).ok();
+        let code = body
+            .as_ref()
+            .and_then(|body| body.pointer("/error/code"))
+            .and_then(Value::as_str);
+        if status == reqwest::StatusCode::NOT_FOUND && code == Some("replica_not_found") {
+            return Ok(());
+        }
+        let message = body
+            .as_ref()
+            .and_then(|body| body.pointer("/error/message"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Cloud request failed with HTTP {status}"));
+        Err(ConnectError::Cloud(message))
+    }
+
     pub async fn rename_computer(
         &self,
         params: &ComputerNameParams,

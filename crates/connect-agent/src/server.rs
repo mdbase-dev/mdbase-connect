@@ -1,9 +1,10 @@
 use crate::cloud::CloudControlClient;
+use crate::mirrors::MirrorManager;
 use crate::runtime_notifications::RuntimeTimerHandle;
 use crate::watcher::CollectionWatchService;
 use mdbase_connect_core::{
-    encrypted_request_fingerprint, CollectionRegistry, ConnectError, EncryptedRequestClaim,
-    LocalReplica,
+    configure_cloud, disconnect_cloud, encrypted_request_fingerprint, load_cloud_configuration,
+    CloudConfiguration, CollectionRegistry, ConnectError, EncryptedRequestClaim, LocalReplica,
 };
 use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
@@ -12,12 +13,14 @@ use mdbase_connect_protocol::{
     AgentConnectionState, AgentStatus, ApplicationAccess, ApplicationRequirements, AuthorityTarget,
     AuthorizationCollectionOffer, ContractRequirement, ControlCommand, ControlError,
     ControlRequest, ControlResponse, GrantScope, RelayMessage, SyncReplicaMode,
-    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+const MAX_LOCAL_CONTROL_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
 
 pub struct AgentState {
     registry: CollectionRegistry,
@@ -28,6 +31,10 @@ pub struct AgentState {
     cloud: Option<CloudControlClient>,
     relay_identity: RelayIdentity,
     runtime_timers: Option<RuntimeTimerHandle>,
+    mirrors: std::sync::RwLock<Option<Arc<MirrorManager>>>,
+    shutdown: tokio::sync::Notify,
+    state_dir: std::sync::RwLock<Option<std::path::PathBuf>>,
+    account_configuration_lock: std::sync::Mutex<()>,
 }
 
 impl AgentState {
@@ -55,6 +62,10 @@ impl AgentState {
             cloud,
             relay_identity,
             runtime_timers: None,
+            mirrors: std::sync::RwLock::new(None),
+            shutdown: tokio::sync::Notify::new(),
+            state_dir: std::sync::RwLock::new(None),
+            account_configuration_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -82,6 +93,25 @@ impl AgentState {
     pub fn set_loopback_port(&self, port: u16) {
         self.loopback_port
             .store(port, std::sync::atomic::Ordering::Release);
+    }
+
+    pub fn set_mirror_manager(&self, mirrors: Arc<MirrorManager>) {
+        *self.mirrors.write().expect("mirror manager lock poisoned") = Some(mirrors);
+    }
+
+    pub fn set_state_dir(&self, state_dir: std::path::PathBuf) {
+        *self
+            .state_dir
+            .write()
+            .expect("state directory lock poisoned") = Some(state_dir);
+    }
+
+    fn request_shutdown(&self) {
+        self.shutdown.notify_one();
+    }
+
+    async fn shutdown_requested(&self) {
+        self.shutdown.notified().await;
     }
 
     fn initialized(&self) -> bool {
@@ -645,6 +675,16 @@ impl AgentState {
 
     async fn execute(&self, request: ControlRequest) -> ControlResponse {
         let id = request.id;
+        if request.protocol_version != LOCAL_CONTROL_PROTOCOL_VERSION {
+            return ControlResponse::failure(
+                id,
+                "unsupported_local_protocol",
+                format!(
+                    "Local control protocol {} is not supported; expected {}.",
+                    request.protocol_version, LOCAL_CONTROL_PROTOCOL_VERSION
+                ),
+            );
+        }
         let result = match request.command {
             ControlCommand::Ping => Ok(serde_json::json!({
                 "pong": true,
@@ -652,7 +692,7 @@ impl AgentState {
             })),
             ControlCommand::Status => self.registry.count().map(|registered_collections| {
                 serde_json::to_value(AgentStatus {
-                    protocol_version: CONTROL_PROTOCOL_VERSION,
+                    protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
                     state: self
                         .connection_state
                         .read()
@@ -674,6 +714,10 @@ impl AgentState {
                 })
                 .expect("agent status must serialize")
             }),
+            ControlCommand::DaemonShutdown => {
+                self.request_shutdown();
+                Ok(serde_json::json!({"stopping": true}))
+            }
             ControlCommand::CollectionList => self
                 .registry
                 .list()
@@ -758,6 +802,9 @@ impl AgentState {
                 Ok(cloud) => cloud.rename_computer(&params).await,
                 Err(error) => Err(error),
             },
+            ControlCommand::AccountConfigure(params) => self.configure_account(params),
+            ControlCommand::AccountConfiguration => self.account_configuration(),
+            ControlCommand::AccountClear => self.clear_account(),
             ControlCommand::GrantCreate(params) => self.create_grant(&params).await,
             ControlCommand::GrantUpdate(params) => match self.cloud() {
                 Ok(cloud) => cloud.update_grant(&params).await,
@@ -786,6 +833,131 @@ impl AgentState {
                 .registry
                 .list_activity(params.limit)
                 .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+            ControlCommand::HostedSnapshot => {
+                self.hosted_request(reqwest::Method::GET, "/v1/connectors/hosted-control", None)
+                    .await
+            }
+            ControlCommand::HostedCollectionCreate(params) => {
+                match validated_hosted_name(&params.name) {
+                    Ok(name) => {
+                        self.hosted_request(
+                            reqwest::Method::POST,
+                            "/v1/connectors/hosted/collections",
+                            Some(serde_json::json!({
+                                "display_name": name,
+                                "template": "mdbase"
+                            })),
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            ControlCommand::HostedCollectionRename(params) => {
+                match validated_hosted_name(&params.name) {
+                    Ok(name) => {
+                        self.hosted_request(
+                            reqwest::Method::PATCH,
+                            &format!("/v1/connectors/hosted/collections/{}", params.collection_id),
+                            Some(serde_json::json!({ "display_name": name })),
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            ControlCommand::HostedCollectionDelete(params) => {
+                self.hosted_request(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/connectors/hosted/collections/{}", params.collection_id),
+                    None,
+                )
+                .await
+            }
+            ControlCommand::HostedAuthorizationApprove(params) => {
+                self.hosted_request(
+                    reqwest::Method::POST,
+                    &format!(
+                        "/v1/connectors/hosted/authorization-requests/{}/approve",
+                        params.request_id
+                    ),
+                    Some(serde_json::json!({
+                        "collection_id": params.collection_id,
+                        "operations": params.operations
+                    })),
+                )
+                .await
+            }
+            ControlCommand::HostedGrantUpdate(params) => {
+                self.hosted_request(
+                    reqwest::Method::PATCH,
+                    &format!("/v1/connectors/hosted/grants/{}", params.grant_id),
+                    Some(serde_json::json!({ "operations": params.operations })),
+                )
+                .await
+            }
+            ControlCommand::HostedGrantRevoke(params) => {
+                self.hosted_request(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/connectors/hosted/grants/{}", params.grant_id),
+                    None,
+                )
+                .await
+            }
+            ControlCommand::HostedReplicaRevoke(params) => {
+                self.hosted_request(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/connectors/hosted/replicas/{}", params.replica_id),
+                    None,
+                )
+                .await
+            }
+            ControlCommand::MirrorList => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .list()
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorAdd(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .add(params)
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorSync(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .sync(params)
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorRemove(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors.remove(params).await,
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorResolve(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .resolve(params)
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorPromoteBegin(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors.begin_promotion(params).await,
+                Err(error) => Err(error),
+            },
+            ControlCommand::MirrorPromoteComplete(params) => match self.mirror_manager() {
+                Ok(mirrors) => {
+                    let result = mirrors.complete_promotion(params).await;
+                    if result.is_ok() {
+                        self.refresh_watchers();
+                    }
+                    result
+                }
+                Err(error) => Err(error),
+            },
         };
 
         match result {
@@ -798,6 +970,89 @@ impl AgentState {
         self.cloud.as_ref().ok_or_else(|| {
             ConnectError::Cloud("Connect this computer to a portal first.".to_string())
         })
+    }
+
+    fn mirror_manager(&self) -> Result<Arc<MirrorManager>, ConnectError> {
+        self.mirrors
+            .read()
+            .expect("mirror manager lock poisoned")
+            .clone()
+            .ok_or_else(|| ConnectError::Mirror {
+                code: "mirror_service_unavailable".to_string(),
+                message: "Hosted mirror service is unavailable.".to_string(),
+            })
+    }
+
+    fn configure_account(
+        &self,
+        params: mdbase_connect_protocol::AccountConfigureParams,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let _guard = self
+            .account_configuration_lock
+            .lock()
+            .expect("account configuration lock poisoned");
+        let state_dir = self.state_dir()?;
+        let configuration = CloudConfiguration::new(&params.server_url)?;
+        configure_cloud(&state_dir, &configuration, &params.connector_token)?;
+        self.request_shutdown();
+        Ok(serde_json::json!({
+            "configured": true,
+            "server_url": configuration.server_url,
+            "restart_required": true
+        }))
+    }
+
+    fn account_configuration(&self) -> Result<serde_json::Value, ConnectError> {
+        if let Some(cloud) = &self.cloud {
+            return Ok(serde_json::json!({
+                "configured": true,
+                "server_url": cloud.server_url()
+            }));
+        }
+        let configuration = load_cloud_configuration(&self.state_dir()?)?;
+        Ok(match configuration {
+            Some(configuration) => serde_json::json!({
+                "configured": true,
+                "server_url": configuration.server_url
+            }),
+            None => serde_json::json!({
+                "configured": false,
+                "server_url": null
+            }),
+        })
+    }
+
+    fn clear_account(&self) -> Result<serde_json::Value, ConnectError> {
+        let _guard = self
+            .account_configuration_lock
+            .lock()
+            .expect("account configuration lock poisoned");
+        let state_dir = self.state_dir()?;
+        disconnect_cloud(&state_dir)?;
+        self.request_shutdown();
+        Ok(serde_json::json!({
+            "configured": false,
+            "restart_required": true
+        }))
+    }
+
+    fn state_dir(&self) -> Result<std::path::PathBuf, ConnectError> {
+        self.state_dir
+            .read()
+            .expect("state directory lock poisoned")
+            .clone()
+            .ok_or_else(|| {
+                ConnectError::Settings("Daemon state directory is unavailable.".to_string())
+            })
+    }
+
+    async fn hosted_request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, ConnectError> {
+        self.cloud()?.connector_request(method, path, body).await
     }
 
     async fn transfer_authority_to_remote(
@@ -1161,6 +1416,16 @@ fn requirements_can_be_provisioned(
     })
 }
 
+fn validated_hosted_name(value: &str) -> Result<String, ConnectError> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > 200 {
+        return Err(ConnectError::InvalidInput(
+            "Collection name must contain between 1 and 200 characters.".to_string(),
+        ));
+    }
+    Ok(value.to_string())
+}
+
 fn profile_operation(
     transport: &str,
     operation: &str,
@@ -1213,20 +1478,34 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     let (reader, mut writer) = tokio::io::split(stream);
-    let mut lines = BufReader::new(reader).lines();
-    while let Some(line) = lines.next_line().await? {
-        let response = match serde_json::from_str::<ControlRequest>(&line) {
+    let mut reader = BufReader::new(reader.take(MAX_LOCAL_CONTROL_REQUEST_BYTES + 1));
+    let mut encoded_request = Vec::new();
+    let read = reader.read_until(b'\n', &mut encoded_request).await?;
+    if read == 0 {
+        return Ok(());
+    }
+    let response = if encoded_request.len() as u64 > MAX_LOCAL_CONTROL_REQUEST_BYTES
+        || encoded_request.last() != Some(&b'\n')
+    {
+        ControlResponse::failure(
+            uuid::Uuid::nil(),
+            "control_request_too_large",
+            "Local control requests must be newline-terminated and no larger than 8 MiB.",
+        )
+    } else {
+        encoded_request.pop();
+        match serde_json::from_slice::<ControlRequest>(&encoded_request) {
             Ok(request) => state.execute(request).await,
             Err(error) => ControlResponse::failure(
                 uuid::Uuid::nil(),
                 "invalid_request",
                 format!("Invalid control request: {error}"),
             ),
-        };
-        let mut encoded = serde_json::to_vec(&response).map_err(io::Error::other)?;
-        encoded.push(b'\n');
-        writer.write_all(&encoded).await?;
-    }
+        }
+    };
+    let mut encoded = serde_json::to_vec(&response).map_err(io::Error::other)?;
+    encoded.push(b'\n');
+    writer.write_all(&encoded).await?;
     Ok(())
 }
 
@@ -1237,26 +1516,49 @@ pub async fn serve(
     on_listening: impl FnOnce(),
 ) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
     use std::path::Path;
     use tokio::net::UnixListener;
 
     let socket_path = Path::new(endpoint);
-    if socket_path.exists() {
-        match tokio::net::UnixStream::connect(socket_path).await {
-            Ok(_) => {
+    match std::fs::symlink_metadata(socket_path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_socket() {
                 return Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    "another mdbase connect agent is already running",
-                ))
+                    io::ErrorKind::AlreadyExists,
+                    "the local control endpoint exists and is not a Unix socket",
+                ));
             }
-            Err(_) => std::fs::remove_file(socket_path)?,
+            if metadata.uid() != unsafe { libc::geteuid() } {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "the local control socket belongs to another operating-system user",
+                ));
+            }
+            match tokio::net::UnixStream::connect(socket_path).await {
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        "another mdbase connect daemon is already running",
+                    ))
+                }
+                Err(_) => std::fs::remove_file(socket_path)?,
+            }
         }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
     if let Some(parent) = socket_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let listener = UnixListener::bind(socket_path)?;
-    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
+    if let Err(error) =
+        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
+    {
+        drop(listener);
+        let _ = std::fs::remove_file(socket_path);
+        return Err(error);
+    }
     on_listening();
 
     loop {
@@ -1271,7 +1573,13 @@ pub async fn serve(
                 });
             }
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("stopping local connector agent");
+                tracing::info!("stopping local connector daemon");
+                drop(listener);
+                let _ = std::fs::remove_file(socket_path);
+                return Ok(());
+            }
+            _ = state.shutdown_requested() => {
+                tracing::info!("stopping local connector daemon after a control request");
                 drop(listener);
                 let _ = std::fs::remove_file(socket_path);
                 return Ok(());
@@ -1330,6 +1638,81 @@ mod tests {
 
         server.abort();
         let _ = server.await;
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_control_refuses_to_replace_a_non_socket_endpoint() {
+        let test_root = std::env::temp_dir().join(format!(
+            "mdbase-connect-endpoint-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&test_root).unwrap();
+        let endpoint = test_root.join("important.txt");
+        fs::write(&endpoint, "keep me").unwrap();
+        let registry = CollectionRegistry::open(test_root.join("state")).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = Arc::new(AgentState::new(registry, watcher, None));
+
+        let error = serve(endpoint.to_str().unwrap(), state, || {})
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&endpoint).unwrap(), "keep me");
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_an_unsupported_local_control_protocol() {
+        let test_root = std::env::temp_dir().join(format!(
+            "mdbase-connect-protocol-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = CollectionRegistry::open(&test_root).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry, watcher, None);
+        let mut request = ControlRequest::new(ControlCommand::Ping);
+        request.protocol_version = LOCAL_CONTROL_PROTOCOL_VERSION + 1;
+
+        let response = state.execute(request).await;
+
+        assert!(!response.ok);
+        assert_eq!(response.protocol_version, LOCAL_CONTROL_PROTOCOL_VERSION);
+        assert_eq!(
+            response.error.expect("protocol error").code,
+            "unsupported_local_protocol"
+        );
+        fs::remove_dir_all(test_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn bounds_local_control_request_memory() {
+        let test_root = std::env::temp_dir().join(format!(
+            "mdbase-connect-request-limit-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = CollectionRegistry::open(&test_root).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = Arc::new(AgentState::new(registry, watcher, None));
+        let capacity = (MAX_LOCAL_CONTROL_REQUEST_BYTES + 1) as usize;
+        let (mut client, server) = tokio::io::duplex(capacity);
+        let handler = tokio::spawn(handle_stream(server, state));
+
+        client.write_all(&vec![b'x'; capacity]).await.unwrap();
+        let mut response = String::new();
+        BufReader::new(client)
+            .read_line(&mut response)
+            .await
+            .unwrap();
+        let response: ControlResponse = serde_json::from_str(&response).unwrap();
+
+        assert!(!response.ok);
+        assert_eq!(
+            response.error.expect("size error").code,
+            "control_request_too_large"
+        );
+        handler.await.unwrap().unwrap();
         fs::remove_dir_all(test_root).unwrap();
     }
 
@@ -1507,7 +1890,9 @@ pub async fn serve(
 
     let mut on_listening = Some(on_listening);
     loop {
-        let server = ServerOptions::new().create(endpoint)?;
+        let server = ServerOptions::new()
+            .reject_remote_clients(true)
+            .create(endpoint)?;
         if let Some(on_listening) = on_listening.take() {
             on_listening();
         }
@@ -1522,7 +1907,11 @@ pub async fn serve(
                 });
             }
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("stopping local connector agent");
+                tracing::info!("stopping local connector daemon");
+                return Ok(());
+            }
+            _ = state.shutdown_requested() => {
+                tracing::info!("stopping local connector daemon after a control request");
                 return Ok(());
             }
         }

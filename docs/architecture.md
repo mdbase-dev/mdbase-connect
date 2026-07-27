@@ -11,7 +11,7 @@ Five trust zones make up the local-hosted path:
 
 1. An independently hosted frontend application.
 2. A hosted or self-hosted Connect control plane and transient relay.
-3. A user-owned connector agent with a browser-only loopback service and
+3. A user-owned connector daemon with a browser-only loopback service and
    outbound network connections.
 4. User-owned mdbase collections on the local filesystem.
 5. Optional application gateways, such as the hosted MCP service, which act as

@@ -1,8 +1,8 @@
 # Beta release checklist
 
-mdbase connect desktop bundles contain the Electron controller and the matching
-Rust connector agent. A release is one tested unit; mixing controller and agent
-versions is unsupported.
+mdbase connect desktop bundles contain the Electron client and the matching
+Rust `mdbase-connect` daemon/CLI. A release is one tested unit; mixing desktop
+and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
 `0.1.0-beta.N`. Beta tags and their matching `releases/v0.1.0-beta.N`
@@ -30,8 +30,9 @@ pnpm e2e:provider
 pnpm --filter @mdbase/connect-desktop package
 ```
 
-The package command compiles a release agent, creates the platform Electron
-bundle, and verifies that `app.asar` and the agent executable are both present.
+The package command compiles the release daemon/CLI, creates the platform
+Electron bundle, and verifies that `app.asar` and the `mdbase-connect`
+executable are both present.
 Run the packaged application once with a fresh user-data directory and complete
 pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.

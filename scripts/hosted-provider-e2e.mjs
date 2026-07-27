@@ -26,6 +26,12 @@ const providerBinary = resolve(
   process.env.MDBASE_CONNECT_PROVIDER_E2E_BINARY
     ?? join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider")
 );
+const connectBinary = resolve(
+  process.env.MDBASE_CONNECT_E2E_BINARY
+    ?? join(repoRoot, "target", "debug", process.platform === "win32"
+      ? "mdbase-connect.exe"
+      : "mdbase-connect")
+);
 const postgresContainer = `mdbase-connect-provider-e2e-${process.pid}`;
 const databasePassword = `test-${crypto.randomUUID()}`;
 const internalToken = `internal-${crypto.randomUUID()}-${crypto.randomUUID()}`;
@@ -75,7 +81,6 @@ const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
-const { MirrorManager } = await import("../apps/desktop/dist/main/mirror-manager.js");
 
 try {
   phase("starting disposable PostgreSQL 18");
@@ -558,33 +563,33 @@ try {
     421
   );
 
-  phase("controlling a writable mirror through the Electron mirror engine");
+  phase("controlling a writable mirror through the Rust daemon");
   const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
     method: "POST",
-    body: { name: "Desktop mirror controller" }
+    body: { name: "Rust mirror controller" }
   });
-  const desktopMirrors = new MirrorManager(desktopMirrorData);
-  const desktopMirror = await desktopMirrors.connect({
-    collectionId,
-    path: desktopMirrorRoot,
-    mode: "read_write",
-    name: "Desktop-managed mirror",
-    cloud: {
-      serverUrl: controlUrl,
-      connectorToken: connector.token
-    }
-  });
+  const desktopProfile = connectProfile(desktopMirrorData);
+  const desktopDaemon = await startConnectDaemon(
+    desktopProfile,
+    controlUrl,
+    connector.token
+  );
+  const desktopMirror = await connectCommand(desktopProfile, [
+    "mirror", "add", collectionId, desktopMirrorRoot,
+    "--two-way", "--name", "Daemon-managed mirror"
+  ]);
   assert.equal(desktopMirror.collection_id, collectionId);
   assert.equal(desktopMirror.mode, "read_write");
   assert.equal(desktopMirror.state, "up_to_date");
   assert.match(await readFile(join(desktopMirrorRoot, "mdbase.yaml"), "utf8"), /spec_version: 0\.3\.0/);
   assert.equal((await stat(join(desktopMirrorData, "mirrors.json"))).mode & 0o777, 0o600);
+  assert.equal((await stat(desktopMirrorData)).mode & 0o777, 0o700);
   await mkdir(join(desktopMirrorRoot, "tasks"), { recursive: true });
   await writeFile(
     join(desktopMirrorRoot, "tasks", "desktop-managed.md"),
     "---\ntype: task\ntitle: Desktop managed\nstatus: open\n---\n"
   );
-  await desktopMirrors.syncNow(desktopMirror.replica_id);
+  await connectCommand(desktopProfile, ["mirror", "sync", desktopMirror.replica_id]);
   const desktopRecord = (
     await snapshotAll(
       transport(provider.url, collectionId, writer),
@@ -592,12 +597,6 @@ try {
     )
   ).find((record) => record.path === "tasks/desktop-managed.md");
   assert.equal(desktopRecord?.frontmatter.title, "Desktop managed");
-  const desktopRevoked = await rawRequest(
-    controlUrl,
-    `/v1/connectors/hosted/replicas/${desktopMirror.replica_id}`,
-    { method: "DELETE", token: connector.token }
-  );
-  assert.equal(desktopRevoked.status, 200);
 
   await localAuthorityImportE2E(
     controlUrl,
@@ -611,9 +610,11 @@ try {
     provider.url,
     controlDatabase
   );
-  await desktopMirrors.remove(desktopMirror.replica_id);
-  assert.deepEqual(await desktopMirrors.list(), []);
-  desktopMirrors.stop();
+  await connectCommand(desktopProfile, [
+    "mirror", "remove", desktopMirror.replica_id, "--yes"
+  ]);
+  assert.deepEqual(await connectCommand(desktopProfile, ["mirror", "list"]), []);
+  await stopConnectDaemon(desktopProfile, desktopDaemon);
 
   phase("exercising hosted lifecycle and writable enrollment in a real browser");
   await portalLifecycleE2E(controlUrl, browserMirrorRoot);
@@ -2156,38 +2157,19 @@ async function authorityPromotionCliE2E(
     body: { display_name: "Promotion E2E collection", template: "mdbase" }
   });
   const collectionId = hosted.collection.id;
-  const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
-  const connectProcess = spawn(process.execPath, [
-    mirrorCli,
-    "connect",
-    mirrorDirectory,
-    "--server", controlUrl,
-    "--collection", collectionId,
-    "--name", "Promotion computer",
-    "--no-open"
-  ], {
-    cwd: repoRoot,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"]
+  const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
+    method: "POST",
+    body: { name: "Promotion computer" }
   });
-  let connectOutput = "";
-  let connectError = "";
-  connectProcess.stdout.on("data", (chunk) => { connectOutput += chunk; });
-  connectProcess.stderr.on("data", (chunk) => { connectError += chunk; });
-  const mirrorVerificationUri = await waitForOutput(
-    () => connectOutput.match(/https?:\/\/[^\s]+\/mirror\/[0-9a-f-]+/)?.[0],
-    "Promotion mirror did not print its approval URL"
-  );
-  const pairingId = new URL(mirrorVerificationUri).pathname.split("/").at(-1);
-  await controlRequest(
-    controlUrl,
-    `/v1/mirror-pairing-requests/${pairingId}/approve`,
-    cookie,
-    { method: "POST", body: { collection_id: collectionId } }
-  );
-  const connectExit = connectProcess.exitCode
-    ?? await new Promise((resolveExit) => connectProcess.once("exit", resolveExit));
-  assert.equal(connectExit, 0, `Promotion mirror connect failed:\n${connectError}\n${connectOutput}`);
+  const profile = connectProfile(toolDirectory);
+  let daemon = await startConnectDaemon(profile, controlUrl, connector.token);
+  const mirror = await connectCommand(profile, [
+    "mirror", "add", collectionId, mirrorDirectory,
+    "--two-way", "--name", "Promotion mirror"
+  ]);
+  assert.equal(mirror.collection_id, collectionId);
+  assert.equal(mirror.state, "up_to_date");
+  assert.equal(mirror.mode, "read_write");
 
   const promotionStressCount = Number(
     process.env.MDBASE_CONNECT_PROVIDER_E2E_PROMOTION_COUNT ?? 0
@@ -2197,75 +2179,33 @@ async function authorityPromotionCliE2E(
       && (promotionStressCount === 0 || promotionStressCount >= 205)
       && promotionStressCount <= 20_000
   );
+  const syncMirror = async () => {
+    const status = await connectCommand(profile, [
+      "mirror", "sync", mirror.replica_id
+    ]);
+    assert.equal(status.state, "up_to_date");
+    assert.equal(status.pending, 0);
+    assert.deepEqual(status.conflicts, []);
+  };
   const promotionStress = promotionStressCount > 0
     ? await prepareAuthorityPromotionStressFixture(
-        mirrorCli,
+        syncMirror,
         mirrorDirectory,
         promotionStressCount
       )
     : null;
 
-  const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
-    method: "POST",
-    body: { name: "Promotion computer" }
-  });
-  const fakeConnectCli = join(toolDirectory, "mdbase-connect-e2e.mjs");
-  await writeFile(fakeConnectCli, `#!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-const args = process.argv.slice(2);
-const collection = args.indexOf("collection");
-const action = args[collection + 1];
-let id = args[collection + 2] ?? "";
-if (action === "add") {
-  const source = await readFile(id + "/mdbase.yaml", "utf8");
-  id = source.match(/collection_id:\\s*["']?([0-9a-f-]{36})/i)?.[1] ?? "";
-  if (process.env.MDBASE_PROMOTION_PUBLISH !== "0") {
-    const response = await fetch(process.env.MDBASE_PROMOTION_CONTROL_URL + "/v1/connectors/sync", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer " + process.env.MDBASE_PROMOTION_CONNECTOR_TOKEN,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        inventory_revision: 1,
-        collections: [{
-          id,
-          display_name: "Promotion E2E collection",
-          spec_version: "0.3.0",
-          enabled: true,
-          contracts: []
-        }]
-      })
-    });
-    if (!response.ok) {
-      process.stderr.write(await response.text());
-      process.exit(1);
-    }
-  }
-}
+  await stopConnectDaemon(profile, daemon);
+  daemon = await startConnectDaemon(profile, controlUrl, connector.token);
+  const recovered = await connectCommand(profile, ["mirror", "list"]);
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].replica_id, mirror.replica_id);
 
-process.stdout.write(JSON.stringify({
-  id: crypto.randomUUID(),
-  protocol_version: 1,
-  ok: true,
-  result: action === "list" ? [] : action === "add" ? { id } : { valid: true }
-}) + "\\n");
-`, { mode: 0o700 });
-
-  const promotion = spawn(process.execPath, [
-    mirrorCli,
-    "promote",
-    mirrorDirectory,
-    "--no-open",
-    "--connect-cli", fakeConnectCli
-  ], {
+  const promotion = spawn(connectBinary, connectArguments(profile, [
+    "--json", "mirror", "promote", mirror.replica_id, "--no-open"
+  ]), {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      MDBASE_PROMOTION_CONTROL_URL: controlUrl,
-      MDBASE_PROMOTION_CONNECTOR_TOKEN: connector.token,
-      MDBASE_PROMOTION_PUBLISH: "0"
-    },
+    env: connectEnvironment(),
     stdio: ["ignore", "pipe", "pipe"]
   });
   let promotionOutput = "";
@@ -2273,7 +2213,7 @@ process.stdout.write(JSON.stringify({
   promotion.stdout.on("data", (chunk) => { promotionOutput += chunk; });
   promotion.stderr.on("data", (chunk) => { promotionError += chunk; });
   const transferUri = await waitForOutput(
-    () => promotionOutput.match(/https?:\/\/[^\s]+\/transfer\/[0-9a-f-]+/)?.[0],
+    () => promotionError.match(/https?:\/\/[^\s]+\/transfer\/[0-9a-f-]+/)?.[0],
     "Promotion CLI did not print an authority confirmation URL"
   );
   const browser = await chromium.launch({ headless: true });
@@ -2288,48 +2228,22 @@ process.stdout.write(JSON.stringify({
     const page = await context.newPage();
     await page.goto(transferUri);
     await expect(page.getByRole("heading", {
-      name: "Make Promotion computer authoritative?"
+      name: /authoritative\?/
     })).toBeVisible();
     await expect(page.getByText(
       "Existing access is revoked. Connect applications again to use the local collection."
     )).toBeVisible();
     await page.getByRole("button", { name: "Move authority" }).click();
-    await waitForOutput(
-      () => promotionOutput.includes("Local collection registered.") || undefined,
-      "Promotion CLI did not materialize the local collection"
-    );
-    promotion.kill("SIGTERM");
-    await new Promise((resolveExit) => promotion.once("exit", resolveExit));
-
-    const resumedPromotion = spawn(process.execPath, [
-      mirrorCli,
-      "promote",
-      mirrorDirectory,
-      "--no-open",
-      "--connect-cli", fakeConnectCli
-    ], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        MDBASE_PROMOTION_CONTROL_URL: controlUrl,
-        MDBASE_PROMOTION_CONNECTOR_TOKEN: connector.token,
-        MDBASE_PROMOTION_PUBLISH: "1"
-      },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let resumedOutput = "";
-    let resumedError = "";
-    resumedPromotion.stdout.on("data", (chunk) => { resumedOutput += chunk; });
-    resumedPromotion.stderr.on("data", (chunk) => { resumedError += chunk; });
-    const promotionExit = resumedPromotion.exitCode
-      ?? await new Promise((resolveExit) => resumedPromotion.once("exit", resolveExit));
+    const promotionExit = await waitForExit(promotion, 30_000);
     assert.equal(
       promotionExit,
       0,
-      `Promotion CLI resume failed:\n${resumedError}\n${resumedOutput}`
+      `Promotion CLI failed:\n${promotionError}\n${promotionOutput}`
     );
-    assert.match(resumedOutput, /Resuming the materialized authority handoff/);
-    assert.match(resumedOutput, /Authority moved/);
+    const result = JSON.parse(promotionOutput);
+    assert.equal(result.collection_id, collectionId);
+    assert.equal(result.authority_epoch, 2);
+    assert.equal(result.path, mirrorDirectory);
     await expect(page.getByRole("heading", {
       name: "Promotion E2E collection now lives on your computer."
     })).toBeVisible();
@@ -2338,20 +2252,23 @@ process.stdout.write(JSON.stringify({
     await browser.close();
   }
 
+  assert.deepEqual(await connectCommand(profile, ["mirror", "list"]), []);
+  const localCollections = await connectCommand(profile, ["collection", "list"]);
+  const localCollection = localCollections.find((candidate) => candidate.id === collectionId);
+  assert.equal(localCollection?.path, mirrorDirectory);
+  assert.equal(localCollection?.enabled, true);
+  const validation = await connectCommand(profile, [
+    "collection", "validate", collectionId
+  ]);
+  assert.equal(validation.valid, true);
   assert.match(
     await readFile(join(mirrorDirectory, "mdbase.yaml"), "utf8"),
     new RegExp(`collection_id: ${collectionId}`)
   );
-  const profileDirectory = await mirrorProfileDirectory(mirrorDirectory);
   await assert.rejects(
-    () => readFile(join(profileDirectory, "credentials.json"), "utf8"),
+    () => stat(join(toolDirectory, "mirrors", mirror.replica_id, "state.json")),
     { code: "ENOENT" }
   );
-  const authorityReceipt = JSON.parse(
-    await readFile(join(profileDirectory, "authority.json"), "utf8")
-  );
-  assert.equal(authorityReceipt.collection_id, collectionId);
-  assert.equal(authorityReceipt.authority_epoch, 2);
   if (promotionStress) {
     assert.equal(await countMarkdownFiles(mirrorDirectory), promotionStress.expectedCount);
     assert.match(
@@ -2367,6 +2284,7 @@ process.stdout.write(JSON.stringify({
       /Added during authority stress wave/
     );
   }
+  await stopConnectDaemon(profile, daemon);
   const state = await database.query(
     `SELECT hosted.authority_state AS hosted_state,
             local.authority_state AS local_state,
@@ -2904,7 +2822,7 @@ async function absoluteRequest(url, options) {
 }
 
 async function prepareAuthorityPromotionStressFixture(
-  mirrorCli,
+  syncMirror,
   mirrorDirectory,
   recordCount
 ) {
@@ -2919,7 +2837,7 @@ async function prepareAuthorityPromotionStressFixture(
     await mkdir(dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, authorityStressDocument(index));
   });
-  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+  await syncMirror();
 
   const updateIndexes = paths
     .map((_, index) => index)
@@ -2932,7 +2850,7 @@ async function prepareAuthorityPromotionStressFixture(
       `${document}\nUpdated during authority stress wave ${index}.\n`
     );
   });
-  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+  await syncMirror();
 
   const renameIndexes = paths
     .map((_, index) => index)
@@ -2942,7 +2860,7 @@ async function prepareAuthorityPromotionStressFixture(
     await rename(join(mirrorDirectory, paths[index]), join(mirrorDirectory, nextPath));
     paths[index] = nextPath;
   }
-  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+  await syncMirror();
 
   const deleteIndexes = paths
     .map((_, index) => index)
@@ -2951,7 +2869,7 @@ async function prepareAuthorityPromotionStressFixture(
   for (const index of deleteIndexes) {
     await unlink(join(mirrorDirectory, paths[index]));
   }
-  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+  await syncMirror();
 
   const addedCount = Math.min(25, Math.max(1, Math.ceil(recordCount / 200)));
   const addedPaths = Array.from(
@@ -2966,7 +2884,7 @@ async function prepareAuthorityPromotionStressFixture(
       `${authorityStressDocument(recordCount + index)}\nAdded during authority stress wave.\n`
     );
   });
-  await syncPromotionMirror(mirrorCli, mirrorDirectory);
+  await syncMirror();
 
   const expectedCount = recordCount - deleteIndexes.length + addedCount;
   assert.equal(await countMarkdownFiles(mirrorDirectory), expectedCount);
@@ -3038,21 +2956,6 @@ This is a nested, Unicode-rich authority transfer fixture.
 {"index":${index},"flags":[true,false,null],"label":${JSON.stringify(title)}}
 \`\`\`
 `;
-}
-
-async function syncPromotionMirror(mirrorCli, mirrorDirectory) {
-  await execute(process.execPath, [mirrorCli, "sync", mirrorDirectory]);
-  const status = JSON.parse(
-    (await execute(process.execPath, [
-      mirrorCli,
-      "status",
-      mirrorDirectory,
-      "--json"
-    ])).stdout
-  );
-  assert.equal(status.state, "up_to_date");
-  assert.equal(status.pending, 0);
-  assert.deepEqual(status.conflicts, []);
 }
 
 async function writeFilesInBatches(values, batchSize, action) {
@@ -3185,6 +3088,88 @@ async function availablePort() {
   if (!address || typeof address === "string") throw new Error("Could not reserve a local port");
   await new Promise((resolveClose) => server.close(resolveClose));
   return address.port;
+}
+
+function connectProfile(stateDirectory) {
+  return {
+    stateDirectory,
+    endpoint: process.platform === "win32"
+      ? `\\\\.\\pipe\\mdbase-connect-provider-e2e-${process.pid}-${crypto.randomUUID()}`
+      : join(stateDirectory, "daemon.sock")
+  };
+}
+
+function connectArguments(profile, command) {
+  return [
+    "--state-dir", profile.stateDirectory,
+    "--endpoint", profile.endpoint,
+    ...command
+  ];
+}
+
+function connectEnvironment(connectorToken) {
+  return {
+    ...process.env,
+    MDBASE_CONNECT_ENV: "test",
+    MDBASE_CONNECT_SECRET_BACKEND: "insecure-test-file",
+    ...(connectorToken
+      ? { MDBASE_CONNECT_CONNECTOR_TOKEN: connectorToken }
+      : {})
+  };
+}
+
+async function connectCommand(profile, command) {
+  const { stdout } = await execute(
+    connectBinary,
+    connectArguments(profile, ["--json", ...command]),
+    { cwd: repoRoot, env: connectEnvironment() }
+  );
+  return JSON.parse(stdout);
+}
+
+async function startConnectDaemon(profile, serverUrl, connectorToken) {
+  const child = spawn(connectBinary, connectArguments(profile, [
+    "daemon", "run",
+    "--server-url", serverUrl,
+    "--loopback-port", "0"
+  ]), {
+    cwd: repoRoot,
+    env: connectEnvironment(connectorToken),
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  children.add(child);
+  let logs = "";
+  child.stdout.on("data", (chunk) => { logs += chunk; });
+  child.stderr.on("data", (chunk) => { logs += chunk; });
+  await waitFor(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Connect daemon exited during startup:\n${logs}`);
+    }
+    try {
+      const status = await connectCommand(profile, ["daemon", "status"]);
+      return status.running;
+    } catch {
+      return false;
+    }
+  }, `Connect daemon startup timed out:\n${logs}`, 400);
+  return child;
+}
+
+async function stopConnectDaemon(profile, child) {
+  await connectCommand(profile, ["daemon", "stop"]).catch(() => {});
+  await stopProvider(child);
+}
+
+async function waitForExit(child, timeoutMilliseconds) {
+  if (child.exitCode !== null) return child.exitCode;
+  if (child.signalCode !== null) return null;
+  return Promise.race([
+    new Promise((resolveExit) => child.once("exit", resolveExit)),
+    delay(timeoutMilliseconds).then(() => {
+      child.kill("SIGTERM");
+      throw new Error(`Process did not exit within ${timeoutMilliseconds}ms`);
+    })
+  ]);
 }
 
 async function startProvider(

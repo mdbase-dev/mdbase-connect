@@ -57,6 +57,8 @@ pub enum ConnectError {
     NotARegisteredCollectionCopy(String),
     #[error("Unsupported collection operation: {0}")]
     UnsupportedOperation(String),
+    #[error("Invalid request: {0}")]
+    InvalidInput(String),
     #[error("Application access denied: {0}")]
     AccessDenied(String),
     #[error("Encrypted relay request was rejected")]
@@ -73,6 +75,12 @@ pub enum ConnectError {
     Io(#[from] std::io::Error),
     #[error("Configuration error: {0}")]
     Config(#[from] serde_yaml::Error),
+    #[error("Configuration error: {0}")]
+    Settings(String),
+    #[error("Credential store error: {0}")]
+    CredentialStore(String),
+    #[error("{message}")]
+    Mirror { code: String, message: String },
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("Cloud control error: {0}")]
@@ -86,7 +94,7 @@ pub enum ConnectError {
 }
 
 impl ConnectError {
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
             Self::StateDirectoryUnavailable => "state_directory_unavailable",
             Self::PathNotFound(_) => "path_not_found",
@@ -99,6 +107,7 @@ impl ConnectError {
             Self::InvalidMirrorMarker(_) => "invalid_mirror_marker",
             Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
+            Self::InvalidInput(_) => "invalid_input",
             Self::AccessDenied(_) => "access_denied",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
             Self::AuthorityTransferInProgress { .. } => "authority_transfer_in_progress",
@@ -107,6 +116,9 @@ impl ConnectError {
             Self::Registry(_) => "registry_failed",
             Self::Io(_) => "io_failed",
             Self::Config(_) => "invalid_config",
+            Self::Settings(_) => "invalid_config",
+            Self::CredentialStore(_) => "credential_store_unavailable",
+            Self::Mirror { code, .. } => code.as_str(),
             Self::Serialization(_) => "serialization_failed",
             Self::Cloud(_) => "cloud_control_failed",
             Self::InvalidTimer(_) => "invalid_timer_request",
@@ -142,6 +154,16 @@ pub fn default_control_endpoint(state_dir: &Path) -> String {
             .collect::<String>();
         format!(r"\\.\pipe\mdbase-connect-{suffix}")
     }
+}
+
+pub(crate) fn ensure_private_state_dir(state_dir: &Path) -> Result<(), ConnectError> {
+    fs::create_dir_all(state_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(state_dir, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -180,7 +202,7 @@ impl CollectionRegistry {
     }
 
     pub fn open(state_dir: impl AsRef<Path>) -> Result<Self, ConnectError> {
-        fs::create_dir_all(state_dir.as_ref())?;
+        ensure_private_state_dir(state_dir.as_ref())?;
         let registry = Self {
             db_path: state_dir.as_ref().join("connector.sqlite"),
             providers: Arc::new(Mutex::new(HashMap::new())),
@@ -527,6 +549,97 @@ impl CollectionRegistry {
             .insert(id, provider);
 
         self.get(id)
+    }
+
+    /// Turn a fully verified hosted mirror into the local authority.
+    ///
+    /// The caller must fence and verify the hosted authority first. This
+    /// transition is idempotent so a daemon can resume it after a crash.
+    pub fn activate_mirror_authority(
+        &self,
+        path: impl AsRef<Path>,
+        collection_id: Uuid,
+    ) -> Result<CollectionSummary, ConnectError> {
+        let path = path.as_ref().canonicalize()?;
+        let path_string = path.to_string_lossy().to_string();
+        let existing = self
+            .list()?
+            .into_iter()
+            .find(|collection| collection.id == collection_id);
+        let already_materialized = existing
+            .as_ref()
+            .is_some_and(|collection| collection.path == path_string)
+            && collection_identity(&path)? == Some(collection_id)
+            && mirror_collection_id(&path)?.is_none();
+        if !already_materialized {
+            if mirror_collection_id(&path)? != Some(collection_id) {
+                return Err(ConnectError::InvalidMirrorMarker(
+                    "Only the matching hosted mirror can become this collection authority."
+                        .to_string(),
+                ));
+            }
+            if let Some(existing) = &existing {
+                let existing_path = Path::new(&existing.path);
+                if existing.path != path_string && existing_path.exists() {
+                    return Err(ConnectError::DuplicateCollectionIdentity {
+                        collection_id,
+                        existing_path: existing.path.clone(),
+                    });
+                }
+            }
+            let identity_was_present = collection_identity(&path)?.is_some();
+            set_collection_identity(&path, collection_id)?;
+            remove_mirror_marker(&path, collection_id)?;
+            match self.add(&path) {
+                Ok(_) => {}
+                Err(error) => {
+                    if !identity_was_present {
+                        let _ = clear_collection_identity(&path);
+                    }
+                    let _ = write_mirror_marker(&path, collection_id);
+                    return Err(error);
+                }
+            }
+        } else {
+            self.add(&path)?;
+        }
+        let mut connection = self.connection()?;
+        let transaction =
+            connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "DELETE FROM local_sync_collections WHERE collection_id = ?1",
+            [collection_id.to_string()],
+        )?;
+        transaction.execute(
+            "UPDATE collections SET enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            [collection_id.to_string()],
+        )?;
+        transaction.commit()?;
+        self.get(collection_id)
+    }
+
+    /// Restore a materialized-but-uncommitted authority to its mirror role.
+    pub fn rollback_mirror_authority(
+        &self,
+        path: impl AsRef<Path>,
+        collection_id: Uuid,
+        identity_was_present: bool,
+        registration_was_present: bool,
+    ) -> Result<(), ConnectError> {
+        let path = path.as_ref().canonicalize()?;
+        if let Ok(existing) = self.get(collection_id) {
+            if existing.path == path.to_string_lossy() {
+                if registration_was_present {
+                    self.set_enabled(collection_id, false)?;
+                } else {
+                    self.remove(collection_id)?;
+                }
+            }
+        }
+        if !identity_was_present && collection_identity(&path)? == Some(collection_id) {
+            clear_collection_identity(&path)?;
+        }
+        write_mirror_marker(&path, collection_id)
     }
 
     pub fn add_copy(&self, path: impl AsRef<Path>) -> Result<CollectionSummary, ConnectError> {
@@ -2516,7 +2629,7 @@ fn assert_local_authority_folder(root: &Path) -> Result<(), ConnectError> {
     Ok(())
 }
 
-fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
+pub fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     let marker_directory = root.join(MIRROR_MARKER_DIRECTORY);
     let directory_metadata = match fs::symlink_metadata(&marker_directory) {
         Ok(metadata) => metadata,
@@ -2600,8 +2713,18 @@ fn write_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), ConnectEr
     Ok(())
 }
 
+fn remove_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), ConnectError> {
+    if mirror_collection_id(root)? != Some(collection_id) {
+        return Err(ConnectError::InvalidMirrorMarker(
+            "Mirror role marker belongs to another collection.".to_string(),
+        ));
+    }
+    fs::remove_file(root.join(MIRROR_MARKER_DIRECTORY).join(MIRROR_MARKER_FILE))?;
+    Ok(())
+}
+
 fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
-    if let Some(id) = read_collection_id(root)? {
+    if let Some(id) = collection_identity(root)? {
         return Ok(id);
     }
     let id = Uuid::new_v4();
@@ -2610,6 +2733,10 @@ fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
 }
 
 fn read_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
+    collection_identity(root)
+}
+
+pub fn collection_identity(root: &Path) -> Result<Option<Uuid>, ConnectError> {
     let config_path = root.join("mdbase.yaml");
     let source = fs::read_to_string(&config_path)?;
     let config: serde_yaml::Value = serde_yaml::from_str(&source)?;
@@ -2639,6 +2766,18 @@ fn read_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
 }
 
 fn write_collection_id(root: &Path, id: Uuid) -> Result<(), ConnectError> {
+    update_collection_identity(root, id, false)
+}
+
+fn set_collection_identity(root: &Path, id: Uuid) -> Result<(), ConnectError> {
+    update_collection_identity(root, id, true)
+}
+
+fn update_collection_identity(
+    root: &Path,
+    id: Uuid,
+    require_matching_existing: bool,
+) -> Result<(), ConnectError> {
     let config_path = root.join("mdbase.yaml");
     let source = fs::read_to_string(&config_path)?;
     let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
@@ -2653,16 +2792,61 @@ fn write_collection_id(root: &Path, id: Uuid) -> Result<(), ConnectError> {
     let extension = extension.as_mapping_mut().ok_or_else(|| {
         ConnectError::CollectionOpen(format!("{CONNECT_EXTENSION} must be a YAML mapping."))
     })?;
+    if require_matching_existing {
+        if let Some(existing) = extension
+            .get(&collection_id_key)
+            .and_then(serde_yaml::Value::as_str)
+        {
+            if existing != id.to_string() {
+                return Err(ConnectError::CollectionOpen(
+                    "This folder already has a different mdbase connect collection identity."
+                        .to_string(),
+                ));
+            }
+        }
+    }
     extension.insert(collection_id_key, serde_yaml::Value::String(id.to_string()));
 
+    persist_collection_configuration(root, &config_path, &config)
+}
+
+fn clear_collection_identity(root: &Path) -> Result<(), ConnectError> {
+    let config_path = root.join("mdbase.yaml");
+    let source = fs::read_to_string(&config_path)?;
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+    let mapping = config.as_mapping_mut().ok_or_else(|| {
+        ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
+    })?;
+    let extension_key = serde_yaml::Value::String(CONNECT_EXTENSION.to_string());
+    let collection_id_key = serde_yaml::Value::String(CONNECT_COLLECTION_ID.to_string());
+    let remove_extension = if let Some(extension) = mapping
+        .get_mut(&extension_key)
+        .and_then(serde_yaml::Value::as_mapping_mut)
+    {
+        extension.remove(&collection_id_key);
+        extension.is_empty()
+    } else {
+        false
+    };
+    if remove_extension {
+        mapping.remove(&extension_key);
+    }
+    persist_collection_configuration(root, &config_path, &config)
+}
+
+fn persist_collection_configuration(
+    root: &Path,
+    config_path: &Path,
+    config: &serde_yaml::Value,
+) -> Result<(), ConnectError> {
     let serialized = serde_yaml::to_string(&config)?;
-    let permissions = fs::metadata(&config_path)?.permissions();
+    let permissions = fs::metadata(config_path)?.permissions();
     let mut temporary = NamedTempFile::new_in(root)?;
     temporary.as_file().set_permissions(permissions)?;
     temporary.write_all(serialized.as_bytes())?;
     temporary.as_file().sync_all()?;
     temporary
-        .persist(&config_path)
+        .persist(config_path)
         .map_err(|error| ConnectError::Io(error.error))?;
     Ok(())
 }
@@ -3139,6 +3323,91 @@ mod tests {
         ));
         assert_eq!(read_collection_id(&root).unwrap(), None);
         assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn verified_mirror_authority_activation_is_idempotent_and_reversible() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("mirror");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection_id = Uuid::new_v4();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("mdbase.yaml"),
+            "spec_version: 0.3.0\nname: Promoted\n",
+        )
+        .unwrap();
+        mark_mirror(&root, collection_id);
+
+        let promoted = registry
+            .activate_mirror_authority(&root, collection_id)
+            .unwrap();
+        assert_eq!(promoted.id, collection_id);
+        assert!(promoted.enabled);
+        assert_eq!(collection_identity(&root).unwrap(), Some(collection_id));
+        assert_eq!(mirror_collection_id(&root).unwrap(), None);
+        assert_eq!(
+            registry
+                .activate_mirror_authority(&root, collection_id)
+                .unwrap()
+                .id,
+            collection_id
+        );
+
+        registry
+            .rollback_mirror_authority(&root, collection_id, false, false)
+            .unwrap();
+        assert!(registry.list().unwrap().is_empty());
+        assert_eq!(collection_identity(&root).unwrap(), None);
+        assert_eq!(mirror_collection_id(&root).unwrap(), Some(collection_id));
+    }
+
+    #[test]
+    fn authority_activation_refuses_a_different_mirror_identity_without_changes() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("mirror");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let marker_id = Uuid::new_v4();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        mark_mirror(&root, marker_id);
+
+        let error = registry
+            .activate_mirror_authority(&root, Uuid::new_v4())
+            .unwrap_err();
+        assert_eq!(error.code(), "invalid_mirror_marker");
+        assert_eq!(mirror_collection_id(&root).unwrap(), Some(marker_id));
+        assert_eq!(collection_identity(&root).unwrap(), None);
+        assert!(registry.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn authority_rollback_restores_a_retired_local_registration() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("notes");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let created = registry.create(&root, Some("Notes")).unwrap();
+        registry.set_enabled(created.id, false).unwrap();
+        mark_mirror(&root, created.id);
+
+        assert!(
+            registry
+                .activate_mirror_authority(&root, created.id)
+                .unwrap()
+                .enabled
+        );
+        registry
+            .rollback_mirror_authority(&root, created.id, true, true)
+            .unwrap();
+
+        let restored = registry.get(created.id).unwrap();
+        assert!(!restored.enabled);
+        assert_eq!(restored.path, root.to_string_lossy());
+        assert_eq!(collection_identity(&root).unwrap(), Some(created.id));
+        assert_eq!(mirror_collection_id(&root).unwrap(), Some(created.id));
     }
 
     #[test]

@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub mod crypto;
 
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
+pub const LOCAL_CONTROL_PROTOCOL_VERSION: u32 = 1;
 pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 1;
 pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
@@ -23,6 +24,7 @@ pub const AUTHORITY_PROOF_SIGNATURE_HEADER: &str = "x-mdbase-proof-signature";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControlRequest {
     pub id: Uuid,
+    pub protocol_version: u32,
     #[serde(flatten)]
     pub command: ControlCommand,
 }
@@ -31,6 +33,7 @@ impl ControlRequest {
     pub fn new(command: ControlCommand) -> Self {
         Self {
             id: Uuid::new_v4(),
+            protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
             command,
         }
     }
@@ -43,6 +46,8 @@ pub enum ControlCommand {
     Ping,
     #[serde(rename = "status")]
     Status,
+    #[serde(rename = "daemon.shutdown")]
+    DaemonShutdown,
     #[serde(rename = "collections.list")]
     CollectionList,
     #[serde(rename = "collections.add")]
@@ -73,6 +78,12 @@ pub enum ControlCommand {
     AccessPause(AccessPauseParams),
     #[serde(rename = "account.rename-computer")]
     AccountRenameComputer(ComputerNameParams),
+    #[serde(rename = "account.configure")]
+    AccountConfigure(AccountConfigureParams),
+    #[serde(rename = "account.configuration")]
+    AccountConfiguration,
+    #[serde(rename = "account.clear")]
+    AccountClear,
     #[serde(rename = "grants.create")]
     GrantCreate(GrantCreateParams),
     #[serde(rename = "grants.update")]
@@ -85,6 +96,36 @@ pub enum ControlCommand {
     AuthorizationDeny(AuthorizationIdParams),
     #[serde(rename = "activity.list")]
     ActivityList(ActivityListParams),
+    #[serde(rename = "hosted.snapshot")]
+    HostedSnapshot,
+    #[serde(rename = "hosted.collections.create")]
+    HostedCollectionCreate(HostedCollectionCreateParams),
+    #[serde(rename = "hosted.collections.rename")]
+    HostedCollectionRename(HostedCollectionRenameParams),
+    #[serde(rename = "hosted.collections.delete")]
+    HostedCollectionDelete(CollectionIdParams),
+    #[serde(rename = "hosted.authorizations.approve")]
+    HostedAuthorizationApprove(AuthorizationApproveParams),
+    #[serde(rename = "hosted.grants.update")]
+    HostedGrantUpdate(GrantUpdateParams),
+    #[serde(rename = "hosted.grants.revoke")]
+    HostedGrantRevoke(GrantIdParams),
+    #[serde(rename = "hosted.replicas.revoke")]
+    HostedReplicaRevoke(MirrorIdParams),
+    #[serde(rename = "mirrors.list")]
+    MirrorList,
+    #[serde(rename = "mirrors.add")]
+    MirrorAdd(MirrorAddParams),
+    #[serde(rename = "mirrors.sync")]
+    MirrorSync(MirrorIdParams),
+    #[serde(rename = "mirrors.remove")]
+    MirrorRemove(MirrorIdParams),
+    #[serde(rename = "mirrors.resolve")]
+    MirrorResolve(MirrorResolveParams),
+    #[serde(rename = "mirrors.promote.begin")]
+    MirrorPromoteBegin(MirrorIdParams),
+    #[serde(rename = "mirrors.promote.complete")]
+    MirrorPromoteComplete(MirrorIdParams),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +190,23 @@ pub struct ComputerNameParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountConfigureParams {
+    pub server_url: String,
+    pub connector_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedCollectionCreateParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostedCollectionRenameParams {
+    pub collection_id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantCreateParams {
     pub application_id: Uuid,
     pub collection_id: Uuid,
@@ -189,6 +247,34 @@ fn default_activity_limit() -> usize {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorAddParams {
+    pub collection_id: Uuid,
+    pub path: String,
+    pub mode: SyncReplicaMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorIdParams {
+    pub replica_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorResolveParams {
+    pub replica_id: Uuid,
+    pub record_id: Uuid,
+    pub resolution: MirrorResolution,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorResolution {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControlResponse {
     pub id: Uuid,
     pub protocol_version: u32,
@@ -204,7 +290,7 @@ impl ControlResponse {
         match serde_json::to_value(result) {
             Ok(result) => Self {
                 id,
-                protocol_version: CONTROL_PROTOCOL_VERSION,
+                protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
                 ok: true,
                 result: Some(result),
                 error: None,
@@ -216,7 +302,7 @@ impl ControlResponse {
     pub fn failure(id: Uuid, code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             id,
-            protocol_version: CONTROL_PROTOCOL_VERSION,
+            protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
             ok: false,
             result: None,
             error: Some(ControlError {
@@ -442,6 +528,64 @@ fn hex_digest(value: &[u8]) -> String {
 pub enum SyncReplicaMode {
     ReadOnly,
     ReadWrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorState {
+    NotInitialized,
+    UpToDate,
+    ChangesWaiting,
+    Attention,
+    Offline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MirrorConflictSummary {
+    pub record_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub kind: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MirrorLocalIssue {
+    pub path: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirrorSummary {
+    pub collection_id: Uuid,
+    pub replica_id: Uuid,
+    pub name: String,
+    pub mode: SyncReplicaMode,
+    pub path: String,
+    pub state: MirrorState,
+    pub pending: usize,
+    #[serde(default)]
+    pub conflicts: Vec<MirrorConflictSummary>,
+    #[serde(default)]
+    pub local_issues: Vec<MirrorLocalIssue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_synced_at: Option<String>,
+    #[serde(default)]
+    pub syncing: bool,
+    #[serde(default)]
+    pub promotion_pending: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion: Option<MirrorPromotionSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MirrorPromotionSummary {
+    pub phase: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -995,12 +1139,14 @@ mod tests {
     fn control_request_has_stable_wire_shape() {
         let request = ControlRequest {
             id: Uuid::nil(),
+            protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
             command: ControlCommand::CollectionList,
         };
         assert_eq!(
             serde_json::to_value(request).unwrap(),
             serde_json::json!({
                 "id": "00000000-0000-0000-0000-000000000000",
+                "protocol_version": 1,
                 "method": "collections.list"
             })
         );
@@ -1010,6 +1156,7 @@ mod tests {
     fn copied_collection_registration_has_an_explicit_wire_command() {
         let request = ControlRequest {
             id: Uuid::nil(),
+            protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
             command: ControlCommand::CollectionAddCopy(CollectionPathParams {
                 path: "/collections/notes-copy".to_string(),
             }),
@@ -1018,6 +1165,7 @@ mod tests {
             serde_json::to_value(request).unwrap(),
             serde_json::json!({
                 "id": "00000000-0000-0000-0000-000000000000",
+                "protocol_version": 1,
                 "method": "collections.add-copy",
                 "params": { "path": "/collections/notes-copy" }
             })

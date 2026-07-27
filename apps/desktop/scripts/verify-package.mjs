@@ -16,7 +16,7 @@ const resourceRoot = process.platform === "darwin"
   : join(packageDirectory, "resources");
 const required = [
   join(resourceRoot, "app.asar"),
-  join(resourceRoot, `mdbase-connect-agent${extension}`)
+  join(resourceRoot, `mdbase-connect${extension}`)
 ];
 for (const path of required) {
   await access(path);

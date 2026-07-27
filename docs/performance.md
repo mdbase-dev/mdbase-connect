@@ -44,7 +44,7 @@ query.
 Enable payload-free request timings while running the normal local agent:
 
 ```bash
-MDBASE_CONNECT_PROFILE=1 cargo run -p mdbase-connect-agent
+MDBASE_CONNECT_PROFILE=1 cargo run -p mdbase-connect -- daemon run
 ```
 
 Each completed local, relay, or encrypted operation logs `execute_us`,
@@ -56,7 +56,7 @@ For watcher decisions and refresh durations, add:
 
 ```bash
 MDBASE_CONNECT_PROFILE=1 MDBASE_WATCH_PROFILE=1 \
-  cargo run -p mdbase-connect-agent
+  cargo run -p mdbase-connect -- daemon run
 ```
 
 ## CPU profiles

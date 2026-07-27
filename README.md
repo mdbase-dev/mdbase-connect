@@ -31,15 +31,17 @@ models, and interfaces live in their owning applications.
 
 ## What is here
 
-- `crates/connect-agent`: Rust background connector, local policy enforcement,
-  a hardened browser loopback API, filesystem watching, local runtime execution,
-  and outbound WebSocket relay.
+- `crates/connect-agent`: the embeddable Rust daemon library for local policy
+  enforcement, filesystem watching, hosted mirrors, runtime execution, the
+  hardened browser loopback API, and the outbound relay.
 - `crates/connect-runtime`: the small Connect adapter that compiles exact grant
   criteria into provider-neutral `mdbase-runtime` workflows.
-- `crates/connect-cli`: local administration and operation CLI.
-- `apps/desktop`: Electron controller for local and hosted collections,
-  filesystem mirrors, application access, browser pairing, local activity,
-  tray operation, and launch-at-login.
+- `crates/connect-cli`: the sole `mdbase-connect` executable: a complete
+  administration CLI and the foreground/service-managed daemon entry point.
+- `crates/connect-mirror`: the durable Rust filesystem mirror state machine.
+- `apps/desktop`: an Electron client of the same daemon for local and hosted
+  collections, application access, browser pairing, activity, tray operation,
+  and launch-at-login.
 - `services/server`: Fastify control plane and transient, horizontally scalable
   relay backed by PostgreSQL and optional Core NATS request/reply. It also owns
   Web Push installations and a durable, privacy-minimal delivery outbox.
@@ -57,9 +59,9 @@ models, and interfaces live in their owning applications.
 - `packages/protocol`: shared versioned web/relay contracts.
 - `packages/devkit`: canonical artifact validation and an explicit frontend
   sandbox over the same typed collection-client boundary.
-- `packages/sync`: the versioned hosted-replication model, offline replica
-  stores and client, HTTP transport, and receive-only or conflict-safe writable
-  Markdown mirrors.
+- `packages/sync`: the TypeScript hosted-replication client and reference
+  implementation used by SDK consumers; the desktop does not run a second
+  mirror owner.
 
 Collection behavior comes from the active `mdbase-rs` implementation; this
 repository does not reimplement the mdbase specification. During v0.3
@@ -81,7 +83,7 @@ pnpm e2e:sync
 pnpm e2e:provider
 ```
 
-`pnpm e2e` launches an ephemeral control plane, a real connector agent, a test
+`pnpm e2e` launches an ephemeral control plane, a real connector daemon, a test
 web application, and a real mdbase collection. It completes OAuth/PKCE,
 approves access through the local control API, performs a 1,000-record query
 through the browser SDK's direct route, discovers a real JSON Schema and
@@ -124,9 +126,28 @@ To produce and inspect a local desktop bundle:
 pnpm --filter @mdbase/connect-desktop package
 ```
 
-This builds the release Rust agent, embeds it beside the Electron application,
+This builds the release Rust daemon/CLI, embeds it beside the Electron application,
 and fails if either the application archive or connector binary is absent. See
 [`docs/releasing.md`](docs/releasing.md) for signing and beta-release gates.
+
+## Use the CLI and daemon
+
+`mdbase-connect` is both the human/machine CLI and the durable per-user runtime.
+The desktop is an optional peer; closing it does not stop synchronization,
+relay access, or local collection watching.
+
+```bash
+mdbase-connect daemon install
+mdbase-connect login
+mdbase-connect collection list
+mdbase-connect hosted list
+mdbase-connect mirror add <collection-id> /path/to/mirror
+mdbase-connect status
+```
+
+Human-readable output is the default. Add `--json` for the stable automation
+contract. See [`docs/cli-daemon.md`](docs/cli-daemon.md) for the complete
+command model, process boundary, state/secrets contract, and failure model.
 
 To run the desktop controller locally:
 

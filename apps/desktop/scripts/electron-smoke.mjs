@@ -1,21 +1,26 @@
 import { _electron as electron } from "playwright-core";
+import { execFile } from "node:child_process";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const executable = resolve(
   repoRoot,
-  `target/debug/mdbase-connect-agent${process.platform === "win32" ? ".exe" : ""}`
+  `target/debug/mdbase-connect${process.platform === "win32" ? ".exe" : ""}`
 );
 const userData = process.env.MDBASE_CONNECT_SMOKE_DATA;
 if (!userData) throw new Error("MDBASE_CONNECT_SMOKE_DATA is required");
+const run = promisify(execFile);
 
 const electronApp = await electron.launch({
   cwd: desktopRoot,
   args: [".", `--user-data-dir=${userData}`],
   env: {
     ...process.env,
-    MDBASE_CONNECT_AGENT_BIN: executable,
+    MDBASE_CONNECT_BIN: executable,
+    MDBASE_CONNECT_HOME: resolve(userData, "connect-home"),
+    MDBASE_CONNECT_LOOPBACK_PORT: "0",
     MDBASE_CONNECT_USER_DATA_DIR: userData
   }
 });
@@ -43,5 +48,11 @@ try {
   if (title !== "mdbase connect") throw new Error(`Unexpected window title: ${title}`);
   process.stdout.write("Electron smoke test passed\n");
 } finally {
+  await run(executable, [
+    "--state-dir",
+    resolve(userData, "connect-home"),
+    "daemon",
+    "stop"
+  ]).catch(() => {});
   await electronApp.close();
 }

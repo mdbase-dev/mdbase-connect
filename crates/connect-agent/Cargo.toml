@@ -1,5 +1,6 @@
 [package]
-name = "mdbase-connect-agent"
+name = "mdbase-connect-daemon"
+autobins = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,17 +9,20 @@ repository.workspace = true
 [dependencies]
 axum.workspace = true
 async-trait.workspace = true
-clap.workspace = true
 chrono.workspace = true
+directories.workspace = true
+fs2 = "0.4"
 futures-util.workspace = true
 mdbase.workspace = true
 mdbase-runtime.workspace = true
 mdbase-connect-core = { path = "../connect-core" }
+mdbase-connect-mirror = { path = "../connect-mirror" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
 mdbase-connect-runtime = { path = "../connect-runtime" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true
@@ -27,7 +31,9 @@ tower-http.workspace = true
 uuid.workspace = true
 url.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 rusqlite.workspace = true
-tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }

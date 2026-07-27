@@ -2,9 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const extension = process.platform === "win32" ? ".exe" : "";
-const agent = path.resolve(
+const connector = path.resolve(
   __dirname,
-  `../../target/release/mdbase-connect-agent${extension}`
+  `../../target/release/mdbase-connect${extension}`
 );
 const macIcon = path.resolve(__dirname, "assets/app-icon.icns");
 const windowsIcon = path.resolve(__dirname, "assets/app-icon.ico");
@@ -128,14 +128,14 @@ module.exports = {
     icon: platformIcon,
     protocols: [{ name: "mdbase connect", schemes: ["mdbase-connect"] }],
     ...macSigning,
-    extraResource: fs.existsSync(agent)
-      ? [agent]
+    extraResource: fs.existsSync(connector)
+      ? [connector]
       : []
   },
   hooks: {
     packageAfterCopy: async () => {
-      if (!fs.existsSync(agent)) {
-        throw new Error(`Release connector agent is missing: ${agent}`);
+      if (!fs.existsSync(connector)) {
+        throw new Error(`Release connector runtime is missing: ${connector}`);
       }
     }
   },

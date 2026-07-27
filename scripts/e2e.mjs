@@ -43,7 +43,6 @@ const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "workouts");
 const extension = process.platform === "win32" ? ".exe" : "";
-const agentBinary = join(repoRoot, "target", "debug", `mdbase-connect-agent${extension}`);
 const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
 let agent;
 let manifestServer;
@@ -155,7 +154,7 @@ secret: connector scope test
     `---\ntype: workout\ntitle: Bulk ${index}\nstatus: open\n---\n`
   )));
   await stopAgent(agent);
-  agent = startAgent(["--server-url", serverUrl, "--connector-token", connector.body.token]);
+  agent = startAgent(["--server-url", serverUrl], connector.body.token);
 
   const dashboard = await poll(async () => {
     const current = await request("/v1/me", { cookie });
@@ -762,19 +761,37 @@ secret: connector scope test
 }
 
 async function cliJson(args) {
-  const result = await run(cliBinary, ["--state-dir", stateDir, "--compact", ...args]);
+  const translated = [...args];
+  if (translated[0] === "access" && translated[1] === "snapshot") {
+    translated[1] = "list";
+  } else if (translated[0] === "access" && translated[1] === "pause") {
+    translated.splice(1, 2, translated[2] === "true" ? "pause" : "resume");
+  }
+  const result = await run(cliBinary, [
+    "--state-dir",
+    stateDir,
+    "--json",
+    ...translated
+  ]);
   const parsed = JSON.parse(result.stdout);
-  if (!parsed.ok) throw new Error(`Connector command failed: ${result.stdout}`);
-  return parsed;
+  return { result: parsed };
 }
 
-function startAgent(extraArgs) {
-  const child = spawn(agentBinary, [
+function startAgent(extraArgs, connectorToken) {
+  const child = spawn(cliBinary, [
     "--state-dir", stateDir,
+    "daemon", "run",
     "--loopback-port", String(loopbackPort),
     ...extraArgs
   ], {
     cwd: repoRoot,
+    env: {
+      ...process.env,
+      MDBASE_CONNECT_ENV: "test",
+      ...(connectorToken
+        ? { MDBASE_CONNECT_CONNECTOR_TOKEN: connectorToken }
+        : {})
+    },
     stdio: ["ignore", "pipe", "pipe"]
   });
   child.stdout.on("data", (chunk) => process.stderr.write(`[agent] ${chunk}`));
@@ -796,7 +813,7 @@ async function waitForAgent() {
     } catch {
       return null;
     }
-  }, "local connector agent did not start");
+  }, "local connector daemon did not start");
 }
 
 async function request(path, options = {}) {

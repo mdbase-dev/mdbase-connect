@@ -1,18 +1,17 @@
 [package]
-name = "mdbase-connect-core"
+name = "mdbase-connect-mirror"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-clap.workspace = true
-directories.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+fs2 = "0.4"
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
-keyring.workspace = true
-notify.workspace = true
-rusqlite.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -21,5 +20,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 url.workspace = true
 uuid.workspace = true
+walkdir = "2"
 
 [dev-dependencies]
+tokio.workspace = true
