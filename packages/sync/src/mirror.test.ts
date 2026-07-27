@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryAuthority } from "./index.js";
+import { MemoryAuthority, type SyncTransport } from "./index.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -7,6 +7,7 @@ import {
   MirrorInitializationConflictError,
   WritableDirectoryMirror,
   portableMirrorRuntime,
+  recordMarkdownDocument,
   type MirrorFileSystem,
   type MirrorRuntime,
   type MirrorState
@@ -79,6 +80,19 @@ function records(count: number) {
 }
 
 describe("platform-neutral directory mirror", () => {
+  it("serializes empty frontmatter as body-only Markdown without changing bytes", () => {
+    for (const body of ["", "# Note", "# Note\n", "---\nNot a complete frontmatter block"]) {
+      expect(recordMarkdownDocument({
+        record_id: "body-only",
+        path: "note.md",
+        revision: "revision",
+        frontmatter: {},
+        body,
+        types: []
+      })).toBe(body);
+    }
+  });
+
   it("materializes through injected adapters and keeps receive-only state compact", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 2 });
     hosted.seed(records(5));
@@ -196,6 +210,284 @@ describe("platform-neutral directory mirror", () => {
       path: "local.md",
       frontmatter: { type: "note", title: "Local" },
       body: "Mobile body"
+    });
+  });
+
+  it("syncs body-only, empty, and frontmatter-looking Markdown through mobile-safe adapters", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({
+      name: "Mobile writer",
+      mode: "read_write"
+    });
+    const fileSystem = new TestFileSystem();
+    fileSystem.files.set("Start Here.md", "# Start here\n");
+    fileSystem.files.set("Empty.md", "");
+    fileSystem.files.set("Horizontal.md", "---\nNot a complete frontmatter block");
+    fileSystem.files.set("Empty frontmatter.md", "---\n---\nExplicitly empty frontmatter");
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await mirror.sync();
+    await mirror.sync();
+
+    let session = await hosted.transport(replicaId).openSession();
+    let snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(session.head).toBe(4);
+    expect(snapshot.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: "Start Here.md",
+        frontmatter: {},
+        body: "# Start here\n",
+        types: []
+      }),
+      expect.objectContaining({ path: "Empty.md", frontmatter: {}, body: "" }),
+      expect.objectContaining({
+        path: "Horizontal.md",
+        frontmatter: {},
+        body: "---\nNot a complete frontmatter block"
+      }),
+      expect.objectContaining({
+        path: "Empty frontmatter.md",
+        frontmatter: {},
+        body: "Explicitly empty frontmatter"
+      })
+    ]));
+
+    fileSystem.files.set("Start Here.md", "# Start here\n\nEdited on mobile.\n");
+    await mirror.sync();
+    session = await hosted.transport(replicaId).openSession();
+    snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records.find((record) => record.path === "Start Here.md")).toMatchObject({
+      frontmatter: {},
+      body: "# Start here\n\nEdited on mobile.\n"
+    });
+
+    const readerId = hosted.registerReplica({ name: "Second mobile", mode: "read_only" });
+    const readerFiles = new TestFileSystem();
+    const reader = new DirectoryMirror(readerId, hosted.transport(readerId), {
+      fileSystem: readerFiles,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await reader.sync();
+    expect(readerFiles.files.get("Start Here.md")).toBe("# Start here\n\nEdited on mobile.\n");
+    expect(readerFiles.files.get("Empty.md")).toBe("");
+
+    const renamed = fileSystem.files.get("Start Here.md")!;
+    fileSystem.files.delete("Start Here.md");
+    fileSystem.files.set("Welcome.md", renamed);
+    await mirror.sync();
+    session = await hosted.transport(replicaId).openSession();
+    snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records.find((record) => record.path === "Welcome.md")).toMatchObject({
+      frontmatter: {},
+      body: "# Start here\n\nEdited on mobile.\n"
+    });
+
+    fileSystem.files.delete("Welcome.md");
+    await mirror.sync();
+    session = await hosted.transport(replicaId).openSession();
+    snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records.some((record) => record.path === "Welcome.md")).toBe(false);
+  });
+
+  it("does not rewrite non-canonical source bytes while replaying its own accepted events", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const source = "---\ntitle:   Locally formatted\nlist: [one, two]\n---\nBody without trailing newline";
+    fileSystem.files.set("formatted.md", source);
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await mirror.sync();
+    await mirror.sync();
+
+    expect(fileSystem.files.get("formatted.md")).toBe(source);
+    await expect(mirror.status()).resolves.toMatchObject({
+      state: "up_to_date",
+      pending: 0,
+      local_issues: []
+    });
+  });
+
+  it("applies a remote rename even when its content-derived revision is unchanged", async () => {
+    const runtime = deterministicRuntime();
+    const record = {
+      record_id: "stable-revision",
+      path: "new.md",
+      revision: "sha256:content",
+      frontmatter: {},
+      body: "# Same content",
+      types: []
+    };
+    const stateStore = new MemoryMirrorStateStore();
+    await stateStore.write({
+      protocol_version: 1,
+      replica_id: "reader",
+      scope_epoch: 1,
+      cursor: 0,
+      records: {
+        "stable-revision": {
+          path: "old.md",
+          revision: record.revision,
+          hash: runtime.digest(record.body)
+        }
+      },
+      resources: {},
+      mode: "read_only",
+      pending: [],
+      conflicts: {},
+      local_issues: {}
+    });
+    const fileSystem = new TestFileSystem();
+    fileSystem.files.set("old.md", record.body);
+    const transport: SyncTransport = {
+      openSession: async () => { throw new Error("unused"); },
+      snapshot: async () => { throw new Error("unused"); },
+      mutate: async () => { throw new Error("unused"); },
+      changes: async (after) => ({
+        protocol_version: 1,
+        scope_epoch: 1,
+        events: after === 0 ? [{ type: "put", record }] : [],
+        cursor: 1,
+        head: 1,
+        has_more: false,
+        reset_required: false
+      })
+    };
+    const mirror = new DirectoryMirror("reader", transport, {
+      fileSystem,
+      stateStore,
+      runtime
+    });
+
+    await mirror.sync();
+
+    expect(fileSystem.files.has("old.md")).toBe(false);
+    expect(fileSystem.files.get("new.md")).toBe("# Same content");
+  });
+
+  it("reports malformed or non-object frontmatter per file without blocking valid sync", async () => {
+    for (const [path, document] of [
+      ["broken.md", "---\nbroken: [\n---\nBody"],
+      ["scalar.md", "---\nhello\n---\nBody"],
+      ["null.md", "---\nnull\n---\nBody"]
+    ]) {
+      const hosted = new MemoryAuthority();
+      const replicaId = hosted.registerReplica({ name: "Mobile writer", mode: "read_write" });
+      const fileSystem = new TestFileSystem();
+      fileSystem.files.set(path, document);
+      fileSystem.files.set("valid.md", "# Valid body-only note");
+      const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+
+      await mirror.sync();
+      await expect(mirror.status()).resolves.toMatchObject({
+        state: "attention",
+        local_issues: [{
+          path,
+          code: "invalid_frontmatter"
+        }]
+      });
+      const session = await hosted.transport(replicaId).openSession();
+      expect((await hosted.transport(replicaId).snapshot(session.snapshot_id)).records).toEqual([
+        expect.objectContaining({
+          path: "valid.md",
+          frontmatter: {},
+          body: "# Valid body-only note"
+        })
+      ]);
+
+      fileSystem.files.set(path, "# Fixed body-only note");
+      await mirror.sync();
+      await expect(mirror.status()).resolves.toMatchObject({
+        state: "up_to_date",
+        local_issues: []
+      });
+      const fixedSession = await hosted.transport(replicaId).openSession();
+      expect((await hosted.transport(replicaId).snapshot(fixedSession.snapshot_id)).records)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            path,
+            frontmatter: {},
+            body: "# Fixed body-only note"
+          })
+        ]));
+    }
+  });
+
+  it("preserves a malformed managed file across remote changes and conflicts after repair", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "managed",
+      path: "managed.md",
+      revision: "seed:managed",
+      frontmatter: { title: "Original" },
+      body: "Original body",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Local writer", mode: "read_write" });
+    const remoteId = hosted.registerReplica({ name: "Remote writer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+
+    const malformed = "---\ntitle: [\n---\nDo not overwrite these bytes";
+    fileSystem.files.set("managed.md", malformed);
+    const remoteReceipt = await hosted.transport(remoteId).mutate({
+      mutation_id: "remote-managed-update",
+      replica_id: remoteId,
+      scope_epoch: 1,
+      operation: "update",
+      record_id: "managed",
+      base_revision: "seed:managed",
+      input: { patch: { title: "Remote" }, body: "Remote body" },
+      created_at: "2026-07-27T00:00:00.000Z"
+    });
+    expect(remoteReceipt.status).toBe("applied");
+
+    await mirror.sync();
+    expect(fileSystem.files.get("managed.md")).toBe(malformed);
+    await expect(mirror.status()).resolves.toMatchObject({
+      state: "attention",
+      conflicts: [],
+      local_issues: [{ path: "managed.md", code: "invalid_frontmatter" }]
+    });
+
+    fileSystem.files.set("managed.md", "# Repaired local body");
+    await mirror.sync();
+    await expect(mirror.status()).resolves.toMatchObject({
+      state: "attention",
+      conflicts: [{ record_id: "managed", kind: "conflicted" }],
+      local_issues: []
+    });
+
+    await mirror.resolveConflict("managed", "local");
+    await mirror.sync();
+    const session = await hosted.transport(replicaId).openSession();
+    const snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records.find((record) => record.record_id === "managed")).toMatchObject({
+      frontmatter: {},
+      body: "# Repaired local body"
+    });
+    await expect(mirror.status()).resolves.toMatchObject({
+      state: "up_to_date",
+      conflicts: [],
+      local_issues: []
     });
   });
 

@@ -812,6 +812,32 @@ try {
     bothQuery.result.results[0].effective_frontmatter.title,
     "Updated through hosted SDK"
   );
+  const sdkBodyOnly = await hostedConnection.create({
+    path: "Plain.md",
+    body: "# Hosted plain Markdown",
+    include_document: true
+  });
+  assert.equal(sdkBodyOnly.valid, true);
+  assert.deepEqual(sdkBodyOnly.result.frontmatter, {});
+  assert.deepEqual(sdkBodyOnly.result.effective_frontmatter, {});
+  assert.equal(sdkBodyOnly.result.body, "# Hosted plain Markdown");
+  assert.equal(sdkBodyOnly.result.document, "# Hosted plain Markdown");
+  const sdkBodyOnlyUpdated = await hostedConnection.update({
+    path: "Plain.md",
+    patch: {},
+    body: "# Hosted plain Markdown\n\nUpdated.",
+    if_revision: sdkBodyOnly.result.revision,
+    include_document: true
+  });
+  assert.deepEqual(sdkBodyOnlyUpdated.result.frontmatter, {});
+  assert.equal(
+    sdkBodyOnlyUpdated.result.document,
+    "# Hosted plain Markdown\n\nUpdated."
+  );
+  assert.equal((await hostedConnection.delete({
+    path: "Plain.md",
+    if_revision: sdkBodyOnlyUpdated.result.revision
+  })).valid, true);
   const viewType = await hostedConnection.createType({
     document: `---
 kind: mdbase.type
@@ -891,6 +917,18 @@ schema:
   });
   await offline.sync();
   assert.equal((await offline.records())[0].frontmatter.title, "Created through application sync");
+  const offlinePlain = await offline.queueCreate({
+    recordId: crypto.randomUUID(),
+    path: "Offline plain.md",
+    body: "# Offline plain Markdown"
+  });
+  assert.deepEqual(offlinePlain.frontmatter, {});
+  assert.deepEqual(offlinePlain.types, []);
+  await offline.sync();
+  const offlinePlainSynced = (await offline.records())
+    .find((record) => record.record_id === offlinePlain.record_id);
+  assert.deepEqual(offlinePlainSynced.frontmatter, {});
+  assert.equal(offlinePlainSynced.body, "# Offline plain Markdown");
   globalThis.fetch = originalFetch;
   const dashboardWithApp = await controlRequest(controlUrl, "/v1/me", cookie);
   const hostedGrant = dashboardWithApp.grants.find((grant) => grant.collection_id === genericCollectionId);
@@ -1227,6 +1265,67 @@ schema:
   const locallyCreated = recordsAfterLocalCreate.find((record) => record.path === "tasks/local-created.md");
   assert.ok(locallyCreated);
   assert.equal(locallyCreated.body, "Created locally.\n");
+
+  const bodyOnlyFolder = join(writableMirrorRoot, "Canvas Bases");
+  const bodyOnlyPath = join(bodyOnlyFolder, "Start Here.md");
+  await mkdir(bodyOnlyFolder, { recursive: true });
+  await writeFile(bodyOnlyPath, "# Start here\n\nNo frontmatter required.\n");
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  let bodyOnlyAuthority = (
+    await snapshotAll(writerTransport, await writerTransport.openSession())
+  ).find((record) => record.path === "Canvas Bases/Start Here.md");
+  assert.ok(bodyOnlyAuthority);
+  assert.deepEqual(bodyOnlyAuthority.frontmatter, {});
+  assert.deepEqual(bodyOnlyAuthority.types, []);
+  assert.equal(bodyOnlyAuthority.body, "# Start here\n\nNo frontmatter required.\n");
+  assert.equal(
+    await readFile(bodyOnlyPath, "utf8"),
+    "# Start here\n\nNo frontmatter required.\n"
+  );
+
+  const remotelyEditedBodyOnly = await writerTransport.mutate({
+    mutation_id: crypto.randomUUID(),
+    replica_id: writer.id,
+    scope_epoch: 1,
+    operation: "update",
+    record_id: bodyOnlyAuthority.record_id,
+    base_revision: bodyOnlyAuthority.revision,
+    input: { patch: {}, body: "# Start here\n\nEdited remotely.\n" },
+    created_at: new Date().toISOString()
+  });
+  assert.equal(remotelyEditedBodyOnly.status, "applied");
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  assert.equal(
+    await readFile(bodyOnlyPath, "utf8"),
+    "# Start here\n\nEdited remotely.\n"
+  );
+
+  await writeFile(bodyOnlyPath, "# Start here\n\nEdited locally.\n");
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  bodyOnlyAuthority = (
+    await snapshotAll(writerTransport, await writerTransport.openSession())
+  ).find((record) => record.record_id === bodyOnlyAuthority.record_id);
+  assert.ok(bodyOnlyAuthority);
+  assert.deepEqual(bodyOnlyAuthority.frontmatter, {});
+  assert.equal(bodyOnlyAuthority.body, "# Start here\n\nEdited locally.\n");
+
+  const renamedBodyOnlyPath = join(bodyOnlyFolder, "Welcome.md");
+  await rename(bodyOnlyPath, renamedBodyOnlyPath);
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  bodyOnlyAuthority = (
+    await snapshotAll(writerTransport, await writerTransport.openSession())
+  ).find((record) => record.record_id === bodyOnlyAuthority.record_id);
+  assert.ok(bodyOnlyAuthority);
+  assert.equal(bodyOnlyAuthority.path, "Canvas Bases/Welcome.md");
+  await unlink(renamedBodyOnlyPath);
+  await execute(process.execPath, [mirrorCli, "sync", writableMirrorRoot]);
+  assert.equal(
+    (
+      await snapshotAll(writerTransport, await writerTransport.openSession())
+    ).some((record) => record.record_id === bodyOnlyAuthority.record_id),
+    false
+  );
 
   const localBeforeConflict = await readFile(join(writableMirrorRoot, "tasks", "disk-renamed.md"), "utf8");
   await writeFile(

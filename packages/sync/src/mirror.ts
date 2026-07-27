@@ -18,6 +18,16 @@ interface PendingMirrorMutation {
   local_hash: string | null;
 }
 
+export interface MirrorLocalIssue {
+  path: string;
+  code: "invalid_frontmatter";
+  message: string;
+}
+
+interface StoredMirrorLocalIssue extends MirrorLocalIssue {
+  hash: string;
+}
+
 const MIRROR_MUTATION_CHECKPOINT_SIZE = 64;
 
 export interface MirrorState {
@@ -30,6 +40,7 @@ export interface MirrorState {
   mode?: "read_only" | "read_write";
   pending?: PendingMirrorMutation[];
   conflicts?: Record<string, SyncMutationReceipt>;
+  local_issues?: Record<string, StoredMirrorLocalIssue>;
   last_synced_at?: string;
 }
 
@@ -84,6 +95,7 @@ export interface MirrorStatus {
     kind: "conflicted" | "rejected";
     message: string;
   }>;
+  local_issues: MirrorLocalIssue[];
   cursor: number | null;
   last_synced_at: string | null;
 }
@@ -94,6 +106,7 @@ export interface MirrorInitializationPreview {
   upload_documents: number;
   unchanged_documents: number;
   collisions: string[];
+  local_issues: MirrorLocalIssue[];
 }
 
 export interface AuthorityPromotionManifest {
@@ -200,7 +213,21 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       }
       for (const event of page.events) {
         const eventRecordId = event.type === "put" ? event.record.record_id : event.record_id;
-        if (state.conflicts?.[eventRecordId]) {
+        const localEntry = state.records[eventRecordId];
+        const localPath = localEntry?.path;
+        const alreadyApplied = this.mode === "read_write"
+          && event.type === "put"
+          && localEntry?.record !== undefined
+          && localEntry.path === event.record.path
+          && localEntry.revision === event.record.revision;
+        if (alreadyApplied) {
+          // The mutation receipt has already accepted and checkpointed these
+          // local bytes. Replaying our own change event must not canonicalize
+          // or otherwise rewrite the source file.
+        } else if (localPath && state.local_issues?.[localPath]) {
+          // Preserve invalid local bytes. Once fixed, the edit uses the last
+          // accepted base and becomes an ordinary conflict if remote changed.
+        } else if (state.conflicts?.[eventRecordId]) {
           this.refreshConflict(state, event);
         } else if (event.type === "put") {
           await this.put(state, event.record);
@@ -241,6 +268,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         mode: this.mode,
         pending: 0,
         conflicts: [],
+        local_issues: [],
         cursor: null,
         last_synced_at: null
       };
@@ -265,12 +293,20 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         });
       }
     }
+    const localIssues = Object.values(state.local_issues ?? {})
+      .map(({ path, code, message }) => ({ path, code, message }))
+      .sort((left, right) => left.path.localeCompare(right.path));
     const pending = state.pending?.length ?? 0;
     return {
-      state: conflicts.length ? "attention" : pending ? "changes_waiting" : "up_to_date",
+      state: conflicts.length || localIssues.length
+        ? "attention"
+        : pending
+          ? "changes_waiting"
+          : "up_to_date",
       mode: this.mode,
       pending,
       conflicts,
+      local_issues: localIssues,
       cursor: state.cursor,
       last_synced_at: state.last_synced_at ?? null
     };
@@ -298,7 +334,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         "Synchronize this folder before moving the source of truth."
       );
     }
-    if ((state.pending?.length ?? 0) > 0 || Object.keys(state.conflicts ?? {}).length > 0) {
+    if (
+      (state.pending?.length ?? 0) > 0
+      || Object.keys(state.conflicts ?? {}).length > 0
+      || Object.keys(state.local_issues ?? {}).length > 0
+    ) {
       throw new SyncError(
         "promotion_not_converged",
         "Upload or resolve every local change before moving the source of truth."
@@ -343,7 +383,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         download_documents: 0,
         upload_documents: 0,
         unchanged_documents: 0,
-        collisions: []
+        collisions: [],
+        local_issues: []
       };
     }
     const session = await this.openSnapshot();
@@ -368,15 +409,29 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       }
     });
     const localMarkdown = await this.fileSystem.listMarkdown(new Set(resources.map((resource) => resource.path)));
-    const uploadDocuments = this.mode === "read_write"
-      ? localMarkdown.filter((path) => !remotePaths.has(path)).length
-      : 0;
+    const localIssues: MirrorLocalIssue[] = [];
+    let uploadDocuments = 0;
+    if (this.mode === "read_write") {
+      for (const path of localMarkdown.filter((candidate) => !remotePaths.has(candidate))) {
+        const document = await this.fileSystem.read(path);
+        if (document === null) continue;
+        try {
+          parseMarkdown(document, path);
+          uploadDocuments += 1;
+        } catch (error) {
+          const issue = mirrorLocalIssue(error, path);
+          if (!issue) throw error;
+          localIssues.push(issue);
+        }
+      }
+    }
     return {
       already_initialized: false,
       download_documents: downloadDocuments,
       upload_documents: uploadDocuments,
       unchanged_documents: unchangedDocuments,
-      collisions
+      collisions,
+      local_issues: localIssues.sort((left, right) => left.path.localeCompare(right.path))
     };
   }
 
@@ -392,7 +447,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       resources: {},
       mode: this.mode,
       pending: [],
-      conflicts: {}
+      conflicts: {},
+      local_issues: {}
     };
     const collisions: string[] = [];
     for (const resource of resources) {
@@ -801,6 +857,21 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         .map(([recordId]) => recordId)
     );
     const queued: PendingMirrorMutation[] = [];
+    const localIssues: Record<string, StoredMirrorLocalIssue> = {};
+    const parseLocal = (
+      document: string,
+      path: string,
+      hash: string
+    ): { frontmatter: JsonObject; body: string } | null => {
+      try {
+        return parseMarkdown(document, path);
+      } catch (error) {
+        const issue = mirrorLocalIssue(error, path);
+        if (!issue) throw error;
+        localIssues[path] = { ...issue, hash };
+        return null;
+      }
+    };
     const predecessors = new Map<string, string>();
     const queue = (
       mutation: Omit<SyncMutation, "mutation_id" | "replica_id" | "scope_epoch" | "created_at">,
@@ -855,7 +926,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           "Run a receive sync before editing this older writable mirror."
         );
       }
-      const parsed = parseMarkdown(value.document!, entry.path);
+      const parsed = parseLocal(value.document!, entry.path, value.hash);
+      if (!parsed) continue;
       queue({
         operation: "update",
         record_id: recordId,
@@ -880,13 +952,15 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
     for (const path of untracked) {
       const value = local.get(path)!;
-      const parsed = parseMarkdown(value.document!, path);
+      const parsed = parseLocal(value.document!, path, value.hash);
+      if (!parsed) continue;
       queue({
         operation: "create",
         record_id: this.runtime.randomId(),
         input: { path, frontmatter: parsed.frontmatter, body: parsed.body }
       }, path, value.hash);
     }
+    state.local_issues = localIssues;
     if (queued.length) {
       state.pending!.push(...queued);
       await this.writeState(state);
@@ -1086,15 +1160,19 @@ export class WritableMirrorRejectedError extends SyncError {
 }
 
 export function recordMarkdownDocument(record: SyncRecord): string {
+  if (Object.keys(record.frontmatter).length === 0) {
+    return record.body;
+  }
+
   const yaml = stringify(record.frontmatter, { lineWidth: 0 }).trimEnd();
   const body = record.body ? `\n${record.body.replace(/^\n/, "")}` : "";
   return `---\n${yaml}\n---\n${body}`;
 }
 
 function parseMarkdown(document: string, path: string): { frontmatter: JsonObject; body: string } {
-  const match = document.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  const match = document.match(/^---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)([\s\S]*)$/m);
   if (!match) {
-    throw new SyncError("invalid_markdown", `Writable mirror file ${path} requires YAML frontmatter.`);
+    return { frontmatter: {}, body: document };
   }
   let frontmatter: unknown;
   try {
@@ -1102,10 +1180,22 @@ function parseMarkdown(document: string, path: string): { frontmatter: JsonObjec
   } catch {
     throw new SyncError("invalid_frontmatter", `Writable mirror file ${path} has invalid YAML frontmatter.`);
   }
+  if (frontmatter === null && match[1]!.trim() === "") {
+    frontmatter = {};
+  }
   if (!frontmatter || typeof frontmatter !== "object" || Array.isArray(frontmatter)) {
     throw new SyncError("invalid_frontmatter", `Writable mirror file ${path} requires object frontmatter.`);
   }
   return { frontmatter: frontmatter as JsonObject, body: match[2] ?? "" };
+}
+
+function mirrorLocalIssue(error: unknown, path: string): MirrorLocalIssue | null {
+  if (!(error instanceof SyncError) || error.code !== "invalid_frontmatter") return null;
+  return {
+    path,
+    code: "invalid_frontmatter",
+    message: error.message
+  };
 }
 
 function frontmatterPatch(before: JsonObject, after: JsonObject): JsonObject {

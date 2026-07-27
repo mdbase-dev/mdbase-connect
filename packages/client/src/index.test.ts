@@ -36,6 +36,36 @@ describe("PKCE", () => {
 });
 
 describe("provider-neutral collection client", () => {
+  it("creates body-only records without manufacturing an empty frontmatter object", async () => {
+    const calls: Array<{ operation: string; input: unknown }> = [];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>(operation: string, input: unknown) {
+        calls.push({ operation, input });
+        return {
+          valid: true,
+          result: {
+            path: "plain.md",
+            revision: "sha256:plain",
+            types: [],
+            frontmatter: {},
+            effective_frontmatter: {},
+            body: "# Plain",
+            file: { name: "plain.md", folder: "", size: 7, mtime: "2026-07-27T00:00:00Z" }
+          },
+          diagnostics: []
+        } as Result;
+      }
+    });
+
+    const created = await client.create({ path: "plain.md", body: "# Plain" });
+
+    expect(created.result.frontmatter).toEqual({});
+    expect(calls).toEqual([{
+      operation: "create",
+      input: { path: "plain.md", body: "# Plain" }
+    }]);
+  });
+
   it("sends the canonical v0.3 patch shape through an injected transport", async () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
     const client = new MdbaseCollectionClient({

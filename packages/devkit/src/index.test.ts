@@ -157,6 +157,32 @@ describe("canonical developer validation", () => {
 });
 
 describe("developer sandbox", () => {
+  it("treats seeded and created body-only records as ordinary empty-frontmatter records", async () => {
+    const { client, transport } = createSandbox({
+      records: [{ path: "seed.md", body: "# Seed" }]
+    });
+
+    const seed = await client.read({ path: "seed.md" });
+    expect(seed.result).toMatchObject({
+      path: "seed.md",
+      frontmatter: {},
+      effective_frontmatter: {},
+      body: "# Seed",
+      types: []
+    });
+
+    const created = await client.create({ path: "created.md", body: "# Created" });
+    expect(created.result.frontmatter).toEqual({});
+    expect(transport.snapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: "created.md",
+        frontmatter: {},
+        body: "# Created",
+        types: []
+      })
+    ]));
+  });
+
   it("runs a typed CRUD lifecycle with opaque revision preconditions", async () => {
     const { client, transport } = createSandbox<{ type: string; title: string; status?: string }>({
       description: taskDescription,

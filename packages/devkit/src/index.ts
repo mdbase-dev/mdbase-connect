@@ -90,7 +90,7 @@ export class ContractDefinitionError extends Error {
 
 export interface SandboxRecord<Frontmatter extends JsonObject = JsonObject> {
   path: string;
-  frontmatter: Frontmatter;
+  frontmatter?: Frontmatter;
   body?: string;
   types?: string[];
 }
@@ -100,7 +100,9 @@ export interface SandboxOptions<Frontmatter extends JsonObject = JsonObject> {
   records?: SandboxRecord<Frontmatter>[];
 }
 
-interface StoredRecord<Frontmatter extends JsonObject> extends SandboxRecord<Frontmatter> {
+interface StoredRecord<Frontmatter extends JsonObject> {
+  path: string;
+  frontmatter: Frontmatter;
   body: string;
   types: string[];
   revision: string;
@@ -141,7 +143,10 @@ implements MdbaseCollectionTransport {
 
   seed(record: SandboxRecord<Frontmatter>): void {
     assertSafePath(record.path);
-    this.records.set(record.path, this.storedRecord(record));
+    this.records.set(record.path, this.storedRecord({
+      ...record,
+      frontmatter: asObject(record.frontmatter) as Frontmatter
+    }));
   }
 
   snapshot(): SandboxRecord<Frontmatter>[] {
@@ -322,7 +327,9 @@ implements MdbaseCollectionTransport {
     return envelope({ ...this.recordResult(record), from, to, references_updated: [] });
   }
 
-  private storedRecord(record: SandboxRecord<Frontmatter>): StoredRecord<Frontmatter> {
+  private storedRecord(
+    record: SandboxRecord<Frontmatter> & { frontmatter: Frontmatter }
+  ): StoredRecord<Frontmatter> {
     return {
       path: record.path,
       frontmatter: clone(record.frontmatter),

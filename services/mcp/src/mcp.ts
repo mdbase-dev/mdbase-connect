@@ -120,7 +120,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
       connection_id: connectionId,
       path: path.optional(),
       type: z.string().min(1).max(200).optional(),
-      frontmatter: object,
+      frontmatter: object.optional(),
       body: z.string().max(2_000_000).optional(),
       if_revision: revision.optional()
     },

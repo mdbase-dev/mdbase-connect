@@ -6,6 +6,13 @@ scoped ordered changes, conditional idempotent mutations, conflicts, cursor
 reset, revocation, offline queues, and receive-only or writable Markdown
 mirrors.
 
+Markdown without a leading, complete YAML frontmatter block is a normal
+record with `{}` persisted fields. Empty files and files beginning with an
+unclosed `---` fence are preserved byte-for-byte as body content. An explicitly
+empty frontmatter block is also accepted; malformed, scalar, or list
+frontmatter is reported as a per-file `local_issues` entry and does not stop
+other writable files from synchronizing.
+
 Application replicas resolve a stale record explicitly with
 `resolveConflict(recordId, "local" | "remote")`. Keeping the local version
 rebases it as a new idempotent mutation; keeping the remote version discards
@@ -109,6 +116,7 @@ the Node and portable adapters against it:
 pnpm profile:mirror:check
 pnpm check:mirror:mobile
 pnpm profile:mirror:vault -- --source /path/to/large/vault
+pnpm profile:mirror:writable-vault -- --source /path/to/large/vault
 ```
 
 The regression check measures initial materialization, steady no-op sync,
@@ -177,3 +185,5 @@ explicit local or remote choice. When a writable mirror connects an existing
 directory, the first sync compares the complete remote snapshot before writing
 or uploading anything. Differing paths stop for explicit review; matching
 Markdown keeps its local file and previously unmanaged Markdown is uploaded.
+Formatting of an accepted local upload is not rewritten when the mirror
+replays its own authority event.

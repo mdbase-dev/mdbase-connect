@@ -435,7 +435,7 @@ export interface PendingMutationSummary {
 export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   path?: string;
   type?: string;
-  frontmatter: Partial<Frontmatter> & JsonObject;
+  frontmatter?: Partial<Frontmatter> & JsonObject;
   body?: string;
   if_revision?: string;
   /** Include the resulting exact Markdown source in `result.document`. */

@@ -24,6 +24,11 @@ export interface DesktopMirrorSummary {
   state: "not_initialized" | "up_to_date" | "changes_waiting" | "attention" | "offline";
   pending: number;
   conflicts: MirrorConflictSummary[];
+  local_issues: Array<{
+    path: string;
+    code: "invalid_frontmatter";
+    message: string;
+  }>;
   cursor: number | null;
   last_synced_at: string | null;
   syncing: boolean;
@@ -321,6 +326,7 @@ export class MirrorManager {
         state: "offline",
         pending: 0,
         conflicts: [],
+        local_issues: [],
         cursor: null,
         last_synced_at: null,
         syncing: runtime.syncing,

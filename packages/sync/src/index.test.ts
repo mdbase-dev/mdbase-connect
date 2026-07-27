@@ -50,6 +50,30 @@ describe("hosted sync vertical slice", () => {
     }
   });
 
+  it("accepts a raw body-only create without frontmatter or explicit types", async () => {
+    const hosted = authority();
+    hosted.registerReplica({ id: ids.writer, name: "Body-only writer", mode: "read_write" });
+    const receipt = await hosted.transport(ids.writer).mutate({
+      mutation_id: ids.mutation,
+      replica_id: ids.writer,
+      scope_epoch: 1,
+      operation: "create",
+      record_id: ids.record,
+      input: { path: "Start Here.md", body: "# Start here" },
+      created_at: "2026-07-27T00:00:00.000Z"
+    });
+
+    expect(receipt).toMatchObject({
+      status: "applied",
+      record: {
+        path: "Start Here.md",
+        frontmatter: {},
+        body: "# Start here",
+        types: []
+      }
+    });
+  });
+
   it("moves one offline Worklog create exactly once to a second client", async () => {
     const hosted = authority(1);
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });

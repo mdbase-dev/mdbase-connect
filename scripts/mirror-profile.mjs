@@ -187,17 +187,18 @@ function seededAuthority(mode) {
   const authority = new MemoryAuthority({ snapshotPageSize: pageSize });
   authority.seed(Array.from({ length: recordCount }, (_, index) => {
     const suffix = String(index).padStart(8, "0");
+    const bodyOnly = index % 2 === 0;
     return {
       record_id: `profile-record-${suffix}`,
       path: `notes/${suffix}.md`,
-      frontmatter: {
+      frontmatter: bodyOnly ? {} : {
         type: "note",
         title: `Profile note ${suffix}`,
         sequence: index,
         tags: ["profile", index % 2 === 0 ? "even" : "odd"]
       },
       body: `Profile body ${suffix}\n${"x".repeat(192)}`,
-      types: ["note"]
+      types: bodyOnly ? [] : ["note"]
     };
   }));
   const replicaId = authority.registerReplica({
@@ -265,12 +266,12 @@ async function readOnlyRound(adapter) {
   const writerId = authority.registerReplica({
     id: "profile-incremental-writer",
     name: "Profile incremental writer",
-    mode: "read_write",
-    allowedTypes: ["note"]
+    mode: "read_write"
   });
   const writer = authority.transport(writerId);
   for (let index = 0; index < changeCount; index += 1) {
     const suffix = String(recordCount + index).padStart(8, "0");
+    const bodyOnly = index % 2 === 0;
     const receipt = await writer.mutate({
       mutation_id: `profile-mutation-${suffix}`,
       replica_id: writerId,
@@ -279,9 +280,11 @@ async function readOnlyRound(adapter) {
       record_id: `profile-record-${suffix}`,
       input: {
         path: `notes/${suffix}.md`,
-        frontmatter: { type: "note", title: `Incremental ${suffix}`, sequence: recordCount + index },
+        frontmatter: bodyOnly
+          ? {}
+          : { type: "note", title: `Incremental ${suffix}`, sequence: recordCount + index },
         body: `Incremental body ${suffix}`,
-        types: ["note"]
+        types: bodyOnly ? [] : ["note"]
       },
       created_at: "2026-01-01T00:00:00.000Z"
     });
@@ -346,6 +349,7 @@ process.stdout.write(`${JSON.stringify({
     changes: changeCount,
     rounds,
     snapshot_page_size: pageSize,
+    body_only_percent: 50,
     adapters
   },
   samples

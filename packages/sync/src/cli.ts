@@ -644,6 +644,9 @@ function printStatus(status: MirrorStatus): void {
       `  ${conflict.path ?? conflict.record_id}: ${conflict.message} (${conflict.record_id})\n`
     );
   }
+  for (const issue of status.local_issues) {
+    process.stdout.write(`  ${issue.path}: ${issue.message}\n`);
+  }
 }
 
 function statusLine(status: MirrorStatus): string {
@@ -652,7 +655,8 @@ function statusLine(status: MirrorStatus): string {
     : "";
   if (status.state === "not_initialized") return "Not synchronized yet.";
   if (status.state === "attention") {
-    return `Action needed for ${status.conflicts.length} ${status.conflicts.length === 1 ? "note" : "notes"}.${lastSync}`;
+    const count = status.conflicts.length + status.local_issues.length;
+    return `Action needed for ${count} ${count === 1 ? "note" : "notes"}.${lastSync}`;
   }
   if (status.state === "changes_waiting") {
     return `${status.pending} ${status.pending === 1 ? "change" : "changes"} waiting to upload.${lastSync}`;

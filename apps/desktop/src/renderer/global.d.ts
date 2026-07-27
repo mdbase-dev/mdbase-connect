@@ -176,6 +176,11 @@ interface DesktopMirrorSummary {
     kind: "conflicted" | "rejected";
     message: string;
   }>;
+  local_issues: Array<{
+    path: string;
+    code: "invalid_frontmatter";
+    message: string;
+  }>;
   cursor: number | null;
   last_synced_at: string | null;
   syncing: boolean;

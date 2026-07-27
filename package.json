@@ -14,6 +14,7 @@
     "profile:mirror": "node --expose-gc scripts/mirror-profile.mjs",
     "profile:mirror:check": "pnpm --filter @mdbase/connect-sync build && node scripts/assert-mirror-performance.mjs",
     "profile:mirror:vault": "pnpm --filter @mdbase/connect-sync build && node scripts/mirror-live-vault.mjs",
+    "profile:mirror:writable-vault": "pnpm --filter @mdbase/connect-sync build && node scripts/mirror-writable-live-vault.mjs",
     "check:mirror:mobile": "pnpm --filter @mdbase/connect-sync check:mobile",
     "package:audit": "pnpm build && node scripts/package-audit.mjs",
     "package:consumer": "node scripts/pack-consumer-sdk.mjs",

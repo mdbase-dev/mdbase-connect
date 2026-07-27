@@ -213,6 +213,8 @@ describe("mdbase MCP gateway", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("add_connection");
     expect(tools.tools.map((tool) => tool.name)).toContain("reconnect_collection");
     expect(tools.tools.map((tool) => tool.name)).toContain("create_record");
+    const createRecord = tools.tools.find((tool) => tool.name === "create_record")!;
+    expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
     expect((listed.structuredContent as any).connections).toHaveLength(2);
     const queried = await client.callTool({

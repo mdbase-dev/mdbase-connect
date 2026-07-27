@@ -341,9 +341,9 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
         record_id: mutation.record_id,
         path,
         revision: this.nextRevision(mutation.record_id),
-        frontmatter: object(mutation.input.frontmatter) as Frontmatter,
+        frontmatter: object(mutation.input.frontmatter ?? {}) as Frontmatter,
         body: optionalText(mutation.input.body, "body") ?? "",
-        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter)))
+        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter ?? {})))
       } satisfies SyncRecord<Frontmatter>;
       if (!visible(record, replica)) throw new SyncError("scope_denied", "The new record is outside this replica's scope.");
       this.validateRecord(record);
@@ -664,9 +664,9 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     recordId?: string;
     mutationId?: string;
     path: string;
-    frontmatter: Frontmatter;
+    frontmatter?: Frontmatter;
     body?: string;
-    types: string[];
+    types?: string[];
   }): Promise<SyncRecord<Frontmatter>> {
     return this.exclusive(() => this.queueCreateUnlocked(input));
   }
@@ -675,14 +675,16 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     recordId?: string;
     mutationId?: string;
     path: string;
-    frontmatter: Frontmatter;
+    frontmatter?: Frontmatter;
     body?: string;
-    types: string[];
+    types?: string[];
   }): Promise<SyncRecord<Frontmatter>> {
     const data = await this.requireInitialized();
     assertSafePath(input.path);
     const mutationId = input.mutationId ?? crypto.randomUUID();
     const recordId = input.recordId ?? crypto.randomUUID();
+    const frontmatter = clone(input.frontmatter ?? {}) as Frontmatter;
+    const types = input.types ?? explicitTypes(frontmatter);
     if (data.records[recordId] || Object.values(data.records).some((record) => record.path === input.path)) {
       throw new SyncError("local_record_conflict", "The offline cache already contains this record ID or path.");
     }
@@ -692,16 +694,16 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
       scope_epoch: data.scopeEpoch!,
       operation: "create",
       record_id: recordId,
-      input: { path: input.path, frontmatter: clone(input.frontmatter), body: input.body ?? "", types: [...input.types] },
+      input: { path: input.path, frontmatter, body: input.body ?? "", types: [...types] },
       created_at: new Date().toISOString()
     };
     const optimistic: SyncRecord<Frontmatter> = {
       record_id: recordId,
       path: input.path,
       revision: `local:${mutationId}`,
-      frontmatter: clone(input.frontmatter),
+      frontmatter,
       body: input.body ?? "",
-      types: [...input.types]
+      types: [...types]
     };
     data.pending.push(mutation);
     data.records[recordId] = optimistic;
@@ -924,9 +926,9 @@ function applyPendingOverlay<Frontmatter extends JsonObject>(
         record_id: mutation.record_id,
         path,
         revision: `local:${mutation.mutation_id}`,
-        frontmatter: object(mutation.input.frontmatter) as Frontmatter,
+        frontmatter: object(mutation.input.frontmatter ?? {}) as Frontmatter,
         body: optionalText(mutation.input.body, "body") ?? "",
-        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter)))
+        types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter ?? {})))
       };
       continue;
     }

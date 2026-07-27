@@ -696,6 +696,16 @@ function HostedCollectionRow({
                   </div>)}
                 </div>
               )}
+              {mirror.local_issues.length > 0 && (
+                <div className="mirror-conflicts">
+                  {mirror.local_issues.map((issue) => <div key={issue.path}>
+                    <div>
+                      <strong>{issue.path}</strong>
+                      <small>{issue.message} Other valid Markdown continues to synchronize.</small>
+                    </div>
+                  </div>)}
+                </div>
+              )}
               <div className="mirror-actions">
                 <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
                   await window.mdbaseConnect.syncMirror(mirror.replica_id);
@@ -1378,7 +1388,8 @@ function mirrorState(mirror: DesktopMirrorSummary | undefined): {
   if (!mirror) return { dot: "idle", label: "Not mirrored" };
   if (mirror.syncing) return { dot: "connecting", label: "Synchronizing" };
   if (mirror.error || mirror.state === "offline") return { dot: "danger", label: "Mirror needs attention" };
-  if (mirror.conflicts.length > 0 || mirror.state === "attention") return { dot: "paused", label: "Conflicts need a decision" };
+  if (mirror.conflicts.length > 0) return { dot: "paused", label: "Conflicts need a decision" };
+  if (mirror.local_issues.length > 0 || mirror.state === "attention") return { dot: "paused", label: "Local files need attention" };
   if (mirror.state === "changes_waiting" || mirror.pending > 0) return { dot: "connecting", label: "Changes waiting" };
   if (mirror.state === "not_initialized") return { dot: "idle", label: "Not synchronized yet" };
   return { dot: "connected", label: "Up to date" };
