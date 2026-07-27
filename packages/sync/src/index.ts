@@ -29,7 +29,7 @@ export interface SyncTransport<Frontmatter extends JsonObject = JsonObject> {
   mutate(mutation: SyncMutation): Promise<SyncMutationReceipt<Frontmatter>>;
 }
 
-export interface HostedCollectionOptions<Frontmatter extends JsonObject = JsonObject> {
+export interface MemoryAuthorityOptions<Frontmatter extends JsonObject = JsonObject> {
   id?: string;
   validate?(record: SyncRecord<Frontmatter>): void;
   snapshotPageSize?: number;
@@ -43,7 +43,7 @@ export interface ReplicaOptions {
   allowedTypes?: string[];
 }
 
-export interface SerializedHostedAuthority<Frontmatter extends JsonObject = JsonObject> {
+export interface SerializedMemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
   version: 1;
   collectionId: string;
   head: number;
@@ -87,7 +87,7 @@ interface SnapshotState<Frontmatter extends JsonObject> {
 }
 
 /** Executable protocol model used by SDK tests and local developer sandboxes. */
-export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> {
+export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
   readonly collectionId: string;
   private readonly validateRecord: (record: SyncRecord<Frontmatter>) => void;
   private readonly snapshotPageSize: number;
@@ -101,12 +101,12 @@ export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> 
   private head = 0;
   private retainedAfter = 0;
 
-  constructor(options: HostedCollectionOptions<Frontmatter> = {}) {
+  constructor(options: MemoryAuthorityOptions<Frontmatter> = {}) {
     this.collectionId = options.id ?? crypto.randomUUID();
     this.validateRecord = options.validate ?? (() => undefined);
     this.snapshotPageSize = positiveInteger(options.snapshotPageSize ?? 100, "snapshotPageSize");
     this.resources = clone(options.resources ?? {
-      revision: "hosted-resources:0",
+      revision: "memory-resources:0",
       spec_version: "0.3.0",
       types: [],
       contracts: []
@@ -114,12 +114,12 @@ export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> 
   }
 
   static restore<Frontmatter extends JsonObject = JsonObject>(
-    state: SerializedHostedAuthority<Frontmatter>,
-    options: Omit<HostedCollectionOptions<Frontmatter>, "id"> = {},
-    preserveSnapshotsFrom?: MemoryHostedAuthority<Frontmatter>
-  ): MemoryHostedAuthority<Frontmatter> {
-    if (state.version !== 1) throw new SyncError("unsupported_state", "Hosted authority state version is unsupported.");
-    const authority = new MemoryHostedAuthority<Frontmatter>({
+    state: SerializedMemoryAuthority<Frontmatter>,
+    options: Omit<MemoryAuthorityOptions<Frontmatter>, "id"> = {},
+    preserveSnapshotsFrom?: MemoryAuthority<Frontmatter>
+  ): MemoryAuthority<Frontmatter> {
+    if (state.version !== 1) throw new SyncError("unsupported_state", "Authority state version is unsupported.");
+    const authority = new MemoryAuthority<Frontmatter>({
       ...options,
       id: state.collectionId,
       resources: state.resources ?? options.resources
@@ -143,7 +143,7 @@ export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> 
     return authority;
   }
 
-  serialize(): SerializedHostedAuthority<Frontmatter> {
+  serialize(): SerializedMemoryAuthority<Frontmatter> {
     return {
       version: 1,
       collectionId: this.collectionId,
@@ -167,7 +167,7 @@ export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> 
       if (this.records.has(value.record_id) || this.paths.has(value.path)) {
         throw new SyncError("record_conflict", "Seed records must have unique IDs and paths.");
       }
-      const record = clone({ ...value, revision: value.revision ?? `hosted:0:${value.record_id}` }) as SyncRecord<Frontmatter>;
+      const record = clone({ ...value, revision: value.revision ?? `memory:0:${value.record_id}` }) as SyncRecord<Frontmatter>;
       this.validateRecord(record);
       this.records.set(record.record_id, record);
       this.paths.set(record.path, record.record_id);
@@ -397,12 +397,12 @@ export class MemoryHostedAuthority<Frontmatter extends JsonObject = JsonObject> 
   }
 
   private nextRevision(recordId: string): string {
-    return `hosted:${this.head + 1}:${recordId}`;
+    return `authority:${this.head + 1}:${recordId}`;
   }
 
   private commit(before?: SyncRecord<Frontmatter>, after?: SyncRecord<Frontmatter>): void {
     this.head += 1;
-    const revision = after?.revision ?? `hosted:${this.head}:deleted:${before?.record_id}`;
+    const revision = after?.revision ?? `authority:${this.head}:deleted:${before?.record_id}`;
     if (before) this.paths.delete(before.path);
     if (after) {
       this.records.set(after.record_id, clone(after));
@@ -482,9 +482,26 @@ export class IndexedDbReplicaStore<Frontmatter extends JsonObject = JsonObject> 
 }
 
 export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> implements SyncTransport<Frontmatter> {
-  private readonly serverUrl: string;
-  constructor(serverUrl: string, private readonly collectionId: string, private readonly replicaToken: string) {
-    this.serverUrl = serverUrl.replace(/\/$/, "");
+  private readonly syncUrl: string;
+  constructor(syncUrl: string, private readonly replicaToken: string) {
+    let endpoint: URL;
+    try {
+      endpoint = new URL(syncUrl);
+    } catch {
+      throw new SyncError("invalid_sync_url", "Sync URL must be an absolute authority endpoint.");
+    }
+    if (!secureHttpEndpoint(endpoint)
+        || endpoint.username
+        || endpoint.password
+        || endpoint.search
+        || endpoint.hash
+        || !/^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/sync\/?$/i.test(endpoint.pathname)) {
+      throw new SyncError(
+        "invalid_sync_url",
+        "Sync URL must identify one HTTPS authority sync endpoint, except on loopback."
+      );
+    }
+    this.syncUrl = endpoint.href.replace(/\/$/, "");
   }
 
   openSession(): Promise<SyncSession> {
@@ -503,7 +520,7 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
   }
 
   private async request<Result>(method: string, path: string, body?: unknown): Promise<Result> {
-    const response = await fetch(`${this.serverUrl}/v1/hosted/collections/${encodeURIComponent(this.collectionId)}/sync/${path}`, {
+    const response = await fetch(`${this.syncUrl}/${path}`, {
       method,
       headers: {
         authorization: `Bearer ${this.replicaToken}`,
@@ -515,6 +532,14 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
     if (!response.ok) throw new SyncError(value?.error?.code ?? "sync_failed", value?.error?.message ?? "Sync request failed.");
     return value as Result;
   }
+}
+
+function secureHttpEndpoint(url: URL): boolean {
+  return url.protocol === "https:"
+    || (
+      url.protocol === "http:"
+      && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+    );
 }
 
 export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
@@ -563,7 +588,7 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
       if (receipt.status !== "conflicted" || !current) {
         throw new SyncError(
           "local_resolution_unavailable",
-          "This sync issue cannot keep the local version; use the hosted version or edit a new record."
+          "This sync issue cannot keep the local version; use the remote version or edit a new record."
         );
       }
       const pending = data.pending.filter((mutation) => mutation.record_id === recordId);

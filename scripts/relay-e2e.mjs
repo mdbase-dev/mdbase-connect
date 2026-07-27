@@ -462,7 +462,7 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
 
 async function operation(serverUrl, fixture, operationName, input) {
   const response = await fetch(
-    `${serverUrl}/v1/collections/${fixture.collectionId}/operations/${operationName}`,
+    `${serverUrl}/v1/authorities/${fixture.collectionId}/operations/${operationName}`,
     {
       method: "POST",
       headers: {

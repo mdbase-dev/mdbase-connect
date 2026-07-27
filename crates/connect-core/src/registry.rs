@@ -3,10 +3,11 @@ use mdbase::frontmatter::parser::{is_parse_error, parse_document, yaml_mapping_t
 use mdbase::runtime::FilesystemProvider;
 use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::{
-    ActivityEntry, ApplicationRequirements, CollectionChange, CollectionChangesPage,
-    CollectionContractDescriptor, CollectionDescription, CollectionSummary,
+    ActivityEntry, ApplicationRequirements, AuthoritySnapshot, CollectionChange,
+    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, CollectionSummary,
     CollectionTypeDescriptor, ContractRequirement, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
-    GrantSummary, TypeProvision, CONTROL_PROTOCOL_VERSION,
+    GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
+    TypeProvision, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
@@ -24,8 +25,8 @@ use uuid::Uuid;
 const ENCRYPTED_REPLAY_WINDOW: u64 = 1024;
 const CONNECT_EXTENSION: &str = "x-mdbase-connect";
 const CONNECT_COLLECTION_ID: &str = "collection_id";
-const HOSTED_MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
-const HOSTED_MIRROR_MARKER_FILE: &str = "connect-role.json";
+const MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
+const MIRROR_MARKER_FILE: &str = "connect-role.json";
 
 #[derive(Debug, Error)]
 pub enum ConnectError {
@@ -47,11 +48,11 @@ pub enum ConnectError {
         existing_path: String,
     },
     #[error(
-        "This folder is a mirror of hosted collection {collection_id}. A hosted mirror cannot also be registered as a local-authority collection."
+        "This folder is a mirror of collection {collection_id}. A mirror cannot also be registered as an authority."
     )]
-    HostedMirrorCannotRegister { collection_id: Uuid },
-    #[error("Hosted mirror role marker is invalid: {0}")]
-    InvalidHostedMirrorMarker(String),
+    MirrorCannotRegister { collection_id: Uuid },
+    #[error("Mirror role marker is invalid: {0}")]
+    InvalidMirrorMarker(String),
     #[error("The selected folder is not a registered collection copy: {0}")]
     NotARegisteredCollectionCopy(String),
     #[error("Unsupported collection operation: {0}")]
@@ -60,6 +61,12 @@ pub enum ConnectError {
     AccessDenied(String),
     #[error("Encrypted relay request was rejected")]
     EncryptedRelayRejected,
+    #[error("Collection authority transfer {transfer_id} is fencing mutations")]
+    AuthorityTransferInProgress { transfer_id: Uuid },
+    #[error("This collection is no longer authoritative on this computer")]
+    AuthorityRetired,
+    #[error("Collection authority is fenced by another transfer")]
+    AuthorityTransferMismatch,
     #[error("Local registry error: {0}")]
     Registry(#[from] rusqlite::Error),
     #[error("Filesystem error: {0}")]
@@ -88,12 +95,15 @@ impl ConnectError {
             Self::CollectionInit(_) => "collection_init_failed",
             Self::CollectionOpen(_) => "collection_open_failed",
             Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
-            Self::HostedMirrorCannotRegister { .. } => "hosted_mirror_cannot_register",
-            Self::InvalidHostedMirrorMarker(_) => "invalid_hosted_mirror_marker",
+            Self::MirrorCannotRegister { .. } => "mirror_cannot_register",
+            Self::InvalidMirrorMarker(_) => "invalid_mirror_marker",
             Self::NotARegisteredCollectionCopy(_) => "not_a_registered_collection_copy",
             Self::UnsupportedOperation(_) => "unsupported_operation",
             Self::AccessDenied(_) => "access_denied",
             Self::EncryptedRelayRejected => "encrypted_relay_rejected",
+            Self::AuthorityTransferInProgress { .. } => "authority_transfer_in_progress",
+            Self::AuthorityRetired => "authority_retired",
+            Self::AuthorityTransferMismatch => "authority_transfer_mismatch",
             Self::Registry(_) => "registry_failed",
             Self::Io(_) => "io_failed",
             Self::Config(_) => "invalid_config",
@@ -165,6 +175,10 @@ pub fn encrypted_request_fingerprint(
 }
 
 impl CollectionRegistry {
+    pub(crate) fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
     pub fn open(state_dir: impl AsRef<Path>) -> Result<Self, ConnectError> {
         fs::create_dir_all(state_dir.as_ref())?;
         let registry = Self {
@@ -239,6 +253,71 @@ impl CollectionRegistry {
                 PRIMARY KEY (collection_id, cursor),
                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS local_sync_collections (
+                collection_id TEXT PRIMARY KEY,
+                head INTEGER NOT NULL DEFAULT 0,
+                retained_after INTEGER NOT NULL DEFAULT 0,
+                resource_revision TEXT NOT NULL,
+                authority_epoch INTEGER NOT NULL DEFAULT 1,
+                authority_state TEXT NOT NULL DEFAULT 'active',
+                transfer_id TEXT,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS local_sync_records (
+                collection_id TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                record TEXT NOT NULL,
+                PRIMARY KEY (collection_id, record_id),
+                UNIQUE (collection_id, path),
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS local_sync_changes (
+                collection_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                record_id TEXT NOT NULL,
+                before_record TEXT,
+                after_record TEXT,
+                revision TEXT NOT NULL,
+                PRIMARY KEY (collection_id, sequence),
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS local_sync_replicas (
+                id TEXT PRIMARY KEY,
+                collection_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK (mode IN ('read_only', 'read_write')),
+                allowed_types TEXT NOT NULL DEFAULT '[]',
+                scope_epoch INTEGER NOT NULL DEFAULT 1,
+                revoked INTEGER NOT NULL DEFAULT 0,
+                acknowledged_sequence INTEGER NOT NULL DEFAULT 0,
+                last_seen_at TEXT,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS local_sync_snapshots (
+                id TEXT PRIMARY KEY,
+                collection_id TEXT NOT NULL,
+                replica_id TEXT NOT NULL,
+                scope_epoch INTEGER NOT NULL,
+                cursor INTEGER NOT NULL,
+                records TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+                FOREIGN KEY (replica_id) REFERENCES local_sync_replicas(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS local_sync_receipts (
+                replica_id TEXT NOT NULL,
+                mutation_id TEXT NOT NULL,
+                receipt TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (replica_id, mutation_id),
+                FOREIGN KEY (replica_id) REFERENCES local_sync_replicas(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS local_sync_changes_collection_idx
+                ON local_sync_changes(collection_id, sequence);
+            CREATE INDEX IF NOT EXISTS local_sync_snapshots_expiry_idx
+                ON local_sync_snapshots(expires_at);
             CREATE TABLE IF NOT EXISTS grant_crypto_state (
                 grant_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
@@ -278,6 +357,8 @@ impl CollectionRegistry {
             "ALTER TABLE grant_crypto_requests ADD COLUMN request_counter TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grant_crypto_requests ADD COLUMN request_fingerprint TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grant_crypto_requests ADD COLUMN response_envelope TEXT",
+            "ALTER TABLE local_sync_collections ADD COLUMN authority_state TEXT NOT NULL DEFAULT 'active'",
+            "ALTER TABLE local_sync_collections ADD COLUMN transfer_id TEXT",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {
@@ -352,7 +433,7 @@ impl CollectionRegistry {
         drop(statement);
         drop(connection);
         for collection in &mut collections {
-            if hosted_mirror_collection_id(Path::new(&collection.path))?.is_some() {
+            if mirror_collection_id(Path::new(&collection.path))?.is_some() {
                 collection.enabled = false;
                 continue;
             }
@@ -500,6 +581,7 @@ impl CollectionRegistry {
 
     pub fn make_independent(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let collection = self.get(id)?;
+        crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
         let path = PathBuf::from(&collection.path);
         let new_id = Uuid::new_v4();
         write_collection_id(&path, new_id)?;
@@ -591,38 +673,44 @@ impl CollectionRegistry {
 
         let registered = self.get(id)?;
         assert_local_authority_folder(Path::new(&registered.path))?;
-        let config_path = Path::new(&registered.path).join("mdbase.yaml");
-        let source = fs::read_to_string(&config_path)?;
-        let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
-        let mapping = config.as_mapping_mut().ok_or_else(|| {
-            ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
-        })?;
-        mapping.insert(
-            serde_yaml::Value::String("name".to_string()),
-            serde_yaml::Value::String(name.to_string()),
-        );
-        let description_key = serde_yaml::Value::String("description".to_string());
-        if let Some(description) = description {
+        let provider = self.provider_for(&registered)?;
+        let sync_store = crate::LocalSyncStore::for_registry(self);
+        provider.with_collection::<_, ConnectError>(|_| {
+            sync_store.assert_mutation_allowed(id)?;
+            let config_path = Path::new(&registered.path).join("mdbase.yaml");
+            let source = fs::read_to_string(&config_path)?;
+            let mut config: serde_yaml::Value = serde_yaml::from_str(&source)?;
+            let mapping = config.as_mapping_mut().ok_or_else(|| {
+                ConnectError::CollectionOpen("mdbase.yaml must contain a YAML mapping.".to_string())
+            })?;
             mapping.insert(
-                description_key,
-                serde_yaml::Value::String(description.to_string()),
+                serde_yaml::Value::String("name".to_string()),
+                serde_yaml::Value::String(name.to_string()),
             );
-        } else {
-            mapping.remove(&description_key);
-        }
+            let description_key = serde_yaml::Value::String("description".to_string());
+            if let Some(description) = description {
+                mapping.insert(
+                    description_key,
+                    serde_yaml::Value::String(description.to_string()),
+                );
+            } else {
+                mapping.remove(&description_key);
+            }
 
-        let serialized = serde_yaml::to_string(&config)?;
-        let root = config_path.parent().ok_or_else(|| {
-            ConnectError::CollectionOpen("Collection config has no parent folder.".to_string())
+            let serialized = serde_yaml::to_string(&config)?;
+            let root = config_path.parent().ok_or_else(|| {
+                ConnectError::CollectionOpen("Collection config has no parent folder.".to_string())
+            })?;
+            let permissions = fs::metadata(&config_path)?.permissions();
+            let mut temporary = NamedTempFile::new_in(root)?;
+            temporary.as_file().set_permissions(permissions)?;
+            temporary.write_all(serialized.as_bytes())?;
+            temporary.as_file().sync_all()?;
+            temporary
+                .persist(&config_path)
+                .map_err(|error| ConnectError::Io(error.error))?;
+            Ok(())
         })?;
-        let permissions = fs::metadata(&config_path)?.permissions();
-        let mut temporary = NamedTempFile::new_in(root)?;
-        temporary.as_file().set_permissions(permissions)?;
-        temporary.write_all(serialized.as_bytes())?;
-        temporary.as_file().sync_all()?;
-        temporary
-            .persist(&config_path)
-            .map_err(|error| ConnectError::Io(error.error))?;
 
         let mut updated = registered;
         self.refresh_summary_metadata(&mut updated)?;
@@ -634,9 +722,13 @@ impl CollectionRegistry {
     }
 
     pub fn set_enabled(&self, id: Uuid, enabled: bool) -> Result<CollectionSummary, ConnectError> {
+        let store = crate::LocalSyncStore::for_registry(self);
         if enabled {
             let registered = self.get(id)?;
             assert_local_authority_folder(Path::new(&registered.path))?;
+            store.assert_mutation_allowed(id)?;
+        } else {
+            store.assert_not_transferring(id)?;
         }
         let changed = self.connection()?.execute(
             "UPDATE collections SET enabled = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
@@ -669,7 +761,7 @@ impl CollectionRegistry {
             )
             .optional()?;
         let mut collection = row.ok_or(ConnectError::CollectionNotFound(id))?;
-        if hosted_mirror_collection_id(Path::new(&collection.path))?.is_some() {
+        if mirror_collection_id(Path::new(&collection.path))?.is_some() {
             collection.enabled = false;
         }
         Ok(collection)
@@ -677,6 +769,7 @@ impl CollectionRegistry {
 
     pub fn remove(&self, id: Uuid) -> Result<CollectionSummary, ConnectError> {
         let collection = self.get(id)?;
+        crate::LocalSyncStore::for_registry(self).assert_not_transferring(id)?;
         self.connection()?
             .execute("DELETE FROM collections WHERE id = ?1", [id.to_string()])?;
         self.providers
@@ -712,7 +805,9 @@ impl CollectionRegistry {
             return serde_json::to_value(self.changes(id, input)?).map_err(ConnectError::from);
         }
         let provider = self.provider_for(&registered)?;
+        let sync_store = crate::LocalSyncStore::for_registry(self);
         let execute = |collection: &Collection| {
+            sync_store.assert_authority_available(id)?;
             if operation == "describe" {
                 return serde_json::to_value(self.describe_loaded(&registered, collection)?)
                     .map_err(ConnectError::from);
@@ -721,6 +816,7 @@ impl CollectionRegistry {
         };
         if is_collection_mutation(operation) {
             provider.with_collection(|collection| {
+                sync_store.assert_mutation_allowed(id)?;
                 let result = execute(collection)?;
                 let invalidation = operation_invalidation(operation, input, &result);
                 synchronize(&invalidation);
@@ -851,11 +947,14 @@ impl CollectionRegistry {
             ));
         }
         let provider = self.provider_for(&registered)?;
+        let sync_store = crate::LocalSyncStore::for_registry(self);
         let execute = |collection: &Collection| {
+            sync_store.assert_authority_available(id)?;
             self.scoped_operation_loaded(&registered, collection, operation, input, scope)
         };
         if is_collection_mutation(operation) {
             provider.with_collection(|collection| {
+                sync_store.assert_mutation_allowed(id)?;
                 let result = execute(collection)?;
                 let invalidation = operation_invalidation(operation, input, &result);
                 synchronize(&invalidation);
@@ -864,6 +963,213 @@ impl CollectionRegistry {
         } else {
             provider.with_collection_read(execute)
         }
+    }
+
+    pub fn sync_operation_synchronized(
+        &self,
+        id: Uuid,
+        input: &Value,
+        mut replica: crate::LocalReplica,
+        scope: &GrantScope,
+        synchronize: impl FnOnce(&CollectionInvalidation),
+    ) -> Result<Value, ConnectError> {
+        let registered = self.get(id)?;
+        if !registered.enabled {
+            return Err(ConnectError::AccessDenied(
+                "This collection is disabled on its computer.".to_string(),
+            ));
+        }
+        let action = input.get("action").and_then(Value::as_str).ok_or_else(|| {
+            ConnectError::AccessDenied("Sync request action is required.".to_string())
+        })?;
+        let provider = self.provider_for(&registered)?;
+        let store = crate::LocalSyncStore::for_registry(self);
+        let execute = |collection: &Collection| -> Result<Value, ConnectError> {
+            store.assert_authority_available(id)?;
+            replica.allowed_types = self
+                .resolve_scope_types_loaded(&registered, collection, scope)?
+                .unwrap_or_default();
+            let snapshot = collection.snapshot()?;
+            store.reconcile(id, &snapshot, &HashMap::new())?;
+            match action {
+                "open_session" => {
+                    let description = self.describe_loaded(&registered, collection)?;
+                    let resources = sync_resources(&snapshot, description, &replica.allowed_types);
+                    serde_json::to_value(store.open_session(id, &replica, resources)?)
+                        .map_err(Into::into)
+                }
+                "snapshot" => {
+                    store.ensure_replica(id, &replica)?;
+                    let snapshot_id = required_uuid(input, "snapshot_id")?;
+                    let page = input.get("page").and_then(Value::as_str);
+                    serde_json::to_value(store.snapshot(id, replica.id, snapshot_id, page)?)
+                        .map_err(Into::into)
+                }
+                "changes" => {
+                    store.ensure_replica(id, &replica)?;
+                    let after = input.get("after").and_then(Value::as_u64).ok_or_else(|| {
+                        ConnectError::AccessDenied("Sync changes cursor is required.".to_string())
+                    })?;
+                    let limit = input
+                        .get("limit")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(200)
+                        .clamp(1, 500) as usize;
+                    serde_json::to_value(store.changes(id, replica.id, after, limit)?)
+                        .map_err(Into::into)
+                }
+                "mutate" => {
+                    store.assert_mutation_allowed(id)?;
+                    store.ensure_replica(id, &replica)?;
+                    let mutation: SyncMutation = serde_json::from_value(
+                        input.get("mutation").cloned().ok_or_else(|| {
+                            ConnectError::AccessDenied(
+                                "Sync mutation body is required.".to_string(),
+                            )
+                        })?,
+                    )?;
+                    let plan = store.plan_mutation(id, replica.id, &mutation)?;
+                    let crate::local_sync::MutationPlan::Apply {
+                        operation,
+                        input: operation_input,
+                        preferred_path,
+                    } = plan
+                    else {
+                        let crate::local_sync::MutationPlan::Return(receipt) = plan else {
+                            unreachable!()
+                        };
+                        store.store_receipt(replica.id, &receipt)?;
+                        return serde_json::to_value(receipt).map_err(Into::into);
+                    };
+                    let result = self.scoped_operation_loaded(
+                        &registered,
+                        collection,
+                        operation,
+                        &operation_input,
+                        scope,
+                    )?;
+                    if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                        let receipt = SyncMutationReceipt::Rejected {
+                            mutation_id: mutation.mutation_id,
+                            error: mdbase_connect_protocol::SyncMutationError {
+                                code: result
+                                    .pointer("/diagnostics/0/code")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("mutation_rejected")
+                                    .to_string(),
+                                message: error_message(&result, "The mutation was rejected."),
+                            },
+                        };
+                        store.store_receipt(replica.id, &receipt)?;
+                        return serde_json::to_value(receipt).map_err(Into::into);
+                    }
+                    let invalidation = operation_invalidation(operation, &operation_input, &result);
+                    synchronize(&invalidation);
+                    let after = collection.snapshot()?;
+                    let preferred = preferred_path
+                        .map(|path| HashMap::from([(path, mutation.record_id)]))
+                        .unwrap_or_default();
+                    store.reconcile(id, &after, &preferred)?;
+                    let receipt = store.applied_receipt(id, &mutation)?;
+                    store.store_receipt(replica.id, &receipt)?;
+                    serde_json::to_value(receipt).map_err(Into::into)
+                }
+                other => Err(ConnectError::AccessDenied(format!(
+                    "Unsupported sync action: {other}"
+                ))),
+            }
+        };
+        if action == "mutate" {
+            provider.with_collection(execute)
+        } else {
+            provider.with_collection_read(execute)
+        }
+    }
+
+    /// Capture a complete provider-neutral authority snapshot without fencing
+    /// ordinary mutations. Transfer orchestrators use this for the resumable
+    /// bulk stage before the short cutover window.
+    pub fn authority_snapshot(&self, id: Uuid) -> Result<AuthoritySnapshot, ConnectError> {
+        let registered = self.get(id)?;
+        if !registered.enabled {
+            return Err(ConnectError::AccessDenied(
+                "This collection is disabled on its computer.".to_string(),
+            ));
+        }
+        let provider = self.provider_for(&registered)?;
+        let store = crate::LocalSyncStore::for_registry(self);
+        provider.with_collection_read(|collection| {
+            store.assert_authority_available(id)?;
+            self.authority_snapshot_loaded(&registered, collection, &store)
+        })
+    }
+
+    /// Fence mutations and capture the final source snapshot under the same
+    /// provider write gate. The fence is durable across agent restarts.
+    pub fn fence_authority(
+        &self,
+        id: Uuid,
+        transfer_id: Uuid,
+    ) -> Result<AuthoritySnapshot, ConnectError> {
+        let registered = self.get(id)?;
+        let provider = self.provider_for(&registered)?;
+        let store = crate::LocalSyncStore::for_registry(self);
+        provider.with_collection(|collection| {
+            let snapshot = collection.snapshot()?;
+            store.reconcile(id, &snapshot, &HashMap::new())?;
+            store.fence(id, transfer_id)?;
+            let description = self.describe_loaded(&registered, collection)?;
+            let resources = sync_resources(&snapshot, description, &BTreeSet::new());
+            store.export_snapshot(id, &snapshot, resources)
+        })
+    }
+
+    pub fn resume_authority(&self, id: Uuid, transfer_id: Uuid) -> Result<(), ConnectError> {
+        let registered = self.get(id)?;
+        let provider = self.provider_for(&registered)?;
+        let store = crate::LocalSyncStore::for_registry(self);
+        provider.with_collection::<_, ConnectError>(|_| store.resume(id, transfer_id))
+    }
+
+    pub fn retire_authority(
+        &self,
+        id: Uuid,
+        transfer_id: Uuid,
+        authority_epoch: u64,
+    ) -> Result<(), ConnectError> {
+        let registered = self.get(id)?;
+        let store = crate::LocalSyncStore::for_registry(self);
+        if store.is_retired(id)? {
+            write_mirror_marker(Path::new(&registered.path), id)?;
+            self.connection()?.execute(
+                "UPDATE collections SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+                [id.to_string()],
+            )?;
+            return Ok(());
+        }
+        let provider = self.provider_for(&registered)?;
+        provider.with_collection::<_, ConnectError>(|_| {
+            store.retire(id, transfer_id, authority_epoch)?;
+            write_mirror_marker(Path::new(&registered.path), id)?;
+            self.connection()?.execute(
+                "UPDATE collections SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+                [id.to_string()],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn authority_snapshot_loaded(
+        &self,
+        registered: &CollectionSummary,
+        collection: &Collection,
+        store: &crate::LocalSyncStore,
+    ) -> Result<AuthoritySnapshot, ConnectError> {
+        let snapshot = collection.snapshot()?;
+        store.reconcile(registered.id, &snapshot, &HashMap::new())?;
+        let description = self.describe_loaded(registered, collection)?;
+        let resources = sync_resources(&snapshot, description, &BTreeSet::new());
+        store.export_snapshot(registered.id, &snapshot, resources)
     }
 
     fn scoped_operation_loaded(
@@ -1956,6 +2262,60 @@ fn required_string<'a>(input: &'a Value, key: &str) -> Result<&'a str, ConnectEr
     })
 }
 
+fn required_uuid(input: &Value, key: &str) -> Result<Uuid, ConnectError> {
+    let value = required_string(input, key)?;
+    Uuid::parse_str(value)
+        .map_err(|_| ConnectError::AccessDenied(format!("Sync request '{key}' must be a UUID.")))
+}
+
+fn sync_resources(
+    snapshot: &mdbase::runtime::CollectionSnapshot,
+    mut description: CollectionDescription,
+    allowed_types: &BTreeSet<String>,
+) -> SyncCollectionResources {
+    if !allowed_types.is_empty() {
+        description
+            .types
+            .retain(|type_definition| allowed_types.contains(&type_definition.name));
+        description
+            .contracts
+            .retain(|contract| allowed_types.contains(&contract.type_name));
+    }
+    let type_paths = description
+        .types
+        .iter()
+        .filter_map(|type_definition| type_definition.path.as_deref())
+        .collect::<BTreeSet<_>>();
+    let documents = snapshot
+        .resources
+        .iter()
+        .filter(|resource| {
+            matches!(
+                resource.kind,
+                mdbase::runtime::CollectionSnapshotResourceKind::Configuration
+            ) || type_paths.contains(resource.path.as_str())
+        })
+        .map(|resource| SyncResourceDocument {
+            path: resource.path.clone(),
+            kind: match resource.kind {
+                mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
+                    "configuration".to_string()
+                }
+                mdbase::runtime::CollectionSnapshotResourceKind::Type => "type".to_string(),
+            },
+            revision: resource.revision.clone(),
+            document: resource.document.clone(),
+        })
+        .collect::<Vec<_>>();
+    SyncCollectionResources {
+        revision: snapshot.resource_revision.clone(),
+        spec_version: snapshot.spec_version.clone(),
+        types: description.types,
+        contracts: description.contracts,
+        documents,
+    }
+}
+
 fn scoped_query(input: &Value, allowed_types: &BTreeSet<String>) -> Result<Value, ConnectError> {
     let mut scoped = input.as_object().cloned().ok_or_else(|| {
         ConnectError::AccessDenied("Scoped query input must be an object.".to_string())
@@ -2141,58 +2501,101 @@ struct CollectionMetadata {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct HostedMirrorMarker {
+struct MirrorMarker {
     version: u8,
     role: String,
     collection_id: Uuid,
 }
 
 fn assert_local_authority_folder(root: &Path) -> Result<(), ConnectError> {
-    if let Some(collection_id) = hosted_mirror_collection_id(root)? {
-        return Err(ConnectError::HostedMirrorCannotRegister { collection_id });
+    if let Some(collection_id) = mirror_collection_id(root)? {
+        return Err(ConnectError::MirrorCannotRegister { collection_id });
     }
     Ok(())
 }
 
-fn hosted_mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
-    let marker_directory = root.join(HOSTED_MIRROR_MARKER_DIRECTORY);
+fn mirror_collection_id(root: &Path) -> Result<Option<Uuid>, ConnectError> {
+    let marker_directory = root.join(MIRROR_MARKER_DIRECTORY);
     let directory_metadata = match fs::symlink_metadata(&marker_directory) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
     if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
-        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+        return Err(ConnectError::InvalidMirrorMarker(format!(
             "{} must be an ordinary directory.",
             marker_directory.display()
         )));
     }
-    let marker_path = marker_directory.join(HOSTED_MIRROR_MARKER_FILE);
+    let marker_path = marker_directory.join(MIRROR_MARKER_FILE);
     let marker_metadata = match fs::symlink_metadata(&marker_path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
     if marker_metadata.file_type().is_symlink() || !marker_metadata.is_file() {
-        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+        return Err(ConnectError::InvalidMirrorMarker(format!(
             "{} must be an ordinary file.",
             marker_path.display()
         )));
     }
-    let marker: HostedMirrorMarker = serde_json::from_str(&fs::read_to_string(&marker_path)?)
-        .map_err(|error| {
-            ConnectError::InvalidHostedMirrorMarker(format!(
+    let marker: MirrorMarker =
+        serde_json::from_str(&fs::read_to_string(&marker_path)?).map_err(|error| {
+            ConnectError::InvalidMirrorMarker(format!(
                 "{} could not be read: {error}",
                 marker_path.display()
             ))
         })?;
-    if marker.version != 1 || marker.role != "hosted_mirror" {
-        return Err(ConnectError::InvalidHostedMirrorMarker(format!(
+    if marker.version != 1 || marker.role != "mirror" {
+        return Err(ConnectError::InvalidMirrorMarker(format!(
             "{} has an unsupported role or version.",
             marker_path.display()
         )));
     }
     Ok(Some(marker.collection_id))
+}
+
+fn write_mirror_marker(root: &Path, collection_id: Uuid) -> Result<(), ConnectError> {
+    let marker_directory = root.join(MIRROR_MARKER_DIRECTORY);
+    match fs::symlink_metadata(&marker_directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(ConnectError::InvalidMirrorMarker(format!(
+                "{} must be an ordinary directory.",
+                marker_directory.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(&marker_directory)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    let marker_path = marker_directory.join(MIRROR_MARKER_FILE);
+    if let Some(existing) = mirror_collection_id(root)? {
+        return if existing == collection_id {
+            Ok(())
+        } else {
+            Err(ConnectError::InvalidMirrorMarker(format!(
+                "{} belongs to another collection.",
+                marker_path.display()
+            )))
+        };
+    }
+    let mut temporary = NamedTempFile::new_in(&marker_directory)?;
+    temporary.write_all(
+        serde_json::to_string_pretty(&json!({
+            "version": 1,
+            "role": "mirror",
+            "collection_id": collection_id,
+        }))?
+        .as_bytes(),
+    )?;
+    temporary.write_all(b"\n")?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist(&marker_path)
+        .map_err(|error| ConnectError::Io(error.error))?;
+    Ok(())
 }
 
 fn ensure_collection_id(root: &Path) -> Result<Uuid, ConnectError> {
@@ -2590,6 +2993,7 @@ fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
             "put_timer",
             "cancel_timer",
             "reconcile_timers",
+            "sync",
         ];
     }
     &[
@@ -2615,6 +3019,7 @@ fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
         "put_timer",
         "cancel_timer",
         "reconcile_timers",
+        "sync",
     ]
 }
 
@@ -2625,14 +3030,14 @@ mod tests {
     use std::thread;
     use tempfile::tempdir;
 
-    fn mark_hosted_mirror(root: &Path, collection_id: Uuid) {
-        let directory = root.join(HOSTED_MIRROR_MARKER_DIRECTORY);
+    fn mark_mirror(root: &Path, collection_id: Uuid) {
+        let directory = root.join(MIRROR_MARKER_DIRECTORY);
         fs::create_dir_all(&directory).unwrap();
         fs::write(
-            directory.join(HOSTED_MIRROR_MARKER_FILE),
+            directory.join(MIRROR_MARKER_FILE),
             serde_json::to_vec_pretty(&json!({
                 "version": 1,
-                "role": "hosted_mirror",
+                "role": "mirror",
                 "collection_id": collection_id,
             }))
             .unwrap(),
@@ -2714,93 +3119,251 @@ mod tests {
     }
 
     #[test]
-    fn hosted_mirror_cannot_be_registered_as_a_local_authority() {
+    fn mirror_cannot_be_registered_as_an_authority() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
-        let root = collection_parent.path().join("hosted-mirror");
+        let root = collection_parent.path().join("mirror");
         let registry = CollectionRegistry::open(state.path()).unwrap();
-        let hosted_collection_id = Uuid::new_v4();
+        let collection_id = Uuid::new_v4();
 
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
-        mark_hosted_mirror(&root, hosted_collection_id);
+        mark_mirror(&root, collection_id);
 
         assert!(matches!(
             registry.add(&root),
-            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
-                if collection_id == hosted_collection_id
+            Err(ConnectError::MirrorCannotRegister { collection_id: actual })
+                if actual == collection_id
         ));
         assert_eq!(read_collection_id(&root).unwrap(), None);
         assert!(registry.list().unwrap().is_empty());
     }
 
     #[test]
-    fn a_registered_folder_stops_being_available_when_it_becomes_a_hosted_mirror() {
+    fn a_registered_folder_stops_being_available_when_it_becomes_a_mirror() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
         let root = collection_parent.path().join("notes");
         let registry = CollectionRegistry::open(state.path()).unwrap();
         let created = registry.create(&root, Some("Notes")).unwrap();
-        let hosted_collection_id = Uuid::new_v4();
+        let mirror_collection_id = Uuid::new_v4();
 
-        mark_hosted_mirror(&root, hosted_collection_id);
+        mark_mirror(&root, mirror_collection_id);
 
         assert!(!registry.get(created.id).unwrap().enabled);
         assert!(!registry.list().unwrap()[0].enabled);
         assert!(matches!(
             registry.operation(created.id, "describe", &json!({})),
-            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
-                if collection_id == hosted_collection_id
+            Err(ConnectError::MirrorCannotRegister { collection_id })
+                if collection_id == mirror_collection_id
         ));
         assert!(matches!(
             registry.set_enabled(created.id, true),
-            Err(ConnectError::HostedMirrorCannotRegister { collection_id })
-                if collection_id == hosted_collection_id
+            Err(ConnectError::MirrorCannotRegister { collection_id })
+                if collection_id == mirror_collection_id
         ));
     }
 
     #[test]
-    fn a_malformed_hosted_mirror_marker_fails_closed() {
+    fn a_malformed_mirror_marker_fails_closed() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
-        let root = collection_parent.path().join("hosted-mirror");
+        let root = collection_parent.path().join("mirror");
         let registry = CollectionRegistry::open(state.path()).unwrap();
 
-        fs::create_dir_all(root.join(HOSTED_MIRROR_MARKER_DIRECTORY)).unwrap();
+        fs::create_dir_all(root.join(MIRROR_MARKER_DIRECTORY)).unwrap();
         fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
         fs::write(
-            root.join(HOSTED_MIRROR_MARKER_DIRECTORY)
-                .join(HOSTED_MIRROR_MARKER_FILE),
+            root.join(MIRROR_MARKER_DIRECTORY).join(MIRROR_MARKER_FILE),
             "{broken",
         )
         .unwrap();
 
         assert!(matches!(
             registry.add(&root),
-            Err(ConnectError::InvalidHostedMirrorMarker(_))
+            Err(ConnectError::InvalidMirrorMarker(_))
         ));
         assert!(registry.list().unwrap().is_empty());
     }
 
+    #[test]
+    fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("transfer");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Transfer")).unwrap();
+        fs::write(
+            root.join("one.md"),
+            "---\ntitle: One\n---\nOriginal body.\n",
+        )
+        .unwrap();
+
+        let first = registry.authority_snapshot(collection.id).unwrap();
+        assert_eq!(first.collection_id, collection.id);
+        assert_eq!(first.records.len(), 1);
+        assert_eq!(first.resources.documents[0].path, "mdbase.yaml");
+        assert_eq!(first.manifest_digest.len(), 64);
+        let record_id = first.records[0].record.record_id;
+
+        fs::rename(root.join("one.md"), root.join("renamed.md")).unwrap();
+        let renamed = registry.authority_snapshot(collection.id).unwrap();
+        assert_eq!(renamed.records[0].record.record_id, record_id);
+        assert_eq!(renamed.records[0].record.path, "renamed.md");
+        assert_eq!(
+            renamed.records[0].document,
+            fs::read_to_string(root.join("renamed.md")).unwrap()
+        );
+
+        let transfer_id = Uuid::new_v4();
+        let fenced = registry
+            .fence_authority(collection.id, transfer_id)
+            .unwrap();
+        assert_eq!(fenced.manifest_digest, renamed.manifest_digest);
+        assert!(registry
+            .operation(collection.id, "describe", &json!({}))
+            .is_ok());
+        for result in [
+            registry.operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": "blocked.md",
+                    "frontmatter": {"title": "Blocked"},
+                }),
+            ),
+            registry
+                .update_metadata(collection.id, "Blocked", None)
+                .map(|value| serde_json::to_value(value).unwrap()),
+            registry
+                .set_enabled(collection.id, false)
+                .map(|value| serde_json::to_value(value).unwrap()),
+            registry
+                .make_independent(collection.id)
+                .map(|value| serde_json::to_value(value).unwrap()),
+            registry
+                .remove(collection.id)
+                .map(|value| serde_json::to_value(value).unwrap()),
+        ] {
+            assert!(matches!(
+                result,
+                Err(ConnectError::AuthorityTransferInProgress {
+                    transfer_id: actual
+                }) if actual == transfer_id
+            ));
+        }
+        let full_scope = GrantScope::full_collection();
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": "scoped-blocked.md",
+                    "frontmatter": {"title": "Scoped blocked"},
+                }),
+                &full_scope,
+            ),
+            Err(ConnectError::AuthorityTransferInProgress {
+                transfer_id: actual
+            }) if actual == transfer_id
+        ));
+        assert!(matches!(
+            registry.sync_operation_synchronized(
+                collection.id,
+                &json!({"action": "mutate"}),
+                crate::LocalReplica {
+                    id: Uuid::new_v4(),
+                    name: "Test replica".to_string(),
+                    mode: mdbase_connect_protocol::SyncReplicaMode::ReadWrite,
+                    allowed_types: BTreeSet::new(),
+                },
+                &full_scope,
+                |_| {},
+            ),
+            Err(ConnectError::AuthorityTransferInProgress {
+                transfer_id: actual
+            }) if actual == transfer_id
+        ));
+        assert!(!root.join("blocked.md").exists());
+        assert!(matches!(
+            registry.resume_authority(collection.id, Uuid::new_v4()),
+            Err(ConnectError::AuthorityTransferMismatch)
+        ));
+
+        drop(registry);
+        let reopened = CollectionRegistry::open(state.path()).unwrap();
+        assert!(matches!(
+            reopened.operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": "still-blocked.md",
+                    "frontmatter": {"title": "Still blocked"},
+                }),
+            ),
+            Err(ConnectError::AuthorityTransferInProgress {
+                transfer_id: actual
+            }) if actual == transfer_id
+        ));
+        reopened
+            .resume_authority(collection.id, transfer_id)
+            .unwrap();
+        let resumed = reopened
+            .operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": "resumed.md",
+                    "frontmatter": {"title": "Resumed"},
+                }),
+            )
+            .unwrap();
+        assert_eq!(resumed["valid"], true, "{resumed}");
+
+        let final_transfer_id = Uuid::new_v4();
+        reopened
+            .fence_authority(collection.id, final_transfer_id)
+            .unwrap();
+        reopened
+            .retire_authority(collection.id, final_transfer_id, 2)
+            .unwrap();
+        reopened
+            .retire_authority(collection.id, final_transfer_id, 2)
+            .unwrap();
+        assert!(!reopened.get(collection.id).unwrap().enabled);
+        let marker: Value = serde_json::from_str(
+            &fs::read_to_string(root.join(".mdbase/connect-role.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(marker["role"], "mirror");
+        assert_eq!(marker["collection_id"], collection.id.to_string());
+        assert!(matches!(
+            reopened.set_enabled(collection.id, true),
+            Err(ConnectError::MirrorCannotRegister {
+                collection_id: actual
+            }) if actual == collection.id
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_hosted_mirror_marker_fails_closed() {
+    fn a_symlinked_mirror_marker_fails_closed() {
         use std::os::unix::fs::symlink;
 
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
         let outside = tempdir().unwrap();
-        let root = collection_parent.path().join("hosted-mirror");
+        let root = collection_parent.path().join("mirror");
         let registry = CollectionRegistry::open(state.path()).unwrap();
 
-        fs::create_dir_all(root.join(HOSTED_MIRROR_MARKER_DIRECTORY)).unwrap();
+        fs::create_dir_all(root.join(MIRROR_MARKER_DIRECTORY)).unwrap();
         fs::write(root.join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
-        let target = outside.path().join(HOSTED_MIRROR_MARKER_FILE);
+        let target = outside.path().join(MIRROR_MARKER_FILE);
         fs::write(
             &target,
             serde_json::to_vec(&json!({
                 "version": 1,
-                "role": "hosted_mirror",
+                "role": "mirror",
                 "collection_id": Uuid::new_v4(),
             }))
             .unwrap(),
@@ -2808,14 +3371,13 @@ mod tests {
         .unwrap();
         symlink(
             &target,
-            root.join(HOSTED_MIRROR_MARKER_DIRECTORY)
-                .join(HOSTED_MIRROR_MARKER_FILE),
+            root.join(MIRROR_MARKER_DIRECTORY).join(MIRROR_MARKER_FILE),
         )
         .unwrap();
 
         assert!(matches!(
             registry.add(&root),
-            Err(ConnectError::InvalidHostedMirrorMarker(_))
+            Err(ConnectError::InvalidMirrorMarker(_))
         ));
         assert!(registry.list().unwrap().is_empty());
     }

@@ -254,7 +254,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           record_id: recordId,
           path: pending?.local_path ?? entry?.path ?? receipt.conflict.current?.path ?? null,
           kind: "conflicted",
-          message: "Local and hosted changes need a decision."
+          message: "Local and remote changes need a decision."
         });
       } else if (receipt.status === "rejected") {
         conflicts.push({
@@ -326,8 +326,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         ...Object.values(state.records).map((entry) => ({
           kind: "record" as const,
           path: entry.path,
-          // Hosted mdbase may normalize equivalent Markdown when it executes a
-          // mutation. The provider-issued revision is the shared content
+          // A remote authority may normalize equivalent Markdown when it executes
+          // a mutation. The authority-issued revision is the shared content
           // identity; assertUndiverged above separately proves the local bytes
           // still match the exact document materialized for that revision.
           document_hash: entry.revision
@@ -504,7 +504,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     do {
       const snapshot = await this.transport.snapshot(session.snapshot_id, page);
       if (snapshot.scope_epoch !== session.scope_epoch || snapshot.cursor !== session.head) {
-        throw new SyncError("invalid_snapshot", "Hosted snapshot boundary changed during download.");
+        throw new SyncError("invalid_snapshot", "Authority snapshot boundary changed during download.");
       }
       await visitor(snapshot.records);
       page = snapshot.next_page;
@@ -1053,7 +1053,7 @@ export class MirrorInitializationConflictError extends SyncError {
   constructor(public readonly paths: string[]) {
     super(
       "mirror_initialization_conflict",
-      `Existing files differ from hosted Markdown: ${paths.join(", ")}. Move or reconcile them before syncing.`
+      `Existing files differ from remote Markdown: ${paths.join(", ")}. Move or reconcile them before syncing.`
     );
   }
 }

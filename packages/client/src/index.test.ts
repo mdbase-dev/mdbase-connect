@@ -17,7 +17,7 @@ import type {
   GrantEncryption,
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
-import { HOSTED_PROOF_HEADERS } from "@mdbase/connect-protocol";
+import { AUTHORITY_PROOF_HEADERS } from "@mdbase/connect-protocol";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -565,8 +565,9 @@ describe("provider-neutral collection client", () => {
           grant_id: "00000000-0000-0000-0000-000000000003",
           application_origin: "null",
           encryption: null,
-          hosted: {
-            provider_url: "https://provider.example",
+          authority: {
+            operations_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/operations",
+            sync_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/sync",
             replica_id: "00000000-0000-0000-0000-000000000005",
             access_token: "hsa_portable_hosted",
             proof_public_key: applicationPublicKey
@@ -605,13 +606,13 @@ describe("provider-neutral collection client", () => {
     const result = await authorization;
     expect(result.connection).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
-      route: "hosted"
+      route: "remote"
     });
     expect(deleteKey).not.toHaveBeenCalled();
     expect(connect.connections()).toHaveLength(1);
     expect((await result.connection.query()).valid).toBe(true);
-    expect(providerHeaders?.[HOSTED_PROOF_HEADERS.version]).toBe("1");
-    expect(providerHeaders?.[HOSTED_PROOF_HEADERS.signature]).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(providerHeaders?.[AUTHORITY_PROOF_HEADERS.version]).toBe("1");
+    expect(providerHeaders?.[AUTHORITY_PROOF_HEADERS.signature]).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
   it("returns the verification details when a portable approval popup is blocked", async () => {
@@ -713,6 +714,76 @@ describe("provider-neutral collection client", () => {
       connect.authorize({ openVerification: opened })
     ).rejects.toMatchObject({
       code: "encryption_required"
+    });
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await authorization;
+    expect(connect.connections()).toHaveLength(0);
+  });
+
+  it("rejects a remote authority capability served over non-loopback HTTP", async () => {
+    vi.useFakeTimers();
+    let applicationPublicKey = "";
+    const opened = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      const url = String(request);
+      if (url.endsWith("/v1/apps/register")) {
+        return jsonResponse({
+          application: {
+            id: "00000000-0000-0000-0000-000000000001",
+            name: "Portable notes",
+            distribution: "portable"
+          }
+        });
+      }
+      if (url.endsWith("/oauth/device_authorization")) {
+        applicationPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_public_key")!;
+        return jsonResponse({
+          device_code: "device-secret",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://connect.example/device",
+          verification_uri_complete: "https://connect.example/device?user_code=ABCD-EFGH",
+          expires_in: 600,
+          interval: 1
+        });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return jsonResponse({
+          access_token: "mdb_portable",
+          refresh_token: "ref_portable",
+          token_type: "Bearer",
+          expires_in: 900,
+          collection_id: TEST_COLLECTION_ID,
+          collection_name: "Portable notes",
+          operations: ["describe", "query"],
+          scope: { contracts: [], access: "full_collection" },
+          grant_id: "00000000-0000-0000-0000-000000000003",
+          application_origin: "null",
+          encryption: null,
+          authority: {
+            operations_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/operations`,
+            sync_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/sync`,
+            replica_id: "00000000-0000-0000-0000-000000000005",
+            access_token: "authority_access",
+            proof_public_key: applicationPublicKey
+          }
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore()
+    });
+
+    const authorization = expect(
+      connect.authorize({ openVerification: opened })
+    ).rejects.toMatchObject({
+      code: "invalid_token_response"
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(1_000);
@@ -1670,8 +1741,9 @@ describe("authorization renewal", () => {
       },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
-      hosted: {
-        providerUrl,
+      authority: {
+        operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
+        syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
         replicaId: "00000000-0000-0000-0000-000000000003",
         accessToken: "hsa_direct"
       }
@@ -1690,7 +1762,7 @@ describe("authorization renewal", () => {
 
     expect((await connect.query()).valid).toBe(true);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      `${providerUrl}/v1/hosted/collections/00000000-0000-0000-0000-000000000002/operations/query`
+      `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations/query`
     );
     expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization)
       .toBe("Bearer hsa_direct");
@@ -1713,8 +1785,9 @@ describe("authorization renewal", () => {
       },
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000,
-      hosted: {
-        providerUrl,
+      authority: {
+        operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
+        syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
         replicaId: "00000000-0000-0000-0000-000000000003",
         accessToken: "hsa_direct"
       }
@@ -1739,15 +1812,15 @@ describe("authorization renewal", () => {
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
 
-    const hosted = connect.hostedSync();
-    expect(hosted).toEqual(expect.objectContaining({
+    const sync = connect.sync();
+    expect(sync).toEqual(expect.objectContaining({
       collectionId: "00000000-0000-0000-0000-000000000002",
       replicaId: "00000000-0000-0000-0000-000000000003"
     }));
-    expect(JSON.stringify(hosted)).not.toContain("hsa_direct");
-    expect((await hosted!.transport.openSession()).mode).toBe("read_write");
+    expect(JSON.stringify(sync)).not.toContain("hsa_direct");
+    expect((await sync!.transport.openSession()).mode).toBe("read_write");
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      `${providerUrl}/v1/hosted/collections/00000000-0000-0000-0000-000000000002/sync/sessions`
+      `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync/sessions`
     );
     expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization)
       .toBe("Bearer hsa_direct");
@@ -1885,7 +1958,7 @@ describe("direct loopback routing", () => {
 
     expect(requests.map(({ url }) => url)).toEqual([
       "http://127.0.0.1:28485/v1/operations",
-      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/create`
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/create`
     ]);
     expect(requests[0].body).toBe(requests[1].body);
     expect(JSON.parse(requests[0].body)).toEqual(expect.objectContaining({
@@ -1972,7 +2045,7 @@ schema:
     expect(requests.map(({ url }) => url)).toEqual([
       "http://127.0.0.1:28485/v1/operations",
       "http://127.0.0.1:28485/v1/operations",
-      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/create`
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/create`
     ]);
     expect(new Set(requests.map(({ body }) => body))).toHaveLength(1);
     expect(fixture.connect.pendingMutation()).toMatchObject({ operation: "create" });
@@ -2054,8 +2127,8 @@ schema:
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(urls).toEqual([
       "http://127.0.0.1:28485/v1/operations",
-      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/query`,
-      `${fixture.serverUrl}/v1/collections/${fixture.collectionId}/operations/query`
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`,
+      `${fixture.serverUrl}/v1/authorities/${fixture.collectionId}/operations/query`
     ]);
   });
 

@@ -12,18 +12,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  assertHostedMirror,
-  clearHostedMirrorMarker,
+  assertMirror,
+  clearMirrorMarker,
   loadAuthorityPromotionCheckpoint,
-  loadHostedMirrorMarker,
+  loadMirrorMarker,
   loadMirrorProfile,
-  markHostedMirror,
+  markMirror,
   mirrorProfileDirectory,
   restoreCollectionConfiguration,
   retireMirrorAfterPromotion,
   saveAuthorityPromotionCheckpoint,
   saveMirrorProfile,
-  setHostedCollectionIdentity
+  setCollectionIdentity,
+  transitionAuthorityToMirror
 } from "./device.js";
 import {
   mirrorDeviceDirectory,
@@ -33,57 +34,79 @@ import {
 } from "./node.js";
 
 describe("device-local mirror storage", () => {
-  it("marks a hosted mirror without putting device role state in hosted resources", async () => {
+  it("marks a mirror without putting device role state in authority resources", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     const collectionId = crypto.randomUUID();
     try {
       await writeFile(join(root, "mdbase.yaml"), "spec_version: 0.3.0\n");
-      await markHostedMirror(root, collectionId);
-      await assertHostedMirror(root, collectionId);
-      expect(await loadHostedMirrorMarker(root)).toEqual({
+      await markMirror(root, collectionId);
+      await assertMirror(root, collectionId);
+      expect(await loadMirrorMarker(root)).toEqual({
         version: 1,
-        role: "hosted_mirror",
+        role: "mirror",
         collection_id: collectionId
       });
       expect(await readFile(join(root, "mdbase.yaml"), "utf8"))
         .toBe("spec_version: 0.3.0\n");
-      await expect(markHostedMirror(root, crypto.randomUUID()))
-        .rejects.toMatchObject({ code: "hosted_mirror_identity_conflict" });
-      await clearHostedMirrorMarker(root, collectionId);
-      expect(await loadHostedMirrorMarker(root)).toBeNull();
+      await expect(markMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "mirror_identity_conflict" });
+      await clearMirrorMarker(root, collectionId);
+      expect(await loadMirrorMarker(root)).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("requires an authority transfer before a local collection folder becomes a hosted mirror", async () => {
+  it("requires an authority transfer before a local collection folder becomes a mirror", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     try {
       await writeFile(
         join(root, "mdbase.yaml"),
         `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${crypto.randomUUID()}\n`
       );
-      await expect(markHostedMirror(root, crypto.randomUUID()))
+      await expect(markMirror(root, crypto.randomUUID()))
         .rejects.toMatchObject({ code: "local_authority_requires_transfer" });
-      expect(await loadHostedMirrorMarker(root)).toBeNull();
+      expect(await loadMirrorMarker(root)).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("sets the hosted identity atomically and can restore the original collection config", async () => {
+  it("turns only the matching transferred authority folder into a mirror", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
+    const collectionId = crypto.randomUUID();
+    try {
+      await writeFile(
+        join(root, "mdbase.yaml"),
+        `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${collectionId}\n`
+      );
+      await transitionAuthorityToMirror(root, collectionId);
+      await transitionAuthorityToMirror(root, collectionId);
+      expect(await loadMirrorMarker(root)).toEqual({
+        version: 1,
+        role: "mirror",
+        collection_id: collectionId
+      });
+      await expect(transitionAuthorityToMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "mirror_identity_conflict" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("sets the authority identity atomically and can restore the original collection config", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     const collectionId = crypto.randomUUID();
     const original = "spec_version: 0.3.0\nname: Promoted\n";
     try {
       await writeFile(join(root, "mdbase.yaml"), original);
-      const saved = await setHostedCollectionIdentity(root, collectionId);
+      const saved = await setCollectionIdentity(root, collectionId);
       expect(saved).toBe(original);
       expect(await readFile(join(root, "mdbase.yaml"), "utf8")).toContain(
         `collection_id: ${collectionId}`
       );
-      await setHostedCollectionIdentity(root, collectionId);
-      await expect(setHostedCollectionIdentity(root, crypto.randomUUID()))
+      await setCollectionIdentity(root, collectionId);
+      await expect(setCollectionIdentity(root, crypto.randomUUID()))
         .rejects.toMatchObject({ code: "collection_identity_conflict" });
       await restoreCollectionConfiguration(root, saved);
       expect(await readFile(join(root, "mdbase.yaml"), "utf8")).toBe(original);
@@ -101,7 +124,7 @@ describe("device-local mirror storage", () => {
         root,
         {
           version: 1,
-          provider_url: "https://sync.example",
+          sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
           control_url: "https://connect.example",
           collection_id: collectionId,
           replica_id: crypto.randomUUID(),
@@ -174,7 +197,7 @@ describe("device-local mirror storage", () => {
         root,
         {
           version: 1,
-          provider_url: "https://sync.example",
+          sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
           control_url: "https://connect.example",
           collection_id: crypto.randomUUID(),
           replica_id: crypto.randomUUID(),
@@ -269,22 +292,22 @@ describe("device-local mirror storage", () => {
     }
   });
 
-  it("fails closed when the hosted mirror marker is malformed", async () => {
+  it("fails closed when the mirror marker is malformed", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     try {
       await mkdir(join(root, ".mdbase"));
       await writeFile(join(root, ".mdbase", "connect-role.json"), "{broken");
-      await expect(loadHostedMirrorMarker(root))
-        .rejects.toMatchObject({ code: "invalid_hosted_mirror_marker" });
-      await expect(markHostedMirror(root, crypto.randomUUID()))
-        .rejects.toMatchObject({ code: "invalid_hosted_mirror_marker" });
+      await expect(loadMirrorMarker(root))
+        .rejects.toMatchObject({ code: "invalid_mirror_marker" });
+      await expect(markMirror(root, crypto.randomUUID()))
+        .rejects.toMatchObject({ code: "invalid_mirror_marker" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
   it.skipIf(process.platform === "win32")(
-    "refuses a symlinked hosted mirror marker",
+    "refuses a symlinked mirror marker",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
       const outside = await mkdtemp(join(tmpdir(), "mdbase-mirror-outside-"));
@@ -293,12 +316,12 @@ describe("device-local mirror storage", () => {
         const target = join(outside, "connect-role.json");
         await writeFile(target, JSON.stringify({
           version: 1,
-          role: "hosted_mirror",
+          role: "mirror",
           collection_id: crypto.randomUUID()
         }));
         await symlink(target, join(root, ".mdbase", "connect-role.json"));
-        await expect(loadHostedMirrorMarker(root))
-          .rejects.toMatchObject({ code: "unsafe_hosted_mirror_marker" });
+        await expect(loadMirrorMarker(root))
+          .rejects.toMatchObject({ code: "unsafe_mirror_marker" });
       } finally {
         await rm(root, { recursive: true, force: true });
         await rm(outside, { recursive: true, force: true });
@@ -316,7 +339,7 @@ describe("device-local mirror storage", () => {
         root,
         {
           version: 1,
-          provider_url: "https://sync.example",
+          sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
           collection_id: crypto.randomUUID(),
           replica_id: crypto.randomUUID(),
           mode: "read_write"
@@ -355,7 +378,7 @@ describe("device-local mirror storage", () => {
       await mkdir(metadata, { recursive: true });
       await writeFile(join(metadata, "connect-mirror.json"), JSON.stringify({
         protocol_version: 1,
-        provider_url: "https://sync.example",
+        sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
         collection_id: crypto.randomUUID(),
         replica_id: crypto.randomUUID(),
         replica_token: "legacy-secret",

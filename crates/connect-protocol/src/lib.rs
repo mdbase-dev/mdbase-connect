@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 pub mod crypto;
@@ -10,13 +12,13 @@ pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
-pub const HOSTED_PROOF_VERSION: u32 = 1;
-pub const HOSTED_PROOF_ALGORITHM: &str = "P256-SHA256";
-pub const HOSTED_PROOF_DOMAIN: &str = "mdbase-hosted-request-proof-v1";
-pub const HOSTED_PROOF_VERSION_HEADER: &str = "x-mdbase-proof-version";
-pub const HOSTED_PROOF_TIMESTAMP_HEADER: &str = "x-mdbase-proof-timestamp";
-pub const HOSTED_PROOF_NONCE_HEADER: &str = "x-mdbase-proof-nonce";
-pub const HOSTED_PROOF_SIGNATURE_HEADER: &str = "x-mdbase-proof-signature";
+pub const AUTHORITY_PROOF_VERSION: u32 = 1;
+pub const AUTHORITY_PROOF_ALGORITHM: &str = "P256-SHA256";
+pub const AUTHORITY_PROOF_DOMAIN: &str = "mdbase-authority-request-proof-v1";
+pub const AUTHORITY_PROOF_VERSION_HEADER: &str = "x-mdbase-proof-version";
+pub const AUTHORITY_PROOF_TIMESTAMP_HEADER: &str = "x-mdbase-proof-timestamp";
+pub const AUTHORITY_PROOF_NONCE_HEADER: &str = "x-mdbase-proof-nonce";
+pub const AUTHORITY_PROOF_SIGNATURE_HEADER: &str = "x-mdbase-proof-signature";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControlRequest {
@@ -51,6 +53,8 @@ pub enum ControlCommand {
     CollectionMakeIndependent(CollectionIdParams),
     #[serde(rename = "collections.take-authority")]
     CollectionTakeAuthority(CollectionIdParams),
+    #[serde(rename = "collections.transfer-authority")]
+    CollectionTransferAuthority(CollectionAuthorityTransferParams),
     #[serde(rename = "collections.create")]
     CollectionCreate(CollectionCreateParams),
     #[serde(rename = "collections.update-metadata")]
@@ -112,6 +116,18 @@ pub struct CollectionEnabledParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionIdParams {
     pub collection_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionAuthorityTransferParams {
+    pub collection_id: Uuid,
+    pub target: AuthorityTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorityTarget {
+    Remote,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -339,6 +355,79 @@ pub struct SyncResourceDocument {
     pub kind: String,
     pub revision: String,
     pub document: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthoritySnapshotRecord {
+    pub record: SyncRecord,
+    pub document: String,
+}
+
+/// Complete provider-neutral materialization used to seed a new authority.
+///
+/// Transfer orchestration pages this value on the wire, but source and target
+/// both use this canonical representation and manifest digest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthoritySnapshot {
+    pub protocol_version: u32,
+    pub collection_id: Uuid,
+    pub source_head: u64,
+    pub source_revision: String,
+    pub manifest_digest: String,
+    pub resources: SyncCollectionResources,
+    pub records: Vec<AuthoritySnapshotRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityImportManifest {
+    pub protocol_version: u32,
+    pub collection_id: Uuid,
+    pub source_head: u64,
+    pub source_revision: String,
+    pub manifest_digest: String,
+    pub resources: SyncCollectionResources,
+    pub record_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityImportRecordPage {
+    pub protocol_version: u32,
+    pub page: u64,
+    pub records: Vec<AuthoritySnapshotRecord>,
+}
+
+pub fn authority_manifest_digest(
+    resources: &[SyncResourceDocument],
+    records: &[AuthoritySnapshotRecord],
+) -> String {
+    let mut entries = BTreeMap::<(&str, &str), String>::new();
+    for resource in resources {
+        entries.insert(
+            ("resource", resource.path.as_str()),
+            hex_digest(&Sha256::digest(resource.document.as_bytes())),
+        );
+    }
+    for record in records {
+        entries.insert(
+            ("record", record.record.path.as_str()),
+            record.record.revision.clone(),
+        );
+    }
+    let mut manifest = Sha256::new();
+    manifest.update(b"mdbase-authority-manifest-v1\n");
+    for ((kind, path), revision) in entries {
+        manifest.update(kind.as_bytes());
+        manifest.update(b"\0");
+        manifest.update(path.as_bytes());
+        manifest.update(b"\0");
+        manifest.update(revision.as_bytes());
+        manifest.update(b"\n");
+    }
+    hex_digest(&manifest.finalize())
+}
+
+fn hex_digest(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

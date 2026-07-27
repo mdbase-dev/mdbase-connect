@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { JsonObject, SyncMutation } from "@mdbase/connect-protocol";
 import {
-  MemoryHostedAuthority,
+  HttpSyncTransport,
+  MemoryAuthority,
   MemoryReplicaStore,
   OfflineReplica,
   SyncError
@@ -16,7 +17,7 @@ const ids = {
 };
 
 function authority(pageSize = 100) {
-  return new MemoryHostedAuthority({
+  return new MemoryAuthority({
     id: ids.collection,
     snapshotPageSize: pageSize,
     validate(record) {
@@ -32,6 +33,23 @@ function store(replicaId: string) {
 }
 
 describe("hosted sync vertical slice", () => {
+  it("accepts only complete secure authority sync endpoints", () => {
+    const endpoint = `/v1/authorities/${ids.collection}/sync`;
+    expect(() => new HttpSyncTransport(`https://provider.example${endpoint}`, "token"))
+      .not.toThrow();
+    expect(() => new HttpSyncTransport(`http://127.0.0.1:8787${endpoint}`, "token"))
+      .not.toThrow();
+    for (const invalid of [
+      `http://provider.example${endpoint}`,
+      `https://provider.example/v1/hosted/collections/${ids.collection}/sync`,
+      `https://provider.example${endpoint}?collection=${ids.collection}`,
+      "not a URL"
+    ]) {
+      expect(() => new HttpSyncTransport(invalid, "token"))
+        .toThrowError(expect.objectContaining({ code: "invalid_sync_url" }));
+    }
+  });
+
   it("moves one offline Worklog create exactly once to a second client", async () => {
     const hosted = authority(1);
     hosted.registerReplica({ id: ids.writer, name: "Android", mode: "read_write", allowedTypes: ["task"] });
@@ -252,7 +270,7 @@ describe("hosted sync vertical slice", () => {
   });
 
   it("projects collection resources through the same type scope as records", async () => {
-    const hosted = new MemoryHostedAuthority({
+    const hosted = new MemoryAuthority({
       resources: {
         revision: "fixture:1",
         spec_version: "0.3.0",
@@ -317,7 +335,7 @@ describe("hosted sync vertical slice", () => {
     await expect(first.sync()).rejects.toMatchObject({ code: "offline" });
     const remaining = await first.pending();
     expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toMatchObject({ base_revision: expect.stringMatching(/^hosted:1:/) });
+    expect(remaining[0]).toMatchObject({ base_revision: expect.stringMatching(/^authority:1:/) });
     expect(remaining[0].causal_predecessor).toBeUndefined();
 
     const restarted = new OfflineReplica(upstream, replicaStore);

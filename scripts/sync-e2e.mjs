@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -14,15 +15,16 @@ const {
 const { DirectoryMirror } = await import("../packages/sync/dist/node.js");
 
 const database = await createDatabase("memory");
+const port = await availablePort();
 const { app } = await buildApp({
   db: database,
   devAuth: true,
   hostedCollections: true,
   hostedReferenceAuthority: true,
   allowInsecureManifests: true,
-  publicUrl: "http://127.0.0.1"
+  publicUrl: `http://127.0.0.1:${port}`
 });
-await app.listen({ host: "127.0.0.1", port: 0 });
+await app.listen({ host: "127.0.0.1", port });
 const address = app.server.address();
 if (!address || typeof address === "string") throw new Error("Server did not open a TCP port");
 const serverUrl = `http://127.0.0.1:${address.port}`;
@@ -46,9 +48,9 @@ try {
   const mirror = await createReplica(collectionId, cookie, "Laptop mirror", "read_only");
   const recovery = await createReplica(collectionId, cookie, "Recovery client", "read_write");
 
-  const writerTransport = new HttpSyncTransport(serverUrl, collectionId, writer.token);
-  const readerTransport = new HttpSyncTransport(serverUrl, collectionId, reader.token);
-  const recoveryTransport = new HttpSyncTransport(serverUrl, collectionId, recovery.token);
+  const writerTransport = new HttpSyncTransport(writer.sync_url, writer.token);
+  const readerTransport = new HttpSyncTransport(reader.sync_url, reader.token);
+  const recoveryTransport = new HttpSyncTransport(recovery.sync_url, recovery.token);
   const writerClient = new OfflineReplica(writerTransport, replicaStore(writer.replica.id));
   const readerClient = new OfflineReplica(readerTransport, replicaStore(reader.replica.id));
   const recoveryStore = replicaStore(recovery.replica.id);
@@ -90,7 +92,7 @@ try {
   const directoryMirror = new DirectoryMirror(
     mirrorRoot,
     mirror.replica.id,
-    new HttpSyncTransport(serverUrl, collectionId, mirror.token)
+    new HttpSyncTransport(mirror.sync_url, mirror.token)
   );
   await directoryMirror.sync();
   const markdown = await readFile(join(mirrorRoot, "records", "offline.md"), "utf8");
@@ -186,4 +188,16 @@ async function expectSyncFailure(action, expectedCode) {
     throw error;
   }
   throw new Error(`Expected sync failure ${expectedCode}`);
+}
+
+async function availablePort() {
+  const probe = createServer();
+  await new Promise((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", resolve);
+  });
+  const address = probe.address();
+  if (!address || typeof address === "string") throw new Error("Could not reserve an HTTP port");
+  await new Promise((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  return address.port;
 }

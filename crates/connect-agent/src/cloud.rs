@@ -1,10 +1,12 @@
 use mdbase_connect_core::ConnectError;
 use mdbase_connect_protocol::{
-    AccessSnapshot, ApplicationSummary, AuthorizationApproveParams, AuthorizationIdParams,
-    ComputerNameParams, GrantCreateParams, GrantIdParams, GrantUpdateParams,
+    AccessSnapshot, ApplicationSummary, AuthorityImportManifest, AuthorityImportRecordPage,
+    AuthoritySnapshot, AuthorizationApproveParams, AuthorizationIdParams, ComputerNameParams,
+    GrantCreateParams, GrantIdParams, GrantUpdateParams, CONTROL_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method, Response};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -13,6 +15,38 @@ pub struct CloudControlClient {
     client: Client,
     server_url: String,
     connector_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RemoteAuthorityTransfer {
+    pub id: uuid::Uuid,
+    pub collection_id: uuid::Uuid,
+    pub state: String,
+    pub authority_epoch: u64,
+    pub final_head: Option<u64>,
+    pub manifest_digest: Option<String>,
+    pub source_revision: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthorityImportCapability {
+    pub manifest_url: String,
+    pub records_url: String,
+    pub finalize_url: String,
+    pub access_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BeginRemoteAuthorityTransfer {
+    pub transfer: RemoteAuthorityTransfer,
+    pub import: Option<AuthorityImportCapability>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CompleteRemoteAuthorityTransfer {
+    pub status: String,
+    pub collection_id: uuid::Uuid,
+    pub authority_epoch: u64,
 }
 
 impl CloudControlClient {
@@ -50,6 +84,121 @@ impl CloudControlClient {
             None,
         )
         .await
+    }
+
+    pub async fn begin_remote_authority_transfer(
+        &self,
+        collection_id: uuid::Uuid,
+    ) -> Result<BeginRemoteAuthorityTransfer, ConnectError> {
+        self.json(
+            Method::POST,
+            &format!("/v1/connectors/collections/{collection_id}/authority-transfers"),
+            Some(serde_json::json!({})),
+        )
+        .await
+    }
+
+    pub async fn upload_authority_snapshot(
+        &self,
+        capability: &AuthorityImportCapability,
+        snapshot: &AuthoritySnapshot,
+    ) -> Result<(), ConnectError> {
+        let manifest = AuthorityImportManifest {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            collection_id: snapshot.collection_id,
+            source_head: snapshot.source_head,
+            source_revision: snapshot.source_revision.clone(),
+            manifest_digest: snapshot.manifest_digest.clone(),
+            resources: snapshot.resources.clone(),
+            record_count: snapshot.records.len() as u64,
+        };
+        self.external_json(
+            Method::PUT,
+            &capability.manifest_url,
+            &capability.access_token,
+            Some(serde_json::to_value(manifest)?),
+        )
+        .await?;
+        const PAGE_BYTES: usize = 8 * 1024 * 1024;
+        let mut page_number = 0_u64;
+        let mut page = Vec::new();
+        let mut page_bytes = 0_usize;
+        for record in &snapshot.records {
+            let record_bytes = serde_json::to_vec(record)?.len();
+            if !page.is_empty() && (page.len() == 200 || page_bytes + record_bytes > PAGE_BYTES) {
+                self.upload_authority_page(capability, page_number, std::mem::take(&mut page))
+                    .await?;
+                page_number += 1;
+                page_bytes = 0;
+            }
+            page.push(record.clone());
+            page_bytes += record_bytes;
+        }
+        if !page.is_empty() {
+            self.upload_authority_page(capability, page_number, page)
+                .await?;
+        }
+        self.external_json(
+            Method::POST,
+            &capability.finalize_url,
+            &capability.access_token,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn upload_authority_page(
+        &self,
+        capability: &AuthorityImportCapability,
+        page: u64,
+        records: Vec<mdbase_connect_protocol::AuthoritySnapshotRecord>,
+    ) -> Result<(), ConnectError> {
+        self.external_json(
+            Method::PUT,
+            &capability.records_url,
+            &capability.access_token,
+            Some(serde_json::to_value(AuthorityImportRecordPage {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                page,
+                records,
+            })?),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub async fn complete_remote_authority_transfer(
+        &self,
+        transfer_id: uuid::Uuid,
+        manifest_digest: &str,
+        source_revision: &str,
+        source_head: u64,
+    ) -> Result<CompleteRemoteAuthorityTransfer, ConnectError> {
+        self.json(
+            Method::POST,
+            &format!("/v1/connectors/authority-transfers/{transfer_id}/complete"),
+            Some(serde_json::json!({
+                "manifest_digest": manifest_digest,
+                "source_revision": source_revision,
+                "source_head": source_head,
+            })),
+        )
+        .await
+    }
+
+    pub async fn cancel_remote_authority_transfer(
+        &self,
+        transfer_id: uuid::Uuid,
+    ) -> Result<(), ConnectError> {
+        let _: Value = self
+            .json(
+                Method::DELETE,
+                &format!("/v1/connectors/authority-transfers/{transfer_id}"),
+                None,
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn application(
@@ -168,6 +317,24 @@ impl CloudControlClient {
             .request(method, format!("{}{}", self.server_url, path))
             .timeout(Duration::from_secs(15))
             .bearer_auth(&self.connector_token);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        decode(request.send().await.map_err(cloud_error)?).await
+    }
+
+    async fn external_json(
+        &self,
+        method: Method,
+        url: &str,
+        token: &str,
+        body: Option<Value>,
+    ) -> Result<Value, ConnectError> {
+        let mut request = self
+            .client
+            .request(method, url)
+            .timeout(Duration::from_secs(60))
+            .bearer_auth(token);
         if let Some(body) = body {
             request = request.json(&body);
         }

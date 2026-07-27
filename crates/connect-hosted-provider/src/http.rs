@@ -11,9 +11,10 @@ use axum::{
     Json, Router,
 };
 use mdbase_connect_protocol::{
-    GrantSummary, SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession,
-    SyncSnapshotPage, TypeProvision, HOSTED_PROOF_NONCE_HEADER, HOSTED_PROOF_SIGNATURE_HEADER,
-    HOSTED_PROOF_TIMESTAMP_HEADER, HOSTED_PROOF_VERSION_HEADER,
+    AuthorityImportManifest, AuthorityImportRecordPage, GrantSummary, SyncChangesPage,
+    SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypeProvision,
+    AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
+    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -31,14 +32,15 @@ use uuid::Uuid;
 use crate::{
     error::{ApiError, ApiResult},
     provider::{
-        validate_limit, HostedProvider, HostedRequestProof, PrepareAuthorityTransfer,
-        RegisterReplica, UpdateApplicationReplica,
+        validate_limit, AuthorityRequestProof, HostedProvider, PrepareAuthorityImport,
+        PrepareAuthorityTransfer, RegisterReplica, UpdateApplicationReplica,
     },
 };
 
-// Leave room for the mutation envelope, frontmatter, and JSON escaping around
-// the default 2 MiB canonical-document quota.
 const MAX_BODY_BYTES: usize = 3 * 1024 * 1024;
+// Record imports are paged, but a page can contain several large canonical
+// documents. Provider quotas and the concurrency gate bound parsed work.
+const MAX_IMPORT_BODY_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Clone)]
 pub struct AppState {
     provider: HostedProvider,
@@ -109,6 +111,12 @@ struct CompleteAuthorityTransferRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompleteAuthorityImportRequest {
+    manifest_digest: String,
+    source_revision: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct SnapshotQuery {
     snapshot_id: Uuid,
     page: Option<String>,
@@ -129,10 +137,10 @@ pub fn app(state: AppState) -> Router {
         .allow_headers([
             AUTHORIZATION,
             CONTENT_TYPE,
-            HeaderName::from_static(HOSTED_PROOF_VERSION_HEADER),
-            HeaderName::from_static(HOSTED_PROOF_TIMESTAMP_HEADER),
-            HeaderName::from_static(HOSTED_PROOF_NONCE_HEADER),
-            HeaderName::from_static(HOSTED_PROOF_SIGNATURE_HEADER),
+            HeaderName::from_static(AUTHORITY_PROOF_VERSION_HEADER),
+            HeaderName::from_static(AUTHORITY_PROOF_TIMESTAMP_HEADER),
+            HeaderName::from_static(AUTHORITY_PROOF_NONCE_HEADER),
+            HeaderName::from_static(AUTHORITY_PROOF_SIGNATURE_HEADER),
         ])
         .allow_methods([Method::GET, Method::POST])
         .max_age(std::time::Duration::from_secs(600));
@@ -163,6 +171,14 @@ pub fn app(state: AppState) -> Router {
             post(complete_authority_transfer).delete(abort_authority_transfer),
         )
         .route(
+            "/internal/v1/authority-imports",
+            post(prepare_authority_import),
+        )
+        .route(
+            "/internal/v1/authority-imports/{import_id}",
+            post(complete_authority_import).delete(abort_authority_import),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/notification-grants/{grant_id}",
             put(upsert_notification_grant).delete(revoke_notification_grant),
         )
@@ -181,27 +197,39 @@ pub fn app(state: AppState) -> Router {
         ));
     let sync = Router::new()
         .route(
-            "/v1/hosted/collections/{collection_id}/sync/sessions",
+            "/v1/authorities/{collection_id}/sync/sessions",
             post(open_session),
         )
         .route(
-            "/v1/hosted/collections/{collection_id}/sync/snapshot",
+            "/v1/authorities/{collection_id}/sync/snapshot",
             get(snapshot),
         )
+        .route("/v1/authorities/{collection_id}/sync/changes", get(changes))
         .route(
-            "/v1/hosted/collections/{collection_id}/sync/changes",
-            get(changes),
-        )
-        .route(
-            "/v1/hosted/collections/{collection_id}/sync/mutations",
+            "/v1/authorities/{collection_id}/sync/mutations",
             post(mutate),
         )
         .route_layer(middleware::from_fn(require_bearer_request));
     let operations = Router::new()
         .route(
-            "/v1/hosted/collections/{collection_id}/operations/{operation}",
+            "/v1/authorities/{collection_id}/operations/{operation}",
             post(operation),
         )
+        .route_layer(middleware::from_fn(require_bearer_request));
+    let imports = Router::new()
+        .route(
+            "/v1/authority-imports/{import_id}/manifest",
+            put(put_authority_import_manifest),
+        )
+        .route(
+            "/v1/authority-imports/{import_id}/records",
+            put(put_authority_import_records),
+        )
+        .route(
+            "/v1/authority-imports/{import_id}/finalize",
+            post(finalize_authority_import),
+        )
+        .layer(DefaultBodyLimit::max(MAX_IMPORT_BODY_BYTES))
         .route_layer(middleware::from_fn(require_bearer_request));
     Router::new()
         .route("/health", get(health))
@@ -209,6 +237,7 @@ pub fn app(state: AppState) -> Router {
         .merge(internal)
         .merge(sync)
         .merge(operations)
+        .merge(imports)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(cors)
         .layer(PropagateRequestIdLayer::new(request_id_header.clone()))
@@ -449,6 +478,90 @@ async fn abort_authority_transfer(
     })?))
 }
 
+async fn prepare_authority_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<PrepareAuthorityImport>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let import = state.provider.prepare_authority_import(input).await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
+async fn complete_authority_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+    Json(input): Json<CompleteAuthorityImportRequest>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let import = state
+        .provider
+        .complete_authority_import(import_id, &input.manifest_digest, &input.source_revision)
+        .await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
+async fn abort_authority_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let import = state.provider.abort_authority_import(import_id).await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
+async fn put_authority_import_manifest(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+    Json(manifest): Json<AuthorityImportManifest>,
+) -> ApiResult<Json<Value>> {
+    let import = state
+        .provider
+        .put_authority_import_manifest(import_id, bearer(&headers)?, manifest)
+        .await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
+async fn put_authority_import_records(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+    Json(page): Json<AuthorityImportRecordPage>,
+) -> ApiResult<Json<Value>> {
+    let import = state
+        .provider
+        .put_authority_import_records(import_id, bearer(&headers)?, page)
+        .await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
+async fn finalize_authority_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let import = state
+        .provider
+        .finalize_authority_import(import_id, bearer(&headers)?)
+        .await?;
+    Ok(Json(serde_json::to_value(import).map_err(|error| {
+        ApiError::internal(format!("Authority import could not serialize: {error}"))
+    })?))
+}
+
 async fn open_session(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -597,47 +710,47 @@ fn request_proof(
     method: Method,
     uri: &Uri,
     body: &[u8],
-) -> ApiResult<Option<HostedRequestProof>> {
+) -> ApiResult<Option<AuthorityRequestProof>> {
     let values = [
-        header_text(headers, HOSTED_PROOF_VERSION_HEADER),
-        header_text(headers, HOSTED_PROOF_TIMESTAMP_HEADER),
-        header_text(headers, HOSTED_PROOF_NONCE_HEADER),
-        header_text(headers, HOSTED_PROOF_SIGNATURE_HEADER),
+        header_text(headers, AUTHORITY_PROOF_VERSION_HEADER),
+        header_text(headers, AUTHORITY_PROOF_TIMESTAMP_HEADER),
+        header_text(headers, AUTHORITY_PROOF_NONCE_HEADER),
+        header_text(headers, AUTHORITY_PROOF_SIGNATURE_HEADER),
     ];
     if values.iter().all(Option::is_none) {
         return Ok(None);
     }
     let [Some(version), Some(timestamp), Some(nonce), Some(signature)] = values else {
         return Err(ApiError::unauthorized(
-            "invalid_hosted_proof",
-            "The hosted request proof is incomplete.",
+            "invalid_authority_proof",
+            "The authority request proof is incomplete.",
         ));
     };
     let version = version.parse::<u32>().map_err(|_| {
         ApiError::unauthorized(
-            "invalid_hosted_proof",
-            "The hosted request proof version is invalid.",
+            "invalid_authority_proof",
+            "The authority request proof version is invalid.",
         )
     })?;
     let timestamp = timestamp.parse::<i64>().map_err(|_| {
         ApiError::unauthorized(
-            "invalid_hosted_proof",
-            "The hosted request proof timestamp is invalid.",
+            "invalid_authority_proof",
+            "The authority request proof timestamp is invalid.",
         )
     })?;
     let nonce = Uuid::parse_str(nonce).map_err(|_| {
         ApiError::unauthorized(
-            "invalid_hosted_proof",
-            "The hosted request proof nonce is invalid.",
+            "invalid_authority_proof",
+            "The authority request proof nonce is invalid.",
         )
     })?;
     if signature.is_empty() {
         return Err(ApiError::unauthorized(
-            "invalid_hosted_proof",
-            "The hosted request proof signature is invalid.",
+            "invalid_authority_proof",
+            "The authority request proof signature is invalid.",
         ));
     }
-    Ok(Some(HostedRequestProof {
+    Ok(Some(AuthorityRequestProof {
         version,
         timestamp,
         nonce,

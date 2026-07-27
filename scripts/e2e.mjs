@@ -267,7 +267,7 @@ secret: connector scope test
     }
   });
   const portalDescription = await fetch(
-    `${serverUrl}/v1/collections/${collection.id}/operations/describe`,
+    `${serverUrl}/v1/authorities/${collection.id}/operations/describe`,
     {
       method: "POST",
       headers: {
@@ -661,7 +661,7 @@ secret: connector scope test
   if (bulkQuery.status !== 200 || bulkQueryBody.result?.result?.results?.length < 1_001) {
     throw new Error(`Direct 1,000-record query was incomplete: ${JSON.stringify(bulkQueryBody)}`);
   }
-  const downgrade = await fetch(`${serverUrl}/v1/collections/${collection.id}/operations/read`, {
+  const downgrade = await fetch(`${serverUrl}/v1/authorities/${collection.id}/operations/read`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,
@@ -822,7 +822,7 @@ async function request(path, options = {}) {
 }
 
 async function rawEncryptedEnvelope(collectionId, operation, accessToken, envelope) {
-  return fetch(`${serverUrl}/v1/collections/${collectionId}/operations/${operation}`, {
+  return fetch(`${serverUrl}/v1/authorities/${collectionId}/operations/${operation}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${accessToken}`,

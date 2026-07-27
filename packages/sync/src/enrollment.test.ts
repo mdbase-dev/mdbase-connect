@@ -105,7 +105,7 @@ describe("MirrorEnrollmentClient", () => {
     });
     await expect(differentCollection.waitForApproval(session)).rejects.toMatchObject({
       code: "invalid_mirror_enrollment_response",
-      message: "Connect returned a different hosted collection."
+      message: "Connect returned a different collection."
     });
 
     const differentMode = clientFor([
@@ -147,7 +147,23 @@ describe("MirrorEnrollmentClient", () => {
     });
     await expect(untrustedProvider.waitForApproval(providerSession)).rejects.toMatchObject({
       code: "invalid_mirror_enrollment_response",
-      message: "Connect returned an untrusted mirror provider URL."
+      message: "Connect returned an invalid authority sync URL."
+    });
+
+    const insecureProvider = clientFor([
+      pairing(),
+      paired({
+        sync_url: `http://provider.example/v1/authorities/${COLLECTION_ID}/sync`
+      })
+    ]);
+    const insecureSession = await insecureProvider.begin({
+      controlUrl: CONTROL_URL,
+      mirrorName: "Vault",
+      mode: "read_write"
+    });
+    await expect(insecureProvider.waitForApproval(insecureSession)).rejects.toMatchObject({
+      code: "invalid_mirror_enrollment_response",
+      message: "Connect returned an invalid authority sync URL."
     });
   });
 
@@ -420,7 +436,8 @@ function paired(
       },
       token: overrides.token ?? ACCESS,
       token_expires_at: overrides.token_expires_at ?? "2026-07-27T01:00:00.000Z",
-      sync_url: overrides.sync_url ?? CONTROL_URL
+      sync_url: overrides.sync_url
+        ?? `${CONTROL_URL}/v1/authorities/${COLLECTION_ID}/sync`
     }
   };
 }
@@ -428,7 +445,7 @@ function paired(
 function enrollment(): MirrorEnrollment {
   return {
     controlUrl: CONTROL_URL,
-    providerUrl: CONTROL_URL,
+    syncUrl: `${CONTROL_URL}/v1/authorities/${COLLECTION_ID}/sync`,
     collectionId: COLLECTION_ID,
     replicaId: REPLICA_ID,
     mode: "read_write",

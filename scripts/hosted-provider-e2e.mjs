@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -58,7 +59,8 @@ const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
 const {
   DirectoryMirror,
   MirrorDivergenceError,
-  WritableDirectoryMirror
+  WritableDirectoryMirror,
+  authorityManifestDigest
 } = await import("../packages/sync/dist/node.js");
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
 const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/dist/index.js");
@@ -242,8 +244,7 @@ try {
     }
   );
   const notificationReceipt = await new HttpSyncTransport(
-    notificationProvider.url,
-    notificationCollectionId,
+    authoritySyncUrl(notificationProvider.url, notificationCollectionId),
     notificationToken
   ).mutate(createMutation(
     notificationReplicaId,
@@ -253,8 +254,7 @@ try {
   ));
   assert.equal(notificationReceipt.status, "applied");
   const secondNotificationReceipt = await new HttpSyncTransport(
-    notificationProvider.url,
-    notificationCollectionId,
+    authoritySyncUrl(notificationProvider.url, notificationCollectionId),
     notificationToken
   ).mutate(createMutation(
     notificationReplicaId,
@@ -280,7 +280,7 @@ try {
   assert.notEqual(notificationSignals[0].signal_id, notificationSignals[1].signal_id);
   const timerResponse = await rawRequest(
     notificationProvider.url,
-    `/v1/hosted/collections/${notificationCollectionId}/operations/reconcile_timers`,
+    `/v1/authorities/${notificationCollectionId}/operations/reconcile_timers`,
     {
       method: "POST",
       token: timerToken,
@@ -401,7 +401,10 @@ try {
   );
   assert.equal(replicaQuota.status, 429);
   assert.equal(replicaQuota.body.error.code, "replica_quota_exceeded");
-  const quotaTransport = new HttpSyncTransport(quotaProvider.url, quotaCollectionId, quotaToken);
+  const quotaTransport = new HttpSyncTransport(
+    authoritySyncUrl(quotaProvider.url, quotaCollectionId),
+    quotaToken
+  );
   const quotaRecordId = crypto.randomUUID();
   const quotaCreate = await quotaTransport.mutate(
     createMutation(quotaReplicaId, quotaRecordId, "tasks/within-quota.md", "Within quota")
@@ -498,7 +501,7 @@ try {
     body: { display_name: "Hosted records", template: "mdbase" }
   });
   const collectionId = created.collection.id;
-  assert.equal(created.collection.sync_url, provider.url);
+  assert.equal(created.collection.sync_url, authoritySyncUrl(provider.url, collectionId));
   await provisionTypes(provider.url, collectionId, [WORK_ITEM_PROVISION]);
   const other = await controlRequest(controlUrl, "/v1/hosted/collections", cookie, {
     method: "POST",
@@ -513,7 +516,7 @@ try {
   const readOnly = await registerReplica(controlUrl, cookie, collectionId, "Read only", "read_only", []);
   const hidden = await registerReplica(controlUrl, cookie, collectionId, "Hidden scope", "read_only", ["note"]);
   const recovery = await registerReplica(controlUrl, cookie, collectionId, "Recovery", "read_write", []);
-  assert.equal(writer.syncUrl, provider.url);
+  assert.equal(writer.syncUrl, authoritySyncUrl(provider.url, collectionId));
   const deniedBrowserSync = await rawRequest(provider.url, syncPath(collectionId, "sessions"), {
     method: "POST",
     token: writer.token,
@@ -587,6 +590,13 @@ try {
     { method: "DELETE", token: connector.token }
   );
   assert.equal(desktopRevoked.status, 200);
+
+  await localAuthorityImportE2E(
+    controlUrl,
+    cookie,
+    provider.url,
+    controlDatabase
+  );
   await desktopMirrors.remove(desktopMirror.replica_id);
   assert.deepEqual(await desktopMirrors.list(), []);
   desktopMirrors.stop();
@@ -641,11 +651,14 @@ try {
     );
     const { connection: inlineConnection } = await inlineSdk.completeAuthorization(inlineCallback);
     const inlineToken = inlineStorage.token();
-    assert.equal(inlineToken.hosted.providerUrl, provider.url);
+    assert.equal(
+      inlineToken.authority.syncUrl,
+      authoritySyncUrl(provider.url, inlineToken.collectionId)
+    );
     const inlineOriginalFetch = globalThis.fetch;
     globalThis.fetch = (input, init = {}) => {
       const url = String(input);
-      if (!url.startsWith(`${provider.url}/v1/hosted/`)) {
+      if (!url.startsWith(`${provider.url}/v1/authorities/`)) {
         return inlineOriginalFetch(input, init);
       }
       const headers = new Headers(init.headers);
@@ -698,10 +711,13 @@ try {
   );
   const { connection: hostedConnection } = await hostedSdk.completeAuthorization(callbackUrl);
   const storedHostedToken = storage.token();
-  assert.equal(storedHostedToken.hosted.providerUrl, provider.url);
+  assert.equal(
+    storedHostedToken.authority.syncUrl,
+    authoritySyncUrl(provider.url, genericCollectionId)
+  );
   assert.equal(storedHostedToken.encryption, undefined);
-  const appToken = storedHostedToken.hosted.accessToken;
-  const appReplicaId = storedHostedToken.hosted.replicaId;
+  const appToken = storedHostedToken.authority.accessToken;
+  const appReplicaId = storedHostedToken.authority.replicaId;
   const appSync = await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
     method: "POST",
     token: appToken,
@@ -722,7 +738,7 @@ try {
   assert.equal(wrongSyncOrigin.body.error.code, "origin_denied");
   const wrongOrigin = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${genericCollectionId}/operations/query`,
+    `/v1/authorities/${genericCollectionId}/operations/query`,
     {
       method: "POST",
       token: appToken,
@@ -735,7 +751,7 @@ try {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input, init = {}) => {
     const url = String(input);
-    if (!url.startsWith(`${provider.url}/v1/hosted/`)) return originalFetch(input, init);
+    if (!url.startsWith(`${provider.url}/v1/authorities/`)) return originalFetch(input, init);
     const headers = new Headers(init.headers);
     headers.set("origin", manifest.origin);
     return originalFetch(input, { ...init, headers });
@@ -862,9 +878,9 @@ schema:
     path: "Writing/Draft.md",
     if_revision: sdkRenamed.result.revision
   })).valid, true);
-  const hostedSync = hostedConnection.hostedSync();
-  assert.ok(hostedSync);
-  const offline = new OfflineReplica(hostedSync.transport, store(hostedSync.replicaId));
+  const sync = hostedConnection.sync();
+  assert.ok(sync);
+  const offline = new OfflineReplica(sync.transport, store(sync.replicaId));
   await offline.initialize();
   await offline.queueCreate({
     recordId: crypto.randomUUID(),
@@ -898,7 +914,7 @@ schema:
   });
   const deniedWrite = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${genericCollectionId}/operations/create`,
+    `/v1/authorities/${genericCollectionId}/operations/create`,
     {
       method: "POST",
       token: appToken,
@@ -925,7 +941,7 @@ schema:
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   const revokedApp = await rawRequest(
     provider.url,
-    `/v1/hosted/collections/${genericCollectionId}/operations/query`,
+    `/v1/authorities/${genericCollectionId}/operations/query`,
     { method: "POST", token: appToken, headers: { origin: manifest.origin }, body: {} }
   );
   assert.equal(revokedApp.status, 401);
@@ -1082,7 +1098,7 @@ schema:
         join(repoRoot, "packages", "sync", "dist", "cli.js"),
         "init",
         symlinkMirrorRoot,
-        "--server", provider.url,
+        "--sync-url", authoritySyncUrl(provider.url, collectionId),
         "--collection", collectionId,
         "--replica", mirror.id
       ], {
@@ -1111,7 +1127,7 @@ schema:
     join(repoRoot, "packages", "sync", "dist", "cli.js"),
     "init",
     mirrorRoot,
-    "--server", provider.url,
+    "--sync-url", authoritySyncUrl(provider.url, collectionId),
     "--collection", collectionId,
     "--replica", mirror.id
   ], {
@@ -1154,7 +1170,7 @@ schema:
     mirrorCli,
     "init",
     importMirrorRoot,
-    "--server", provider.url,
+    "--sync-url", authoritySyncUrl(provider.url, collectionId),
     "--collection", collectionId,
     "--replica", importMirror.id,
     "--writable"
@@ -1170,7 +1186,7 @@ schema:
     mirrorCli,
     "init",
     writableMirrorRoot,
-    "--server", provider.url,
+    "--sync-url", authoritySyncUrl(provider.url, collectionId),
     "--collection", collectionId,
     "--replica", writableMirror.id,
     "--writable"
@@ -1283,8 +1299,7 @@ schema:
     }
   );
   const authorityTransport = new HttpSyncTransport(
-    provider.url,
-    authorityCollectionId,
+    authoritySyncUrl(provider.url, authorityCollectionId),
     authorityToken
   );
   const authorityCreate = await authorityTransport.mutate({
@@ -1446,8 +1461,7 @@ schema:
   assert.equal(cancelledTransfer.state, "aborted");
   assert.equal(
     (await new HttpSyncTransport(
-      provider.url,
-      cancelledCollectionId,
+      authoritySyncUrl(provider.url, cancelledCollectionId),
       cancelledToken
     ).openSession()).head,
     0
@@ -1528,7 +1542,7 @@ schema:
       let started = performance.now();
       const read = await rawRequest(
         provider.url,
-        `/v1/hosted/collections/${collectionId}/operations/read`,
+        `/v1/authorities/${collectionId}/operations/read`,
         { method: "POST", token: benchmarkToken, body: { path: "tasks/bulk-204.md" } }
       );
       readLatencies.push(performance.now() - started);
@@ -1536,7 +1550,7 @@ schema:
       started = performance.now();
       const query = await rawRequest(
         provider.url,
-        `/v1/hosted/collections/${collectionId}/operations/query`,
+        `/v1/authorities/${collectionId}/operations/query`,
         { method: "POST", token: benchmarkToken, body: { types: ["task"], limit: 20 } }
       );
       queryLatencies.push(performance.now() - started);
@@ -1657,14 +1671,14 @@ schema:
     { method: "POST" }
   );
   const rotatedToken = rotation.token;
-  assert.equal(rotation.sync_url, provider.url);
+  assert.equal(rotation.sync_url, authoritySyncUrl(provider.url, collectionId));
   await expectSyncError(() => restartedRecoveryTransport.openSession(), "invalid_replica_token");
-  await new HttpSyncTransport(provider.url, collectionId, rotatedToken).openSession();
+  await new HttpSyncTransport(rotation.sync_url, rotatedToken).openSession();
   await controlRequest(controlUrl, `/v1/hosted/replicas/${recovery.id}`, cookie, {
     method: "DELETE"
   });
   await expectSyncError(
-    () => new HttpSyncTransport(provider.url, collectionId, rotatedToken).openSession(),
+    () => new HttpSyncTransport(rotation.sync_url, rotatedToken).openSession(),
     "invalid_replica_token"
   );
 
@@ -1754,7 +1768,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
   const nativeFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input);
-    if (url.includes("/v1/hosted/collections/") && init.headers?.authorization) {
+    if (url.includes("/v1/authorities/") && init.headers?.authorization) {
       globalThis.portableHarness.capturedRequest = {
         url,
         method: init.method,
@@ -1850,7 +1864,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
     const result = await page.evaluate(() => globalThis.portableHarness);
     assert.equal(result.error, undefined);
     assert.deepEqual(result.result, {
-      route: "hosted",
+      route: "remote",
       collectionId,
       displayName: "Hosted writing",
       created: true,
@@ -1869,7 +1883,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
       body: captured.body
     });
     assert.equal(noProof.status, 401);
-    assert.equal((await noProof.json()).error.code, "hosted_proof_required");
+    assert.equal((await noProof.json()).error.code, "authority_proof_required");
     const noProofOrOrigin = await fetch(captured.url, {
       method: captured.method,
       headers: {
@@ -1886,14 +1900,14 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
       body: captured.body
     });
     assert.equal(replay.status, 401);
-    assert.equal((await replay.json()).error.code, "hosted_proof_replayed");
+    assert.equal((await replay.json()).error.code, "authority_proof_replayed");
     const tampered = await fetch(captured.url, {
       method: captured.method,
       headers: { ...captured.headers, origin: "null" },
       body: `${captured.body} `
     });
     assert.equal(tampered.status, 401);
-    assert.equal((await tampered.json()).error.code, "invalid_hosted_proof");
+    assert.equal((await tampered.json()).error.code, "invalid_authority_proof");
     const missingOrigin = await fetch(captured.url, {
       method: captured.method,
       headers: captured.headers,
@@ -2116,6 +2130,7 @@ if (action === "add") {
     }
   }
 }
+
 process.stdout.write(JSON.stringify({
   id: crypto.randomUUID(),
   protocol_version: 1,
@@ -2262,6 +2277,343 @@ process.stdout.write(JSON.stringify({
       authority_epoch: 2
     }
   );
+}
+
+async function localAuthorityImportE2E(
+  controlUrl,
+  cookie,
+  providerUrl,
+  database
+) {
+  phase("moving a paged local authority into the live hosted provider");
+  const connector = await controlRequest(controlUrl, "/v1/connectors", cookie, {
+    method: "POST",
+    body: { name: "Local authority importer" }
+  });
+  const collectionId = crypto.randomUUID();
+  const recordCount = Number(
+    process.env.MDBASE_CONNECT_PROVIDER_E2E_IMPORT_COUNT ?? 205
+  );
+  assert.ok(
+    Number.isInteger(recordCount) && recordCount >= 205 && recordCount <= 20_000
+  );
+  const published = await rawRequest(controlUrl, "/v1/connectors/sync", {
+    method: "POST",
+    token: connector.token,
+    body: {
+      inventory_revision: 1,
+      collections: [{
+        id: collectionId,
+        display_name: "Imported local authority",
+        spec_version: "0.3.0",
+        enabled: true,
+        contracts: []
+      }]
+    }
+  });
+  assert.equal(published.status, 200, JSON.stringify(published.body));
+
+  const snapshot = localAuthoritySnapshot(collectionId, recordCount);
+  const begun = await rawRequest(
+    controlUrl,
+    `/v1/connectors/collections/${collectionId}/authority-transfers`,
+    { method: "POST", token: connector.token, body: {} }
+  );
+  assert.equal(begun.status, 201, JSON.stringify(begun.body));
+  assert.equal(begun.body.transfer.state, "prepared");
+  assert.equal(begun.body.transfer.authority_epoch, 2);
+  assert.ok(begun.body.import);
+
+  const rejected = await absoluteRequest(begun.body.import.manifest_url, {
+    method: "PUT",
+    token: `wrong-${crypto.randomUUID()}-${crypto.randomUUID()}`,
+    body: snapshot.manifest
+  });
+  assert.equal(rejected.status, 401);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const manifest = await absoluteRequest(begun.body.import.manifest_url, {
+      method: "PUT",
+      token: begun.body.import.access_token,
+      body: snapshot.manifest
+    });
+    assert.equal(manifest.status, 200, JSON.stringify(manifest.body));
+  }
+  for (let offset = 0, page = 0; offset < snapshot.records.length; offset += 200, page += 1) {
+    const body = {
+      protocol_version: 1,
+      page,
+      records: snapshot.records.slice(offset, offset + 200)
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const uploaded = await absoluteRequest(begun.body.import.records_url, {
+        method: "PUT",
+        token: begun.body.import.access_token,
+        body
+      });
+      assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body));
+    }
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const finalized = await absoluteRequest(begun.body.import.finalize_url, {
+      method: "POST",
+      token: begun.body.import.access_token
+    });
+    assert.equal(finalized.status, 200, JSON.stringify(finalized.body));
+    assert.equal(finalized.body.state, "uploaded");
+  }
+  const finalizedUpload = await absoluteRequest(begun.body.import.records_url, {
+    method: "PUT",
+    token: begun.body.import.access_token,
+    body: {
+      protocol_version: 1,
+      page: 0,
+      records: snapshot.records.slice(0, 1)
+    }
+  });
+  assert.equal(finalizedUpload.status, 409);
+  assert.equal(finalizedUpload.body.error.code, "authority_import_finalized");
+
+  const completed = await rawRequest(
+    controlUrl,
+    `/v1/connectors/authority-transfers/${begun.body.transfer.id}/complete`,
+    {
+      method: "POST",
+      token: connector.token,
+      body: {
+        manifest_digest: snapshot.manifest.manifest_digest,
+        source_revision: snapshot.manifest.source_revision,
+        source_head: snapshot.manifest.source_head
+      }
+    }
+  );
+  assert.equal(completed.status, 200, JSON.stringify(completed.body));
+  assert.deepEqual(completed.body, {
+    status: "completed",
+    collection_id: collectionId,
+    authority_epoch: 2
+  });
+  const repeatedCompletion = await rawRequest(
+    controlUrl,
+    `/v1/connectors/authority-transfers/${begun.body.transfer.id}/complete`,
+    {
+      method: "POST",
+      token: connector.token,
+      body: {
+        manifest_digest: snapshot.manifest.manifest_digest,
+        source_revision: snapshot.manifest.source_revision,
+        source_head: snapshot.manifest.source_head
+      }
+    }
+  );
+  assert.equal(repeatedCompletion.status, 200);
+  const mismatchedProviderCompletion = await rawRequest(
+    providerUrl,
+    `/internal/v1/authority-imports/${begun.body.transfer.id}`,
+    {
+      method: "POST",
+      token: internalToken,
+      body: {
+        manifest_digest: "f".repeat(64),
+        source_revision: snapshot.manifest.source_revision
+      }
+    }
+  );
+  assert.equal(mismatchedProviderCompletion.status, 409);
+  assert.equal(
+    mismatchedProviderCompletion.body.error.code,
+    "authority_import_not_ready"
+  );
+
+  const replica = await registerReplica(
+    controlUrl,
+    cookie,
+    collectionId,
+    "Imported authority verifier",
+    "read_write",
+    []
+  );
+  const importedTransport = new HttpSyncTransport(replica.syncUrl, replica.token);
+  const importedSession = await importedTransport.openSession();
+  const importedRecords = await snapshotAll(importedTransport, importedSession);
+  assert.equal(importedRecords.length, recordCount);
+  const importedByPath = new Map(importedRecords.map((record) => [record.path, record]));
+  for (const source of [snapshot.records[0].record, snapshot.records.at(-1).record]) {
+    assert.equal(importedByPath.get(source.path)?.record_id, source.record_id);
+    assert.equal(importedByPath.get(source.path)?.revision, source.revision);
+  }
+  const importedResources = importedSession.resources.documents;
+  assert.equal(importedResources[0].document, snapshot.manifest.resources.documents[0].document);
+
+  const resumed = await rawRequest(
+    controlUrl,
+    `/v1/connectors/collections/${collectionId}/authority-transfers`,
+    { method: "POST", token: connector.token, body: {} }
+  );
+  assert.equal(resumed.status, 200);
+  assert.equal(resumed.body.transfer.state, "completed");
+  assert.equal(resumed.body.import, undefined);
+  const state = await database.query(
+    `SELECT local.authority_state AS local_state, local.enabled,
+            hosted.authority_state AS hosted_state, hosted.authority_epoch
+     FROM collections local
+     JOIN hosted_collections hosted ON hosted.id = local.local_id
+     WHERE local.connector_id = $1 AND local.local_id = $2`,
+    [connector.connector.id, collectionId]
+  );
+  assert.deepEqual(
+    {
+      local_state: state.rows[0].local_state,
+      enabled: state.rows[0].enabled,
+      hosted_state: state.rows[0].hosted_state,
+      authority_epoch: Number(state.rows[0].authority_epoch)
+    },
+    {
+      local_state: "retired",
+      enabled: false,
+      hosted_state: "active",
+      authority_epoch: 2
+    }
+  );
+
+  const cancelledCollectionId = crypto.randomUUID();
+  const republished = await rawRequest(controlUrl, "/v1/connectors/sync", {
+    method: "POST",
+    token: connector.token,
+    body: {
+      inventory_revision: 2,
+      collections: [{
+        id: cancelledCollectionId,
+        display_name: "Cancelled local import",
+        spec_version: "0.3.0",
+        enabled: true,
+        contracts: []
+      }]
+    }
+  });
+  assert.equal(republished.status, 200);
+  const cancellable = await rawRequest(
+    controlUrl,
+    `/v1/connectors/collections/${cancelledCollectionId}/authority-transfers`,
+    { method: "POST", token: connector.token, body: {} }
+  );
+  assert.equal(cancellable.status, 201);
+  const cancelled = await rawRequest(
+    controlUrl,
+    `/v1/connectors/authority-transfers/${cancellable.body.transfer.id}`,
+    { method: "DELETE", token: connector.token }
+  );
+  assert.equal(cancelled.status, 200);
+  const cancelledState = await database.query(
+    `SELECT authority_state, enabled FROM collections
+     WHERE connector_id = $1 AND local_id = $2`,
+    [connector.connector.id, cancelledCollectionId]
+  );
+  assert.deepEqual(cancelledState.rows[0], {
+    authority_state: "active",
+    enabled: true
+  });
+  const removedTarget = await database.query(
+    "SELECT id FROM hosted_collections WHERE id = $1",
+    [cancelledCollectionId]
+  );
+  assert.equal(removedTarget.rows.length, 0);
+}
+
+function localAuthoritySnapshot(collectionId, recordCount) {
+  const configuration = [
+    "spec_version: 0.3.0",
+    "name: Imported local authority",
+    "x-mdbase-connect:",
+    `  collection_id: ${collectionId}`,
+    ""
+  ].join("\n");
+  const resource = {
+    path: "mdbase.yaml",
+    kind: "configuration",
+    revision: `sha256:${sha256Hex(configuration)}`,
+    document: configuration
+  };
+  const records = Array.from({ length: recordCount }, (_, index) => {
+    const sequence = String(index).padStart(5, "0");
+    const title = `Imported ${sequence}`;
+    const document = `---\ntitle: ${title}\n---\nBody ${sequence}.\n`;
+    return {
+      record: {
+        record_id: crypto.randomUUID(),
+        path: `notes/${sequence}.md`,
+        revision: `sha256:${sha256Hex(document)}`,
+        frontmatter: { title },
+        body: `Body ${sequence}.\n`,
+        types: []
+      },
+      document
+    };
+  });
+  const resourceRevision = lengthPrefixedDigest([
+    resource.path,
+    resource.revision
+  ]);
+  const sourceRevision = lengthPrefixedDigest([
+    "resource",
+    resource.path,
+    resource.revision,
+    ...records.flatMap(({ record }) => [
+      "record",
+      record.path,
+      record.revision
+    ])
+  ]);
+  const manifestDigest = authorityManifestDigest([
+    {
+      kind: "resource",
+      path: resource.path,
+      document_hash: sha256Hex(resource.document)
+    },
+    ...records.map(({ record }) => ({
+      kind: "record",
+      path: record.path,
+      document_hash: record.revision
+    }))
+  ]);
+  return {
+    manifest: {
+      protocol_version: 1,
+      collection_id: collectionId,
+      source_head: recordCount,
+      source_revision: sourceRevision,
+      manifest_digest: manifestDigest,
+      resources: {
+        revision: resourceRevision,
+        spec_version: "0.3.0",
+        types: [],
+        contracts: [],
+        documents: [resource]
+      },
+      record_count: recordCount
+    },
+    records
+  };
+}
+
+function lengthPrefixedDigest(values) {
+  const digest = createHash("sha256");
+  for (const value of values) {
+    const bytes = Buffer.from(value);
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(bytes.length));
+    digest.update(length);
+    digest.update(bytes);
+  }
+  return `sha256:${digest.digest("hex")}`;
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function absoluteRequest(url, options) {
+  const endpoint = new URL(url);
+  return rawRequest(endpoint.origin, `${endpoint.pathname}${endpoint.search}`, options);
 }
 
 async function prepareAuthorityPromotionStressFixture(
@@ -2632,7 +2984,7 @@ async function registerReplica(url, cookie, collectionId, name, mode, allowedTyp
 }
 
 function transport(url, collectionId, replicaValue) {
-  return new HttpSyncTransport(url, collectionId, replicaValue.token);
+  return new HttpSyncTransport(authoritySyncUrl(url, collectionId), replicaValue.token);
 }
 
 function store(replicaId) {
@@ -2644,7 +2996,11 @@ function replica(syncTransport, replicaId) {
 }
 
 function syncPath(collectionId, endpoint) {
-  return `/v1/hosted/collections/${collectionId}/sync/${endpoint}`;
+  return `/v1/authorities/${collectionId}/sync/${endpoint}`;
+}
+
+function authoritySyncUrl(url, collectionId) {
+  return new URL(`/v1/authorities/${collectionId}/sync`, url).href;
 }
 
 function createMutation(replicaId, recordId, path, title) {

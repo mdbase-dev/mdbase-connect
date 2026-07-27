@@ -109,13 +109,14 @@ export class MirrorManager {
     mode: "read_only" | "read_write";
     name?: string;
     cloud: MirrorCloudCredential;
+    transferredAuthority?: boolean;
   }): Promise<DesktopMirrorSummary> {
     await this.start();
     const selectedPath = resolve(input.path);
     await mkdir(selectedPath, { recursive: true });
     const canonicalPath = await realpath(selectedPath);
     if (this.entries.some((entry) => pathsOverlap(entry.path, canonicalPath))) {
-      throw new Error("That folder overlaps another hosted collection mirror.");
+      throw new Error("That folder overlaps another collection mirror.");
     }
     const name = input.name?.trim()
       || `${hostname().trim() || "This computer"} mirror`;
@@ -149,7 +150,12 @@ export class MirrorManager {
         headers: { authorization: `Bearer ${pairing.pairing_secret}` }
       }
     );
-    const { saveMirrorProfile } = await import("@mdbase/connect-sync/device");
+    const {
+      clearMirrorMarker,
+      markMirror,
+      saveMirrorProfile,
+      transitionAuthorityToMirror
+    } = await import("@mdbase/connect-sync/device");
     const entry: MirrorRegistryEntry = {
       collection_id: exchanged.replica.collection_id,
       replica_id: exchanged.replica.id,
@@ -158,12 +164,22 @@ export class MirrorManager {
       path: canonicalPath,
       created_at: new Date().toISOString()
     };
+    let roleMarked = false;
     try {
+      if (input.transferredAuthority) {
+        await transitionAuthorityToMirror(canonicalPath, input.collectionId);
+      } else {
+        await markMirror(canonicalPath, input.collectionId);
+      }
+      roleMarked = true;
       await saveMirrorProfile(
         canonicalPath,
         {
           version: 1,
-          provider_url: canonicalOrigin(exchanged.sync_url),
+          sync_url: canonicalSyncUrl(
+            exchanged.sync_url,
+            exchanged.replica.collection_id
+          ),
           control_url: canonicalOrigin(input.cloud.serverUrl),
           collection_id: exchanged.replica.collection_id,
           replica_id: exchanged.replica.id,
@@ -185,6 +201,9 @@ export class MirrorManager {
         (candidate) => candidate.replica_id !== exchanged.replica.id
       );
       await this.removeProfile(canonicalPath).catch(() => undefined);
+      if (roleMarked && !input.transferredAuthority) {
+        await clearMirrorMarker(canonicalPath, input.collectionId).catch(() => undefined);
+      }
       await jsonRequest(
         `${input.cloud.serverUrl}/v1/connectors/hosted/replicas/${encodeURIComponent(exchanged.replica.id)}`,
         {
@@ -263,7 +282,7 @@ export class MirrorManager {
       const preview = await mirror.previewInitialization();
       if (preview.collisions.length > 0) {
         throw new Error(
-          `Existing Markdown differs from the hosted collection: ${preview.collisions.join(", ")}.`
+          `Existing Markdown differs from the collection authority: ${preview.collisions.join(", ")}.`
         );
       }
       await mirror.sync();
@@ -324,8 +343,7 @@ export class MirrorManager {
       await import("@mdbase/connect-sync/node");
     const stored = await this.currentProfile(entry);
     const transport = new HttpSyncTransport(
-      stored.profile.provider_url,
-      stored.profile.collection_id,
+      stored.profile.sync_url,
       stored.credentials.access_token
     );
     const options = {
@@ -438,6 +456,22 @@ function canonicalOrigin(value: string): string {
     throw new Error("Hosted mirror services must use HTTPS outside local development.");
   }
   return url.origin;
+}
+
+function canonicalSyncUrl(value: string, collectionId: string): string {
+  const url = new URL(value);
+  const path = `/v1/authorities/${encodeURIComponent(collectionId)}/sync`;
+  if (
+    !["http:", "https:"].includes(url.protocol)
+    || url.username
+    || url.password
+    || url.pathname.replace(/\/$/, "") !== path
+    || url.search
+    || url.hash
+  ) {
+    throw new Error("The authority returned an invalid sync URL.");
+  }
+  return `${url.origin}${path}`;
 }
 
 export function pathsOverlap(left: string, right: string): boolean {

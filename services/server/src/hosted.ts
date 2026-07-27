@@ -5,10 +5,10 @@ import type {
   SyncMutation
 } from "@mdbase/connect-protocol";
 import {
-  MemoryHostedAuthority,
+  MemoryAuthority,
   SyncError,
   type ReplicaOptions,
-  type SerializedHostedAuthority,
+  type SerializedMemoryAuthority,
   type SyncTransport
 } from "@mdbase/connect-sync";
 import {
@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 
 interface CachedAuthority {
-  authority: MemoryHostedAuthority;
+  authority: MemoryAuthority;
   version: number;
 }
 
@@ -60,7 +60,7 @@ export class HostedAuthorityRegistry {
 
   async create(collectionId: string, template: HostedTemplate = "mdbase"): Promise<void> {
     await this.schemaReady;
-    const authority = new MemoryHostedAuthority({ id: collectionId, ...authorityOptions(hostedResources(template)) });
+    const authority = new MemoryAuthority({ id: collectionId, ...authorityOptions(hostedResources(template)) });
     await this.db.query(
       `INSERT INTO hosted_authority_states (collection_id, state, version)
        VALUES ($1, $2::jsonb, 1)`,
@@ -259,7 +259,7 @@ export class HostedAuthorityRegistry {
 
   private read<Result>(
     collectionId: string,
-    operation: (authority: MemoryHostedAuthority) => Result | Promise<Result>
+    operation: (authority: MemoryAuthority) => Result | Promise<Result>
   ): Promise<Result> {
     return this.exclusive(collectionId, async () => {
       const cached = await this.load(collectionId, true);
@@ -269,12 +269,12 @@ export class HostedAuthorityRegistry {
 
   private async write<Result>(
     collectionId: string,
-    operation: (authority: MemoryHostedAuthority) => Result | Promise<Result>
+    operation: (authority: MemoryAuthority) => Result | Promise<Result>
   ): Promise<Result> {
     return this.exclusive(collectionId, async () => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const cached = await this.load(collectionId, true);
-        const working = MemoryHostedAuthority.restore(
+        const working = MemoryAuthority.restore(
           cached.authority.serialize(),
           authorityOptions(cached.authority.serialize().resources ?? mdbaseResources()),
           cached.authority
@@ -317,7 +317,7 @@ export class HostedAuthorityRegistry {
     await this.schemaReady;
     const present = this.cache.get(collectionId);
     if (present && !refresh) return present;
-    const result = await this.db.query<{ state: SerializedHostedAuthority; version: string | number }>(
+    const result = await this.db.query<{ state: SerializedMemoryAuthority; version: string | number }>(
       "SELECT state, version FROM hosted_authority_states WHERE collection_id = $1",
       [collectionId]
     );
@@ -326,7 +326,7 @@ export class HostedAuthorityRegistry {
     const version = Number(row.version);
     if (present?.version === version) return present;
     const cached = {
-      authority: MemoryHostedAuthority.restore(
+      authority: MemoryAuthority.restore(
         row.state,
         authorityOptions(row.state.resources ?? mdbaseResources()),
         present?.authority
@@ -366,7 +366,7 @@ function referenceTransfer(row: ReferenceTransferRow): ReferenceAuthorityTransfe
   };
 }
 
-function manifestDigest(state: SerializedHostedAuthority): string {
+function manifestDigest(state: SerializedMemoryAuthority): string {
   const digest = (document: string) => createHash("sha256").update(document).digest("hex");
   return authorityManifestDigest([
     ...(state.resources?.documents ?? []).map((resource) => ({

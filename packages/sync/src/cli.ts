@@ -15,18 +15,18 @@ import {
   type MirrorStatus
 } from "./node.js";
 import {
-  assertHostedMirror,
-  clearHostedMirrorMarker,
+  assertMirror,
+  clearMirrorMarker,
   clearAuthorityPromotionCheckpoint,
   loadMirrorProfile,
   loadAuthorityPromotionCheckpoint,
-  markHostedMirror,
+  markMirror,
   readCollectionConfiguration,
   restoreCollectionConfiguration,
   retireMirrorAfterPromotion,
   saveMirrorProfile,
   saveAuthorityPromotionCheckpoint,
-  setHostedCollectionIdentity,
+  setCollectionIdentity,
   updateMirrorCredentials,
   type AuthorityPromotionCheckpoint,
   type StoredMirrorProfile
@@ -41,6 +41,7 @@ const parsed = parseArgs({
   allowPositionals: true,
   options: {
     server: { type: "string" },
+    "sync-url": { type: "string" },
     collection: { type: "string" },
     replica: { type: "string" },
     interval: { type: "string", default: "2000" },
@@ -77,24 +78,23 @@ try {
     await connect(root);
   } else if (command === "init") {
     await mkdir(root, { recursive: true });
-    const providerUrlValue = required(parsed.values.server, "--server");
+    const syncUrl = required(parsed.values["sync-url"], "--sync-url");
     const collectionId = required(parsed.values.collection, "--collection");
     const replicaId = required(parsed.values.replica, "--replica");
     const token = process.env.MDBASE_CONNECT_REPLICA_TOKEN ?? await hiddenTokenPrompt();
     if (token.length < 32) throw new Error("Replica token is missing or invalid.");
     const mode = parsed.values.writable ? "read_write" : "read_only";
-    const providerUrl = canonicalConnectOrigin(providerUrlValue);
-    const transport = new HttpSyncTransport(providerUrl, collectionId, token);
+    const transport = new HttpSyncTransport(syncUrl, token);
     const session = await transport.openSession();
     if (session.replica_id !== replicaId || session.mode !== mode) {
       throw new Error(`Replica is not the requested ${mode.replace("_", "-")} mirror capability.`);
     }
-    await markHostedMirror(root, collectionId);
+    await markMirror(root, collectionId);
     await saveMirrorProfile(
       root,
       {
         version: 1,
-        provider_url: providerUrl,
+        sync_url: syncUrl,
         collection_id: collectionId,
         replica_id: replicaId,
         mode
@@ -140,7 +140,7 @@ try {
     process.once("SIGTERM", stop);
     process.once("SIGHUP", stop);
     try {
-      process.stdout.write(`Watching hosted collection into ${root}. Press Ctrl+C to stop.\n`);
+      process.stdout.write(`Watching collection into ${root}. Press Ctrl+C to stop.\n`);
       let lastLine = "";
       while (!stopping) {
         try {
@@ -187,7 +187,7 @@ async function initialSync(root: string): Promise<void> {
   const preview = await mirror.previewInitialization();
   if (preview.collisions.length) {
     throw new Error(
-      `Existing files differ from hosted Markdown: ${preview.collisions.join(", ")}. `
+      `Existing files differ from the authority: ${preview.collisions.join(", ")}. `
       + "Move or reconcile them, then run mdbase-mirror sync."
     );
   }
@@ -214,8 +214,7 @@ function mirrorFor(
   lease?: MirrorLease
 ) {
   const transport = new HttpSyncTransport(
-    configuration.profile.provider_url,
-    configuration.profile.collection_id,
+    configuration.profile.sync_url,
     configuration.credentials.access_token
   );
   const options = { onProgress: mirrorProgressReporter(), ...(lease ? { lease } : {}) };
@@ -265,8 +264,8 @@ function mirrorProgressReporter(): (progress: MirrorProgress) => void {
 
 async function currentProfile(root: string): Promise<StoredMirrorProfile> {
   let stored = await loadMirrorProfile(root);
-  await markHostedMirror(root, stored.profile.collection_id);
-  await assertHostedMirror(root, stored.profile.collection_id);
+  await markMirror(root, stored.profile.collection_id);
+  await assertMirror(root, stored.profile.collection_id);
   const expiry = stored.profile.access_token_expires_at;
   if (
     stored.profile.control_url
@@ -331,10 +330,10 @@ async function connect(root: string): Promise<void> {
       if (!parsed.values["no-open"]) openBrowser(verificationUri);
     }
   });
-  await markHostedMirror(root, enrolled.collectionId);
+  await markMirror(root, enrolled.collectionId);
   await saveMirrorProfile(root, {
     version: 1,
-    provider_url: enrolled.providerUrl,
+    sync_url: enrolled.syncUrl,
     control_url: enrolled.controlUrl,
     collection_id: enrolled.collectionId,
     replica_id: enrolled.replicaId,
@@ -369,11 +368,11 @@ async function promote(root: string): Promise<void> {
   const authentication = { authorization: `Bearer ${stored.credentials.refresh_token}` };
   if (unfinished) {
     if (unfinished.collection_id !== stored.profile.collection_id) {
-      throw new Error("The saved authority promotion belongs to another hosted collection.");
+      throw new Error("The saved authority promotion belongs to another collection.");
     }
     process.stdout.write("Resuming the materialized authority handoff.\n");
-    await setHostedCollectionIdentity(root, unfinished.collection_id);
-    await clearHostedMirrorMarker(root, unfinished.collection_id);
+    await setCollectionIdentity(root, unfinished.collection_id);
+    await clearMirrorMarker(root, unfinished.collection_id);
     await registerPromotedCollection(root, unfinished.collection_id);
     await completePromotion(root, controlUrl, authentication, unfinished);
     return;
@@ -427,7 +426,7 @@ async function promote(root: string): Promise<void> {
       || manifest.digest !== prepared.manifest_digest
     ) {
       throw new Error(
-        "The local folder does not exactly match the fenced hosted collection."
+        "The local folder does not exactly match the fenced collection authority."
       );
     }
     const originalConfiguration = await readCollectionConfiguration(root);
@@ -440,8 +439,8 @@ async function promote(root: string): Promise<void> {
       original_configuration: originalConfiguration
     };
     await saveAuthorityPromotionCheckpoint(root, checkpoint);
-    await setHostedCollectionIdentity(root, prepared.collection_id);
-    await clearHostedMirrorMarker(root, prepared.collection_id);
+    await setCollectionIdentity(root, prepared.collection_id);
+    await clearMirrorMarker(root, prepared.collection_id);
     const added = await runConnectCli(["collection", "add", root]);
     const registeredId = collectionIdFromControlResult(added);
     if (registeredId !== prepared.collection_id) {
@@ -456,7 +455,7 @@ async function promote(root: string): Promise<void> {
     const saved = await loadAuthorityPromotionCheckpoint(root);
     if (saved?.transfer_id === prepared.id) {
       await restoreCollectionConfiguration(root, saved.original_configuration).catch(() => undefined);
-      await markHostedMirror(root, saved.collection_id).catch(() => undefined);
+      await markMirror(root, saved.collection_id).catch(() => undefined);
       await clearAuthorityPromotionCheckpoint(root).catch(() => undefined);
     }
     await fetch(
@@ -537,7 +536,7 @@ async function completePromotion(
       authority_epoch: completed.authority_epoch
     });
     process.stdout.write(
-      `Authority moved to ${root}. Hosted writes are retired at epoch ${completed.authority_epoch}.\n`
+      `Authority moved to ${root}. Remote writes are retired at epoch ${completed.authority_epoch}.\n`
     );
     return;
   }
@@ -553,7 +552,7 @@ async function rollbackMaterializedPromotion(
 ): Promise<void> {
   await runConnectCli(["collection", "remove", checkpoint.collection_id]);
   await restoreCollectionConfiguration(root, checkpoint.original_configuration);
-  await markHostedMirror(root, checkpoint.collection_id);
+  await markMirror(root, checkpoint.collection_id);
   await clearAuthorityPromotionCheckpoint(root);
 }
 
@@ -730,7 +729,7 @@ function storedEnrollment(stored: StoredMirrorProfile): MirrorEnrollment {
   }
   return {
     controlUrl: profile.control_url,
-    providerUrl: profile.provider_url,
+    syncUrl: profile.sync_url,
     collectionId: profile.collection_id,
     replicaId: profile.replica_id,
     mode: profile.mode,
@@ -745,7 +744,7 @@ function storedEnrollment(stored: StoredMirrorProfile): MirrorEnrollment {
 function usage(): void {
   process.stderr.write(`Usage:
   mdbase-mirror connect <directory> --server <connect-origin> [--collection <uuid>] [--name <device>] [--read-only] [--no-open]
-  mdbase-mirror init <directory> --server <origin> --collection <uuid> --replica <uuid> [--writable]
+  mdbase-mirror init <directory> --sync-url <authority-sync-url> --collection <uuid> --replica <uuid> [--writable]
   mdbase-mirror sync <directory>
   mdbase-mirror watch <directory> [--interval <milliseconds>]
   mdbase-mirror status <directory> [--json]

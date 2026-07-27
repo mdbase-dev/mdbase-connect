@@ -16,7 +16,7 @@ import { SyncError } from "./index.js";
 
 export interface MirrorProfile {
   version: 1;
-  provider_url: string;
+  sync_url: string;
   control_url?: string;
   collection_id: string;
   replica_id: string;
@@ -36,9 +36,9 @@ export interface StoredMirrorProfile {
   credentials: MirrorCredentials;
 }
 
-export interface HostedMirrorMarker {
+export interface MirrorMarker {
   version: 1;
-  role: "hosted_mirror";
+  role: "mirror";
   collection_id: string;
 }
 
@@ -68,7 +68,7 @@ export async function loadMirrorProfile(
   const credentials = await readJson<MirrorCredentials>(join(directory, "credentials.json"));
   if (
     profile?.version !== 1
-    || typeof profile.provider_url !== "string"
+    || typeof profile.sync_url !== "string"
     || typeof profile.collection_id !== "string"
     || typeof profile.replica_id !== "string"
     || !["read_only", "read_write"].includes(profile.mode)
@@ -117,23 +117,23 @@ export async function mirrorProfileDirectory(
 }
 
 /**
- * Persist the non-secret role of a hosted mirror inside the collection.
+ * Persist the non-secret mirror role inside the collection.
  *
  * The marker deliberately lives under `.mdbase` rather than in `mdbase.yaml`:
- * the latter is a receive-only hosted resource, while this role belongs to the
+ * the latter is an authority-owned resource, while this role belongs to the
  * physical folder on this device. Local Connect treats the marker as a hard
  * refusal to expose the same folder as a filesystem authority.
  */
-export async function markHostedMirror(
+export async function markMirror(
   root: string,
   collectionId: string
 ): Promise<void> {
-  const existing = await loadHostedMirrorMarker(root);
+  const existing = await loadMirrorMarker(root);
   if (existing) {
     if (existing.collection_id !== collectionId) {
       throw new SyncError(
-        "hosted_mirror_identity_conflict",
-        "This folder already mirrors a different hosted collection."
+        "mirror_identity_conflict",
+        "This folder already mirrors a different collection."
       );
     }
     return;
@@ -142,43 +142,68 @@ export async function markHostedMirror(
   if (localCollectionId !== null) {
     throw new SyncError(
       "local_authority_requires_transfer",
-      "This folder already has a local Connect identity. Move authority explicitly before using it as a hosted mirror."
+      "This folder already has a local Connect identity. Move authority explicitly before using it as a mirror."
     );
   }
-  const markerPath = await hostedMirrorMarkerPath(root, true);
+  const markerPath = await mirrorMarkerPath(root, true);
   if (markerPath === null) {
     throw new SyncError(
-      "hosted_mirror_marker_unavailable",
-      "The hosted mirror role marker could not be created."
+      "mirror_marker_unavailable",
+      "The mirror role marker could not be created."
     );
   }
-  await atomicWrite(
-    markerPath,
-    `${JSON.stringify({
-      version: 1,
-      role: "hosted_mirror",
-      collection_id: collectionId
-    } satisfies HostedMirrorMarker, null, 2)}\n`
-  );
+  await writeMirrorMarker(markerPath, collectionId);
 }
 
-export async function assertHostedMirror(
+/** Complete the device-role half of an approved authority transfer. */
+export async function transitionAuthorityToMirror(
   root: string,
   collectionId: string
 ): Promise<void> {
-  const marker = await loadHostedMirrorMarker(root);
+  const existing = await loadMirrorMarker(root);
+  if (existing) {
+    if (existing.collection_id !== collectionId) {
+      throw new SyncError(
+        "mirror_identity_conflict",
+        "This folder already mirrors a different collection."
+      );
+    }
+    return;
+  }
+  const localCollectionId = await readPortableCollectionId(root);
+  if (localCollectionId !== collectionId) {
+    throw new SyncError(
+      "authority_identity_mismatch",
+      "The transferred folder does not contain the expected collection identity."
+    );
+  }
+  const markerPath = await mirrorMarkerPath(root, true);
+  if (markerPath === null) {
+    throw new SyncError(
+      "mirror_marker_unavailable",
+      "The mirror role marker could not be created."
+    );
+  }
+  await writeMirrorMarker(markerPath, collectionId);
+}
+
+export async function assertMirror(
+  root: string,
+  collectionId: string
+): Promise<void> {
+  const marker = await loadMirrorMarker(root);
   if (!marker || marker.collection_id !== collectionId) {
     throw new SyncError(
-      "hosted_mirror_marker_missing",
-      "This folder is not marked as the configured hosted collection mirror."
+      "mirror_marker_missing",
+      "This folder is not marked as the configured collection mirror."
     );
   }
 }
 
-export async function loadHostedMirrorMarker(
+export async function loadMirrorMarker(
   root: string
-): Promise<HostedMirrorMarker | null> {
-  const markerPath = await hostedMirrorMarkerPath(root, false);
+): Promise<MirrorMarker | null> {
+  const markerPath = await mirrorMarkerPath(root, false);
   if (markerPath === null) return null;
   const value = await readOptional(markerPath);
   if (value === null) return null;
@@ -187,42 +212,42 @@ export async function loadHostedMirrorMarker(
     marker = JSON.parse(value);
   } catch {
     throw new SyncError(
-      "invalid_hosted_mirror_marker",
-      "The hosted mirror role marker is corrupt."
+      "invalid_mirror_marker",
+      "The mirror role marker is corrupt."
     );
   }
   if (
     !marker
     || typeof marker !== "object"
-    || (marker as Partial<HostedMirrorMarker>).version !== 1
-    || (marker as Partial<HostedMirrorMarker>).role !== "hosted_mirror"
-    || typeof (marker as Partial<HostedMirrorMarker>).collection_id !== "string"
+    || (marker as Partial<MirrorMarker>).version !== 1
+    || (marker as Partial<MirrorMarker>).role !== "mirror"
+    || typeof (marker as Partial<MirrorMarker>).collection_id !== "string"
   ) {
     throw new SyncError(
-      "invalid_hosted_mirror_marker",
-      "The hosted mirror role marker is invalid."
+      "invalid_mirror_marker",
+      "The mirror role marker is invalid."
     );
   }
-  return marker as HostedMirrorMarker;
+  return marker as MirrorMarker;
 }
 
-export async function clearHostedMirrorMarker(
+export async function clearMirrorMarker(
   root: string,
   collectionId: string
 ): Promise<void> {
-  const marker = await loadHostedMirrorMarker(root);
+  const marker = await loadMirrorMarker(root);
   if (marker === null) return;
   if (marker.collection_id !== collectionId) {
     throw new SyncError(
-      "hosted_mirror_identity_conflict",
-      "This folder mirrors a different hosted collection."
+      "mirror_identity_conflict",
+      "This folder mirrors a different collection."
     );
   }
-  const markerPath = await hostedMirrorMarkerPath(root, false);
+  const markerPath = await mirrorMarkerPath(root, false);
   if (markerPath !== null) await unlinkOptional(markerPath);
 }
 
-export async function setHostedCollectionIdentity(
+export async function setCollectionIdentity(
   root: string,
   collectionId: string
 ): Promise<string> {
@@ -366,7 +391,7 @@ export async function clearAuthorityPromotionCheckpoint(
   await unlinkOptional(join(directory, "authority-promotion.json"));
 }
 
-async function hostedMirrorMarkerPath(
+async function mirrorMarkerPath(
   root: string,
   createDirectory: boolean
 ): Promise<string | null> {
@@ -376,7 +401,7 @@ async function hostedMirrorMarkerPath(
     const metadata = await lstat(directory);
     if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
       throw new SyncError(
-        "unsafe_hosted_mirror_marker",
+        "unsafe_mirror_marker",
         ".mdbase must be an ordinary directory inside the mirrored folder."
       );
     }
@@ -390,8 +415,8 @@ async function hostedMirrorMarkerPath(
     const metadata = await lstat(markerPath);
     if (metadata.isSymbolicLink() || !metadata.isFile()) {
       throw new SyncError(
-        "unsafe_hosted_mirror_marker",
-        "The hosted mirror role marker must be an ordinary file."
+        "unsafe_mirror_marker",
+        "The mirror role marker must be an ordinary file."
       );
     }
   } catch (error) {
@@ -466,4 +491,15 @@ async function atomicWrite(path: string, value: string, mode = 0o600): Promise<v
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, value, { mode });
   await rename(temporary, path);
+}
+
+async function writeMirrorMarker(path: string, collectionId: string): Promise<void> {
+  await atomicWrite(
+    path,
+    `${JSON.stringify({
+      version: 1,
+      role: "mirror",
+      collection_id: collectionId
+    } satisfies MirrorMarker, null, 2)}\n`
+  );
 }

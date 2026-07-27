@@ -4,7 +4,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use mdbase::{v03::OperationResult, Collection};
+use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
 use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
@@ -150,6 +150,23 @@ impl WorkingSet {
             primary_record_id: mutation.record_id,
             changed,
         })
+    }
+
+    pub fn snapshot(&self) -> ApiResult<CollectionSnapshot> {
+        Collection::open(self.directory.path())
+            .map_err(|error| {
+                ApiError::bad_request(
+                    "invalid_authority_snapshot",
+                    format!("The imported collection could not open: {error}"),
+                )
+            })?
+            .snapshot()
+            .map_err(|error| {
+                ApiError::bad_request(
+                    "invalid_authority_snapshot",
+                    format!("The imported collection is invalid: {error}"),
+                )
+            })
     }
 
     pub fn read_operation(&self, operation: &str, input: &Value) -> ApiResult<OperationResult> {

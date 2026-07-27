@@ -4,10 +4,10 @@ export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
-export const HOSTED_PROOF_VERSION = 1 as const;
-export const HOSTED_PROOF_ALGORITHM = "P256-SHA256" as const;
-export const HOSTED_PROOF_DOMAIN = "mdbase-hosted-request-proof-v1" as const;
-export const HOSTED_PROOF_HEADERS = {
+export const AUTHORITY_PROOF_VERSION = 1 as const;
+export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;
+export const AUTHORITY_PROOF_DOMAIN = "mdbase-authority-request-proof-v1" as const;
+export const AUTHORITY_PROOF_HEADERS = {
   version: "x-mdbase-proof-version",
   timestamp: "x-mdbase-proof-timestamp",
   nonce: "x-mdbase-proof-nonce",
@@ -69,7 +69,8 @@ export type CollectionOperation =
   | "list_timers"
   | "put_timer"
   | "cancel_timer"
-  | "reconcile_timers";
+  | "reconcile_timers"
+  | "sync";
 
 export interface NotificationCriterion {
   /** Stable, manifest-owned identifier selected by an installation. */
@@ -313,6 +314,37 @@ export interface SyncResourceDocument {
   kind: "configuration" | "type";
   revision: string;
   document: string;
+}
+
+export interface AuthoritySnapshotRecord<Frontmatter extends JsonObject = JsonObject> {
+  record: SyncRecord<Frontmatter>;
+  document: string;
+}
+
+export interface AuthoritySnapshot<Frontmatter extends JsonObject = JsonObject> {
+  protocol_version: 1;
+  collection_id: string;
+  source_head: number;
+  source_revision: string;
+  manifest_digest: string;
+  resources: SyncCollectionResources;
+  records: Array<AuthoritySnapshotRecord<Frontmatter>>;
+}
+
+export interface AuthorityImportManifest {
+  protocol_version: 1;
+  collection_id: string;
+  source_head: number;
+  source_revision: string;
+  manifest_digest: string;
+  resources: SyncCollectionResources;
+  record_count: number;
+}
+
+export interface AuthorityImportRecordPage<Frontmatter extends JsonObject = JsonObject> {
+  protocol_version: 1;
+  page: number;
+  records: Array<AuthoritySnapshotRecord<Frontmatter>>;
 }
 
 export interface SyncSession {

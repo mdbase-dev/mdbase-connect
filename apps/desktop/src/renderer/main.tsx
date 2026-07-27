@@ -454,7 +454,16 @@ function Collections({
           <Empty title="No computer-owned collections" text="Add a folder with an existing mdbase.yaml, or create one here." />
         ) : (
           <div className="collection-list">
-            {collections.map((collection) => <CollectionRow key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} />)}
+            {collections.map((collection) => (
+              <CollectionRow
+                key={collection.id}
+                collection={collection}
+                cloudConfigured={cloudConfigured}
+                busy={busy}
+                onAct={onAct}
+                onNotice={onNotice}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -491,8 +500,9 @@ function Collections({
   );
 }
 
-function CollectionRow({ collection, busy, onAct, onNotice }: {
+function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
   collection: CollectionSummary;
+  cloudConfigured: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -544,6 +554,37 @@ function CollectionRow({ collection, busy, onAct, onNotice }: {
             <button className="button primary" disabled={busy || !changed || !name.trim()}>Save details</button>
           </footer>
         </form>
+        <section className="collection-editor-section">
+          <div>
+            <strong>Authority</strong>
+            <small>Move the source of truth online while keeping this folder as a two-way mirror.</small>
+          </div>
+          <div className="collection-config-actions">
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy || !cloudConfigured || !collection.enabled}
+              onClick={() => {
+                if (!window.confirm(
+                  `Move ${collection.display_name} authority online? `
+                  + "The collection will be uploaded directly to the provider, existing local app grants will be revoked, "
+                  + "and this folder will become a two-way mirror."
+                )) return;
+                void onAct(async () => {
+                  const result = await window.mdbaseConnect.transferCollectionAuthority(collection.id);
+                  setEditing(false);
+                  onNotice(
+                    `${collection.display_name} is now online at authority epoch `
+                    + `${result.transfer.authority_epoch}; this folder is its two-way mirror.`
+                  );
+                });
+              }}
+            >
+              Move authority online
+            </button>
+            {!cloudConfigured && <small>Connect this computer to an account first.</small>}
+          </div>
+        </section>
         <div className="collection-danger-row">
           <small>Removing this collection from mdbase connect never deletes its files.</small>
           <button className="quiet-action danger" disabled={busy} onClick={() => { if (window.confirm(`Remove ${collection.display_name} from mdbase connect? Its files will not be deleted.`)) void onAct(async () => { await window.mdbaseConnect.removeCollection(collection.id); onNotice(`${collection.display_name} was removed.`); }); }}>Remove from mdbase connect</button>

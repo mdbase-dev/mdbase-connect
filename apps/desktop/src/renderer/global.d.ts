@@ -144,7 +144,7 @@ interface HostedCollectionSummary {
   id: string;
   display_name: string;
   template: "mdbase";
-  provider_url: string;
+  sync_url: string;
   spec_version: string;
   contracts: ContractRequirement[];
   authority_state: "active" | "transferring" | "transferred";
@@ -217,6 +217,10 @@ interface Window {
     addCopiedCollection(path: string): Promise<CollectionSummary>;
     makeCollectionIndependent(collectionId: string): Promise<CollectionSummary>;
     takeCollectionAuthority(collectionId: string): Promise<{ ok: true }>;
+    transferCollectionAuthority(collectionId: string): Promise<{
+      transfer: { status: "completed"; collection_id: string; authority_epoch: number };
+      mirror: DesktopMirrorSummary;
+    }>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { path: string; name: string }): Promise<CollectionSummary>;
     updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;

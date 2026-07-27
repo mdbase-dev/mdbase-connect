@@ -50,7 +50,7 @@ export {
   type MirrorStatus
 } from "./mirror.js";
 
-/** Backwards-compatible Node options; omitted adapters use safe Node defaults. */
+/** Node adapter options; omitted adapters use safe Node defaults. */
 export interface DirectoryMirrorOptions {
   stateStore?: MirrorStateStore;
   fileSystem?: MirrorFileSystem;
@@ -311,7 +311,7 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
   }
 }
 
-/** Node compatibility wrapper with automatic filesystem, state, and lease adapters. */
+/** Node wrapper with automatic filesystem, state, and lease adapters. */
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject>
   extends PortableDirectoryMirror<Frontmatter> {
   constructor(
@@ -332,7 +332,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject>
   }
 }
 
-/** Node compatibility wrapper for a writable mirror. */
+/** Node wrapper for a writable mirror. */
 export class WritableDirectoryMirror<Frontmatter extends JsonObject = JsonObject>
   extends PortableWritableDirectoryMirror<Frontmatter> {
   constructor(

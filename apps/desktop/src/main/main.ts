@@ -207,6 +207,36 @@ function registerIpc(): void {
       15_000
     );
   });
+  ipcMain.handle("connect:collections:transfer-authority", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
+    const collections = await requestReadyAgent<Array<{
+      id: string;
+      display_name: string;
+      path: string;
+    }>>("collections.list");
+    const collection = collections.find((candidate) => candidate.id === collectionId);
+    if (!collection) throw new Error("The local collection is no longer registered.");
+    const transfer = await requestReadyAgent<{
+      status: "completed";
+      collection_id: string;
+      authority_epoch: number;
+    }>(
+      "collections.transfer-authority",
+      { collection_id: collectionId, target: "remote" },
+      10 * 60 * 1_000
+    );
+    const cloud = await requiredCloudConfig();
+    const mirror = await mirrors().connect({
+      collectionId,
+      path: collection.path,
+      mode: "read_write",
+      name: `${hostname().trim() || "This computer"} mirror`,
+      cloud,
+      transferredAuthority: true
+    });
+    return { transfer, mirror };
+  });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);
     return chooseFolder();

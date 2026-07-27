@@ -44,6 +44,17 @@ export interface HostedAuthorityTransfer {
   expires_at: string;
 }
 
+export interface AuthorityImport {
+  id: string;
+  collection_id: string;
+  authority_epoch: number;
+  state: "receiving" | "uploaded" | "completed" | "aborted";
+  manifest_digest: string | null;
+  source_revision: string | null;
+  source_head: number | null;
+  expires_at: string;
+}
+
 export class HostedProviderClient {
   readonly url: string;
   private readonly internalToken: string;
@@ -211,6 +222,43 @@ export class HostedProviderClient {
       "DELETE",
       `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`
     ) as HostedAuthorityTransfer;
+  }
+
+  async prepareAuthorityImport(input: {
+    transferId: string;
+    collectionId: string;
+    displayName: string;
+    token: string;
+    authorityEpoch: number;
+    ttlSeconds: number;
+  }): Promise<AuthorityImport> {
+    return await this.request("POST", "/internal/v1/authority-imports", {
+      transfer_id: input.transferId,
+      collection_id: input.collectionId,
+      display_name: input.displayName,
+      token: input.token,
+      authority_epoch: input.authorityEpoch,
+      ttl_seconds: input.ttlSeconds
+    }) as AuthorityImport;
+  }
+
+  async completeAuthorityImport(
+    transferId: string,
+    manifestDigest: string,
+    sourceRevision: string
+  ): Promise<AuthorityImport> {
+    return await this.request(
+      "POST",
+      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`,
+      { manifest_digest: manifestDigest, source_revision: sourceRevision }
+    ) as AuthorityImport;
+  }
+
+  async abortAuthorityImport(transferId: string): Promise<AuthorityImport> {
+    return await this.request(
+      "DELETE",
+      `/internal/v1/authority-imports/${encodeURIComponent(transferId)}`
+    ) as AuthorityImport;
   }
 
   private async request(

@@ -1,9 +1,8 @@
 # Hosted collections and sync
 
-Status: production provider, filesystem mirrors, and hosted-to-local authority
-transfer are implemented for private preview. Writable initialization can import
-existing Markdown; atomic local-to-hosted import remains a later administration
-feature.
+Status: production provider, filesystem mirrors, and authority transfer in both
+directions are implemented for private preview. Writable initialization can
+also import existing Markdown.
 
 ## Purpose
 
@@ -161,19 +160,27 @@ as part of the authorization flow.
 
 Moving an existing local collection to cloud authority is an explicit cutover:
 
-1. Connect validates the collection and calculates a stable import manifest.
-2. The provider creates an uncommitted collection and accepts its config, type
-   files, Markdown documents, paths, and hashes in resumable pages.
-3. The provider validates the complete imported collection through
-   `mdbase-rs`, assigns record IDs, and commits sequence zero atomically.
-4. Connect verifies the committed snapshot and enrolls the existing directory
-   as its first filesystem mirror.
-5. Applications authorize against the new cloud collection ID.
+1. Connect reserves the same collection ID at the target and issues a
+   transfer-scoped, short-lived import capability.
+2. While the local collection remains authoritative, the agent uploads its
+   config, types, Markdown documents, stable record IDs, and revisions in
+   resumable pages.
+3. The agent fences local mutations, captures a final snapshot under the local
+   authority gate, and replaces any staged pages that changed during upload.
+4. The provider validates the complete canonical snapshot through `mdbase-rs`
+   and marks it ready without making it authoritative.
+5. The control plane durably records the exact final snapshot and enters
+   `activating` before asking the provider to activate the next authority epoch.
+6. The control plane atomically retires the local authority, activates the
+   hosted metadata, and revokes old local grants. The original folder becomes a
+   mirror of the same collection.
 
-Connect pauses its own remote writes during final verification and checks that
-the source revisions still match the import manifest. Concurrent filesystem
-edits restart the affected upload page. An interrupted import leaves the local
-collection authoritative and available.
+Cancellation or expiry before activation leaves the local collection
+authoritative. Once activation starts, retries must use the exact persisted
+snapshot identity; Connect never guesses which authority won or reopens the
+source after an outcome-uncertain provider response. A collection transferred
+back to local can later reuse its retired hosted identity for another round
+trip.
 
 Moving back to local authority is implemented as an explicit, browser-confirmed
 handoff from a full writable mirror:
@@ -189,7 +196,7 @@ handoff from a full writable mirror:
    transfer before cutover.
 4. The CLI gives the directory the hosted collection's stable ID and registers
    it with the local agent as a disabled candidate.
-5. After both the hosted proof and local registration exist, the control plane
+5. After both the authority proof and local registration exist, the control plane
    atomically activates the local collection in the new epoch, retires the
    hosted authority, and revokes old application grants, tokens, and replicas.
 
@@ -449,10 +456,10 @@ data according to application policy.
 The implemented reference routes are:
 
 ```text
-POST /v1/hosted/collections/{collection}/sync/sessions
-GET  /v1/hosted/collections/{collection}/sync/snapshot
-GET  /v1/hosted/collections/{collection}/sync/changes?after={cursor}
-POST /v1/hosted/collections/{collection}/sync/mutations
+POST /v1/authorities/{collection}/sync/sessions
+GET  /v1/authorities/{collection}/sync/snapshot
+GET  /v1/authorities/{collection}/sync/changes?after={cursor}
+POST /v1/authorities/{collection}/sync/mutations
 ```
 
 The session response declares protocol version, replica mode, scope epoch,

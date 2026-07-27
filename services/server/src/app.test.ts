@@ -9,14 +9,14 @@ import type {
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
 import {
-  HOSTED_PROOF_HEADERS,
-  HOSTED_PROOF_VERSION
+  AUTHORITY_PROOF_HEADERS,
+  AUTHORITY_PROOF_VERSION
 } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
-import { hostedProofMessage } from "./hosted-proof.js";
+import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -524,7 +524,7 @@ describe("mdbase connect server", () => {
 
     const operation = await app.inject({
       method: "POST",
-      url: `/v1/collections/${collectionId}/operations/query`,
+      url: `/v1/authorities/${collectionId}/operations/query`,
       headers: { authorization: `Bearer ${refreshed.json().access_token}` },
       payload: { types: ["workout"] }
     });
@@ -1141,18 +1141,19 @@ describe("mdbase connect server", () => {
       application_origin: "null",
       operations: ["describe", "query", "create", "update"],
       encryption: null,
-      hosted: {
-        provider_url: "https://sync.example",
+      authority: {
+        operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
+        sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
         proof_public_key: applicationPublicKey
       }
     });
-    expect(token.json().hosted.replica_id).toMatch(
+    expect(token.json().authority.replica_id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
-    expect(token.json().hosted.access_token).toMatch(/^hsa_/);
+    expect(token.json().authority.access_token).toMatch(/^hsa_/);
     expect(hostedProvider.rotateReplicaToken).toHaveBeenCalledWith(
-      token.json().hosted.replica_id,
-      token.json().hosted.access_token,
+      token.json().authority.replica_id,
+      token.json().authority.access_token,
       3_600
     );
 
@@ -1176,7 +1177,7 @@ describe("mdbase connect server", () => {
     const proofNonce = randomUUID();
     const proofSignature = sign(
       "sha256",
-      Buffer.from(hostedProofMessage({
+      Buffer.from(authorityProofMessage({
         method: "POST",
         target: "/oauth/token",
         body: refreshBody,
@@ -1193,10 +1194,10 @@ describe("mdbase connect server", () => {
       headers: {
         origin: "null",
         "content-type": "application/x-www-form-urlencoded",
-        [HOSTED_PROOF_HEADERS.version]: String(HOSTED_PROOF_VERSION),
-        [HOSTED_PROOF_HEADERS.timestamp]: String(proofTimestamp),
-        [HOSTED_PROOF_HEADERS.nonce]: proofNonce,
-        [HOSTED_PROOF_HEADERS.signature]: proofSignature
+        [AUTHORITY_PROOF_HEADERS.version]: String(AUTHORITY_PROOF_VERSION),
+        [AUTHORITY_PROOF_HEADERS.timestamp]: String(proofTimestamp),
+        [AUTHORITY_PROOF_HEADERS.nonce]: proofNonce,
+        [AUTHORITY_PROOF_HEADERS.signature]: proofSignature
       }
     });
     expect(refreshed.statusCode, JSON.stringify(refreshed.json())).toBe(200);
@@ -1204,13 +1205,14 @@ describe("mdbase connect server", () => {
       collection_id: collectionId,
       application_origin: "null",
       encryption: null,
-      hosted: {
-        provider_url: "https://sync.example",
-        replica_id: token.json().hosted.replica_id,
+      authority: {
+        operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
+        sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
+        replica_id: token.json().authority.replica_id,
         proof_public_key: applicationPublicKey
       }
     });
-    expect(refreshed.json().hosted.access_token).not.toBe(token.json().hosted.access_token);
+    expect(refreshed.json().authority.access_token).not.toBe(token.json().authority.access_token);
     const grant = await db.query<{
       application_origin: string;
       encryption: unknown;
@@ -1358,7 +1360,7 @@ describe("mdbase connect server", () => {
     expect(exchanged.statusCode, JSON.stringify(exchanged.json())).toBe(200);
     expect(exchanged.json()).toMatchObject({
       status: "paired",
-      sync_url: "https://sync.example",
+      sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
       replica: {
         collection_id: collectionId,
         name: "Owner desktop mirror",

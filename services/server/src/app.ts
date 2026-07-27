@@ -60,9 +60,9 @@ import {
   HostedProviderUnavailableError
 } from "./hosted-provider.js";
 import {
-  HostedProofError,
-  verifyHostedRequestProof
-} from "./hosted-proof.js";
+  AuthorityProofError,
+  verifyAuthorityRequestProof
+} from "./authority-proof.js";
 import {
   exchangeGitHubCode,
   GitHubIdentityError,
@@ -103,7 +103,8 @@ const OPERATIONS = [
   "list_timers",
   "put_timer",
   "cancel_timer",
-  "reconcile_timers"
+  "reconcile_timers",
+  "sync"
 ] as const;
 const operationSchema = z.enum(OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -183,7 +184,7 @@ interface AuthorityTransferRow {
   pairing_id: string;
   replica_id: string;
   local_collection_id: string | null;
-  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
+  state: "requested" | "approved" | "prepared" | "activating" | "completed" | "cancelled" | "expired";
   final_head: string | number | null;
   next_authority_epoch: string | number | null;
   manifest_digest: string | null;
@@ -193,6 +194,19 @@ interface AuthorityTransferRow {
 interface AuthorityTransferDetails extends AuthorityTransferRow {
   collection_name?: string;
   mirror_name?: string;
+}
+
+interface AuthorityImportTransferRow {
+  id: string;
+  user_id: string;
+  hosted_collection_id: string;
+  local_collection_id: string;
+  state: "requested" | "prepared" | "activating" | "completed" | "cancelled" | "expired";
+  final_head: string | number | null;
+  next_authority_epoch: string | number;
+  manifest_digest: string | null;
+  source_revision: string | null;
+  expires_at: string | Date;
 }
 
 interface AuthorityPairing {
@@ -288,7 +302,7 @@ export async function buildApp(options: BuildOptions) {
     }
     if (
       options.hostedProvider
-      && request.url.startsWith("/v1/hosted/collections/")
+      && request.url.startsWith("/v1/authorities/")
       && request.url.includes("/sync/")
     ) {
       return reply.code(421).send({
@@ -296,7 +310,11 @@ export async function buildApp(options: BuildOptions) {
           "sync_provider_direct_required",
           "Connect directly to the collection's hosted storage provider."
         ),
-        sync_url: options.hostedProvider.url
+        sync_url: authorityUrl(
+          options.hostedProvider.url,
+          request.url.split("/")[3] ?? "",
+          "sync"
+        )
       });
     }
     if (
@@ -910,7 +928,11 @@ export async function buildApp(options: BuildOptions) {
         },
         token,
         token_expires_at: tokenExpiresAt,
-        sync_url: options.hostedProvider?.url ?? publicUrl
+        sync_url: authorityUrl(
+          options.hostedProvider?.url ?? publicUrl,
+          current.collection_id,
+          "sync"
+        )
       };
     } catch (error) {
       await connection.query("ROLLBACK");
@@ -1467,7 +1489,9 @@ export async function buildApp(options: BuildOptions) {
         }>(
           `SELECT id, display_name, template, provider_url, contracts, authority_state,
                   authority_epoch, transferred_collection_id, created_at
-           FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
+           FROM hosted_collections
+           WHERE user_id = $1 AND authority_state <> 'importing'
+           ORDER BY display_name`,
           [user.id]
         )
       : { rows: [] };
@@ -1818,6 +1842,509 @@ export async function buildApp(options: BuildOptions) {
     } finally {
       connection.release();
     }
+  });
+
+  app.post("/v1/connectors/collections/:collectionId/authority-transfers", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    if (!options.hostedCollections || !options.hostedProvider) {
+      return reply.code(404).send(apiError(
+        "remote_authority_unavailable",
+        "This Connect server has no remote collection authority."
+      ));
+    }
+    await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const source = await options.db.query<{
+      id: string;
+      local_id: string;
+      display_name: string;
+      authority_epoch: string | number;
+      contracts: CollectionContractDescriptor[];
+      authority_state: "active" | "retired";
+      enabled: boolean;
+      reported_enabled: boolean;
+    }>(
+      `SELECT id, local_id, display_name, authority_epoch, contracts,
+              authority_state, enabled, reported_enabled
+       FROM collections
+       WHERE connector_id = $1 AND user_id = $2 AND local_id = $3
+         AND authority_state IN ('active', 'retired') AND present = true`,
+      [connector.id, connector.user_id, collectionId]
+    );
+    const local = source.rows[0];
+    if (!local) {
+      return reply.code(404).send(apiError(
+        "authority_source_not_found",
+        "The active local collection authority was not found."
+      ));
+    }
+    const existing = await options.db.query<AuthorityImportTransferRow>(
+      `SELECT id, user_id, hosted_collection_id, local_collection_id, state,
+              final_head, next_authority_epoch, manifest_digest,
+              source_revision, expires_at
+       FROM authority_transfers
+       WHERE local_collection_id = $1 AND direction = 'to_hosted'
+         AND (
+           (
+             state IN ('requested', 'prepared', 'activating')
+             AND next_authority_epoch = $2
+           )
+           OR (
+             state = 'completed'
+             AND next_authority_epoch = $3
+           )
+         )
+       ORDER BY created_at DESC LIMIT 1`,
+      [
+        local.id,
+        Number(local.authority_epoch) + 1,
+        Number(local.authority_epoch)
+      ]
+    );
+    if (
+      existing.rows[0]?.state === "completed"
+      && local.authority_state === "retired"
+    ) {
+      return {
+        transfer: authorityImportTransferView(existing.rows[0])
+      };
+    }
+    if (existing.rows[0]?.state === "activating") {
+      return {
+        transfer: authorityImportTransferView(existing.rows[0])
+      };
+    }
+    if (local.authority_state !== "active" || !local.enabled || !local.reported_enabled) {
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "The local collection is no longer an active authority."
+      ));
+    }
+    let transfer = existing.rows[0];
+    if (!transfer) {
+      const transferId = randomUUID();
+      const authorityEpoch = Number(local.authority_epoch) + 1;
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1_000);
+      const connection = await options.db.connect();
+      try {
+        await connection.query("BEGIN");
+        const target = await connection.query<{ id: string }>(
+          `INSERT INTO hosted_collections
+             (id, user_id, display_name, template, provider_url, contracts,
+              authority_state, authority_epoch)
+           VALUES ($1, $2, $3, 'mdbase', $4, $5::jsonb, 'importing', $6)
+           ON CONFLICT (id) DO UPDATE SET
+             display_name = EXCLUDED.display_name,
+             provider_url = EXCLUDED.provider_url,
+             contracts = EXCLUDED.contracts,
+             authority_state = 'importing',
+             authority_epoch = EXCLUDED.authority_epoch
+           WHERE hosted_collections.user_id = EXCLUDED.user_id
+             AND hosted_collections.authority_state = 'transferred'
+           RETURNING id`,
+          [
+            local.local_id,
+            connector.user_id,
+            local.display_name,
+            options.hostedProvider.url,
+            JSON.stringify(local.contracts ?? []),
+            authorityEpoch
+          ]
+        );
+        if (!target.rows[0]) {
+          throw new RequestValidationError(
+            "The remote collection identity is already in use by an active authority."
+          );
+        }
+        const inserted = await connection.query<AuthorityImportTransferRow>(
+          `INSERT INTO authority_transfers
+             (id, user_id, hosted_collection_id, local_collection_id, direction,
+              state, next_authority_epoch, expires_at)
+           VALUES ($1, $2, $3, $4, 'to_hosted', 'requested', $5, $6)
+           RETURNING id, user_id, hosted_collection_id, local_collection_id, state,
+                     final_head, next_authority_epoch, manifest_digest,
+                     source_revision, expires_at`,
+          [
+            transferId,
+            connector.user_id,
+            local.local_id,
+            local.id,
+            authorityEpoch,
+            expiresAt
+          ]
+        );
+        transfer = inserted.rows[0];
+        await audit(connection, connector.user_id, "authority_transfer.requested", transferId, {
+          collection_id: local.local_id,
+          direction: "to_hosted",
+          connector_id: connector.id,
+          authority_epoch: authorityEpoch
+        });
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+    const transferId = transfer!.id;
+    const authorityEpoch = Number(transfer!.next_authority_epoch);
+    const importToken = randomToken("ati");
+    const prepared = await options.hostedProvider.prepareAuthorityImport({
+      transferId,
+      collectionId: local.local_id,
+      displayName: local.display_name,
+      token: importToken,
+      authorityEpoch,
+      ttlSeconds: 30 * 60
+    });
+    const refreshed = await options.db.query<AuthorityImportTransferRow>(
+      `UPDATE authority_transfers
+       SET state = 'prepared', expires_at = $2
+       WHERE id = $1 AND state IN ('requested', 'prepared')
+       RETURNING id, user_id, hosted_collection_id, local_collection_id, state,
+                 final_head, next_authority_epoch, manifest_digest,
+                 source_revision, expires_at`,
+      [transferId, prepared.expires_at]
+    );
+    transfer = refreshed.rows[0];
+    if (!transfer) {
+      throw new RequestValidationError(
+        "Authority transfer changed state while its import capability was prepared."
+      );
+    }
+    return reply.code(existing.rows[0] ? 200 : 201).send({
+      transfer: authorityImportTransferView(transfer!),
+      import: authorityImportCapability(options.hostedProvider.url, transferId, importToken)
+    });
+  });
+
+  app.post("/v1/connectors/authority-transfers/:transferId/complete", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    if (!options.hostedProvider) {
+      return reply.code(404).send(apiError(
+        "remote_authority_unavailable",
+        "This Connect server has no remote collection authority."
+      ));
+    }
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const input = z.object({
+      manifest_digest: z.string().regex(/^[a-f0-9]{64}$/),
+      source_revision: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      source_head: z.number().int().nonnegative()
+    }).strict().parse(request.body);
+    const found = await options.db.query<AuthorityImportTransferRow>(
+      `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+              transfer.local_collection_id, transfer.state, transfer.final_head,
+              transfer.next_authority_epoch, transfer.manifest_digest,
+              transfer.source_revision, transfer.expires_at
+       FROM authority_transfers transfer
+       JOIN collections source ON source.id = transfer.local_collection_id
+       WHERE transfer.id = $1 AND transfer.direction = 'to_hosted'
+         AND source.connector_id = $2 AND transfer.user_id = $3`,
+      [transferId, connector.id, connector.user_id]
+    );
+    const transfer = found.rows[0];
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this connector."
+      ));
+    }
+    if (transfer.state === "completed") {
+      return {
+        status: "completed",
+        collection_id: transfer.hosted_collection_id,
+        authority_epoch: Number(transfer.next_authority_epoch)
+      };
+    }
+    if (
+      !["prepared", "activating"].includes(transfer.state)
+      || (
+        transfer.state === "prepared"
+        && new Date(transfer.expires_at).getTime() <= Date.now()
+      )
+    ) {
+      return reply.code(409).send(apiError(
+        "authority_transfer_inactive",
+        "Authority transfer is no longer prepared."
+      ));
+    }
+    if (
+      transfer.state === "activating"
+      && (
+        transfer.manifest_digest !== input.manifest_digest
+        || transfer.source_revision !== input.source_revision
+        || Number(transfer.final_head) !== input.source_head
+      )
+    ) {
+      return reply.code(409).send(apiError(
+        "authority_transfer_snapshot_mismatch",
+        "Authority activation must resume with the same fenced source snapshot."
+      ));
+    }
+    if (transfer.state === "prepared") {
+      const preflight = await options.db.connect();
+      try {
+        await preflight.query("BEGIN");
+        const source = await preflight.query<{
+          authority_state: string;
+          authority_epoch: string | number;
+        }>(
+          `SELECT authority_state, authority_epoch FROM collections
+           WHERE id = $1 AND connector_id = $2 FOR UPDATE`,
+          [transfer.local_collection_id, connector.id]
+        );
+        if (
+          source.rows[0]?.authority_state !== "active"
+          || Number(source.rows[0].authority_epoch) + 1
+            !== Number(transfer.next_authority_epoch)
+        ) {
+          throw new RequestValidationError(
+            "The local authority epoch changed while the transfer was staged."
+          );
+        }
+        const reserved = await preflight.query(
+          `UPDATE authority_transfers
+           SET state = 'activating', manifest_digest = $2,
+               source_revision = $3, final_head = $4
+           WHERE id = $1 AND state = 'prepared'`,
+          [transferId, input.manifest_digest, input.source_revision, input.source_head]
+        );
+        if (reserved.rowCount !== 1) {
+          throw new RequestValidationError(
+            "Authority transfer changed state while activation was reserved."
+          );
+        }
+        await preflight.query("COMMIT");
+      } catch (error) {
+        await preflight.query("ROLLBACK");
+        throw error;
+      } finally {
+        preflight.release();
+      }
+    }
+    const completed = await options.hostedProvider.completeAuthorityImport(
+      transferId,
+      input.manifest_digest,
+      input.source_revision
+    );
+    if (
+      completed.id !== transferId
+      || completed.collection_id !== transfer.hosted_collection_id
+      || completed.state !== "completed"
+      || completed.authority_epoch !== Number(transfer.next_authority_epoch)
+      || completed.manifest_digest !== input.manifest_digest
+      || completed.source_revision !== input.source_revision
+      || completed.source_head !== input.source_head
+    ) {
+      throw new RequestValidationError(
+        "The remote authority activated a different transfer snapshot."
+      );
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const current = await connection.query<{ state: string }>(
+        "SELECT state FROM authority_transfers WHERE id = $1 FOR UPDATE",
+        [transferId]
+      );
+      if (current.rows[0]?.state === "completed") {
+        await connection.query("COMMIT");
+        return {
+          status: "completed",
+          collection_id: transfer.hosted_collection_id,
+          authority_epoch: Number(transfer.next_authority_epoch)
+        };
+      }
+      if (current.rows[0]?.state !== "activating") {
+        throw new RequestValidationError(
+          "Authority transfer is not reserved for activation."
+        );
+      }
+      const source = await connection.query<{ authority_state: string; authority_epoch: string | number }>(
+        `SELECT authority_state, authority_epoch FROM collections
+         WHERE id = $1 AND connector_id = $2 FOR UPDATE`,
+        [transfer.local_collection_id, connector.id]
+      );
+      if (
+        source.rows[0]?.authority_state !== "active"
+        || Number(source.rows[0].authority_epoch) + 1 !== completed.authority_epoch
+      ) {
+        throw new RequestValidationError(
+          "The local authority epoch changed while the transfer was staged."
+        );
+      }
+      const retired = await connection.query(
+        `UPDATE collections
+         SET authority_state = 'retired', enabled = false,
+             authority_epoch = $2, last_seen_at = now()
+         WHERE id = $1 AND authority_state = 'active'
+           AND authority_epoch = $3`,
+        [
+          transfer.local_collection_id,
+          completed.authority_epoch,
+          completed.authority_epoch - 1
+        ]
+      );
+      const activated = await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'active', authority_epoch = $2,
+             transferred_collection_id = NULL
+         WHERE id = $1 AND authority_state = 'importing'`,
+        [transfer.hosted_collection_id, completed.authority_epoch]
+      );
+      if (retired.rowCount !== 1 || activated.rowCount !== 1) {
+        throw new RequestValidationError(
+          "Authority metadata changed while remote activation completed."
+        );
+      }
+      const grants = await connection.query<{ id: string }>(
+        "SELECT id FROM grants WHERE collection_id = $1 AND revoked_at IS NULL",
+        [transfer.local_collection_id]
+      );
+      for (const grant of grants.rows) {
+        await connection.query(
+          "UPDATE access_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+          [grant.id]
+        );
+        await connection.query(
+          "UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE grant_id = $1",
+          [grant.id]
+        );
+      }
+      await connection.query(
+        "UPDATE grants SET revoked_at = COALESCE(revoked_at, now()) WHERE collection_id = $1",
+        [transfer.local_collection_id]
+      );
+      const committed = await connection.query(
+        `UPDATE authority_transfers
+         SET state = 'completed', completed_at = now()
+         WHERE id = $1 AND state = 'activating'`,
+        [transferId]
+      );
+      if (committed.rowCount !== 1) {
+        throw new RequestValidationError(
+          "Authority transfer changed state while completion was committed."
+        );
+      }
+      await audit(connection, connector.user_id, "authority_transfer.completed", transferId, {
+        collection_id: transfer.hosted_collection_id,
+        direction: "to_hosted",
+        connector_id: connector.id,
+        authority_epoch: completed.authority_epoch,
+        revoked_grants: grants.rows.length
+      });
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    await relay.pushPolicy(connector.id);
+    return {
+      status: "completed",
+      collection_id: transfer.hosted_collection_id,
+      authority_epoch: completed.authority_epoch
+    };
+  });
+
+  app.delete("/v1/connectors/authority-transfers/:transferId", async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return;
+    if (!options.hostedProvider) {
+      return reply.code(404).send(apiError(
+        "remote_authority_unavailable",
+        "This Connect server has no remote collection authority."
+      ));
+    }
+    const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
+    const found = await options.db.query<AuthorityImportTransferRow>(
+      `SELECT transfer.id, transfer.user_id, transfer.hosted_collection_id,
+              transfer.local_collection_id, transfer.state, transfer.final_head,
+              transfer.next_authority_epoch, transfer.manifest_digest,
+              transfer.source_revision, transfer.expires_at
+       FROM authority_transfers transfer
+       JOIN collections source ON source.id = transfer.local_collection_id
+       WHERE transfer.id = $1 AND transfer.direction = 'to_hosted'
+         AND source.connector_id = $2 AND transfer.user_id = $3`,
+      [transferId, connector.id, connector.user_id]
+    );
+    const transfer = found.rows[0];
+    if (!transfer) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found for this connector."
+      ));
+    }
+    if (transfer.state === "completed") {
+      return reply.code(409).send(apiError(
+        "authority_transfer_completed",
+        "Completed authority transfer cannot be cancelled."
+      ));
+    }
+    if (!["requested", "prepared"].includes(transfer.state)) {
+      return reply.code(409).send(apiError(
+        "authority_transfer_activation_started",
+        "Authority activation has started and can no longer be cancelled."
+      ));
+    }
+    try {
+      await options.hostedProvider.abortAuthorityImport(transferId);
+    } catch (error) {
+      if (
+        !(error instanceof HostedProviderResponseError)
+        || error.code !== "authority_import_not_found"
+      ) {
+        throw error;
+      }
+    }
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const cancelled = await connection.query(
+        `UPDATE authority_transfers SET state = 'cancelled'
+         WHERE id = $1 AND state IN ('requested', 'prepared')`,
+        [transferId]
+      );
+      if (cancelled.rowCount !== 1) {
+        throw new RequestValidationError(
+          "Authority transfer changed state while cancellation was committed."
+        );
+      }
+      await audit(connection, connector.user_id, "authority_transfer.cancelled", transferId, {
+        collection_id: transfer.hosted_collection_id,
+        direction: "to_hosted"
+      });
+      await connection.query(
+        `UPDATE hosted_collections
+         SET authority_state = 'transferred', authority_epoch = $2
+         WHERE id = $1 AND authority_state = 'importing'
+           AND transferred_collection_id IS NOT NULL`,
+        [
+          transfer.hosted_collection_id,
+          Number(transfer.next_authority_epoch) - 1
+        ]
+      );
+      await connection.query(
+        `DELETE FROM hosted_collections
+         WHERE id = $1 AND authority_state = 'importing'
+           AND transferred_collection_id IS NULL`,
+        [transfer.hosted_collection_id]
+      );
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return { ok: true };
   });
 
   app.post("/v1/connectors/authority-conflicts/:collectionId/move", async (request, reply) => {
@@ -2445,7 +2972,11 @@ export async function buildApp(options: BuildOptions) {
         display_name: input.display_name,
         template: input.template,
         spec_version: "0.3.0",
-        sync_url: options.hostedProvider?.url ?? publicUrl
+        sync_url: authorityUrl(
+          options.hostedProvider?.url ?? publicUrl,
+          collectionId,
+          "sync"
+        )
       }
     });
   });
@@ -2511,7 +3042,11 @@ export async function buildApp(options: BuildOptions) {
         mode: input.mode
       },
       token,
-      sync_url: options.hostedProvider?.url ?? publicUrl
+      sync_url: authorityUrl(
+        options.hostedProvider?.url ?? publicUrl,
+        collectionId,
+        "sync"
+      )
     });
   });
 
@@ -2575,8 +3110,8 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { replicaId } = z.object({ replicaId: z.uuid() }).parse(request.params);
-    const active = await options.db.query<{ id: string }>(
-      `SELECT r.id FROM hosted_replicas r JOIN hosted_collections c ON c.id = r.collection_id
+    const active = await options.db.query<{ id: string; collection_id: string }>(
+      `SELECT r.id, r.collection_id FROM hosted_replicas r JOIN hosted_collections c ON c.id = r.collection_id
        WHERE r.id = $1 AND c.user_id = $2 AND r.revoked_at IS NULL`,
       [replicaId, user.id]
     );
@@ -2587,7 +3122,14 @@ export async function buildApp(options: BuildOptions) {
     } else {
       await options.db.query("UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1", [replicaId, tokenHash(token)]);
     }
-    return { token, sync_url: options.hostedProvider?.url ?? publicUrl };
+    return {
+      token,
+      sync_url: authorityUrl(
+        options.hostedProvider?.url ?? publicUrl,
+        active.rows[0].collection_id,
+        "sync"
+      )
+    };
   });
 
   app.delete("/v1/hosted/replicas/:replicaId", async (request, reply) => {
@@ -2628,7 +3170,7 @@ export async function buildApp(options: BuildOptions) {
     return { ok: true };
   });
 
-  app.post("/v1/hosted/collections/:collectionId/sync/sessions", async (request, reply) => {
+  app.post("/v1/authorities/:collectionId/sync/sessions", async (request, reply) => {
     const replica = await requireHostedReplica(request, reply, options.db);
     if (!replica) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
@@ -2636,7 +3178,7 @@ export async function buildApp(options: BuildOptions) {
     return (await hostedReference!.transport(collectionId, replica.id)).openSession();
   });
 
-  app.get("/v1/hosted/collections/:collectionId/sync/snapshot", async (request, reply) => {
+  app.get("/v1/authorities/:collectionId/sync/snapshot", async (request, reply) => {
     const replica = await requireHostedReplica(request, reply, options.db);
     if (!replica) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
@@ -2645,7 +3187,7 @@ export async function buildApp(options: BuildOptions) {
     return (await hostedReference!.transport(collectionId, replica.id)).snapshot(query.snapshot_id, query.page);
   });
 
-  app.get("/v1/hosted/collections/:collectionId/sync/changes", async (request, reply) => {
+  app.get("/v1/authorities/:collectionId/sync/changes", async (request, reply) => {
     const replica = await requireHostedReplica(request, reply, options.db);
     if (!replica) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
@@ -2657,7 +3199,7 @@ export async function buildApp(options: BuildOptions) {
     return (await hostedReference!.transport(collectionId, replica.id)).changes(query.after, query.limit);
   });
 
-  app.post("/v1/hosted/collections/:collectionId/sync/mutations", async (request, reply) => {
+  app.post("/v1/authorities/:collectionId/sync/mutations", async (request, reply) => {
     const replica = await requireHostedReplica(request, reply, options.db);
     if (!replica) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
@@ -3381,7 +3923,7 @@ export async function buildApp(options: BuildOptions) {
         client_id: input.client_id
       }).toString();
       try {
-        verifyHostedRequestProof(
+        verifyAuthorityRequestProof(
           request.headers,
           current.proof_public_key,
           {
@@ -3392,7 +3934,7 @@ export async function buildApp(options: BuildOptions) {
           }
         );
       } catch (error) {
-        if (!(error instanceof HostedProofError)) throw error;
+        if (!(error instanceof AuthorityProofError)) throw error;
         return reply.code(400).send(oauthError(
           "invalid_grant",
           "The refresh request is not signed by the approved application key."
@@ -3748,7 +4290,7 @@ export async function buildApp(options: BuildOptions) {
     });
   });
 
-  app.post("/v1/collections/:collectionId/operations/:operation", async (request, reply) => {
+  app.post("/v1/authorities/:collectionId/operations/:operation", async (request, reply) => {
     const params = z.object({ collectionId: z.uuid(), operation: operationSchema }).parse(request.params);
     const bearer = bearerToken(request);
     if (!bearer) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
@@ -5077,8 +5619,9 @@ async function issueApplicationTokens(
   grant_id: string;
   encryption: GrantEncryption | null;
   application_origin: string;
-  hosted?: {
-    provider_url: string;
+  authority?: {
+    operations_url: string;
+    sync_url: string;
     replica_id: string;
     access_token: string;
     proof_public_key?: string;
@@ -5113,8 +5656,9 @@ async function issueApplicationTokens(
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
-  let hosted: {
-    provider_url: string;
+  let authority: {
+    operations_url: string;
+    sync_url: string;
     replica_id: string;
     access_token: string;
     proof_public_key?: string;
@@ -5125,8 +5669,17 @@ async function issueApplicationTokens(
     }
     const providerToken = randomToken("hsa");
     await hostedProvider.rotateReplicaToken(grant.rows[0].hosted_replica_id, providerToken, 3_600);
-    hosted = {
-      provider_url: grant.rows[0].provider_url,
+    authority = {
+      operations_url: authorityUrl(
+        grant.rows[0].provider_url,
+        grant.rows[0].collection_id,
+        "operations"
+      ),
+      sync_url: authorityUrl(
+        grant.rows[0].provider_url,
+        grant.rows[0].collection_id,
+        "sync"
+      ),
       replica_id: grant.rows[0].hosted_replica_id,
       access_token: providerToken,
       ...(grant.rows[0].proof_public_key
@@ -5157,7 +5710,7 @@ async function issueApplicationTokens(
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
-    ...(hosted ? { hosted } : {})
+    ...(authority ? { authority } : {})
   };
 }
 
@@ -5472,21 +6025,47 @@ async function recoverExpiredAuthorityTransfers(
   hostedProvider?: HostedProviderClient,
   hostedReference?: HostedAuthorityRegistry
 ): Promise<void> {
-  const prepared = await db.query<{ id: string; hosted_collection_id: string; user_id: string }>(
-    `SELECT id, hosted_collection_id, user_id FROM authority_transfers
-     WHERE state = 'prepared' AND expires_at <= now()`
+  const prepared = await db.query<{
+    id: string;
+    hosted_collection_id: string;
+    user_id: string;
+    direction: "to_local" | "to_hosted";
+    next_authority_epoch: string | number | null;
+  }>(
+    `SELECT id, hosted_collection_id, user_id, direction, next_authority_epoch
+     FROM authority_transfers
+     WHERE expires_at <= now()
+       AND (
+         (direction = 'to_hosted' AND state IN ('requested', 'prepared'))
+         OR (direction = 'to_local' AND state = 'prepared')
+       )`
   );
   for (const transfer of prepared.rows) {
     try {
-      if (hostedProvider) await hostedProvider.abortAuthorityTransfer(transfer.id);
-      else await hostedReference?.abortAuthorityTransfer(transfer.id);
+      if (transfer.direction === "to_hosted") {
+        if (!hostedProvider) continue;
+        try {
+          await hostedProvider.abortAuthorityImport(transfer.id);
+        } catch (error) {
+          if (
+            !(error instanceof HostedProviderResponseError)
+            || error.code !== "authority_import_not_found"
+          ) {
+            throw error;
+          }
+        }
+      } else if (hostedProvider) {
+        await hostedProvider.abortAuthorityTransfer(transfer.id);
+      } else {
+        await hostedReference?.abortAuthorityTransfer(transfer.id);
+      }
     } catch (error) {
       if (
         (
           error instanceof HostedProviderResponseError
           || error instanceof SyncError
         )
-        && error.code === "authority_transfer_completed"
+        && ["authority_transfer_completed", "authority_import_completed"].includes(error.code)
       ) {
         // The provider committed but the control-plane transaction did not.
         // Keep the transfer resumable instead of incorrectly restoring epoch one.
@@ -5494,21 +6073,55 @@ async function recoverExpiredAuthorityTransfers(
       }
       throw error;
     }
-    await db.query(
-      `UPDATE authority_transfers SET state = 'expired'
-       WHERE id = $1 AND state = 'prepared'`,
-      [transfer.id]
-    );
-    await db.query(
-      `UPDATE hosted_collections SET authority_state = 'active'
-       WHERE id = $1 AND authority_state = 'transferring'`,
-      [transfer.hosted_collection_id]
-    );
-    await retireAuthorityCandidates(
-      db,
-      transfer.user_id,
-      transfer.hosted_collection_id
-    );
+    const connection = await db.connect();
+    try {
+      await connection.query("BEGIN");
+      if (transfer.direction === "to_hosted") {
+        await connection.query(
+          `UPDATE authority_transfers SET state = 'expired'
+           WHERE id = $1 AND state IN ('requested', 'prepared')`,
+          [transfer.id]
+        );
+        await connection.query(
+          `UPDATE hosted_collections
+           SET authority_state = 'transferred', authority_epoch = $2
+           WHERE id = $1 AND authority_state = 'importing'
+             AND transferred_collection_id IS NOT NULL`,
+          [
+            transfer.hosted_collection_id,
+            Number(transfer.next_authority_epoch) - 1
+          ]
+        );
+        await connection.query(
+          `DELETE FROM hosted_collections
+           WHERE id = $1 AND authority_state = 'importing'
+             AND transferred_collection_id IS NULL`,
+          [transfer.hosted_collection_id]
+        );
+      } else {
+        await connection.query(
+          `UPDATE authority_transfers SET state = 'expired'
+           WHERE id = $1 AND state = 'prepared'`,
+          [transfer.id]
+        );
+        await connection.query(
+          `UPDATE hosted_collections SET authority_state = 'active'
+           WHERE id = $1 AND authority_state = 'transferring'`,
+          [transfer.hosted_collection_id]
+        );
+        await retireAuthorityCandidates(
+          connection,
+          transfer.user_id,
+          transfer.hosted_collection_id
+        );
+      }
+      await connection.query("COMMIT");
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
   await db.query(
     `UPDATE authority_transfers SET state = 'expired'
@@ -5565,6 +6178,45 @@ function authorityTransferResponse(
       0,
       Math.floor((new Date(transfer.expires_at).getTime() - Date.now()) / 1_000)
     )
+  };
+}
+
+function authorityImportTransferView(
+  transfer: AuthorityImportTransferRow
+): Record<string, unknown> {
+  return {
+    id: transfer.id,
+    direction: "to_hosted",
+    collection_id: transfer.hosted_collection_id,
+    local_collection_id: transfer.local_collection_id,
+    state: transfer.state,
+    final_head: transfer.final_head === null ? null : Number(transfer.final_head),
+    authority_epoch: Number(transfer.next_authority_epoch),
+    manifest_digest: transfer.manifest_digest,
+    source_revision: transfer.source_revision,
+    expires_at: new Date(transfer.expires_at).toISOString()
+  };
+}
+
+function authorityImportCapability(
+  providerUrl: string,
+  transferId: string,
+  accessToken: string
+): Record<string, string> {
+  const base = new URL(providerUrl);
+  const path = `/v1/authority-imports/${encodeURIComponent(transferId)}`;
+  const endpoint = (suffix: string) => {
+    const url = new URL(base);
+    url.pathname = `${path}/${suffix}`;
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  };
+  return {
+    manifest_url: endpoint("manifest"),
+    records_url: endpoint("records"),
+    finalize_url: endpoint("finalize"),
+    access_token: accessToken
   };
 }
 
@@ -6021,7 +6673,11 @@ async function rotateMirrorPairingToken(
     },
     token,
     token_expires_at: replicaTokenExpiry(),
-    sync_url: options.hostedProvider?.url ?? publicUrl
+    sync_url: authorityUrl(
+      options.hostedProvider?.url ?? publicUrl,
+      replica.collection_id,
+      "sync"
+    )
   };
 }
 
@@ -6085,6 +6741,18 @@ async function requireConnector(
 function bearerToken(request: FastifyRequest): string | null {
   const authorization = request.headers.authorization;
   return authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
+}
+
+function authorityUrl(
+  baseUrl: string,
+  collectionId: string,
+  capability: "operations" | "sync"
+): string {
+  const base = new URL(baseUrl);
+  base.pathname = `/v1/authorities/${encodeURIComponent(collectionId)}/${capability}`;
+  base.search = "";
+  base.hash = "";
+  return base.href.replace(/\/$/, "");
 }
 
 function sessionToken(request: FastifyRequest): string | null {

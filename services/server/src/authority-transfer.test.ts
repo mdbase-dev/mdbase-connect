@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import {
+  HostedProviderUnavailableError,
+  type HostedProviderClient
+} from "./hosted-provider.js";
 import { tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -69,14 +73,14 @@ describe("hosted-to-local authority transfer", () => {
 
     const sessionOpened = await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/sessions`,
+      url: `/v1/authorities/${collectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${replicaToken}` }
     });
     expect(sessionOpened.statusCode).toBe(200);
     const firstRecordId = randomUUID();
     const firstMutation = await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/mutations`,
+      url: `/v1/authorities/${collectionId}/sync/mutations`,
       headers: { authorization: `Bearer ${replicaToken}` },
       payload: {
         mutation_id: randomUUID(),
@@ -193,7 +197,7 @@ describe("hosted-to-local authority transfer", () => {
 
     const fencedWrite = await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/mutations`,
+      url: `/v1/authorities/${collectionId}/sync/mutations`,
       headers: { authorization: `Bearer ${replicaToken}` },
       payload: {
         mutation_id: randomUUID(),
@@ -214,7 +218,7 @@ describe("hosted-to-local authority transfer", () => {
     expect(fencedWrite.json().error.code).toBe("authority_transfer_in_progress");
     expect((await app.inject({
       method: "GET",
-      url: `/v1/hosted/collections/${collectionId}/sync/changes?after=0&limit=50`,
+      url: `/v1/authorities/${collectionId}/sync/changes?after=0&limit=50`,
       headers: { authorization: `Bearer ${replicaToken}` }
     })).statusCode).toBe(200);
 
@@ -305,7 +309,7 @@ describe("hosted-to-local authority transfer", () => {
     expect(revoked.rows[0].refresh_revoked).not.toBeNull();
     expect((await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/sessions`,
+      url: `/v1/authorities/${collectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${replicaToken}` }
     })).statusCode).toBe(401);
     expect((await app.inject({
@@ -421,8 +425,260 @@ describe("hosted-to-local authority transfer", () => {
     });
     expect((await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${cancellableCollectionId}/sync/sessions`,
+      url: `/v1/authorities/${cancellableCollectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${cancellableReplicaToken}` }
     })).statusCode).toBe(200);
   }, 15_000);
+});
+
+describe("local-to-hosted authority transfer", () => {
+  it("persists activation intent across an uncertain provider response", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    let completionAttempts = 0;
+    const provider = {
+      url: "https://provider.example",
+      prepareAuthorityImport: async (input: {
+        transferId: string;
+        collectionId: string;
+        authorityEpoch: number;
+      }) => ({
+        id: input.transferId,
+        collection_id: input.collectionId,
+        authority_epoch: input.authorityEpoch,
+        state: "receiving",
+        manifest_digest: null,
+        source_revision: null,
+        source_head: null,
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString()
+      }),
+      completeAuthorityImport: async (
+        transferId: string,
+        manifestDigest: string,
+        sourceRevision: string
+      ) => {
+        completionAttempts += 1;
+        if (completionAttempts === 1) {
+          throw new HostedProviderUnavailableError(new Error("response lost"));
+        }
+        return {
+          id: transferId,
+          collection_id: collectionId,
+          authority_epoch: 2,
+          state: "completed",
+          manifest_digest: manifestDigest,
+          source_revision: sourceRevision,
+          source_head: 7,
+          expires_at: new Date(Date.now() + 15 * 60_000).toISOString()
+        };
+      },
+      abortAuthorityImport: async () => ({ state: "aborted" })
+    } as unknown as HostedProviderClient;
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      hostedCollections: true,
+      hostedProvider: provider,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Owner", email: "local-owner@example.com" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const connector = await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Local computer" }
+    });
+    const connectorId = connector.json().connector.id as string;
+    const connectorToken = connector.json().token as string;
+    const collectionId = randomUUID();
+    expect((await app.inject({
+      method: "POST",
+      url: "/v1/connectors/sync",
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        inventory_revision: 1,
+        collections: [{
+          id: collectionId,
+          display_name: "Local notes",
+          spec_version: "0.3.0",
+          enabled: true,
+          contracts: []
+        }]
+      }
+    })).statusCode).toBe(200);
+
+    const begun = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/collections/${collectionId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {}
+    });
+    expect(begun.statusCode, begun.body).toBe(201);
+    expect(begun.json().transfer).toMatchObject({
+      collection_id: collectionId,
+      state: "prepared",
+      authority_epoch: 2
+    });
+    expect(begun.json().import).toMatchObject({
+      manifest_url: expect.stringContaining("/v1/authority-imports/"),
+      records_url: expect.stringContaining("/v1/authority-imports/"),
+      finalize_url: expect.stringContaining("/v1/authority-imports/")
+    });
+    const transferId = begun.json().transfer.id as string;
+    const manifestDigest = "a".repeat(64);
+    const sourceRevision = `sha256:${"b".repeat(64)}`;
+    const uncertain = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authority-transfers/${transferId}/complete`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        manifest_digest: manifestDigest,
+        source_revision: sourceRevision,
+        source_head: 7
+      }
+    });
+    expect(uncertain.statusCode).toBe(503);
+
+    const resumed = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/collections/${collectionId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {}
+    });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json().transfer).toMatchObject({
+      id: transferId,
+      state: "activating",
+      manifest_digest: manifestDigest,
+      source_revision: sourceRevision,
+      final_head: 7
+    });
+    expect(resumed.json().import).toBeUndefined();
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/authority-transfers/${transferId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(409);
+    expect((await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authority-transfers/${transferId}/complete`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        manifest_digest: "c".repeat(64),
+        source_revision: sourceRevision,
+        source_head: 7
+      }
+    })).statusCode).toBe(409);
+
+    const completed = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authority-transfers/${transferId}/complete`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        manifest_digest: manifestDigest,
+        source_revision: sourceRevision,
+        source_head: 7
+      }
+    });
+    expect(completed.statusCode, completed.body).toBe(200);
+    expect(completed.json()).toEqual({
+      status: "completed",
+      collection_id: collectionId,
+      authority_epoch: 2
+    });
+    expect((await app.inject({
+      method: "POST",
+      url: `/v1/connectors/authority-transfers/${transferId}/complete`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {
+        manifest_digest: manifestDigest,
+        source_revision: sourceRevision,
+        source_head: 7
+      }
+    })).statusCode).toBe(200);
+
+    const state = await db.query(
+      `SELECT local.authority_state AS local_state, local.enabled,
+              hosted.authority_state AS hosted_state, hosted.authority_epoch,
+              transfer.state AS transfer_state
+       FROM collections local
+       JOIN hosted_collections hosted ON hosted.id = local.local_id
+       JOIN authority_transfers transfer ON transfer.local_collection_id = local.id
+       WHERE local.connector_id = $1 AND local.local_id = $2`,
+      [connectorId, collectionId]
+    );
+    expect(state.rows[0]).toMatchObject({
+      local_state: "retired",
+      enabled: false,
+      hosted_state: "active",
+      transfer_state: "completed"
+    });
+    expect(Number(state.rows[0].authority_epoch)).toBe(2);
+
+    const localRow = await db.query<{ id: string }>(
+      "SELECT id FROM collections WHERE connector_id = $1 AND local_id = $2",
+      [connectorId, collectionId]
+    );
+    await db.query(
+      `UPDATE collections
+       SET authority_state = 'active', enabled = true, reported_enabled = true,
+           authority_epoch = 3
+       WHERE id = $1`,
+      [localRow.rows[0].id]
+    );
+    await db.query(
+      `UPDATE hosted_collections
+       SET authority_state = 'transferred', authority_epoch = 3,
+           transferred_collection_id = $2
+       WHERE id = $1`,
+      [collectionId, localRow.rows[0].id]
+    );
+
+    const roundTrip = await app.inject({
+      method: "POST",
+      url: `/v1/connectors/collections/${collectionId}/authority-transfers`,
+      headers: { authorization: `Bearer ${connectorToken}` },
+      payload: {}
+    });
+    expect(roundTrip.statusCode, roundTrip.body).toBe(201);
+    expect(roundTrip.json().transfer).toMatchObject({
+      collection_id: collectionId,
+      state: "prepared",
+      authority_epoch: 4
+    });
+    const roundTripId = roundTrip.json().transfer.id as string;
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/authority-transfers/${roundTripId}`,
+      headers: { authorization: `Bearer ${connectorToken}` }
+    })).statusCode).toBe(200);
+    const restored = await db.query<{
+      hosted_state: string;
+      authority_epoch: string | number;
+      transferred_collection_id: string | null;
+      transfer_state: string;
+    }>(
+      `SELECT hosted.authority_state AS hosted_state, hosted.authority_epoch,
+              hosted.transferred_collection_id,
+              transfer.state AS transfer_state
+       FROM hosted_collections hosted
+       JOIN authority_transfers transfer ON transfer.hosted_collection_id = hosted.id
+       WHERE hosted.id = $1 AND transfer.id = $2`,
+      [collectionId, roundTripId]
+    );
+    expect(restored.rows[0]).toMatchObject({
+      hosted_state: "transferred",
+      transferred_collection_id: localRow.rows[0].id,
+      transfer_state: "cancelled"
+    });
+    expect(Number(restored.rows[0].authority_epoch)).toBe(3);
+  }, 10_000);
 });

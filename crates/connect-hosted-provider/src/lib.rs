@@ -11,6 +11,6 @@ pub use error::{ApiError, ApiResult};
 pub use http::{app, AppState};
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::{
-    HostedProvider, PrepareAuthorityTransfer, ProviderAuthorityTransfer, ProviderLimits,
-    RegisterReplica,
+    HostedProvider, PrepareAuthorityImport, PrepareAuthorityTransfer, ProviderAuthorityImport,
+    ProviderAuthorityTransfer, ProviderLimits, RegisterReplica,
 };

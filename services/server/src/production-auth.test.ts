@@ -355,13 +355,13 @@ describe("production GitHub authentication", () => {
       },
       token: expect.stringMatching(/^hsr_/),
       token_expires_at: expect.any(String),
-      sync_url: "http://127.0.0.1:8787"
+      sync_url: `http://127.0.0.1:8787/v1/authorities/${collectionId}/sync`
     });
     const replicaId = exchanged.json().replica.id as string;
     const firstToken = exchanged.json().token as string;
     expect((await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/sessions`,
+      url: `/v1/authorities/${collectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${firstToken}` }
     })).statusCode).toBe(200);
 
@@ -375,7 +375,7 @@ describe("production GitHub authentication", () => {
     expect(replayed.json().token).not.toBe(firstToken);
     expect((await app.inject({
       method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/sync/sessions`,
+      url: `/v1/authorities/${collectionId}/sync/sessions`,
       headers: { authorization: `Bearer ${firstToken}` }
     })).statusCode).toBe(401);
 

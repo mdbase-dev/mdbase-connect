@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand};
 use mdbase_connect_core::{default_control_endpoint, default_state_dir};
 use mdbase_connect_protocol::{
-    AccessPauseParams, ActivityListParams, AuthorizationApproveParams, AuthorizationIdParams,
-    CollectionCreateParams, CollectionIdParams, CollectionOperationParams, CollectionPathParams,
-    ControlCommand, ControlRequest, ControlResponse, GrantIdParams, GrantUpdateParams,
+    AccessPauseParams, ActivityListParams, AuthorityTarget, AuthorizationApproveParams,
+    AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
+    CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
+    ControlRequest, ControlResponse, GrantIdParams, GrantUpdateParams,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -93,6 +94,16 @@ enum CollectionCommand {
     Validate {
         collection_id: Uuid,
     },
+    TransferAuthority {
+        collection_id: Uuid,
+        #[arg(long, value_enum, default_value_t = CliAuthorityTarget::Remote)]
+        target: CliAuthorityTarget,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliAuthorityTarget {
+    Remote,
 }
 
 #[tokio::main]
@@ -128,6 +139,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Collection(CollectionCommand::Validate { collection_id }) => {
             ControlCommand::CollectionValidate(CollectionIdParams { collection_id })
         }
+        Command::Collection(CollectionCommand::TransferAuthority {
+            collection_id,
+            target,
+        }) => ControlCommand::CollectionTransferAuthority(CollectionAuthorityTransferParams {
+            collection_id,
+            target: match target {
+                CliAuthorityTarget::Remote => AuthorityTarget::Remote,
+            },
+        }),
         Command::Operation {
             collection_id,
             operation,

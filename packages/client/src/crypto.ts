@@ -1,8 +1,8 @@
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
-  HOSTED_PROOF_DOMAIN,
-  HOSTED_PROOF_HEADERS,
-  HOSTED_PROOF_VERSION,
+  AUTHORITY_PROOF_DOMAIN,
+  AUTHORITY_PROOF_HEADERS,
+  AUTHORITY_PROOF_VERSION,
   RELAY_ENCRYPTION_SUITE,
   type CollectionOperation,
   type EncryptedRelayOperationRequest,
@@ -168,7 +168,7 @@ export interface RelayBinding {
   encryption: GrantEncryption;
 }
 
-export interface HostedProofInput {
+export interface AuthorityProofInput {
   method: string;
   target: string;
   body?: string;
@@ -177,51 +177,51 @@ export interface HostedProofInput {
   nonce?: string;
 }
 
-/** Sign one hosted-provider or token-refresh request with the approved grant key. */
-export async function signHostedRequest(
+/** Sign one remote-authority or token-refresh request with the approved grant key. */
+export async function signAuthorityRequest(
   store: GrantKeyStore,
   handle: string,
   expectedPublicKey: string,
-  input: HostedProofInput
+  input: AuthorityProofInput
 ): Promise<Record<string, string>> {
   const record = await requireKey(store, handle, expectedPublicKey);
   if (!record.signingKey) {
     throw new RelayCryptoError(
       "missing_grant_key",
-      "The hosted grant signing key is unavailable. Reconnect this application."
+      "The remote authority grant signing key is unavailable. Reconnect this application."
     );
   }
   const timestamp = input.timestamp ?? Math.floor(Date.now() / 1_000);
   const nonce = input.nonce ?? crypto.randomUUID();
-  const message = await hostedProofMessage({ ...input, timestamp, nonce });
+  const message = await authorityProofMessage({ ...input, timestamp, nonce });
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
     record.signingKey,
     new TextEncoder().encode(message)
   );
   return {
-    [HOSTED_PROOF_HEADERS.version]: String(HOSTED_PROOF_VERSION),
-    [HOSTED_PROOF_HEADERS.timestamp]: String(timestamp),
-    [HOSTED_PROOF_HEADERS.nonce]: nonce,
-    [HOSTED_PROOF_HEADERS.signature]: bytesToBase64Url(new Uint8Array(signature))
+    [AUTHORITY_PROOF_HEADERS.version]: String(AUTHORITY_PROOF_VERSION),
+    [AUTHORITY_PROOF_HEADERS.timestamp]: String(timestamp),
+    [AUTHORITY_PROOF_HEADERS.nonce]: nonce,
+    [AUTHORITY_PROOF_HEADERS.signature]: bytesToBase64Url(new Uint8Array(signature))
   };
 }
 
-export async function hostedProofMessage(
-  input: Required<Pick<HostedProofInput, "method" | "target" | "credential" | "timestamp" | "nonce">>
-    & Pick<HostedProofInput, "body">
+export async function authorityProofMessage(
+  input: Required<Pick<AuthorityProofInput, "method" | "target" | "credential" | "timestamp" | "nonce">>
+    & Pick<AuthorityProofInput, "body">
 ): Promise<string> {
   const method = input.method.toUpperCase();
   const bodyHash = await sha256Base64Url(input.body ?? "");
   const credentialHash = await sha256Base64Url(input.credential);
   for (const value of [method, input.target, String(input.timestamp), input.nonce]) {
     if (!value || value.includes("\n") || value.includes("\r")) {
-      throw new RelayCryptoError("invalid_proof_input", "Hosted request proof metadata is invalid.");
+      throw new RelayCryptoError("invalid_proof_input", "Authority request proof metadata is invalid.");
     }
   }
   return [
-    HOSTED_PROOF_DOMAIN,
-    HOSTED_PROOF_VERSION,
+    AUTHORITY_PROOF_DOMAIN,
+    AUTHORITY_PROOF_VERSION,
     method,
     input.target,
     bodyHash,

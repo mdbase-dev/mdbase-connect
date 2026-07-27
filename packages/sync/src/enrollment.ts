@@ -34,7 +34,7 @@ export type MirrorEnrollmentVerification = Omit<
 
 export interface MirrorEnrollment {
   controlUrl: string;
-  providerUrl: string;
+  syncUrl: string;
   collectionId: string;
   replicaId: string;
   mode: MirrorEnrollmentMode;
@@ -119,7 +119,7 @@ const MAX_ENROLLMENT_TTL_MS = 24 * 60 * 60 * 1_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Browser-approval enrollment for a full hosted Markdown mirror.
+ * Browser-approval enrollment for a full Markdown mirror.
  *
  * This class owns no filesystem or credential persistence. Hosts decide where
  * device-local state lives, how the verification URI is opened, and which
@@ -158,7 +158,7 @@ export class MirrorEnrollmentClient {
     if (input.collectionId !== undefined && !UUID.test(input.collectionId)) {
       throw new MirrorEnrollmentError(
         "invalid_collection_id",
-        "Hosted collection ID must be a UUID."
+        "Collection ID must be a UUID."
       );
     }
     let response: MirrorEnrollmentHttpResponse;
@@ -432,7 +432,7 @@ function parseEnrollment(
     session.requested.collectionId
     && collectionId !== session.requested.collectionId
   ) {
-    throw invalidResponse("Connect returned a different hosted collection.");
+    throw invalidResponse("Connect returned a different collection.");
   }
   if (expected.mirrorName !== undefined && name !== expected.mirrorName) {
     throw invalidResponse("Connect returned a mirror with a different name.");
@@ -440,15 +440,15 @@ function parseEnrollment(
   if (expected.replicaId !== undefined && replicaId !== expected.replicaId) {
     throw invalidResponse("Connect returned a different mirror replica.");
   }
-  let providerUrl: string;
+  let syncUrl: string;
   try {
-    providerUrl = canonicalConnectOrigin(string(value.sync_url));
+    syncUrl = canonicalSyncUrl(string(value.sync_url), collectionId);
   } catch {
-    throw invalidResponse("Connect returned an untrusted mirror provider URL.");
+    throw invalidResponse("Connect returned an invalid authority sync URL.");
   }
   return {
     controlUrl: canonicalConnectOrigin(session.controlUrl),
-    providerUrl,
+    syncUrl,
     collectionId,
     replicaId,
     mode: mode as MirrorEnrollmentMode,
@@ -490,7 +490,7 @@ function validateSession(session: MirrorEnrollmentSession, now: number): void {
 
 function validateEnrollment(enrollment: MirrorEnrollment): void {
   canonicalConnectOrigin(enrollment.controlUrl);
-  canonicalConnectOrigin(enrollment.providerUrl);
+  canonicalSyncUrl(enrollment.syncUrl, enrollment.collectionId);
   if (
     !UUID.test(enrollment.collectionId)
     || !UUID.test(enrollment.replicaId)
@@ -507,6 +507,28 @@ function validateEnrollment(enrollment: MirrorEnrollment): void {
       "Stored mirror enrollment is invalid."
     );
   }
+}
+
+function canonicalSyncUrl(value: string, collectionId: string): string {
+  const url = new URL(value);
+  const expectedPath = `/v1/authorities/${encodeURIComponent(collectionId)}/sync`;
+  if (
+    !(
+      url.protocol === "https:"
+      || (
+        url.protocol === "http:"
+        && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+      )
+    )
+    || url.username
+    || url.password
+    || url.pathname.replace(/\/$/, "") !== expectedPath
+    || url.search
+    || url.hash
+  ) {
+    throw new Error("invalid sync URL");
+  }
+  return `${url.origin}${expectedPath}`;
 }
 
 function trustedVerificationUri(

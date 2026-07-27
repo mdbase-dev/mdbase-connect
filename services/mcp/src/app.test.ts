@@ -299,8 +299,9 @@ async function fakeUpstream(realFetch: typeof fetch) {
           application_public_key: applicationPublicKeys[0],
           connector_public_key: connectorPublicKey
         },
-        ...(second ? { hosted: {
-          provider_url: "https://sync.example",
+        ...(second ? { authority: {
+          operations_url: `https://sync.example/v1/authorities/${secondCollectionId}/operations`,
+          sync_url: `https://sync.example/v1/authorities/${secondCollectionId}/sync`,
           replica_id: "40000000-0000-4000-8000-000000000002",
           access_token: "hosted-access-two"
         } } : {})

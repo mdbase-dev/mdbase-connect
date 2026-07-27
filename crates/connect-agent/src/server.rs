@@ -3,15 +3,16 @@ use crate::runtime_notifications::RuntimeTimerHandle;
 use crate::watcher::CollectionWatchService;
 use mdbase_connect_core::{
     encrypted_request_fingerprint, CollectionRegistry, ConnectError, EncryptedRequestClaim,
+    LocalReplica,
 };
 use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
 };
 use mdbase_connect_protocol::{
-    AgentConnectionState, AgentStatus, ApplicationAccess, ApplicationRequirements,
+    AgentConnectionState, AgentStatus, ApplicationAccess, ApplicationRequirements, AuthorityTarget,
     AuthorizationCollectionOffer, ContractRequirement, ControlCommand, ControlError,
-    ControlRequest, ControlResponse, GrantScope, RelayMessage, CONTROL_PROTOCOL_VERSION,
-    ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    ControlRequest, ControlResponse, GrantScope, RelayMessage, SyncReplicaMode,
+    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -152,6 +153,36 @@ impl AgentState {
                         })
                 });
             profile_operation(transport, operation, started, 0, &result);
+            return result;
+        }
+        if operation == "sync" {
+            let mode = if grant.operations.iter().any(|operation| {
+                matches!(
+                    operation.as_str(),
+                    "create" | "update" | "delete" | "rename"
+                )
+            }) {
+                SyncReplicaMode::ReadWrite
+            } else {
+                SyncReplicaMode::ReadOnly
+            };
+            let result = self.registry.sync_operation_synchronized(
+                collection_id,
+                input,
+                LocalReplica {
+                    id: grant.id,
+                    name: grant.application_name.clone(),
+                    mode,
+                    allowed_types: Default::default(),
+                },
+                &grant.scope,
+                |invalidation| {
+                    let synchronize_started = Instant::now();
+                    self.watcher.synchronize(collection_id, invalidation);
+                    synchronize_us.set(elapsed_us(synchronize_started));
+                },
+            );
+            profile_operation(transport, operation, started, synchronize_us.get(), &result);
             return result;
         }
         let result = self.registry.scoped_operation_synchronized(
@@ -672,6 +703,12 @@ impl AgentState {
                 Ok(cloud) => cloud.take_collection_authority(params.collection_id).await,
                 Err(error) => Err(error),
             },
+            ControlCommand::CollectionTransferAuthority(params) => match params.target {
+                AuthorityTarget::Remote => {
+                    self.transfer_authority_to_remote(params.collection_id)
+                        .await
+                }
+            },
             ControlCommand::CollectionCreate(params) => {
                 let result = self.registry.create(params.path, params.name.as_deref());
                 if result.is_ok() {
@@ -761,6 +798,152 @@ impl AgentState {
         self.cloud.as_ref().ok_or_else(|| {
             ConnectError::Cloud("Connect this computer to a portal first.".to_string())
         })
+    }
+
+    async fn transfer_authority_to_remote(
+        &self,
+        collection_id: uuid::Uuid,
+    ) -> Result<serde_json::Value, ConnectError> {
+        let cloud = self.cloud()?;
+        let begun = cloud.begin_remote_authority_transfer(collection_id).await?;
+        let transfer_id = begun.transfer.id;
+        if begun.transfer.state == "completed" {
+            self.registry.retire_authority(
+                collection_id,
+                transfer_id,
+                begun.transfer.authority_epoch,
+            )?;
+            self.refresh_watchers();
+            return serde_json::to_value(begun.transfer).map_err(Into::into);
+        }
+        let (manifest_digest, source_revision, source_head) = if begun.transfer.state
+            == "activating"
+        {
+            // Activation may already have reached the provider. Cancellation
+            // is unsafe from this state, so rebuild the durable fenced snapshot
+            // and resume the exact idempotent commit reserved by the server.
+            let _ = self.registry.fence_authority(collection_id, transfer_id)?;
+            (
+                begun.transfer.manifest_digest.clone().ok_or_else(|| {
+                    ConnectError::Cloud(
+                        "Activating authority transfer has no manifest digest.".to_string(),
+                    )
+                })?,
+                begun.transfer.source_revision.clone().ok_or_else(|| {
+                    ConnectError::Cloud(
+                        "Activating authority transfer has no source revision.".to_string(),
+                    )
+                })?,
+                begun.transfer.final_head.ok_or_else(|| {
+                    ConnectError::Cloud(
+                        "Activating authority transfer has no source head.".to_string(),
+                    )
+                })?,
+            )
+        } else {
+            let capability = begun.import.ok_or_else(|| {
+                ConnectError::Cloud(
+                    "The remote authority did not issue an import capability.".to_string(),
+                )
+            })?;
+            let staged = match self.registry.authority_snapshot(collection_id) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    let _ = cloud.cancel_remote_authority_transfer(transfer_id).await;
+                    return Err(error);
+                }
+            };
+            if let Err(error) = cloud.upload_authority_snapshot(&capability, &staged).await {
+                let _ = cloud.cancel_remote_authority_transfer(transfer_id).await;
+                return Err(error);
+            }
+            let fenced = match self.registry.fence_authority(collection_id, transfer_id) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    let _ = cloud.cancel_remote_authority_transfer(transfer_id).await;
+                    return Err(error);
+                }
+            };
+            if fenced.source_revision != staged.source_revision
+                || fenced.manifest_digest != staged.manifest_digest
+                || fenced.source_head != staged.source_head
+            {
+                if let Err(error) = cloud.upload_authority_snapshot(&capability, &fenced).await {
+                    return self
+                        .cancel_fenced_transfer(cloud, collection_id, transfer_id, error)
+                        .await;
+                }
+            }
+            (
+                fenced.manifest_digest,
+                fenced.source_revision,
+                fenced.source_head,
+            )
+        };
+        let mut completed = None;
+        let mut last_error = None;
+        for attempt in 0..3 {
+            match cloud
+                .complete_remote_authority_transfer(
+                    transfer_id,
+                    &manifest_digest,
+                    &source_revision,
+                    source_head,
+                )
+                .await
+            {
+                Ok(result) => {
+                    completed = Some(result);
+                    break;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    if attempt < 2 {
+                        // A lost completion response is outcome-uncertain.
+                        // Retry the idempotent CAS, but never reopen the source
+                        // automatically after attempting activation.
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    }
+                }
+            }
+        }
+        let completed = completed.ok_or_else(|| {
+            ConnectError::Cloud(format!(
+                "Authority activation is outcome-uncertain and the local source remains fenced. Retry the transfer command: {}",
+                last_error.expect("a failed activation attempt records its error")
+            ))
+        })?;
+        if completed.status != "completed"
+            || completed.collection_id != collection_id
+            || completed.authority_epoch != begun.transfer.authority_epoch
+        {
+            return Err(ConnectError::Cloud(
+                "Remote authority activation returned an inconsistent result; the local source remains fenced."
+                    .to_string(),
+            ));
+        }
+        self.registry
+            .retire_authority(collection_id, transfer_id, completed.authority_epoch)?;
+        self.refresh_watchers();
+        serde_json::to_value(completed).map_err(Into::into)
+    }
+
+    async fn cancel_fenced_transfer(
+        &self,
+        cloud: &CloudControlClient,
+        collection_id: uuid::Uuid,
+        transfer_id: uuid::Uuid,
+        cause: ConnectError,
+    ) -> Result<serde_json::Value, ConnectError> {
+        match cloud.cancel_remote_authority_transfer(transfer_id).await {
+            Ok(()) => {
+                self.registry.resume_authority(collection_id, transfer_id)?;
+                Err(cause)
+            }
+            Err(cancel_error) => Err(ConnectError::Cloud(format!(
+                "Authority import failed and cancellation could not be confirmed. The local source remains fenced: {cause}; cancellation: {cancel_error}"
+            ))),
+        }
     }
 
     async fn approve_authorization(

@@ -42,7 +42,7 @@ import {
   IndexedDbGrantKeyStore,
   MemoryGrantKeyStore,
   RelayCryptoError,
-  signHostedRequest,
+  signAuthorityRequest,
   type GrantKeyStore
 } from "./crypto.js";
 
@@ -115,7 +115,7 @@ export interface MdbaseConnectOptions {
   navigate?: (url: string) => void | Promise<void>;
 }
 
-export type MdbaseConnectionRoute = "hosted" | "direct" | "relay";
+export type MdbaseConnectionRoute = "remote" | "direct" | "relay";
 export type DirectAccessStatus =
   | "disabled"
   | "permission_required"
@@ -209,17 +209,17 @@ export interface MdbaseAuthorizationCapabilities {
   missingOperations: CollectionOperation[];
 }
 
-export interface MdbaseHostedSyncTransport<Frontmatter extends JsonObject = JsonObject> {
+export interface MdbaseSyncTransport<Frontmatter extends JsonObject = JsonObject> {
   openSession(): Promise<SyncSession>;
   snapshot(snapshotId: string, page?: string): Promise<SyncSnapshotPage<Frontmatter>>;
   changes(after: number, limit?: number): Promise<SyncChangesPage<Frontmatter>>;
   mutate(mutation: SyncMutation): Promise<SyncMutationReceipt<Frontmatter>>;
 }
 
-export interface MdbaseHostedSyncConnection<Frontmatter extends JsonObject = JsonObject> {
+export interface MdbaseSyncConnection<Frontmatter extends JsonObject = JsonObject> {
   collectionId: string;
   replicaId: string;
-  transport: MdbaseHostedSyncTransport<Frontmatter>;
+  transport: MdbaseSyncTransport<Frontmatter>;
 }
 
 export interface MdbaseNotificationRegistrationOptions {
@@ -856,8 +856,9 @@ interface StoredToken {
   applicationOrigin?: string;
   keyHandle?: string;
   savedAt: number;
-  hosted?: {
-    providerUrl: string;
+  authority?: {
+    operationsUrl: string;
+    syncUrl: string;
     replicaId: string;
     accessToken: string;
     proofPublicKey?: string;
@@ -1397,7 +1398,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
             tokenResponse.status
           );
         }
-        const hosted = validHostedTokenResponse(tokenBody.hosted);
+        const authority = validAuthorityTokenResponse(tokenBody.authority, tokenBody.collection_id);
         const localEncryption = tokenBody.encryption
           && tokenBody.encryption.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
           && tokenBody.encryption.suite === RELAY_ENCRYPTION_SUITE
@@ -1409,19 +1410,19 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           );
         }
         if (
-          tokenBody.hosted
+          tokenBody.authority
           && (
-            !hosted
+            !authority
             || tokenBody.encryption != null
-            || tokenBody.hosted.proof_public_key !== grantKey.publicKey
+            || tokenBody.authority.proof_public_key !== grantKey.publicKey
           )
         ) {
           throw new MdbaseConnectError(
             "invalid_token_response",
-            "Authorization returned a hosted capability that is not bound to this portable grant key."
+            "Authorization returned a remote authority capability that is not bound to this portable grant key."
           );
         }
-        if (!tokenBody.hosted && !localEncryption) {
+        if (!tokenBody.authority && !localEncryption) {
           throw new MdbaseConnectError(
             "encryption_required",
             "Authorization did not establish the expected key-bound local portable grant."
@@ -1510,7 +1511,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     });
     const body = await response.json();
     if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.", response.status);
-    if (pending.relayEncryption === "required" && !body.hosted && (
+    if (pending.relayEncryption === "required" && !body.authority && (
       !body.encryption
       || !pending.keyHandle
       || body.encryption.application_public_key !== pending.applicationPublicKey
@@ -1522,26 +1523,26 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization did not establish the required encrypted relay grant."
       );
     }
-    if (body.hosted?.proof_public_key) {
+    if (body.authority?.proof_public_key) {
       if (
         !pending.keyHandle
         || !pending.applicationPublicKey
-        || body.hosted.proof_public_key !== pending.applicationPublicKey
+        || body.authority.proof_public_key !== pending.applicationPublicKey
       ) {
         if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
         this.storage.removeItem(pendingKey);
         throw new MdbaseConnectError(
           "invalid_token_response",
-          "Authorization returned a hosted capability bound to another application key."
+          "Authorization returned a remote authority capability bound to another application key."
         );
       }
-    } else if (body.hosted && pending.keyHandle) {
+    } else if (body.authority && pending.keyHandle) {
       await this.keyStore.delete(pending.keyHandle);
     }
     const token = this.storeTokenResponse(
       body,
       pending.clientId,
-      body.hosted?.proof_public_key ? pending.keyHandle : body.hosted ? undefined : pending.keyHandle
+      body.authority?.proof_public_key ? pending.keyHandle : body.authority ? undefined : pending.keyHandle
     );
     if (pending.collectionId && pending.collectionId !== token.collectionId) {
       this.removeToken(token.collectionId, token.keyHandle);
@@ -1597,6 +1598,12 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization returned no valid collection scope."
       );
     }
+    if (body.authority && !validAuthorityTokenResponse(body.authority, collectionId)) {
+      throw new MdbaseConnectError(
+        "invalid_token_response",
+        "Authorization returned an invalid remote authority capability."
+      );
+    }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
     const token: StoredToken = {
@@ -1616,11 +1623,12 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       applicationOrigin: body.application_origin ?? this.defaultApplicationOrigin(),
       keyHandle,
       savedAt: Date.now(),
-      hosted: body.hosted ? {
-        providerUrl: body.hosted.provider_url,
-        replicaId: body.hosted.replica_id,
-        accessToken: body.hosted.access_token,
-        proofPublicKey: body.hosted.proof_public_key
+      authority: body.authority ? {
+        operationsUrl: body.authority.operations_url,
+        syncUrl: body.authority.sync_url,
+        replicaId: body.authority.replica_id,
+        accessToken: body.authority.access_token,
+        proofPublicKey: body.authority.proof_public_key
       } : undefined
     };
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
@@ -1768,11 +1776,11 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   get directAccess(): DirectAccessStatus {
-    return this.currentToken()?.hosted ? "disabled" : this.directStatus;
+    return this.currentToken()?.authority ? "disabled" : this.directStatus;
   }
 
   get route(): MdbaseConnectionRoute {
-    return this.currentToken()?.hosted ? "hosted" : this.currentRoute;
+    return this.currentToken()?.authority ? "remote" : this.currentRoute;
   }
 
   register(): Promise<Application> {
@@ -1786,8 +1794,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       displayName: token.collectionName,
       operations: [...token.operations],
       scope: token.scope,
-      route: token.hosted ? "hosted" : this.currentRoute,
-      directAccess: token.hosted ? "disabled" : this.directStatus
+      route: token.authority ? "remote" : this.currentRoute,
+      directAccess: token.authority ? "disabled" : this.directStatus
     } : null;
   }
 
@@ -1869,32 +1877,57 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   /**
-   * Return an offline-replication transport for an authorized hosted
-   * collection. Provider credentials stay inside the SDK and are refreshed
-   * before requests when necessary.
+   * Return one offline-replication transport regardless of whether the
+   * authority is remote, directly connected, or relay connected.
+   * Authority credentials and routing stay private inside the SDK.
    */
-  hostedSync(): MdbaseHostedSyncConnection<Frontmatter> | null {
+  sync(): MdbaseSyncConnection<Frontmatter> | null {
     const token = this.currentToken();
-    if (!token?.hosted) return null;
+    if (!token) return null;
     const collectionId = token.collectionId;
-    const replicaId = token.hosted.replicaId;
+    if (!token.authority) {
+      if (!token.grantId || !token.operations.includes("sync")) return null;
+      const replicaId = token.grantId;
+      return {
+        collectionId,
+        replicaId,
+        transport: {
+          openSession: () => this.performOperation("sync", { action: "open_session" }),
+          snapshot: (snapshotId, page) => this.performOperation("sync", {
+            action: "snapshot",
+            snapshot_id: snapshotId,
+            ...(page ? { page } : {})
+          }),
+          changes: (after, limit = 200) => this.performOperation("sync", {
+            action: "changes",
+            after,
+            limit
+          }),
+          mutate: (mutation) => this.performOperation("sync", {
+            action: "mutate",
+            mutation
+          })
+        }
+      };
+    }
+    const replicaId = token.authority.replicaId;
     return {
       collectionId,
       replicaId,
       transport: {
-        openSession: () => this.performHostedSyncRequest(collectionId, replicaId, "POST", "sessions"),
+        openSession: () => this.performAuthoritySyncRequest(collectionId, replicaId, "POST", "sessions"),
         snapshot: (snapshotId, page) => {
           const query = new URLSearchParams({ snapshot_id: snapshotId });
           if (page) query.set("page", page);
-          return this.performHostedSyncRequest(collectionId, replicaId, "GET", `snapshot?${query}`);
+          return this.performAuthoritySyncRequest(collectionId, replicaId, "GET", `snapshot?${query}`);
         },
-        changes: (after, limit = 200) => this.performHostedSyncRequest(
+        changes: (after, limit = 200) => this.performAuthoritySyncRequest(
           collectionId,
           replicaId,
           "GET",
           `changes?${new URLSearchParams({ after: String(after), limit: String(limit) })}`
         ),
-        mutate: (mutation) => this.performHostedSyncRequest(
+        mutate: (mutation) => this.performAuthoritySyncRequest(
           collectionId,
           replicaId,
           "POST",
@@ -2463,7 +2496,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return body.result as Result;
   }
 
-  private async performHostedSyncRequest<Result>(
+  private async performAuthoritySyncRequest<Result>(
     collectionId: string,
     replicaId: string,
     method: "GET" | "POST",
@@ -2471,51 +2504,50 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     input?: unknown
   ): Promise<Result> {
     let token = await this.authorizedToken();
-    if (!token?.hosted
+    if (!token?.authority
         || token.collectionId !== collectionId
-        || token.hosted.replicaId !== replicaId) {
+        || token.authority.replicaId !== replicaId) {
       throw new MdbaseConnectError(
-        "hosted_authorization_changed",
-        "Reconnect this hosted collection before synchronizing."
+        "authority_authorization_changed",
+        "Reconnect this collection authority before synchronizing."
       );
     }
-    let response = await this.sendHostedSyncRequest(token, collectionId, method, path, input);
+    let response = await this.sendAuthoritySyncRequest(token, method, path, input);
     if (response.status === 401 && token.refreshToken) {
       token = await this.refreshAuthorization();
-      if (!token.hosted
+      if (!token.authority
           || token.collectionId !== collectionId
-          || token.hosted.replicaId !== replicaId) {
+          || token.authority.replicaId !== replicaId) {
         throw new MdbaseConnectError(
-          "hosted_authorization_changed",
-          "Reconnect this hosted collection before synchronizing."
+          "authority_authorization_changed",
+          "Reconnect this collection authority before synchronizing."
         );
       }
-      response = await this.sendHostedSyncRequest(token, collectionId, method, path, input);
+      response = await this.sendAuthoritySyncRequest(token, method, path, input);
     }
     const body = await response.json();
-    if (!response.ok) throw apiError(body, "sync_failed", "Hosted collection synchronization failed.", response.status);
+    if (!response.ok) throw apiError(body, "sync_failed", "Collection synchronization failed.", response.status);
     return body as Result;
   }
 
-  private async sendHostedSyncRequest(
+  private async sendAuthoritySyncRequest(
     token: StoredToken,
-    collectionId: string,
     method: "GET" | "POST",
     path: string,
     input?: unknown
   ): Promise<Response> {
-    if (!token.hosted) {
-      throw new MdbaseConnectError("not_hosted", "This authorization is not for a hosted collection.");
+    if (!token.authority) {
+      throw new MdbaseConnectError("not_remote_authority", "This authorization has no remote authority endpoint.");
     }
-    const url = `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(collectionId)}/sync/${path}`;
+    const url = `${token.authority.syncUrl}/${path}`;
     const body = input === undefined ? undefined : JSON.stringify(input);
-    const proof = await this.hostedProofHeaders(token, method, url, body, token.hosted.accessToken);
+    const proof = await this.authorityProofHeaders(token, method, url, body, token.authority.accessToken);
     return fetch(
       url,
       {
         method,
         headers: {
-          authorization: `Bearer ${token.hosted.accessToken}`,
+          authorization: `Bearer ${token.authority.accessToken}`,
           ...(input === undefined ? {} : { "content-type": "application/json" }),
           ...proof
         },
@@ -2535,7 +2567,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
     let pendingMutation = false;
     let resumingMutation = false;
-    if (token.encryption && !token.hosted) {
+    if (token.encryption && !token.authority) {
       if (!token.grantId || !token.keyHandle) {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
@@ -2590,7 +2622,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       }
       body = encryptedRequest;
     }
-    if (tryDirect && encryptedRequest && !token.hosted) {
+    if (tryDirect && encryptedRequest && !token.authority) {
       let directDeliveryUncertain = false;
       try {
         const response = await fetch(`${this.loopbackUrl}/v1/operations`, loopbackRequest({
@@ -2626,7 +2658,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       let response: Response;
       try {
         response = await fetch(
-          `${this.serverUrl}/v1/collections/${encodeURIComponent(relayToken.collectionId)}/operations/${operation}`,
+          `${this.serverUrl}/v1/authorities/${encodeURIComponent(relayToken.collectionId)}/operations/${operation}`,
           {
           method: "POST",
           headers: {
@@ -2644,35 +2676,35 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       if (response.ok) this.setRoute("relay");
       return { response, encryptedRequest, directDeliveryUncertain, pendingMutation, resumingMutation };
     }
-    const operationUrl = token.hosted
-      ? `${stripTrailingSlash(token.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`
-      : `${this.serverUrl}/v1/collections/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
+    const operationUrl = token.authority
+      ? `${token.authority.operationsUrl}/${operation}`
+      : `${this.serverUrl}/v1/authorities/${encodeURIComponent(token.collectionId)}/operations/${operation}`;
     const operationBody = JSON.stringify(body);
-    const proof = token.hosted
-      ? await this.hostedProofHeaders(
+    const proof = token.authority
+      ? await this.authorityProofHeaders(
           token,
           "POST",
           operationUrl,
           operationBody,
-          token.hosted.accessToken
+          token.authority.accessToken
         )
       : {};
     const response = await fetch(operationUrl, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${token.hosted?.accessToken ?? token.accessToken}`,
+          authorization: `Bearer ${token.authority?.accessToken ?? token.accessToken}`,
           "content-type": "application/json",
           ...proof
         },
         body: operationBody,
         signal: options.signal
       });
-    if (response.ok) this.setRoute(token.hosted ? "hosted" : "relay");
+    if (response.ok) this.setRoute(token.authority ? "remote" : "relay");
     return { response, encryptedRequest, pendingMutation, resumingMutation };
   }
 
   private directCapable(token: StoredToken | null): boolean {
-    if (!token || token.hosted || !token.encryption || !token.grantId || !token.keyHandle) return false;
+    if (!token || token.authority || !token.encryption || !token.grantId || !token.keyHandle) return false;
     if (this.directAccessMode === "disabled") return false;
     if (typeof location !== "undefined"
         && token.applicationOrigin
@@ -2682,7 +2714,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   private hasResumableMutationTransport(): boolean {
     const token = this.currentToken();
-    return Boolean(token?.encryption && !token.hosted && token.grantId && token.keyHandle);
+    return Boolean(token?.encryption && !token.authority && token.grantId && token.keyHandle);
   }
 
   private directEligible(token: StoredToken | null): token is StoredToken {
@@ -2835,8 +2867,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       refresh_token: current.refreshToken,
       client_id: current.clientId
     }).toString();
-    const proof = current.hosted
-      ? await this.hostedProofHeaders(
+    const proof = current.authority
+      ? await this.authorityProofHeaders(
           current,
           "POST",
           refreshUrl,
@@ -2866,26 +2898,26 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.storeTokenResponse(body, current.clientId, current.keyHandle);
   }
 
-  private async hostedProofHeaders(
+  private async authorityProofHeaders(
     token: StoredToken,
     method: string,
     url: string,
     body: string | undefined,
     credential: string
   ): Promise<Record<string, string>> {
-    if (!token.hosted?.proofPublicKey) return {};
+    if (!token.authority?.proofPublicKey) return {};
     if (!token.keyHandle) {
       throw new MdbaseConnectError(
         "missing_grant_key",
-        "Reconnect this application to restore hosted request signing."
+        "Reconnect this application to restore remote authority request signing."
       );
     }
     try {
       const target = new URL(url);
-      return await signHostedRequest(
+      return await signAuthorityRequest(
         this.keyStore,
         token.keyHandle,
-        token.hosted.proofPublicKey,
+        token.authority.proofPublicKey,
         {
           method,
           target: `${target.pathname}${target.search}`,
@@ -2909,8 +2941,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       );
     }
     const token = this.internals.storeTokenResponse(body, clientId, keyHandle);
-    this.currentRoute = token.hosted ? "hosted" : "relay";
-    this.directStatus = token.hosted || this.directAccessMode === "disabled"
+    this.currentRoute = token.authority ? "remote" : "relay";
+    this.directStatus = token.authority || this.directAccessMode === "disabled"
       ? "disabled"
       : "unavailable";
     this.emitConnection();
@@ -3081,7 +3113,12 @@ function directFallbackStatus(status: number): boolean {
 function isMutation(operation: CollectionOperation, input?: unknown): boolean {
   if (input && typeof input === "object" && !Array.isArray(input)
       && (input as Record<string, unknown>).dry_run === true) return false;
-  return operation === "create"
+  return (operation === "sync"
+      && input !== null
+      && typeof input === "object"
+      && !Array.isArray(input)
+      && (input as Record<string, unknown>).action === "mutate")
+    || operation === "create"
     || operation === "update"
     || operation === "delete"
     || operation === "rename"
@@ -3254,30 +3291,46 @@ function oauthErrorCode(body: any): string | undefined {
   return typeof body?.error === "string" ? body.error : undefined;
 }
 
-function validHostedTokenResponse(value: unknown): boolean {
+function validAuthorityTokenResponse(value: unknown, collectionId: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const hosted = value as {
-    provider_url?: unknown;
+  if (typeof collectionId !== "string") return false;
+  const authority = value as {
+    operations_url?: unknown;
+    sync_url?: unknown;
     replica_id?: unknown;
     access_token?: unknown;
     proof_public_key?: unknown;
   };
   if (
-    typeof hosted.provider_url !== "string"
-    || typeof hosted.replica_id !== "string"
-    || hosted.replica_id.length === 0
-    || typeof hosted.access_token !== "string"
-    || hosted.access_token.length === 0
-    || (hosted.proof_public_key !== undefined && typeof hosted.proof_public_key !== "string")
+    typeof authority.operations_url !== "string"
+    || typeof authority.sync_url !== "string"
+    || typeof authority.replica_id !== "string"
+    || authority.replica_id.length === 0
+    || typeof authority.access_token !== "string"
+    || authority.access_token.length === 0
+    || (authority.proof_public_key !== undefined && typeof authority.proof_public_key !== "string")
   ) return false;
   try {
-    const provider = new URL(hosted.provider_url);
-    return ["http:", "https:"].includes(provider.protocol)
-      && !provider.username
-      && !provider.password
-      && provider.pathname === "/"
-      && !provider.search
-      && !provider.hash;
+    const operations = new URL(authority.operations_url);
+    const sync = new URL(authority.sync_url);
+    return [operations, sync].every((url) =>
+      (
+        url.protocol === "https:"
+        || (
+          url.protocol === "http:"
+          && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
+        )
+      )
+      && !url.username
+      && !url.password
+      && !url.search
+      && !url.hash
+    )
+      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/operations$/i.test(operations.pathname)
+      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/sync$/i.test(sync.pathname)
+      && operations.origin === sync.origin
+      && operations.pathname.split("/")[3] === collectionId
+      && sync.pathname.split("/")[3] === collectionId;
   } catch {
     return false;
   }

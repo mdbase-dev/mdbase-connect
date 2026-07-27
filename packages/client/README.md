@@ -219,7 +219,7 @@ if (status === "permission_required") {
 }
 
 connection.onConnectionChange((info) => {
-  console.log(info?.route); // "direct", "relay", or "hosted"
+  console.log(info?.route); // "direct", "relay", or "remote"
 });
 ```
 
@@ -268,7 +268,7 @@ type definitions for the connector to install during approval:
 
 Set `collection_kind` to `hosted` when the application needs a durable
 provider-backed collection and the offline sync transport returned by
-`hostedSync()`. Connect then offers and accepts hosted collections only.
+`sync()`. Connect then offers and accepts collections with replication capability.
 
 Access defaults to the record types supplied by `requirements.contracts`.
 Set `access` to `full_collection` when the application needs collection-level
@@ -325,7 +325,7 @@ not send record payloads through the Connect control plane. Refresh rotation,
 permission narrowing, and revocation keep the same public SDK behavior across
 local and hosted authorities.
 
-`hostedSync()` exposes a provider-neutral sync transport without exposing the
+`sync()` exposes a provider-neutral sync transport without exposing the
 provider credential. It refreshes the grant-bound capability as needed and can
 be passed directly to `@mdbase/connect-sync` for an offline application cache.
 

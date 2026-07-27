@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:collections:make-independent", collectionId),
   takeCollectionAuthority: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:take-authority", collectionId),
+  transferCollectionAuthority: (collectionId: string) =>
+    ipcRenderer.invoke("connect:collections:transfer-authority", collectionId),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
   createCollection: (input: { path: string; name: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),

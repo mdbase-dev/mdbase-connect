@@ -112,7 +112,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       provider_url text,
       contracts jsonb NOT NULL DEFAULT '[]'::jsonb,
       authority_state text NOT NULL DEFAULT 'active'
-        CHECK (authority_state IN ('active', 'transferring', 'transferred')),
+        CHECK (authority_state IN ('importing', 'active', 'transferring', 'transferred')),
       authority_epoch bigint NOT NULL DEFAULT 1,
       transferred_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
       created_at timestamptz NOT NULL DEFAULT now()
@@ -231,14 +231,17 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       hosted_collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
-      pairing_id uuid NOT NULL REFERENCES mirror_pairing_requests(id) ON DELETE CASCADE,
-      replica_id uuid NOT NULL REFERENCES hosted_replicas(id) ON DELETE CASCADE,
+      pairing_id uuid REFERENCES mirror_pairing_requests(id) ON DELETE CASCADE,
+      replica_id uuid REFERENCES hosted_replicas(id) ON DELETE CASCADE,
       local_collection_id uuid REFERENCES collections(id) ON DELETE SET NULL,
+      direction text NOT NULL DEFAULT 'to_local'
+        CHECK (direction IN ('to_local', 'to_hosted')),
       state text NOT NULL DEFAULT 'requested'
-        CHECK (state IN ('requested', 'approved', 'prepared', 'completed', 'cancelled', 'expired')),
+        CHECK (state IN ('requested', 'approved', 'prepared', 'activating', 'completed', 'cancelled', 'expired')),
       final_head bigint,
       next_authority_epoch bigint,
       manifest_digest text,
+      source_revision text,
       expires_at timestamptz NOT NULL,
       approved_at timestamptz,
       prepared_at timestamptz,
@@ -602,6 +605,27 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   );
   await ensureColumn(
     db,
+    "authority_transfers",
+    "direction",
+    "ALTER TABLE authority_transfers ADD COLUMN direction text NOT NULL DEFAULT 'to_local'"
+  );
+  await ensureColumn(
+    db,
+    "authority_transfers",
+    "source_revision",
+    "ALTER TABLE authority_transfers ADD COLUMN source_revision text"
+  );
+  await ensureNullable(db, "authority_transfers", "pairing_id");
+  await ensureNullable(db, "authority_transfers", "replica_id");
+  await db.query(
+    "ALTER TABLE authority_transfers DROP CONSTRAINT IF EXISTS authority_transfers_state_check"
+  );
+  await db.query(
+    `ALTER TABLE authority_transfers ADD CONSTRAINT authority_transfers_state_check
+     CHECK (state IN ('requested', 'approved', 'prepared', 'activating', 'completed', 'cancelled', 'expired'))`
+  );
+  await ensureColumn(
+    db,
     "hosted_collections",
     "authority_state",
     "ALTER TABLE hosted_collections ADD COLUMN authority_state text NOT NULL DEFAULT 'active'"
@@ -734,12 +758,12 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     `ALTER TABLE collections ADD CONSTRAINT collections_authority_state_check
      CHECK (authority_state IN ('active', 'candidate', 'retired'))`
   );
-  await ensureConstraint(
-    db,
-    "hosted_collections",
-    "hosted_collections_authority_state_check",
+  await db.query(
+    "ALTER TABLE hosted_collections DROP CONSTRAINT IF EXISTS hosted_collections_authority_state_check"
+  );
+  await db.query(
     `ALTER TABLE hosted_collections ADD CONSTRAINT hosted_collections_authority_state_check
-     CHECK (authority_state IN ('active', 'transferring', 'transferred'))`
+     CHECK (authority_state IN ('importing', 'active', 'transferring', 'transferred'))`
   );
   const activeAuthorities = await db.query<{
     id: string;

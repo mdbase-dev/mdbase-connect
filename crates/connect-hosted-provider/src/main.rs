@@ -155,6 +155,11 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             }
             Err(error) => tracing::error!(%error, "authority transfer recovery failed"),
         }
+        match provider.recover_expired_authority_imports().await {
+            Ok(0) => {}
+            Ok(imports) => tracing::warn!(imports, "removed expired authority imports"),
+            Err(error) => tracing::error!(%error, "authority import recovery failed"),
+        }
     }
 }
 

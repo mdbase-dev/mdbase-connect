@@ -1,7 +1,7 @@
 # @mdbase/connect-sync
 
 Provider-neutral replication protocol and executable reference state machine for
-hosted mdbase collections. It models stable record identity, pinned snapshots,
+mdbase authorities. It models stable record identity, pinned snapshots,
 scoped ordered changes, conditional idempotent mutations, conflicts, cursor
 reset, revocation, offline queues, and receive-only or writable Markdown
 mirrors.
@@ -18,7 +18,7 @@ operation execution through `mdbase-rs`.
 
 ## Embedded mirror enrollment
 
-Applications that materialize a hosted collection into their own filesystem
+Applications that materialize a remote collection into their own filesystem
 can use the browser-approval client without copying the CLI workflow:
 
 ```ts
@@ -44,7 +44,7 @@ const enrollment = await client.enroll({
 
 The client starts approval, polls until the user decides, validates the
 selected collection and mirror mode, rejects an untrusted verification URI,
-and returns the provider URL, replica identity, access token, renewal
+and returns the authority sync URL, replica identity, access token, renewal
 credential, and expiries. `renew(enrollment)` rotates the short-lived access
 token without changing the replica. When using `enroll()`, the verification
 callback receives only public approval details; the short-lived enrollment
@@ -151,7 +151,7 @@ owner-only application-state directory, never inside the mirrored folder.
 Access tokens renew automatically until the mirror is revoked.
 
 The folder contains only a non-secret `.mdbase/connect-role.json` marker that
-identifies it as a hosted mirror. A local Connect agent will not register or
+identifies it as a mirror. A local Connect agent will not register or
 relay that folder. Mirror operations also use an exclusive device-local lease;
 `watch` holds it for its lifetime, so a desktop mirror and an Obsidian mirror
 plugin cannot run over the same physical folder. The lock namespace is shared

@@ -40,8 +40,9 @@ const tokenResponseSchema = z.object({
   }),
   grant_id: z.uuid(),
   encryption: grantEncryptionSchema.nullable(),
-  hosted: z.object({
-    provider_url: z.url(),
+  authority: z.object({
+    operations_url: z.url(),
+    sync_url: z.url(),
     replica_id: z.uuid(),
     access_token: z.string().min(1)
   }).optional()
@@ -52,8 +53,8 @@ type ConnectTokenResponse = z.infer<typeof tokenResponseSchema>;
 interface StoredCredentials {
   accessToken: string;
   refreshToken: string;
-  hosted?: {
-    providerUrl: string;
+  authority?: {
+    operationsUrl: string;
     replicaId: string;
     accessToken: string;
   };
@@ -65,7 +66,7 @@ export interface ConnectionSummary {
   display_name: string;
   operations: CollectionOperation[];
   scope: GrantScope;
-  authority: "local" | "hosted";
+  authority: "local" | "remote";
 }
 
 interface ConnectionRow {
@@ -204,9 +205,9 @@ export class ConnectGateway {
     let body: unknown = input ?? {};
     let url: string;
     let bearer: string;
-    if (credentials.hosted) {
-      url = `${stripTrailingSlash(credentials.hosted.providerUrl)}/v1/hosted/collections/${encodeURIComponent(connection.collection_id)}/operations/${operation}`;
-      bearer = credentials.hosted.accessToken;
+    if (credentials.authority) {
+      url = `${credentials.authority.operationsUrl}/${operation}`;
+      bearer = credentials.authority.accessToken;
     } else {
       if (!connection.encryption || !connection.key_handle) {
         throw new GatewayOperationError("encryption_required", "Local collection access requires an encrypted grant.");
@@ -223,7 +224,7 @@ export class ConnectGateway {
         input
       );
       body = request;
-      url = `${connection.upstream_url}/v1/collections/${encodeURIComponent(connection.collection_id)}/operations/${operation}`;
+      url = `${connection.upstream_url}/v1/authorities/${encodeURIComponent(connection.collection_id)}/operations/${operation}`;
       bearer = credentials.accessToken;
     }
     const response = await fetch(url, {
@@ -316,7 +317,7 @@ export class ConnectGateway {
     keyHandle: string | null,
     applicationId: string
   ): Promise<void> {
-    if (token.hosted) return;
+    if (token.authority) return;
     if (!token.encryption || !keyHandle) {
       throw new GatewayOperationError("encryption_required", "Connect did not establish encrypted local access.");
     }
@@ -341,8 +342,8 @@ export class ConnectGateway {
       [setId, this.connectUrl, token.collection_id]
     );
     const previousKey = previous.rows[0]?.key_handle ?? null;
-    const storedKey = token.hosted ? null : keyHandle;
-    if (token.hosted) await this.keyStore.delete(keyHandle);
+    const storedKey = token.authority ? null : keyHandle;
+    if (token.authority) await this.keyStore.delete(keyHandle);
     const result = await this.db.query<ConnectionRow>(
       `INSERT INTO mcp_connections
          (id, connection_set_id, upstream_url, upstream_client_id, collection_id,
@@ -400,11 +401,11 @@ function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
   return {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
-    ...(token.hosted ? {
-      hosted: {
-        providerUrl: token.hosted.provider_url,
-        replicaId: token.hosted.replica_id,
-        accessToken: token.hosted.access_token
+    ...(token.authority ? {
+      authority: {
+        operationsUrl: token.authority.operations_url,
+        replicaId: token.authority.replica_id,
+        accessToken: token.authority.access_token
       }
     } : {})
   };
@@ -417,7 +418,7 @@ function summary(connection: ConnectionRow): ConnectionSummary {
     display_name: connection.display_name,
     operations: connection.operations,
     scope: connection.scope,
-    authority: connection.encryption ? "local" : "hosted"
+    authority: connection.encryption ? "local" : "remote"
   };
 }
 

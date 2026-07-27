@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryHostedAuthority } from "./index.js";
+import { MemoryAuthority } from "./index.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -80,7 +80,7 @@ function records(count: number) {
 
 describe("platform-neutral directory mirror", () => {
   it("materializes through injected adapters and keeps receive-only state compact", async () => {
-    const hosted = new MemoryHostedAuthority({ snapshotPageSize: 2 });
+    const hosted = new MemoryAuthority({ snapshotPageSize: 2 });
     hosted.seed(records(5));
     const replicaId = hosted.registerReplica({ name: "Mobile", mode: "read_only" });
     const fileSystem = new TestFileSystem();
@@ -105,7 +105,7 @@ describe("platform-neutral directory mirror", () => {
   });
 
   it("does a complete collision preflight before writing any hosted document", async () => {
-    const hosted = new MemoryHostedAuthority({ snapshotPageSize: 1 });
+    const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(3));
     const replicaId = hosted.registerReplica({ name: "Mobile", mode: "read_only" });
     const fileSystem = new TestFileSystem();
@@ -126,7 +126,7 @@ describe("platform-neutral directory mirror", () => {
   });
 
   it("does not advance durable state when a mobile adapter fails mid-apply", async () => {
-    const hosted = new MemoryHostedAuthority({ snapshotPageSize: 1 });
+    const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(3));
     const replicaId = hosted.registerReplica({ name: "Mobile", mode: "read_only" });
     const fileSystem = new TestFileSystem();
@@ -148,7 +148,7 @@ describe("platform-neutral directory mirror", () => {
   });
 
   it("rejects a snapshot boundary change before applying files", async () => {
-    const hosted = new MemoryHostedAuthority({ snapshotPageSize: 1 });
+    const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
     hosted.seed(records(2));
     const replicaId = hosted.registerReplica({ name: "Mobile", mode: "read_only" });
     const base = hosted.transport(replicaId);
@@ -172,7 +172,7 @@ describe("platform-neutral directory mirror", () => {
   });
 
   it("uploads an existing mobile-vault document through the writable core", async () => {
-    const hosted = new MemoryHostedAuthority();
+    const hosted = new MemoryAuthority();
     const replicaId = hosted.registerReplica({
       name: "Mobile writer",
       mode: "read_write",
@@ -200,7 +200,7 @@ describe("platform-neutral directory mirror", () => {
   });
 
   it("checkpoints a 2,000-record no-op sync only once", async () => {
-    const hosted = new MemoryHostedAuthority({ snapshotPageSize: 100 });
+    const hosted = new MemoryAuthority({ snapshotPageSize: 100 });
     hosted.seed(records(2_000));
     const replicaId = hosted.registerReplica({ name: "Large mobile vault", mode: "read_only" });
     const fileSystem = new TestFileSystem();

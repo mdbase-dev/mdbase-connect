@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import { MemoryHostedAuthority } from "../packages/sync/dist/index.js";
+import { MemoryAuthority } from "../packages/sync/dist/index.js";
 import {
   DirectoryMirror,
   MirrorInitializationConflictError,
@@ -47,7 +47,7 @@ for (const [index, path] of paths.entries()) {
 }
 const sourceScanMs = performance.now() - sourceStarted;
 
-const hosted = new MemoryHostedAuthority({ snapshotPageSize: 200 });
+const hosted = new MemoryAuthority({ snapshotPageSize: 200 });
 hosted.seed(records);
 const writerId = hosted.registerReplica({
   name: "Live-vault adversary",

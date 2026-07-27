@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MemoryHostedAuthority } from "./index.js";
+import { MemoryAuthority } from "./index.js";
 import {
   authorityManifestDigest,
   DirectoryMirror,
@@ -55,7 +55,7 @@ class CountingMirrorStateStore extends MemoryMirrorStateStore {
 
 describe("receive-only Markdown mirror", () => {
   it("runs against a filesystem-neutral adapter", async () => {
-    const hosted = new MemoryHostedAuthority();
+    const hosted = new MemoryAuthority();
     const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
     const mirrorId = hosted.registerReplica({ name: "Portable mirror", mode: "read_only" });
     await hosted.transport(writer).mutate({
@@ -79,7 +79,7 @@ describe("receive-only Markdown mirror", () => {
   it("materializes stable records, renames them, and pauses on local divergence", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-mirror-"));
     try {
-      const hosted = new MemoryHostedAuthority({
+      const hosted = new MemoryAuthority({
         resources: {
           revision: "resources:1",
           spec_version: "0.3.0",
@@ -131,7 +131,7 @@ describe("receive-only Markdown mirror", () => {
   it("detects a locally deleted managed file even when the authority is unchanged", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-mirror-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
       await hosted.transport(writer).mutate({
@@ -152,7 +152,7 @@ describe("receive-only Markdown mirror", () => {
   it("rejects corrupt or cross-replica mirror metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-mirror-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
       const stateStore = new MemoryMirrorStateStore();
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), { stateStore });
@@ -174,7 +174,7 @@ describe("receive-only Markdown mirror", () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-mirror-"));
     const outside = await mkdtemp(join(tmpdir(), "mdbase-sync-outside-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
       await hosted.transport(writer).mutate({
@@ -197,7 +197,7 @@ describe("receive-only Markdown mirror", () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-mirror-"));
     const outside = await mkdtemp(join(tmpdir(), "mdbase-sync-outside-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const mirrorId = hosted.registerReplica({ name: "Laptop mirror", mode: "read_only" });
       await symlink(outside, join(root, ".mdbase"), "dir");
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
@@ -239,7 +239,7 @@ describe("writable Markdown mirror", () => {
       }
     ])).toBe("5f1f72e19ba871d569231de5cd71a4e1703fbc28e39d9357081f1a870d1fc7a9");
 
-    const hosted = new MemoryHostedAuthority({
+    const hosted = new MemoryAuthority({
       resources: {
         revision: "resources:1",
         spec_version: "0.3.0",
@@ -284,7 +284,7 @@ describe("writable Markdown mirror", () => {
   });
 
   it("refuses promotion when the mirror is read-only or has unmanaged Markdown", async () => {
-    const hosted = new MemoryHostedAuthority();
+    const hosted = new MemoryAuthority();
     const readOnlyId = hosted.registerReplica({ name: "Read only", mode: "read_only" });
     const readOnly = new DirectoryMirror(
       "/virtual",
@@ -323,7 +323,7 @@ describe("writable Markdown mirror", () => {
   it("imports existing local Markdown during initialization", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
       await writeFile(join(root, "existing.md"), "---\ntype: task\ntitle: Existing local note\n---\nLocal body");
       const mirror = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), deviceState());
@@ -342,7 +342,7 @@ describe("writable Markdown mirror", () => {
   });
 
   it("previews initial folder collisions before writing any hosted files", async () => {
-    const hosted = new MemoryHostedAuthority();
+    const hosted = new MemoryAuthority();
     const writer = hosted.registerReplica({ name: "Writer", mode: "read_write", allowedTypes: ["task"] });
     const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
     for (const path of ["a.md", "b.md"]) {
@@ -377,7 +377,7 @@ describe("writable Markdown mirror", () => {
   it("uploads local updates, creates, exact renames, and deletes with stable identity", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
       const mirror = new WritableDirectoryMirror(root, replicaId, hosted.transport(replicaId), deviceState());
       await mirror.sync();
@@ -413,7 +413,7 @@ describe("writable Markdown mirror", () => {
   it("preserves local content on conflict and supports explicit local resolution", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({ name: "Remote writer", mode: "read_write", allowedTypes: ["task"] });
       const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
       const recordId = crypto.randomUUID();
@@ -453,7 +453,7 @@ describe("writable Markdown mirror", () => {
   it("continues synchronizing unrelated notes while one note needs conflict resolution", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({
         name: "Remote writer",
         mode: "read_write",
@@ -524,7 +524,7 @@ describe("writable Markdown mirror", () => {
   it("rebases a local rename and edit together after a concurrent remote edit", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const writer = hosted.registerReplica({
         name: "Remote writer",
         mode: "read_write",
@@ -587,7 +587,7 @@ describe("writable Markdown mirror", () => {
   it("can discard a rejected local change and restore the hosted record", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const replicaId = hosted.registerReplica({
         name: "Writable laptop",
         mode: "read_write",
@@ -642,7 +642,7 @@ describe("writable Markdown mirror", () => {
   it("replays a journaled mutation after the server commits but the response is lost", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority();
+      const hosted = new MemoryAuthority();
       const replicaId = hosted.registerReplica({ name: "Writable laptop", mode: "read_write", allowedTypes: ["task"] });
       const upstream = hosted.transport(replicaId);
       let loseResponse = true;
@@ -673,7 +673,7 @@ describe("writable Markdown mirror", () => {
   });
 
   it("checkpoints large imports in bounded batches and safely replays an interrupted batch", async () => {
-    const hosted = new MemoryHostedAuthority();
+    const hosted = new MemoryAuthority();
     const replicaId = hosted.registerReplica({
       name: "Large writable mirror",
       mode: "read_write"
@@ -746,7 +746,7 @@ describe("writable Markdown mirror", () => {
   it("never treats schema resources as writable record changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-sync-writable-"));
     try {
-      const hosted = new MemoryHostedAuthority({
+      const hosted = new MemoryAuthority({
         resources: {
           revision: "resources:1",
           spec_version: "0.3.0",

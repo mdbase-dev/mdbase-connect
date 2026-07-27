@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { performance } from "node:perf_hooks";
-import { MemoryHostedAuthority } from "../packages/sync/dist/index.js";
+import { MemoryAuthority } from "../packages/sync/dist/index.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -184,7 +184,7 @@ function countingTransport(transport, probe) {
 }
 
 function seededAuthority(mode) {
-  const authority = new MemoryHostedAuthority({ snapshotPageSize: pageSize });
+  const authority = new MemoryAuthority({ snapshotPageSize: pageSize });
   authority.seed(Array.from({ length: recordCount }, (_, index) => {
     const suffix = String(index).padStart(8, "0");
     return {
