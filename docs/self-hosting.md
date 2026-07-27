@@ -17,8 +17,8 @@ Production deployments must use a signed or annotated release tag, never
 ```bash
 git clone https://github.com/mdbase-dev/mdbase-connect.git
 cd mdbase-connect
-git checkout v0.1.0-beta.7
-test "$(git describe --tags --exact-match)" = "v0.1.0-beta.7"
+git checkout v0.1.0-beta.8
+test "$(git describe --tags --exact-match)" = "v0.1.0-beta.8"
 ```
 
 Copy the production environment template:
@@ -163,7 +163,7 @@ and update `MDBASE_CONNECT_VERSION` to match it:
 
 ```bash
 git fetch --tags
-git checkout v0.1.0-beta.7
+git checkout v0.1.0-beta.8
 docker compose --env-file deploy/self-host/.env \
   -f deploy/self-host/compose.yml \
   --profile hosted --profile mcp \
