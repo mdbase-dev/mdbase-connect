@@ -35,7 +35,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
       });
       return;
     }
-    if (url.pathname.startsWith("/v1/collections/")) {
+    if (url.pathname.startsWith("/v1/authorities/")) {
       relayedOperations.push(url.pathname);
       await json(route, { error: { code: "unexpected_relay", message: "Not expected." } }, 500);
       return;

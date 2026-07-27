@@ -8,9 +8,9 @@ const secondReplicaId = "20000000-0000-4000-8000-000000000012";
 const secondGrantId = "30000000-0000-4000-8000-000000000013";
 const providerOrigin = "https://sync.mdbase.dev";
 
-test("chooses a hosted collection and performs CRUD through its provider", async ({ page }) => {
-  const hosted = new HostedCollectionHarness(page);
-  await hosted.install();
+test("chooses a remote authority collection and performs CRUD through its provider", async ({ page }) => {
+  const authority = new RemoteAuthorityHarness(page);
+  await authority.install();
 
   await page.goto("/");
   await expect(page.getByText("Choose the collection you want to write in.")).toBeVisible();
@@ -31,7 +31,7 @@ test("chooses a hosted collection and performs CRUD through its provider", async
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("A hosted draft");
 
   await page.getByRole("textbox", { name: "Note body" }).fill("Stored directly on mdbase.");
-  await expect.poll(() => hosted.operations.filter((operation) => operation === "update").length).toBe(1);
+  await expect.poll(() => authority.operations.filter((operation) => operation === "update").length).toBe(1);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "A hosted draft.md" }).click();
@@ -47,7 +47,7 @@ test("chooses a hosted collection and performs CRUD through its provider", async
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
   await expect(page.getByRole("option", { name: /A hosted draft/ })).toHaveCount(0);
 
-  await expect.poll(() => new Set(hosted.operations)).toEqual(new Set([
+  await expect.poll(() => new Set(authority.operations)).toEqual(new Set([
     "changes",
     "create",
     "delete",
@@ -57,12 +57,12 @@ test("chooses a hosted collection and performs CRUD through its provider", async
     "rename",
     "update"
   ]));
-  expect(hosted.controlPlaneOperations).toBe(0);
+  expect(authority.controlPlaneOperations).toBe(0);
 });
 
-test("returns to the newly chosen collection when switching collections", async ({ page }) => {
-  const hosted = new HostedCollectionHarness(page);
-  await hosted.install();
+test("returns to the newly chosen remote authority when switching collections", async ({ page }) => {
+  const authority = new RemoteAuthorityHarness(page);
+  await authority.install();
 
   await page.goto("/");
   await page.getByRole("button", { name: "Choose a collection" }).click();
@@ -82,7 +82,7 @@ test("returns to the newly chosen collection when switching collections", async 
   await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();
 });
 
-interface HostedRecord {
+interface AuthorityRecord {
   path: string;
   frontmatter: Record<string, unknown>;
   effective_frontmatter: Record<string, unknown>;
@@ -100,11 +100,11 @@ interface HostedRecord {
   };
 }
 
-class HostedCollectionHarness {
+class RemoteAuthorityHarness {
   readonly operations: string[] = [];
   controlPlaneOperations = 0;
   private sequence = 1;
-  private readonly records = new Map<string, HostedRecord>();
+  private readonly records = new Map<string, AuthorityRecord>();
 
   constructor(private readonly page: Page) {
     const welcome = this.document(
@@ -158,10 +158,11 @@ class HostedCollectionHarness {
         scope: { contracts: [], access: "full_collection" },
         grant_id: selectedSecondCollection ? secondGrantId : grantId,
         encryption: null,
-        hosted: {
-          provider_url: providerOrigin,
+        authority: {
+          operations_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/operations`,
+          sync_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/sync`,
           replica_id: selectedSecondCollection ? secondReplicaId : replicaId,
-          access_token: selectedSecondCollection ? "hosted-provider-access-second" : "hosted-provider-access"
+          access_token: selectedSecondCollection ? "remote-authority-access-second" : "remote-authority-access"
         }
       });
     }
@@ -171,10 +172,10 @@ class HostedCollectionHarness {
 
   private async provider(route: Route) {
     const request = route.request();
-    const selectedSecondCollection = request.headers().authorization === "Bearer hosted-provider-access-second";
+    const selectedSecondCollection = request.headers().authorization === "Bearer remote-authority-access-second";
     expect([
-      "Bearer hosted-provider-access",
-      "Bearer hosted-provider-access-second"
+      "Bearer remote-authority-access",
+      "Bearer remote-authority-access-second"
     ]).toContain(request.headers().authorization);
     const operation = new URL(request.url()).pathname.split("/").at(-1)!;
     const input = request.postDataJSON() as Record<string, unknown>;
@@ -265,15 +266,15 @@ class HostedCollectionHarness {
     return json(route, { error: { code: "unsupported_operation", message: operation } }, 400);
   }
 
-  private record(path: string): HostedRecord {
+  private record(path: string): AuthorityRecord {
     const record = this.records.get(path);
     if (!record) throw new Error(`Hosted test record not found: ${path}`);
     return record;
   }
 
-  private document(path: string, body: string, frontmatter: Record<string, unknown>): HostedRecord {
+  private document(path: string, body: string, frontmatter: Record<string, unknown>): AuthorityRecord {
     const slash = path.lastIndexOf("/");
-    const revision = `hosted-${this.sequence++}`;
+    const revision = `authority-${this.sequence++}`;
     return {
       path,
       frontmatter,
@@ -325,7 +326,7 @@ function envelope<Result>(result: Result) {
   return { valid: true, diagnostics: [], result };
 }
 
-function summary(record: HostedRecord, includeBody: boolean) {
+function summary(record: AuthorityRecord, includeBody: boolean) {
   const { revision: _revision, body, ...value } = record;
   const projected = {
     ...value,
