@@ -66,7 +66,7 @@ function App() {
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
-  const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections: [], grants: [], pending_authorizations: [] });
+  const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
   const [mirrors, setMirrors] = useState<DesktopMirrorSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -268,6 +268,7 @@ function App() {
             access={combinedAccess}
             collections={collections}
             hostedCollections={hosted.hosted_collections}
+            canCreateHosted={hosted.hosted_collections_available !== false}
             busy={busy}
             onAct={act}
             onNotice={setNotice}
@@ -297,9 +298,9 @@ function App() {
                 <input type="radio" name="authority" value="local" checked={newAuthority === "local"} onChange={() => setNewAuthority("local")} />
                 <span><strong>On this computer</strong><small>A folder here is the final authority.</small></span>
               </label>
-              <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured ? "" : "disabled"}`}>
-                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={!cloud?.configured} onChange={() => setNewAuthority("hosted")} />
-                <span><strong>Hosted by mdbase</strong><small>{cloud?.configured ? "Available while this computer is offline; optional local mirror." : "Connect this computer to your account first."}</small></span>
+              <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured && hosted.hosted_collections_available !== false ? "" : "disabled"}`}>
+                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={!cloud?.configured || hosted.hosted_collections_available === false} onChange={() => setNewAuthority("hosted")} />
+                <span><strong>Hosted by mdbase</strong><small>{!cloud?.configured ? "Connect this computer to your account first." : hosted.hosted_collections_available !== false ? "Available while this computer is offline; optional local mirror." : "Hosted collections are not enabled for this Connect service."}</small></span>
               </label>
             </fieldset>
             <label><span>Collection name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
@@ -712,11 +713,12 @@ function HostedCollectionRow({
   );
 }
 
-function Access({ cloud, access, collections, hostedCollections, busy, onAct, onNotice }: {
+function Access({ cloud, access, collections, hostedCollections, canCreateHosted, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   hostedCollections: HostedCollectionSummary[];
+  canCreateHosted: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
@@ -731,7 +733,7 @@ function Access({ cloud, access, collections, hostedCollections, busy, onAct, on
           <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here." />
         ) : (
           <div className="request-list">
-            {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} hostedCollections={hostedCollections} busy={busy} onAct={onAct} onNotice={onNotice} />)}
+            {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} hostedCollections={hostedCollections} canCreateHosted={canCreateHosted} busy={busy} onAct={onAct} onNotice={onNotice} />)}
           </div>
         )}
       </section>
@@ -791,14 +793,25 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
   );
 }
 
-function AuthorizationRequest({ request, collections, hostedCollections, busy, onAct, onNotice }: {
+function AuthorizationRequest({ request, collections, hostedCollections, canCreateHosted, busy, onAct, onNotice }: {
   request: PendingAuthorization;
   collections: CollectionSummary[];
   hostedCollections: HostedCollectionSummary[];
+  canCreateHosted: boolean;
   busy: boolean;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
+  const [creatingHosted, setCreatingHosted] = useState(false);
+  const [hostedName, setHostedName] = useState("");
+  const [createdHostedCollection, setCreatedHostedCollection] = useState<HostedCollectionSummary | null>(null);
+  const authorizationHostedCollections = useMemo(() => {
+    const combined = new Map(hostedCollections.map((collection) => [collection.id, collection]));
+    if (createdHostedCollection && !combined.has(createdHostedCollection.id)) {
+      combined.set(createdHostedCollection.id, createdHostedCollection);
+    }
+    return [...combined.values()];
+  }, [createdHostedCollection, hostedCollections]);
   const available = useMemo<AuthorizationCollection[]>(() => [
     ...collections
       .filter((collection) =>
@@ -813,7 +826,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, busy, o
         kind: "local" as const,
         provisionable: request.provisionable_collection_ids.includes(collection.id)
       })),
-    ...hostedCollections
+    ...authorizationHostedCollections
       .filter((collection) =>
         collection.authority_state === "active"
         && hostedCollectionCompatible(request, collection)
@@ -830,7 +843,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, busy, o
       }))
   ], [
     collections,
-    hostedCollections,
+    authorizationHostedCollections,
     request.compatible_collection_ids,
     request.provisionable_collection_ids,
     request.requirements,
@@ -856,6 +869,22 @@ function AuthorizationRequest({ request, collections, hostedCollections, busy, o
       setCollectionId(available[0]?.id ?? "");
     }
   }, [collectionId, available]);
+  async function createHostedCollection(event: React.FormEvent) {
+    event.preventDefault();
+    const displayName = hostedName.trim();
+    if (!displayName) return;
+    let created: HostedCollectionSummary | undefined;
+    await onAct(async () => {
+      const result = await window.mdbaseConnect.createHostedCollection(displayName);
+      created = result.collection;
+    });
+    if (!created) return;
+    setCreatedHostedCollection(created);
+    setCollectionId(created.id);
+    setCreatingHosted(false);
+    setHostedName("");
+    onNotice(`${created.display_name} was created and selected. Application access is not allowed yet.`);
+  }
   return (
     <article className="request-panel">
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{request.application_distribution === "portable" ? `Downloaded HTML file${request.application_project_url ? ` · ${host(request.application_project_url)}` : ""}` : host(request.application_homepage)}</code>{request.application_distribution === "portable" && <small className="portable-request-warning">Unverified file origin. Only allow it if you intentionally opened the file{request.user_code ? ` and it shows ${request.user_code}` : ""}.</small>}<small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
@@ -863,8 +892,45 @@ function AuthorizationRequest({ request, collections, hostedCollections, busy, o
         <section className="request-section">
           <div><strong>Collection</strong><small>Choose where {request.application_name} can work.</small></div>
           <div className="request-section-content">
-            <label><span>Collection</span><select value={collectionId} disabled={available.length === 0} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "hosted" : "this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
+            <label><span>Collection</span><select value={collectionId} disabled={available.length === 0 || busy} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "Hosted by mdbase" : "on this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
             {available.length === 0 && <small>No available local or hosted collection supports all requested operations and contracts.</small>}
+            {canCreateHosted && (creatingHosted ? (
+              <form
+                className="request-collection-create"
+                id={`create-hosted-${request.id}`}
+                onSubmit={(event) => void createHostedCollection(event)}
+              >
+                <label>
+                  <span>New collection name</span>
+                  <input
+                    autoFocus
+                    maxLength={200}
+                    value={hostedName}
+                    disabled={busy}
+                    placeholder="Workouts"
+                    onChange={(event) => setHostedName(event.target.value)}
+                  />
+                </label>
+                <p>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately below.</p>
+                <div>
+                  <button className="quiet-action" type="button" disabled={busy} onClick={() => {
+                    setCreatingHosted(false);
+                    setHostedName("");
+                  }}>Cancel</button>
+                  <button className="button secondary" disabled={busy || !hostedName.trim()}>{busy ? "Creating…" : "Create collection"}</button>
+                </div>
+              </form>
+            ) : (
+              <div className="request-collection-action">
+                <button
+                  className="button secondary"
+                  type="button"
+                  aria-controls={`create-hosted-${request.id}`}
+                  disabled={busy}
+                  onClick={() => setCreatingHosted(true)}
+                >Create hosted collection</button>
+              </div>
+            ))}
             {setup.length > 0 && <small>Setup needed: allowing access will add {provisionNames(setup)} to this collection.</small>}
           </div>
         </section>

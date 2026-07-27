@@ -179,6 +179,18 @@ describe("production GitHub authentication", () => {
       payload: { display_name: "Private" }
     });
     expect(response.statusCode).toBe(404);
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Local user", email: "local-only@example.com" }
+    });
+    const cookie = cookiePair(responseCookies(login)[0]);
+    const dashboard = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie }
+    });
+    expect(dashboard.json().hosted_collections_available).toBe(false);
   });
 
   it("manages the complete hosted collection and receive-only mirror lifecycle", async () => {

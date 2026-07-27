@@ -2454,10 +2454,13 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     await page.goto(authorizationUrl);
     await expect(page.getByRole("heading", { name: "Hosted SDK E2E" })).toBeVisible();
     await expect(page.getByText("Hosted SDK E2E is asking to use one collection. Choose where it can work and review what it can do.")).toBeVisible();
-    const collection = page.getByLabel("Collection and location");
-    await expect(collection.locator(`option[value="${collectionId}"]`)).toHaveCount(1);
-    await collection.selectOption(collectionId);
-    await expect(collection.locator("option:checked")).toHaveText("Hosted writing · Hosted by mdbase");
+    const collection = page.getByRole("radio", {
+      name: /Hosted writing.*Hosted by mdbase/
+    });
+    await expect(collection).toHaveAttribute("value", collectionId);
+    await collection.check();
+    await expect(collection).toBeChecked();
+    await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
     await page.getByRole("button", { name: "Allow Hosted SDK E2E" }).click();
     const outcome = await Promise.race([
       page.waitForURL(
@@ -2488,17 +2491,17 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
     const page = await context.newPage();
     await page.goto(authorizationUrl);
     await expect(page.getByRole("heading", { name: "Workout Inline E2E" })).toBeVisible();
-    const collection = page.getByLabel("Collection and location");
-    await expect(collection.locator("option")).toHaveCount(1);
-    await expect(collection.locator("option:checked")).toHaveText("No compatible collection");
-    await expect(collection).toBeDisabled();
-    await page.getByRole("button", { name: "Create an mdbase cloud collection" }).click();
-    await expect(collection.locator("option")).toHaveCount(1);
-    await expect(collection.locator("option:checked")).toHaveText(
-      "My collection · mdbase cloud · setup required"
-    );
+    await expect(page.getByText("No compatible collection is ready.")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Collection and location" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await page.getByLabel("New collection name").fill("Workout records");
+    await page.getByRole("button", { name: "Create collection" }).click();
+    const collection = page.getByRole("radio", {
+      name: /Workout records.*Hosted by mdbase.*Setup needed/
+    });
+    await expect(collection).toBeVisible();
+    await expect(collection).toBeChecked();
     await expect(page.getByText("allowing access will add Workout")).toBeVisible();
-    await expect(collection).toBeEnabled();
     await page.getByRole("button", { name: "Allow Workout Inline E2E" }).click();
     await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
     return page.url();

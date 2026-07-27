@@ -54,6 +54,7 @@ function Login() {
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState("");
+  const continuingAuthorization = isAuthorizationReturnTarget();
 
   useEffect(() => {
     async function identify() {
@@ -106,11 +107,13 @@ function Login() {
     <main className="center-page">
       <PageBrand label="connect" />
       <section className="auth-panel">
-        <p className="eyebrow">{config.registration === "open" ? "Account access" : "Private preview"}</p>
-        <h1>Sign in to mdbase connect</h1>
-        <p>{config.registration === "open"
-          ? "Choose an identity provider to create or open your account."
-          : "Access is currently limited to invited accounts."}</p>
+        <p className="eyebrow">{continuingAuthorization ? "Choose a collection" : config.registration === "open" ? "Account access" : "Private preview"}</p>
+        <h1>{continuingAuthorization ? "Sign in to continue" : "Sign in to mdbase connect"}</h1>
+        <p>{continuingAuthorization
+          ? `After you choose a collection and approve access, you’ll return to the app.${config.registration === "open" ? "" : " Sign-in is currently limited to invited accounts."}`
+          : config.registration === "open"
+            ? "Choose an identity provider to create or open your account."
+            : "Access is currently limited to invited accounts."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         <div className="auth-providers">
           {providers.map((provider, index) => <React.Fragment key={provider.id}>
@@ -309,6 +312,7 @@ function Dashboard() {
                 <RequestIdentity request={request} />
                 <ApprovalForm
                   request={request}
+                  canCreateHosted={data.hosted_collections_available !== false}
                   collections={[
                     ...(request.available_collections ?? []),
                     ...data.hosted_collections
@@ -327,7 +331,12 @@ function Dashboard() {
             ))}</div></>}
         </section>
         <section id="hosted">
-          <HostedCollections collections={data.hosted_collections} onChanged={refresh} onError={setError} />
+          <HostedCollections
+            collections={data.hosted_collections}
+            canCreate={data.hosted_collections_available !== false}
+            onChanged={refresh}
+            onError={setError}
+          />
         </section>
         <section id="permissions">
           <SectionHeading title="Application access" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
@@ -366,8 +375,9 @@ function Dashboard() {
   );
 }
 
-function HostedCollections({ collections, onChanged, onError }: {
+function HostedCollections({ collections, canCreate, onChanged, onError }: {
   collections: HostedCollection[];
+  canCreate: boolean;
   onChanged(): Promise<void>;
   onError(value: string): void;
 }) {
@@ -401,15 +411,20 @@ function HostedCollections({ collections, onChanged, onError }: {
       count={collections.length}
     />
     {collections.length === 0 && !creating
-      ? <Empty title="No hosted collections" text="Create an mdbase collection whose source of truth stays available without a connected computer." />
+      ? <Empty
+          title="No hosted collections"
+          text={canCreate
+            ? "Create an mdbase collection whose source of truth stays available without a connected computer."
+            : "Hosted collections are not enabled for this Connect service."}
+        />
       : <div className="hosted-list">{collections.map((collection) => (
           <HostedCollectionRow key={collection.id} collection={collection} onChanged={onChanged} onError={onError} />
         ))}</div>}
-    {creating ? <form className="inline-create" onSubmit={(event) => void create(event)}>
+    {canCreate && (creating ? <form className="inline-create" onSubmit={(event) => void create(event)}>
       <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
       <p>Starts as a clean mdbase 0.3 collection. Add Markdown through compatible apps, with an optional exact local mirror.</p>
       <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create collection"}</button></div>
-    </form> : <button className="button secondary" onClick={() => setCreating(true)}>Create hosted collection</button>}
+    </form> : <button className="button secondary" onClick={() => setCreating(true)}>Create hosted collection</button>)}
   </>;
 }
 
@@ -1033,6 +1048,7 @@ function Authorization({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<{
     authorization: PendingAuthorization;
     collections: AvailableCollection[];
+    hosted_collections_available?: boolean;
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
   const [status, setStatus] = useState<"pending" | "approved" | "denied">("pending");
@@ -1047,6 +1063,7 @@ function Authorization({ requestId }: { requestId: string }) {
         const next = await api<{
           authorization: PendingAuthorization;
           collections: AvailableCollection[];
+          hosted_collections_available?: boolean;
           unavailable_connectors: UnavailableConnector[];
         }>(`/v1/authorization-requests/${requestId}`);
         if (active) {
@@ -1104,12 +1121,15 @@ function Authorization({ requestId }: { requestId: string }) {
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
             request={authorization}
+            canCreateHosted={request.hosted_collections_available !== false}
             collections={request.collections}
             unavailableConnectors={request.unavailable_connectors}
             onDecision={(decision) => setStatus(decision)}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
-              collections: [...current.collections, collection]
+              collections: current.collections.some((existing) => existing.id === collection.id)
+                ? current.collections
+                : [...current.collections, collection]
             } : current)}
           />
         </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
@@ -1134,7 +1154,7 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
           <small>{scopeDescription(request.requirements.contracts)}</small>
         )}
         {request.requirements.collection_kind === "hosted" && (
-          <small>Requires an mdbase cloud collection</small>
+          <small>Requires a collection hosted by mdbase</small>
         )}
       </div>
     </div>
@@ -1144,20 +1164,29 @@ function RequestIdentity({ request, large = false }: { request: PendingAuthoriza
 function ApprovalForm({
   request,
   collections,
+  canCreateHosted,
   unavailableConnectors = [],
   onDecision,
   onCollectionCreated
 }: {
   request: PendingAuthorization;
   collections: AvailableCollection[];
+  canCreateHosted: boolean;
   unavailableConnectors?: UnavailableConnector[];
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
-  const choices = useMemo(() => collections.map((collection) => ({
-    collection,
-    compatibility: collectionCompatibility(request, collection)
-  })), [collections, request]);
+  const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]);
+  const choices = useMemo(() => {
+    const combined = new Map(collections.map((collection) => [collection.id, collection]));
+    for (const collection of createdCollections) {
+      if (!combined.has(collection.id)) combined.set(collection.id, collection);
+    }
+    return [...combined.values()].map((collection) => ({
+      collection,
+      compatibility: collectionCompatibility(request, collection)
+    }));
+  }, [collections, createdCollections, request]);
   const compatible = useMemo(
     () => choices.filter((choice) => choice.compatibility.compatible),
     [choices]
@@ -1173,6 +1202,8 @@ function ApprovalForm({
   );
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
+  const [creatingHosted, setCreatingHosted] = useState(false);
+  const [collectionName, setCollectionName] = useState("");
   const [error, setError] = useState("");
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
@@ -1217,27 +1248,33 @@ function ApprovalForm({
     }
   }
 
-  async function createCloudCollection() {
+  async function createHostedCollection(event: React.FormEvent) {
+    event.preventDefault();
+    const displayName = collectionName.trim();
+    if (!displayName) return;
     setSubmitting("creating");
     setError("");
     try {
       const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", {
         method: "POST",
         body: JSON.stringify({
-          display_name: "My collection",
+          display_name: displayName,
           template: "mdbase"
         })
       });
       const collection: AvailableCollection = {
         id: created.collection.id,
         display_name: created.collection.display_name,
-        connector_name: "mdbase cloud",
+        connector_name: "Hosted by mdbase",
         spec_version: created.collection.spec_version ?? "0.3.0",
         contracts: [],
         kind: "hosted"
       };
+      setCreatedCollections((current) => [...current, collection]);
       onCollectionCreated(collection);
       setCollectionId(collection.id);
+      setCollectionName("");
+      setCreatingHosted(false);
     } catch (creationError) {
       setError(message(creationError));
     } finally {
@@ -1263,13 +1300,26 @@ function ApprovalForm({
           <small>Choose where {request.application_name} can work.</small>
         </div>
         <div className="approval-section-content">
-          <label className="collection-field" htmlFor={`collection-${request.id}`}>
-            <span>Collection and location</span>
-            <select id={`collection-${request.id}`} value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={submitting !== null || compatible.length === 0}>
-              {compatible.length === 0 && <option value="">No compatible collection</option>}
-              {choices.map(({ collection, compatibility }) => <option value={collection.id} key={collection.id} disabled={!compatibility.compatible}>{collection.display_name} · {collection.connector_name}{compatibility.compatible ? (neededProvisions(request, collection).length ? " · setup required" : "") : ` · ${compatibility.label}`}</option>)}
-            </select>
-          </label>
+          {compatible.length > 0 && <fieldset className="collection-choice-field">
+            <legend>Collection and location</legend>
+            <div className="collection-choice-list">
+              {compatible.map(({ collection }) => {
+                const provisions = neededProvisions(request, collection);
+                return <label className={collection.id === collectionId ? "selected" : undefined} key={collection.id}>
+                  <input
+                    type="radio"
+                    name={`collection-${request.id}`}
+                    value={collection.id}
+                    checked={collection.id === collectionId}
+                    disabled={submitting !== null}
+                    onChange={() => setCollectionId(collection.id)}
+                  />
+                  <span><strong>{collection.display_name}</strong><small>{collection.connector_name}</small></span>
+                  {provisions.length > 0 && <b>Setup needed</b>}
+                </label>;
+              })}
+            </div>
+          </fieldset>}
           {unavailable.length > 0 && <details className="collection-compatibility">
             <summary>{compatible.length > 0
               ? `${unavailable.length} other ${unavailable.length === 1 ? "collection is" : "collections are"} unavailable`
@@ -1281,15 +1331,56 @@ function ApprovalForm({
               ? `${connector.connector_name} has remote access paused.`
               : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
           </div>}
-          {compatible.length === 0 && <div className="authorization-empty-collection">
-            <p className="field-note">No compatible collection is ready.</p>
-            <button
-              className="button secondary"
-              type="button"
-              disabled={submitting !== null}
-              onClick={() => void createCloudCollection()}
-            >{submitting === "creating" ? "Creating…" : "Create an mdbase cloud collection"}</button>
-          </div>}
+          {canCreateHosted && (creatingHosted ? (
+            <form
+              className="authorization-collection-create"
+              id={`create-hosted-${request.id}`}
+              onSubmit={(event) => void createHostedCollection(event)}
+            >
+              <label>
+                <span>New collection name</span>
+                <input
+                  autoFocus
+                  maxLength={200}
+                  value={collectionName}
+                  disabled={submitting !== null}
+                  placeholder="Workouts"
+                  onChange={(event) => setCollectionName(event.target.value)}
+                />
+              </label>
+              <p>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately below.</p>
+              <div>
+                <button
+                  className="quiet-action"
+                  type="button"
+                  disabled={submitting !== null}
+                  onClick={() => {
+                    setCreatingHosted(false);
+                    setCollectionName("");
+                    setError("");
+                  }}
+                >Cancel</button>
+                <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}>
+                  {submitting === "creating" ? "Creating…" : "Create collection"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="authorization-collection-action">
+              {compatible.length === 0 && <p className="field-note">No compatible collection is ready.</p>}
+              <button
+                className="button secondary"
+                type="button"
+                aria-controls={`create-hosted-${request.id}`}
+                disabled={submitting !== null}
+                onClick={() => {
+                  setCreatingHosted(true);
+                  setError("");
+                }}
+              >Create hosted collection</button>
+            </div>
+          ))}
+          {!canCreateHosted && compatible.length === 0 && <p className="field-note">No compatible collection is ready.</p>}
           {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this collection through its live authority.</p>}
         </div>
       </section>
@@ -1309,7 +1400,7 @@ function ApprovalForm({
       {error && <div className="message error compact">{error}</div>}
       <footer className="approval-footer">
         <p>{selected
-          ? `${request.application_name} will use ${selected.display_name} through ${selected.connector_name}. Every operation is checked against this grant, and access lasts until you revoke it.`
+          ? `${request.application_name} will work in ${selected.display_name} at ${selected.connector_name}. You can revoke access at any time in mdbase connect.`
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
@@ -1439,6 +1530,13 @@ function returnTarget() {
   if (!requested) return "/";
   const target = new URL(requested, location.origin);
   return target.origin === location.origin ? target.href : "/";
+}
+function isAuthorizationReturnTarget() {
+  try {
+    return new URL(returnTarget(), location.origin).pathname.startsWith("/authorize/");
+  } catch {
+    return false;
+  }
 }
 function identityLabel(user: { email: string | null; login: string | null }) {
   return user.login ? `@${user.login}` : user.email ?? "Identity unavailable";

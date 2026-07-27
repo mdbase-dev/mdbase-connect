@@ -21,6 +21,7 @@ export class ApiError extends Error {
 
 export interface DashboardData {
   user: { id: string; name: string; email: string | null; login: string | null };
+  hosted_collections_available?: boolean;
   authentication: {
     provider: "google" | "github" | "tailscale" | "session";
     registration: "closed" | "open";

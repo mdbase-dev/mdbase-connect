@@ -156,6 +156,7 @@ interface HostedCollectionSummary {
 
 interface HostedControlSnapshot {
   online: boolean;
+  hosted_collections_available?: boolean;
   hosted_collections: HostedCollectionSummary[];
   grants: GrantSummary[];
   pending_authorizations: PendingAuthorization[];

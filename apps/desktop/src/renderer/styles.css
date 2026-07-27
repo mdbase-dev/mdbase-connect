@@ -171,6 +171,11 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .request-section > div:first-child > strong { font-size: var(--type-body); }
 .request-section > div:first-child > small, .request-section-content > small, .request-permission-review summary small, .notification-request summary small { color: var(--muted); font-size: var(--type-supporting); line-height: 1.45; }
 .request-section-content { display: grid; gap: 7px; min-width: 0; }
+.request-collection-action { display: flex; justify-content: flex-start; }
+.request-collection-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.request-collection-create > label { grid-column: 1; grid-row: 1; display: grid; gap: 5px; min-width: 0; }
+.request-collection-create > p { grid-column: 1 / -1; grid-row: 2; margin: 0 0 2px; color: var(--muted); font-size: var(--type-action); line-height: 1.45; }
+.request-collection-create > div { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 3px; }
 label > span, fieldset > legend { color: var(--muted); font-size: var(--type-supporting); font-weight: 700; }
 input, select { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--ink); background: var(--paper); font-size: var(--type-body); }
 .request-section-content > label, .manual-app label, .manual-grant > label, .pairing-form label { display: grid; gap: 5px; }
@@ -267,6 +272,9 @@ fieldset legend { margin-bottom: 6px; }
 @media (max-width: 780px) {
   .content { padding-inline: 24px; }
   .request-panel, .grant-review, .request-section, .collection-editor-section { grid-template-columns: 1fr; }
+  .request-collection-create { grid-template-columns: 1fr; }
+  .request-collection-create > label, .request-collection-create > p, .request-collection-create > div { grid-column: 1; grid-row: auto; }
+  .request-collection-create > div { justify-content: flex-end; }
   .request-panel, .grant-review { gap: 16px; }
   .request-section { gap: 8px; }
   .collection-editor-section { gap: 10px; }

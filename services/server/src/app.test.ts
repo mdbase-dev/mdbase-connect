@@ -1290,6 +1290,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${ownerToken}` }
     });
     expect(snapshot.statusCode, JSON.stringify(snapshot.json())).toBe(200);
+    expect(snapshot.json().hosted_collections_available).toBe(true);
     expect(snapshot.json().hosted_collections).toEqual([
       expect.objectContaining({
         id: collectionId,
@@ -1484,6 +1485,7 @@ describe("mdbase connect server", () => {
       access: "full_collection",
       collection_kind: "hosted"
     });
+    expect(pending.json().hosted_collections_available).toBe(true);
     expect(pending.json().collections).toEqual([
       expect.objectContaining({ id: collectionId, kind: "hosted" })
     ]);

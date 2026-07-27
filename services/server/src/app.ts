@@ -1540,6 +1540,7 @@ export async function buildApp(options: BuildOptions) {
     );
     return {
       user,
+      hosted_collections_available: options.hostedCollections === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
         registration
@@ -3101,6 +3102,7 @@ export async function buildApp(options: BuildOptions) {
     ];
     return {
       authorization: authorization.rows[0],
+      hosted_collections_available: options.hostedCollections === true,
       unavailable_connectors: local.unavailable_connectors,
       collections: requiresHostedCollection(authorization.rows[0].requirements)
         ? availableCollections.filter((collection) => collection.kind === "hosted")
@@ -5575,6 +5577,7 @@ async function hostedControlSnapshot(
   if (!options.hostedCollections) {
     return {
       online: true,
+      hosted_collections_available: false,
       hosted_collections: [],
       grants: [],
       pending_authorizations: []
@@ -5671,6 +5674,7 @@ async function hostedControlSnapshot(
   );
   return {
     online: true,
+    hosted_collections_available: true,
     hosted_collections: collections.rows.map((collection) => ({
       ...collection,
       provider_url: collection.provider_url ?? publicUrl,

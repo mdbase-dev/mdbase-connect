@@ -714,10 +714,125 @@ h1 {
   min-width: 0;
 }
 
+.authorization-collection-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.authorization-collection-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.authorization-collection-create label {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.authorization-collection-create label > span {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.authorization-collection-create > p {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0 0 0.15rem;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.authorization-collection-create > div {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .collection-field {
   display: grid;
   gap: 0.4rem;
   min-width: 0;
+}
+
+.collection-choice-field {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.collection-choice-field > legend {
+  margin-bottom: 0.4rem;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.collection-choice-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.collection-choice-list > label {
+  min-height: 3.4rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 160ms ease-out;
+}
+
+.collection-choice-list > label:hover,
+.collection-choice-list > label.selected {
+  background: var(--paper-hover);
+}
+
+.collection-choice-list input {
+  accent-color: var(--accent);
+}
+
+.collection-choice-list label > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.collection-choice-list strong,
+.collection-choice-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-choice-list strong {
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+.collection-choice-list small {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+}
+
+.collection-choice-list b {
+  color: var(--warning);
+  font-size: 0.68rem;
+  white-space: nowrap;
 }
 
 .collection-field > span,
@@ -1294,8 +1409,21 @@ select {
 
   .hosted-rename,
   .inline-create,
-  .mirror-form {
+  .mirror-form,
+  .authorization-collection-create {
     grid-template-columns: 1fr;
+  }
+
+  .authorization-collection-create > div {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-end;
+  }
+
+  .authorization-collection-create > label,
+  .authorization-collection-create > p {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .transfer-consequences > div {
