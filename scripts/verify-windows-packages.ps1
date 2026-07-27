@@ -31,11 +31,23 @@ function Get-SinglePackageFile {
   $Files[0]
 }
 
+$packageDirectory = Get-SinglePackageFile `
+  -Description "packaged application directory" `
+  -Files @(
+    Get-ChildItem $OutPath -Directory |
+      Where-Object { $_.Name -like "mdbase connect-win32-*" }
+  )
 $application = Get-SinglePackageFile `
   -Description "packaged application executable" `
   -Files @(
-    Get-ChildItem $OutPath -Recurse -File -Filter "mdbase-connect.exe" |
-      Where-Object { $_.FullName -notmatch "\\make\\" }
+    Get-ChildItem $packageDirectory.FullName -File -Filter "mdbase-connect.exe"
+  )
+$connector = Get-SinglePackageFile `
+  -Description "packaged connector CLI" `
+  -Files @(
+    Get-ChildItem (Join-Path $packageDirectory.FullName "resources") `
+      -File `
+      -Filter "mdbase-connect.exe"
   )
 $installer = Get-SinglePackageFile `
   -Description "Squirrel installer" `
@@ -48,7 +60,7 @@ $portable = Get-SinglePackageFile `
   -Files @(
     Get-ChildItem (Join-Path $OutPath "make") -Recurse -File -Filter "*.zip"
   )
-foreach ($file in @($application, $installer)) {
+foreach ($file in @($application, $connector, $installer)) {
   $signature = Get-AuthenticodeSignature $file.FullName
   if ($signature.Status -ne "NotSigned") {
     throw "Expected unsigned GitHub preview executable, got $($signature.Status): $($file.FullName)"
@@ -137,6 +149,13 @@ if ([string]$properties.PublisherDisplayName -ne $PublisherDisplayName) {
 }
 if ($applicationNode.Executable -ne "app\mdbase-connect.exe") {
   throw "Unexpected Store package executable: $($applicationNode.Executable)"
+}
+$storeConnector = Join-Path $unpacked "app\resources\mdbase-connect.exe"
+if (-not (Test-Path $storeConnector -PathType Leaf)) {
+  throw "Microsoft Store package does not contain the connector CLI"
+}
+if ((Get-Item $storeConnector).Length -eq 0) {
+  throw "Microsoft Store package contains an empty connector CLI"
 }
 
 Write-Output "Verified Store package: $($storePackage.FullName)"
