@@ -63,9 +63,12 @@ docker compose --env-file deploy/self-host/.env \
   --profile admin run --rm auth-admin policy show
 ```
 
-Populate `RESEND_API_KEY` and `EMAIL_FROM` only if the operator wants
-`invite create --send-email enabled`; otherwise the CLI returns the sensitive
-invitation URL for delivery through another trusted process.
+Populate `RESEND_API_KEY` and `EMAIL_FROM` to deliver invitations with
+`invite create --send-email enabled` and to offer password recovery in the
+Connect portal. The same restricted sending credential is passed to the
+one-shot operator CLI and the Connect runtime. Without it, the CLI returns the
+sensitive invitation URL for delivery through another trusted process and the
+portal does not advertise password recovery.
 
 The Compose stack binds application ports to host loopback. Terminate TLS in a
 reverse proxy on the same host and forward to `127.0.0.1:8787`. An example

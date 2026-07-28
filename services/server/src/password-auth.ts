@@ -47,11 +47,13 @@ export interface AcceptInvitationInput {
   password: string;
   termsVersion: string;
   privacyVersion: string;
+  clientName?: string;
 }
 
 export interface PasswordLoginInput {
   email: string;
   password: string;
+  clientName?: string;
 }
 
 export type InvitationDeliveryOutcome =
@@ -297,9 +299,11 @@ export class PasswordAccountService {
       );
       await connection.query(
         `INSERT INTO sessions
-           (id, user_id, token_hash, provider, account_session_epoch, expires_at)
-         VALUES ($1, $2, $3, 'password', 1, now() + interval '30 days')`,
-        [sessionId, userId, tokenHash(sessionToken)]
+           (id, user_id, token_hash, provider, account_session_epoch,
+            expires_at, client_name)
+         VALUES ($1, $2, $3, 'password', 1,
+                 now() + interval '30 days', $4)`,
+        [sessionId, userId, tokenHash(sessionToken), input.clientName ?? null]
       );
       await audit(connection, userId, "account.created", userId, {
         provider: "password",
@@ -455,13 +459,16 @@ export class PasswordAccountService {
       }
       await connection.query(
         `INSERT INTO sessions
-           (id, user_id, token_hash, provider, account_session_epoch, expires_at)
-         VALUES ($1, $2, $3, 'password', $4, now() + interval '30 days')`,
+           (id, user_id, token_hash, provider, account_session_epoch,
+            expires_at, client_name)
+         VALUES ($1, $2, $3, 'password', $4,
+                 now() + interval '30 days', $5)`,
         [
           sessionId,
           active.user_id,
           tokenHash(sessionToken),
-          active.session_epoch
+          active.session_epoch,
+          input.clientName ?? null
         ]
       );
       await audit(connection, active.user_id, "session.created", sessionId, {

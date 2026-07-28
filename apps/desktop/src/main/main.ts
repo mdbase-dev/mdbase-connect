@@ -55,15 +55,15 @@ function connectBinary(): string {
   const override = process.env.MDBASE_CONNECT_BIN;
   if (override) return override;
   if (app.isPackaged) {
-    return join(process.resourcesPath, `mdbase-connect${extension}`);
+    return join(process.resourcesPath, `mdbase${extension}`);
   }
-  return resolve(__dirname, `../../../../target/debug/mdbase-connect${extension}`);
+  return resolve(__dirname, `../../../../target/debug/mdbase${extension}`);
 }
 
 async function resolveDaemonPaths(): Promise<void> {
   const binary = connectBinary();
   if (!existsSync(binary)) throw new Error(`Connector runtime is missing: ${binary}`);
-  const { stdout } = await execFile(binary, ["--json", "paths"], {
+  const { stdout } = await execFile(binary, ["--json", "connect", "paths"], {
     env: process.env,
     timeout: 10_000,
     windowsHide: true
@@ -146,6 +146,7 @@ async function startAgent(): Promise<void> {
       stateDirectory(),
       "--endpoint",
       controlEndpoint(),
+      "connect",
       "daemon",
       "start"
     ],

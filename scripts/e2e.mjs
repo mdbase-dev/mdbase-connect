@@ -44,7 +44,7 @@ const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "workouts");
 const extension = process.platform === "win32" ? ".exe" : "";
-const cliBinary = join(repoRoot, "target", "debug", `mdbase-connect${extension}`);
+const cliBinary = join(repoRoot, "target", "debug", `mdbase${extension}`);
 let agent;
 let manifestServer;
 let browserManifestServer;
@@ -79,6 +79,7 @@ try {
   await waitForAgent();
   await run(cliBinary, [
     "--state-dir", stateDir,
+    "connect",
     "collection", "create", collectionPath,
     "--name", "Workouts"
   ]);
@@ -234,6 +235,7 @@ secret: connector scope test
   const duplicateCollectionPath = join(scratch, "workouts-duplicate");
   await run(cliBinary, [
     "--state-dir", stateDir,
+    "connect",
     "collection", "create", duplicateCollectionPath,
     "--name", "Workouts"
   ]);
@@ -854,6 +856,7 @@ async function cliJson(args) {
     "--state-dir",
     stateDir,
     "--json",
+    "connect",
     ...translated
   ]);
   const parsed = JSON.parse(result.stdout);
@@ -863,6 +866,7 @@ async function cliJson(args) {
 function startAgent(extraArgs, connectorToken) {
   const child = spawn(cliBinary, [
     "--state-dir", stateDir,
+    "connect",
     "daemon", "run",
     "--loopback-port", String(loopbackPort),
     ...extraArgs
@@ -891,7 +895,7 @@ async function stopAgent(child) {
 async function waitForAgent() {
   await poll(async () => {
     try {
-      await run(cliBinary, ["--state-dir", stateDir, "ping"]);
+      await run(cliBinary, ["--state-dir", stateDir, "connect", "ping"]);
       return true;
     } catch {
       return null;

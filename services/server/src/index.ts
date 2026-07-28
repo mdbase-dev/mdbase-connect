@@ -7,6 +7,7 @@ import { createRelayBroker } from "./relay-broker.js";
 import { WebPushTransport } from "./web-push.js";
 import { FcmTransport } from "./fcm.js";
 import { SignedWebhookTransport } from "./webhook.js";
+import { ResendEmailTransport } from "./email.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
@@ -26,6 +27,9 @@ const { app } = await buildApp({
   authRateLimitSecret: runtime.authRateLimitSecret ?? undefined,
   authenticationLegalDocuments:
     runtime.authenticationLegalDocuments ?? undefined,
+  emailTransport: runtime.transactionalEmail
+    ? new ResendEmailTransport(runtime.transactionalEmail)
+    : undefined,
   hostedCollections: runtime.hostedCollections,
   hostedProvider: runtime.hostedProvider
     ? new HostedProviderClient(runtime.hostedProvider)

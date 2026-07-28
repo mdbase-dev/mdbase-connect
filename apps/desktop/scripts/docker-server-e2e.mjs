@@ -16,7 +16,7 @@ const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const executable = resolve(
   repoRoot,
-  `target/debug/mdbase-connect${process.platform === "win32" ? ".exe" : ""}`
+  `target/debug/mdbase${process.platform === "win32" ? ".exe" : ""}`
 );
 const run = promisify(execFile);
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-desktop-docker-"));
@@ -300,6 +300,7 @@ try {
     await run(executable, [
       "--state-dir",
       resolve(userData, "connect-home"),
+      "connect",
       "daemon",
       "stop"
     ]).catch(() => {});

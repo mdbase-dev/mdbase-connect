@@ -1,6 +1,6 @@
 # Desktop update architecture
 
-The desktop application and its bundled `mdbase-connect` CLI/daemon are one
+The desktop application and its bundled unified `mdbase` CLI/daemon are one
 release unit. The updater never replaces the daemon independently and never
 mixes binaries downloaded from different releases.
 

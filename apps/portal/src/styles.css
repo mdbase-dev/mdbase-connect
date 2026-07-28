@@ -600,6 +600,74 @@ h1 {
   font-size: 0.72rem;
 }
 
+.session-management {
+  margin-top: 2rem;
+}
+
+.session-subheading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.session-subheading h3 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.session-subheading p,
+.session-loading {
+  margin: 0.2rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+}
+
+.session-list {
+  border-top: 1px solid var(--line);
+}
+
+.session-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(8rem, auto) 8.5rem;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 4.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-row > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.session-row strong {
+  font-size: 0.78rem;
+}
+
+.session-row small,
+.session-row > span,
+.session-current {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+}
+
+.session-row > div:last-child {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.session-current {
+  font-family: var(--mono);
+}
+
+.session-loading {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
 .attention-section .section-heading {
   border-bottom-color: var(--accent);
 }
@@ -1300,6 +1368,11 @@ select {
   font-size: 0.72rem;
 }
 
+.password-auth-form > .quiet-auth-link {
+  justify-self: start;
+  margin-top: 0.9rem;
+}
+
 .auth-providers {
   display: grid;
   width: min(25rem, 100%);
@@ -1452,6 +1525,21 @@ select {
 
   .computer-row {
     grid-template-columns: 1fr auto;
+  }
+
+  .session-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem 1rem;
+    padding: 0.75rem 0;
+  }
+
+  .session-row > span {
+    grid-column: 1;
+  }
+
+  .session-row > div:last-child {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 
   .hosted-summary {

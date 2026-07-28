@@ -12,6 +12,11 @@ export interface AuthenticationLegalDocuments {
   privacyUrl: string;
 }
 
+export interface TransactionalEmailConfig {
+  apiKey: string;
+  from: string;
+}
+
 export interface RuntimeConfig {
   host: string;
   publicUrl: string;
@@ -22,6 +27,7 @@ export interface RuntimeConfig {
   registration: RegistrationMode;
   authRateLimitSecret: string | null;
   authenticationLegalDocuments: AuthenticationLegalDocuments | null;
+  transactionalEmail: TransactionalEmailConfig | null;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   allowInsecureHostedProvider: boolean;
@@ -97,6 +103,15 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       config.authenticationLegalDocuments.privacyUrl,
       "MDBASE_CONNECT_PRIVACY_URL"
     );
+  }
+  if (config.transactionalEmail) {
+    if (
+      !config.transactionalEmail.apiKey.trim()
+      || !config.transactionalEmail.from.trim()
+      || /[\r\n]/u.test(config.transactionalEmail.from)
+    ) {
+      throw new Error("Transactional email configuration is invalid.");
+    }
   }
   let hostedProvider = config.hostedProvider;
   if (config.hostedCollections && !hostedProvider) {
@@ -229,6 +244,16 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const authenticationLegalDocuments = termsUrl && privacyUrl
     ? { termsUrl, privacyUrl }
     : null;
+  const resendApiKey = env.MDBASE_CONNECT_RESEND_API_KEY?.trim() ?? "";
+  const emailFrom = env.MDBASE_CONNECT_EMAIL_FROM?.trim() ?? "";
+  if (Boolean(resendApiKey) !== Boolean(emailFrom)) {
+    throw new Error(
+      "MDBASE_CONNECT_RESEND_API_KEY and MDBASE_CONNECT_EMAIL_FROM must be configured together."
+    );
+  }
+  const transactionalEmail = resendApiKey && emailFrom
+    ? { apiKey: resendApiKey, from: emailFrom }
+    : null;
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
   const hostedProviderUrl = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
@@ -291,6 +316,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     registration,
     authRateLimitSecret,
     authenticationLegalDocuments,
+    transactionalEmail,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedProvider: hostedProviderConfigured
       ? {

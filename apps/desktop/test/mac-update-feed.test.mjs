@@ -99,7 +99,7 @@ test("recovery refuses a runtime path outside its private version directory", as
     platform: "darwin",
     arch: "arm64",
     userDataDirectory: "/private/profile",
-    binaryPath: () => "/Applications/mdbase connect.app/Contents/Resources/mdbase-connect",
+    binaryPath: () => "/Applications/mdbase connect.app/Contents/Resources/mdbase",
     stateDirectory: () => "/private/profile/state",
     endpoint: () => "/private/profile/connect.sock"
   });

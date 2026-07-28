@@ -19,6 +19,16 @@ export class ApiError extends Error {
   }
 }
 
+export interface AccountSession {
+  id: string;
+  provider: "google" | "github" | "password" | "session";
+  client_name: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  current: boolean;
+}
+
 export interface DashboardData {
   user: { id: string; name: string; email: string | null; login: string | null };
   hosted_collections_available?: boolean;

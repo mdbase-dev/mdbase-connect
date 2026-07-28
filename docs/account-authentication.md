@@ -52,6 +52,19 @@ inspection and redemption use `POST /v1/auth/password/invitation` and
 `Origin` header. Successful login and signup issue the same HTTP-only,
 same-site session cookie used by external providers.
 
+Password recovery uses `POST /v1/auth/password/recovery` to request a link and
+`POST /v1/auth/password/reset` to redeem it. The request endpoint always
+returns the same accepted response for known and unknown addresses. It sends
+the response before waiting for the provider request so network timing does not
+turn Resend latency into an account-enumeration signal. Delivery failures are
+audited for operators but are not returned to the unauthenticated caller.
+
+Reset redemption replaces the password, increments the account session epoch,
+revokes every existing session, consumes the challenge, and creates the current
+browser session in one database transaction. An existing reset link remains
+redeemable if email delivery is paused, but not if the password-authentication
+kill switch is disabled.
+
 ## Invitations and challenges
 
 Invitations are bound to one normalized email address. At most one unrevoked,
@@ -74,6 +87,12 @@ Invitation links put the token in the URL fragment:
 referrers. The portal removes the fragment from browser history immediately,
 then submits the token in a same-origin JSON request. Neither application logs
 nor database rows may contain the plaintext token.
+
+Password reset links use the same boundary:
+`/reset-password#reset=<token>`. The challenge expires after one hour.
+Requesting another link invalidates the previous active challenge before
+creating its replacement. Resend idempotency keys contain only the challenge
+ID, never the token.
 
 ## Registration and kill switches
 
@@ -107,6 +126,12 @@ addresses or IP addresses and never unkeyed hashes of low-entropy identifiers.
 Separate scopes cover normalized email, source network, account, and global
 send volume.
 
+Recovery requests allow three attempts per normalized address and ten per
+source network per hour. Reset redemption is separately limited by token and
+source network. All scopes also consume the shared global authentication
+limit. The unauthenticated HTTP response remains generic until a limit is
+crossed.
+
 The application will own limit duration, escalation, and cleanup policy. The
 database table owns only the shared counter state. This lets the beta use
 PostgreSQL without permanently coupling the policy to it; a later distributed
@@ -132,6 +157,14 @@ and accounts have a suspension time. Authentication checks must require:
 `last_seen_at` is for user-facing session inspection. It should be updated at a
 coarse interval rather than on every request to avoid a write hotspot.
 
+Authenticated browser sessions are listed at `GET /v1/account/sessions`.
+`DELETE /v1/account/sessions/:sessionId` revokes one owned session, while
+`POST /v1/account/sessions/revoke-others` preserves the current browser and
+revokes the rest. Mutations require the exact Connect origin. Session rows
+store a short browser/platform label for recognition; they do not store the
+source IP or raw user-agent string. `last_seen_at` is touched at most once per
+five minutes.
+
 ## Deployment
 
 Authentication schema changes are additive. Render applies them through the
@@ -145,6 +178,12 @@ Password signup also requires
 `MDBASE_CONNECT_TERMS_URL` and `MDBASE_CONNECT_PRIVACY_URL`. These URLs identify
 the exact documents represented by the database policy versions. Both must use
 HTTPS outside loopback development.
+
+Password recovery additionally requires
+`MDBASE_CONNECT_RESEND_API_KEY` and `MDBASE_CONNECT_EMAIL_FROM` on the Connect
+runtime and `email_delivery_enabled` in the audited database policy. The portal
+does not advertise recovery unless the shared rate limiter, password
+authentication, email-delivery policy, and runtime transport are all active.
 
 ## Operator CLI
 

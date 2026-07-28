@@ -26,8 +26,8 @@ The Connect profiler is read-only and can safely run against a real local
 collection:
 
 ```bash
-pnpm profile:connect -- --collection /path/to/collection --scenario all
-pnpm profile:connect -- --collection /path/to/collection \
+pnpm profile:connect -- --root /path/to/collection --scenario all
+pnpm profile:connect -- --root /path/to/collection \
   --scenario editor --iterations 5 --json \
   --output /tmp/connect-profile.json
 ```
@@ -44,7 +44,7 @@ query.
 Enable payload-free request timings while running the normal local agent:
 
 ```bash
-MDBASE_CONNECT_PROFILE=1 cargo run -p mdbase-connect -- daemon run
+MDBASE_CONNECT_PROFILE=1 cargo run -p mdbase-cli -- connect daemon run
 ```
 
 Each completed local, relay, or encrypted operation logs `execute_us`,
@@ -56,7 +56,7 @@ For watcher decisions and refresh durations, add:
 
 ```bash
 MDBASE_CONNECT_PROFILE=1 MDBASE_WATCH_PROFILE=1 \
-  cargo run -p mdbase-connect -- daemon run
+  cargo run -p mdbase-cli -- connect daemon run
 ```
 
 ## CPU profiles
@@ -65,9 +65,9 @@ The workspace's `profiling` Cargo profile keeps release optimizations and adds
 symbols suitable for sampling:
 
 ```bash
-cargo build --profile profiling -p mdbase-connect-core --bin connect-profile
+cargo build --profile profiling -p mdbase-cli
 perf record -g --call-graph dwarf -- \
-  target/profiling/connect-profile --collection /path/to/collection \
+  target/profiling/mdbase profile connect --root /path/to/collection \
   --scenario editor --iterations 3
 perf report
 ```

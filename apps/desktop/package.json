@@ -11,7 +11,7 @@
     "build:main": "tsc -p tsconfig.main.json && node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "build:standalone": "pnpm build",
-    "dev:daemon": "cargo build --manifest-path ../../Cargo.toml -p mdbase-connect",
+    "dev:daemon": "cargo build --manifest-path ../../Cargo.toml -p mdbase-cli",
     "start": "pnpm dev:daemon && pnpm build:standalone && electron .",
     "make": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge make",
     "package": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",

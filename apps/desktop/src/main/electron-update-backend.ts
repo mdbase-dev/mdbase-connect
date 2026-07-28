@@ -123,7 +123,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700).catch(() => undefined);
     const extension = this.options.platform === "win32" ? ".exe" : "";
-    const destination = join(directory, `mdbase-connect${extension}`);
+    const destination = join(directory, `mdbase${extension}`);
     const temporary = `${destination}.tmp-${process.pid}`;
     await rm(temporary, { force: true });
     try {
@@ -144,7 +144,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
   async stopDaemon(): Promise<void> {
     const status = await this.daemonStatus();
     if (!status.running) return;
-    await this.runCli(this.options.binaryPath(), ["daemon", "stop"], 35_000);
+    await this.runCli(this.options.binaryPath(), ["connect", "daemon", "stop"], 35_000);
   }
 
   installAutomatic(): void {
@@ -163,7 +163,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
         "updates",
         "runtimes",
         transaction.previous_version,
-        `mdbase-connect${extension}`
+        `mdbase${extension}`
       );
       if (transaction.previous_runtime !== expected) {
         throw new Error("The recorded recovery runtime is outside the private update directory.");
@@ -236,9 +236,13 @@ export class ElectronUpdateBackend implements UpdateBackend {
   ): Promise<void> {
     const current = await this.daemonStatus().catch(() => ({ installed: serviceInstalled, running: false }));
     if (current.running) {
-      await this.runCli(binary, ["daemon", "stop"], 35_000).catch(() => undefined);
+      await this.runCli(binary, ["connect", "daemon", "stop"], 35_000).catch(() => undefined);
     }
-    await this.runCli(binary, ["daemon", serviceInstalled ? "install" : "start"], 35_000);
+    await this.runCli(
+      binary,
+      ["connect", "daemon", serviceInstalled ? "install" : "start"],
+      35_000
+    );
     const deadline = Date.now() + 30_000;
     let lastVersion: string | undefined;
     while (Date.now() < deadline) {
@@ -259,7 +263,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
     running: boolean;
     binaryVersion?: string;
   }> {
-    const value = await this.runCli(binary, ["daemon", "status"], 10_000);
+    const value = await this.runCli(binary, ["connect", "daemon", "status"], 10_000);
     return {
       installed: value.installed === true,
       running: value.running === true,

@@ -71,7 +71,7 @@ pub fn spawn_detached(executable: &Path, state_dir: &Path, endpoint: &str) -> Re
         .arg(state_dir)
         .arg("--endpoint")
         .arg(endpoint)
-        .args(["daemon", "run"])
+        .args(["connect", "daemon", "run"])
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(error_log));
@@ -149,11 +149,11 @@ fn install_runtime(executable: &Path, state_dir: &Path) -> Result<PathBuf, Strin
             .map_err(|error| format!("Could not protect {}: {error}", directory.display()))?;
     }
     let extension = if cfg!(windows) { ".exe" } else { "" };
-    let destination = directory.join(format!("mdbase-connect{extension}"));
+    let destination = directory.join(format!("mdbase{extension}"));
     if executable == destination {
         return Ok(destination);
     }
-    let temporary = directory.join(format!("mdbase-connect.tmp-{}", std::process::id()));
+    let temporary = directory.join(format!("mdbase.tmp-{}", std::process::id()));
     let _ = std::fs::remove_file(&temporary);
     if let Err(error) = std::fs::copy(executable, &temporary) {
         let _ = std::fs::remove_file(&temporary);
@@ -229,10 +229,8 @@ mod runtime_tests {
 
     #[test]
     fn installed_service_runtime_uses_a_stable_private_path_and_is_replaceable() {
-        let root = std::env::temp_dir().join(format!(
-            "mdbase-connect-runtime-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("mdbase-runtime-test-{}", uuid::Uuid::new_v4()));
         let source = root.join("source");
         let state = root.join("state");
         std::fs::create_dir_all(&root).unwrap();
@@ -243,9 +241,9 @@ mod runtime_tests {
         assert_eq!(
             installed,
             state.join(if cfg!(windows) {
-                "runtime/mdbase-connect.exe"
+                "runtime/mdbase.exe"
             } else {
-                "runtime/mdbase-connect"
+                "runtime/mdbase"
             })
         );
         assert_eq!(std::fs::read(&installed).unwrap(), b"version one");
@@ -409,7 +407,7 @@ mod platform {
              Wants=network-online.target\n\n\
              [Service]\n\
              Type=simple\n\
-             ExecStart={} --state-dir {} daemon run\n\
+             ExecStart={} --state-dir {} connect daemon run\n\
              Restart=on-failure\n\
              RestartSec=2\n\
              TimeoutStopSec=20\n\
@@ -438,11 +436,11 @@ mod platform {
         #[test]
         fn unit_quotes_executable_and_state_paths() {
             let unit = render_unit(
-                Path::new("/opt/mdbase connect/mdbase-connect"),
+                Path::new("/opt/mdbase connect/mdbase"),
                 Path::new("/home/person/.local/share/mdbase connect"),
             );
             assert!(unit.contains(
-                "ExecStart=\"/opt/mdbase connect/mdbase-connect\" --state-dir \"/home/person/.local/share/mdbase connect\" daemon run"
+                "ExecStart=\"/opt/mdbase connect/mdbase\" --state-dir \"/home/person/.local/share/mdbase connect\" connect daemon run"
             ));
             assert!(unit.contains("NoNewPrivileges=true"));
             assert!(!unit.contains("ProtectHome"));
@@ -537,7 +535,7 @@ mod platform {
     pub fn logs(lines: usize, follow: bool) -> Result<(), String> {
         let mut command = Command::new("log");
         if follow {
-            command.args(["stream", "--predicate", "process == \"mdbase-connect\""]);
+            command.args(["stream", "--predicate", "process == \"mdbase\""]);
         } else {
             command.args([
                 "show",
@@ -546,7 +544,7 @@ mod platform {
                 "--style",
                 "compact",
                 "--predicate",
-                "process == \"mdbase-connect\"",
+                "process == \"mdbase\"",
             ]);
         }
         command.env("MDBASE_CONNECT_LOG_LINES", lines.to_string());
@@ -595,7 +593,7 @@ mod platform {
              <key>Label</key><string>{LABEL}</string>\n\
              <key>ProgramArguments</key><array>\n\
              <string>{}</string><string>--state-dir</string><string>{}</string>\
-             <string>daemon</string><string>run</string>\n\
+             <string>connect</string><string>daemon</string><string>run</string>\n\
              </array>\n\
              <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>\n\
              <key>ProcessType</key><string>Interactive</string>\n\
@@ -619,7 +617,7 @@ mod platform {
 
     pub fn install(executable: &Path, state_dir: &Path) -> Result<(), String> {
         let action = format!(
-            "\"{}\" --state-dir \"{}\" daemon run",
+            "\"{}\" --state-dir \"{}\" connect daemon run",
             executable.display(),
             state_dir.display()
         );

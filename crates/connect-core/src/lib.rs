@@ -14,3 +14,4 @@ pub use registry::{
     CollectionRegistry, ConnectError, EncryptedRequestClaim,
 };
 pub use secrets::SystemSecretStore;
+pub mod profiling;

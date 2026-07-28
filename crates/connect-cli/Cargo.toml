@@ -1,12 +1,17 @@
 [package]
-name = "mdbase-connect"
+name = "mdbase-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "mdbase"
+path = "src/main.rs"
+
 [dependencies]
 clap.workspace = true
+mdbase-command = { path = "../../../mdbase-rs/crates/mdbase-command" }
 mdbase-connect-daemon = { path = "../connect-agent" }
 mdbase-connect-core = { path = "../connect-core" }
 mdbase-connect-protocol = { path = "../connect-protocol" }
@@ -20,3 +25,6 @@ uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
