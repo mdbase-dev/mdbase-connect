@@ -2191,6 +2191,11 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     const collectionId = dashboard.hosted_collections.find(
       (collection) => collection.display_name === "Browser E2E collection"
     ).id;
+    await expect(row.getByRole("link", { name: "Open in editor" }))
+      .toHaveAttribute(
+        "href",
+        `https://editor.mdbase.dev/?collection=${collectionId}`
+      );
     await row.getByRole("button", { name: "Mirror" }).click();
     await expect(row.getByRole("link", { name: "Open mdbase connect" }))
       .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);

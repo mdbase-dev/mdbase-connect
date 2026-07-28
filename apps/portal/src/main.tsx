@@ -35,6 +35,13 @@ import { SessionManager } from "./session-manager";
 import "./styles.css";
 
 const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
+const editorBaseUrl = import.meta.env.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
+
+function editorUrl(collectionId?: string): string {
+  const url = new URL(editorBaseUrl);
+  if (collectionId) url.searchParams.set("collection", collectionId);
+  return url.href;
+}
 
 function Portal() {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
@@ -735,6 +742,16 @@ function Dashboard() {
         <div className="product-header-inner">
           <Brand productLabel />
           <div className="product-header-meta">
+            <a
+              className="portal-editor-link"
+              href={editorUrl()}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open mdbase editor in a new tab"
+            >
+              <span className="portal-editor-link-label">Editor</span>
+              <span aria-hidden="true">↗</span>
+            </a>
             <ThemeSelect />
             <div className="product-header-meta-copy"><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div>
             <span className="product-avatar" aria-hidden="true">{initials(data.user.name)}</span>
@@ -881,6 +898,11 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
   const [busy, setBusy] = useState(false);
   const isActive = collection.authority_state === "active";
   const activeReplicas = collection.replicas.filter((replica) => !replica.revoked_at);
+  const editorCollectionId = isActive
+    ? collection.id
+    : collection.authority_state === "transferred"
+      ? collection.transferred_collection_id
+      : null;
   useEffect(() => { if (panel !== "rename") setName(collection.display_name); }, [collection.display_name, panel]);
 
   async function rename(event: React.FormEvent) {
@@ -935,6 +957,14 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
       </span>
       <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
       <div className="computer-actions">
+        {editorCollectionId && <a
+          className="quiet-action"
+          href={editorUrl(editorCollectionId)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open in editor <span aria-hidden="true">↗</span>
+        </a>}
         {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Mirror</button>}
         {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button>}
         <button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button>

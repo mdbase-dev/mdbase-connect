@@ -45,6 +45,24 @@ body,
   z-index: 10;
 }
 
+.portal-editor-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2rem;
+  padding: 0 0.45rem;
+  border-radius: 3px;
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.portal-editor-link:hover {
+  color: var(--ink);
+  background: var(--paper-hover);
+}
+
 .account-main {
   width: min(70rem, 100%);
   margin-inline: auto;
@@ -317,6 +335,7 @@ h1 {
 
 .computer-actions {
   display: flex !important;
+  flex-wrap: wrap;
   grid-auto-flow: column;
   align-items: center;
   gap: 0.15rem !important;
@@ -395,6 +414,9 @@ h1 {
 }
 
 .quiet-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0.35rem 0.45rem;
   border: 0;
   border-radius: 3px;
@@ -403,6 +425,7 @@ h1 {
   font-size: 0.7rem;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .quiet-action:hover,
@@ -1509,6 +1532,10 @@ select {
 }
 
 @media (max-width: 760px) {
+  .portal-editor-link-label {
+    display: none;
+  }
+
   .account-header .product-header-meta-copy {
     display: none;
   }
