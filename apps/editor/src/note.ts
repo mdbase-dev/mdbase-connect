@@ -7,11 +7,11 @@ export function editableNote(note: NoteDocument): EditableNote {
   for (const field of preferredTitleFields) {
     const value = note.frontmatter[field] ?? note.effective_frontmatter[field];
     if (typeof value === "string" && value.trim()) {
-      return { title: value.trim(), body: note.body, source: { kind: "frontmatter", field } };
+      return { title: value.trim(), body: note.body ?? "", source: { kind: "frontmatter", field } };
     }
   }
 
-  const body = note.body;
+  const body = note.body ?? "";
   const heading = body.match(/^#\s+(.+?)(?:\r?\n|$)/);
   if (heading) {
     const content = body.slice(heading[0].length).replace(/^\r?\n/, "");

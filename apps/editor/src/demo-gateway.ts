@@ -144,7 +144,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     note.effective_frontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
     if (input.titleField) note.body = "";
-    note.document = composeRecordSource(note.frontmatter, note.body);
+    note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     this.notes.unshift(note);
     this.emit("mdbase.record.created", { path: note.path, types: note.types });
     return clone(note);
@@ -156,7 +156,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     }
     const restored = clone(document);
     restored.revision = `demo-${this.sequence++}`;
-    restored.document ??= composeRecordSource(restored.frontmatter, restored.body);
+    restored.document ??= composeRecordSource(restored.frontmatter, restored.body ?? "");
     this.notes.unshift(restored);
     this.emit("mdbase.record.created", { path: restored.path, types: restored.types });
     return clone(restored);
@@ -171,7 +171,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       ...note.effective_frontmatter,
       ...titlePatch(input.title, input.source)
     };
-    note.document = composeRecordSource(note.frontmatter, note.body);
+    note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     this.bump(note);
     return clone(note);
   }
@@ -200,7 +200,7 @@ export class DemoCollectionGateway implements CollectionGateway {
         note.effective_frontmatter[key] = value;
       }
     }
-    note.document = composeRecordSource(note.frontmatter, note.body);
+    note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     this.bump(note);
     return clone(note);
   }

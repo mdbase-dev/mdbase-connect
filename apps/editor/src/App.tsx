@@ -1256,7 +1256,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPropertiesError(undefined);
     try {
       await flushSession(session);
-      const source = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body);
+      const source = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
         session.document.path,
         replaceDocumentFrontmatter(source, next),
@@ -1293,7 +1293,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setPropertiesError(undefined);
     try {
       await flushSession(session);
-      const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body);
+      const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       if (currentSource !== previousSource) {
         const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
         setPropertiesError(message);
