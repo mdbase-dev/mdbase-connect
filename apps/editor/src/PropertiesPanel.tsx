@@ -29,7 +29,7 @@ export function PropertiesPanel({
   onSaveDocument
 }: PropertiesPanelProps) {
   const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
-  const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body);
+  const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
