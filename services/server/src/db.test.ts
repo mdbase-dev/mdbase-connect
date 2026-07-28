@@ -14,11 +14,12 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
-  it("creates the authentication foundation without changing existing account data", async () => {
+  it("creates the account and operator foundation without changing existing data", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const userId = randomUUID();
     const sessionId = randomUUID();
+    const connectorId = randomUUID();
     await db.query(
       "INSERT INTO users (id, email, name) VALUES ($1, 'existing@example.com', 'Existing')",
       [userId]
@@ -27,6 +28,11 @@ describe("database migrations", () => {
       `INSERT INTO sessions (id, user_id, token_hash, expires_at)
        VALUES ($1, $2, 'legacy-session', now() + interval '30 days')`,
       [sessionId, userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Existing computer', 'legacy-connector')`,
+      [connectorId, userId]
     );
 
     const user = await db.query<{
@@ -46,6 +52,10 @@ describe("database migrations", () => {
        FROM sessions WHERE id = $1`,
       [sessionId]
     );
+    const connector = await db.query<{ revoked_at: Date | null }>(
+      "SELECT revoked_at FROM connectors WHERE id = $1",
+      [connectorId]
+    );
     expect(user.rows[0]).toMatchObject({
       email: "existing@example.com",
       suspended_at: null,
@@ -56,6 +66,7 @@ describe("database migrations", () => {
       revoked_at: null
     });
     expect(session.rows[0]?.last_seen_at).toBeInstanceOf(Date);
+    expect(connector.rows[0]?.revoked_at).toBeNull();
 
     const authTables = await db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
@@ -67,7 +78,8 @@ describe("database migrations", () => {
          'auth_rate_limit_buckets',
          'authentication_settings',
          'authentication_settings_history',
-         'account_agreements'
+         'account_agreements',
+         'operator_operations'
        )`
     );
     expect(new Set(authTables.rows.map(({ table_name }) => table_name))).toEqual(
@@ -79,7 +91,8 @@ describe("database migrations", () => {
         "auth_rate_limit_buckets",
         "authentication_settings",
         "authentication_settings_history",
-        "account_agreements"
+        "account_agreements",
+        "operator_operations"
       ])
     );
   });

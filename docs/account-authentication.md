@@ -185,11 +185,13 @@ runtime and `email_delivery_enabled` in the audited database policy. The portal
 does not advertise recovery unless the shared rate limiter, password
 authentication, email-delivery policy, and runtime transport are all active.
 
-## Operator CLI
+## Instance administration
 
 The server image contains a generic database-backed operator command. It is
 not an HTTP administration API and should run only in an authenticated
-operator shell or one-shot job with `DATABASE_URL`.
+operator shell or one-shot job with `DATABASE_URL`. The complete command,
+account-suspension, retry, and audit semantics are documented in
+[`instance-administration.md`](./instance-administration.md).
 
 Inspect the effective policy:
 

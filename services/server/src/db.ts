@@ -20,8 +20,14 @@ export interface DatabasePool extends DatabaseQueryable {
 export async function createDatabase(databaseUrl = process.env.DATABASE_URL): Promise<DatabasePool> {
   let pool: DatabasePool;
   if (!databaseUrl || databaseUrl === "memory") {
-    const { newDb } = await import("pg-mem");
+    const { DataType, newDb } = await import("pg-mem");
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    memory.public.registerFunction({
+      name: "pg_advisory_xact_lock",
+      args: [DataType.integer, DataType.integer],
+      returns: DataType.bool,
+      implementation: () => true
+    });
     const adapter = memory.adapters.createPg();
     pool = new adapter.Pool() as unknown as DatabasePool;
   } else {
@@ -211,6 +217,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name text NOT NULL,
       token_hash text NOT NULL UNIQUE,
+      revoked_at timestamptz,
       relay_generation bigint NOT NULL DEFAULT 0,
       inventory_revision bigint NOT NULL DEFAULT 0,
       last_seen_at timestamptz,
@@ -341,6 +348,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       user_id uuid REFERENCES users(id) ON DELETE CASCADE,
       approved_at timestamptz,
       consumed_at timestamptz,
+      revoked_at timestamptz,
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -355,6 +363,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       replica_id uuid UNIQUE,
       approved_at timestamptz,
       consumed_at timestamptz,
+      revoked_at timestamptz,
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -379,6 +388,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       prepared_at timestamptz,
       completed_at timestamptz,
       cancelled_at timestamptz,
+      revoked_at timestamptz,
       cleanup_completed boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -443,6 +453,20 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       event_type text NOT NULL,
       subject_id text,
       metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS audit_events_created_idx
+      ON audit_events(created_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS audit_events_user_created_idx
+      ON audit_events(user_id, created_at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS operator_operations (
+      operation_id uuid PRIMARY KEY,
+      action text NOT NULL,
+      target_type text NOT NULL,
+      target_id text NOT NULL,
+      actor text NOT NULL,
+      reason text NOT NULL,
+      result jsonb NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS push_channels (
@@ -625,6 +649,30 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "connectors",
     "inventory_revision",
     "ALTER TABLE connectors ADD COLUMN inventory_revision bigint NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    db,
+    "pairing_requests",
+    "revoked_at",
+    "ALTER TABLE pairing_requests ADD COLUMN revoked_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "mirror_pairing_requests",
+    "revoked_at",
+    "ALTER TABLE mirror_pairing_requests ADD COLUMN revoked_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "authority_adoption_requests",
+    "revoked_at",
+    "ALTER TABLE authority_adoption_requests ADD COLUMN revoked_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "connectors",
+    "revoked_at",
+    "ALTER TABLE connectors ADD COLUMN revoked_at timestamptz"
   );
   await ensureColumn(
     db,

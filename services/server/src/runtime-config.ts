@@ -113,7 +113,13 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       throw new Error("Transactional email configuration is invalid.");
     }
   }
-  let hostedProvider = config.hostedProvider;
+  const hostedProvider = config.hostedProvider
+    ? validateHostedProviderConfig(
+        config.hostedProvider,
+        config.allowInsecureHostedProvider,
+        config.devAuth
+      )
+    : null;
   if (config.hostedCollections && !hostedProvider) {
     throw new Error("Hosted collections require a configured hosted storage provider.");
   }
@@ -121,53 +127,6 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     throw new Error(
       "Insecure hosted provider transport is only available with development authentication."
     );
-  }
-  if (hostedProvider) {
-    const providerUrl = new URL(hostedProvider.url);
-    if (
-      providerUrl.username
-      || providerUrl.password
-      || providerUrl.pathname !== "/"
-      || providerUrl.search
-      || providerUrl.hash
-    ) {
-      throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
-    }
-    if (
-      providerUrl.protocol !== "https:"
-      && !isLoopback(providerUrl.hostname)
-      && !config.allowInsecureHostedProvider
-    ) {
-      throw new Error("The hosted storage provider URL must use HTTPS outside loopback development.");
-    }
-    const providerPublicUrl = new URL(hostedProvider.publicUrl ?? hostedProvider.url);
-    if (
-      providerPublicUrl.username
-      || providerPublicUrl.password
-      || providerPublicUrl.pathname !== "/"
-      || providerPublicUrl.search
-      || providerPublicUrl.hash
-    ) {
-      throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL must be an origin.");
-    }
-    if (
-      providerPublicUrl.protocol !== "https:"
-      && !isLoopback(providerPublicUrl.hostname)
-    ) {
-      throw new Error(
-        "The public hosted storage provider URL must use HTTPS outside loopback development."
-      );
-    }
-    if (hostedProvider.internalToken.length < 32) {
-      throw new Error("The hosted storage provider internal token must contain at least 32 characters.");
-    }
-    hostedProvider = {
-      ...hostedProvider,
-      url: providerUrl.origin,
-      ...(hostedProvider.publicUrl
-        ? { publicUrl: providerPublicUrl.origin }
-        : {})
-    };
   }
   if (config.relayBroker) {
     if (config.relayBroker.token.length < 32) {
@@ -256,14 +215,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     : null;
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
-  const hostedProviderUrl = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
-  const hostedProviderPublicUrl =
-    env.MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL?.trim() ?? "";
-  const hostedProviderInternalToken =
-    env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
-  const hostedProviderConfigured = Boolean(
-    hostedProviderUrl || hostedProviderPublicUrl || hostedProviderInternalToken
-  );
+  const hostedProvider = hostedProviderConfigFromEnv(env);
   const relayBrokerServers = (env.MDBASE_CONNECT_RELAY_NATS_URL ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -318,13 +270,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     authenticationLegalDocuments,
     transactionalEmail,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
-    hostedProvider: hostedProviderConfigured
-      ? {
-          url: hostedProviderUrl,
-          ...(hostedProviderPublicUrl ? { publicUrl: hostedProviderPublicUrl } : {}),
-          internalToken: hostedProviderInternalToken
-        }
-      : null,
+    hostedProvider,
     allowInsecureHostedProvider:
       env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",
     trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1",
@@ -343,6 +289,99 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
         }
       : null
   });
+}
+
+export function hostedProviderConfigFromEnv(
+  env: NodeJS.ProcessEnv
+): HostedProviderConfig | null {
+  const url = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
+  const publicUrl =
+    env.MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL?.trim() ?? "";
+  const internalToken =
+    env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
+  if (!url && !publicUrl && !internalToken) return null;
+  return validateHostedProviderConfig(
+    {
+      url,
+      ...(publicUrl ? { publicUrl } : {}),
+      internalToken
+    },
+    env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",
+    env.MDBASE_CONNECT_DEV_AUTH === "1"
+  );
+}
+
+function validateHostedProviderConfig(
+  config: HostedProviderConfig,
+  allowInsecure: boolean,
+  devAuth: boolean
+): HostedProviderConfig {
+  if (allowInsecure && !devAuth) {
+    throw new Error(
+      "Insecure hosted provider transport is only available with development authentication."
+    );
+  }
+  let providerUrl: URL;
+  let providerPublicUrl: URL;
+  try {
+    providerUrl = new URL(config.url);
+  } catch {
+    throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
+  }
+  try {
+    providerPublicUrl = new URL(config.publicUrl ?? config.url);
+  } catch {
+    throw new Error(
+      "MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL must be an origin."
+    );
+  }
+  if (
+    providerUrl.username
+    || providerUrl.password
+    || providerUrl.pathname !== "/"
+    || providerUrl.search
+    || providerUrl.hash
+  ) {
+    throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
+  }
+  if (
+    providerUrl.protocol !== "https:"
+    && !isLoopback(providerUrl.hostname)
+    && !allowInsecure
+  ) {
+    throw new Error(
+      "The hosted storage provider URL must use HTTPS outside loopback development."
+    );
+  }
+  if (
+    providerPublicUrl.username
+    || providerPublicUrl.password
+    || providerPublicUrl.pathname !== "/"
+    || providerPublicUrl.search
+    || providerPublicUrl.hash
+  ) {
+    throw new Error(
+      "MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL must be an origin."
+    );
+  }
+  if (
+    providerPublicUrl.protocol !== "https:"
+    && !isLoopback(providerPublicUrl.hostname)
+  ) {
+    throw new Error(
+      "The public hosted storage provider URL must use HTTPS outside loopback development."
+    );
+  }
+  if (config.internalToken.length < 32) {
+    throw new Error(
+      "The hosted storage provider internal token must contain at least 32 characters."
+    );
+  }
+  return {
+    ...config,
+    url: providerUrl.origin,
+    ...(config.publicUrl ? { publicUrl: providerPublicUrl.origin } : {})
+  };
 }
 
 function parseWebhookPublicKeys(

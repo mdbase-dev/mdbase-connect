@@ -1,6 +1,10 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { runtimeConfigFromEnv, validateRuntimeConfig } from "./runtime-config.js";
+import {
+  hostedProviderConfigFromEnv,
+  runtimeConfigFromEnv,
+  validateRuntimeConfig
+} from "./runtime-config.js";
 
 function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> = {}) {
   return {
@@ -264,6 +268,19 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
       MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
     })).toThrow(/development authentication/);
+  });
+
+  it("loads provider configuration independently for one-shot administration", () => {
+    expect(hostedProviderConfigFromEnv({
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example/",
+      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
+    })).toEqual({
+      url: "https://provider.example",
+      internalToken: "x".repeat(40)
+    });
+    expect(() => hostedProviderConfigFromEnv({
+      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example"
+    })).toThrow(/32 characters/);
   });
 
   it("validates an optional private NATS relay transport", () => {

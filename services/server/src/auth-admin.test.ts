@@ -48,6 +48,21 @@ describe("authentication operator command", () => {
         privacyVersion: "privacy-2026-07-25"
       })
     });
+    expect(await runAuthAdminCommand([
+      "policy",
+      "history",
+      "--limit",
+      "1"
+    ], context)).toEqual({
+      revisions: [
+        expect.objectContaining({
+          revision: 1,
+          updated_by: "operator:test",
+          update_reason: "Enable private beta invitations"
+        })
+      ],
+      next_before_revision: null
+    });
     await expect(runAuthAdminCommand([
       "policy",
       "update",
@@ -206,7 +221,111 @@ describe("authentication operator command", () => {
       ])
     );
   });
+
+  it("omits invitation credentials from managed delivery and replacement output", async () => {
+    const base = await fixture();
+    await configurePolicy(base);
+    const context = {
+      ...base,
+      emailTransport: {
+        async send() {
+          return { provider: "test", messageId: randomMessageId() };
+        }
+      }
+    };
+    const created = await runAuthAdminCommand([
+      "invite",
+      "create",
+      "--email",
+      "private@example.com",
+      "--actor",
+      "operator:test",
+      "--reason",
+      "Private beta participant",
+      "--send-email",
+      "enabled",
+      "--token-output",
+      "omitted"
+    ], context) as {
+      invitation: { id: string; email: string };
+      sensitive: boolean;
+    };
+    expect(created.sensitive).toBe(false);
+    expect(JSON.stringify(created)).not.toContain("inv_");
+    expect(JSON.stringify(created)).not.toContain("invitation_url");
+
+    const resent = await runAuthAdminCommand([
+      "invite",
+      "resend",
+      "--id",
+      created.invitation.id,
+      "--actor",
+      "operator:test",
+      "--reason",
+      "Replace the previous delivery"
+    ], context) as {
+      invitation: {
+        id: string;
+        replaces_invitation_id: string;
+      };
+      sensitive: boolean;
+    };
+    expect(resent.sensitive).toBe(false);
+    expect(resent.invitation.id).not.toBe(created.invitation.id);
+    expect(resent.invitation.replaces_invitation_id).toBe(
+      created.invitation.id
+    );
+    expect(JSON.stringify(resent)).not.toContain("inv_");
+  });
+
+  it("accepts a bounded request envelope for private operator wrappers", async () => {
+    const context = await fixture();
+    const userId = "10000000-0000-4000-8000-000000000099";
+    await context.db.query(
+      `INSERT INTO users (id, email, name)
+       VALUES ($1, 'operator-target@example.com', 'Operator target')`,
+      [userId]
+    );
+    const args = [
+      "users",
+      "suspend",
+      "--user",
+      "operator-target@example.com",
+      "--operation-id",
+      "20000000-0000-4000-8000-000000000099",
+      "--actor",
+      "operator:test",
+      "--reason",
+      "Exercise the managed request envelope"
+    ];
+    const envelope = Buffer.from(JSON.stringify(args)).toString("base64url");
+
+    expect(await runAuthAdminCommand([
+      "request",
+      envelope
+    ], context)).toEqual(expect.objectContaining({
+      user_id: userId,
+      status: "suspended"
+    }));
+    const users = await runAuthAdminCommand([
+      "users",
+      "list",
+      "--status",
+      "suspended"
+    ], context) as { users: Array<{ id: string }> };
+    expect(users.users.map((user) => user.id)).toContain(userId);
+    await expect(runAuthAdminCommand([
+      "request",
+      Buffer.from(JSON.stringify(["request", envelope])).toString("base64url")
+    ], context)).rejects.toBeInstanceOf(AuthAdminUsageError);
+  });
 });
+
+let messageSequence = 0;
+function randomMessageId(): string {
+  messageSequence += 1;
+  return `message-${messageSequence}`;
+}
 
 async function fixture() {
   const db = await createDatabase("memory");

@@ -4,32 +4,93 @@ import {
 } from "./auth-admin.js";
 import { createDatabase } from "./db.js";
 import { ResendEmailTransport } from "./email.js";
-import type { RegistrationMode } from "./runtime-config.js";
+import {
+  HostedProviderClient,
+  HostedProviderResponseError
+} from "./hosted-provider.js";
+import {
+  hostedProviderConfigFromEnv,
+  type RegistrationMode
+} from "./runtime-config.js";
 
 const db = await createDatabase();
+const requestEnvelope = process.argv[2] === "request";
 try {
   const emailTransport = resendTransport(process.env);
+  const hostedProviderConfig = hostedProviderConfigFromEnv(process.env);
+  const hostedProvider = hostedProviderConfig
+    ? new HostedProviderClient(hostedProviderConfig)
+    : null;
   const result = await runAuthAdminCommand(process.argv.slice(2), {
     db,
     defaultRegistrationMode: registrationMode(
       process.env.MDBASE_CONNECT_REGISTRATION
     ),
     ...(process.env.PUBLIC_URL ? { publicUrl: process.env.PUBLIC_URL } : {}),
-    ...(emailTransport ? { emailTransport } : {})
+    ...(emailTransport ? { emailTransport } : {}),
+    ...(hostedProvider
+      ? {
+          hostedReplicaRevoker: {
+            async revokeReplica(replicaId: string) {
+              try {
+                await hostedProvider.revokeReplica(replicaId);
+              } catch (error) {
+                if (
+                  error instanceof HostedProviderResponseError
+                  && error.status === 404
+                ) {
+                  return;
+                }
+                throw error;
+              }
+            },
+            async abortAuthorityImport(transferId: string) {
+              try {
+                await hostedProvider.abortAuthorityImport(transferId);
+              } catch (error) {
+                if (
+                  error instanceof HostedProviderResponseError
+                  && [
+                    "authority_import_not_found",
+                    "authority_import_inactive"
+                  ].includes(error.code)
+                ) {
+                  return;
+                }
+                throw error;
+              }
+            }
+          }
+        }
+      : {})
   });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  writeResult(result);
 } catch (error) {
   if (error instanceof InvitationDeliveryError) {
-    process.stdout.write(`${JSON.stringify(error.output, null, 2)}\n`);
+    writeResult(error.output);
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 2;
   } else {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    if (requestEnvelope) {
+      process.stdout.write(
+        `MDBASE_ADMIN_ERROR:${JSON.stringify({ message })}\n`
+      );
+    } else {
+      process.stderr.write(`${message}\n`);
+    }
     process.exitCode = 1;
   }
 } finally {
   await db.end();
+}
+
+function writeResult(result: unknown): void {
+  process.stdout.write(
+    requestEnvelope
+      ? `MDBASE_ADMIN_RESULT:${JSON.stringify(result)}\n`
+      : `${JSON.stringify(result, null, 2)}\n`
+  );
 }
 
 function resendTransport(

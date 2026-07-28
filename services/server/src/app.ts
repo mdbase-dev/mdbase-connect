@@ -1179,7 +1179,8 @@ export async function buildApp(options: BuildOptions) {
       expires_at: string;
     }>(
       `SELECT id, connector_name, approved_at, consumed_at, expires_at
-       FROM pairing_requests WHERE id = $1 AND expires_at > now()`,
+       FROM pairing_requests
+       WHERE id = $1 AND revoked_at IS NULL AND expires_at > now()`,
       [pairingId]
     );
     if (!pairing.rows[0]) {
@@ -1194,7 +1195,8 @@ export async function buildApp(options: BuildOptions) {
     const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
     const approved = await options.db.query(
       `UPDATE pairing_requests SET user_id = $2, approved_at = now()
-       WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL AND expires_at > now()
+       WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
+         AND revoked_at IS NULL AND expires_at > now()
        RETURNING id, connector_name`,
       [pairingId, user.id]
     );
@@ -1214,40 +1216,116 @@ export async function buildApp(options: BuildOptions) {
     const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
     const secret = bearerToken(request);
     if (!secret) return reply.code(401).send(apiError("invalid_pairing", "Pairing secret required."));
-    const pairing = await options.db.query<{
-      id: string;
-      connector_name: string;
-      user_id: string | null;
-      approved_at: string | null;
-      consumed_at: string | null;
-    }>(
-      `SELECT id, connector_name, user_id, approved_at, consumed_at
-       FROM pairing_requests
-       WHERE id = $1 AND secret_hash = $2 AND expires_at > now()`,
-      [pairingId, tokenHash(secret)]
-    );
-    const pending = pairing.rows[0];
-    if (!pending) return reply.code(404).send(apiError("pairing_not_found", "Pairing request expired or was not found."));
-    if (pending.consumed_at) return reply.code(409).send(apiError("pairing_used", "Pairing request has already been used."));
-    if (!pending.approved_at || !pending.user_id) return reply.code(202).send({ status: "pending" });
-
-    const consumed = await options.db.query(
-      `UPDATE pairing_requests SET consumed_at = now()
-       WHERE id = $1 AND consumed_at IS NULL RETURNING id`,
-      [pairingId]
-    );
-    if (!consumed.rows[0]) return reply.code(409).send(apiError("pairing_used", "Pairing request has already been used."));
-    const token = randomToken("con");
-    const connector = await options.db.query<{ id: string; name: string }>(
-      `INSERT INTO connectors (id, user_id, name, token_hash)
-       VALUES ($1, $2, $3, $4) RETURNING id, name`,
-      [randomUUID(), pending.user_id, pending.connector_name, tokenHash(token)]
-    );
-    await audit(options.db, pending.user_id, "connector.created", connector.rows[0].id, {
-      name: pending.connector_name,
-      pairing_id: pairingId
-    });
-    return { status: "paired", connector: connector.rows[0], token };
+    const connection = await options.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const pairing = await connection.query<{
+        id: string;
+        connector_name: string;
+        user_id: string | null;
+        approved_at: string | null;
+        consumed_at: string | null;
+      }>(
+        `SELECT id, connector_name, user_id, approved_at, consumed_at
+         FROM pairing_requests
+         WHERE id = $1 AND secret_hash = $2
+           AND revoked_at IS NULL AND expires_at > now()`,
+        [pairingId, tokenHash(secret)]
+      );
+      const pending = pairing.rows[0];
+      if (!pending) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "pairing_not_found",
+          "Pairing request expired or was not found."
+        ));
+      }
+      if (pending.consumed_at) {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "pairing_used",
+          "Pairing request has already been used."
+        ));
+      }
+      if (!pending.approved_at || !pending.user_id) {
+        await connection.query("COMMIT");
+        return reply.code(202).send({ status: "pending" });
+      }
+      const activeAccount = await connection.query(
+        `SELECT id FROM users
+         WHERE id = $1 AND suspended_at IS NULL
+         FOR UPDATE`,
+        [pending.user_id]
+      );
+      if (!activeAccount.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "pairing_not_found",
+          "Pairing request expired or was not found."
+        ));
+      }
+      const locked = await connection.query<{
+        connector_name: string;
+        consumed_at: string | null;
+      }>(
+        `SELECT connector_name, consumed_at
+         FROM pairing_requests
+         WHERE id = $1 AND secret_hash = $2 AND user_id = $3
+           AND approved_at IS NOT NULL
+           AND revoked_at IS NULL AND expires_at > now()
+         FOR UPDATE`,
+        [pairingId, tokenHash(secret), pending.user_id]
+      );
+      if (!locked.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(404).send(apiError(
+          "pairing_not_found",
+          "Pairing request expired or was not found."
+        ));
+      }
+      if (locked.rows[0].consumed_at) {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "pairing_used",
+          "Pairing request has already been used."
+        ));
+      }
+      const consumed = await connection.query(
+        `UPDATE pairing_requests SET consumed_at = now()
+         WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL
+         RETURNING id`,
+        [pairingId]
+      );
+      if (!consumed.rows[0]) {
+        await connection.query("ROLLBACK");
+        return reply.code(409).send(apiError(
+          "pairing_used",
+          "Pairing request has already been used."
+        ));
+      }
+      const token = randomToken("con");
+      const connector = await connection.query<{ id: string; name: string }>(
+        `INSERT INTO connectors (id, user_id, name, token_hash)
+         VALUES ($1, $2, $3, $4) RETURNING id, name`,
+        [
+          randomUUID(),
+          pending.user_id,
+          locked.rows[0].connector_name,
+          tokenHash(token)
+        ]
+      );
+      await audit(connection, pending.user_id, "connector.created", connector.rows[0].id, {
+        name: locked.rows[0].connector_name,
+        pairing_id: pairingId
+      });
+      await connection.query("COMMIT");
+      return { status: "paired", connector: connector.rows[0], token };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
   });
 
   app.post("/v1/mirror-pairing-requests", async (request, reply) => {
@@ -1288,7 +1366,8 @@ export async function buildApp(options: BuildOptions) {
     }>(
       `SELECT id, mirror_name, mode, collection_hint, collection_id, approved_at, consumed_at, user_id
        FROM mirror_pairing_requests
-       WHERE id = $1 AND (expires_at > now() OR approved_at IS NOT NULL)`,
+       WHERE id = $1 AND revoked_at IS NULL
+         AND (expires_at > now() OR approved_at IS NOT NULL)`,
       [pairingId]
     );
     const pending = pairing.rows[0];
@@ -1320,7 +1399,7 @@ export async function buildApp(options: BuildOptions) {
       `UPDATE mirror_pairing_requests
        SET user_id = $2, collection_id = $3, approved_at = now()
        WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-         AND expires_at > now()
+         AND revoked_at IS NULL AND expires_at > now()
          AND EXISTS (
            SELECT 1 FROM hosted_collections
            WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
@@ -1356,10 +1435,15 @@ export async function buildApp(options: BuildOptions) {
       approved_at: string | null;
       consumed_at: string | null;
     }>(
-      `SELECT mirror_name, mode, user_id, collection_id, replica_id, approved_at, consumed_at
-       FROM mirror_pairing_requests
-       WHERE id = $1 AND secret_hash = $2
-         AND (expires_at > now() OR consumed_at IS NOT NULL)`,
+      `SELECT pairing.mirror_name, pairing.mode, pairing.user_id,
+              pairing.collection_id, pairing.replica_id,
+              pairing.approved_at, pairing.consumed_at
+       FROM mirror_pairing_requests pairing
+       LEFT JOIN users account ON account.id = pairing.user_id
+       WHERE pairing.id = $1 AND pairing.secret_hash = $2
+         AND pairing.revoked_at IS NULL
+         AND (pairing.expires_at > now() OR pairing.consumed_at IS NOT NULL)
+         AND (pairing.user_id IS NULL OR account.suspended_at IS NULL)`,
       [pairingId, tokenHash(secret)]
     );
     const pending = pairing.rows[0];
@@ -1377,8 +1461,8 @@ export async function buildApp(options: BuildOptions) {
         options,
         hostedReference,
         publicUrl,
-        pending.replica_id,
-        pending.collection_id
+        pairingId,
+        secret
       );
     }
 
@@ -1397,9 +1481,14 @@ export async function buildApp(options: BuildOptions) {
         replica_id: string | null;
         consumed_at: string | null;
       }>(
-        `SELECT mirror_name, mode, user_id, collection_id, replica_id, consumed_at
-         FROM mirror_pairing_requests
-         WHERE id = $1 AND secret_hash = $2 AND approved_at IS NOT NULL
+        `SELECT pairing.mirror_name, pairing.mode, pairing.user_id,
+                pairing.collection_id, pairing.replica_id, pairing.consumed_at
+         FROM mirror_pairing_requests pairing
+         JOIN users account ON account.id = pairing.user_id
+         WHERE pairing.id = $1 AND pairing.secret_hash = $2
+           AND pairing.approved_at IS NOT NULL
+           AND pairing.revoked_at IS NULL
+           AND account.suspended_at IS NULL
          FOR UPDATE`,
         [pairingId, tokenHash(secret)]
       );
@@ -1417,8 +1506,8 @@ export async function buildApp(options: BuildOptions) {
           options,
           hostedReference,
           publicUrl,
-          current.replica_id,
-          current.collection_id
+          pairingId,
+          secret
         );
       }
       if (options.hostedProvider) {
@@ -1496,36 +1585,23 @@ export async function buildApp(options: BuildOptions) {
     if (!secret) {
       return reply.code(401).send(apiError("invalid_mirror_pairing", "Mirror refresh credential required."));
     }
-    const pairing = await options.db.query<{
-      secret_hash: string;
-      replica_id: string | null;
-      collection_id: string | null;
-      consumed_at: string | null;
-    }>(
-      `SELECT secret_hash, replica_id, collection_id, consumed_at
-       FROM mirror_pairing_requests WHERE id = $1`,
-      [pairingId]
-    );
-    const renewal = pairing.rows[0];
-    if (
-      !renewal
-      || !safeEqual(renewal.secret_hash, tokenHash(secret))
-      || !renewal.consumed_at
-      || !renewal.replica_id
-      || !renewal.collection_id
-    ) {
-      return reply.code(404).send(apiError(
-        "mirror_pairing_not_found",
-        "This device can no longer renew mirror access."
-      ));
+    try {
+      return await rotateMirrorPairingToken(
+        options,
+        hostedReference,
+        publicUrl,
+        pairingId,
+        secret
+      );
+    } catch (error) {
+      if (error instanceof SyncError && error.code === "replica_revoked") {
+        return reply.code(404).send(apiError(
+          "mirror_pairing_not_found",
+          "This device can no longer renew mirror access."
+        ));
+      }
+      throw error;
     }
-    return rotateMirrorPairingToken(
-      options,
-      hostedReference,
-      publicUrl,
-      renewal.replica_id,
-      renewal.collection_id
-    );
   });
 
   app.post("/v1/authority-adoptions", async (request, reply) => {
@@ -2287,6 +2363,7 @@ export async function buildApp(options: BuildOptions) {
        FROM collections collection
        JOIN connectors connector ON connector.id = collection.connector_id
        WHERE connector.user_id = $1
+         AND connector.revoked_at IS NULL
          AND collection.local_id = $2
          AND collection.authority_state = 'candidate'
        ORDER BY collection.last_seen_at DESC`,
@@ -2590,7 +2667,9 @@ export async function buildApp(options: BuildOptions) {
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const connectors = await options.db.query(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at
-       FROM connectors c WHERE c.user_id = $1 ORDER BY c.created_at`,
+       FROM connectors c
+       WHERE c.user_id = $1 AND c.revoked_at IS NULL
+       ORDER BY c.created_at`,
       [user.id]
     );
     const collections = await options.db.query(
@@ -2598,7 +2677,8 @@ export async function buildApp(options: BuildOptions) {
               col.authority_state, col.authority_epoch, col.contracts, col.last_seen_at,
               c.name AS connector_name
        FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 AND col.authority_state = 'active'
+       WHERE c.user_id = $1 AND c.revoked_at IS NULL
+         AND col.authority_state = 'active'
          AND col.present = true
        ORDER BY col.display_name`,
       [user.id]
@@ -3941,7 +4021,7 @@ export async function buildApp(options: BuildOptions) {
         `UPDATE mirror_pairing_requests
          SET user_id = $2, collection_id = $3, approved_at = now()
          WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-           AND expires_at > now()
+           AND revoked_at IS NULL AND expires_at > now()
            AND EXISTS (
              SELECT 1 FROM hosted_collections
              WHERE id = $3 AND user_id = $2 AND authority_state = 'active'
@@ -4458,7 +4538,7 @@ export async function buildApp(options: BuildOptions) {
     const ownership = await options.db.query<{ connector_id: string; contracts: CollectionContractDescriptor[]; spec_version: string }>(
       `SELECT col.connector_id, col.contracts, col.spec_version FROM collections col
        JOIN connectors c ON c.id = col.connector_id
-       WHERE col.id = $1 AND c.user_id = $2`,
+       WHERE col.id = $1 AND c.user_id = $2 AND c.revoked_at IS NULL`,
       [input.collection_id, user.id]
     );
     if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
@@ -5014,8 +5094,14 @@ export async function buildApp(options: BuildOptions) {
         redirect_uri: string;
         code_challenge: string;
       }>(
-        `SELECT id, grant_id, application_id, redirect_uri, code_challenge
-         FROM authorization_codes WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()`,
+        `SELECT ac.id, ac.grant_id, ac.application_id, ac.redirect_uri,
+                ac.code_challenge
+         FROM authorization_codes ac
+         JOIN grants g ON g.id = ac.grant_id
+         JOIN users u ON u.id = g.user_id
+         WHERE ac.code_hash = $1 AND ac.used_at IS NULL
+           AND ac.expires_at > now() AND g.revoked_at IS NULL
+           AND u.suspended_at IS NULL`,
         [tokenHash(input.code)]
       );
       const authorizationCode = code.rows[0];
@@ -5043,9 +5129,11 @@ export async function buildApp(options: BuildOptions) {
       `SELECT rt.id, rt.grant_id, g.proof_public_key
        FROM refresh_tokens rt
        JOIN grants g ON g.id = rt.grant_id
+       JOIN users u ON u.id = g.user_id
        WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
          AND rt.expires_at > now() AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL AND g.application_id = $2`,
+         AND g.activated_at IS NOT NULL AND g.application_id = $2
+         AND u.suspended_at IS NULL`,
       [tokenHash(input.refresh_token), input.client_id]
     );
     const current = refresh.rows[0];
@@ -5442,9 +5530,11 @@ export async function buildApp(options: BuildOptions) {
               col.connector_id, col.local_id
        FROM access_tokens tok
        JOIN grants g ON g.id = tok.grant_id
+       JOIN users u ON u.id = g.user_id
        JOIN collections col ON col.id = g.collection_id
        WHERE tok.token_hash = $1 AND tok.expires_at > now() AND tok.revoked_at IS NULL
          AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
+         AND u.suspended_at IS NULL
          AND col.id = $2 AND col.enabled = true AND col.present = true
          AND col.authority_state = 'active'`,
       [tokenHash(bearer), params.collectionId]
@@ -5927,7 +6017,8 @@ async function liveAuthorizationCollections(
     inventory_revision: string | number;
   }>(
     `SELECT id, name, inventory_revision FROM connectors
-     WHERE user_id = $1 ORDER BY created_at`,
+     WHERE user_id = $1 AND revoked_at IS NULL
+     ORDER BY created_at`,
     [userId]
   );
   const settled = await Promise.allSettled(connectors.rows.map(async (connector) => ({
@@ -6145,6 +6236,7 @@ async function approvePortalAuthorization(
          AND col.user_id = $3 AND col.present = true AND col.enabled = true
          AND col.authority_state = 'active'
          AND col.authority_epoch = offer.authority_epoch
+         AND con.revoked_at IS NULL
          AND con.inventory_revision >= offer.inventory_revision
        FOR UPDATE`,
       [input.offerId, input.requestId, input.userId, input.collectionId]
@@ -6409,7 +6501,8 @@ async function approveAuthorization(
     `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
      FROM collections col JOIN connectors con ON con.id = col.connector_id
      WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true
-       AND col.present = true AND col.authority_state = 'active'`,
+       AND col.present = true AND col.authority_state = 'active'
+       AND con.revoked_at IS NULL`,
     [input.collectionId, input.connectorId]
     );
     scope = scopeForRequirements(
@@ -6801,11 +6894,13 @@ async function issueApplicationTokens(
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
+     JOIN users u ON u.id = g.user_id
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
+       AND g.activated_at IS NOT NULL
+       AND u.suspended_at IS NULL`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
@@ -7172,7 +7267,10 @@ async function authorityPairing(
      FROM mirror_pairing_requests pairing
      JOIN hosted_replicas replica ON replica.id = pairing.replica_id
      JOIN hosted_collections hosted ON hosted.id = pairing.collection_id
-     WHERE pairing.id = $1 AND pairing.secret_hash = $2`,
+     JOIN users account ON account.id = pairing.user_id
+     WHERE pairing.id = $1 AND pairing.secret_hash = $2
+       AND pairing.revoked_at IS NULL
+       AND account.suspended_at IS NULL`,
     [pairingId, tokenHash(secret)]
   );
   const pairing = result.rows[0];
@@ -7208,7 +7306,10 @@ async function mirrorAuthorityTransfer(
             transfer.manifest_digest, transfer.expires_at
      FROM authority_transfers transfer
      JOIN mirror_pairing_requests pairing ON pairing.id = transfer.pairing_id
-     WHERE transfer.id = $1 AND pairing.secret_hash = $2`,
+     JOIN users account ON account.id = transfer.user_id
+     WHERE transfer.id = $1 AND pairing.secret_hash = $2
+       AND pairing.revoked_at IS NULL
+       AND account.suspended_at IS NULL`,
     [transferId, tokenHash(secret)]
   );
   return result.rows[0] ?? null;
@@ -7234,7 +7335,10 @@ async function authorityAdoptionBySecret(
 ): Promise<AuthorityAdoptionRow | null> {
   const result = await db.query<AuthorityAdoptionRow>(
     `${authorityAdoptionSelect()}
-     WHERE adoption.id = $1 AND adoption.secret_hash = $2`,
+     LEFT JOIN users account ON account.id = adoption.user_id
+     WHERE adoption.id = $1 AND adoption.secret_hash = $2
+       AND adoption.revoked_at IS NULL
+       AND (adoption.user_id IS NULL OR account.suspended_at IS NULL)`,
     [adoptionId, tokenHash(secret)]
   );
   return result.rows[0] ?? null;
@@ -7932,50 +8036,72 @@ async function rotateMirrorPairingToken(
   options: BuildOptions,
   hostedReference: HostedAuthorityRegistry | undefined,
   publicUrl: string,
-  replicaId: string,
-  collectionId: string
+  pairingId: string,
+  secret: string
 ) {
-  const active = await options.db.query<{
+  const connection = await options.db.connect();
+  try {
+    await connection.query("BEGIN");
+    const active = await connection.query<{
     id: string;
     collection_id: string;
     name: string;
     mode: "read_only" | "read_write";
-  }>(
-    `SELECT id, collection_id, name, mode
-     FROM hosted_replicas
-     WHERE id = $1 AND collection_id = $2 AND purpose = 'mirror' AND revoked_at IS NULL`,
-    [replicaId, collectionId]
-  );
-  const replica = active.rows[0];
-  if (!replica) {
-    throw new SyncError("replica_revoked", "This mirror has been revoked.");
-  }
-  const token = randomToken("hsr");
-  if (options.hostedProvider) {
-    await options.hostedProvider.rotateReplicaToken(replicaId, token);
-  } else {
-    await options.db.query(
-      "UPDATE hosted_replicas SET token_hash = $2 WHERE id = $1 AND revoked_at IS NULL",
-      [replicaId, tokenHash(token)]
+    }>(
+      `SELECT replica.id, replica.collection_id, replica.name, replica.mode
+       FROM mirror_pairing_requests pairing
+       JOIN users account ON account.id = pairing.user_id
+       JOIN hosted_replicas replica ON replica.id = pairing.replica_id
+       WHERE pairing.id = $1 AND pairing.secret_hash = $2
+         AND pairing.consumed_at IS NOT NULL
+         AND pairing.revoked_at IS NULL
+         AND account.suspended_at IS NULL
+         AND replica.collection_id = pairing.collection_id
+         AND replica.purpose = 'mirror'
+         AND replica.revoked_at IS NULL
+       FOR UPDATE`,
+      [pairingId, tokenHash(secret)]
     );
-    if (!hostedReference) throw new Error("Hosted reference authority is unavailable.");
+    const replica = active.rows[0];
+    if (!replica) {
+      throw new SyncError("replica_revoked", "This mirror has been revoked.");
+    }
+    const token = randomToken("hsr");
+    if (options.hostedProvider) {
+      await options.hostedProvider.rotateReplicaToken(replica.id, token);
+    } else {
+      await connection.query(
+        `UPDATE hosted_replicas SET token_hash = $2
+         WHERE id = $1 AND revoked_at IS NULL`,
+        [replica.id, tokenHash(token)]
+      );
+      if (!hostedReference) {
+        throw new Error("Hosted reference authority is unavailable.");
+      }
+    }
+    await connection.query("COMMIT");
+    return {
+      status: "paired" as const,
+      replica: {
+        id: replica.id,
+        collection_id: replica.collection_id,
+        name: replica.name,
+        mode: replica.mode
+      },
+      token,
+      token_expires_at: replicaTokenExpiry(),
+      sync_url: authorityUrl(
+        options.hostedProvider?.url ?? publicUrl,
+        replica.collection_id,
+        "sync"
+      )
+    };
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
   }
-  return {
-    status: "paired" as const,
-    replica: {
-      id: replica.id,
-      collection_id: replica.collection_id,
-      name: replica.name,
-      mode: replica.mode
-    },
-    token,
-    token_expires_at: replicaTokenExpiry(),
-    sync_url: authorityUrl(
-      options.hostedProvider?.url ?? publicUrl,
-      replica.collection_id,
-      "sync"
-    )
-  };
 }
 
 function replicaTokenExpiry(): string {
@@ -8031,7 +8157,11 @@ async function connectorFromRequest(request: FastifyRequest, db: DatabasePool): 
   const token = bearerToken(request);
   if (!token) return null;
   const connector = await db.query<ConnectorIdentity>(
-    "SELECT id, user_id FROM connectors WHERE token_hash = $1",
+    `SELECT c.id, c.user_id
+     FROM connectors c
+     JOIN users u ON u.id = c.user_id
+     WHERE c.token_hash = $1 AND c.revoked_at IS NULL
+       AND u.suspended_at IS NULL`,
     [tokenHash(token)]
   );
   return connector.rows[0] ?? null;

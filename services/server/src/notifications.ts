@@ -528,9 +528,10 @@ export async function activeGrantForToken(
     `SELECT g.id AS grant_id, g.application_id
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
+     JOIN users u ON u.id = g.user_id
      WHERE tok.token_hash = $1 AND tok.expires_at > now()
        AND tok.revoked_at IS NULL AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
+       AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL`,
     [tokenHash]
   );
   return result.rows[0] ?? null;

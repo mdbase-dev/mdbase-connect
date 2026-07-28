@@ -63,6 +63,12 @@ docker compose --env-file deploy/self-host/.env \
   --profile admin run --rm auth-admin policy show
 ```
 
+The profile also supports user inspection, session revocation, suspension,
+restore, invitation lifecycle, policy history, and audit queries. See
+[`instance-administration.md`](./instance-administration.md) before using an
+account mutation. In particular, restore does not revive any credential
+revoked by suspension.
+
 Populate `RESEND_API_KEY` and `EMAIL_FROM` to deliver invitations with
 `invite create --send-email enabled` and to offer password recovery in the
 Connect portal. The same restricted sending credential is passed to the

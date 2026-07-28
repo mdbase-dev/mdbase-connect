@@ -10,19 +10,37 @@ import {
   type EmailTransport
 } from "./email.js";
 import { sendInvitationEmail } from "./invitation-email.js";
+import {
+  InstanceAdminService,
+  type HostedReplicaRevoker,
+  type OperatorMutation
+} from "./instance-admin.js";
 
 export interface AuthAdminContext {
   db: DatabasePool;
   defaultRegistrationMode: RegistrationMode;
   publicUrl?: string;
   emailTransport?: EmailTransport;
+  hostedReplicaRevoker?: HostedReplicaRevoker;
 }
 
 export async function runAuthAdminCommand(
   argv: string[],
   context: AuthAdminContext
 ): Promise<unknown> {
+  return runCommand(argv, context, true);
+}
+
+async function runCommand(
+  argv: string[],
+  context: AuthAdminContext,
+  allowRequestEnvelope: boolean
+): Promise<unknown> {
   const [area, action, ...rest] = argv;
+  if (area === "request" && action && allowRequestEnvelope) {
+    requireNoArguments(rest);
+    return runCommand(decodeRequestEnvelope(action), context, false);
+  }
   if (area === "policy" && action === "show") {
     requireNoArguments(rest);
     return {
@@ -35,8 +53,41 @@ export async function runAuthAdminCommand(
   if (area === "policy" && action === "update") {
     return updatePolicy(rest, context);
   }
+  if (area === "policy" && action === "history") {
+    return policyHistory(rest, context);
+  }
   if (area === "invite" && action === "create") {
     return createInvitation(rest, context);
+  }
+  if (area === "invite" && action === "list") {
+    return listInvitations(rest, context);
+  }
+  if (area === "invite" && action === "show") {
+    return showInvitation(rest, context);
+  }
+  if (area === "invite" && action === "revoke") {
+    return revokeInvitation(rest, context);
+  }
+  if (area === "invite" && action === "resend") {
+    return resendInvitation(rest, context);
+  }
+  if (area === "users" && action === "list") {
+    return listUsers(rest, context);
+  }
+  if (area === "users" && action === "show") {
+    return showUser(rest, context);
+  }
+  if (area === "users" && action === "suspend") {
+    return suspendUser(rest, context);
+  }
+  if (area === "users" && action === "restore") {
+    return restoreUser(rest, context);
+  }
+  if (area === "users" && action === "revoke-sessions") {
+    return revokeUserSessions(rest, context);
+  }
+  if (area === "audit" && action === "list") {
+    return listAudit(rest, context);
   }
   throw new AuthAdminUsageError(usage());
 }
@@ -111,6 +162,61 @@ async function updatePolicy(
   return { policy: updated };
 }
 
+async function policyHistory(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["limit", "before-revision"]));
+  const limit = pageLimit(flags);
+  const values: unknown[] = [];
+  const conditions: string[] = [];
+  if (flags.has("before-revision")) {
+    values.push(nonNegativeInteger(
+      requiredFlag(flags, "before-revision"),
+      "before-revision"
+    ));
+    conditions.push(`revision < $${values.length}`);
+  }
+  values.push(limit + 1);
+  const result = await context.db.query<{
+    revision: string | number;
+    registration_mode: RegistrationMode;
+    password_auth_enabled: boolean;
+    email_delivery_enabled: boolean;
+    terms_version: string | null;
+    privacy_version: string | null;
+    updated_by: string;
+    update_reason: string;
+    updated_at: Date | string;
+  }>(
+    `SELECT revision, registration_mode, password_auth_enabled,
+            email_delivery_enabled, terms_version, privacy_version,
+            updated_by, update_reason, updated_at
+     FROM authentication_settings_history
+     ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+     ORDER BY revision DESC
+     LIMIT $${values.length}`,
+    values
+  );
+  const rows = result.rows.slice(0, limit);
+  return {
+    revisions: rows.map((row) => ({
+      revision: Number(row.revision),
+      registration_mode: row.registration_mode,
+      password_auth_enabled: row.password_auth_enabled,
+      email_delivery_enabled: row.email_delivery_enabled,
+      terms_version: row.terms_version,
+      privacy_version: row.privacy_version,
+      updated_by: row.updated_by,
+      update_reason: row.update_reason,
+      updated_at: new Date(row.updated_at).toISOString()
+    })),
+    next_before_revision: result.rows.length > limit && rows.length
+      ? Number(rows[rows.length - 1]!.revision)
+      : null
+  };
+}
+
 async function createInvitation(
   argv: string[],
   context: AuthAdminContext
@@ -120,8 +226,16 @@ async function createInvitation(
     "actor",
     "reason",
     "expires-in",
-    "send-email"
+    "send-email",
+    "token-output"
   ]));
+  return createAndDeliverInvitation(flags, context);
+}
+
+async function createAndDeliverInvitation(
+  flags: Map<string, string>,
+  context: AuthAdminContext
+): Promise<unknown> {
   const policy = new AuthenticationPolicyStore(
     context.db,
     context.defaultRegistrationMode
@@ -165,15 +279,21 @@ async function createInvitation(
   });
   const invitationPath =
     `/signup#invitation=${encodeURIComponent(invitation.token)}`;
+  const showToken = !flags.has("token-output")
+    || tokenOutput(requiredFlag(flags, "token-output")) === "shown";
   const invitationOutput = {
     id: invitation.id,
     email: invitation.email,
     expires_at: invitation.expiresAt.toISOString(),
     terms_version: invitation.termsVersion,
     privacy_version: invitation.privacyVersion,
-    token: invitation.token,
-    invitation_path: invitationPath,
-    ...(invitationOrigin
+    ...(showToken
+      ? {
+          token: invitation.token,
+          invitation_path: invitationPath
+        }
+      : {}),
+    ...(showToken && invitationOrigin
       ? { invitation_url: `${invitationOrigin}${invitationPath}` }
       : {})
   };
@@ -182,14 +302,13 @@ async function createInvitation(
       ...invitationOutput
     },
     delivery: { status: "not_requested" as const },
-    sensitive: true,
-    notice: "The invitation token is shown once. Send it only to the intended recipient."
+    sensitive: showToken,
+    notice: showToken
+      ? "The invitation token is shown once. Send it only to the intended recipient."
+      : "The invitation token was omitted from operator output."
   };
   if (!sendEmail) return output;
-  const invitationUrl = "invitation_url" in invitationOutput
-    ? invitationOutput.invitation_url
-    : null;
-  if (!invitationUrl) throw new Error("Invitation URL invariant failed.");
+  const invitationUrl = `${invitationOrigin}${invitationPath}`;
   let delivery: Awaited<ReturnType<typeof sendInvitationEmail>>;
   try {
     delivery = await sendInvitationEmail(context.emailTransport!, {
@@ -241,6 +360,183 @@ async function createInvitation(
       provider: delivery.provider,
       message_id: delivery.messageId
     }
+  };
+}
+
+async function listInvitations(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["limit", "cursor", "status"]));
+  return instanceAdmin(context).listInvitations({
+    limit: pageLimit(flags),
+    ...(flags.has("cursor")
+      ? { cursor: requiredFlag(flags, "cursor") }
+      : {}),
+    ...(flags.has("status")
+      ? { status: invitationStatus(requiredFlag(flags, "status")) }
+      : {})
+  });
+}
+
+async function showInvitation(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["id"]));
+  return instanceAdmin(context).showInvitation(requiredFlag(flags, "id"));
+}
+
+async function revokeInvitation(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["id", "operation-id", "actor", "reason"])
+  );
+  return instanceAdmin(context).revokeInvitation(
+    requiredFlag(flags, "id"),
+    mutationFlags(flags)
+  );
+}
+
+async function resendInvitation(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["id", "actor", "reason", "expires-in"])
+  );
+  const invitationId = requiredFlag(flags, "id");
+  const existing = await instanceAdmin(context).showInvitation(invitationId) as {
+    invitation: { email: string; status: string };
+  };
+  if (existing.invitation.status === "accepted") {
+    throw new AuthAdminUsageError(
+      "An accepted invitation cannot be resent."
+    );
+  }
+  const createFlags = new Map<string, string>([
+    ["email", existing.invitation.email],
+    ["actor", requiredFlag(flags, "actor")],
+    ["reason", requiredFlag(flags, "reason")],
+    ["send-email", "enabled"],
+    ["token-output", "omitted"]
+  ]);
+  if (flags.has("expires-in")) {
+    createFlags.set("expires-in", requiredFlag(flags, "expires-in"));
+  }
+  const result = await createAndDeliverInvitation(createFlags, context) as {
+    invitation: Record<string, unknown>;
+  };
+  return {
+    ...result,
+    invitation: {
+      ...result.invitation,
+      replaces_invitation_id: invitationId
+    }
+  };
+}
+
+async function listUsers(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["limit", "cursor", "status"]));
+  return instanceAdmin(context).listUsers({
+    limit: pageLimit(flags),
+    ...(flags.has("cursor")
+      ? { cursor: requiredFlag(flags, "cursor") }
+      : {}),
+    ...(flags.has("status")
+      ? { status: userStatus(requiredFlag(flags, "status")) }
+      : {})
+  });
+}
+
+async function showUser(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["user"]));
+  return instanceAdmin(context).showUser(requiredFlag(flags, "user"));
+}
+
+async function suspendUser(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["user", "operation-id", "actor", "reason"])
+  );
+  return instanceAdmin(context).suspendUser(
+    requiredFlag(flags, "user"),
+    mutationFlags(flags)
+  );
+}
+
+async function restoreUser(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["user", "operation-id", "actor", "reason"])
+  );
+  return instanceAdmin(context).restoreUser(
+    requiredFlag(flags, "user"),
+    mutationFlags(flags)
+  );
+}
+
+async function revokeUserSessions(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["user", "operation-id", "actor", "reason"])
+  );
+  return instanceAdmin(context).revokeUserSessions(
+    requiredFlag(flags, "user"),
+    mutationFlags(flags)
+  );
+}
+
+async function listAudit(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(
+    argv,
+    new Set(["limit", "cursor", "user-id", "event-type"])
+  );
+  return instanceAdmin(context).listAuditEvents({
+    limit: pageLimit(flags),
+    ...(flags.has("cursor")
+      ? { cursor: requiredFlag(flags, "cursor") }
+      : {}),
+    ...(flags.has("user-id")
+      ? { userId: requiredFlag(flags, "user-id") }
+      : {}),
+    ...(flags.has("event-type")
+      ? { eventType: requiredFlag(flags, "event-type") }
+      : {})
+  });
+}
+
+function instanceAdmin(context: AuthAdminContext): InstanceAdminService {
+  return new InstanceAdminService(context.db, context.hostedReplicaRevoker);
+}
+
+function mutationFlags(flags: Map<string, string>): OperatorMutation {
+  return {
+    operationId: requiredFlag(flags, "operation-id"),
+    actor: requiredFlag(flags, "actor"),
+    reason: requiredFlag(flags, "reason")
   };
 }
 
@@ -311,6 +607,71 @@ function positiveInteger(value: string, name: string): number {
   return number;
 }
 
+function pageLimit(flags: Map<string, string>): number {
+  if (!flags.has("limit")) return 25;
+  const limit = positiveInteger(requiredFlag(flags, "limit"), "limit");
+  if (limit > 100) {
+    throw new AuthAdminUsageError("--limit must not exceed 100.");
+  }
+  return limit;
+}
+
+function tokenOutput(value: string): "shown" | "omitted" {
+  if (value === "shown" || value === "omitted") return value;
+  throw new AuthAdminUsageError(
+    "--token-output must be shown or omitted."
+  );
+}
+
+function invitationStatus(
+  value: string
+): "active" | "accepted" | "revoked" | "expired" {
+  if (
+    value === "active"
+    || value === "accepted"
+    || value === "revoked"
+    || value === "expired"
+  ) {
+    return value;
+  }
+  throw new AuthAdminUsageError(
+    "--status must be active, accepted, revoked, or expired."
+  );
+}
+
+function userStatus(value: string): "active" | "suspended" {
+  if (value === "active" || value === "suspended") return value;
+  throw new AuthAdminUsageError(
+    "--status must be active or suspended."
+  );
+}
+
+function decodeRequestEnvelope(value: string): string[] {
+  if (value.length > 32_000 || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new AuthAdminUsageError("Operator request envelope is invalid.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  } catch {
+    throw new AuthAdminUsageError("Operator request envelope is invalid.");
+  }
+  if (
+    !Array.isArray(parsed)
+    || parsed.length < 2
+    || parsed.length > 100
+    || parsed.some((item) =>
+      typeof item !== "string"
+      || item.length === 0
+      || item.length > 2_000
+    )
+    || parsed[0] === "request"
+  ) {
+    throw new AuthAdminUsageError("Operator request envelope is invalid.");
+  }
+  return parsed as string[];
+}
+
 function publicOrigin(value: string): string {
   let url: URL;
   try {
@@ -353,8 +714,20 @@ export function usage(): string {
   return [
     "Usage:",
     "  auth-admin policy show",
+    "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
     "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",
-    "  auth-admin invite create --email <address> --actor <id> --reason <text> [--expires-in <seconds>] [--send-email enabled]",
+    "  auth-admin invite create --email <address> --actor <id> --reason <text> [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
+    "  auth-admin invite list [--status <status>] [--limit <n>] [--cursor <cursor>]",
+    "  auth-admin invite show --id <uuid>",
+    "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>]",
+    "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
+    "  auth-admin users show --user <uuid|email>",
+    "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin users restore --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin audit list [--user-id <uuid>] [--event-type <type>] [--limit <n>] [--cursor <cursor>]",
+    "  auth-admin request <base64url-json-argv>",
     "",
     "Policy changes:",
     "  --registration closed|invite|open",

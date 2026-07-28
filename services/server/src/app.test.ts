@@ -18,7 +18,7 @@ import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
-import { pkceChallenge } from "./security.js";
+import { pkceChallenge, tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -86,6 +86,142 @@ describe("mdbase connect server", () => {
         message: "The request body exceeds the allowed size."
       }
     });
+  });
+
+  it("enforces account suspension across connector and application credentials", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = "10000000-0000-4000-8000-000000000080";
+    const connectorId = "20000000-0000-4000-8000-000000000080";
+    const collectionId = "30000000-0000-4000-8000-000000000080";
+    const applicationId = "40000000-0000-4000-8000-000000000080";
+    const grantId = "50000000-0000-4000-8000-000000000080";
+    const connectorToken = "connector-suspension-token";
+    const accessToken = "access-suspension-token";
+    const refreshToken = "refresh-suspension-token";
+    const authorizationCode = "authorization-suspension-code";
+    const pairingSecret = "pairing-suspension-secret";
+    const pairingId = "60000000-0000-4000-8000-000000000080";
+    const verifier = "suspension-verifier-that-is-long-enough-for-pkce-0001";
+    await db.query(
+      `INSERT INTO users (id, email, name, suspended_at)
+       VALUES ($1, 'suspended@example.com', 'Suspended', now())`,
+      [userId]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Laptop', $3)`,
+      [connectorId, userId, tokenHash(connectorToken)]
+    );
+    await db.query(
+      `INSERT INTO collections
+         (id, user_id, connector_id, local_id, display_name, spec_version)
+       VALUES ($1, $2, $3, $4, 'Notes', '0.3.0')`,
+      [collectionId, userId, connectorId, randomUUID()]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris)
+       VALUES ($1, 'web:https://suspended-app.example', 'Suspended app',
+         'https://suspended-app.example',
+         '["https://suspended-app.example/callback"]'::jsonb)`,
+      [applicationId]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations)
+       VALUES ($1, $2, $3, $4, '["read"]'::jsonb)`,
+      [grantId, userId, applicationId, collectionId]
+    );
+    await db.query(
+      `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 hour')`,
+      [randomUUID(), tokenHash(accessToken), grantId]
+    );
+    await db.query(
+      `INSERT INTO refresh_tokens (id, token_hash, grant_id, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 day')`,
+      [randomUUID(), tokenHash(refreshToken), grantId]
+    );
+    await db.query(
+      `INSERT INTO authorization_codes
+         (id, code_hash, grant_id, application_id, redirect_uri,
+          code_challenge, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now() + interval '5 minutes')`,
+      [
+        randomUUID(),
+        tokenHash(authorizationCode),
+        grantId,
+        applicationId,
+        "https://suspended-app.example/callback",
+        pkceChallenge(verifier)
+      ]
+    );
+    await db.query(
+      `INSERT INTO pairing_requests
+         (id, secret_hash, connector_name, user_id, approved_at, expires_at)
+       VALUES ($1, $2, 'Pending laptop', $3, now(), now() + interval '1 hour')`,
+      [pairingId, tokenHash(pairingSecret), userId]
+    );
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+
+    const connector = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/control",
+      headers: { authorization: `Bearer ${connectorToken}` }
+    });
+    expect(connector.statusCode).toBe(401);
+    expect(connector.json().error.code).toBe("invalid_connector");
+
+    const operation = await app.inject({
+      method: "POST",
+      url: `/v1/authorities/${collectionId}/operations/read`,
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { path: "note.md" }
+    });
+    expect(operation.statusCode).toBe(401);
+    expect(operation.json().error.code).toBe("invalid_token");
+
+    const refresh = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: applicationId
+      }).toString()
+    });
+    expect(refresh.statusCode).toBe(400);
+    expect(refresh.json().error.code).toBe("invalid_grant");
+
+    const code = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: authorizationCode,
+        client_id: applicationId,
+        redirect_uri: "https://suspended-app.example/callback",
+        code_verifier: verifier
+      }).toString()
+    });
+    expect(code.statusCode).toBe(400);
+    expect(code.json().error.code).toBe("invalid_grant");
+
+    const pairing = await app.inject({
+      method: "POST",
+      url: `/v1/pairing-requests/${pairingId}/exchange`,
+      headers: { authorization: `Bearer ${pairingSecret}` }
+    });
+    expect(pairing.statusCode).toBe(404);
+    expect(pairing.json().error.code).toBe("pairing_not_found");
   });
 
   it("registers exact bundled declarations as immutable application identities", async () => {
