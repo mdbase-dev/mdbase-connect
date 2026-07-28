@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
@@ -140,12 +140,21 @@ export function availablePort() {
   });
 }
 
-function sanitizeProjectName(value) {
+export function sanitizeProjectName(value) {
   const sanitized = value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
   if (!sanitized || !/^[a-z0-9]/.test(sanitized)) {
     throw new Error("The Docker Compose project name is invalid");
   }
-  return sanitized.slice(0, 63);
+  if (sanitized === value && sanitized.length <= 63) return sanitized;
+
+  // Docker resource names need a bounded, normalized project name. Retain a
+  // digest whenever normalization would otherwise discard information so two
+  // explicitly different test environments cannot silently become one.
+  const digest = createHash("sha256").update(value).digest("hex").slice(0, 12);
+  const prefix = sanitized
+    .slice(0, 50)
+    .replace(/[-_]+$/g, "");
+  return `${prefix}-${digest}`;
 }
 
 function run(command, arguments_, options) {
