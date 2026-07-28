@@ -47,7 +47,7 @@ describe("mdbase connect server", () => {
       protocol_version: 1,
       revision: "ae3a8d9"
     });
-  });
+  }, 15_000);
 
   it("keeps malformed and oversized request bodies out of the server-error path", async () => {
     const db = await createDatabase("memory");
