@@ -163,8 +163,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
     CREATE INDEX IF NOT EXISTS authentication_challenges_expiry_idx
       ON authentication_challenges(expires_at)
       WHERE consumed_at IS NULL AND invalidated_at IS NULL;
-    CREATE INDEX IF NOT EXISTS authentication_challenges_user_idx
-      ON authentication_challenges(user_id, purpose, created_at DESC);
     CREATE TABLE IF NOT EXISTS auth_rate_limit_buckets (
       scope text NOT NULL,
       key_digest text NOT NULL,
@@ -221,17 +219,13 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       expires_at timestamptz NOT NULL,
       revoked_at timestamptz,
       last_seen_at timestamptz NOT NULL DEFAULT now(),
-      client_name text,
       created_at timestamptz NOT NULL DEFAULT now()
     );
-    CREATE INDEX IF NOT EXISTS sessions_user_idx
-      ON sessions(user_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS connectors (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name text NOT NULL,
       token_hash text NOT NULL UNIQUE,
-      revoked_at timestamptz,
       relay_generation bigint NOT NULL DEFAULT 0,
       inventory_revision bigint NOT NULL DEFAULT 0,
       last_seen_at timestamptz,
@@ -293,7 +287,7 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       icon text,
       redirect_uris jsonb NOT NULL,
       requirements jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
-      provisions jsonb NOT NULL DEFAULT '{"type_packs":[]}'::jsonb,
+      provisions jsonb NOT NULL DEFAULT '{"types":[]}'::jsonb,
       notifications jsonb NOT NULL DEFAULT '{"criteria":[]}'::jsonb,
       first_seen_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
@@ -362,7 +356,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       user_id uuid REFERENCES users(id) ON DELETE CASCADE,
       approved_at timestamptz,
       consumed_at timestamptz,
-      revoked_at timestamptz,
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -377,7 +370,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       replica_id uuid UNIQUE,
       approved_at timestamptz,
       consumed_at timestamptz,
-      revoked_at timestamptz,
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -402,7 +394,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       prepared_at timestamptz,
       completed_at timestamptz,
       cancelled_at timestamptz,
-      revoked_at timestamptz,
       cleanup_completed boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -467,20 +458,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
       event_type text NOT NULL,
       subject_id text,
       metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS audit_events_created_idx
-      ON audit_events(created_at DESC, id DESC);
-    CREATE INDEX IF NOT EXISTS audit_events_user_created_idx
-      ON audit_events(user_id, created_at DESC, id DESC);
-    CREATE TABLE IF NOT EXISTS operator_operations (
-      operation_id uuid PRIMARY KEY,
-      action text NOT NULL,
-      target_type text NOT NULL,
-      target_id text NOT NULL,
-      actor text NOT NULL,
-      reason text NOT NULL,
-      result jsonb NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS push_channels (
@@ -595,19 +572,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
   await ensureNotNullable(db, "sessions", "last_seen_at");
   await ensureColumn(
     db,
-    "sessions",
-    "client_name",
-    "ALTER TABLE sessions ADD COLUMN client_name text"
-  );
-  await db.query(
-    "CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id, created_at DESC)"
-  );
-  await db.query(
-    `CREATE INDEX IF NOT EXISTS authentication_challenges_user_idx
-       ON authentication_challenges(user_id, purpose, created_at DESC)`
-  );
-  await ensureColumn(
-    db,
     "external_identities",
     "email_verified",
     "ALTER TABLE external_identities ADD COLUMN email_verified boolean NOT NULL DEFAULT false"
@@ -663,30 +627,6 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
     "connectors",
     "inventory_revision",
     "ALTER TABLE connectors ADD COLUMN inventory_revision bigint NOT NULL DEFAULT 0"
-  );
-  await ensureColumn(
-    db,
-    "pairing_requests",
-    "revoked_at",
-    "ALTER TABLE pairing_requests ADD COLUMN revoked_at timestamptz"
-  );
-  await ensureColumn(
-    db,
-    "mirror_pairing_requests",
-    "revoked_at",
-    "ALTER TABLE mirror_pairing_requests ADD COLUMN revoked_at timestamptz"
-  );
-  await ensureColumn(
-    db,
-    "authority_adoption_requests",
-    "revoked_at",
-    "ALTER TABLE authority_adoption_requests ADD COLUMN revoked_at timestamptz"
-  );
-  await ensureColumn(
-    db,
-    "connectors",
-    "revoked_at",
-    "ALTER TABLE connectors ADD COLUMN revoked_at timestamptz"
   );
   await ensureColumn(
     db,

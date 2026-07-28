@@ -7,9 +7,11 @@ import {
   backfillExternalIdentityEmails,
   backfillSessionProviders,
   createDatabase,
+  migrateLegacySchema,
   openDatabase,
   revokeLegacyHostedBearerGrants
 } from "./db.js";
+import { InstanceAdminService } from "./instance-admin.js";
 import {
   assertControlPlaneMigrationsCurrent,
   runControlPlaneMigrations
@@ -31,7 +33,8 @@ describe("database migrations", () => {
     );
     expect(applied.rows.map(({ id }) => id)).toEqual([
       "0000_legacy_baseline",
-      "0001_collaboration_foundations"
+      "0001_collaboration_foundations",
+      "0002_instance_administration"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -48,6 +51,75 @@ describe("database migrations", () => {
     expect(repeated.rows).toEqual(applied.rows);
   });
 
+  it("upgrades a beta legacy schema before instance administration runs", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await migrateLegacySchema(db);
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Existing user')",
+      [userId, "existing@example.com"]
+    );
+    await db.query(
+      `INSERT INTO connectors (id, user_id, name, token_hash)
+       VALUES ($1, $2, 'Existing computer', 'existing-connector')`,
+      [connectorId, userId]
+    );
+    const service = new InstanceAdminService(db);
+
+    await expect(service.listUsers())
+      .rejects.toThrow("revoked_at");
+
+    await runControlPlaneMigrations(db);
+
+    await expect(service.listUsers()).resolves.toMatchObject({
+      users: [{
+        id: userId,
+        status: "active",
+        active_connectors: 1
+      }]
+    });
+    await expect(service.suspendUser(userId, {
+      operationId: randomUUID(),
+      actor: "operator:test",
+      reason: "Exercise the upgraded containment schema"
+    })).resolves.toMatchObject({
+      user_id: userId,
+      status: "suspended",
+      changed: true,
+      revoked: {
+        connectors: 1
+      }
+    });
+    const upgradedColumns = await db.query<{
+      table_name: string;
+      column_name: string;
+    }>(
+      `SELECT table_name, column_name
+       FROM information_schema.columns
+       WHERE (table_name = 'sessions' AND column_name = 'client_name')
+          OR (table_name IN (
+            'connectors',
+            'pairing_requests',
+            'mirror_pairing_requests',
+            'authority_adoption_requests'
+          ) AND column_name = 'revoked_at')
+       ORDER BY table_name, column_name`
+    );
+    expect(upgradedColumns.rows).toEqual([
+      { table_name: "authority_adoption_requests", column_name: "revoked_at" },
+      { table_name: "connectors", column_name: "revoked_at" },
+      { table_name: "mirror_pairing_requests", column_name: "revoked_at" },
+      { table_name: "pairing_requests", column_name: "revoked_at" },
+      { table_name: "sessions", column_name: "client_name" }
+    ]);
+    const migration = await db.query<{ id: string }>(
+      "SELECT id FROM schema_migrations WHERE id = '0002_instance_administration'"
+    );
+    expect(migration.rows).toEqual([{ id: "0002_instance_administration" }]);
+  });
+
   it("fails closed when an application starts before pre-deploy migration", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
@@ -58,7 +130,6 @@ describe("database migrations", () => {
   it("backfills the authorizing user for replicas created before attribution", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
-    const { migrateLegacySchema } = await import("./db.js");
     await migrateLegacySchema(db);
     const userId = randomUUID();
     const collectionId = randomUUID();
