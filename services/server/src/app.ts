@@ -2807,7 +2807,7 @@ export async function buildApp(options: BuildOptions) {
     );
     const pendingAuthorizations = await options.db.query(
       `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
-              ar.collection_hint, ar.expires_at,
+              ar.collection_id, ar.expires_at,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
@@ -3783,12 +3783,12 @@ export async function buildApp(options: BuildOptions) {
               a.homepage AS application_homepage,
               a.project_url AS application_project_url, a.icon AS application_icon,
               ar.flow, ar.user_code,
-              ar.requested_operations, hinted.local_id AS collection_hint,
+              ar.requested_operations, hinted.local_id AS collection_id,
               ar.expires_at, a.requirements, a.provisions, a.notifications
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        LEFT JOIN collections hinted
-         ON hinted.id = ar.collection_hint AND hinted.connector_id = $2
+         ON hinted.id = ar.collection_id AND hinted.connector_id = $2
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL AND ar.denied_at IS NULL
          AND ar.expires_at > now()
        ORDER BY ar.expires_at`,
@@ -4595,7 +4595,7 @@ export async function buildApp(options: BuildOptions) {
     const input = z.object({
       client_id: z.uuid(),
       operations: z.string().default("read,query"),
-      collection_hint: z.uuid().optional(),
+      collection_id: z.uuid().optional(),
       code_challenge: z.string().min(43).max(128),
       code_challenge_method: z.literal("S256"),
       relay_protocol: z.coerce.number().int(),
@@ -4644,7 +4644,7 @@ export async function buildApp(options: BuildOptions) {
     await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
-          requested_operations, collection_hint, relay_protocol,
+          requested_operations, collection_id, relay_protocol,
           application_public_key, device_code_hash, user_code, user_code_hash,
           poll_interval_seconds, expires_at)
        VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
@@ -4654,7 +4654,7 @@ export async function buildApp(options: BuildOptions) {
         input.client_id,
         input.code_challenge,
         JSON.stringify(requestedOperations),
-        input.collection_hint ?? null,
+        input.collection_id ?? null,
         ENCRYPTED_RELAY_PROTOCOL_VERSION,
         input.application_public_key,
         tokenHash(deviceCode),
@@ -4885,7 +4885,7 @@ export async function buildApp(options: BuildOptions) {
       code_challenge_method: z.literal("S256"),
       state: z.string().max(500).optional(),
       operations: z.string().default("read,query"),
-      collection_hint: z.uuid().optional(),
+      collection_id: z.uuid().optional(),
       relay_protocol: z.coerce.number().int().optional(),
       application_public_key: z.string().min(80).max(200).optional()
     }).parse(request.query);
@@ -4928,7 +4928,7 @@ export async function buildApp(options: BuildOptions) {
     await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
-          requested_operations, collection_hint, relay_protocol, application_public_key, expires_at)
+          requested_operations, collection_id, relay_protocol, application_public_key, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, now() + interval '10 minutes')`,
       [
         authorizationId,
@@ -4938,7 +4938,7 @@ export async function buildApp(options: BuildOptions) {
         query.state ?? null,
         query.code_challenge,
         JSON.stringify(requestedOperations),
-        query.collection_hint ?? null,
+        query.collection_id ?? null,
         query.relay_protocol ?? null,
         query.application_public_key ?? null
       ]
@@ -4996,7 +4996,7 @@ export async function buildApp(options: BuildOptions) {
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const authorization = await options.db.query(
       `SELECT ar.id, ar.flow, ar.user_code, ar.requested_operations,
-              ar.collection_hint, ar.expires_at,
+              ar.collection_id, ar.expires_at,
               a.id AS application_id, a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon,
               a.requirements, a.provisions, a.notifications
@@ -6390,6 +6390,7 @@ async function approvePortalAuthorization(
       application_public_key: string | null;
       flow: "authorization_code" | "device_code";
       redirect_uri: string | null;
+      collection_id: string | null;
       grant_id: string | null;
       activation_started_at: string | Date | null;
     }>(
@@ -6398,7 +6399,7 @@ async function approvePortalAuthorization(
               a.project_url AS application_project_url, a.icon AS application_icon,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri,
-              ar.grant_id, ar.activation_started_at
+              ar.collection_id, ar.grant_id, ar.activation_started_at
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
@@ -6410,6 +6411,11 @@ async function approvePortalAuthorization(
     if (!pending) {
       await connection.query("ROLLBACK");
       return false;
+    }
+    if (pending.collection_id && pending.collection_id !== input.collectionId) {
+      throw new RequestValidationError(
+        "This authorization request is restricted to a different collection."
+      );
     }
     if (pending.grant_id) {
       const started = pending.activation_started_at
@@ -6710,10 +6716,12 @@ async function approveAuthorization(
     application_public_key: string | null;
     flow: "authorization_code" | "device_code";
     redirect_uri: string | null;
+    collection_id: string | null;
   }>(
     `SELECT ar.application_id, a.distribution, a.homepage AS application_homepage,
             ar.requested_operations, a.requirements, a.notifications,
-            ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri
+            ar.relay_protocol, ar.application_public_key, ar.flow, ar.redirect_uri,
+            ar.collection_id
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id
      WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
@@ -6725,6 +6733,11 @@ async function approveAuthorization(
     if (!pending) {
       await connection.query("ROLLBACK");
       return false;
+    }
+    if (pending.collection_id && pending.collection_id !== input.collectionId) {
+      throw new RequestValidationError(
+        "This authorization request is restricted to a different collection."
+      );
     }
     if (
       pending.distribution === "portable"
@@ -6870,12 +6883,14 @@ async function approveHostedAuthorization(
       relay_protocol: number | null;
       application_public_key: string | null;
       flow: "authorization_code" | "device_code";
+      collection_id: string | null;
     }>(
       `SELECT ar.application_id, a.name AS application_name,
               a.distribution, a.homepage AS application_homepage,
               ar.redirect_uri, ar.requested_operations,
               a.requirements, a.provisions, a.notifications,
-              ar.relay_protocol, ar.application_public_key, ar.flow
+              ar.relay_protocol, ar.application_public_key, ar.flow,
+              ar.collection_id
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
        WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
@@ -6887,6 +6902,11 @@ async function approveHostedAuthorization(
     if (!pending) {
       await connection.query("ROLLBACK");
       return false;
+    }
+    if (pending.collection_id && pending.collection_id !== input.collectionId) {
+      throw new RequestValidationError(
+        "This authorization request is restricted to a different collection."
+      );
     }
     if (
       pending.distribution === "portable"
@@ -8044,7 +8064,7 @@ async function hostedControlSnapshot(
             a.project_url AS application_project_url,
             a.icon AS application_icon,
             ar.flow, ar.user_code, ar.requested_operations,
-            ar.collection_hint, ar.expires_at,
+            ar.collection_id, ar.expires_at,
             a.requirements, a.provisions, a.notifications
      FROM authorization_requests ar
      JOIN applications a ON a.id = ar.application_id

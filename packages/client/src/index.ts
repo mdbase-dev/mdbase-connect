@@ -137,10 +137,14 @@ export interface MdbaseConnectionInfo {
   directAccess: DirectAccessStatus;
 }
 
+export type MdbaseAuthorizationTarget =
+  | { kind: "choose" }
+  | { kind: "collection"; collectionId: string };
+
 export interface MdbaseAuthorizeOptions {
   operations?: CollectionOperation[];
-  /** Preselect this collection without bypassing the user's approval. */
-  collectionId?: string;
+  /** Choose any compatible collection, or require one exact collection. */
+  target?: MdbaseAuthorizationTarget;
   /** App-local location to restore after the authorization callback. */
   returnTo?: string;
   /** Receives the short code even when the SDK also opens the approval page. */
@@ -177,6 +181,10 @@ export interface MdbaseAuthorizationResult<Frontmatter extends JsonObject = Json
   connection: MdbaseConnection<Frontmatter>;
   returnTo?: string;
 }
+
+export type MdbaseAuthorizationOutcome<Frontmatter extends JsonObject = JsonObject> =
+  | { kind: "redirecting" }
+  | ({ kind: "connected" } & MdbaseAuthorizationResult<Frontmatter>);
 
 export interface MdbaseDesiredTimer {
   /** Stable within the timer namespace. */
@@ -854,6 +862,7 @@ interface Application {
 }
 
 interface StoredAuthorization {
+  version: 1;
   verifier: string;
   state: string;
   clientId: string;
@@ -866,6 +875,7 @@ interface StoredAuthorization {
 }
 
 interface StoredToken {
+  version: 1;
   accessToken: string;
   refreshToken?: string;
   clientId: string;
@@ -887,6 +897,11 @@ interface StoredToken {
     accessToken: string;
     proofPublicKey?: string;
   };
+}
+
+interface StoredConnectionIndex {
+  version: 1;
+  collectionIds: string[];
 }
 
 interface PendingEncryptedMutation {
@@ -919,8 +934,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.internals.register();
   }
 
-  authorize(options: MdbaseAuthorizeOptions = {}): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+  authorize(options: MdbaseAuthorizeOptions = {}): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     return this.internals.authorize(options);
+  }
+
+  createSession(options: MdbaseSessionOptions): MdbaseSession<Frontmatter> {
+    return new MdbaseSession(this, options);
   }
 
   environment(): MdbaseConnectEnvironment {
@@ -941,6 +960,10 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     return this.internals.connection(collectionId);
   }
 
+  unavailableReason(collectionId: string): MdbaseUnavailableReason | null {
+    return this.internals.unavailableReason(collectionId);
+  }
+
   onConnectionsChange(
     listener: (connections: MdbaseConnectionInfo[]) => void
   ): () => void {
@@ -954,37 +977,31 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 }
 
-export interface MdbaseBrowserLocationOptions {
-  /** Query parameter used for the bookmarked collection identity. */
+export type MdbaseSelectionHistory = "push" | "replace";
+
+export interface MdbaseSessionSelection {
+  selectedCollectionId(): string | null;
+  select(collectionId: string | null, options?: { history?: MdbaseSelectionHistory }): void;
+  authorizationReturnTo(): string | undefined;
+  authorizationCallback(): string | null;
+  finishAuthorization(returnTo: string | undefined, collectionId: string): void;
+  clearAuthorizationCallback(returnTo?: string): void;
+  subscribe(listener: () => void): () => void;
+}
+
+export interface MdbaseBrowserSelectionOptions {
   collectionParameter?: string;
-  /** App-local location used when an authorization did not preserve one. */
   fallbackPath?: string;
 }
 
-export interface MdbaseBrowserLocationChange<Frontmatter extends JsonObject = JsonObject> {
-  connection: MdbaseConnection<Frontmatter> | null;
-  connections: MdbaseConnectionInfo[];
-  /** The explicit bookmarked identity, including one that is not currently authorized. */
-  collectionId: string | null;
-}
-
-/**
- * Keeps a multi-collection browser application's active Connect collection in
- * its URL. Collection identities are opaque locators, not credentials.
- */
-export class MdbaseBrowserLocation<Frontmatter extends JsonObject = JsonObject> {
+/** URL-backed collection selection for browser and browser-shell applications. */
+export class MdbaseBrowserSelection implements MdbaseSessionSelection {
   private readonly collectionParameter: string;
   private readonly fallbackPath: string;
-  private readonly listeners = new Set<
-    (change: MdbaseBrowserLocationChange<Frontmatter>) => void
-  >();
-  private stopConnectionEvents?: () => void;
+  private readonly listeners = new Set<() => void>();
   private readonly handlePopState = () => this.emit();
 
-  constructor(
-    private readonly connect: MdbaseConnect<Frontmatter>,
-    options: MdbaseBrowserLocationOptions = {}
-  ) {
+  constructor(options: MdbaseBrowserSelectionOptions = {}) {
     this.collectionParameter = options.collectionParameter ?? "collection";
     this.fallbackPath = options.fallbackPath ?? "/";
   }
@@ -993,17 +1010,19 @@ export class MdbaseBrowserLocation<Frontmatter extends JsonObject = JsonObject> 
     return this.currentUrl().searchParams.get(this.collectionParameter);
   }
 
-  activeConnection(): MdbaseConnection<Frontmatter> | null {
-    const selected = this.selectedCollectionId();
-    if (selected) return this.connect.connection(selected);
-    const connections = this.connect.connections();
-    if (connections.length !== 1) return null;
-    this.writeSelection(connections[0].collectionId, true);
-    return this.connect.connection(connections[0].collectionId);
-  }
-
-  selectConnection(collectionId: string, options: { replace?: boolean } = {}): void {
-    this.writeSelection(collectionId, options.replace ?? false);
+  select(
+    collectionId: string | null,
+    options: { history?: MdbaseSelectionHistory } = {}
+  ): void {
+    const url = cleanAuthorizationParameters(this.currentUrl());
+    if (collectionId) url.searchParams.set(this.collectionParameter, collectionId);
+    else url.searchParams.delete(this.collectionParameter);
+    const browserHistory = this.browserHistory();
+    browserHistory[options.history === "push" ? "pushState" : "replaceState"](
+      browserHistory.state,
+      "",
+      url
+    );
     this.emit();
   }
 
@@ -1012,76 +1031,43 @@ export class MdbaseBrowserLocation<Frontmatter extends JsonObject = JsonObject> 
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
-  async completeAuthorization(
-    callbackUrl = this.currentUrl().href
-  ): Promise<MdbaseConnection<Frontmatter>> {
-    const result = await this.connect.completeAuthorization(callbackUrl);
-    const returnTo = this.safeAppUrl(result.returnTo ?? this.fallbackPath);
-    cleanAuthorizationParameters(returnTo);
-    returnTo.searchParams.set(this.collectionParameter, result.connection.collectionId);
-    this.browserHistory().replaceState(null, "", returnTo);
-    this.emit();
-    return result.connection;
+  authorizationCallback(): string | null {
+    const value = this.currentUrl().href;
+    return isAuthorizationCallbackUrl(value) ? value : null;
   }
 
-  isAuthorizationCallback(value: string): boolean {
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      return false;
-    }
-    return url.searchParams.has("code") || url.searchParams.has("error");
+  finishAuthorization(returnTo: string | undefined, collectionId: string): void {
+    const url = this.safeAppUrl(returnTo ?? this.fallbackPath);
+    cleanAuthorizationParameters(url);
+    url.searchParams.set(this.collectionParameter, collectionId);
+    const browserHistory = this.browserHistory();
+    browserHistory.replaceState(null, "", url);
+    this.emit();
   }
 
   clearAuthorizationCallback(returnTo?: string): void {
     const url = returnTo ? this.safeAppUrl(returnTo) : this.currentUrl();
-    this.browserHistory().replaceState(null, "", cleanAuthorizationParameters(url));
+    const browserHistory = this.browserHistory();
+    browserHistory.replaceState(browserHistory.state, "", cleanAuthorizationParameters(url));
     this.emit();
   }
 
-  onChange(
-    listener: (change: MdbaseBrowserLocationChange<Frontmatter>) => void
-  ): () => void {
-    const firstListener = this.listeners.size === 0;
+  subscribe(listener: () => void): () => void {
+    const first = this.listeners.size === 0;
     this.listeners.add(listener);
-    if (firstListener) {
-      this.stopConnectionEvents = this.connect.onConnectionsChange(() => this.emit());
-      if (typeof window !== "undefined") {
-        window.addEventListener("popstate", this.handlePopState);
-      }
-    } else {
-      listener(this.snapshot());
+    if (first && typeof window !== "undefined") {
+      window.addEventListener("popstate", this.handlePopState);
     }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size > 0) return;
-      this.stopConnectionEvents?.();
-      this.stopConnectionEvents = undefined;
-      if (typeof window !== "undefined") {
+      if (this.listeners.size === 0 && typeof window !== "undefined") {
         window.removeEventListener("popstate", this.handlePopState);
       }
     };
   }
 
-  private snapshot(): MdbaseBrowserLocationChange<Frontmatter> {
-    return {
-      connection: this.activeConnection(),
-      connections: this.connect.connections(),
-      collectionId: this.selectedCollectionId()
-    };
-  }
-
   private emit(): void {
-    if (!this.listeners.size) return;
-    const change = this.snapshot();
-    for (const listener of this.listeners) listener(change);
-  }
-
-  private writeSelection(collectionId: string, replace: boolean): void {
-    const url = cleanAuthorizationParameters(this.currentUrl());
-    url.searchParams.set(this.collectionParameter, collectionId);
-    this.browserHistory()[replace ? "replaceState" : "pushState"](null, "", url);
+    for (const listener of this.listeners) listener();
   }
 
   private safeAppUrl(value: string): URL {
@@ -1094,22 +1080,343 @@ export class MdbaseBrowserLocation<Frontmatter extends JsonObject = JsonObject> 
 
   private currentUrl(): URL {
     if (typeof location === "undefined") {
-      throw new MdbaseConnectError(
-        "browser_required",
-        "Collection URL selection requires a browser environment."
-      );
+      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
     }
     return new URL(location.href);
   }
 
   private browserHistory(): History {
     if (typeof history === "undefined") {
-      throw new MdbaseConnectError(
-        "browser_required",
-        "Collection URL selection requires a browser environment."
-      );
+      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
     }
     return history;
+  }
+}
+
+export class MdbaseMemorySelection implements MdbaseSessionSelection {
+  private collectionId: string | null = null;
+  private readonly listeners = new Set<() => void>();
+
+  selectedCollectionId(): string | null {
+    return this.collectionId;
+  }
+
+  select(collectionId: string | null): void {
+    if (collectionId === this.collectionId) return;
+    this.collectionId = collectionId;
+    for (const listener of this.listeners) listener();
+  }
+
+  authorizationReturnTo(): undefined {
+    return undefined;
+  }
+
+  authorizationCallback(): null {
+    return null;
+  }
+
+  finishAuthorization(_returnTo: string | undefined, collectionId: string): void {
+    this.select(collectionId);
+  }
+
+  clearAuthorizationCallback(): void {}
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+}
+
+export interface MdbaseSessionOptions {
+  selection: MdbaseSessionSelection;
+  operations?: CollectionOperation[];
+  autoSelect?: "only" | "never";
+}
+
+export type MdbaseUnavailableReason =
+  | "not_authorized"
+  | "authorization_lost"
+  | "invalid_stored_grant";
+
+export type MdbaseSessionSnapshot<Frontmatter extends JsonObject = JsonObject> =
+  | {
+      status: "unselected";
+      connections: MdbaseConnectionInfo[];
+    }
+  | {
+      status: "ready";
+      collectionId: string;
+      connection: MdbaseConnection<Frontmatter>;
+      info: MdbaseConnectionInfo;
+      access: MdbaseAuthorizationCapabilities;
+      connections: MdbaseConnectionInfo[];
+    }
+  | {
+      status: "unavailable";
+      collectionId: string;
+      reason: MdbaseUnavailableReason;
+      connections: MdbaseConnectionInfo[];
+    };
+
+export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
+  private readonly operations: CollectionOperation[];
+  private readonly selection: MdbaseSessionSelection;
+  private readonly autoSelect: "only" | "never";
+  private readonly listeners = new Set<() => void>();
+  private snapshot: MdbaseSessionSnapshot<Frontmatter>;
+  private snapshotKey = "";
+  private stopConnections?: () => void;
+  private stopSelection?: () => void;
+  private stopActiveConnection?: () => void;
+  private activeCollectionId: string | null = null;
+  private unavailableReason: MdbaseUnavailableReason = "not_authorized";
+  private started = false;
+  private refreshing = false;
+  private refreshQueued = false;
+  private transactionDepth = 0;
+  private callbackPromise: Promise<MdbaseConnection<Frontmatter>> | null = null;
+
+  constructor(
+    private readonly connect: MdbaseConnect<Frontmatter>,
+    options: MdbaseSessionOptions
+  ) {
+    this.operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
+    this.selection = options.selection;
+    this.autoSelect = options.autoSelect ?? "only";
+    this.snapshot = { status: "unselected", connections: [] };
+    this.refresh();
+  }
+
+  async start(): Promise<MdbaseSessionSnapshot<Frontmatter>> {
+    if (!this.started) {
+      this.started = true;
+      this.stopConnections = this.connect.onConnectionsChange(() => this.refresh());
+      this.stopSelection = this.selection.subscribe(() => {
+        this.unavailableReason = "not_authorized";
+        this.refresh();
+      });
+    }
+    const callback = this.selection.authorizationCallback();
+    if (callback) await this.handleAuthorizationCallback(callback);
+    else this.autoSelectOnlyConnection();
+    this.refresh();
+    return this.snapshot;
+  }
+
+  destroy(): void {
+    this.stopConnections?.();
+    this.stopSelection?.();
+    this.stopActiveConnection?.();
+    this.stopConnections = undefined;
+    this.stopSelection = undefined;
+    this.stopActiveConnection = undefined;
+    this.activeCollectionId = null;
+    this.started = false;
+  }
+
+  getSnapshot(): MdbaseSessionSnapshot<Frontmatter> {
+    return this.snapshot;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  select(
+    collectionId: string,
+    options: { history?: MdbaseSelectionHistory } = {}
+  ): MdbaseConnection<Frontmatter> {
+    const connection = this.connect.connection(collectionId);
+    if (!connection) {
+      throw new MdbaseConnectError(
+        "unknown_collection",
+        "This collection is not authorized for this application."
+      );
+    }
+    this.unavailableReason = "not_authorized";
+    this.selection.select(collectionId, options);
+    this.refresh();
+    return connection;
+  }
+
+  clearSelection(options: { history?: MdbaseSelectionHistory } = {}): void {
+    this.unavailableReason = "not_authorized";
+    this.selection.select(null, options);
+    this.refresh();
+  }
+
+  forget(collectionId: string): void {
+    this.transactionDepth += 1;
+    try {
+      const selected = this.selection.selectedCollectionId() === collectionId;
+      this.connect.connection(collectionId)?.forget();
+      if (selected) this.selection.select(null, { history: "replace" });
+    } finally {
+      this.transactionDepth -= 1;
+      this.refresh();
+    }
+  }
+
+  async authorize(
+    target: "choose" | "selected" | { collectionId: string },
+    options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
+    const selectedCollectionId = this.selection.selectedCollectionId();
+    if (target === "selected" && !selectedCollectionId) {
+      throw new MdbaseConnectError("collection_not_selected", "Choose a collection before updating its access.");
+    }
+    const targetCollectionId = typeof target === "object"
+      ? target.collectionId
+      : target === "selected"
+        ? selectedCollectionId!
+        : null;
+    this.transactionDepth += 1;
+    try {
+      const outcome = await this.connect.authorize({
+        ...options,
+        operations: this.operations,
+        target: targetCollectionId === null
+          ? { kind: "choose" }
+          : { kind: "collection", collectionId: targetCollectionId },
+        returnTo: this.selection.authorizationReturnTo()
+      });
+      if (outcome.kind === "connected") {
+        this.selection.finishAuthorization(outcome.returnTo, outcome.connection.collectionId);
+      }
+      return outcome;
+    } finally {
+      this.transactionDepth -= 1;
+      this.refresh();
+    }
+  }
+
+  async ensureOperations(
+    requiredOperations: CollectionOperation[]
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter> | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }> {
+    const current = this.snapshot;
+    if (current.status !== "ready") {
+      throw new MdbaseConnectError("collection_not_ready", "Choose an authorized collection first.");
+    }
+    const required = uniqueOperations(requiredOperations);
+    const capabilities = current.connection.authorizationCapabilities(required);
+    if (capabilities.sufficient) return { kind: "unchanged", connection: current.connection };
+    this.transactionDepth += 1;
+    try {
+      const outcome = await this.connect.authorize({
+        operations: uniqueOperations([...capabilities.grantedOperations, ...capabilities.missingOperations]),
+        target: { kind: "collection", collectionId: current.collectionId },
+        returnTo: this.selection.authorizationReturnTo()
+      });
+      if (outcome.kind === "connected") {
+        this.selection.finishAuthorization(outcome.returnTo, outcome.connection.collectionId);
+      }
+      return outcome;
+    } finally {
+      this.transactionDepth -= 1;
+      this.refresh();
+    }
+  }
+
+  handleAuthorizationCallback(
+    callbackUrl: string
+  ): Promise<MdbaseConnection<Frontmatter>> {
+    if (!isAuthorizationCallbackUrl(callbackUrl)) {
+      return Promise.reject(new MdbaseConnectError("invalid_callback", "This URL is not an authorization callback."));
+    }
+    if (this.callbackPromise) return this.callbackPromise;
+    this.transactionDepth += 1;
+    const completion = this.connect.completeAuthorization(callbackUrl)
+      .then((result) => {
+        this.unavailableReason = "not_authorized";
+        this.selection.finishAuthorization(result.returnTo, result.connection.collectionId);
+        this.refresh();
+        return result.connection;
+      })
+      .catch((error) => {
+        const returnTo = authorizationReturnToFromError(error);
+        this.selection.clearAuthorizationCallback(returnTo);
+        this.refresh();
+        throw error;
+      })
+      .finally(() => {
+        this.transactionDepth -= 1;
+        this.refresh();
+        if (this.callbackPromise === completion) this.callbackPromise = null;
+      });
+    this.callbackPromise = completion;
+    return completion;
+  }
+
+  private autoSelectOnlyConnection(): void {
+    if (this.autoSelect !== "only" || this.selection.selectedCollectionId()) return;
+    const connections = this.connect.connections();
+    if (connections.length === 1) {
+      this.selection.select(connections[0].collectionId, { history: "replace" });
+    }
+  }
+
+  private refresh(): void {
+    if (this.transactionDepth > 0) {
+      this.refreshQueued = true;
+      return;
+    }
+    if (this.refreshing) {
+      this.refreshQueued = true;
+      return;
+    }
+    this.refreshing = true;
+    try {
+      do {
+        this.refreshQueued = false;
+        this.refreshOnce();
+      } while (this.refreshQueued);
+    } finally {
+      this.refreshing = false;
+    }
+  }
+
+  private refreshOnce(): void {
+    const collectionId = this.selection.selectedCollectionId();
+    const connections = this.connect.connections();
+    const connection = collectionId ? this.connect.connection(collectionId) : null;
+    if (connection?.collectionId !== this.activeCollectionId) {
+      this.stopActiveConnection?.();
+      this.activeCollectionId = connection?.collectionId ?? null;
+      this.stopActiveConnection = connection?.onConnectionChange((info) => {
+        if (!info && this.selection.selectedCollectionId() === connection.collectionId) {
+          this.unavailableReason = "authorization_lost";
+        }
+        this.refresh();
+      });
+    }
+
+    let next: MdbaseSessionSnapshot<Frontmatter>;
+    if (!collectionId) {
+      next = { status: "unselected", connections };
+    } else if (!connection || !connection.info()) {
+      next = {
+        status: "unavailable",
+        collectionId,
+        reason: this.connect.unavailableReason(collectionId) ?? this.unavailableReason,
+        connections
+      };
+    } else {
+      const info = connection.info()!;
+      next = {
+        status: "ready",
+        collectionId,
+        connection,
+        info,
+        access: connection.authorizationCapabilities(this.operations),
+        connections
+      };
+    }
+    const key = sessionSnapshotKey(next);
+    if (key === this.snapshotKey) return;
+    this.snapshot = next;
+    this.snapshotKey = key;
+    for (const listener of this.listeners) listener();
   }
 }
 
@@ -1129,6 +1436,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   private readonly completionPromises = new Map<string, Promise<MdbaseAuthorizationResult<Frontmatter>>>();
   private readonly connectionCache = new Map<string, MdbaseConnection<Frontmatter>>();
   private readonly listeners = new Set<(connections: MdbaseConnectionInfo[]) => void>();
+  private readonly invalidatedConnections = new Map<string, MdbaseUnavailableReason>();
 
   constructor(options: MdbaseConnectOptions) {
     this.serverUrl = stripTrailingSlash(options.serverUrl);
@@ -1228,7 +1536,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   async authorize(
     options: MdbaseAuthorizeOptions = {}
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     if (typeof location === "undefined" && !this.navigate && !options.openVerification) {
       throw new MdbaseConnectError(
         "browser_required",
@@ -1259,17 +1567,21 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     popup?.close();
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
+    const targetCollectionId = options.target?.kind === "collection"
+      ? options.target.collectionId
+      : undefined;
     const keyHandle = this.relayEncryption === "required"
       ? `grant:${application.id}:${state}`
       : undefined;
     const grantKey = keyHandle ? await this.keyStore.create(keyHandle) : undefined;
     const pending: StoredAuthorization = {
+      version: 1,
       verifier,
       state,
       clientId: application.id,
       redirectUri: this.redirectUri,
       relayEncryption: this.relayEncryption,
-      collectionId: options.collectionId,
+      collectionId: targetCollectionId,
       returnTo: options.returnTo,
       keyHandle,
       applicationPublicKey: grantKey?.publicKey
@@ -1285,8 +1597,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       "operations",
       uniqueOperations(options.operations ?? DEFAULT_OPERATIONS).join(",")
     );
-    if (options.collectionId) {
-      authorize.searchParams.set("collection_hint", options.collectionId);
+    if (targetCollectionId) {
+      authorize.searchParams.set("collection_id", targetCollectionId);
     }
     if (grantKey) {
       authorize.searchParams.set("relay_protocol", "1");
@@ -1294,14 +1606,14 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     if (this.navigate) await this.navigate(authorize.href);
     else location.assign(authorize.href);
-    return new Promise<MdbaseAuthorizationResult<Frontmatter>>(() => undefined);
+    return { kind: "redirecting" };
   }
 
   private async authorizePortable(
     application: Application,
     options: MdbaseAuthorizeOptions,
     popup: Window | null
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     if (this.relayEncryption !== "required") {
       popup?.close();
       throw new MdbaseConnectError(
@@ -1321,7 +1633,9 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         body: new URLSearchParams({
           client_id: application.id,
           operations: uniqueOperations(options.operations ?? DEFAULT_OPERATIONS).join(","),
-          ...(options.collectionId ? { collection_hint: options.collectionId } : {}),
+          ...(options.target?.kind === "collection"
+            ? { collection_id: options.target.collectionId }
+            : {}),
           code_challenge: challenge,
           code_challenge_method: "S256",
           relay_protocol: "1",
@@ -1457,7 +1771,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           application.id,
           keyHandle
         );
-        if (options.collectionId && options.collectionId !== token.collectionId) {
+        if (options.target?.kind === "collection"
+            && options.target.collectionId !== token.collectionId) {
           this.removeToken(token.collectionId, token.keyHandle);
           throw new MdbaseConnectError(
             "collection_mismatch",
@@ -1466,6 +1781,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         }
         popup?.close();
         return {
+          kind: "connected",
           connection: this.connection(token.collectionId)!,
           ...(options.returnTo ? { returnTo: options.returnTo } : {})
         };
@@ -1507,7 +1823,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const code = callback.searchParams.get("code");
     const pendingKey = this.pendingKey(state);
     const pending = parseStored<StoredAuthorization>(this.storage.getItem(pendingKey));
-    if (!pending || state !== pending.state) {
+    if (!pending || pending.version !== 1 || state !== pending.state) {
       throw new MdbaseConnectError("invalid_callback", "Authorization callback is missing or does not match this browser session.");
     }
     if (callback.searchParams.has("error")) {
@@ -1604,6 +1920,10 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     return connection.info() ? connection : null;
   }
 
+  unavailableReason(collectionId: string): MdbaseUnavailableReason | null {
+    return this.invalidatedConnections.get(collectionId) ?? null;
+  }
+
   onConnectionsChange(listener: (connections: MdbaseConnectionInfo[]) => void): () => void {
     this.listeners.add(listener);
     listener(this.connections());
@@ -1631,6 +1951,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
     const token: StoredToken = {
+      version: 1,
       accessToken: body.access_token,
       refreshToken: body.refresh_token,
       clientId,
@@ -1657,12 +1978,18 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     };
     this.storage.setItem(this.tokenKey(collectionId), JSON.stringify(token));
     this.addConnectionId(collectionId);
+    this.invalidatedConnections.delete(collectionId);
     this.connectionCache.delete(collectionId);
     this.emitConnections();
     return token;
   }
 
-  removeToken(collectionId: string, keyHandle?: string): void {
+  removeToken(
+    collectionId: string,
+    keyHandle?: string,
+    reason: MdbaseUnavailableReason = "authorization_lost"
+  ): void {
+    this.invalidatedConnections.set(collectionId, reason);
     if (keyHandle) void this.keyStore.delete(keyHandle);
     this.storage.removeItem(this.tokenKey(collectionId));
     this.storage.removeItem(this.pendingMutationKey(collectionId));
@@ -1671,7 +1998,10 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     this.storage.setItem(
       this.connectionsKey(),
-      JSON.stringify(this.connectionIds().filter((id) => id !== collectionId))
+      JSON.stringify({
+        version: 1,
+        collectionIds: this.connectionIds().filter((id) => id !== collectionId)
+      } satisfies StoredConnectionIndex)
     );
     this.connectionCache.delete(collectionId);
     this.emitConnections();
@@ -1729,13 +2059,20 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   }
 
   private connectionIds(): string[] {
-    return parseStored<string[]>(this.storage.getItem(this.connectionsKey())) ?? [];
+    const index = parseStored<StoredConnectionIndex>(this.storage.getItem(this.connectionsKey()));
+    return index?.version === 1 && Array.isArray(index.collectionIds)
+      && index.collectionIds.every((collectionId) => typeof collectionId === "string")
+      ? index.collectionIds
+      : [];
   }
 
   private addConnectionId(collectionId: string): void {
     this.storage.setItem(
       this.connectionsKey(),
-      JSON.stringify([...new Set([...this.connectionIds(), collectionId])])
+      JSON.stringify({
+        version: 1,
+        collectionIds: [...new Set([...this.connectionIds(), collectionId])]
+      } satisfies StoredConnectionIndex)
     );
   }
 
@@ -1844,17 +2181,23 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   authorize(
     options: MdbaseConnectionAuthorizeOptions = {}
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
-    return this.internals.authorize({ ...options, collectionId: this.collectionId });
+  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
+    return this.internals.authorize({
+      ...options,
+      target: { kind: "collection", collectionId: this.collectionId }
+    });
   }
 
   async requestOperations(
     requiredOperations: CollectionOperation[],
     options: Pick<MdbaseConnectionAuthorizeOptions, "returnTo"> = {}
-  ): Promise<void> {
+  ): Promise<
+    MdbaseAuthorizationOutcome<Frontmatter>
+    | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }
+  > {
     const capabilities = this.authorizationCapabilities(requiredOperations);
-    if (capabilities.sufficient) return;
-    await this.authorize({
+    if (capabilities.sufficient) return { kind: "unchanged", connection: this };
+    return this.authorize({
       ...options,
       operations: uniqueOperations([
         ...capabilities.grantedOperations,
@@ -2193,7 +2536,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   forget(): void {
     const token = this.currentToken();
-    this.internals.removeToken(this.collectionId, token?.keyHandle);
+    this.internals.removeToken(this.collectionId, token?.keyHandle, "not_authorized");
     this.setRoute("relay");
     this.emitConnection();
   }
@@ -2830,10 +3173,18 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private currentToken(): StoredToken | null {
-    const token = parseStored<StoredToken>(this.storage.getItem(this.tokenKey()));
-    if (!token) return null;
+    const stored = this.storage.getItem(this.tokenKey());
+    const token = parseStored<StoredToken>(stored);
+    if (!token) {
+      if (stored) this.internals.removeToken(this.collectionId, undefined, "invalid_stored_grant");
+      return null;
+    }
+    if (token.version !== 1) {
+      this.internals.removeToken(this.collectionId, token.keyHandle, "invalid_stored_grant");
+      return null;
+    }
     if (!parseGrantScope(token.scope)) {
-      this.internals.removeToken(this.collectionId, token.keyHandle);
+      this.internals.removeToken(this.collectionId, token.keyHandle, "invalid_stored_grant");
       return null;
     }
     if (token.expiresAt <= Date.now()
@@ -3416,6 +3767,49 @@ function cleanAuthorizationParameters(url: URL): URL {
     url.searchParams.delete(parameter);
   }
   return url;
+}
+
+function isAuthorizationCallbackUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.searchParams.has("state")
+    && (url.searchParams.has("code") || url.searchParams.has("error"));
+}
+
+function authorizationReturnToFromError(error: unknown): string | undefined {
+  if (!(error instanceof MdbaseConnectError)
+      || !error.details
+      || typeof error.details !== "object"
+      || Array.isArray(error.details)) return undefined;
+  const returnTo = (error.details as { returnTo?: unknown }).returnTo;
+  return typeof returnTo === "string" ? returnTo : undefined;
+}
+
+function sessionSnapshotKey<Frontmatter extends JsonObject>(
+  snapshot: MdbaseSessionSnapshot<Frontmatter>
+): string {
+  if (snapshot.status === "unselected") {
+    return JSON.stringify({ status: snapshot.status, connections: snapshot.connections });
+  }
+  if (snapshot.status === "unavailable") {
+    return JSON.stringify({
+      status: snapshot.status,
+      collectionId: snapshot.collectionId,
+      reason: snapshot.reason,
+      connections: snapshot.connections
+    });
+  }
+  return JSON.stringify({
+    status: snapshot.status,
+    collectionId: snapshot.collectionId,
+    info: snapshot.info,
+    access: snapshot.access,
+    connections: snapshot.connections
+  });
 }
 
 function parseGrantScope(value: unknown): GrantScope | null {

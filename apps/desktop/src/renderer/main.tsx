@@ -1012,13 +1012,15 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
     request.provisions,
     request.requested_operations
   ]);
-  const [collectionId, setCollectionId] = useState(
-    available.some((collection) => collection.id === request.collection_hint)
-      ? request.collection_hint!
-      : available[0]?.id ?? ""
+  const selectable = useMemo(
+    () => request.collection_id
+      ? available.filter((collection) => collection.id === request.collection_id)
+      : available,
+    [available, request.collection_id]
   );
+  const [collectionId, setCollectionId] = useState(selectable[0]?.id ?? "");
   const [operations, setOperations] = useState(request.requested_operations);
-  const selected = available.find((collection) => collection.id === collectionId);
+  const selected = selectable.find((collection) => collection.id === collectionId);
   const setup = selected?.provisionable
     ? neededProvisions(request.requirements, request.provisions, selected)
     : [];
@@ -1036,10 +1038,10 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
     0
   );
   useEffect(() => {
-    if (!available.some((collection) => collection.id === collectionId)) {
-      setCollectionId(available[0]?.id ?? "");
+    if (!selectable.some((collection) => collection.id === collectionId)) {
+      setCollectionId(selectable[0]?.id ?? "");
     }
-  }, [collectionId, available]);
+  }, [collectionId, selectable]);
   async function createHostedCollection(event: React.FormEvent) {
     event.preventDefault();
     const displayName = hostedName.trim();
@@ -1061,11 +1063,11 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{request.application_distribution === "portable" ? `Downloaded HTML file${request.application_project_url ? ` · ${host(request.application_project_url)}` : ""}` : host(request.application_homepage)}</code>{request.application_distribution === "portable" && <small className="portable-request-warning">Unverified file origin. Only allow it if you intentionally opened the file{request.user_code ? ` and it shows ${request.user_code}` : ""}.</small>}<small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
       <div className="request-decision">
         <section className="request-section">
-          <div><strong>Collection</strong><small>Choose where {request.application_name} can work.</small></div>
+          <div><strong>Collection</strong><small>{request.collection_id ? `${request.application_name} requested this specific collection.` : `Choose where ${request.application_name} can work.`}</small></div>
           <div className="request-section-content">
-            <label><span>Collection</span><select value={collectionId} disabled={available.length === 0 || busy} onChange={(event) => setCollectionId(event.target.value)}>{available.length === 0 && <option value="">No compatible collection</option>}{available.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "Hosted by mdbase" : "on this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
-            {available.length === 0 && <small>No available local or hosted collection supports all requested operations and contracts.</small>}
-            {canCreateHosted && (creatingHosted ? (
+            <label><span>Collection</span><select value={collectionId} disabled={selectable.length === 0 || busy} onChange={(event) => setCollectionId(event.target.value)}>{selectable.length === 0 && <option value="">No compatible collection</option>}{selectable.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "Hosted by mdbase" : "on this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
+            {selectable.length === 0 && <small>{request.collection_id ? "The collection requested by this application is not available." : "No available local or hosted collection supports all requested operations and contracts."}</small>}
+            {canCreateHosted && !request.collection_id && (creatingHosted ? (
               <form
                 className="request-collection-create"
                 id={`create-hosted-${request.id}`}

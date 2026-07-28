@@ -119,7 +119,7 @@ export interface PendingAuthorization {
   flow: "authorization_code" | "device_code";
   user_code?: string | null;
   requested_operations: string[];
-  collection_hint?: string | null;
+  collection_id?: string | null;
   expires_at: string;
   application_id: string;
   application_name: string;

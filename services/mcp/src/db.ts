@@ -137,13 +137,14 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       token_hash text NOT NULL UNIQUE,
       connection_set_id uuid NOT NULL REFERENCES mcp_connection_sets(id) ON DELETE CASCADE,
       scopes jsonb NOT NULL,
-      collection_hint uuid,
+      collection_id uuid,
       expires_at timestamptz NOT NULL,
       used_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now()
     );
   `);
   await db.query(
-    "ALTER TABLE mcp_connection_tickets ADD COLUMN IF NOT EXISTS collection_hint uuid"
+    "ALTER TABLE mcp_connection_tickets ADD COLUMN IF NOT EXISTS collection_id uuid"
   );
+  await db.query("ALTER TABLE mcp_connection_tickets DROP COLUMN IF EXISTS collection_hint");
 }

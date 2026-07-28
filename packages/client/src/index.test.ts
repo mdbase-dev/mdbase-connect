@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPkce,
-  MdbaseBrowserLocation,
+  MdbaseBrowserSelection,
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
@@ -930,6 +930,7 @@ describe("mobile notifications", () => {
   it("registers the selected criteria atomically for one browser installation", async () => {
     const storage = new MemoryStorage();
     storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
       accessToken: "mdb_notifications",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1013,6 +1014,7 @@ describe("mobile notifications", () => {
   it("rejects undeclared criteria before asking the browser for push permission", async () => {
     const storage = new MemoryStorage();
     storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
       accessToken: "mdb_notifications",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1081,6 +1083,7 @@ describe("mobile notifications", () => {
   it("registers an FCM installation without accepting a client-selected project", async () => {
     const storage = new MemoryStorage();
     storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
       accessToken: "mdb_notifications",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1156,6 +1159,7 @@ describe("mobile notifications", () => {
     const registrationKey =
       `mdbase-connect:${serverUrl}:${manifestSource}:notifications:${TEST_COLLECTION_ID}:fcm`;
     storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
       accessToken: "expired",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: TEST_COLLECTION_ID,
@@ -1334,29 +1338,139 @@ describe("long mutation progress", () => {
   });
 });
 
-describe("browser collection locations", () => {
-  it("bookmarks the only saved collection but respects an explicit unknown identity", () => {
+describe("application sessions", () => {
+  it("selects the only saved collection during startup", async () => {
     const browser = installBrowser("https://tasks.example/today?filter=open#focus");
     const manager = managerWithConnections([TEST_COLLECTION_ID]);
-    const location = new MdbaseBrowserLocation(manager);
+    const session = manager.createSession({
+      operations: ["query"],
+      selection: new MdbaseBrowserSelection()
+    });
 
-    expect(location.activeConnection()?.collectionId).toBe(TEST_COLLECTION_ID);
+    await session.start();
+
+    expect(session.getSnapshot()).toMatchObject({
+      status: "ready",
+      collectionId: TEST_COLLECTION_ID
+    });
     expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
     expect(browser.replaceState).toHaveBeenCalledOnce();
-
-    browser.navigate("https://tasks.example/today?collection=not-authorized");
-    expect(location.activeConnection()).toBeNull();
-    expect(new URL(browser.href()).searchParams.get("collection")).toBe("not-authorized");
   });
 
-  it("keeps app navigation bookmarkable and strips temporary OAuth parameters", () => {
+  it("recovers atomically from a stale bookmark without reloading", async () => {
+    const browser = installBrowser("https://tasks.example/today?collection=not-authorized");
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = manager.createSession({
+      operations: ["query"],
+      selection: new MdbaseBrowserSelection()
+    });
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      collectionId: "not-authorized",
+      reason: "not_authorized"
+    });
+
+    const snapshots: string[] = [];
+    session.subscribe(() => snapshots.push(session.getSnapshot().status));
+    const selected = session.select(TEST_COLLECTION_ID);
+
+    expect(selected.collectionId).toBe(TEST_COLLECTION_ID);
+    expect(session.getSnapshot()).toMatchObject({
+      status: "ready",
+      collectionId: TEST_COLLECTION_ID
+    });
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(snapshots).toEqual(["ready"]);
+  });
+
+  it("does not mutate selection when asked to open an unknown collection", async () => {
+    const browser = installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = manager.createSession({ selection: new MdbaseBrowserSelection() });
+    await session.start();
+
+    expect(() => session.select("not-authorized")).toThrowError(
+      expect.objectContaining({ code: "unknown_collection" })
+    );
+    expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
+    expect(session.getSnapshot()).toMatchObject({
+      status: "ready",
+      collectionId: TEST_COLLECTION_ID
+    });
+  });
+
+  it("publishes one unselected snapshot when forgetting the active collection", async () => {
+    installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const session = manager.createSession({ selection: new MdbaseBrowserSelection() });
+    await session.start();
+    const snapshots: string[] = [];
+    session.subscribe(() => snapshots.push(session.getSnapshot().status));
+
+    session.forget(TEST_COLLECTION_ID);
+
+    expect(session.getSnapshot()).toEqual({ status: "unselected", connections: [] });
+    expect(snapshots).toEqual(["unselected"]);
+  });
+
+  it("reports an incompatible persisted grant instead of silently treating it as absent", async () => {
+    installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+      accessToken: "pre-release-token-without-a-storage-version"
+    }));
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      storage
+    });
+    const session = manager.createSession({ selection: new MdbaseBrowserSelection() });
+
+    await session.start();
+
+    expect(session.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      collectionId: TEST_COLLECTION_ID,
+      reason: "invalid_stored_grant"
+    });
+  });
+
+  it("keeps choose and exact authorization intents distinct", async () => {
+    installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
+    const manager = managerWithConnections([TEST_COLLECTION_ID]);
+    const authorize = vi.spyOn(manager, "authorize").mockResolvedValue({ kind: "redirecting" });
+    const session = manager.createSession({
+      operations: ["query", "update"],
+      selection: new MdbaseBrowserSelection()
+    });
+    await session.start();
+
+    await session.authorize("choose");
+    await session.authorize("selected");
+    await session.authorize({ collectionId: "adopted-collection" });
+
+    expect(authorize).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      target: { kind: "choose" }
+    }));
+    expect(authorize).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      target: { kind: "collection", collectionId: TEST_COLLECTION_ID }
+    }));
+    expect(authorize).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      target: { kind: "collection", collectionId: "adopted-collection" }
+    }));
+  });
+
+  it("keeps app navigation bookmarkable, preserves history state, and strips OAuth parameters", () => {
     const browser = installBrowser(
       "https://tasks.example/today?filter=open&code=temporary&state=pending#focus"
     );
-    const manager = managerWithConnections([TEST_COLLECTION_ID]);
-    const location = new MdbaseBrowserLocation(manager);
+    const selection = new MdbaseBrowserSelection();
 
-    location.selectConnection(TEST_COLLECTION_ID);
+    selection.select(TEST_COLLECTION_ID, { history: "push" });
 
     const selected = new URL(browser.href());
     expect(selected.pathname).toBe("/today");
@@ -1365,8 +1479,13 @@ describe("browser collection locations", () => {
     expect(selected.searchParams.has("code")).toBe(false);
     expect(selected.searchParams.has("state")).toBe(false);
     expect(selected.hash).toBe("#focus");
-    expect(location.authorizationReturnTo()).toBe(
+    expect(selection.authorizationReturnTo()).toBe(
       `/today?filter=open&collection=${TEST_COLLECTION_ID}#focus`
+    );
+    expect(browser.pushState).toHaveBeenCalledWith(
+      { router: "preserved" },
+      "",
+      expect.any(URL)
     );
   });
 
@@ -1378,9 +1497,14 @@ describe("browser collection locations", () => {
       connection,
       returnTo: "/search?q=next&error=stale#result"
     });
-    const location = new MdbaseBrowserLocation(manager, { fallbackPath: "/app/" });
+    const session = manager.createSession({
+      selection: new MdbaseBrowserSelection({ fallbackPath: "/app/" })
+    });
 
-    await expect(location.completeAuthorization()).resolves.toBe(connection);
+    await expect(session.start()).resolves.toMatchObject({
+      status: "ready",
+      collectionId: TEST_COLLECTION_ID
+    });
     const completed = new URL(browser.href());
     expect(completed.pathname).toBe("/search");
     expect(completed.searchParams.get("q")).toBe("next");
@@ -1392,7 +1516,8 @@ describe("browser collection locations", () => {
       connection,
       returnTo: "https://other.example/steal"
     });
-    await location.completeAuthorization();
+    browser.navigate("https://tasks.example/auth/mdbase/callback?code=two&state=three");
+    await session.handleAuthorizationCallback(browser.href());
     expect(new URL(browser.href()).pathname).toBe("/app/");
   });
 
@@ -1402,35 +1527,42 @@ describe("browser collection locations", () => {
       `https://tasks.example/?collection=${TEST_COLLECTION_ID}`
     );
     const manager = managerWithConnections([TEST_COLLECTION_ID, secondId]);
-    const location = new MdbaseBrowserLocation(manager);
-    const changes: Array<string | null> = [];
-    const stop = location.onChange(({ connection }) => {
-      changes.push(connection?.collectionId ?? null);
+    const session = manager.createSession({
+      selection: new MdbaseBrowserSelection()
     });
+    const changes: Array<string | null> = [];
+    const stop = session.subscribe(() => {
+      const snapshot = session.getSnapshot();
+      changes.push(snapshot.status === "ready" ? snapshot.collectionId : null);
+    });
+    void session.start();
 
     browser.navigate(`https://tasks.example/?collection=${secondId}`, true);
-    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+    expect(changes).toEqual([secondId]);
 
     stop();
     browser.navigate(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`, true);
-    expect(changes).toEqual([TEST_COLLECTION_ID, secondId]);
+    expect(changes).toEqual([secondId]);
   });
 
   it("recognizes only authorization-shaped callbacks and cleans denied URLs", () => {
     const browser = installBrowser(
       "https://tasks.example/auth/mdbase/callback?error=access_denied&state=one"
     );
-    const location = new MdbaseBrowserLocation(managerWithConnections([]));
+    const selection = new MdbaseBrowserSelection();
 
-    expect(location.isAuthorizationCallback(browser.href())).toBe(true);
-    expect(location.isAuthorizationCallback("dev.tasks://auth/mdbase/callback?code=one")).toBe(true);
-    expect(location.isAuthorizationCallback("https://tasks.example/today")).toBe(false);
-    expect(location.isAuthorizationCallback("not a url")).toBe(false);
+    expect(selection.authorizationCallback()).toBe(browser.href());
 
-    location.clearAuthorizationCallback();
+    selection.clearAuthorizationCallback();
     const cleaned = new URL(browser.href());
     expect(cleaned.searchParams.has("error")).toBe(false);
     expect(cleaned.searchParams.has("state")).toBe(false);
+  });
+
+  it("does not treat an ordinary application error parameter as an authorization callback", () => {
+    installBrowser("https://tasks.example/search?error=no-results");
+
+    expect(new MdbaseBrowserSelection().authorizationCallback()).toBeNull();
   });
 });
 
@@ -1445,6 +1577,7 @@ describe("authorization renewal", () => {
       [secondId, "Studio tasks"]
     ]) {
       storage.setItem(storedTokenKey(serverUrl, manifestUrl, collectionId), JSON.stringify({
+        version: 1,
         accessToken: `token-${collectionId}`,
         clientId: "00000000-0000-0000-0000-000000000001",
         collectionId,
@@ -1457,7 +1590,7 @@ describe("authorization renewal", () => {
     }
     storage.setItem(
       `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
-      JSON.stringify([secondId, TEST_COLLECTION_ID])
+      storedConnectionIndex([secondId, TEST_COLLECTION_ID])
     );
     const manager = new MdbaseConnect({
       serverUrl,
@@ -1481,6 +1614,7 @@ describe("authorization renewal", () => {
     const manifestUrl = "https://tasks.example/manifest.json";
     const tokenKey = storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID);
     storage.setItem(tokenKey, JSON.stringify({
+      version: 1,
       accessToken: "legacy-token",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: TEST_COLLECTION_ID,
@@ -1491,7 +1625,7 @@ describe("authorization renewal", () => {
     }));
     storage.setItem(
       `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
-      JSON.stringify([TEST_COLLECTION_ID]),
+      storedConnectionIndex([TEST_COLLECTION_ID]),
     );
     const manager = new MdbaseConnect({
       serverUrl,
@@ -1505,7 +1639,7 @@ describe("authorization renewal", () => {
     expect(storage.getItem(tokenKey)).toBeNull();
   });
 
-  it("passes an exact collection hint and return location through authorization", async () => {
+  it("passes an exact collection target and return location through authorization", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
@@ -1532,13 +1666,13 @@ describe("authorization renewal", () => {
 
     void manager.authorize({
       operations: ["query"],
-      collectionId: TEST_COLLECTION_ID,
+      target: { kind: "collection", collectionId: TEST_COLLECTION_ID },
       returnTo: "/today?filter=open"
     });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
 
     const authorization = new URL(navigate.mock.calls[0][0]);
-    expect(authorization.searchParams.get("collection_hint")).toBe(TEST_COLLECTION_ID);
+    expect(authorization.searchParams.get("collection_id")).toBe(TEST_COLLECTION_ID);
     const state = authorization.searchParams.get("state")!;
     expect(JSON.parse(storage.getItem(
       `mdbase-connect:https://connect.example:bundle:dev.tasks:pending:${state}`
@@ -1554,6 +1688,7 @@ describe("authorization renewal", () => {
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     const pendingKey = `mdbase-connect:${serverUrl}:${manifestUrl}:pending:denied-state`;
     storage.setItem(pendingKey, JSON.stringify({
+      version: 1,
       verifier: "pkce-verifier",
       state: "denied-state",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1562,6 +1697,7 @@ describe("authorization renewal", () => {
       returnTo: "/today"
     }));
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_saved",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: TEST_COLLECTION_ID,
@@ -1573,7 +1709,7 @@ describe("authorization renewal", () => {
     }));
     storage.setItem(
       `mdbase-connect:${serverUrl}:${manifestUrl}:connections`,
-      JSON.stringify([TEST_COLLECTION_ID])
+      storedConnectionIndex([TEST_COLLECTION_ID])
     );
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const manager = new MdbaseConnect({
@@ -1602,6 +1738,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(`mdbase-connect:${serverUrl}:${manifestUrl}:pending:callback-state`, JSON.stringify({
+      version: 1,
       verifier: "pkce-verifier",
       state: "callback-state",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1647,6 +1784,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_current",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1704,6 +1842,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_current",
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId: "00000000-0000-0000-0000-000000000002",
@@ -1773,6 +1912,7 @@ describe("authorization renewal", () => {
     const providerUrl = "https://provider.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_control",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1788,6 +1928,7 @@ describe("authorization renewal", () => {
         operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
         syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
         replicaId: "00000000-0000-0000-0000-000000000003",
+        version: 1,
         accessToken: "hsa_direct"
       }
     }));
@@ -1817,6 +1958,7 @@ describe("authorization renewal", () => {
     const providerUrl = "https://provider.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_control",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1832,6 +1974,7 @@ describe("authorization renewal", () => {
         operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
         syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
         replicaId: "00000000-0000-0000-0000-000000000003",
+        version: 1,
         accessToken: "hsa_direct"
       }
     }));
@@ -1874,6 +2017,7 @@ describe("authorization renewal", () => {
     const serverUrl = "https://connect.example";
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
     storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
       accessToken: "mdb_expired",
       refreshToken: "ref_current",
       clientId: "00000000-0000-0000-0000-000000000001",
@@ -1939,6 +2083,7 @@ describe("authorization renewal", () => {
     };
     storage.setItem(tokenKey, JSON.stringify({
       ...baseToken,
+      version: 1,
       accessToken: "mdb_expired",
       refreshToken: "ref_old",
       expiresAt: Date.now() - 1
@@ -1947,6 +2092,7 @@ describe("authorization renewal", () => {
       .mockImplementationOnce(async () => {
         storage.setItem(tokenKey, JSON.stringify({
           ...baseToken,
+          version: 1,
           accessToken: "mdb_from_other_tab",
           refreshToken: "ref_from_other_tab",
           expiresAt: Date.now() + 3_600_000
@@ -2294,6 +2440,7 @@ async function encryptedConnection() {
   };
   const tokenKey = storedTokenKey(serverUrl, manifestUrl, collectionId);
   storage.setItem(tokenKey, JSON.stringify({
+    version: 1,
     accessToken: "mdb_current",
     refreshToken: "ref_current",
     clientId: "01922222-2222-7222-8222-222222222222",
@@ -2336,6 +2483,7 @@ function progressConnection() {
   const manifest = "https://tasks.example/manifest.json";
   const storage = new MemoryStorage();
   storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+    version: 1,
     accessToken: "progress",
     clientId: "00000000-0000-0000-0000-000000000001",
     collectionId: TEST_COLLECTION_ID,
@@ -2412,6 +2560,7 @@ function managerWithConnections(collectionIds: string[]): MdbaseConnect {
   const storage = new MemoryStorage();
   for (const collectionId of collectionIds) {
     storage.setItem(storedTokenKey(serverUrl, manifest, collectionId), JSON.stringify({
+      version: 1,
       accessToken: `token-${collectionId}`,
       clientId: "00000000-0000-0000-0000-000000000001",
       collectionId,
@@ -2424,7 +2573,7 @@ function managerWithConnections(collectionIds: string[]): MdbaseConnect {
   }
   storage.setItem(
     `mdbase-connect:${serverUrl}:${manifest}:connections`,
-    JSON.stringify(collectionIds)
+    storedConnectionIndex(collectionIds)
   );
   return new MdbaseConnect({
     serverUrl,
@@ -2432,6 +2581,10 @@ function managerWithConnections(collectionIds: string[]): MdbaseConnect {
     redirectUri: "https://tasks.example/auth/mdbase/callback",
     storage
   });
+}
+
+function storedConnectionIndex(collectionIds: string[]): string {
+  return JSON.stringify({ version: 1, collectionIds });
 }
 
 function installBrowser(initialUrl: string) {
@@ -2451,7 +2604,11 @@ function installBrowser(initialUrl: string) {
     get href() { return current.href; },
     get origin() { return current.origin; }
   });
-  vi.stubGlobal("history", { pushState, replaceState });
+  vi.stubGlobal("history", {
+    state: { router: "preserved" },
+    pushState,
+    replaceState
+  });
   vi.stubGlobal("window", {
     addEventListener: events.addEventListener.bind(events),
     removeEventListener: events.removeEventListener.bind(events)

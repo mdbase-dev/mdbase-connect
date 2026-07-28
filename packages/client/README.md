@@ -22,16 +22,19 @@ const mdbase = new MdbaseConnect({
   manifest: new URL(".well-known/mdbase-app.json", location.href).href,
   redirectUri: "https://workouts.example/auth/mdbase/callback"
 });
-const collectionLocation = new MdbaseBrowserLocation(mdbase);
-
-await mdbase.authorize({
+const session = mdbase.createSession({
   operations: ["describe", "changes", "read", "query", "update"],
-  collectionId: collectionLocation.selectedCollectionId() ?? undefined,
-  returnTo: collectionLocation.authorizationReturnTo()
+  selection: new MdbaseBrowserSelection()
 });
 
-// On the callback route:
-const connection = await collectionLocation.completeAuthorization();
+await session.start();
+if (session.getSnapshot().status === "unselected") {
+  await session.authorize("choose");
+}
+
+const snapshot = session.getSnapshot();
+if (snapshot.status !== "ready") throw new Error("Choose an authorized collection.");
+const connection = snapshot.connection;
 const description = await connection.describe();
 const workouts = await connection.query({ types: ["workout"] });
 await connection.update({
@@ -67,19 +70,39 @@ for await (const change of connection.watch()) {
 }
 ```
 
-`MdbaseConnect` is an application-level manager. It can retain several
-independently authorized collections; call `connections()` to list them and
-`connection(collectionId)` to obtain a client permanently bound to one. Pass
-that `MdbaseConnection` into repositories and feature code.
+`MdbaseConnect` is the application-level authorization registry.
+`MdbaseSession` is the normal application boundary: it owns active collection
+selection, authorization callback completion, access capabilities, and one
+reactive snapshot. Use `getSnapshot()` and `subscribe()` directly or through
+your framework's external-store integration. A snapshot is `unselected`,
+`ready`, or `unavailable`; an unavailable bookmark includes the explicit
+collection ID and reason instead of collapsing every recovery state to `null`.
 
-`MdbaseBrowserLocation` keeps the stable collection ID in
-`?collection=<id>`. It restores authorization callbacks safely, removes
-temporary OAuth parameters, auto-selects only when exactly one saved
-connection exists, and reports browser back/forward changes through
-`onChange()`. An explicit unavailable ID remains authoritative so the
-application can show its chooser or reconnect that exact collection. IDs are
-opaque locators that may appear in browser history and logs; they are not
-credentials. Collection names are display text and may change.
+`MdbaseBrowserSelection` keeps the stable collection ID in
+`?collection=<id>`, preserves unrelated path/query/hash and router state,
+restores authorization callbacks safely, and reports browser back/forward
+changes to the session. The session auto-selects only when exactly one saved
+connection exists. Switching is state-driven and must not reload the page:
+
+```ts
+session.select(collectionId, { history: "replace" });
+session.clearSelection();
+session.forget(collectionId);
+```
+
+Selection validates the saved authorization before changing the URL. Explicit
+unavailable IDs remain authoritative so applications can offer exact
+reauthorization or another collection:
+
+```ts
+await session.authorize("selected"); // exact bookmarked collection
+await session.authorize("choose");   // any compatible collection
+await session.authorize({ collectionId }); // exact adoption/migration target
+```
+
+Collection IDs are opaque non-secret locators that may appear in browser
+history and logs. Grants remain the authorization boundary, and names are
+display text that may change.
 
 Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web

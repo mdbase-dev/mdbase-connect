@@ -304,7 +304,7 @@ export class OAuthService {
     context: McpAuthContext,
     connectionId?: string
   ): Promise<string> {
-    let collectionHint: string | null = null;
+    let collectionId: string | null = null;
     if (connectionId) {
       const selected = await this.db.query<{ collection_id: string }>(
         `SELECT collection_id FROM mcp_connections
@@ -314,19 +314,19 @@ export class OAuthService {
       if (!selected.rows[0]) {
         throw new OAuthError("invalid_request", "That collection connection is unavailable.");
       }
-      collectionHint = selected.rows[0].collection_id;
+      collectionId = selected.rows[0].collection_id;
     }
     const token = randomToken("add");
     await this.db.query(
       `INSERT INTO mcp_connection_tickets
-         (id, token_hash, connection_set_id, scopes, collection_hint, expires_at)
+         (id, token_hash, connection_set_id, scopes, collection_id, expires_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
       [
         randomUUID(),
         tokenHash(token),
         context.connectionSetId,
         JSON.stringify(context.scopes),
-        collectionHint,
+        collectionId,
         new Date(Date.now() + 10 * 60_000)
       ]
     );
@@ -338,11 +338,11 @@ export class OAuthService {
       id: string;
       connection_set_id: string;
       scopes: McpScope[];
-      collection_hint: string | null;
+      collection_id: string | null;
     }>(
       `UPDATE mcp_connection_tickets SET used_at = now()
        WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
-       RETURNING id, connection_set_id, scopes, collection_hint`,
+       RETURNING id, connection_set_id, scopes, collection_id`,
       [tokenHash(token)]
     );
     const ticket = result.rows[0];
@@ -352,7 +352,7 @@ export class OAuthService {
       ticket.connection_set_id,
       ticket.scopes,
       null,
-      ticket.collection_hint
+      ticket.collection_id
     );
   }
 
@@ -361,7 +361,7 @@ export class OAuthService {
     connectionSetId: string,
     scopes: McpScope[],
     authorizationRequestId: string | null,
-    collectionHint: string | null
+    collectionId: string | null
   ): Promise<string> {
     const application = await this.gateway.registerApplication();
     const state = randomToken("state");
@@ -392,7 +392,7 @@ export class OAuthService {
     authorize.searchParams.set("code_challenge_method", "S256");
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("operations", operationsForScopes(scopes).join(","));
-    if (collectionHint) authorize.searchParams.set("collection_hint", collectionHint);
+    if (collectionId) authorize.searchParams.set("collection_id", collectionId);
     authorize.searchParams.set("relay_protocol", "1");
     authorize.searchParams.set("application_public_key", key.publicKey);
     return authorize.href;

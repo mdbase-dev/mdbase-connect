@@ -66,15 +66,19 @@ This is defense in depth: the folder marker prevents a same-folder/different-ID
 mistake locally, while the server prevents two active authorities for the same
 ID.
 
-The browser SDK is multi-collection by default. `MdbaseConnect` manages the
-saved authorization set, `MdbaseConnection` is permanently bound to one
-collection, and `MdbaseBrowserLocation` owns bookmark selection and OAuth
-return cleanup. It puts the stable server collection ID, not the mutable
-display name, in `?collection=<id>`, preserves explicit unavailable IDs, and
-auto-selects only when exactly one connection is saved. Authorization may carry
-that ID as a preselection hint, but the approval UI still requires an explicit
-compatible user choice. Collection IDs are non-secret locators and can appear
-in browser history and logs; grants remain the authorization boundary.
+The SDK is multi-collection by default. `MdbaseConnect` manages the saved
+authorization set, `MdbaseConnection` is permanently bound to one collection,
+and `MdbaseSession` owns the active selection and authorization lifecycle.
+Browser applications supply `MdbaseBrowserSelection`, which puts the stable
+server collection ID, not the mutable display name, in
+`?collection=<id>`. Session snapshots distinguish unselected, ready, and
+explicitly unavailable bookmarks; switching validates and publishes the new
+connection atomically without reloading the application.
+
+Authorization intent is explicit. A choose request accepts any compatible
+collection, while selected or exact-target requests must return the named
+collection. Collection IDs are non-secret locators and can appear in browser
+history and logs; grants remain the authorization boundary.
 
 ## Collaboration boundary
 

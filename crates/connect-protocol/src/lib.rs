@@ -893,7 +893,7 @@ pub struct PendingAuthorization {
     pub application_icon: Option<String>,
     pub requested_operations: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub collection_hint: Option<Uuid>,
+    pub collection_id: Option<Uuid>,
     #[serde(default)]
     pub requirements: ApplicationRequirements,
     #[serde(default)]

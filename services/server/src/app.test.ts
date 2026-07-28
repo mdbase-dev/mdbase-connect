@@ -504,7 +504,7 @@ describe("mdbase connect server", () => {
     const state = "test-state";
     const authorize = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${state}&operations=read,query&collection_hint=${collectionId}`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${state}&operations=read,query&collection_id=${collectionId}`,
       headers: { cookie }
     });
     expect(authorize.statusCode).toBe(302);
@@ -517,7 +517,7 @@ describe("mdbase connect server", () => {
     });
     expect(pending.statusCode).toBe(200);
     expect(pending.json().authorization.application_name).toBe("Workout Tracker");
-    expect(pending.json().authorization.collection_hint).toBe(collectionId);
+    expect(pending.json().authorization.collection_id).toBe(collectionId);
     expect(pending.json().collections).toEqual([]);
     expect(pending.json().unavailable_connectors).toContainEqual(
       expect.objectContaining({
@@ -544,7 +544,7 @@ describe("mdbase connect server", () => {
     });
     expect(localControl.statusCode).toBe(200);
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
-    expect(localControl.json().pending_authorizations[0].collection_hint).toBe(localCollectionId);
+    expect(localControl.json().pending_authorizations[0].collection_id).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
       contracts: [{ id: "workout.record", version: "1.0.0" }]
     });
@@ -556,7 +556,9 @@ describe("mdbase connect server", () => {
       payload: { collection_id: legacyLocalCollectionId, operations: ["read", "query"] }
     });
     expect(connectorLegacyApproval.statusCode).toBe(400);
-    expect(connectorLegacyApproval.json().error.message).toContain("does not support the query operation");
+    expect(connectorLegacyApproval.json().error.message).toContain(
+      "restricted to a different collection"
+    );
 
     const approved = await app.inject({
       method: "POST",
@@ -896,7 +898,7 @@ describe("mdbase connect server", () => {
       payload: new URLSearchParams({
         client_id: applicationId,
         operations: "describe, query,query",
-        collection_hint: collectionId,
+        collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
@@ -1226,7 +1228,7 @@ describe("mdbase connect server", () => {
       payload: new URLSearchParams({
         client_id: applicationId,
         operations: "describe,query,create,update,sync",
-        collection_hint: collectionId,
+        collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",

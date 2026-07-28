@@ -194,7 +194,7 @@ describe("mdbase MCP gateway", () => {
       url: `${new URL(reconnectUrl).pathname}${new URL(reconnectUrl).search}`
     });
     expect(reconnect.statusCode).toBe(302);
-    expect(new URL(reconnect.headers.location!).searchParams.get("collection_hint"))
+    expect(new URL(reconnect.headers.location!).searchParams.get("collection_id"))
       .toBe(connections[0].collection_id);
 
     const stored = await db.query<{ credentials_ciphertext: string }>(

@@ -1216,8 +1216,8 @@ function MirrorPairing({ pairingId }: { pairingId: string }) {
     pairing: {
       mirror_name: string;
       mode: "read_only" | "read_write";
-      collection_id: string | null;
       collection_hint?: string | null;
+      collection_id: string | null;
       approved_at: string | null;
       consumed_at: string | null;
     };
@@ -1775,9 +1775,15 @@ function ApprovalForm({
       compatibility: collectionCompatibility(request, collection)
     }));
   }, [collections, createdCollections, request]);
+  const visibleChoices = useMemo(
+    () => request.collection_id
+      ? choices.filter((choice) => choice.collection.id === request.collection_id)
+      : choices,
+    [choices, request.collection_id]
+  );
   const compatible = useMemo(
-    () => choices.filter((choice) => choice.compatibility.compatible),
-    [choices]
+    () => visibleChoices.filter((choice) => choice.compatibility.compatible),
+    [visibleChoices]
   );
   const collectionLocations = useMemo(
     () => disambiguatedCollectionLocations(
@@ -1786,13 +1792,11 @@ function ApprovalForm({
     [compatible]
   );
   const unavailable = useMemo(
-    () => choices.filter((choice) => !choice.compatibility.compatible),
-    [choices]
+    () => visibleChoices.filter((choice) => !choice.compatibility.compatible),
+    [visibleChoices]
   );
   const [collectionId, setCollectionId] = useState(
-    compatible.some((choice) => choice.collection.id === request.collection_hint)
-      ? request.collection_hint!
-      : compatible[0]?.collection.id ?? ""
+    compatible[0]?.collection.id ?? ""
   );
   const [operations, setOperations] = useState(() => new Set(request.requested_operations));
   const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null);
@@ -1900,7 +1904,9 @@ function ApprovalForm({
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Collection</strong>
-          <small>Choose where {request.application_name} can work.</small>
+          <small>{request.collection_id
+            ? `${request.application_name} requested this specific collection.`
+            : `Choose where ${request.application_name} can work.`}</small>
         </div>
         <div className="approval-section-content">
           {compatible.length > 0 && <fieldset className="collection-choice-field">
@@ -1937,7 +1943,7 @@ function ApprovalForm({
               ? `${connector.connector_name} has remote access paused.`
               : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
           </div>}
-          {canCreateHosted && (creatingHosted ? (
+          {canCreateHosted && !request.collection_id && (creatingHosted ? (
             <form
               className="authorization-collection-create"
               id={`create-hosted-${request.id}`}
@@ -1986,7 +1992,13 @@ function ApprovalForm({
               >Create hosted collection</button>
             </div>
           ))}
-          {!canCreateHosted && compatible.length === 0 && <p className="field-note">No compatible collection is ready.</p>}
+          {(!canCreateHosted || Boolean(request.collection_id)) && compatible.length === 0 && (
+            <p className="field-note">
+              {request.collection_id
+                ? "The collection requested by this application is not available."
+                : "No compatible collection is ready."}
+            </p>
+          )}
           {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this collection through its live authority.</p>}
         </div>
       </section>
