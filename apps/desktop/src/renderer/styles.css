@@ -155,6 +155,11 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .copy-registration p:not(.eyebrow) { max-width: 68ch; margin: 6px 0 10px; color: var(--muted); font-size: var(--type-supporting); line-height: 1.5; }
 .copy-registration code { display: block; max-width: 68ch; overflow-wrap: anywhere; color: var(--ink); font-size: var(--type-action); }
 .copy-registration small { display: block; margin-top: 8px; color: var(--muted); font-size: var(--type-action); }
+.identity-conflict-details { display: grid; max-width: 68ch; margin: 12px 0; border-top: 1px solid var(--line); }
+.identity-conflict-details > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 14px; min-height: 34px; border-bottom: 1px solid var(--line); }
+.identity-conflict-details dt { color: var(--muted); font-size: var(--type-action); }
+.identity-conflict-details dd { min-width: 0; margin: 0; overflow: hidden; font-size: var(--type-supporting); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.identity-conflict-details code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .copy-registration-actions { display: flex; gap: 8px; }
 .empty-state { display: grid; justify-items: start; padding: 32px 0 28px; border-bottom: 1px solid var(--line); text-align: left; }
 .empty-folder { display: none; }
@@ -302,6 +307,7 @@ fieldset legend { margin-bottom: 6px; }
   .pairing-form .button { grid-column: 1; }
   .copy-registration { grid-template-columns: 1fr; gap: 16px; }
   .copy-registration-actions { justify-content: flex-end; }
+  .identity-conflict-details > div { grid-template-columns: 120px minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
