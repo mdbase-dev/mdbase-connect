@@ -2749,8 +2749,9 @@ impl HostedProvider {
             sqlx::query(
                 r#"INSERT INTO hosted_provider_changes
                      (collection_id, sequence, record_id, before_types, after_types,
-                      before_ciphertext, after_ciphertext, revision)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+                      before_ciphertext, after_ciphertext, revision,
+                      source_replica_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
             )
             .bind(collection_id)
             .bind(to_i64(head, "change sequence")?)
@@ -2770,6 +2771,7 @@ impl HostedProvider {
             .bind(before_ciphertext)
             .bind(after_ciphertext)
             .bind(revision)
+            .bind(replica.id)
             .execute(&mut *transaction)
             .await?;
             if let Some((event_type, payload)) = notification_event {

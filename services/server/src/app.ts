@@ -15,6 +15,7 @@ import type {
   ApplicationRequirements,
   ApplicationNotifications,
   CollectionContractDescriptor,
+  CollectionOperation,
   ContractRequirement,
   EncryptedRelayOperationRequest,
   GrantEncryption,
@@ -121,33 +122,31 @@ import {
   type EmailTransport
 } from "./email.js";
 import { sendPasswordResetEmail } from "./password-reset-email.js";
+import {
+  accessView,
+  CollectionAccessDeniedError,
+  COLLECTION_OPERATIONS,
+  requireCollectionAction,
+  resolveHostedCollectionAccess,
+  resolveLocalCollectionAccess,
+  type CollectionAction,
+  type CollectionAccessContext
+} from "./collection-access.js";
+import {
+  listLocalCollectionsVisibleToUser,
+  listHostedCollectionsVisibleToUser,
+  resolveHostedCollection
+} from "./collection-catalog.js";
+import {
+  GrantPlanningError,
+  planCollectionGrant
+} from "./grant-planner.js";
+import {
+  ProviderRevocationWorker,
+  queueHostedGrantRevocation
+} from "./hosted-capability-lifecycle.js";
 
-const OPERATIONS = [
-  "describe",
-  "changes",
-  "read",
-  "query",
-  "validate",
-  "list_views",
-  "execute_view",
-  "read_view_source",
-  "create_view_source",
-  "update_view_source",
-  "delete_view_source",
-  "create",
-  "update",
-  "delete",
-  "rename",
-  "read_type",
-  "create_type",
-  "update_type",
-  "list_timers",
-  "put_timer",
-  "cancel_timer",
-  "reconcile_timers",
-  "sync"
-] as const;
-const operationSchema = z.enum(OPERATIONS);
+const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const PASSWORD_LOGIN_EMAIL_LIMIT: AuthRateLimitRule = {
   maxAttempts: 5,
@@ -402,6 +401,16 @@ export async function buildApp(options: BuildOptions) {
   const hostedReference = options.hostedReferenceAuthority
     ? new HostedAuthorityRegistry(options.db)
     : undefined;
+  const providerRevocations = options.hostedProvider
+    ? new ProviderRevocationWorker(
+        options.db,
+        options.hostedProvider,
+        (error) => app.log.error(
+          { err: error },
+          "hosted provider revocation worker failed"
+        )
+      )
+    : undefined;
 
   await app.register(cookie);
   await app.register(helmet, {
@@ -436,10 +445,12 @@ export async function buildApp(options: BuildOptions) {
   await app.register(websocket);
 
   app.addHook("onClose", async () => {
+    await providerRevocations?.close();
     await notifications?.close();
     await relay.close();
   });
   notifications?.start();
+  providerRevocations?.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (
@@ -488,6 +499,12 @@ export async function buildApp(options: BuildOptions) {
     }
     if (error instanceof RequestValidationError) {
       return reply.code(400).send(apiError("invalid_request", error.message));
+    }
+    if (error instanceof GrantPlanningError) {
+      return reply.code(400).send(apiError("invalid_grant", error.message));
+    }
+    if (error instanceof CollectionAccessDeniedError) {
+      return reply.code(403).send(apiError("collection_access_denied", error.message));
     }
     if (error instanceof OriginDeniedError) {
       return reply.code(403).send(apiError(
@@ -1529,11 +1546,13 @@ export async function buildApp(options: BuildOptions) {
       registered = true;
       await connection.query(
         `INSERT INTO hosted_replicas
-           (id, collection_id, name, mode, allowed_types, token_hash)
-         VALUES ($1, $2, $3, $4, '[]'::jsonb, $5)`,
+           (id, collection_id, authorized_user_id, name, mode, allowed_types,
+            token_hash)
+         VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6)`,
         [
           replicaId,
           current.collection_id,
+          current.user_id,
           current.mirror_name,
           current.mode,
           options.hostedProvider ? null : tokenHash(token)
@@ -2203,6 +2222,24 @@ export async function buildApp(options: BuildOptions) {
     const { transferId } = z.object({ transferId: z.uuid() }).parse(request.params);
     z.object({}).strict().parse(request.body ?? {});
     await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
+    const candidate = await options.db.query<{ hosted_collection_id: string }>(
+      `SELECT hosted_collection_id FROM authority_transfers
+       WHERE id = $1 AND user_id = $2`,
+      [transferId, user.id]
+    );
+    const transferAccess = candidate.rows[0]
+      ? await resolveHostedCollectionAccess(
+          options.db,
+          user.id,
+          candidate.rows[0].hosted_collection_id
+        )
+      : null;
+    if (!transferAccess?.actions.has("authority.transfer")) {
+      return reply.code(404).send(apiError(
+        "authority_transfer_not_found",
+        "Authority transfer was not found."
+      ));
+    }
     const approved = await options.db.query<AuthorityTransferRow>(
       `UPDATE authority_transfers
        SET state = 'approved', approved_at = now()
@@ -2672,54 +2709,63 @@ export async function buildApp(options: BuildOptions) {
        ORDER BY c.created_at`,
       [user.id]
     );
-    const collections = await options.db.query(
-      `SELECT col.id, col.connector_id, col.local_id, col.display_name, col.spec_version, col.enabled,
-              col.authority_state, col.authority_epoch, col.contracts, col.last_seen_at,
-              c.name AS connector_name
-       FROM collections col JOIN connectors c ON c.id = col.connector_id
-       WHERE c.user_id = $1 AND c.revoked_at IS NULL
-         AND col.authority_state = 'active'
-         AND col.present = true
-       ORDER BY col.display_name`,
-      [user.id]
+    const localCatalog = await listLocalCollectionsVisibleToUser(
+      options.db,
+      user.id
     );
-    const hostedCollections = options.hostedCollections
-      ? await options.db.query<{
-          id: string;
-          display_name: string;
-          template: string;
-          contracts: CollectionContractDescriptor[];
-          provider_url: string | null;
-          authority_state: "active" | "transferring" | "transferred";
-          authority_epoch: string | number;
-          transferred_collection_id: string | null;
-          created_at: string;
-        }>(
-          `SELECT id, display_name, template, provider_url, contracts, authority_state,
-                  authority_epoch, transferred_collection_id, created_at
-           FROM hosted_collections
-           WHERE user_id = $1 AND authority_state <> 'importing'
-           ORDER BY display_name`,
-          [user.id]
+    const localAuthorityIds = localCatalog.map(
+      (collection) => collection.authorityRowId
+    );
+    const collections = localAuthorityIds.length
+      ? await options.db.query(
+          `SELECT col.id, col.connector_id, col.local_id, col.display_name,
+                  col.spec_version, col.enabled, col.authority_state,
+                  col.authority_epoch, col.contracts, col.last_seen_at,
+                  connector.name AS connector_name
+           FROM collections col
+           JOIN connectors connector ON connector.id = col.connector_id
+           WHERE col.id IN (${sqlPlaceholders(localAuthorityIds.length)})
+             AND connector.revoked_at IS NULL
+             AND col.authority_state = 'active'
+             AND col.present = true
+           ORDER BY col.display_name`,
+          localAuthorityIds
         )
       : { rows: [] };
-    const hostedReplicas = hostedCollections.rows.length
-      ? await options.db.query<{
-          id: string;
-          collection_id: string;
-          name: string;
-          mode: "read_only" | "read_write";
-          allowed_types: string[];
-          revoked_at: string | null;
-          created_at: string;
-        }>(
-          `SELECT r.id, r.collection_id, r.name, r.mode, r.allowed_types,
-                  r.revoked_at, r.created_at
-           FROM hosted_replicas r JOIN hosted_collections c ON c.id = r.collection_id
-           WHERE c.user_id = $1 AND r.purpose = 'mirror' ORDER BY r.created_at`,
-          [user.id]
-        )
-      : { rows: [] };
+    const hostedCatalog = options.hostedCollections
+      ? (await listHostedCollectionsVisibleToUser(options.db, user.id))
+          .filter((collection) =>
+            collection.locator.authorityState !== "importing"
+          )
+      : [];
+    const hostedCollections = {
+      rows: await Promise.all(hostedCatalog.map(async (collection) => ({
+        id: collection.locator.collectionId,
+        display_name: collection.locator.displayName,
+        template: collection.template,
+        contracts: collection.contracts,
+        provider_url: collection.locator.providerUrl ?? null,
+        authority_state:
+          collection.locator.authorityState as "active" | "transferring" | "transferred",
+        authority_epoch: collection.locator.authorityEpoch,
+        transferred_collection_id: collection.transferredCollectionId,
+        created_at: collection.createdAt,
+        access: accessView(requireCollectionAction(
+          await resolveHostedCollectionAccess(
+            options.db,
+            user.id,
+            collection.locator.collectionId
+          ),
+          "collection.discover"
+        ))
+      })))
+    };
+    const hostedReplicas = {
+      rows: await hostedMirrorReplicas(
+        options.db,
+        hostedCollections.rows.map((collection) => collection.id)
+      )
+    };
     const hostedReplicaStatuses = new Map<string, {
       head: number;
       acknowledged_sequence: number;
@@ -2779,12 +2825,37 @@ export async function buildApp(options: BuildOptions) {
         registration: authenticationSettings.registrationMode
       },
       connectors: connectors.rows,
-      collections: collections.rows,
+      collections: await Promise.all(collections.rows.map(async (collection) => {
+        const access = await resolveLocalCollectionAccess(
+          options.db,
+          user.id,
+          collection.id
+        );
+        return {
+          ...collection,
+          ...(access ? {
+            access: accessView(access),
+            authority: {
+              kind: "local",
+              collection_id: access.collection.collectionId,
+              row_id: access.collection.authorityRowId,
+              epoch: access.collection.authorityEpoch,
+              state: access.collection.authorityState
+            }
+          } : {})
+        };
+      })),
       hosted_collections: hostedCollections.rows.map((collection) => ({
         ...collection,
         provider_url: collection.provider_url ?? publicUrl,
         spec_version: "0.3.0",
         authority_epoch: Number(collection.authority_epoch),
+        authority: {
+          kind: "hosted",
+          collection_id: collection.id,
+          epoch: Number(collection.authority_epoch),
+          state: collection.authority_state
+        },
         contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template)),
         replicas: hostedReplicas.rows
           .filter((replica) => replica.collection_id === collection.id)
@@ -2941,12 +3012,17 @@ export async function buildApp(options: BuildOptions) {
           transferred_collection_id: string | null;
         }>(
           `SELECT authority_state, authority_epoch, transferred_collection_id
-           FROM hosted_collections WHERE id = $1 AND user_id = $2`,
-          [collection.id, connector.user_id]
+           FROM hosted_collections WHERE id = $1`,
+          [collection.id]
+        );
+        const hostedAccess = await resolveHostedCollectionAccess(
+          connection,
+          connector.user_id,
+          collection.id
         );
         const existingCollection = existing.rows[0];
         const currentAuthority = activeAuthority.rows[0];
-        const hostedCollection = hosted.rows[0];
+        const hostedCollection = hostedAccess ? hosted.rows[0] : undefined;
         const isActivatedTransfer = Boolean(
           hostedCollection?.authority_state === "transferred"
           && hostedCollection.transferred_collection_id
@@ -4076,31 +4152,36 @@ export async function buildApp(options: BuildOptions) {
           "Hosted application access is temporarily unavailable."
         ));
       }
-      const hosted = await options.db.query<{
-        id: string;
-        template: HostedTemplate;
-        display_name: string;
-        contracts: CollectionContractDescriptor[];
-      }>(
-        `SELECT id, template, display_name, contracts FROM hosted_collections
-         WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
-        [input.collection_id, connector.user_id]
+      const access = await resolveHostedCollectionAccess(
+        options.db,
+        connector.user_id,
+        input.collection_id
       );
-      const collection = hosted.rows[0];
-      if (!collection) {
+      const collection = await resolveHostedCollection(
+        options.db,
+        input.collection_id
+      );
+      if (
+        !access
+        || !collection
+        || collection.locator.authorityState !== "active"
+      ) {
         return reply.code(404).send(apiError(
           "hosted_collection_not_found",
           "Hosted collection not found."
         ));
       }
+      requireCollectionAction(access, "application.authorize");
       const approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
         requestId,
         userId: connector.user_id,
-        collectionId: collection.id,
+        collectionId: collection.locator.collectionId,
         operations: input.operations,
-        template: collection.template,
-        displayName: collection.display_name,
-        contracts: collection.contracts
+        contracts: effectiveHostedContractDescriptors(
+          collection.contracts,
+          collection.template
+        ),
+        access
       });
       if (!approved) {
         return reply.code(404).send(apiError(
@@ -4202,7 +4283,13 @@ export async function buildApp(options: BuildOptions) {
       mode: z.enum(["read_only", "read_write"]),
       allowed_types: z.array(z.string().min(1).max(100)).max(100).default([])
     }).strict().parse(request.body);
-    if (!await ownsActiveHostedCollection(options.db, user.id, collectionId)) {
+    if (!await permitsHostedCollectionAction(
+      options.db,
+      user.id,
+      collectionId,
+      "mirror.enroll",
+      true
+    )) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     const replicaId = randomUUID();
@@ -4225,11 +4312,14 @@ export async function buildApp(options: BuildOptions) {
     }
     try {
       await options.db.query(
-        `INSERT INTO hosted_replicas (id, collection_id, name, mode, allowed_types, token_hash)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+        `INSERT INTO hosted_replicas
+           (id, collection_id, authorized_user_id, name, mode, allowed_types,
+            token_hash)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
         [
           replicaId,
           collectionId,
+          user.id,
           input.name,
           input.mode,
           JSON.stringify(input.allowed_types),
@@ -4267,7 +4357,12 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
     const input = z.object({ display_name: z.string().trim().min(1).max(200) }).strict().parse(request.body);
-    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+    if (!await permitsHostedCollectionAction(
+      options.db,
+      user.id,
+      collectionId,
+      "collection.rename"
+    )) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     if (options.hostedProvider) {
@@ -4291,7 +4386,12 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
-    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+    if (!await permitsHostedCollectionAction(
+      options.db,
+      user.id,
+      collectionId,
+      "collection.delete"
+    )) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
@@ -4322,12 +4422,33 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { replicaId } = z.object({ replicaId: z.uuid() }).parse(request.params);
-    const active = await options.db.query<{ id: string; collection_id: string }>(
-      `SELECT r.id, r.collection_id FROM hosted_replicas r JOIN hosted_collections c ON c.id = r.collection_id
-       WHERE r.id = $1 AND c.user_id = $2 AND r.revoked_at IS NULL`,
-      [replicaId, user.id]
+    const active = await options.db.query<{
+      id: string;
+      collection_id: string;
+      authorized_user_id: string | null;
+    }>(
+      `SELECT id, collection_id, authorized_user_id
+       FROM hosted_replicas
+       WHERE id = $1 AND revoked_at IS NULL`,
+      [replicaId]
     );
-    if (!active.rows[0]) return reply.code(404).send(apiError("replica_not_found", "Active replica not found."));
+    const access = active.rows[0]
+      ? await resolveHostedCollectionAccess(
+          options.db,
+          user.id,
+          active.rows[0].collection_id
+        )
+      : null;
+    if (
+      !active.rows[0]
+      || !access
+      || !canManageHostedReplica(access, active.rows[0].authorized_user_id)
+    ) {
+      return reply.code(404).send(apiError(
+        "replica_not_found",
+        "Active replica not found."
+      ));
+    }
     const token = randomToken("hsr");
     if (options.hostedProvider) {
       await options.hostedProvider.rotateReplicaToken(replicaId, token);
@@ -4348,13 +4469,32 @@ export async function buildApp(options: BuildOptions) {
     const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
     if (!user) return;
     const { replicaId } = z.object({ replicaId: z.uuid() }).parse(request.params);
-    const active = await options.db.query<{ collection_id: string }>(
-      `SELECT r.collection_id FROM hosted_replicas r
-       JOIN hosted_collections c ON c.id = r.collection_id
-       WHERE r.id = $1 AND r.revoked_at IS NULL AND c.user_id = $2`,
-      [replicaId, user.id]
+    const active = await options.db.query<{
+      collection_id: string;
+      authorized_user_id: string | null;
+    }>(
+      `SELECT collection_id, authorized_user_id
+       FROM hosted_replicas
+       WHERE id = $1 AND revoked_at IS NULL`,
+      [replicaId]
     );
-    if (!active.rows[0]) return reply.code(404).send(apiError("replica_not_found", "Active replica not found."));
+    const access = active.rows[0]
+      ? await resolveHostedCollectionAccess(
+          options.db,
+          user.id,
+          active.rows[0].collection_id
+        )
+      : null;
+    if (
+      !active.rows[0]
+      || !access
+      || !canManageHostedReplica(access, active.rows[0].authorized_user_id)
+    ) {
+      return reply.code(404).send(apiError(
+        "replica_not_found",
+        "Active replica not found."
+      ));
+    }
     if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId);
     else await hostedReference!.revokeReplica(active.rows[0].collection_id, replicaId);
     await options.db.query(
@@ -4371,7 +4511,12 @@ export async function buildApp(options: BuildOptions) {
     if (!user) return;
     const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
     const input = z.object({ through: z.number().int().nonnegative() }).strict().parse(request.body);
-    if (!await ownsHostedCollection(options.db, user.id, collectionId)) {
+    if (!await permitsHostedCollectionAction(
+      options.db,
+      user.id,
+      collectionId,
+      "schema.manage"
+    )) {
       return reply.code(404).send(apiError("hosted_collection_not_found", "Hosted collection not found."));
     }
     if (options.hostedProvider) {
@@ -4538,10 +4683,23 @@ export async function buildApp(options: BuildOptions) {
     const ownership = await options.db.query<{ connector_id: string; contracts: CollectionContractDescriptor[]; spec_version: string }>(
       `SELECT col.connector_id, col.contracts, col.spec_version FROM collections col
        JOIN connectors c ON c.id = col.connector_id
-       WHERE col.id = $1 AND c.user_id = $2 AND c.revoked_at IS NULL`,
-      [input.collection_id, user.id]
+       WHERE col.id = $1 AND c.revoked_at IS NULL`,
+      [input.collection_id]
     );
-    if (!ownership.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
+    const collectionAccess = await resolveLocalCollectionAccess(
+      options.db,
+      user.id,
+      input.collection_id
+    );
+    if (
+      !ownership.rows[0]
+      || !collectionAccess?.actions.has("application.authorize")
+    ) {
+      return reply.code(404).send(apiError(
+        "collection_not_found",
+        "Collection not found."
+      ));
+    }
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
@@ -4565,12 +4723,7 @@ export async function buildApp(options: BuildOptions) {
         "This application requires an mdbase cloud collection."
       ));
     }
-    assertOperationsAllowedByRequirements(input.operations, application.rows[0].requirements);
     assertCollectionSupportsOperations(ownership.rows[0].spec_version, input.operations);
-    const scope = scopeForRequirements(
-      application.rows[0].requirements,
-      ownership.rows[0].contracts
-    );
     if (!contractsSatisfy(
       ownership.rows[0].contracts,
       requiredContractsForRequirements(application.rows[0].requirements)
@@ -4580,12 +4733,19 @@ export async function buildApp(options: BuildOptions) {
         "This collection does not provide the contracts required by the application."
       ));
     }
+    const plan = planCollectionGrant({
+      requestedOperations: input.operations,
+      applicationOperationCeiling: input.operations,
+      requirements: application.rows[0].requirements,
+      availableContracts: ownership.rows[0].contracts,
+      access: collectionAccess
+    });
     const grant = await createOrUpdateGrant(options.db, {
       userId: user.id,
       applicationId: input.application_id,
       collectionId: input.collection_id,
-      operations: input.operations,
-      scope,
+      operations: plan.operations,
+      scope: plan.scope,
       applicationOrigin: new URL(application.rows[0].homepage).origin,
       notificationCriteria: application.rows[0].notifications.criteria
     });
@@ -4683,21 +4843,33 @@ export async function buildApp(options: BuildOptions) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      await options.hostedProvider.revokeReplica(active.rows[0].hosted_replica_id);
-      if (active.rows[0].hosted_collection_id) {
-        await options.hostedProvider.revokeNotificationGrant(
-          active.rows[0].hosted_collection_id,
-          grantId
-        );
+      const queued = await queueHostedGrantRevocation(
+        options.db,
+        user.id,
+        grantId,
+        "user_request"
+      );
+      if (!queued) {
+        return reply.code(404).send(apiError(
+          "grant_not_found",
+          "Active grant not found."
+        ));
       }
+      await providerRevocations?.drain();
+    } else {
       await options.db.query(
-        "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-        [active.rows[0].hosted_replica_id]
+        "UPDATE grants SET revoked_at = now() WHERE id = $1",
+        [grantId]
+      );
+      await options.db.query(
+        "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
+        [grantId]
+      );
+      await options.db.query(
+        "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
+        [grantId]
       );
     }
-    await options.db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grantId]);
-    await options.db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
-    await options.db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
     if (active.rows[0].connector_id) await relay.pushPolicy(active.rows[0].connector_id);
     await audit(options.db, user.id, "grant.revoked", grantId, {});
     return { ok: true };
@@ -4836,27 +5008,37 @@ export async function buildApp(options: BuildOptions) {
       ? { collections: [], unavailable_connectors: [] }
       : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
     const hosted = options.hostedCollections
-      ? await options.db.query<{
-          id: string;
-          display_name: string;
-          spec_version?: string;
-          template: HostedTemplate;
-          contracts: CollectionContractDescriptor[];
-        }>(
-          `SELECT id, display_name, template, contracts FROM hosted_collections
-           WHERE user_id = $1 AND authority_state = 'active' ORDER BY display_name`,
-          [user.id]
-        )
-      : { rows: [] };
-    const availableCollections = [
-      ...local.collections,
-      ...hosted.rows.map((collection) => ({
-        ...collection,
+      ? (await listHostedCollectionsVisibleToUser(options.db, user.id))
+          .filter((collection) =>
+            collection.locator.authorityState === "active"
+          )
+      : [];
+    const hostedCollections = await Promise.all(hosted.map(async (collection) => {
+      const access = requireCollectionAction(
+        await resolveHostedCollectionAccess(
+          options.db,
+          user.id,
+          collection.locator.collectionId
+        ),
+        "application.authorize"
+      );
+      return {
+        id: collection.locator.collectionId,
+        display_name: collection.locator.displayName,
+        template: collection.template,
         kind: "hosted" as const,
         connector_name: "Hosted by mdbase",
         spec_version: "0.3.0",
-        contracts: contractRequirements(effectiveHostedContractDescriptors(collection.contracts, collection.template))
-      }))
+        contracts: contractRequirements(effectiveHostedContractDescriptors(
+          collection.contracts,
+          collection.template
+        )),
+        access: accessView(access)
+      };
+    }));
+    const availableCollections = [
+      ...local.collections,
+      ...hostedCollections
     ];
     return {
       authorization: authorization.rows[0],
@@ -4934,22 +5116,34 @@ export async function buildApp(options: BuildOptions) {
         operations: input.operations
       });
     } else {
-      const hosted = await options.db.query<{ id: string; template: string; display_name: string; contracts: CollectionContractDescriptor[] }>(
-        `SELECT id, template, display_name, contracts FROM hosted_collections
-         WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
-        [input.collection_id, user.id]
+      const access = await resolveHostedCollectionAccess(
+        options.db,
+        user.id,
+        input.collection_id
       );
-      if (!hosted.rows[0] || !options.hostedProvider) {
+      const hosted = await resolveHostedCollection(
+        options.db,
+        input.collection_id
+      );
+      if (
+        !access
+        || !hosted
+        || hosted.locator.authorityState !== "active"
+        || !options.hostedProvider
+      ) {
         return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
       }
+      requireCollectionAction(access, "application.authorize");
       approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
         requestId,
         userId: user.id,
         collectionId: input.collection_id,
         operations: input.operations,
-        template: hosted.rows[0].template,
-        displayName: hosted.rows[0].display_name,
-        contracts: effectiveHostedContractDescriptors(hosted.rows[0].contracts, hosted.rows[0].template)
+        contracts: effectiveHostedContractDescriptors(
+          hosted.contracts,
+          hosted.template
+        ),
+        access
       });
     }
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
@@ -5983,6 +6177,13 @@ function sameStrings(left: string[], right: string[]): boolean {
     && [...leftValues].every((value) => rightValues.has(value));
 }
 
+function sqlPlaceholders(count: number, offset = 0): string {
+  return Array.from(
+    { length: count },
+    (_, index) => `$${index + offset + 1}`
+  ).join(", ");
+}
+
 interface LiveAuthorizationCollection {
   id: string;
   offer_id: string;
@@ -5991,6 +6192,7 @@ interface LiveAuthorizationCollection {
   display_name: string;
   spec_version: string;
   contracts: CollectionContractDescriptor[];
+  access: ReturnType<typeof accessView>;
 }
 
 async function liveAuthorizationCollections(
@@ -6011,7 +6213,18 @@ async function liveAuthorizationCollections(
      WHERE authorization_id = $1 AND expires_at <= now()`,
     [authorizationId]
   );
-  const connectors = await db.query<{
+  const visibleCollections = await listLocalCollectionsVisibleToUser(db, userId);
+  const visibleByConnector = new Map<string, Set<string>>();
+  for (const collection of visibleCollections) {
+    if (
+      collection.authorityState !== "active"
+      || !collection.connectorId
+    ) continue;
+    const ids = visibleByConnector.get(collection.connectorId) ?? new Set();
+    ids.add(collection.authorityRowId);
+    visibleByConnector.set(collection.connectorId, ids);
+  }
+  const ownerConnectors = await db.query<{
     id: string;
     name: string;
     inventory_revision: string | number;
@@ -6021,6 +6234,25 @@ async function liveAuthorizationCollections(
      ORDER BY created_at`,
     [userId]
   );
+  const ownerConnectorIds = new Set(ownerConnectors.rows.map(({ id }) => id));
+  const sharedConnectorIds = [...visibleByConnector.keys()]
+    .filter((id) => !ownerConnectorIds.has(id));
+  const sharedConnectors = sharedConnectorIds.length
+    ? await db.query<{
+        id: string;
+        name: string;
+        inventory_revision: string | number;
+      }>(
+        `SELECT id, name, inventory_revision FROM connectors
+         WHERE id IN (${sqlPlaceholders(sharedConnectorIds.length)})
+           AND revoked_at IS NULL
+         ORDER BY created_at`,
+        sharedConnectorIds
+      )
+    : { rows: [] };
+  const connectors = {
+    rows: [...ownerConnectors.rows, ...sharedConnectors.rows]
+  };
   const settled = await Promise.allSettled(connectors.rows.map(async (connector) => ({
     connector,
     response: await relay.authorizationOffers(connector.id, authorizationId)
@@ -6056,14 +6288,14 @@ async function liveAuthorizationCollections(
       authority_epoch: string | number;
     }>(
       `SELECT id, local_id, authority_epoch FROM collections
-       WHERE user_id = $1 AND connector_id = $2
+       WHERE connector_id = $1
          AND present = true AND enabled = true AND authority_state = 'active'`,
-      [userId, connector.id]
+      [connector.id]
     );
-    const byLocalId = new Map(authoritative.rows.map((collection) => [
-      collection.local_id,
-      collection
-    ]));
+    const visibleIds = visibleByConnector.get(connector.id) ?? new Set();
+    const byLocalId = new Map(authoritative.rows
+      .filter((collection) => visibleIds.has(collection.id))
+      .map((collection) => [collection.local_id, collection] as const));
     for (const offered of result.value.response.collections) {
       const collection = byLocalId.get(offered.collection_id);
       if (!collection) continue;
@@ -6091,6 +6323,12 @@ async function liveAuthorizationCollections(
         ]
       );
       if (!offer.rows[0]) continue;
+      const access = await resolveLocalCollectionAccess(
+        db,
+        userId,
+        collection.id
+      );
+      if (!access || !access.actions.has("application.authorize")) continue;
       collections.push({
         id: collection.id,
         offer_id: offer.rows[0].id,
@@ -6098,7 +6336,8 @@ async function liveAuthorizationCollections(
         connector_name: connector.name,
         display_name: offered.display_name,
         spec_version: offered.spec_version,
-        contracts: offered.contracts
+        contracts: offered.contracts,
+        access: accessView(access)
       });
     }
   }
@@ -6121,7 +6360,7 @@ async function approvePortalAuthorization(
     userId: string;
     offerId: string;
     collectionId: string;
-    operations: string[];
+    operations: CollectionOperation[];
   }
 ): Promise<boolean> {
   const connection = await db.connect();
@@ -6131,6 +6370,7 @@ async function approvePortalAuthorization(
   let requirements: ApplicationRequirements;
   let provisions: ApplicationProvisions;
   let grant: GrantPolicy;
+  let grantAccess: CollectionAccessContext;
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
@@ -6209,13 +6449,6 @@ async function approvePortalAuthorization(
     if (requiresHostedCollection(pending.requirements)) {
       throw new RequestValidationError("This application requires an mdbase cloud collection.");
     }
-    const operations = [...new Set(input.operations)];
-    if (operations.some((operation) => !pending.requested_operations.includes(operation))) {
-      throw new RequestValidationError(
-        "Approved operations must be requested by the application."
-      );
-    }
-    assertOperationsAllowedByRequirements(operations, pending.requirements);
     const offer = await connection.query<{
       connector_id: string;
       local_id: string;
@@ -6233,7 +6466,7 @@ async function approvePortalAuthorization(
        WHERE offer.id = $1 AND offer.authorization_id = $2
          AND offer.user_id = $3 AND offer.collection_id = $4
          AND offer.consumed_at IS NULL AND offer.expires_at > now()
-         AND col.user_id = $3 AND col.present = true AND col.enabled = true
+         AND col.present = true AND col.enabled = true
          AND col.authority_state = 'active'
          AND col.authority_epoch = offer.authority_epoch
          AND con.revoked_at IS NULL
@@ -6247,8 +6480,25 @@ async function approvePortalAuthorization(
         "That collection is no longer being offered by a live connector. Refresh and choose again."
       );
     }
+    grantAccess = requireCollectionAction(
+      await resolveLocalCollectionAccess(
+        connection,
+        input.userId,
+        input.collectionId
+      ),
+      "application.authorize"
+    );
+    const plan = planCollectionGrant({
+      requestedOperations: input.operations,
+      applicationOperationCeiling:
+        pending.requested_operations as CollectionOperation[],
+      requirements: pending.requirements,
+      availableContracts: selected.contracts,
+      access: grantAccess
+    });
+    const operations = plan.operations;
     assertCollectionSupportsOperations(selected.spec_version, operations);
-    const scope = scopeForRequirements(pending.requirements, selected.contracts);
+    const scope = plan.scope;
     let encryption: GrantEncryption | undefined;
     if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
       if (!pending.application_public_key || !selected.relay_public_key) {
@@ -6360,7 +6610,13 @@ async function approvePortalAuthorization(
         "The authorization request changed before activation completed."
       );
     }
-    const finalScope = scopeForRequirements(requirements, activation.contracts);
+    const finalScope = planCollectionGrant({
+      requestedOperations: grant!.operations,
+      applicationOperationCeiling: grant!.operations,
+      requirements,
+      availableContracts: activation.contracts,
+      access: grantAccess!
+    }).scope;
     await finalize.query(
       `UPDATE grants SET activated_at = now(), scope = $2::jsonb
        WHERE id = $1 AND activated_at IS NULL`,
@@ -6589,10 +6845,9 @@ async function approveHostedAuthorization(
     requestId: string;
     userId: string;
     collectionId: string;
-    operations: string[];
-    template: string;
-    displayName: string;
+    operations: CollectionOperation[];
     contracts: CollectionContractDescriptor[];
+    access: CollectionAccessContext;
   }
 ): Promise<boolean> {
   const connection = await db.connect();
@@ -6648,10 +6903,6 @@ async function approveHostedAuthorization(
         "Device authorization is reserved for downloaded applications."
       );
     }
-    if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
-      throw new RequestValidationError("Approved operations must be requested by the application.");
-    }
-    assertOperationsAllowedByRequirements(input.operations, pending.requirements);
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
     let availableContracts = contractRequirements(availableDescriptors);
@@ -6666,6 +6917,7 @@ async function approveHostedAuthorization(
       );
     }
     if (provisions.length > 0) {
+      requireCollectionAction(input.access, "schema.manage");
       availableDescriptors = await provider.provisionTypePacks(
         input.collectionId,
         provisions
@@ -6681,17 +6933,20 @@ async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    const scope = scopeForRequirements(
-      pending.requirements,
-      availableDescriptors
-    );
+    const plan = planCollectionGrant({
+      requestedOperations: input.operations,
+      applicationOperationCeiling:
+        pending.requested_operations as CollectionOperation[],
+      requirements: pending.requirements,
+      availableContracts: availableDescriptors,
+      access: input.access
+    });
+    const scope = plan.scope;
     const allowedTypes = allowedTypesForRequirements(
       availableDescriptors,
       pending.requirements
     );
-    await provider.renameCollection(input.collectionId, input.displayName);
-    const operations = [...new Set(input.operations)];
-    const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
+    const operations = plan.operations;
     const applicationOrigin = pending.flow === "device_code"
       ? "null"
       : applicationOriginForRedirect(
@@ -6711,10 +6966,10 @@ async function approveHostedAuthorization(
       id: replicaId,
       name: `${pending.application_name} application access`,
       purpose: "application",
-      mode: write ? "read_write" : "read_only",
+      mode: plan.replicaMode,
       allowedTypes,
       contractScope: scope.access === "contract" ? scope.contracts : [],
-      fullCollection: pending.requirements.access === "full_collection",
+      fullCollection: scope.access === "full_collection",
       allowedOperations: operations,
       allowedOrigin,
       proofPublicKey: pending.flow === "device_code"
@@ -6726,13 +6981,15 @@ async function approveHostedAuthorization(
     });
     await connection.query(
       `INSERT INTO hosted_replicas
-         (id, collection_id, name, purpose, mode, allowed_types, token_hash)
-       VALUES ($1, $2, $3, 'application', $4, $5::jsonb, NULL)`,
+         (id, collection_id, authorized_user_id, name, purpose, mode,
+          allowed_types, token_hash)
+       VALUES ($1, $2, $3, $4, 'application', $5, $6::jsonb, NULL)`,
       [
         replicaId,
         input.collectionId,
+        input.userId,
         `${pending.application_name} application access`,
-        write ? "read_write" : "read_only",
+        plan.replicaMode,
         JSON.stringify(allowedTypes)
       ]
     );
@@ -6876,7 +7133,9 @@ async function issueApplicationTokens(
   };
 }> {
   const grant = await db.query<{
+    user_id: string;
     collection_id: string;
+    local_authority_row_id: string | null;
     collection_name: string;
     hosted_collection_id: string | null;
     hosted_replica_id: string | null;
@@ -6887,7 +7146,9 @@ async function issueApplicationTokens(
     proof_public_key: string | null;
     application_origin: string;
   }>(
-    `SELECT COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
+    `SELECT g.user_id,
+            COALESCE(g.collection_id, g.hosted_collection_id) AS collection_id,
+            g.collection_id AS local_authority_row_id,
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.proof_public_key,
@@ -6898,12 +7159,33 @@ async function issueApplicationTokens(
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+     LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL
-       AND u.suspended_at IS NULL`,
+       AND u.suspended_at IS NULL
+       AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
+  if (grant.rows[0].hosted_collection_id) {
+    requireCollectionAction(
+      await resolveHostedCollectionAccess(
+        db,
+        grant.rows[0].user_id,
+        grant.rows[0].hosted_collection_id
+      ),
+      "application.authorize"
+    );
+  } else if (grant.rows[0].local_authority_row_id) {
+    requireCollectionAction(
+      await resolveLocalCollectionAccess(
+        db,
+        grant.rows[0].user_id,
+        grant.rows[0].local_authority_row_id
+      ),
+      "application.authorize"
+    );
+  }
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
   let authority: {
@@ -7283,6 +7565,12 @@ async function authorityPairing(
   ) {
     return null;
   }
+  const access = await resolveHostedCollectionAccess(
+    db,
+    pairing.user_id,
+    pairing.collection_id
+  );
+  if (!access?.actions.has("authority.transfer")) return null;
   const {
     replica_collection_id: _replicaCollectionId,
     consumed_at: _consumedAt,
@@ -7312,7 +7600,14 @@ async function mirrorAuthorityTransfer(
        AND account.suspended_at IS NULL`,
     [transferId, tokenHash(secret)]
   );
-  return result.rows[0] ?? null;
+  const transfer = result.rows[0];
+  if (!transfer) return null;
+  const access = await resolveHostedCollectionAccess(
+    db,
+    transfer.user_id,
+    transfer.hosted_collection_id
+  );
+  return access?.actions.has("authority.transfer") ? transfer : null;
 }
 
 function authorityAdoptionSelect(): string {
@@ -7620,6 +7915,33 @@ function authorityImportCapability(
   };
 }
 
+interface HostedMirrorReplicaRow {
+  id: string;
+  collection_id: string;
+  name: string;
+  mode: "read_only" | "read_write";
+  allowed_types: string[];
+  revoked_at: string | null;
+  created_at: string;
+}
+
+async function hostedMirrorReplicas(
+  db: DatabaseQueryable,
+  collectionIds: string[]
+): Promise<HostedMirrorReplicaRow[]> {
+  if (collectionIds.length === 0) return [];
+  const result = await db.query<HostedMirrorReplicaRow>(
+    `SELECT id, collection_id, name, mode, allowed_types, revoked_at,
+            created_at
+     FROM hosted_replicas
+     WHERE collection_id IN (${sqlPlaceholders(collectionIds.length)})
+       AND purpose = 'mirror'
+     ORDER BY created_at`,
+    collectionIds
+  );
+  return result.rows;
+}
+
 async function hostedControlSnapshot(
   options: BuildOptions,
   hostedReference: HostedAuthorityRegistry | undefined,
@@ -7636,7 +7958,8 @@ async function hostedControlSnapshot(
     };
   }
   await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
-  const collections = await options.db.query<{
+  const catalog = await listHostedCollectionsVisibleToUser(options.db, userId);
+  const collections: { rows: Array<{
     id: string;
     display_name: string;
     template: HostedTemplate;
@@ -7645,32 +7968,36 @@ async function hostedControlSnapshot(
     authority_state: "active" | "transferring" | "transferred";
     authority_epoch: string | number;
     transferred_collection_id: string | null;
-    created_at: string;
-  }>(
-    `SELECT id, display_name, template, provider_url, contracts, authority_state,
-            authority_epoch, transferred_collection_id, created_at
-     FROM hosted_collections WHERE user_id = $1 ORDER BY display_name`,
-    [userId]
-  );
-  const replicas = collections.rows.length
-    ? await options.db.query<{
-        id: string;
-        collection_id: string;
-        name: string;
-        mode: "read_only" | "read_write";
-        allowed_types: string[];
-        revoked_at: string | null;
-        created_at: string;
-      }>(
-        `SELECT replica.id, replica.collection_id, replica.name, replica.mode,
-                replica.allowed_types, replica.revoked_at, replica.created_at
-         FROM hosted_replicas replica
-         JOIN hosted_collections collection ON collection.id = replica.collection_id
-         WHERE collection.user_id = $1 AND replica.purpose = 'mirror'
-         ORDER BY replica.created_at`,
-        [userId]
-      )
-    : { rows: [] };
+    created_at: string | Date;
+    access: ReturnType<typeof accessView>;
+  }> } = {
+    rows: await Promise.all(catalog.map(async (collection) => ({
+      id: collection.locator.collectionId,
+      display_name: collection.locator.displayName,
+      template: collection.template,
+      contracts: collection.contracts,
+      provider_url: collection.locator.providerUrl ?? null,
+      authority_state:
+        collection.locator.authorityState as "active" | "transferring" | "transferred",
+      authority_epoch: collection.locator.authorityEpoch,
+      transferred_collection_id: collection.transferredCollectionId,
+      created_at: collection.createdAt,
+      access: accessView(requireCollectionAction(
+        await resolveHostedCollectionAccess(
+          options.db,
+          userId,
+          collection.locator.collectionId
+        ),
+        "collection.discover"
+      ))
+    })))
+  };
+  const replicas = {
+    rows: await hostedMirrorReplicas(
+      options.db,
+      collections.rows.map((collection) => collection.id)
+    )
+  };
   const statuses = new Map<string, {
     head: number;
     acknowledged_sequence: number;
@@ -7732,6 +8059,12 @@ async function hostedControlSnapshot(
       provider_url: collection.provider_url ?? publicUrl,
       spec_version: "0.3.0",
       authority_epoch: Number(collection.authority_epoch),
+      authority: {
+        kind: "hosted",
+        collection_id: collection.id,
+        epoch: Number(collection.authority_epoch),
+        state: collection.authority_state
+      },
       contracts: contractRequirements(
         effectiveHostedContractDescriptors(collection.contracts, collection.template)
       ),
@@ -7818,7 +8151,12 @@ async function renameHostedCollectionForUser(
   collectionId: string,
   displayName: string
 ): Promise<{ id: string; display_name: string } | null> {
-  if (!await ownsHostedCollection(options.db, userId, collectionId)) return null;
+  if (!await permitsHostedCollectionAction(
+    options.db,
+    userId,
+    collectionId,
+    "collection.rename"
+  )) return null;
   if (options.hostedProvider) {
     await options.hostedProvider.renameCollection(collectionId, displayName);
   }
@@ -7840,7 +8178,12 @@ async function deleteHostedCollectionForUser(
   userId: string,
   collectionId: string
 ): Promise<boolean> {
-  if (!await ownsHostedCollection(options.db, userId, collectionId)) return false;
+  if (!await permitsHostedCollectionAction(
+    options.db,
+    userId,
+    collectionId,
+    "collection.delete"
+  )) return false;
   if (options.hostedProvider) await options.hostedProvider.deleteCollection(collectionId);
   else await hostedReference!.delete(collectionId);
   const connection = await options.db.connect();
@@ -7875,16 +8218,27 @@ async function revokeHostedReplicaForUser(
 ): Promise<boolean> {
   const found = await options.db.query<{
     collection_id: string;
+    authorized_user_id: string | null;
     revoked_at: string | null;
   }>(
-    `SELECT replica.collection_id, replica.revoked_at FROM hosted_replicas replica
-     JOIN hosted_collections collection ON collection.id = replica.collection_id
-     WHERE replica.id = $1 AND replica.purpose = 'mirror'
-       AND collection.user_id = $2`,
-    [replicaId, userId]
+    `SELECT collection_id, authorized_user_id, revoked_at
+     FROM hosted_replicas
+     WHERE id = $1 AND purpose = 'mirror'`,
+    [replicaId]
   );
   const replica = found.rows[0];
-  if (!replica) return false;
+  const access = replica
+    ? await resolveHostedCollectionAccess(
+        options.db,
+        userId,
+        replica.collection_id
+      )
+    : null;
+  if (
+    !replica
+    || !access
+    || !canManageHostedReplica(access, replica.authorized_user_id)
+  ) return false;
   if (replica.revoked_at) return true;
   if (options.hostedProvider) await options.hostedProvider.revokeReplica(replicaId);
   else await hostedReference!.revokeReplica(replica.collection_id, replicaId);
@@ -7978,58 +8332,49 @@ async function revokeHostedGrantForUser(
   userId: string,
   grantId: string
 ): Promise<boolean> {
-  const active = await options.db.query<{
-    hosted_collection_id: string;
-    hosted_replica_id: string;
-  }>(
-    `SELECT g.hosted_collection_id, g.hosted_replica_id
-     FROM grants g
-     JOIN hosted_collections h ON h.id = g.hosted_collection_id
-     WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
-    [grantId, userId]
-  );
-  const current = active.rows[0];
-  if (!current) return false;
   if (!options.hostedProvider) {
     throw new RequestValidationError("Hosted application access is temporarily unavailable.");
   }
-  await options.hostedProvider.revokeReplica(current.hosted_replica_id);
-  await options.hostedProvider.revokeNotificationGrant(current.hosted_collection_id, grantId);
-  await options.db.query(
-    "UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1",
-    [current.hosted_replica_id]
+  const queued = await queueHostedGrantRevocation(
+    options.db,
+    userId,
+    grantId,
+    "user_request"
   );
-  await options.db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grantId]);
-  await options.db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
-  await options.db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grantId]);
+  if (!queued) return false;
+  const worker = new ProviderRevocationWorker(
+    options.db,
+    options.hostedProvider
+  );
+  await worker.drain();
   await audit(options.db, userId, "grant.revoked", grantId, { source: "desktop" });
   return true;
 }
 
-async function ownsHostedCollection(
+async function permitsHostedCollectionAction(
   db: DatabasePool,
   userId: string,
-  collectionId: string
+  collectionId: string,
+  action: CollectionAction,
+  activeOnly = false
 ): Promise<boolean> {
-  const result = await db.query(
-    "SELECT id FROM hosted_collections WHERE id = $1 AND user_id = $2",
-    [collectionId, userId]
+  const access = await resolveHostedCollectionAccess(db, userId, collectionId);
+  return Boolean(
+    access
+    && access.actions.has(action)
+    && (!activeOnly || access.collection.authorityState === "active")
   );
-  return Boolean(result.rows[0]);
 }
 
-async function ownsActiveHostedCollection(
-  db: DatabasePool,
-  userId: string,
-  collectionId: string
-): Promise<boolean> {
-  const result = await db.query(
-    `SELECT id FROM hosted_collections
-     WHERE id = $1 AND user_id = $2 AND authority_state = 'active'`,
-    [collectionId, userId]
-  );
-  return Boolean(result.rows[0]);
+function canManageHostedReplica(
+  access: CollectionAccessContext,
+  authorizedUserId: string | null
+): boolean {
+  return access.actions.has("members.manage")
+    || (
+      authorizedUserId === access.userId
+      && access.actions.has("mirror.enroll")
+    );
 }
 
 async function rotateMirrorPairingToken(

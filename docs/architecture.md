@@ -76,6 +76,35 @@ that ID as a preselection hint, but the approval UI still requires an explicit
 compatible user choice. Collection IDs are non-secret locators and can appear
 in browser history and logs; grants remain the authorization boundary.
 
+## Collaboration boundary
+
+Collection visibility and authority are deliberately separate. A
+`CollectionLocator` identifies one logical collection, its current local or
+hosted authority row, owner, authority epoch, and state. Local locators use the
+portable `local_id`; hosted locators use the hosted collection ID. Routes do
+not infer identity from a mutable name or filesystem location.
+
+All user-to-collection decisions pass through the collection catalog and
+access-policy modules. The current resolver emits only owner access. Its
+context already carries relationship, policy revision, product actions,
+operation ceiling, and contract/full-collection scope ceiling, so adding
+membership later is confined to those repository and policy boundaries.
+Collection responses include an access summary and explicit authority
+metadata rather than asking clients to infer permissions from ownership.
+
+Application capabilities are computed by a pure grant planner. It intersects
+the operations selected by the user, the application's request and manifest,
+and the user's current operation and scope ceilings. Provisioning is a
+separate `schema.manage` action. Token renewal re-resolves access, which makes
+membership removal fail closed without rewriting OAuth.
+
+Every hosted replica records the user whose access authorized it, while the
+provider records the source replica on each record change. Revocation first
+atomically disables the grant, tokens, and replica in the control plane, then
+delivers provider cleanup from a durable retry queue. These attribution and
+lifecycle boundaries allow later member removal and role changes to target
+derived capabilities without taking the service offline.
+
 ## Components
 
 - `mdbase-rs` owns collection loading, validation, querying, mutation,
@@ -88,7 +117,9 @@ in browser history and logs; grants remain the authorization boundary.
 - `connect-cli` and the Electron controller use the agent's versioned local
   control socket.
 - `connect-server` owns accounts, pairing, app discovery, grants, token
-  issuance, audit metadata, and transient request routing.
+  issuance, collection access policy, audit metadata, and transient request
+  routing. Its schema changes use the versioned, pre-deploy process in
+  [Control-plane migrations](./control-plane-migrations.md).
 - `connect-mcp` owns MCP host OAuth sessions and encrypted upstream Connect
   credentials. It uses one exact Connect grant per approved collection and
   never shares a collection grant across MCP connection sets.

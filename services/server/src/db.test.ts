@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   backfillExternalIdentityEmails,
   backfillSessionProviders,
   createDatabase,
+  openDatabase,
   revokeLegacyHostedBearerGrants
 } from "./db.js";
+import {
+  assertControlPlaneMigrationsCurrent,
+  runControlPlaneMigrations
+} from "./migrations.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -14,6 +22,90 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("records the legacy baseline and applies ordered SQL migrations once", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+
+    const applied = await db.query<{ id: string }>(
+      "SELECT id FROM schema_migrations ORDER BY id"
+    );
+    expect(applied.rows.map(({ id }) => id)).toEqual([
+      "0000_legacy_baseline",
+      "0001_collaboration_foundations"
+    ]);
+    const columns = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'hosted_replicas'
+         AND column_name = 'authorized_user_id'`
+    );
+    expect(columns.rows).toHaveLength(1);
+
+    await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
+    await runControlPlaneMigrations(db);
+    const repeated = await db.query<{ id: string }>(
+      "SELECT id FROM schema_migrations ORDER BY id"
+    );
+    expect(repeated.rows).toEqual(applied.rows);
+  });
+
+  it("fails closed when an application starts before pre-deploy migration", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await expect(assertControlPlaneMigrationsCurrent(db))
+      .rejects.toThrow();
+  });
+
+  it("backfills the authorizing user for replicas created before attribution", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    const { migrateLegacySchema } = await import("./db.js");
+    await migrateLegacySchema(db);
+    const userId = randomUUID();
+    const collectionId = randomUUID();
+    const replicaId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, "replica-owner@example.com"]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Existing', 'mdbase')`,
+      [collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO hosted_replicas (id, collection_id, name, mode)
+       VALUES ($1, $2, 'Old mirror', 'read_only')`,
+      [replicaId, collectionId]
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const replica = await db.query<{ authorized_user_id: string }>(
+      "SELECT authorized_user_id FROM hosted_replicas WHERE id = $1",
+      [replicaId]
+    );
+    expect(replica.rows[0].authorized_user_id).toBe(userId);
+  });
+
+  it("rejects an applied migration whose contents changed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "connect-migrations-"));
+    resources.push(() => rm(directory, { recursive: true, force: true }));
+    await writeFile(
+      join(directory, "0001_test.sql"),
+      "CREATE TABLE migration_fixture (id text PRIMARY KEY);\n"
+    );
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await runControlPlaneMigrations(db, { directory });
+    await writeFile(
+      join(directory, "0001_test.sql"),
+      "CREATE TABLE changed_fixture (id text PRIMARY KEY);\n"
+    );
+
+    await expect(runControlPlaneMigrations(db, { directory }))
+      .rejects.toThrow("changed after it was applied");
+  });
+
   it("creates the account and operator foundation without changing existing data", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

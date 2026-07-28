@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { buildApp } from "./app.js";
-import { createDatabase } from "./db.js";
+import { createDatabase, openDatabase } from "./db.js";
+import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { runtimeConfigFromEnv } from "./runtime-config.js";
 import { HostedProviderClient } from "./hosted-provider.js";
 import { createRelayBroker } from "./relay-broker.js";
@@ -11,7 +12,12 @@ import { ResendEmailTransport } from "./email.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const runtime = runtimeConfigFromEnv(process.env);
-const db = await createDatabase();
+const db = process.env.NODE_ENV === "production"
+  ? await openDatabase()
+  : await createDatabase();
+if (process.env.NODE_ENV === "production") {
+  await assertControlPlaneMigrationsCurrent(db);
+}
 const relayBroker = await createRelayBroker(runtime.relayBroker);
 const portalDist = process.env.PORTAL_DIST ?? resolve(import.meta.dirname, "../../../apps/portal/dist");
 const { app } = await buildApp({

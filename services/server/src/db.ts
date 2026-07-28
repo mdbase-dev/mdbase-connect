@@ -17,7 +17,9 @@ export interface DatabasePool extends DatabaseQueryable {
   connect(): Promise<DatabaseConnection>;
 }
 
-export async function createDatabase(databaseUrl = process.env.DATABASE_URL): Promise<DatabasePool> {
+export async function openDatabase(
+  databaseUrl = process.env.DATABASE_URL
+): Promise<DatabasePool> {
   let pool: DatabasePool;
   if (!databaseUrl || databaseUrl === "memory") {
     const { DataType, newDb } = await import("pg-mem");
@@ -33,19 +35,31 @@ export async function createDatabase(databaseUrl = process.env.DATABASE_URL): Pr
   } else {
     pool = new pg.Pool({ connectionString: databaseUrl }) as Pool;
   }
-  const connection = await pool.connect();
-  const lockMigrations = Boolean(databaseUrl && databaseUrl !== "memory");
+  return pool;
+}
+
+export async function createDatabase(
+  databaseUrl = process.env.DATABASE_URL
+): Promise<DatabasePool> {
+  const pool = await openDatabase(databaseUrl);
   try {
-    if (lockMigrations) await connection.query("SELECT pg_advisory_lock($1)", [1_291_842_019]);
-    await migrate(connection);
-  } finally {
-    if (lockMigrations) await connection.query("SELECT pg_advisory_unlock($1)", [1_291_842_019]);
-    connection.release();
+    const { runControlPlaneMigrations } = await import("./migrations.js");
+    await runControlPlaneMigrations(pool, {
+      lock: Boolean(databaseUrl && databaseUrl !== "memory")
+    });
+  } catch (error) {
+    await pool.end();
+    throw error;
   }
   return pool;
 }
 
-export async function migrate(db: DatabaseQueryable): Promise<void> {
+/**
+ * Idempotent baseline retained while the pre-versioned schema is migrated to
+ * discrete SQL files. Production invokes this exactly once through the
+ * versioned migration ledger; tests and new databases use the same path.
+ */
+export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> {
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id uuid PRIMARY KEY,

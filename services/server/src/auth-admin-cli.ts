@@ -2,7 +2,8 @@ import {
   InvitationDeliveryError,
   runAuthAdminCommand
 } from "./auth-admin.js";
-import { createDatabase } from "./db.js";
+import { openDatabase } from "./db.js";
+import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { ResendEmailTransport } from "./email.js";
 import {
   HostedProviderClient,
@@ -13,9 +14,10 @@ import {
   type RegistrationMode
 } from "./runtime-config.js";
 
-const db = await createDatabase();
+const db = await openDatabase();
 const requestEnvelope = process.argv[2] === "request";
 try {
+  await assertControlPlaneMigrationsCurrent(db);
   const emailTransport = resendTransport(process.env);
   const hostedProviderConfig = hostedProviderConfigFromEnv(process.env);
   const hostedProvider = hostedProviderConfig
