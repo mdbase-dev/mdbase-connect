@@ -13,6 +13,8 @@ import { persistedBody, titlePatch } from "./note";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
+  CollectionAuthorizationTarget,
+  CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
@@ -33,6 +35,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   private contractDescriptors: CollectionContractDescriptor[] = [];
   private packResources = new Map<string, string>();
   private listeners = new Set<(change?: CollectionChange) => void>();
+  private sessionListeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private readonly openingDelay: number;
   private typeDocuments: CollectionTypeDocument[] = [{
     name: "note",
@@ -46,39 +49,41 @@ export class DemoCollectionGateway implements CollectionGateway {
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
-  connection(): ConnectionSummary | null {
-    return { collectionId: "demo", operations: ["all"], missingOperations: [] };
+  sessionSnapshot(): CollectionSessionSnapshot {
+    const connection = this.currentConnection();
+    return connection
+      ? { status: "ready", connection, connections: [connection] }
+      : { status: "unselected", connections: [] };
   }
 
-  connections(): ConnectionSummary[] {
-    const connection = this.connection();
-    return connection ? [connection] : [];
+  async startSession(): Promise<CollectionSessionSnapshot> {
+    return this.sessionSnapshot();
   }
 
-  authorizationTarget(): string | null {
-    return null;
+  selectConnection(collectionId: string): ConnectionSummary {
+    const connection = this.currentConnection();
+    if (!connection || connection.collectionId !== collectionId) {
+      throw new Error("This demo collection is not available.");
+    }
+    return connection;
   }
 
-  selectConnection(_collectionId: string): void {}
-
-  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    listener(this.connection());
-    return () => undefined;
+  onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void {
+    this.sessionListeners.add(listener);
+    listener(this.sessionSnapshot());
+    return () => this.sessionListeners.delete(listener);
   }
 
   async checkDirectAccess(): Promise<ConnectionSummary | null> {
-    return this.connection();
+    return this.currentConnection();
   }
 
   async requestDirectAccess(): Promise<ConnectionSummary | null> {
-    return this.connection();
+    return this.currentConnection();
   }
 
-  async authorize(): Promise<void> {}
-  async authorizeNewCollection(): Promise<void> {}
-  async completeAuthorization(): Promise<void> {}
+  async authorize(_target: CollectionAuthorizationTarget): Promise<void> {}
   forgetConnection(_collectionId: string): void {}
-  disconnect(): void {}
 
   async describe(): Promise<CollectionDescription> {
     if (this.openingDelay) await delay(this.openingDelay);
@@ -96,6 +101,15 @@ export class DemoCollectionGateway implements CollectionGateway {
         settings: { types_folder: "_types", validation: "error" }
       }
     };
+  }
+
+  protected currentConnection(): ConnectionSummary | null {
+    return { collectionId: "demo", operations: ["all"], missingOperations: [] };
+  }
+
+  protected emitSessionChange(): void {
+    const snapshot = this.sessionSnapshot();
+    for (const listener of this.sessionListeners) listener(snapshot);
   }
 
   async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {

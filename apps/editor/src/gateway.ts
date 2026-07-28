@@ -1,11 +1,14 @@
 import {
-  MdbaseBrowserLocation,
+  MdbaseBrowserSelection,
   MdbaseConnect,
   MdbaseConnectError,
   unwrapOperation,
   type CollectionDescription,
   type MdbaseConnection,
+  type MdbaseConnectionInfo,
   type MdbaseOperation as CollectionOperation,
+  type MdbaseSession,
+  type MdbaseSessionSnapshot,
   type JsonObject,
   type MdbaseDiagnostic,
   type QueryRecord,
@@ -15,6 +18,8 @@ import {
 import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
+  CollectionAuthorizationTarget,
+  CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
@@ -70,137 +75,71 @@ const FIRST_PAGE_SIZE = 200;
 const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
-  private readonly manager: MdbaseConnect<NoteFrontmatter>;
-  private readonly browserLocation: MdbaseBrowserLocation<NoteFrontmatter>;
-  private pendingAuthorizationTarget?: string;
+  private readonly session: MdbaseSession<NoteFrontmatter>;
   private indexSnapshot?: string;
   private readonly renamePreflights = new Map<string, import("@mdbase/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase/connect").DeletePreflightResult>();
 
   constructor(serverUrl = import.meta.env.VITE_MDBASE_CONNECT_URL ?? "https://connect.mdbase.dev") {
     const appRoot = new URL(import.meta.env.BASE_URL, location.href);
-    this.manager = new MdbaseConnect({
+    const connect = new MdbaseConnect<NoteFrontmatter>({
       serverUrl,
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
     });
-    this.browserLocation = new MdbaseBrowserLocation(this.manager, {
-      fallbackPath: appRoot.pathname
+    this.session = connect.createSession({
+      operations: FULL_COLLECTION_OPERATIONS,
+      selection: new MdbaseBrowserSelection({
+        fallbackPath: appRoot.pathname
+      }),
+      autoSelect: "only"
     });
-    const selectedCollectionId = this.browserLocation.selectedCollectionId();
-    this.pendingAuthorizationTarget = selectedCollectionId
-      && !this.manager.connection(selectedCollectionId)
-      ? selectedCollectionId
-      : undefined;
   }
 
-  connection(): ConnectionSummary | null {
-    const connection = this.activeConnection();
-    if (!connection) return null;
-    return {
-      collectionId: connection.collectionId,
-      displayName: connection.displayName,
-      operations: connection.operations,
-      missingOperations: connection.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations,
-      route: connection.route,
-      directAccess: connection.directAccess
-    };
+  sessionSnapshot(): CollectionSessionSnapshot {
+    return summarizeSession(this.session.getSnapshot());
   }
 
-  connections(): ConnectionSummary[] {
-    return this.manager.connections().map((connection) => ({
-      collectionId: connection.collectionId,
-      displayName: connection.displayName,
-      operations: connection.operations,
-      missingOperations: this.manager.connection(connection.collectionId)
-        ?.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations ?? [],
-      route: connection.route,
-      directAccess: connection.directAccess
-    }));
+  async startSession(): Promise<CollectionSessionSnapshot> {
+    return summarizeSession(await this.session.start());
   }
 
-  authorizationTarget(): string | null {
-    return this.pendingAuthorizationTarget ?? null;
+  onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void {
+    const publish = () => listener(this.sessionSnapshot());
+    const stop = this.session.subscribe(publish);
+    publish();
+    return stop;
   }
 
-  selectConnection(collectionId: string): void {
-    this.pendingAuthorizationTarget = undefined;
-    this.browserLocation.selectConnection(collectionId, { replace: true });
-  }
-
-  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    let stopActiveConnection: (() => void) | undefined;
-    const subscribeToActiveConnection = () => {
-      stopActiveConnection?.();
-      const connection = this.activeConnection();
-      stopActiveConnection = connection?.onConnectionChange(() => listener(this.connection()));
-      if (!connection) listener(null);
-    };
-    const stopLocation = this.browserLocation.onChange(subscribeToActiveConnection);
-    subscribeToActiveConnection();
-    return () => {
-      stopLocation();
-      stopActiveConnection?.();
-    };
+  selectConnection(collectionId: string): ConnectionSummary {
+    this.session.select(collectionId, { history: "replace" });
+    const snapshot = this.sessionSnapshot();
+    if (snapshot.status !== "ready") {
+      throw new Error("The selected collection is not ready.");
+    }
+    return snapshot.connection;
   }
 
   async checkDirectAccess(): Promise<ConnectionSummary | null> {
     const connection = this.activeConnection();
     if (!connection) return null;
     await connection.checkDirectAccess();
-    return this.connection();
+    return this.readySummary();
   }
 
   async requestDirectAccess(): Promise<ConnectionSummary | null> {
     const connection = this.activeConnection();
     if (!connection) return null;
     await connection.requestDirectAccess();
-    return this.connection();
+    return this.readySummary();
   }
 
-  async authorize(collectionId?: string): Promise<void> {
-    const requestedCollectionId = collectionId
-      ?? this.pendingAuthorizationTarget
-      ?? undefined;
-    const current = requestedCollectionId
-      ? this.manager.connection(requestedCollectionId)
-      : this.activeConnection();
-    const returnLocation = this.browserLocation.authorizationReturnTo();
-    if (current) {
-      await current.requestOperations(FULL_COLLECTION_OPERATIONS, { returnTo: returnLocation });
-      return;
-    }
-    await this.manager.authorize({
-      operations: FULL_COLLECTION_OPERATIONS,
-      collectionId: requestedCollectionId,
-      returnTo: returnLocation
-    });
-  }
-
-  async authorizeNewCollection(): Promise<void> {
-    this.pendingAuthorizationTarget = undefined;
-    await this.manager.authorize({
-      operations: FULL_COLLECTION_OPERATIONS,
-      returnTo: this.browserLocation.authorizationReturnTo()
-    });
-  }
-
-  async completeAuthorization(): Promise<void> {
-    if (!this.browserLocation.isAuthorizationCallback(location.href)) return;
-    await this.browserLocation.completeAuthorization();
-    this.pendingAuthorizationTarget = undefined;
+  async authorize(target: CollectionAuthorizationTarget): Promise<void> {
+    await this.session.authorize(target);
   }
 
   forgetConnection(collectionId: string): void {
-    this.manager.connection(collectionId)?.forget();
-    if (this.pendingAuthorizationTarget === collectionId) {
-      this.pendingAuthorizationTarget = undefined;
-    }
-  }
-
-  disconnect(): void {
-    const connection = this.activeConnection();
-    if (connection) this.forgetConnection(connection.collectionId);
+    this.session.forget(collectionId);
   }
 
   describe(): Promise<CollectionDescription> {
@@ -397,7 +336,13 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
-    return this.browserLocation.activeConnection();
+    const snapshot = this.session.getSnapshot();
+    return snapshot.status === "ready" ? snapshot.connection : null;
+  }
+
+  private readySummary(): ConnectionSummary | null {
+    const snapshot = this.sessionSnapshot();
+    return snapshot.status === "ready" ? snapshot.connection : null;
   }
 
   private requireConnection(): MdbaseConnection<NoteFrontmatter> {
@@ -405,6 +350,37 @@ export class ConnectCollectionGateway implements CollectionGateway {
     if (!connection) throw new Error("Choose a collection before editing notes.");
     return connection;
   }
+}
+
+function summarizeSession(snapshot: MdbaseSessionSnapshot<NoteFrontmatter>): CollectionSessionSnapshot {
+  const connections = snapshot.connections.map(summarizeConnection);
+  if (snapshot.status === "unselected") return { status: "unselected", connections };
+  if (snapshot.status === "unavailable") {
+    return {
+      status: "unavailable",
+      collectionId: snapshot.collectionId,
+      reason: snapshot.reason,
+      connections
+    };
+  }
+  return {
+    status: "ready",
+    connection: {
+      ...summarizeConnection(snapshot.info),
+      missingOperations: snapshot.access.missingOperations
+    },
+    connections
+  };
+}
+
+function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummary {
+  return {
+    collectionId: connection.collectionId,
+    displayName: connection.displayName,
+    operations: connection.operations,
+    route: connection.route,
+    directAccess: connection.directAccess
+  };
 }
 
 function uniquePaths(values: Array<{ path: string }> | undefined): string[] {

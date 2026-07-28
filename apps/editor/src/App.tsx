@@ -61,6 +61,7 @@ import {
 } from "./layout-preferences";
 import type {
   CollectionGateway,
+  CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
@@ -219,7 +220,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [contentIndexing, setContentIndexing] = useState(false);
   const [contentLoaded, setContentLoaded] = useState(0);
   const [contentError, setContentError] = useState<string>();
-  const [connectionSummary, setConnectionSummary] = useState<ConnectionSummary | null>(null);
+  const [sessionSnapshot, setSessionSnapshot] = useState<CollectionSessionSnapshot>(() => gateway.sessionSnapshot());
+  const connectionSummary = sessionSnapshot.status === "ready" ? sessionSnapshot.connection : null;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
@@ -725,7 +727,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       setFoldersLoading(false);
       setNoteLoading(false);
       setNotice(gatewayError(error));
-      setPhase(descriptionLoaded && gateway.connection() ? "ready" : "disconnected");
+      setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
   }, [gateway, openNote, refreshDescription]);
 
@@ -736,19 +738,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => {
     let alive = true;
-    let stopConnectionChanges: (() => void) | undefined;
+    let stopSessionChanges: (() => void) | undefined;
     void (async () => {
       try {
-        await gateway.completeAuthorization();
+        const initial = await gateway.startSession();
         if (!alive) return;
-        stopConnectionChanges = gateway.onConnectionChange((connection) => {
-          setConnectionSummary(connection);
-          if (!connection) {
+        setSessionSnapshot(initial);
+        stopSessionChanges = gateway.onSessionChange((snapshot) => {
+          setSessionSnapshot(snapshot);
+          if (snapshot.status !== "ready") {
             setPhase((current) => current === "starting" ? current : "disconnected");
           }
         });
-        const connection = gateway.connection();
-        setConnectionSummary(connection);
+        const snapshot = gateway.sessionSnapshot();
+        setSessionSnapshot(snapshot);
+        const connection = snapshot.status === "ready" ? snapshot.connection : null;
         if (connection && missingCoreOperations(connection).length === 0) await start();
         else {
           setPhase("disconnected");
@@ -761,19 +765,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     })();
     return () => {
       alive = false;
-      stopConnectionChanges?.();
+      stopSessionChanges?.();
     };
   }, [gateway, start]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
-    let cancelled = false;
     void gateway.checkDirectAccess()
-      .then((connection) => {
-        if (!cancelled) setConnectionSummary(connection);
-      })
+      .then(() => undefined)
       .catch(() => undefined);
-    return () => { cancelled = true; };
   }, [connectionSummary?.collectionId, gateway, phase]);
 
   useEffect(() => {
@@ -1069,17 +1069,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function connectCollection() {
     setNotice(undefined);
-    try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
+    try { await gateway.authorize("selected"); } catch (error) { setNotice(gatewayError(error)); }
   }
 
   async function connectFromConnectScreen() {
     setNotice(undefined);
     try {
-      const connection = gateway.connection();
-      if (gateway.authorizationTarget() || missingCoreOperations(connection).length > 0) {
-        await gateway.authorize();
+      const snapshot = gateway.sessionSnapshot();
+      if (snapshot.status === "unavailable"
+        || (snapshot.status === "ready" && missingCoreOperations(snapshot.connection).length > 0)) {
+        await gateway.authorize("selected");
       }
-      else await gateway.authorizeNewCollection();
+      else await gateway.authorize("choose");
     } catch (error) {
       setNotice(gatewayError(error));
     }
@@ -1090,7 +1091,6 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
     try {
       const connection = await gateway.requestDirectAccess();
-      setConnectionSummary(connection);
       if (connection?.directAccess === "available") {
         setNotice("mdbase editor can now use mdbase on this computer.");
       } else if (connection?.directAccess === "denied") {
@@ -1149,12 +1149,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCollectionSwitcherOpen(false);
     try {
       await flushCollectionWork();
-      gateway.selectConnection(collectionId);
-      const selected = gateway.connection();
+      const selected = gateway.selectConnection(collectionId);
       clearCollectionWorkspace();
       if (missingCoreOperations(selected).length > 0) {
         setPhase("disconnected");
-        await gateway.authorize(collectionId);
+        await gateway.authorize("selected");
         return;
       }
       setPhase("loading");
@@ -1166,7 +1165,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function requestOpenSavedCollection(collectionId: string) {
-    if (collectionId === gateway.connection()?.collectionId) {
+    if (collectionId === connectionSummary?.collectionId) {
       setCollectionSwitcherOpen(false);
       return;
     }
@@ -1189,7 +1188,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCollectionSwitcherOpen(false);
     try {
       await flushCollectionWork();
-      await gateway.authorizeNewCollection();
+      await gateway.authorize("choose");
     } catch (error) {
       setNotice(gatewayError(error));
     }
@@ -1886,7 +1885,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function forgetConnection(collectionId: string) {
-    const active = gateway.connection()?.collectionId === collectionId;
+    const active = connectionSummary?.collectionId === collectionId;
     try {
       if (active) await flushCollectionWork();
       gateway.forgetConnection(collectionId);
@@ -1913,7 +1912,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   function requestForgetCurrentCollection() {
-    const connection = gateway.connection();
+    const connection = connectionSummary;
     if (connection) requestForgetConnection(connection, description?.display_name);
   }
 
@@ -1977,8 +1976,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "disconnected") return <>
     <ConnectScreen
       notice={notice}
-      missingOperations={missingCoreOperations(gateway.connection())}
-      connections={gateway.connections()}
+      missingOperations={missingCoreOperations(connectionSummary)}
+      connections={sessionSnapshot.connections}
       onConnect={() => void connectFromConnectScreen()}
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
       onForget={requestForgetConnection}
@@ -2029,7 +2028,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mutationNotice = editorNotice ?? (activePendingRename
     ? "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
     : undefined);
-  const typeAccessMissing = missingTypeOperations(gateway.connection());
+  const typeAccessMissing = missingTypeOperations(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
@@ -2364,8 +2363,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {collectionSwitcherOpen && <CollectionSwitcher
-      activeCollectionId={gateway.connection()?.collectionId}
-      connections={gateway.connections()}
+      activeCollectionId={connectionSummary?.collectionId}
+      connections={sessionSnapshot.connections}
       displayName={description.display_name}
       onOpen={requestOpenSavedCollection}
       onConnect={requestConnectAnotherCollection}

@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  MdbaseBrowserLocation,
+  MdbaseBrowserSelection,
   MdbaseCollectionClient,
   MdbaseConnectError,
   MdbaseOperationValidationError,
+  MdbaseSession,
   type DirectAccessStatus,
-  type MdbaseConnect
+  type MdbaseConnection,
+  type MdbaseConnectionInfo,
+  type MdbaseSessionSnapshot
 } from "@mdbase/connect";
-import { ConnectCollectionGateway, gatewayError } from "./gateway";
+import { ConnectCollectionGateway, FULL_COLLECTION_OPERATIONS, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
 
 describe("ConnectCollectionGateway collection index", () => {
@@ -94,30 +97,63 @@ describe("ConnectCollectionGateway recovery operations", () => {
     expect(requestDirectAccess).toHaveBeenCalledOnce();
   });
 
-  it("carries a deep-linked collection into first-time authorization", async () => {
+  it("keeps a deep-linked unavailable collection as the exact authorization target", async () => {
     const originalLocation = `${location.pathname}${location.search}${location.hash}`;
     history.replaceState(null, "", "/?collection=deep-linked-collection");
     const authorize = vi.fn(async () => undefined);
-    const manager = {
-      authorize,
-      connections: () => [],
-      connection: () => undefined,
-      onConnectionsChange: () => () => undefined
-    } as unknown as MdbaseConnect;
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    Object.defineProperty(gateway, "manager", { value: manager });
-    Object.defineProperty(gateway, "browserLocation", {
-      value: new MdbaseBrowserLocation(manager)
+    injectSession(gateway, {
+      getSnapshot: () => ({
+        status: "unavailable",
+        collectionId: "deep-linked-collection",
+        reason: "not_authorized",
+        connections: []
+      }),
+      authorize
     });
 
-    await gateway.authorize();
+    await gateway.authorize("selected");
 
-    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+    expect(gateway.sessionSnapshot()).toEqual({
+      status: "unavailable",
       collectionId: "deep-linked-collection",
-      returnTo: "/?collection=deep-linked-collection"
-    }));
-    gateway.selectConnection("saved-collection");
-    expect(gateway.authorizationTarget()).toBeNull();
+      reason: "not_authorized",
+      connections: []
+    });
+    expect(authorize).toHaveBeenCalledWith("selected");
+    history.replaceState(null, "", originalLocation);
+  });
+
+  it("replaces a stale browser bookmark when opening a saved collection without reloading", async () => {
+    const originalLocation = `${location.pathname}${location.search}${location.hash}`;
+    history.replaceState(null, "", "/?collection=stale-collection");
+    const saved = sessionConnection("saved-collection", "Saved notes");
+    const connect = {
+      connections: () => [saved.info()],
+      connection: (collectionId: string) => collectionId === saved.collectionId ? saved : null,
+      unavailableReason: () => null,
+      onConnectionsChange: () => () => undefined
+    };
+    const session = new MdbaseSession(connect as never, {
+      operations: FULL_COLLECTION_OPERATIONS,
+      selection: new MdbaseBrowserSelection(),
+      autoSelect: "never"
+    });
+
+    await session.start();
+    expect(session.getSnapshot()).toMatchObject({
+      status: "unavailable",
+      collectionId: "stale-collection"
+    });
+
+    const selected = session.select("saved-collection", { history: "replace" });
+
+    expect(selected).toBe(saved);
+    expect(session.getSnapshot()).toMatchObject({
+      status: "ready",
+      collectionId: "saved-collection"
+    });
+    expect(new URL(location.href).searchParams.get("collection")).toBe("saved-collection");
     history.replaceState(null, "", originalLocation);
   });
 
@@ -130,35 +166,34 @@ describe("ConnectCollectionGateway recovery operations", () => {
   });
 
   it("uses SDK capability gaps and envelope validation", async () => {
-    const requestOperations = vi.fn(async () => undefined);
     const read = vi.fn(async () => ({
       valid: false,
       diagnostics: [{ severity: "error", code: "invalid_record", message: "The note is invalid." }],
       result: { path: "Notes/invalid.md", frontmatter: {}, types: [], revision: "invalid" }
     }));
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    injectConnection(gateway, {
+    const session = injectConnection(gateway, {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
       authorizationCapabilities: () => ({ missingOperations: ["update"] }),
-      requestOperations,
       read
     });
 
-    expect(gateway.connection()).toEqual({
+    expect(gateway.sessionSnapshot()).toEqual({
+      status: "ready",
+      connections: [expect.objectContaining({ collectionId: "collection" })],
+      connection: {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
       missingOperations: ["update"],
       route: "relay",
       directAccess: "unavailable"
+      }
     });
-    await gateway.authorize();
-    expect(requestOperations).toHaveBeenCalledWith(
-      expect.arrayContaining(["describe", "read", "update", "rename"]),
-      expect.objectContaining({ returnTo: expect.any(String) })
-    );
+    await gateway.authorize("selected");
+    expect(session.authorize).toHaveBeenCalledWith("selected");
     await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(MdbaseOperationValidationError);
     await expect(gateway.read("Notes/invalid.md")).rejects.toMatchObject({
       diagnostics: [{ code: "invalid_record" }],
@@ -298,7 +333,7 @@ function summary(path: string): NoteSummary {
 function injectConnection(
   gateway: ConnectCollectionGateway,
   connection: object,
-): void {
+): { authorize: ReturnType<typeof vi.fn> } {
   const bound = connection as {
     collectionId?: string;
     displayName?: string;
@@ -313,17 +348,83 @@ function injectConnection(
   bound.route ??= "relay";
   bound.directAccess ??= "unavailable";
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
-  const manager = {
-    connections: () => [{
-      collectionId: bound.collectionId,
-      displayName: bound.displayName,
-      operations: bound.operations
-    }],
-    connection: () => bound,
-    onConnectionsChange: () => () => undefined
-  } as unknown as MdbaseConnect;
-  Object.defineProperty(gateway, "manager", { value: manager });
-  Object.defineProperty(gateway, "browserLocation", {
-    value: new MdbaseBrowserLocation(manager)
+  const authorize = vi.fn(async () => ({ kind: "redirecting" as const }));
+  injectSession(gateway, {
+    getSnapshot: () => {
+      const info = {
+        collectionId: bound.collectionId!,
+        displayName: bound.displayName!,
+        operations: bound.operations!,
+        scope: {} as never,
+        route: bound.route!,
+        directAccess: bound.directAccess!
+      };
+      return {
+        status: "ready",
+        collectionId: bound.collectionId!,
+        connection: bound,
+        info,
+        access: {
+          authorized: true,
+          sufficient: false,
+          collectionId: bound.collectionId!,
+          grantedOperations: bound.operations!,
+          missingOperations: bound.authorizationCapabilities!().missingOperations
+        },
+        connections: [info]
+      } as unknown as MdbaseSessionSnapshot;
+    },
+    authorize
   });
+  return { authorize };
+}
+
+function injectSession(
+  gateway: ConnectCollectionGateway,
+  session: {
+    getSnapshot: () => MdbaseSessionSnapshot;
+    authorize?: ReturnType<typeof vi.fn>;
+    start?: () => Promise<MdbaseSessionSnapshot>;
+    subscribe?: (listener: () => void) => () => void;
+    select?: (collectionId: string) => MdbaseConnection;
+    forget?: (collectionId: string) => void;
+  }
+): void {
+  Object.defineProperty(gateway, "session", {
+    value: {
+      start: session.start ?? (async () => session.getSnapshot()),
+      subscribe: session.subscribe ?? (() => () => undefined),
+      select: session.select ?? (() => {
+        const snapshot = session.getSnapshot();
+        if (snapshot.status !== "ready") throw new Error("No selected connection.");
+        return snapshot.connection;
+      }),
+      authorize: session.authorize ?? vi.fn(async () => ({ kind: "redirecting" as const })),
+      forget: session.forget ?? vi.fn(),
+      getSnapshot: session.getSnapshot
+    }
+  });
+}
+
+function sessionConnection(collectionId: string, displayName: string): MdbaseConnection {
+  const info: MdbaseConnectionInfo = {
+    collectionId,
+    displayName,
+    operations: FULL_COLLECTION_OPERATIONS,
+    scope: {} as never,
+    route: "relay",
+    directAccess: "unavailable"
+  };
+  return {
+    collectionId,
+    info: () => info,
+    authorizationCapabilities: () => ({
+      authorized: true,
+      sufficient: true,
+      collectionId,
+      grantedOperations: FULL_COLLECTION_OPERATIONS,
+      missingOperations: []
+    }),
+    onConnectionChange: () => () => undefined
+  } as unknown as MdbaseConnection;
 }

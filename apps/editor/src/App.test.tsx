@@ -6,6 +6,7 @@ import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
   CollectionGateway,
+  CollectionSessionSnapshot,
   ConnectionSummary,
   MutationOperationOptions,
   NoteDocument,
@@ -866,7 +867,7 @@ describe("mdbase editor", () => {
   it("renders an explicit full-access explanation before authorization", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
-    disconnected.connection = () => null;
+    disconnected.sessionSnapshot = () => ({ status: "unselected", connections: [] });
     render(<App gateway={disconnected} />);
     expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
     expect(screen.getByText(/collection you want to write in/i)).toBeInTheDocument();
@@ -882,19 +883,24 @@ describe("mdbase editor", () => {
     const gateway = new DemoCollectionGateway(1);
     const callbackGateway = Object.create(gateway) as CollectionGateway;
     const events: string[] = [];
-    callbackGateway.completeAuthorization = vi.fn(async () => {
+    callbackGateway.startSession = vi.fn(async () => {
       events.push("complete");
+      return gateway.sessionSnapshot();
     });
-    callbackGateway.connection = vi.fn(() => {
-      events.push("connection");
-      return gateway.connection();
+    callbackGateway.sessionSnapshot = vi.fn(() => {
+      events.push("snapshot");
+      return gateway.sessionSnapshot();
     });
-    callbackGateway.onConnectionChange = vi.fn(() => () => undefined);
+    callbackGateway.onSessionChange = vi.fn(() => () => undefined);
+    callbackGateway.describe = vi.fn(async () => {
+      events.push("describe");
+      return gateway.describe();
+    });
 
     render(<App gateway={callbackGateway} />);
 
     expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
-    expect(events[0]).toBe("complete");
+    expect(events.indexOf("complete")).toBeLessThan(events.indexOf("describe"));
   });
 
   it("forgets one saved connection from the connection screen without implying deletion or revocation", async () => {
@@ -904,11 +910,20 @@ describe("mdbase editor", () => {
       { collectionId: "current-notes", displayName: "Notes", operations: [] },
       { collectionId: "old-notes", displayName: "Old Notes", operations: [] }
     ];
+    const snapshot = (): CollectionSessionSnapshot => ({ status: "unselected", connections });
+    let publish: ((value: CollectionSessionSnapshot) => void) | undefined;
     const forgetConnection = vi.fn((collectionId: string) => {
       connections = connections.filter((connection) => connection.collectionId !== collectionId);
+      publish?.(snapshot());
     });
-    disconnected.connection = () => null;
-    disconnected.connections = () => connections;
+    disconnected.sessionSnapshot = snapshot;
+    disconnected.onSessionChange = (listener) => {
+      publish = listener;
+      listener(snapshot());
+      return () => {
+        publish = undefined;
+      };
+    };
     disconnected.forgetConnection = forgetConnection;
     render(<App gateway={disconnected} />);
 
@@ -930,9 +945,11 @@ describe("mdbase editor", () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
     const authorize = vi.fn(async () => undefined);
-    const authorizeNewCollection = vi.fn(async () => undefined);
     disconnected.authorize = authorize;
-    disconnected.authorizeNewCollection = authorizeNewCollection;
+    disconnected.sessionSnapshot = () => ({
+      status: "unselected",
+      connections: [{ collectionId: "demo", operations: [] }]
+    });
     disconnected.describe = vi.fn(async () => {
       throw new Error("The current collection could not be opened.");
     });
@@ -940,18 +957,21 @@ describe("mdbase editor", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
 
-    expect(authorizeNewCollection).toHaveBeenCalledOnce();
-    expect(authorize).not.toHaveBeenCalled();
+    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith("choose");
   });
 
   it("authorizes the requested collection from a portal deep link", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
     const authorize = vi.fn(async () => undefined);
-    const authorizeNewCollection = vi.fn(async () => undefined);
-    disconnected.authorizationTarget = () => "deep-linked-collection";
     disconnected.authorize = authorize;
-    disconnected.authorizeNewCollection = authorizeNewCollection;
+    disconnected.sessionSnapshot = () => ({
+      status: "unavailable",
+      collectionId: "deep-linked-collection",
+      reason: "not_authorized",
+      connections: [{ collectionId: "demo", operations: [] }]
+    });
     disconnected.describe = vi.fn(async () => {
       throw new Error("The requested collection has not been authorized.");
     });
@@ -960,7 +980,7 @@ describe("mdbase editor", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
-    expect(authorizeNewCollection).not.toHaveBeenCalled();
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("returns to collection authorization when the SDK invalidates a stale grant", async () => {
@@ -977,11 +997,12 @@ describe("mdbase editor", () => {
     const gateway = new DemoCollectionGateway(1);
     const partial = Object.create(gateway) as CollectionGateway;
     const authorize = vi.fn(async () => undefined);
-    partial.connection = () => ({
+    const connection = {
       collectionId: "partial",
       operations: ["describe", "read", "query"],
       missingOperations: ["update", "rename", "read_type"]
-    });
+    };
+    partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
     partial.authorize = authorize;
     render(<App gateway={partial} />);
 
@@ -989,18 +1010,19 @@ describe("mdbase editor", () => {
     expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
     expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("keeps note editing available when only optional type access is missing", async () => {
     const gateway = new DemoCollectionGateway(1);
     const partial = Object.create(gateway) as CollectionGateway;
     const authorize = vi.fn(async () => undefined);
-    partial.connection = () => ({
+    const connection = {
       collectionId: "notes-only",
       operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
       missingOperations: ["read_type", "create_type", "update_type"]
-    });
+    };
+    partial.sessionSnapshot = () => ({ status: "ready", connection, connections: [connection] });
     partial.authorize = authorize;
     render(<App gateway={partial} />);
 
@@ -1010,7 +1032,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole("heading", { name: "Type access needed" })).toBeInTheDocument();
     expect(screen.getByText(/Notes are ready/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("shows a dropped connection and offers an immediate retry", async () => {
@@ -1049,21 +1071,20 @@ describe("mdbase editor", () => {
 
 class RevokedAuthorizationGateway extends DemoCollectionGateway {
   private connected = true;
-  private readonly connectionListeners = new Set<(connection: ConnectionSummary | null) => void>();
 
-  override connection(): ConnectionSummary | null {
-    return this.connected ? super.connection() : null;
-  }
-
-  override onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    this.connectionListeners.add(listener);
-    listener(this.connection());
-    return () => this.connectionListeners.delete(listener);
+  override sessionSnapshot(): CollectionSessionSnapshot {
+    if (this.connected) return super.sessionSnapshot();
+    return {
+      status: "unavailable",
+      collectionId: "demo",
+      reason: "authorization_lost",
+      connections: []
+    };
   }
 
   rejectAuthorization(): void {
     this.connected = false;
-    for (const listener of this.connectionListeners) listener(null);
+    this.emitSessionChange();
   }
 }
 
@@ -1072,8 +1093,8 @@ class DirectAccessGateway extends DemoCollectionGateway {
   checkCalls = 0;
   requestCalls = 0;
 
-  override connection(): ConnectionSummary | null {
-    const connection = super.connection();
+  protected override currentConnection(): ConnectionSummary | null {
+    const connection = super.currentConnection();
     return connection ? {
       ...connection,
       route: this.directAccess === "available" ? "direct" : "relay",
@@ -1083,13 +1104,14 @@ class DirectAccessGateway extends DemoCollectionGateway {
 
   override async checkDirectAccess(): Promise<ConnectionSummary | null> {
     this.checkCalls += 1;
-    return this.connection();
+    return this.currentConnection();
   }
 
   override async requestDirectAccess(): Promise<ConnectionSummary | null> {
     this.requestCalls += 1;
     this.directAccess = "available";
-    return this.connection();
+    this.emitSessionChange();
+    return this.currentConnection();
   }
 }
 

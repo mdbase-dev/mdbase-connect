@@ -5,6 +5,7 @@ import type {
   JsonObject,
   MdbaseDiagnostic,
   MutationProgress,
+  MdbaseUnavailableReason,
   RenamePreflightResult,
   DeletePreflightResult,
   DirectAccessStatus,
@@ -39,6 +40,21 @@ export interface ConnectionSummary {
   route?: MdbaseConnectionRoute;
   directAccess?: DirectAccessStatus;
 }
+
+export type CollectionSessionSnapshot =
+  | { status: "unselected"; connections: ConnectionSummary[] }
+  | { status: "ready"; connection: ConnectionSummary; connections: ConnectionSummary[] }
+  | {
+      status: "unavailable";
+      collectionId: string;
+      reason: MdbaseUnavailableReason;
+      connections: ConnectionSummary[];
+    };
+
+export type CollectionAuthorizationTarget =
+  | "choose"
+  | "selected"
+  | { collectionId: string };
 
 export interface SaveNoteInput {
   path: string;
@@ -92,18 +108,14 @@ export interface NoteListProgress {
 }
 
 export interface CollectionGateway {
-  connection(): ConnectionSummary | null;
-  connections(): ConnectionSummary[];
-  authorizationTarget(): string | null;
-  selectConnection(collectionId: string): void;
-  onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void;
+  sessionSnapshot(): CollectionSessionSnapshot;
+  startSession(): Promise<CollectionSessionSnapshot>;
+  onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void;
+  selectConnection(collectionId: string): ConnectionSummary;
   checkDirectAccess(): Promise<ConnectionSummary | null>;
   requestDirectAccess(): Promise<ConnectionSummary | null>;
-  authorize(collectionId?: string): Promise<void>;
-  authorizeNewCollection(): Promise<void>;
-  completeAuthorization(): Promise<void>;
+  authorize(target: CollectionAuthorizationTarget): Promise<void>;
   forgetConnection(collectionId: string): void;
-  disconnect(): void;
   describe(): Promise<CollectionDescription>;
   list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
   hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
