@@ -74,7 +74,9 @@ import {
   types as collectionTypes
 } from "./note";
 import type { FolderTreeNode } from "./note";
+import { loadNoteSort, noteSortSummary, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
 import { NewNoteComposer } from "./NewNoteComposer";
+import { NoteListViewOptions } from "./NoteListViewOptions";
 import { buildNoteSearchIndex, searchNotes } from "./note-search";
 import { KeyedOperationQueue } from "./operation-queue";
 import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
@@ -224,6 +226,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   const [layout, setLayout] = useState<LayoutPreferences>(loadLayoutPreferences);
+  const [noteSort, setNoteSort] = useState<NoteSort>(loadNoteSort);
   const [resizingPane, setResizingPane] = useState<"collection" | "list">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [, setSessionTick] = useState(0);
@@ -244,6 +247,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
+  useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
   useEffect(() => { allNotesRef.current = allNotes; }, [allNotes]);
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
@@ -888,13 +892,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return searchNotes(searchIndex, deferredSearch);
   }, [deferredSearch, searchIndex]);
   const visibleNotes = useMemo(() => {
-    if (!noteFilter) return searchedNotes;
-    if (noteFilter.kind === "folder") {
-      return searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`));
-    }
-    if (noteFilter.kind === "tag") return searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value));
-    return searchedNotes.filter((note) => note.types.includes(noteFilter.value));
-  }, [noteFilter, searchedNotes]);
+    const filtered = !noteFilter
+      ? searchedNotes
+      : noteFilter.kind === "folder"
+        ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
+        : noteFilter.kind === "tag"
+          ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
+          : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
+    return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort);
+  }, [deferredSearch, noteFilter, noteSort, searchedNotes]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames), [allNotes, linkTypeNames]);
   const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes) : [], [allNotes, document]);
@@ -1785,17 +1791,21 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         notes={visibleNotes}
         loading={listLoading}
         structureLoading={foldersLoading}
-        contentComplete={contentComplete}
         contentIndexing={contentIndexing}
         contentLoaded={contentLoaded}
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
+        contentTotal={collectionTotal}
         selectedPath={selectedPath}
         pendingPath={pendingNotePath}
         statuses={noteStatuses}
         search={search}
+        sort={noteSort}
+        scopeLabel={filterScopeLabel(noteFilter)}
         collectionName={filterLabel(noteFilter, description.display_name)}
         onSearch={setSearch}
+        onSort={setNoteSort}
+        onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => setQuickOpen(true)}
         onRetryContent={() => void loadContentIndex()}
         onSelect={navigateToNote}
@@ -2451,23 +2461,27 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
   return `${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"} ${subject}`;
 }
 
-function NoteList({ notes, selectedPath, pendingPath, statuses, search, collectionName, loading, structureLoading, contentComplete, contentIndexing, contentLoaded, contentError, total, leadingActions, trailingActions, onSearch, onQuickOpen, onRetryContent, onSelect, onCreate, onCollections }: {
+function NoteList({ notes, selectedPath, pendingPath, statuses, search, sort, scopeLabel, collectionName, loading, structureLoading, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryContent, onSelect, onCreate, onCollections }: {
   notes: NoteSummary[];
   selectedPath?: string;
   pendingPath?: string;
   statuses: Map<string, NoteRowStatus>;
   search: string;
+  sort: NoteSort;
+  scopeLabel?: string;
   collectionName: string;
   loading: boolean;
   structureLoading: boolean;
-  contentComplete: boolean;
   contentIndexing: boolean;
   contentLoaded: number;
   contentError?: string;
   total?: number;
+  contentTotal?: number;
   leadingActions?: React.ReactNode;
   trailingActions?: React.ReactNode;
   onSearch: (value: string) => void;
+  onSort: (sort: NoteSort) => void;
+  onClearScope: () => void;
   onQuickOpen: () => void;
   onRetryContent: () => void;
   onSelect: (path: string) => void;
@@ -2477,8 +2491,11 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, collecti
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
   return <section className="note-list-pane" aria-label="Notes">
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, structureLoading, contentComplete, contentIndexing, contentLoaded, total, Boolean(search))}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry full text</button>}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
-    <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search every note</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, structureLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort)}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry search</button>}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
+    <div className="note-list-controls">
+      <div className="search-field"><Search aria-hidden="true" /><label className="sr-only" htmlFor="note-search">Search every note</label><input id="note-search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search" />{search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : <button className="quick-open-trigger" aria-label="Quick open" title="Quick open" onClick={onQuickOpen}><kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} P</kbd></button>}</div>
+      <NoteListViewOptions sort={sort} scopeLabel={scopeLabel} onSort={onSort} onClearScope={onClearScope} />
+    </div>
     <div className="note-scroll" ref={scrollRef} role="listbox" aria-label="Collection notes" aria-busy={structureLoading}>
       {notes.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const note = notes[virtualRow.index];
@@ -2495,19 +2512,24 @@ function NoteListSkeleton() {
   return <div className="note-list-skeleton" aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index}><span /><small /></div>)}</div>;
 }
 
-function noteCountLabel(count: number, loading: boolean, structureLoading: boolean, contentComplete: boolean, contentIndexing: boolean, contentLoaded: number, total: number | undefined, searching: boolean): string {
-  if (searching && contentIndexing) return `${count.toLocaleString()} found so far · full text ${contentLoaded.toLocaleString()} of ${total?.toLocaleString() ?? "…"}`;
+function noteCountLabel(count: number, loading: boolean, structureLoading: boolean, contentIndexing: boolean, contentLoaded: number, total: number | undefined, contentTotal: number | undefined, searching: boolean, sort: NoteSort): string {
+  if (searching && contentIndexing) return `${count.toLocaleString()} found so far · searching ${contentLoaded.toLocaleString()} of ${contentTotal?.toLocaleString() ?? "…"}`;
   if (loading && searching) return count ? `${count.toLocaleString()} found so far` : "Searching";
   if (structureLoading && count === 0) return "Reading notes";
   if (structureLoading) return `${count.toLocaleString()} of ${total?.toLocaleString() ?? "…"} notes`;
-  if (loading) return `${count.toLocaleString()} notes · indexing search`;
-  if (!contentComplete) return `${count.toLocaleString()} notes · full text on demand`;
-  return `${count.toLocaleString()} ${count === 1 ? "note" : "notes"}`;
+  return `${count.toLocaleString()} ${count === 1 ? "note" : "notes"} · ${searching ? "relevance" : noteSortSummary(sort)}`;
 }
 
 function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
   if (!filter) return fallback;
   return filter.kind === "tag" ? `#${filter.value}` : filter.value;
+}
+
+function filterScopeLabel(filter: NoteFilter | undefined): string | undefined {
+  if (!filter) return undefined;
+  if (filter.kind === "folder") return `Folder · ${filter.value}`;
+  if (filter.kind === "tag") return `Tag · #${filter.value}`;
+  return `Type · ${filter.value}`;
 }
 
 function accessSummary(operations: string[]): string {

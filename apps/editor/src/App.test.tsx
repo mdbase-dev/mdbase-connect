@@ -307,6 +307,43 @@ describe("mdbase editor", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
   });
 
+  it("sorts the note list, preserves relevance during search, and clears the active scope", async () => {
+    const user = userEvent.setup();
+    render(<App gateway={new DemoCollectionGateway(4)} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    await screen.findByText("4 notes · modified newest");
+    const noteList = screen.getByRole("listbox", { name: "Collection notes" });
+    expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/The shape of useful tools/);
+
+    await user.click(screen.getByRole("button", { name: "View options" }));
+    let menu = screen.getByRole("menu", { name: "Note view options" });
+    expect(within(menu).getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(menu).getByRole("menuitemradio", { name: "Title A–Z" }));
+
+    expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
+    expect(localStorage.getItem("mdbase-editor:note-sort")).toBe("title-asc");
+    expect(screen.getByText("4 notes · title A–Z")).toBeInTheDocument();
+
+    const search = screen.getByRole("textbox", { name: "Search every note" });
+    await user.type(search, "quiet interface");
+    expect(await screen.findByText("1 note · relevance")).toBeInTheDocument();
+    await user.clear(search);
+
+    const folders = screen.getByRole("group", { name: "Folders" });
+    await user.click(within(folders).getByRole("button", { name: /^Show notes in Notes,/ }));
+    expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View options" }));
+    menu = screen.getByRole("menu", { name: "Note view options" });
+    expect(within(menu).getByRole("menuitemradio", { name: "Folder · Notes" })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(menu).getByRole("menuitemradio", { name: "All notes" }));
+
+    expect(screen.getByRole("heading", { name: "Writing" })).toBeInTheDocument();
+    expect(within(noteList).getAllByRole("option")).toHaveLength(4);
+    expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/A quiet interface 3/);
+  });
+
   it("edits existing types and creates new ones with a compatibility warning", async () => {
     const gateway = new DemoCollectionGateway(4);
     const user = userEvent.setup();
@@ -380,7 +417,7 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
 
     gateway.releaseStructure();
-    expect(await screen.findByText("12 notes · indexing search")).toBeInTheDocument();
+    expect(await screen.findByText("12 notes · modified newest")).toBeInTheDocument();
     expect(folderNavigation).toHaveAttribute("aria-busy", "false");
     expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
@@ -391,7 +428,7 @@ describe("mdbase editor", () => {
     gateway.releaseContent();
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
     await user.clear(screen.getByRole("textbox", { name: "Search every note" }));
-    expect(await screen.findByText("12 notes")).toBeInTheDocument();
+    expect(await screen.findByText("12 notes · modified newest")).toBeInTheDocument();
     expect(gateway.listCalls).toBe(1);
   });
 
@@ -400,17 +437,17 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    expect(await screen.findByText("3 notes · full text on demand")).toBeInTheDocument();
+    expect(await screen.findByText("3 notes · modified newest")).toBeInTheDocument();
     expect(gateway.hydrateCalls).toBe(0);
     await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
 
-    expect(await screen.findByText(/full text 1 of 3/)).toBeInTheDocument();
+    expect(await screen.findByText(/searching 1 of 3/)).toBeInTheDocument();
     expect(gateway.hydrateCalls).toBe(1);
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
 
     expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
-    expect(screen.getByText("1 note")).toBeInTheDocument();
+    expect(screen.getByText("1 note · relevance")).toBeInTheDocument();
   });
 
   it("keeps a failed full-text search actionable and retries it", async () => {
@@ -418,9 +455,9 @@ describe("mdbase editor", () => {
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
-    await screen.findByText("3 notes · full text on demand");
+    await screen.findByText("3 notes · modified newest");
     await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
-    const retry = await screen.findByRole("button", { name: "Retry full text" });
+    const retry = await screen.findByRole("button", { name: "Retry search" });
     expect(retry).toHaveAttribute("title", "The full-text index could not be read.");
     await user.click(retry);
 

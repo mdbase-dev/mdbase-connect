@@ -176,7 +176,7 @@ for (const trigger of ["@", "[["] as const) {
 
 test("creates a note only after the creation form is complete", async ({ page }) => {
   await page.goto("?demo=4");
-  await expect(page.getByText("4 notes", { exact: true })).toBeVisible();
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
   await page.getByRole("button", { name: "New note" }).click();
 
   const create = page.getByRole("button", { name: "Create note" });
@@ -193,7 +193,7 @@ test("creates a note only after the creation form is complete", async ({ page })
   const createReadyMs = Date.now() - createStarted;
   expect(createReadyMs).toBeLessThan(500);
   await expect(page.locator(".body-editor .cm-placeholder")).toHaveText("Start writing");
-  await expect(page.getByText("5 notes", { exact: true })).toBeVisible();
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
   await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
 });
 
@@ -209,6 +209,33 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   await page.keyboard.press("Enter");
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Questions worth keeping 7");
+});
+
+test("sorts notes and clears the active scope from view options", async ({ page }) => {
+  await page.goto("?demo=4");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · modified newest");
+
+  await page.getByRole("button", { name: "View options" }).click();
+  let menu = page.getByRole("menu", { name: "Note view options" });
+  await expect(menu.getByRole("menuitemradio", { name: "Modified newest" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Title A–Z" }).click();
+  await expect(page.locator(".note-row").first().locator(".note-title")).toHaveText("A quiet interface 3");
+  await expect(page.locator(".list-header p")).toHaveText("4 notes · title A–Z");
+  expect(await page.evaluate(() => localStorage.getItem("mdbase-editor:note-sort"))).toBe("title-asc");
+
+  await page.getByRole("textbox", { name: "Search every note" }).fill("quiet interface");
+  await expect(page.locator(".list-header p")).toHaveText("1 note · relevance");
+  await page.getByRole("button", { name: "Clear search" }).click();
+
+  await page.getByRole("group", { name: "Folders" }).getByRole("button", { name: /^Show notes in Notes,/ }).click();
+  await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible();
+  await page.getByRole("button", { name: "View options" }).click();
+  menu = page.getByRole("menu", { name: "Note view options" });
+  await expect(menu.getByRole("menuitemradio", { name: "Folder · Notes" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "All notes" }).click();
+
+  await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
+  await expect(page.locator(".note-row")).toHaveCount(4);
 });
 
 test("creates a folder with its first note", async ({ page }) => {
