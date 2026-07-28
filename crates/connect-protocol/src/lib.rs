@@ -743,12 +743,6 @@ pub struct ContractRequirement {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RuntimeContractRequirement {
-    pub id: String,
-    pub version: u64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
@@ -814,7 +808,7 @@ pub struct ApplicationNotifications {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationCriterion {
     pub id: String,
-    pub event: RuntimeContractRequirement,
+    pub event: ContractRequirement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#if: Option<RuntimeExpression>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -135,8 +135,8 @@ test("application manifests declare authority-evaluated notification criteria", 
       },
       criteria: [{
         id: "task.ready",
-        event: { id: "mdbase.record.modified", version: 1 },
-        if: { $expr: "event.payload.changed_fields.exists(field, field == 'status')" },
+        event: { id: "mdbase.record.modified", version: "1.0.0" },
+        if: { $expr: "event.data.changed_fields.exists(field, field == 'status')" },
         debounce: "2s",
         minimum_interval: "1m",
         presentation: {
@@ -153,14 +153,14 @@ test("application manifests declare authority-evaluated notification criteria", 
     ...manifest,
     notifications: {
       ...manifest.notifications,
-      criteria: [{ ...manifest.notifications.criteria[0], presentation: { title: "${event.payload.path}" } }]
+      criteria: [{ ...manifest.notifications.criteria[0], presentation: { title: "${event.data.path}" } }]
     }
   }), true, JSON.stringify(validate.errors));
   assert.equal(validate({
     ...manifest,
     notifications: {
       ...manifest.notifications,
-      criteria: [{ ...manifest.notifications.criteria[0], event: { id: "../private", version: 1 } }]
+      criteria: [{ ...manifest.notifications.criteria[0], event: { id: "../private", version: "1.0.0" } }]
     }
   }), false);
   assert.equal(validate({

@@ -5,6 +5,7 @@
   "packageManager": "pnpm@11.15.1",
   "scripts": {
     "build": "pnpm -r build",
+    "sync:runtime-contracts": "node scripts/sync-runtime-contracts.mjs",
     "dev:environment:up": "node scripts/dev-environment.mjs up",
     "dev:environment:down": "node scripts/dev-environment.mjs down",
     "dev:environment:reset": "node scripts/dev-environment.mjs reset",

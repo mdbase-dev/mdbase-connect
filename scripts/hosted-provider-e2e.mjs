@@ -364,12 +364,12 @@ try {
         notification_criteria: [
           {
             id: "task.created",
-            event: { id: "mdbase.record.created", version: 1 },
+            event: { id: "mdbase.record.created", version: "1.0.0" },
             presentation: { title: "A task was created" }
           },
           {
             id: "task.reminder",
-            event: { id: "timer.fired", version: 1 },
+            event: { id: "mdbase.runtime.timer.fired", version: "1.0.0" },
             presentation: { title: "Task reminder" }
           }
         ],

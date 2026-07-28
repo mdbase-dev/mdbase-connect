@@ -29,15 +29,6 @@
         "version": { "$ref": "#/$defs/semanticVersion" }
       }
     },
-    "runtimeContractRequirement": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "version"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "version": { "type": "integer", "minimum": 1 }
-      }
-    },
     "semanticVersion": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
@@ -348,7 +339,7 @@
       "required": ["id", "event", "presentation"],
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$" },
-        "event": { "$ref": "#/$defs/runtimeContractRequirement" },
+        "event": { "$ref": "#/$defs/contractRequirement" },
         "if": {
           "type": "object",
           "additionalProperties": false,

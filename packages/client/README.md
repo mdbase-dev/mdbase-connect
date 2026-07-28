@@ -155,7 +155,7 @@ already granted operations and the missing requirements. An
 `missingOperations`, and `requiredOperations` metadata with a `reauthorize`
 recovery action.
 
-Applications that declare a `timer.fired` notification criterion can keep
+Applications that declare an `mdbase.runtime.timer.fired` notification criterion can keep
 one-shot reminders at the collection authority:
 
 ```ts

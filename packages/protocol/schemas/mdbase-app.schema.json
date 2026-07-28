@@ -102,15 +102,6 @@
         }
       }
     },
-    "runtimeContract": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "version"],
-      "properties": {
-        "id": { "$ref": "#/$defs/identifier" },
-        "version": { "type": "integer", "minimum": 1 }
-      }
-    },
     "requirements": {
       "type": "object",
       "additionalProperties": false,
@@ -197,7 +188,7 @@
       "required": ["id", "event", "presentation"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
-        "event": { "$ref": "#/$defs/runtimeContract" },
+        "event": { "$ref": "#/$defs/contract" },
         "if": {
           "type": "object",
           "additionalProperties": false,

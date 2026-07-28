@@ -33,10 +33,10 @@ Notifications use the bundled v1 application manifest:
       "id": "task.changed",
       "event": {
         "id": "mdbase.record.modified",
-        "version": 1
+        "version": "1.0.0"
       },
       "if": {
-        "$expr": "\"task\" in event.payload.types"
+        "$expr": "\"task\" in event.data.types"
       },
       "debounce": "5s",
       "minimum_interval": "1m",
@@ -54,7 +54,10 @@ Notifications use the bundled v1 application manifest:
 }
 ```
 
-Criteria use canonical runtime event contracts and CEL. Presentation copy is
+Criteria use the same `{ id, version }` contract requirement as record
+requirements and workflows; there is no separate “runtime contract” shape.
+The authority resolves that requirement to one exact JSON Schema artifact
+before admitting work. Criteria use canonical event contracts and CEL. Presentation copy is
 static manifest data; expressions cannot interpolate private record content
 into a notification. Each grant stores an exact copy of the criteria locally
 or at the hosted authority, which remains the final authorization boundary
@@ -67,7 +70,7 @@ rewrites one on an existing grant. Registration returns
 changed criterion; run the ordinary authorization flow again so the user can
 review it.
 
-`timer.fired` is the portable scheduling event. The authority stores one-shot,
+`mdbase.runtime.timer.fired` is the portable scheduling event. The authority stores one-shot,
 generation-fenced timers durably and fires overdue timers once after restart.
 An application can use that event for reminders without remaining connected.
 Timer operations are exact grant permissions, and every timer is namespaced
@@ -75,7 +78,7 @@ under the calling grant before it reaches Runtime. A timer can therefore wake
 only the criterion that created it, even when several applications use the
 same collection authority.
 
-Declare a `timer.fired` criterion, request the timer operations, and reconcile
+Declare an `mdbase.runtime.timer.fired` criterion, request the timer operations, and reconcile
 the desired namespace whenever application state changes:
 
 ```ts
@@ -192,7 +195,7 @@ Declare one HTTPS endpoint:
       "id": "task.changed",
       "event": {
         "id": "mdbase.record.modified",
-        "version": 1
+        "version": "1.0.0"
       },
       "presentation": {
         "title": "Tasks changed"

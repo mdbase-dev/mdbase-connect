@@ -147,12 +147,12 @@ describe("Web Push notifications", () => {
           criteria: [
             {
               id: "task.ready",
-              event: { id: "mdbase.record.modified", version: 1 },
+              event: { id: "mdbase.record.modified", version: "1.0.0" },
               presentation: { title: "A task changed" }
             },
             {
               id: "private.exfiltrate",
-              event: { id: "mdbase.record.modified", version: 1 },
+              event: { id: "mdbase.record.modified", version: "1.0.0" },
               presentation: { title: "Newly declared" }
             }
           ]
@@ -429,7 +429,7 @@ async function notificationFixture(
           : {}),
         criteria: [{
           id: "task.ready",
-          event: { id: "mdbase.record.modified", version: 1 },
+          event: { id: "mdbase.record.modified", version: "1.0.0" },
           presentation: {
             title: "A task changed",
             body: "Open Tasks to see the latest update.",
@@ -454,7 +454,7 @@ async function notificationFixture(
       "https://tasks.example",
       JSON.stringify([{
         id: "task.ready",
-        event: { id: "mdbase.record.modified", version: 1 },
+        event: { id: "mdbase.record.modified", version: "1.0.0" },
         presentation: {
           title: "A task changed",
           body: "Open Tasks to see the latest update.",

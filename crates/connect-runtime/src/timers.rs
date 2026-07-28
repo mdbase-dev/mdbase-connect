@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::fmt;
 
-const TIMER_EVENT_ID: &str = "timer.fired";
+use crate::{NotificationCatalog, TIMER_EVENT_ID};
+
 const MAX_TIMERS_PER_RECONCILIATION: usize = 10_000;
 const MAX_TIMER_DATA_BYTES: usize = 16 * 1024;
 
@@ -87,6 +88,7 @@ struct DesiredTimer {
 
 pub async fn perform_timer_operation(
     runtime: &Runtime,
+    catalog: &NotificationCatalog,
     grant: &GrantSummary,
     operation: &str,
     input: Value,
@@ -114,6 +116,7 @@ pub async fn perform_timer_operation(
             validate_criterion(grant, &input.criterion_id)?;
             let prefix = timer_prefix(grant, &input.namespace);
             let timer = desired_timer(
+                catalog,
                 grant,
                 &input.namespace,
                 &input.criterion_id,
@@ -174,7 +177,14 @@ pub async fn perform_timer_operation(
                             timer.id
                         )));
                     }
-                    desired_timer(grant, &input.namespace, &input.criterion_id, &prefix, timer)
+                    desired_timer(
+                        catalog,
+                        grant,
+                        &input.namespace,
+                        &input.criterion_id,
+                        &prefix,
+                        timer,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let outcome = runtime
@@ -245,12 +255,15 @@ fn validate_criterion(grant: &GrantSummary, criterion_id: &str) -> Result<(), Ti
         .iter()
         .find(|criterion| criterion.id == criterion_id);
     if criterion.is_none_or(|criterion| {
-        criterion.event.id != TIMER_EVENT_ID || criterion.event.version != 1
+        criterion.event.id != TIMER_EVENT_ID
+            || !semver::VersionReq::parse(&criterion.event.version)
+                .is_ok_and(|requirement| requirement.matches(&semver::Version::new(1, 0, 0)))
     }) {
         return Err(TimerOperationError {
             code: "timer_criterion_not_authorized".to_string(),
-            message: "The grant does not authorize that timer notification criterion at version 1."
-                .to_string(),
+            message:
+                "The grant does not authorize that timer notification criterion at version 1.0.0."
+                    .to_string(),
             internal: false,
         });
     }
@@ -262,6 +275,7 @@ fn timer_prefix(grant: &GrantSummary, namespace: &str) -> String {
 }
 
 fn desired_timer(
+    catalog: &NotificationCatalog,
     grant: &GrantSummary,
     namespace: &str,
     criterion_id: &str,
@@ -284,9 +298,11 @@ fn desired_timer(
     Ok(TimerRequest {
         id: internal_timer_id(prefix, &timer.id),
         fire_at,
-        event_type: TIMER_EVENT_ID.to_string(),
-        contract_version: 1,
-        payload: json!({
+        contract: catalog.timer_contract().clone(),
+        source: catalog.timer_source().clone(),
+        source_uri: catalog.source_uri().to_string(),
+        subject: Some(grant.collection_id.to_string()),
+        data: json!({
             "grant_id": grant.id,
             "criterion_id": criterion_id,
             "namespace": namespace,
@@ -305,21 +321,21 @@ fn timer_summary(timer: &TimerRecord, prefix: &str) -> Result<Value, TimerOperat
     };
     Ok(json!({
         "id": external_id(&timer.id, prefix)?,
-        "criterion_id": timer.payload.get("criterion_id").and_then(Value::as_str),
+        "criterion_id": timer.data.get("criterion_id").and_then(Value::as_str),
         "fire_at": timer.fire_at.to_rfc3339(),
         "generation": timer.generation,
         "status": status,
         "created_at": timer.created_at.to_rfc3339(),
         "updated_at": timer.updated_at.to_rfc3339(),
         "fired_at": timer.fired_at.map(|value| value.to_rfc3339()),
-        "data": timer.payload.get("data").cloned().unwrap_or(Value::Null)
+        "data": timer.data.get("data").cloned().unwrap_or(Value::Null)
     }))
 }
 
 fn external_id(id: &str, prefix: &str) -> Result<String, TimerOperationError> {
     id.strip_prefix(prefix)
-        .and_then(|id| id.strip_suffix('/'))
-        .map(str::to_string)
+        .and_then(|id| id.strip_prefix("timer."))
+        .and_then(decode_timer_id)
         .ok_or_else(|| {
             TimerOperationError::runtime(RuntimeError::Store(
                 "The runtime returned a timer outside its grant namespace.".to_string(),
@@ -328,7 +344,23 @@ fn external_id(id: &str, prefix: &str) -> Result<String, TimerOperationError> {
 }
 
 fn internal_timer_id(prefix: &str, id: &str) -> String {
-    format!("{prefix}{id}/")
+    let encoded = id
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("{prefix}timer.{encoded}")
+}
+
+fn decode_timer_id(encoded: &str) -> Option<String> {
+    if !encoded.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = (0..encoded.len())
+        .step_by(2)
+        .map(|offset| u8::from_str_radix(&encoded[offset..offset + 2], 16).ok())
+        .collect::<Option<Vec<_>>>()?;
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
@@ -336,12 +368,12 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use mdbase_connect_protocol::{
-        ApplicationAccess, GrantScope, NotificationCriterion, NotificationPresentation,
-        RuntimeContractRequirement,
+        ApplicationAccess, ContractRequirement, GrantScope, NotificationCriterion,
+        NotificationPresentation,
     };
     use mdbase_runtime::{
-        DenyAllAuthorizer, InMemoryRuntimeStore, ManualClock, ProviderRegistry, RuntimeConfig,
-        RuntimeStore,
+        DenyAllAuthorizer, ImplementationIdentity, InMemoryRuntimeStore, ManualClock,
+        ProviderRegistry, RuntimeConfig, RuntimeStore,
     };
     use std::sync::Arc;
     use std::time::Duration;
@@ -352,6 +384,7 @@ mod tests {
         let (runtime, store) = runtime();
         let grant_a = grant("reminder");
         let grant_b = grant("reminder");
+        let catalog = catalog(&[grant_a.clone(), grant_b.clone()]);
         let input = json!({
             "namespace": "task-reminders",
             "criterion_id": "reminder",
@@ -361,14 +394,21 @@ mod tests {
                 "data": {"task_id": "task-a"}
             }]
         });
-        let first = perform_timer_operation(&runtime, &grant_a, "reconcile_timers", input.clone())
-            .await
-            .unwrap();
-        perform_timer_operation(&runtime, &grant_b, "reconcile_timers", input)
+        let first = perform_timer_operation(
+            &runtime,
+            &catalog,
+            &grant_a,
+            "reconcile_timers",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        perform_timer_operation(&runtime, &catalog, &grant_b, "reconcile_timers", input)
             .await
             .unwrap();
         perform_timer_operation(
             &runtime,
+            &catalog,
             &grant_a,
             "reconcile_timers",
             json!({
@@ -389,15 +429,18 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(active.len(), 1);
         assert!(active[0].id.contains(&grant_b.id.to_string()));
-        assert_eq!(active[0].payload["grant_id"], grant_b.id.to_string());
+        assert_eq!(active[0].data["grant_id"], grant_b.id.to_string());
     }
 
     #[tokio::test]
     async fn rejects_unapproved_timer_criteria_and_prefix_shaped_namespaces() {
         let (runtime, _) = runtime();
+        let grant = grant("other");
+        let catalog = catalog(std::slice::from_ref(&grant));
         let error = perform_timer_operation(
             &runtime,
-            &grant("other"),
+            &catalog,
+            &grant,
             "put_timer",
             json!({
                 "namespace": "task:reminders",
@@ -411,7 +454,8 @@ mod tests {
 
         let error = perform_timer_operation(
             &runtime,
-            &grant("other"),
+            &catalog,
+            &grant,
             "put_timer",
             json!({
                 "namespace": "task-reminders",
@@ -438,6 +482,12 @@ mod tests {
                 worker_id: "test".to_string(),
                 actor_id: "test".to_string(),
                 actor_kind: "service".to_string(),
+                identity: ImplementationIdentity {
+                    application: "mdbase.connect".to_string(),
+                    implementation: "test-runtime".to_string(),
+                    version: "1.0.0".to_string(),
+                    instance_id: Some("test".to_string()),
+                },
                 timezone: None,
                 lease_duration: Duration::from_secs(30),
                 max_items: 10,
@@ -466,9 +516,9 @@ mod tests {
             },
             notification_criteria: vec![NotificationCriterion {
                 id: criterion_id.to_string(),
-                event: RuntimeContractRequirement {
+                event: ContractRequirement {
                     id: TIMER_EVENT_ID.to_string(),
-                    version: 1,
+                    version: "1.0.0".to_string(),
                 },
                 r#if: None,
                 debounce: None,
@@ -482,5 +532,19 @@ mod tests {
             created_at: "2026-07-25T00:00:00Z".to_string(),
             encryption: None,
         }
+    }
+
+    fn catalog(grants: &[GrantSummary]) -> NotificationCatalog {
+        crate::compose_notification_catalog(
+            grants,
+            ImplementationIdentity {
+                application: "mdbase.connect".to_string(),
+                implementation: "test-authority".to_string(),
+                version: "1.0.0".to_string(),
+                instance_id: Some("test".to_string()),
+            },
+            "urn:mdbase:connect:test",
+        )
+        .unwrap()
     }
 }

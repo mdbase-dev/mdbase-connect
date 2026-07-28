@@ -10,7 +10,9 @@ description = "Connect-specific adapters for the provider-neutral mdbase runtime
 chrono.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
+mdbase-interop.workspace = true
 mdbase-runtime.workspace = true
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

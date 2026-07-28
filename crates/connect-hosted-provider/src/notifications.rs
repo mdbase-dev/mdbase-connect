@@ -2,13 +2,14 @@ use async_trait::async_trait;
 use chrono::Utc;
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
-    compose_notification_registry, drain_notification_runtime, notification_event_envelope,
-    perform_timer_operation, AuthorityEvent, NOTIFICATION_ACTION_ID, NOTIFICATION_EXECUTOR_ID,
+    compose_notification_catalog, drain_notification_runtime, notification_event_envelope,
+    perform_timer_operation, successful_notification_outcome, AuthorityEvent, NotificationCatalog,
+    NOTIFICATION_EXECUTOR_ID, TIMER_EVENT_ID,
 };
 use mdbase_runtime::{
-    ActionDispatch, ActionProvider, ActionResponse, AuthorizationDecision, DispatchAuthorizer,
-    DispatchFailure, DispatchOutcome, PostgresRuntimeStore, ProviderRegistry, Runtime,
-    RuntimeConfig, RuntimeStore, TimerFireOutcome,
+    ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider, AuthorizationDecision,
+    DispatchAuthorizer, DispatchFailure, DispatchOutcome, ImplementationIdentity,
+    PostgresRuntimeStore, ProviderRegistry, Runtime, RuntimeConfig, RuntimeStore, TimerFireOutcome,
 };
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
@@ -19,8 +20,6 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
-
-const AUTHORITY_PROVIDER_ID: &str = "mdbase.hosted";
 
 #[derive(Debug, Clone)]
 pub struct HostedNotificationConfig {
@@ -71,12 +70,7 @@ impl HostedNotificationRuntime {
                 "The notification grant belongs to another collection.",
             ));
         }
-        compose_notification_registry(
-            std::slice::from_ref(&grant),
-            AUTHORITY_PROVIDER_ID,
-            "mdbase hosted authority",
-        )
-        .map_err(|error| {
+        compose_catalog(std::slice::from_ref(&grant), collection_id).map_err(|error| {
             ApiError::bad_request("notification_runtime_invalid", error.to_string())
         })?;
         sqlx::query(
@@ -129,8 +123,10 @@ impl HostedNotificationRuntime {
             serde_json::from_value::<GrantSummary>(value)
                 .map_err(|error| ApiError::internal(error.to_string()))
         })?;
+        let catalog =
+            compose_catalog(std::slice::from_ref(&grant), collection_id).map_err(runtime_error)?;
         let runtime = self.runtime(collection_id).await?;
-        perform_timer_operation(&runtime, &grant, operation, input)
+        perform_timer_operation(&runtime, &catalog, &grant, operation, input)
             .await
             .map_err(|error| {
                 if error.internal {
@@ -153,17 +149,12 @@ impl HostedNotificationRuntime {
             if grants.is_empty() {
                 continue;
             }
-            let registry = compose_notification_registry(
-                &grants,
-                AUTHORITY_PROVIDER_ID,
-                "mdbase hosted authority",
-            )
-            .map_err(runtime_error)?;
+            let catalog = compose_catalog(&grants, collection_id).map_err(runtime_error)?;
             let runtime = self.runtime(collection_id).await?;
             for _ in 0..100 {
                 if matches!(
                     runtime
-                        .fire_due_timer(&registry)
+                        .fire_due_timer(catalog.admission())
                         .await
                         .map_err(runtime_error)?,
                     TimerFireOutcome::Idle
@@ -171,7 +162,7 @@ impl HostedNotificationRuntime {
                     break;
                 }
             }
-            drain_notification_runtime(&runtime, &registry, 100)
+            drain_notification_runtime(&runtime, 100)
                 .await
                 .map_err(runtime_error)?;
         }
@@ -288,12 +279,7 @@ impl HostedNotificationRuntime {
         }) {
             return Ok(());
         }
-        let registry = compose_notification_registry(
-            &grants,
-            AUTHORITY_PROVIDER_ID,
-            "mdbase hosted authority",
-        )
-        .map_err(runtime_error)?;
+        let catalog = compose_catalog(&grants, collection_id).map_err(runtime_error)?;
         let runtime = self.runtime(collection_id).await?;
         let envelope = notification_event_envelope(
             &AuthorityEvent {
@@ -302,17 +288,15 @@ impl HostedNotificationRuntime {
                 event_type,
                 occurred_at,
                 payload,
-                runtime_id: format!("mdbase-connect-hosted:{collection_id}"),
-                provider_id: AUTHORITY_PROVIDER_ID.to_string(),
             },
-            &registry,
+            &catalog,
         )
         .map_err(runtime_error)?;
         runtime
-            .deliver_event(&registry, envelope)
+            .deliver_event(catalog.admission(), envelope)
             .await
             .map_err(runtime_error)?;
-        drain_notification_runtime(&runtime, &registry, 100)
+        drain_notification_runtime(&runtime, 100)
             .await
             .map_err(runtime_error)?;
         Ok(())
@@ -346,8 +330,9 @@ impl HostedNotificationRuntime {
             .map_err(runtime_error)?,
         );
         let providers = ProviderRegistry::default();
+        let catalog = compose_catalog(&[], collection_id).map_err(runtime_error)?;
         providers.register(
-            NOTIFICATION_ACTION_ID,
+            catalog.notification_provider_binding().clone(),
             Arc::new(HostedSignalProvider {
                 client: self.client.clone(),
                 control_plane_url: self.config.control_plane_url.clone(),
@@ -369,6 +354,7 @@ impl HostedNotificationRuntime {
                     worker_id: format!("hosted-provider:{}", Uuid::new_v4()),
                     actor_id: "mdbase-connect-hosted-provider".to_string(),
                     actor_kind: "service".to_string(),
+                    identity: runtime_identity(collection_id),
                     timezone: None,
                     lease_duration: Duration::from_secs(10),
                     max_items: 50,
@@ -393,10 +379,13 @@ struct HostedSignalProvider {
 
 #[async_trait]
 impl ActionProvider for HostedSignalProvider {
-    async fn dispatch(&self, request: ActionDispatch) -> Result<ActionResponse, DispatchFailure> {
-        let grant_id = input_uuid(&request.input, "grant_id")?;
-        let criterion_id = input_string(&request.input, "criterion_id")?;
-        let cursor = input_string(&request.input, "cursor")?;
+    async fn dispatch(
+        &self,
+        invocation: ActionInvocation,
+    ) -> Result<ActionOutcome, DispatchFailure> {
+        let grant_id = input_uuid(&invocation.input, "grant_id")?;
+        let criterion_id = input_string(&invocation.input, "criterion_id")?;
+        let cursor = input_string(&invocation.input, "cursor")?;
         let response = self
             .client
             .post(format!(
@@ -405,7 +394,7 @@ impl ActionProvider for HostedSignalProvider {
             ))
             .bearer_auth(&self.internal_token)
             .json(&json!({
-                "signal_id": request.invocation_id,
+                "signal_id": invocation.invocation_id,
                 "grant_id": grant_id,
                 "criterion_id": criterion_id,
                 "cursor": cursor
@@ -424,11 +413,7 @@ impl ActionProvider for HostedSignalProvider {
                 outcome,
             ));
         }
-        Ok(ActionResponse {
-            output: json!({"accepted": true}),
-            receipt: Some(json!({"signal_id": request.invocation_id})),
-            emitted_events: Vec::new(),
-        })
+        Ok(successful_notification_outcome(&invocation))
     }
 }
 
@@ -472,28 +457,23 @@ impl DispatchAuthorizer for HostedNotificationAuthorizer {
                 "The hosted notification grant is invalid.",
             );
         };
-        let expected_source = format!("mdbase-connect-hosted:{}", self.collection_id);
-        if request
-            .event
-            .pointer("/source/runtime")
-            .and_then(Value::as_str)
-            != Some(expected_source.as_str())
-        {
+        let expected_source = source_uri(self.collection_id);
+        if request.event.get("source").and_then(Value::as_str) != Some(expected_source.as_str()) {
             return denied(
                 "notification_collection_mismatch",
                 "The event belongs to another hosted collection.",
             );
         }
         let event_type = request.event.get("type").and_then(Value::as_str);
-        if event_type == Some("timer.fired")
+        if event_type == Some(TIMER_EVENT_ID)
             && (request
                 .event
-                .pointer("/payload/data/grant_id")
+                .pointer("/data/data/grant_id")
                 .and_then(Value::as_str)
                 != Some(grant_id.to_string().as_str())
                 || request
                     .event
-                    .pointer("/payload/data/criterion_id")
+                    .pointer("/data/data/criterion_id")
                     .and_then(Value::as_str)
                     != Some(criterion_id))
         {
@@ -502,8 +482,14 @@ impl DispatchAuthorizer for HostedNotificationAuthorizer {
                 "The timer does not belong to this grant and criterion.",
             );
         }
+        let event_version = request
+            .event
+            .get("mdbasecontractversion")
+            .and_then(Value::as_str);
         if grant.notification_criteria.iter().all(|criterion| {
-            criterion.id != criterion_id || Some(criterion.event.id.as_str()) != event_type
+            criterion.id != criterion_id
+                || Some(criterion.event.id.as_str()) != event_type
+                || Some(criterion.event.version.as_str()) != event_version
         }) {
             return denied(
                 "notification_criterion_revoked",
@@ -512,6 +498,35 @@ impl DispatchAuthorizer for HostedNotificationAuthorizer {
         }
         AuthorizationDecision::Allow
     }
+}
+
+fn compose_catalog(
+    grants: &[GrantSummary],
+    collection_id: Uuid,
+) -> mdbase_runtime::RuntimeResult<NotificationCatalog> {
+    compose_notification_catalog(
+        grants,
+        ImplementationIdentity {
+            application: "mdbase.connect".to_string(),
+            implementation: "hosted-authority".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            instance_id: Some(collection_id.to_string()),
+        },
+        source_uri(collection_id),
+    )
+}
+
+fn runtime_identity(collection_id: Uuid) -> ImplementationIdentity {
+    ImplementationIdentity {
+        application: "mdbase.connect".to_string(),
+        implementation: "hosted-notification-runtime".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        instance_id: Some(collection_id.to_string()),
+    }
+}
+
+fn source_uri(collection_id: Uuid) -> String {
+    format!("urn:mdbase:connect:hosted:{collection_id}")
 }
 
 fn input_string<'a>(input: &'a Value, name: &str) -> Result<&'a str, DispatchFailure> {

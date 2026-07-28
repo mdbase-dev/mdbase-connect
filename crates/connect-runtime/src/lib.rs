@@ -1,18 +1,23 @@
-//! Connect-owned adapters for mdbase Runtime profile 0.1.
+//! Connect-owned adapters for mdbase Runtime profile 0.2.
 //!
 //! The provider-neutral engine and collection semantics stay in `mdbase-rs`.
-//! This crate only compiles application notification criteria into workflows
-//! and converts authority events into canonical runtime envelopes.
+//! This crate supplies Connect's ordinary workflow/policy records, consumes
+//! shared contract artifacts and interoperability declarations, and converts
+//! authority events into structured CloudEvents. Executable providers remain
+//! explicit host bindings; catalog content never activates code.
 
 pub mod contract_scope;
 mod timers;
 
-use mdbase::runtime_contracts::{
-    ComposeOptions, ContractDocument, ContractSource, PolicySelector, RuntimeContracts,
-    RuntimeRegistry,
+use mdbase_connect_protocol::{ContractRequirement, GrantSummary, NotificationCriterion};
+use mdbase_interop::{
+    contract_digest, ActionInvocation, ActionOutcome, ExactContractReference,
+    ImplementationIdentity,
 };
-use mdbase_connect_protocol::{GrantSummary, NotificationCriterion};
-use mdbase_runtime::{Runtime, WorkerOutcome};
+use mdbase_runtime::{
+    canonical_digest, AdmissionCatalog, ProviderBinding, Runtime, RuntimeError, WorkerOutcome,
+};
+use semver::{Version, VersionReq};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -21,9 +26,59 @@ pub use timers::{perform_timer_operation, TimerOperationError};
 
 pub const NOTIFICATION_ACTION_ID: &str = "mdbase.connect.notification.signal";
 pub const NOTIFICATION_EXECUTOR_ID: &str = "connect-notifications";
+pub const TIMER_EVENT_ID: &str = "mdbase.runtime.timer.fired";
+
+const CONTRACT_VERSION: &str = "1.0.0";
+const INTEROP_PROFILE_VERSION: &str = "0.1";
+const NOTIFICATION_HANDLER_ID: &str = "signal";
 const POLICY_ID: &str = "mdbase.connect.notification.policy";
-const TIMER_EVENT_ID: &str = "timer.fired";
-const TIMER_PROVIDER_ID: &str = "mdbase.timer";
+const RECORD_EVENT_IDS: [&str; 4] = [
+    "mdbase.record.created",
+    "mdbase.record.modified",
+    "mdbase.record.deleted",
+    "mdbase.record.renamed",
+];
+
+/// Passive, verified evidence used to admit notification work for one
+/// collection. It contains no executable provider objects and grants no
+/// authority by itself.
+#[derive(Debug, Clone)]
+pub struct NotificationCatalog {
+    admission: AdmissionCatalog,
+    contracts: BTreeMap<String, ExactContractReference>,
+    authority_source: ImplementationIdentity,
+    timer_source: ImplementationIdentity,
+    source_uri: String,
+    notification_provider_binding: ProviderBinding,
+}
+
+impl NotificationCatalog {
+    pub fn admission(&self) -> &AdmissionCatalog {
+        &self.admission
+    }
+
+    pub fn contract(&self, id: &str) -> Option<&ExactContractReference> {
+        self.contracts.get(id)
+    }
+
+    pub fn timer_contract(&self) -> &ExactContractReference {
+        self.contracts
+            .get(TIMER_EVENT_ID)
+            .expect("the built-in timer contract is always catalogued")
+    }
+
+    pub fn timer_source(&self) -> &ImplementationIdentity {
+        &self.timer_source
+    }
+
+    pub fn source_uri(&self) -> &str {
+        &self.source_uri
+    }
+
+    pub fn notification_provider_binding(&self) -> &ProviderBinding {
+        &self.notification_provider_binding
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AuthorityEvent {
@@ -32,188 +87,199 @@ pub struct AuthorityEvent {
     pub event_type: String,
     pub occurred_at: String,
     pub payload: Value,
-    pub runtime_id: String,
-    pub provider_id: String,
 }
 
-pub fn compose_notification_registry(
+/// Compose notification admission evidence from ordinary application
+/// requirements. Every requirement resolves to one shared exact contract;
+/// source/provider declarations identify implementations without redefining
+/// those contracts.
+pub fn compose_notification_catalog(
     grants: &[GrantSummary],
-    authority_provider_id: &str,
-    authority_provider_name: &str,
-) -> mdbase_runtime::RuntimeResult<RuntimeRegistry> {
-    let mut events = BTreeMap::<String, u64>::new();
+    authority_source: ImplementationIdentity,
+    source_uri: impl Into<String>,
+) -> mdbase_runtime::RuntimeResult<NotificationCatalog> {
+    let source_uri = source_uri.into();
+    if !source_uri.contains(':') {
+        return Err(RuntimeError::diagnostic(
+            "invalid_notification_source",
+            format!("Notification CloudEvent source {source_uri:?} must be an absolute URI."),
+        ));
+    }
+
+    let artifacts = contract_artifacts()?;
+    let contracts = artifacts
+        .iter()
+        .map(exact_contract)
+        .collect::<mdbase_runtime::RuntimeResult<Vec<_>>>()?
+        .into_iter()
+        .map(|contract| (contract.id.clone(), contract))
+        .collect::<BTreeMap<_, _>>();
     let mut workflows = Vec::new();
     for grant in grants {
         for criterion in &grant.notification_criteria {
-            match events.get(&criterion.event.id) {
-                Some(version) if *version != criterion.event.version => {
-                    return Err(mdbase_runtime::RuntimeError::diagnostic(
-                        "notification_event_version_conflict",
-                        format!(
-                            "Notification criteria select incompatible versions of {}.",
-                            criterion.event.id
-                        ),
-                    ));
-                }
-                _ => {
-                    events.insert(criterion.event.id.clone(), criterion.event.version);
-                }
-            }
-            workflows.push(workflow_contract(grant, criterion));
+            validate_requirement(&criterion.event, &contracts)?;
+            workflows.push(workflow_record(grant, criterion));
         }
     }
-    let authority_events = events
-        .keys()
-        .filter(|id| id.as_str() != TIMER_EVENT_ID)
-        .cloned()
+
+    let timer_source = ImplementationIdentity {
+        application: "mdbase.connect".to_string(),
+        implementation: "notification-timer".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        instance_id: authority_source.instance_id.clone(),
+    };
+    let notification_provider = notification_provider_identity();
+    let authority_contracts = RECORD_EVENT_IDS
+        .iter()
+        .map(|id| {
+            contracts
+                .get(*id)
+                .expect("canonical record event contract is embedded")
+                .clone()
+        })
         .collect::<Vec<_>>();
-    let mut documents = vec![
-        contract(json!({
-            "type": "provider",
-            "id": authority_provider_id,
-            "version": 1,
-            "name": authority_provider_name,
-            "provider_version": env!("CARGO_PKG_VERSION"),
-            "contracts": {"events": authority_events}
-        })),
-        contract(json!({
-            "type": "provider",
-            "id": "mdbase.connect.notification",
-            "version": 1,
-            "name": "mdbase Connect notifications",
-            "provider_version": env!("CARGO_PKG_VERSION"),
-            "contracts": {"actions": [NOTIFICATION_ACTION_ID]}
-        })),
-        contract(json!({
-            "type": "action",
-            "id": NOTIFICATION_ACTION_ID,
-            "version": 1,
-            "provider": "mdbase.connect.notification",
-            "name": "Emit an opaque notification signal",
-            "schemas": {
-                "dialect": "json-schema-2020-12",
-                "input": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["grant_id", "criterion_id", "cursor"],
-                    "properties": {
-                        "grant_id": {"type": "string", "format": "uuid"},
-                        "criterion_id": {"type": "string"},
-                        "cursor": {"type": "string"}
-                    }
-                },
-                "output": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["accepted"],
-                    "properties": {"accepted": {"type": "boolean"}}
-                }
-            },
-            "dispatch": {
-                "idempotency": "invocation_id",
-                "cancellation": "none"
-            }
-        })),
-        contract(json!({
-            "type": "runtime_policy",
-            "id": POLICY_ID,
-            "version": 1,
-            "name": "mdbase Connect notification policy",
-            "executors": {"default": NOTIFICATION_EXECUTOR_ID}
-        })),
+    let timer_contract = contracts
+        .get(TIMER_EVENT_ID)
+        .expect("canonical timer event contract is embedded")
+        .clone();
+    let notification_contract = contracts
+        .get(NOTIFICATION_ACTION_ID)
+        .expect("notification action contract is embedded")
+        .clone();
+
+    let event_sources = vec![
+        declaration(json!({
+            "kind": "mdbase.event-source",
+            "profile_version": INTEROP_PROFILE_VERSION,
+            "declaration_id": "mdbase.connect.authority.events",
+            "source": authority_source,
+            "contracts": authority_contracts.into_iter().map(source_contract).collect::<Vec<_>>()
+        }))?,
+        declaration(json!({
+            "kind": "mdbase.event-source",
+            "profile_version": INTEROP_PROFILE_VERSION,
+            "declaration_id": "mdbase.connect.timer.events",
+            "source": timer_source,
+            "contracts": [source_contract(timer_contract)]
+        }))?,
     ];
-    if events.contains_key(TIMER_EVENT_ID) {
-        documents.push(contract(json!({
-            "type": "provider",
-            "id": TIMER_PROVIDER_ID,
-            "version": 1,
-            "name": "mdbase timer",
-            "provider_version": mdbase_runtime::VERSION,
-            "contracts": {"events": [TIMER_EVENT_ID]}
-        })));
-    }
-    for (id, version) in events {
-        let provider = if id == TIMER_EVENT_ID {
-            TIMER_PROVIDER_ID
-        } else {
-            authority_provider_id
-        };
-        documents.push(contract(json!({
-            "type": "event",
-            "id": id,
-            "version": version,
-            "provider": provider,
-            "name": "mdbase authority event",
-            "schemas": {
-                "dialect": "json-schema-2020-12",
-                "payload": {"type": "object", "additionalProperties": true}
+    let provider_declaration = declaration(json!({
+        "kind": "mdbase.action-provider",
+        "profile_version": INTEROP_PROFILE_VERSION,
+        "declaration_id": "mdbase.connect.notification.actions",
+        "provider": notification_provider,
+        "handlers": [{
+            "handler_id": NOTIFICATION_HANDLER_ID,
+            "requirement": {
+                "id": notification_contract.id,
+                "version": notification_contract.version
+            },
+            "resolved": notification_contract,
+            "idempotency": {"mode": "request"},
+            "cancellation": "none"
+        }]
+    }))?;
+    let provider_digest = provider_declaration
+        .get("declaration_digest")
+        .and_then(Value::as_str)
+        .expect("declaration helper supplies a digest")
+        .to_string();
+    let policy = json!({
+        "type": "runtime_policy",
+        "id": POLICY_ID,
+        "version": CONTRACT_VERSION,
+        "name": "mdbase connect notification policy",
+        "enabled": true,
+        "executors": {"default": NOTIFICATION_EXECUTOR_ID},
+        "provider_selections": [{
+            "contract": {"id": NOTIFICATION_ACTION_ID, "version": CONTRACT_VERSION},
+            "selector": {
+                "application": "mdbase.connect",
+                "implementation": "notification-signal"
             }
-        })));
-    }
-    documents.extend(workflows.into_iter().map(contract));
-    let contracts = RuntimeContracts::new().map_err(|message| {
-        mdbase_runtime::RuntimeError::diagnostic("runtime_contracts_unavailable", message)
-    })?;
-    let registry = contracts.compose(
-        vec![ContractSource::built_in(documents)],
-        &ComposeOptions {
-            selected_policies: vec![PolicySelector::Id(POLICY_ID.to_string())],
+        }],
+        "grants": []
+    });
+    let admission = AdmissionCatalog::new(
+        artifacts,
+        event_sources,
+        vec![provider_declaration],
+        workflows,
+        policy,
+    )?;
+    Ok(NotificationCatalog {
+        admission,
+        contracts,
+        authority_source,
+        timer_source,
+        source_uri,
+        notification_provider_binding: ProviderBinding {
+            provider_declaration_digest: provider_digest,
+            handler_id: NOTIFICATION_HANDLER_ID.to_string(),
         },
-    );
-    let preflight = contracts.preflight(&registry);
-    if !preflight.valid {
-        return Err(mdbase_runtime::RuntimeError::diagnostic(
-            "notification_runtime_invalid",
-            preflight
-                .diagnostics
-                .iter()
-                .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
-                .collect::<Vec<_>>()
-                .join("; "),
-        ));
-    }
-    Ok(registry)
+    })
 }
 
 pub fn notification_event_envelope(
     event: &AuthorityEvent,
-    registry: &RuntimeRegistry,
+    catalog: &NotificationCatalog,
 ) -> mdbase_runtime::RuntimeResult<Value> {
-    let contract = registry.events.get(&event.event_type).ok_or_else(|| {
-        mdbase_runtime::RuntimeError::diagnostic(
+    if !RECORD_EVENT_IDS.contains(&event.event_type.as_str()) {
+        return Err(RuntimeError::diagnostic(
             "notification_event_not_declared",
             format!(
-                "No active notification criterion selects {}.",
+                "{} is not a canonical record-change notification event.",
                 event.event_type
             ),
+        ));
+    }
+    let contract = catalog.contract(&event.event_type).ok_or_else(|| {
+        RuntimeError::diagnostic(
+            "notification_event_not_declared",
+            format!("No exact contract is available for {}.", event.event_type),
         )
     })?;
-    let mut payload = event.payload.clone();
-    if !payload.is_object() {
-        payload = json!({"value": payload});
+    if !event.payload.is_object() {
+        return Err(RuntimeError::diagnostic(
+            "invalid_notification_event",
+            format!("{} event data must be an object.", event.event_type),
+        ));
     }
-    payload["cursor"] = Value::String(event.cursor.to_string());
-    Ok(json!({
-        "type": event.event_type,
-        "contract_version": contract.contract.get("version").and_then(Value::as_u64).unwrap_or(1),
+    let source = &catalog.authority_source;
+    let mut envelope = json!({
+        "specversion": "1.0",
         "id": format!("change:{}:{}", event.collection_id, event.cursor),
-        "occurred_at": event.occurred_at,
-        "source": {
-            "runtime": event.runtime_id,
-            "provider": event.provider_id
-        },
-        "payload": payload
-    }))
+        "source": catalog.source_uri,
+        "type": event.event_type,
+        "time": event.occurred_at,
+        "subject": event.collection_id.to_string(),
+        "datacontenttype": "application/json",
+        "dataschema": format!(
+            "urn:mdbase:contract:{}:{}:{}",
+            contract.id, contract.version, contract.digest
+        ),
+        "data": event.payload,
+        "mdbaseprofile": INTEROP_PROFILE_VERSION,
+        "mdbasecontractversion": contract.version,
+        "mdbasecontractdigest": contract.digest,
+        "mdbaseapplication": source.application,
+        "mdbaseimplementation": source.implementation,
+        "mdbaseimplementationversion": source.version,
+        "mdbasecursor": event.cursor.to_string()
+    });
+    if let Some(instance_id) = &source.instance_id {
+        envelope["mdbaseinstanceid"] = Value::String(instance_id.clone());
+    }
+    Ok(envelope)
 }
 
 pub async fn drain_notification_runtime(
     runtime: &Runtime,
-    registry: &RuntimeRegistry,
     max_runs: usize,
 ) -> mdbase_runtime::RuntimeResult<usize> {
     let mut completed = 0;
     for _ in 0..max_runs {
-        match runtime.work_once(registry).await? {
+        match runtime.work_once().await? {
             WorkerOutcome::Idle => break,
             WorkerOutcome::Completed { run_id, status } => {
                 completed += 1;
@@ -228,14 +294,35 @@ pub async fn drain_notification_runtime(
     Ok(completed)
 }
 
-fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) -> Value {
+/// Build the portable success evidence returned by either Connect notification
+/// transport. Provider implementations supply the side effect; this helper
+/// keeps exact admission pins intact in the outcome.
+pub fn successful_notification_outcome(invocation: &ActionInvocation) -> ActionOutcome {
+    ActionOutcome {
+        kind: "mdbase.action.outcome".to_string(),
+        profile_version: INTEROP_PROFILE_VERSION.to_string(),
+        outcome_id: format!("out_{}", invocation.attempt_id),
+        request_id: invocation.request_id.clone(),
+        invocation_id: invocation.invocation_id.clone(),
+        attempt_id: invocation.attempt_id.clone(),
+        contract: invocation.contract.clone(),
+        provider: invocation.provider.clone(),
+        provider_declaration_digest: invocation.provider_declaration_digest.clone(),
+        status: "succeeded".to_string(),
+        completed_at: chrono::Utc::now().to_rfc3339(),
+        output: Some(json!({"accepted": true})),
+        error: None,
+    }
+}
+
+fn workflow_record(grant: &GrantSummary, criterion: &NotificationCriterion) -> Value {
     let mut trigger = json!({
         "id": "notify",
-        "event": criterion.event.id
+        "event": criterion.event
     });
     let ownership = (criterion.event.id == TIMER_EVENT_ID).then(|| {
         format!(
-            "event.payload.data.grant_id == {} && event.payload.data.criterion_id == {}",
+            "event.data.data.grant_id == {} && event.data.data.criterion_id == {}",
             serde_json::to_string(&grant.id.to_string()).expect("UUID serializes"),
             serde_json::to_string(&criterion.id).expect("criterion ID serializes")
         )
@@ -258,18 +345,22 @@ fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) ->
     let cursor_expression = if criterion.event.id == TIMER_EVENT_ID {
         "event.id"
     } else {
-        "event.payload.cursor"
+        "event.mdbasecursor"
     };
     json!({
-        "type": "workflow",
+        "type": "runtime_workflow",
         "id": format!("connect.notify.{}.{}", grant.id, criterion.id),
-        "version": 1,
+        "version": CONTRACT_VERSION,
         "name": format!("Notify {} for {}", grant.application_name, criterion.id),
         "enabled": true,
         "triggers": [trigger],
         "steps": [{
             "id": "signal",
-            "action": NOTIFICATION_ACTION_ID,
+            "action": {"id": NOTIFICATION_ACTION_ID, "version": CONTRACT_VERSION},
+            "provider": {
+                "application": "mdbase.connect",
+                "implementation": "notification-signal"
+            },
             "input": {
                 "grant_id": grant.id,
                 "criterion_id": criterion.id,
@@ -277,7 +368,6 @@ fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) ->
             }
         }],
         "run": {
-            "execution": {"mode": "single_executor"},
             "concurrency": {
                 "group": format!("{}:{}", grant.id, criterion.id),
                 "policy": "queue"
@@ -288,21 +378,272 @@ fn workflow_contract(grant: &GrantSummary, criterion: &NotificationCriterion) ->
     })
 }
 
-fn contract(value: Value) -> ContractDocument {
-    ContractDocument::virtual_contract(value)
+fn contract_artifacts() -> mdbase_runtime::RuntimeResult<Vec<Value>> {
+    let schemas = [
+        (
+            "mdbase.record.created",
+            include_str!("../contracts/mdbase.record.created-1.0.0.schema.json"),
+        ),
+        (
+            "mdbase.record.modified",
+            include_str!("../contracts/mdbase.record.modified-1.0.0.schema.json"),
+        ),
+        (
+            "mdbase.record.deleted",
+            include_str!("../contracts/mdbase.record.deleted-1.0.0.schema.json"),
+        ),
+        (
+            "mdbase.record.renamed",
+            include_str!("../contracts/mdbase.record.renamed-1.0.0.schema.json"),
+        ),
+        (
+            TIMER_EVENT_ID,
+            include_str!("../contracts/mdbase.runtime.timer.fired-1.0.0.schema.json"),
+        ),
+    ];
+    let mut artifacts = schemas
+        .into_iter()
+        .map(|(id, schema)| {
+            let schema = serde_json::from_str::<Value>(schema).map_err(|error| {
+                RuntimeError::diagnostic(
+                    "invalid_embedded_contract",
+                    format!("Embedded schema for {id} is invalid: {error}"),
+                )
+            })?;
+            Ok(json!({
+                "kind": "mdbase.contract",
+                "contract_type": "event",
+                "id": id,
+                "version": CONTRACT_VERSION,
+                "data_schema": {
+                    "dialect": "json-schema-2020-12",
+                    "value": schema
+                }
+            }))
+        })
+        .collect::<mdbase_runtime::RuntimeResult<Vec<_>>>()?;
+    artifacts.push(json!({
+        "kind": "mdbase.contract",
+        "contract_type": "action",
+        "id": NOTIFICATION_ACTION_ID,
+        "version": CONTRACT_VERSION,
+        "name": "Emit an opaque notification signal",
+        "input_schema": {
+            "dialect": "json-schema-2020-12",
+            "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["grant_id", "criterion_id", "cursor"],
+                "properties": {
+                    "grant_id": {"type": "string", "format": "uuid"},
+                    "criterion_id": {"type": "string", "minLength": 1},
+                    "cursor": {"type": "string", "minLength": 1}
+                }
+            }
+        },
+        "output_schema": {
+            "dialect": "json-schema-2020-12",
+            "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["accepted"],
+                "properties": {"accepted": {"type": "boolean"}}
+            }
+        },
+        "behavior": {
+            "idempotency": "required",
+            "cancellation": "none"
+        }
+    }));
+    Ok(artifacts)
+}
+
+fn exact_contract(artifact: &Value) -> mdbase_runtime::RuntimeResult<ExactContractReference> {
+    Ok(ExactContractReference {
+        id: artifact
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("locally constructed contract has an ID")
+            .to_string(),
+        version: artifact
+            .get("version")
+            .and_then(Value::as_str)
+            .expect("locally constructed contract has a version")
+            .to_string(),
+        digest: contract_digest(artifact).map_err(|message| {
+            RuntimeError::diagnostic(
+                "invalid_embedded_contract",
+                format!("Could not digest an embedded contract: {message}"),
+            )
+        })?,
+    })
+}
+
+fn validate_requirement(
+    requirement: &ContractRequirement,
+    contracts: &BTreeMap<String, ExactContractReference>,
+) -> mdbase_runtime::RuntimeResult<()> {
+    let Some(resolved) = contracts.get(&requirement.id) else {
+        return Err(RuntimeError::diagnostic(
+            "unsupported_notification_event",
+            format!(
+                "Notification event contract {} is not supplied by this authority.",
+                requirement.id
+            ),
+        ));
+    };
+    let requested = VersionReq::parse(&requirement.version).map_err(|error| {
+        RuntimeError::diagnostic(
+            "invalid_contract_requirement",
+            format!(
+                "{} has invalid SemVer requirement {}: {error}",
+                requirement.id, requirement.version
+            ),
+        )
+    })?;
+    let available = Version::parse(&resolved.version).expect("embedded version is valid SemVer");
+    if requested.matches(&available) {
+        Ok(())
+    } else {
+        Err(RuntimeError::diagnostic(
+            "unsupported_contract_version",
+            format!(
+                "{} does not provide {} at {}.",
+                requirement.id, requirement.version, resolved.version
+            ),
+        ))
+    }
+}
+
+fn source_contract(resolved: ExactContractReference) -> Value {
+    json!({
+        "requirement": {"id": resolved.id, "version": resolved.version},
+        "resolved": resolved,
+        "ordering": ["source", "subject"]
+    })
+}
+
+fn declaration(mut value: Value) -> mdbase_runtime::RuntimeResult<Value> {
+    value["declaration_digest"] = Value::String(canonical_digest(&value)?);
+    Ok(value)
+}
+
+fn notification_provider_identity() -> ImplementationIdentity {
+    ImplementationIdentity {
+        application: "mdbase.connect".to_string(),
+        implementation: "notification-signal".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        instance_id: None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use mdbase_connect_protocol::{
-        ApplicationAccess, GrantScope, NotificationPresentation, RuntimeContractRequirement,
-        RuntimeExpression,
+        ApplicationAccess, GrantScope, NotificationPresentation, RuntimeExpression,
     };
 
     #[test]
+    fn multiple_grants_consume_one_exact_event_contract() {
+        let first = grant(
+            "modified",
+            "mdbase.record.modified",
+            Some("event.data.after.status == \"done\""),
+        );
+        let second = grant("modified", "mdbase.record.modified", None);
+        let catalog = catalog(&[first, second]);
+
+        assert_eq!(catalog.admission().workflows().len(), 2);
+        let exact = catalog.contract("mdbase.record.modified").unwrap();
+        assert_eq!(exact.version, CONTRACT_VERSION);
+        assert!(exact.digest.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn authority_changes_are_structured_cloud_events_with_cursor_extensions() {
+        let grant = grant("modified", "mdbase.record.modified", None);
+        let catalog = catalog(&[grant]);
+        let event = AuthorityEvent {
+            collection_id: Uuid::new_v4(),
+            cursor: 42,
+            event_type: "mdbase.record.modified".to_string(),
+            occurred_at: "2026-07-25T00:00:00Z".to_string(),
+            payload: json!({
+                "path": "tasks/one.md",
+                "before": {"status": "open"},
+                "after": {"status": "done"},
+                "changed_fields": ["status"],
+                "previous_revision": "rev-1",
+                "revision": "rev-2",
+                "previous_types": ["task"],
+                "types": ["task"]
+            }),
+        };
+
+        let envelope = notification_event_envelope(&event, &catalog).unwrap();
+        assert_eq!(envelope["specversion"], "1.0");
+        assert_eq!(envelope["data"]["path"], "tasks/one.md");
+        assert_eq!(envelope["mdbasecursor"], "42");
+        assert!(envelope["data"].get("cursor").is_none());
+    }
+
+    #[test]
     fn timer_workflows_are_bound_to_their_grant_and_criterion() {
-        let grant = GrantSummary {
+        let grant = grant(
+            "task.reminder",
+            TIMER_EVENT_ID,
+            Some("event.data.data.data.kind == \"task\""),
+        );
+        let catalog = catalog(std::slice::from_ref(&grant));
+        let workflow = &catalog.admission().workflows()[0];
+        let condition = workflow
+            .pointer("/triggers/0/if/$expr")
+            .and_then(Value::as_str)
+            .unwrap();
+
+        assert!(condition.contains(&grant.id.to_string()));
+        assert!(condition.contains("task.reminder"));
+        assert!(condition.contains("event.data.data.data.kind"));
+    }
+
+    #[test]
+    fn unknown_or_unavailable_event_requirements_fail_before_admission() {
+        let unsupported = grant("custom", "example.custom", None);
+        assert_eq!(
+            catalog_result(&[unsupported]).unwrap_err().code(),
+            "unsupported_notification_event"
+        );
+        let unavailable = grant("modified", "mdbase.record.modified", None);
+        let mut unavailable = unavailable;
+        unavailable.notification_criteria[0].event.version = "^2.0.0".to_string();
+        assert_eq!(
+            catalog_result(&[unavailable]).unwrap_err().code(),
+            "unsupported_contract_version"
+        );
+    }
+
+    fn catalog(grants: &[GrantSummary]) -> NotificationCatalog {
+        catalog_result(grants).unwrap()
+    }
+
+    fn catalog_result(
+        grants: &[GrantSummary],
+    ) -> mdbase_runtime::RuntimeResult<NotificationCatalog> {
+        compose_notification_catalog(
+            grants,
+            ImplementationIdentity {
+                application: "mdbase.connect".to_string(),
+                implementation: "test-authority".to_string(),
+                version: "1.0.0".to_string(),
+                instance_id: Some("test".to_string()),
+            },
+            "urn:mdbase:connect:test",
+        )
+    }
+
+    fn grant(criterion_id: &str, event_id: &str, condition: Option<&str>) -> GrantSummary {
+        GrantSummary {
             id: Uuid::new_v4(),
             application_id: Uuid::new_v4(),
             application_name: "Tasks".to_string(),
@@ -319,33 +660,24 @@ mod tests {
                 access: ApplicationAccess::FullCollection,
             },
             notification_criteria: vec![NotificationCriterion {
-                id: "task.reminder".to_string(),
-                event: RuntimeContractRequirement {
-                    id: TIMER_EVENT_ID.to_string(),
-                    version: 1,
+                id: criterion_id.to_string(),
+                event: ContractRequirement {
+                    id: event_id.to_string(),
+                    version: "1.0.0".to_string(),
                 },
-                r#if: Some(RuntimeExpression {
-                    expression: "event.payload.data.data.kind == \"task\"".to_string(),
+                r#if: condition.map(|expression| RuntimeExpression {
+                    expression: expression.to_string(),
                 }),
                 debounce: None,
                 minimum_interval: None,
                 presentation: NotificationPresentation {
-                    title: "Task reminder".to_string(),
+                    title: "Task notification".to_string(),
                     body: None,
                     tag: None,
                 },
             }],
             created_at: "2026-07-25T00:00:00Z".to_string(),
             encryption: None,
-        };
-
-        let workflow = workflow_contract(&grant, &grant.notification_criteria[0]);
-        let condition = workflow
-            .pointer("/triggers/0/if/$expr")
-            .and_then(Value::as_str)
-            .unwrap();
-        assert!(condition.contains(&grant.id.to_string()));
-        assert!(condition.contains("task.reminder"));
-        assert!(condition.contains("event.payload.data.data.kind"));
+        }
     }
 }

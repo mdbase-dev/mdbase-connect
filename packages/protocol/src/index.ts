@@ -77,7 +77,7 @@ export interface NotificationCriterion {
   /** Stable, manifest-owned identifier selected by an installation. */
   id: string;
   /** Runtime event contract evaluated at the collection authority. */
-  event: RuntimeContractRequirement;
+  event: ContractRequirement;
   /** Canonical mdbase CEL. Event content never leaves the authority for evaluation. */
   if?: { $expr: string };
   debounce?: string;
@@ -190,12 +190,6 @@ export interface ContractRequirement {
   id: string;
   /** Exact semantic version of the collection-local mdbase data contract. */
   version: string;
-}
-
-/** A versioned runtime event contract used by notifications, not record scope. */
-export interface RuntimeContractRequirement {
-  id: string;
-  version: number;
 }
 
 export interface ApplicationRequirements {

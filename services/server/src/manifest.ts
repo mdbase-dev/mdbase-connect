@@ -15,10 +15,6 @@ const contractSchema = z.object({
     /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
   )
 }).strict();
-const runtimeContractSchema = z.object({
-  id: contractSchema.shape.id,
-  version: z.number().int().positive()
-}).strict();
 const applicationIdSchema = z.string()
   .min(5)
   .max(150)
@@ -63,7 +59,7 @@ const requirementsSchema = z.object({
 }).strict().default({ contracts: [] });
 const notificationCriterionSchema = z.object({
   id: contractSchema.shape.id,
-  event: runtimeContractSchema,
+  event: contractSchema,
   if: z.object({ $expr: z.string().min(1).max(4_096) }).strict().optional(),
   debounce: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),
   minimum_interval: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),

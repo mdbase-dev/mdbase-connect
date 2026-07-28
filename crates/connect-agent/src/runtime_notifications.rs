@@ -1,20 +1,19 @@
 use crate::cloud::CloudControlClient;
 use crate::watcher::CollectionRuntimeEvent;
 use async_trait::async_trait;
-use mdbase::runtime_contracts::RuntimeRegistry;
 use mdbase_connect_core::CollectionRegistry;
 use mdbase_connect_protocol::GrantSummary;
 use mdbase_connect_runtime::{
-    compose_notification_registry, drain_notification_runtime, notification_event_envelope,
-    perform_timer_operation, AuthorityEvent, TimerOperationError, NOTIFICATION_ACTION_ID,
-    NOTIFICATION_EXECUTOR_ID,
+    compose_notification_catalog, drain_notification_runtime, notification_event_envelope,
+    perform_timer_operation, successful_notification_outcome, AuthorityEvent, NotificationCatalog,
+    TimerOperationError, NOTIFICATION_EXECUTOR_ID, TIMER_EVENT_ID,
 };
 use mdbase_runtime::{
-    ActionDispatch, ActionProvider, ActionResponse, AuthorizationDecision, DispatchAuthorizer,
-    DispatchFailure, DispatchOutcome, ProviderRegistry, Runtime, RuntimeConfig, RuntimeStore,
-    SqliteRuntimeStore,
+    ActionDispatch, ActionInvocation, ActionOutcome, ActionProvider, AuthorizationDecision,
+    DispatchAuthorizer, DispatchFailure, DispatchOutcome, ImplementationIdentity, ProviderRegistry,
+    Runtime, RuntimeConfig, RuntimeStore, SqliteRuntimeStore,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -52,14 +51,25 @@ pub fn start(
                 }
                 command = command_rx.recv() => {
                     let Some(command) = command else { return; };
-                    let runtime = service.runtime(command.collection_id);
-                    let result = match runtime {
-                        Ok(runtime) => perform_timer_operation(
-                            runtime,
-                            &command.grant,
-                            &command.operation,
-                            command.input,
-                        ).await,
+                    let catalog = compose_catalog(
+                        std::slice::from_ref(&command.grant),
+                        command.collection_id,
+                    );
+                    let result = match catalog {
+                        Ok(catalog) => match service.runtime(command.collection_id) {
+                            Ok(runtime) => perform_timer_operation(
+                                runtime,
+                                &catalog,
+                                &command.grant,
+                                &command.operation,
+                                command.input,
+                            ).await,
+                            Err(error) => Err(TimerOperationError {
+                                code: error.code().to_string(),
+                                message: error.to_string(),
+                                internal: true,
+                            }),
+                        },
                         Err(error) => Err(TimerOperationError {
                             code: error.code().to_string(),
                             message: error.to_string(),
@@ -138,10 +148,10 @@ impl RuntimeNotificationService {
         if grants.is_empty() {
             return Ok(());
         }
-        let registry = compose_registry(&grants)?;
-        let envelope = event_envelope(&change, &registry)?;
+        let catalog = compose_catalog(&grants, change.collection_id)?;
+        let envelope = event_envelope(&change, &catalog)?;
         let runtime = self.runtime(change.collection_id)?;
-        let outcome = runtime.deliver_event(&registry, envelope).await?;
+        let outcome = runtime.deliver_event(catalog.admission(), envelope).await?;
         tracing::debug!(
             collection_id = %change.collection_id,
             cursor = outcome.cursor,
@@ -149,7 +159,7 @@ impl RuntimeNotificationService {
             admitted = outcome.admitted_run_ids.len(),
             "notification event admitted"
         );
-        drain_runtime(runtime, &registry).await
+        drain_runtime(runtime).await
     }
 
     async fn recover(&mut self) {
@@ -171,8 +181,8 @@ impl RuntimeNotificationService {
                     continue;
                 }
             };
-            let registry = match compose_registry(&grants) {
-                Ok(registry) => registry,
+            let catalog = match compose_catalog(&grants, collection.id) {
+                Ok(catalog) => catalog,
                 Err(error) => {
                     tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification runtime registry is invalid");
                     continue;
@@ -185,11 +195,11 @@ impl RuntimeNotificationService {
                     continue;
                 }
             };
-            if let Err(error) = fire_due_timers(runtime, &registry).await {
+            if let Err(error) = fire_due_timers(runtime, &catalog).await {
                 tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification timer recovery deferred");
                 continue;
             }
-            if let Err(error) = drain_runtime(runtime, &registry).await {
+            if let Err(error) = drain_runtime(runtime).await {
                 tracing::warn!(collection_id = %collection.id, code = error.code(), %error, "notification runtime recovery deferred");
             }
         }
@@ -201,8 +211,9 @@ impl RuntimeNotificationService {
                 self.runtime_dir.join(format!("{collection_id}.sqlite")),
             )?);
             let providers = ProviderRegistry::default();
+            let catalog = compose_catalog(&[], collection_id)?;
             providers.register(
-                NOTIFICATION_ACTION_ID,
+                catalog.notification_provider_binding().clone(),
                 Arc::new(NotificationProvider {
                     cloud: self.cloud.clone(),
                 }),
@@ -220,6 +231,7 @@ impl RuntimeNotificationService {
                     worker_id: format!("connect-agent:{collection_id}"),
                     actor_id: "mdbase-connect-daemon".to_string(),
                     actor_kind: "service".to_string(),
+                    identity: runtime_identity(collection_id),
                     timezone: None,
                     lease_duration: Duration::from_secs(30),
                     max_items: 50,
@@ -235,11 +247,11 @@ impl RuntimeNotificationService {
 
 async fn fire_due_timers(
     runtime: &Runtime,
-    registry: &RuntimeRegistry,
+    catalog: &NotificationCatalog,
 ) -> mdbase_runtime::RuntimeResult<()> {
     for _ in 0..100 {
         if matches!(
-            runtime.fire_due_timer(registry).await?,
+            runtime.fire_due_timer(catalog.admission()).await?,
             mdbase_runtime::TimerFireOutcome::Idle
         ) {
             break;
@@ -248,11 +260,8 @@ async fn fire_due_timers(
     Ok(())
 }
 
-async fn drain_runtime(
-    runtime: &Runtime,
-    registry: &RuntimeRegistry,
-) -> mdbase_runtime::RuntimeResult<()> {
-    drain_notification_runtime(runtime, registry, 100).await?;
+async fn drain_runtime(runtime: &Runtime) -> mdbase_runtime::RuntimeResult<()> {
+    drain_notification_runtime(runtime, 100).await?;
     Ok(())
 }
 
@@ -263,10 +272,13 @@ struct NotificationProvider {
 
 #[async_trait]
 impl ActionProvider for NotificationProvider {
-    async fn dispatch(&self, request: ActionDispatch) -> Result<ActionResponse, DispatchFailure> {
-        let grant_id = input_uuid(&request.input, "grant_id")?;
-        let criterion_id = input_string(&request.input, "criterion_id")?;
-        let cursor = input_string(&request.input, "cursor")?;
+    async fn dispatch(
+        &self,
+        invocation: ActionInvocation,
+    ) -> Result<ActionOutcome, DispatchFailure> {
+        let grant_id = input_uuid(&invocation.input, "grant_id")?;
+        let criterion_id = input_string(&invocation.input, "criterion_id")?;
+        let cursor = input_string(&invocation.input, "cursor")?;
         let Some(cloud) = &self.cloud else {
             return Err(DispatchFailure {
                 code: "notification_cloud_unavailable".to_string(),
@@ -275,7 +287,7 @@ impl ActionProvider for NotificationProvider {
             });
         };
         let receipt = cloud
-            .emit_notification_signal(&request.invocation_id, grant_id, criterion_id, cursor)
+            .emit_notification_signal(&invocation.invocation_id, grant_id, criterion_id, cursor)
             .await
             .map_err(|error| DispatchFailure {
                 code: "notification_signal_failed".to_string(),
@@ -284,11 +296,8 @@ impl ActionProvider for NotificationProvider {
                 // response is always safe to replay with the same ID.
                 outcome: DispatchOutcome::Unknown,
             })?;
-        Ok(ActionResponse {
-            output: json!({"accepted": true}),
-            receipt: Some(receipt),
-            emitted_events: Vec::new(),
-        })
+        tracing::debug!(receipt = %receipt, "notification signal accepted");
+        Ok(successful_notification_outcome(&invocation))
     }
 }
 
@@ -320,11 +329,8 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
                 )
             }
         };
-        let source = request
-            .event
-            .pointer("/source/runtime")
-            .and_then(Value::as_str);
-        let expected_source = format!("mdbase-connect:{}", grant.collection_id);
+        let source = request.event.get("source").and_then(Value::as_str);
+        let expected_source = source_uri(grant.collection_id);
         if source != Some(expected_source.as_str()) {
             return denied(
                 "notification_collection_mismatch",
@@ -332,15 +338,15 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
             );
         }
         let event_type = request.event.get("type").and_then(Value::as_str);
-        if event_type == Some("timer.fired")
+        if event_type == Some(TIMER_EVENT_ID)
             && (request
                 .event
-                .pointer("/payload/data/grant_id")
+                .pointer("/data/data/grant_id")
                 .and_then(Value::as_str)
                 != Some(grant_id.to_string().as_str())
                 || request
                     .event
-                    .pointer("/payload/data/criterion_id")
+                    .pointer("/data/data/criterion_id")
                     .and_then(Value::as_str)
                     != Some(criterion_id))
         {
@@ -353,7 +359,14 @@ impl DispatchAuthorizer for LocalNotificationAuthorizer {
             .notification_criteria
             .iter()
             .find(|criterion| criterion.id == criterion_id);
-        if criterion.is_none_or(|criterion| Some(criterion.event.id.as_str()) != event_type) {
+        let event_version = request
+            .event
+            .get("mdbasecontractversion")
+            .and_then(Value::as_str);
+        if criterion.is_none_or(|criterion| {
+            Some(criterion.event.id.as_str()) != event_type
+                || Some(criterion.event.version.as_str()) != event_version
+        }) {
             return denied(
                 "notification_criterion_revoked",
                 "The local grant no longer authorizes this notification criterion.",
@@ -380,13 +393,20 @@ fn notification_grants(
         .map_err(|error| mdbase_runtime::RuntimeError::Store(error.to_string()))
 }
 
-fn compose_registry(grants: &[GrantSummary]) -> mdbase_runtime::RuntimeResult<RuntimeRegistry> {
-    compose_notification_registry(grants, "mdbase.watch", "mdbase Watch")
+fn compose_catalog(
+    grants: &[GrantSummary],
+    collection_id: Uuid,
+) -> mdbase_runtime::RuntimeResult<NotificationCatalog> {
+    compose_notification_catalog(
+        grants,
+        authority_identity(collection_id),
+        source_uri(collection_id),
+    )
 }
 
 fn event_envelope(
     change: &CollectionRuntimeEvent,
-    registry: &RuntimeRegistry,
+    catalog: &NotificationCatalog,
 ) -> mdbase_runtime::RuntimeResult<Value> {
     notification_event_envelope(
         &AuthorityEvent {
@@ -395,11 +415,31 @@ fn event_envelope(
             event_type: change.event.event_type.clone(),
             occurred_at: change.event.occurred_at.clone(),
             payload: change.event.payload.clone(),
-            runtime_id: format!("mdbase-connect:{}", change.collection_id),
-            provider_id: "mdbase.watch".to_string(),
         },
-        registry,
+        catalog,
     )
+}
+
+fn authority_identity(collection_id: Uuid) -> ImplementationIdentity {
+    ImplementationIdentity {
+        application: "mdbase.connect".to_string(),
+        implementation: "local-authority".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        instance_id: Some(collection_id.to_string()),
+    }
+}
+
+fn runtime_identity(collection_id: Uuid) -> ImplementationIdentity {
+    ImplementationIdentity {
+        application: "mdbase.connect".to_string(),
+        implementation: "local-notification-runtime".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        instance_id: Some(collection_id.to_string()),
+    }
+}
+
+fn source_uri(collection_id: Uuid) -> String {
+    format!("urn:mdbase:connect:local:{collection_id}")
 }
 
 fn input_string<'a>(input: &'a Value, name: &str) -> Result<&'a str, DispatchFailure> {
@@ -435,10 +475,11 @@ mod tests {
     use super::*;
     use axum::{extract::State, routing::post, Json, Router};
     use mdbase_connect_protocol::{
-        ApplicationAccess, GrantPolicy, GrantScope, NotificationCriterion,
-        NotificationPresentation, RuntimeContractRequirement, RuntimeExpression,
+        ApplicationAccess, ContractRequirement, GrantPolicy, GrantScope, NotificationCriterion,
+        NotificationPresentation, RuntimeExpression,
     };
     use rusqlite::Connection;
+    use serde_json::json;
     use tempfile::tempdir;
 
     #[test]
@@ -501,12 +542,12 @@ mod tests {
             },
             notification_criteria: vec![NotificationCriterion {
                 id: "task.ready".to_string(),
-                event: RuntimeContractRequirement {
+                event: ContractRequirement {
                     id: "mdbase.record.modified".to_string(),
-                    version: 1,
+                    version: "1.0.0".to_string(),
                 },
                 r#if: Some(RuntimeExpression {
-                    expression: "event.payload.changed_fields.size() > 0".to_string(),
+                    expression: "event.data.changed_fields.size() > 0".to_string(),
                 }),
                 debounce: Some("1s".to_string()),
                 minimum_interval: None,
@@ -519,8 +560,8 @@ mod tests {
             created_at: "2026-07-24T00:00:00Z".to_string(),
             encryption: None,
         };
-        let registry = compose_registry(&[grant]).unwrap();
-        let workflow = &registry.workflows.values().next().unwrap().contract;
+        let catalog = compose_catalog(std::slice::from_ref(&grant), grant.collection_id).unwrap();
+        let workflow = &catalog.admission().workflows()[0];
         let input = workflow.pointer("/steps/0/input").unwrap();
         let encoded = serde_json::to_string(input).unwrap();
         assert!(!encoded.contains("path"));
@@ -553,9 +594,9 @@ mod tests {
                 notification_criteria: vec![
                     NotificationCriterion {
                         id: "task.ready".to_string(),
-                        event: RuntimeContractRequirement {
+                        event: ContractRequirement {
                             id: "mdbase.record.modified".to_string(),
-                            version: 1,
+                            version: "1.0.0".to_string(),
                         },
                         r#if: None,
                         debounce: None,
@@ -568,9 +609,9 @@ mod tests {
                     },
                     NotificationCriterion {
                         id: "reminder.due".to_string(),
-                        event: RuntimeContractRequirement {
-                            id: "timer.fired".to_string(),
-                            version: 1,
+                        event: ContractRequirement {
+                            id: TIMER_EVENT_ID.to_string(),
+                            version: "1.0.0".to_string(),
                         },
                         r#if: None,
                         debounce: None,
@@ -627,8 +668,13 @@ mod tests {
                     occurred_at: "2026-07-24T00:00:00Z".to_string(),
                     payload: json!({
                         "path": "private/medical-note.md",
+                        "before": {"status": "open", "secret": "never-upload"},
                         "changed_fields": ["status"],
-                        "after": {"status": "ready", "secret": "never-upload"}
+                        "after": {"status": "ready", "secret": "never-upload"},
+                        "previous_revision": "rev-1",
+                        "revision": "rev-2",
+                        "previous_types": ["task"],
+                        "types": ["task"]
                     }),
                 },
             })
@@ -654,9 +700,12 @@ mod tests {
             .unwrap()
             .unwrap();
         {
+            let catalog =
+                compose_catalog(std::slice::from_ref(&timer_grant), collection.id).unwrap();
             let runtime = service.runtime(collection.id).unwrap();
             perform_timer_operation(
                 runtime,
+                &catalog,
                 &timer_grant,
                 "put_timer",
                 json!({
@@ -673,15 +722,18 @@ mod tests {
             .unwrap();
         }
         let grants = notification_grants(&service.local_registry, collection.id).unwrap();
-        let timer_registry = compose_registry(&grants).unwrap();
+        let timer_catalog = compose_catalog(&grants, collection.id).unwrap();
         {
             let runtime = service.runtime(collection.id).unwrap();
-            let fired = runtime.fire_due_timer(&timer_registry).await.unwrap();
+            let fired = runtime
+                .fire_due_timer(timer_catalog.admission())
+                .await
+                .unwrap();
             let mdbase_runtime::TimerFireOutcome::Fired { delivery, .. } = fired else {
                 panic!("due timer did not fire");
             };
             assert_eq!(delivery.admitted_run_ids.len(), 1);
-            let completed = runtime.work_once(&timer_registry).await.unwrap();
+            let completed = runtime.work_once().await.unwrap();
             assert!(
                 matches!(
                     &completed,
@@ -730,9 +782,9 @@ mod tests {
                 collection_name: "Tasks".to_string(),
                 notification_criteria: vec![NotificationCriterion {
                     id: "task.reminder".to_string(),
-                    event: RuntimeContractRequirement {
-                        id: "timer.fired".to_string(),
-                        version: 1,
+                    event: ContractRequirement {
+                        id: TIMER_EVENT_ID.to_string(),
+                        version: "1.0.0".to_string(),
                     },
                     r#if: None,
                     debounce: None,

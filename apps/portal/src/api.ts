@@ -169,11 +169,6 @@ export interface CollectionContractDescriptor extends ContractRequirement {
   }>;
 }
 
-export interface RuntimeContractRequirement {
-  id: string;
-  version: number;
-}
-
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
   access?: "contract" | "full_collection";
@@ -204,7 +199,7 @@ export interface ApplicationProvisions {
 
 export interface NotificationCriterion {
   id: string;
-  event: RuntimeContractRequirement;
+  event: ContractRequirement;
   if?: { $expr: string };
   debounce?: string;
   minimum_interval?: string;

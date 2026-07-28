@@ -4779,27 +4779,63 @@ fn application_change(
     match (before, after) {
         (None, Some(record)) => (
             "mdbase.record.created",
-            json!({ "path": record.path, "types": record.types }),
+            json!({
+                "path": record.path,
+                "after": record.frontmatter,
+                "changed_fields": record.frontmatter.keys().collect::<Vec<_>>(),
+                "revision": record.revision,
+                "types": record.types
+            }),
         ),
         (Some(record), None) => (
             "mdbase.record.deleted",
-            json!({ "path": record.path, "types": record.types }),
+            json!({
+                "path": record.path,
+                "before": record.frontmatter,
+                "previous_revision": record.revision,
+                "types": record.types
+            }),
         ),
         (Some(before), Some(after)) if before.path != after.path => (
             "mdbase.record.renamed",
             json!({
                 "from": before.path,
                 "to": after.path,
+                "before": before.frontmatter,
+                "after": after.frontmatter,
+                "previous_revision": before.revision,
+                "revision": after.revision,
                 "types": after.types,
                 "previous_types": before.types,
             }),
         ),
-        (_, Some(record)) => (
+        (Some(before), Some(after)) => (
             "mdbase.record.modified",
-            json!({ "path": record.path, "types": record.types }),
+            json!({
+                "path": after.path,
+                "before": before.frontmatter,
+                "after": after.frontmatter,
+                "changed_fields": changed_frontmatter_fields(before, after),
+                "previous_revision": before.revision,
+                "revision": after.revision,
+                "previous_types": before.types,
+                "types": after.types
+            }),
         ),
-        (None, None) => ("mdbase.record.modified", json!({})),
+        (None, None) => unreachable!("a persisted change must have a before or after record"),
     }
+}
+
+fn changed_frontmatter_fields(before: &SyncRecord, after: &SyncRecord) -> Vec<String> {
+    before
+        .frontmatter
+        .keys()
+        .chain(after.frontmatter.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .filter(|key| before.frontmatter.get(*key) != after.frontmatter.get(*key))
+        .cloned()
+        .collect()
 }
 
 fn invalid_operation_result(
@@ -5736,7 +5772,12 @@ mod tests {
             application_change(Some(&record), None),
             (
                 "mdbase.record.deleted",
-                json!({ "path": "tasks/deleted.md", "types": ["task"] }),
+                json!({
+                    "path": "tasks/deleted.md",
+                    "before": {},
+                    "previous_revision": "sha256:deleted",
+                    "types": ["task"]
+                }),
             )
         );
     }
