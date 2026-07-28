@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@mdbase/connect': file:vendor/mdbase-connect-0.1.0-beta.9.tgz
-  '@mdbase/connect-protocol': file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz
+  '@mdbase/connect': file:vendor/mdbase-connect-0.1.0-beta.11.tgz
+  '@mdbase/connect-protocol': file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz
 
 importers:
 
@@ -52,11 +52,11 @@ importers:
         specifier: ^1.2.3
         version: 1.2.3
       '@mdbase/connect':
-        specifier: file:vendor/mdbase-connect-0.1.0-beta.9.tgz
-        version: file:vendor/mdbase-connect-0.1.0-beta.9.tgz
+        specifier: file:vendor/mdbase-connect-0.1.0-beta.11.tgz
+        version: file:vendor/mdbase-connect-0.1.0-beta.11.tgz
       '@mdbase/connect-protocol':
-        specifier: file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz
-        version: file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz
+        specifier: file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz
+        version: file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -292,13 +292,13 @@ packages:
   '@marijn/find-cluster-break@1.0.3':
     resolution: {integrity: sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA==}
 
-  '@mdbase/connect-protocol@file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz':
-    resolution: {integrity: sha512-RtRBkQOeXXDbfhuzlfWcH+lPZ4hSoTC6OSCHiESPrIPcAB7Dr/qLoxrTeDrULJRAdH0rZZ8OD7KP4fPysEYTAg==, tarball: file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz}
-    version: 0.1.0-beta.9
+  '@mdbase/connect-protocol@file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz':
+    resolution: {integrity: sha512-7KCg/HIgwsto70m4roqY569SSwoh71GMpRmgM5rO/lpKOux/4md7GKjN2FuLj0E1iqFmHXsmr/zLMLZyPCCRNw==, tarball: file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz}
+    version: 0.1.0-beta.11
 
-  '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.9.tgz':
-    resolution: {integrity: sha512-HS+7AJminUzR12lYc1+I/KfxhOs07+qDcza2kg2zCjgDiaJRUFOIRZamBTDxkk/Zqe1nOtgUaTQDk+T5xFEvSQ==, tarball: file:vendor/mdbase-connect-0.1.0-beta.9.tgz}
-    version: 0.1.0-beta.9
+  '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.11.tgz':
+    resolution: {integrity: sha512-LRsILQOd9qHAiOU5V4CKu6to0OiwdINTPyLbpWkmxmsNqP0oCxTLmoC4rIoSYKx80rivfuyO9TDdsQsQs0SMGA==, tarball: file:vendor/mdbase-connect-0.1.0-beta.11.tgz}
+    version: 0.1.0-beta.11
 
   '@napi-rs/wasm-runtime@1.1.6':
     resolution: {integrity: sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==}
@@ -1380,11 +1380,11 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@mdbase/connect-protocol@file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz': {}
+  '@mdbase/connect-protocol@file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz': {}
 
-  '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.9.tgz':
+  '@mdbase/connect@file:vendor/mdbase-connect-0.1.0-beta.11.tgz':
     dependencies:
-      '@mdbase/connect-protocol': file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz
+      '@mdbase/connect-protocol': file:vendor/mdbase-connect-protocol-0.1.0-beta.11.tgz
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:

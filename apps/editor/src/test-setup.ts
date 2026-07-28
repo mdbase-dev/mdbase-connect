@@ -1,9 +1,30 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
-afterEach(cleanup);
-beforeEach(() => localStorage.clear());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+beforeEach(() => {
+  localStorage.clear();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    catalog_version: 1,
+    id: "mdbase.contracts",
+    name: "mdbase contracts",
+    description: "Published contract packs for mdbase collections.",
+    homepage: "https://mdbase.dev/contracts/",
+    publisher: {
+      name: "mdbase",
+      url: "https://mdbase.dev/"
+    },
+    contracts: [],
+    packs: []
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  })));
+});
 
 class ResizeObserverStub implements ResizeObserver {
   disconnect() {}

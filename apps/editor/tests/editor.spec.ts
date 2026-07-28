@@ -1,5 +1,164 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+
+const jscontactSchema = JSON.stringify({
+  type: "object",
+  required: ["version"],
+  properties: {
+    version: { const: "2.0" },
+    name: {
+      type: "object",
+      properties: {
+        full: { type: "string" }
+      }
+    }
+  }
+}, null, 2);
+const jscontactContract = `---
+kind: mdbase.contract
+contract_type: record
+id: mdbase.jscontact.card
+version: 2.0.0
+record_schema:
+  dialect: json-schema-2020-12
+  ref: ../../schemas/mdbase.jscontact.card/2.0.0.schema.json
+---
+`;
+const jscontactType = `---
+kind: mdbase.type
+name: contact
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [version]
+    properties:
+      version: { const: "2.0" }
+      name:
+        type: object
+        properties:
+          full: { type: string }
+    additionalProperties: false
+implements:
+  - contract: mdbase.jscontact.card
+    version: 2.0.0
+    fields:
+      version: version
+      name: name
+---
+`;
+const jscontactResources = [
+  ["schema", "schemas/mdbase.jscontact.card/2.0.0.schema.json", "schemas/mdbase.jscontact.card/2.0.0.schema.json", jscontactSchema],
+  ["contract", "contracts/mdbase.jscontact.card/2.0.0.md", "_contracts/mdbase.jscontact.card/2.0.0.md", jscontactContract],
+  ["type", "types/contact/1.md", "_types/contact.md", jscontactType]
+] as const;
+const jscontactProvision = {
+  manifest: {
+    kind: "mdbase.type-pack",
+    id: "mdbase.jscontact",
+    version: "2.0.3",
+    resources: jscontactResources.map(([kind, source, target, document]) => ({
+      kind,
+      source,
+      target,
+      digest: sha256(document)
+    }))
+  },
+  resources: jscontactResources.map(([, source, , document]) => ({ source, document })),
+  provides: [{ id: "mdbase.jscontact.card", version: "2.0.0" }]
+};
+const jscontactProvisionDocument = JSON.stringify(jscontactProvision);
+
+test.beforeEach(async ({ page }) => {
+  await page.route("https://mdbase.dev/contracts/catalog.json", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        catalog_version: 2,
+        id: "dev.mdbase.first-party",
+        name: "mdbase contracts",
+        description: "Portable contracts and type packs published by mdbase.",
+        homepage: "https://mdbase.dev/contracts/",
+        publisher: {
+          name: "mdbase",
+          url: "https://mdbase.dev/"
+        },
+        contracts: [{
+          id: "mdbase.jscontact.card",
+          version: "2.0.0",
+          name: "JSContact Card 2.0 core",
+          description: "A strict, portable core profile of an IETF JSContact 2.0 Card.",
+          contract_type: "record",
+          digest: `sha256:${"1".repeat(64)}`,
+          artifact: "./artifacts/contracts/mdbase.jscontact.card/2.0.0.md",
+          standards: []
+        }],
+        packs: [{
+          id: "mdbase.jscontact",
+          version: "2.0.3",
+          name: "Contact type pack",
+          description: "The mdbase JSContact Card core contract and a fully expanded, editable Contact type.",
+          digest: sha256(jscontactProvisionDocument),
+          provision: "./packs/mdbase.jscontact/2.0.3.json",
+          provides: [{
+            id: "mdbase.jscontact.card",
+            version: "2.0.0"
+          }],
+          resource_count: 3,
+          display: {
+            name: "Contact",
+            summary: "Store people and organisations with names, email addresses, phone numbers, and notes.",
+            category: "people",
+            audience: "general",
+            icon: "address-book",
+            badges: ["JSContact 2.0"]
+          },
+          installation: {
+            visibility: "default",
+            recommendation: "user",
+            primary_type: "contact",
+            types: [{ name: "contact", label: "Contact" }]
+          }
+        }, {
+          id: "mdbase.runtime.standard",
+          version: "0.2.0",
+          name: "mdbase durable runtime standard library",
+          description: "Runtime records and contracts.",
+          digest: `sha256:${"2".repeat(64)}`,
+          provision: "./packs/mdbase.runtime.standard/0.2.0.json",
+          provides: [{
+            id: "mdbase.runtime.run",
+            version: "1.0.0"
+          }],
+          resource_count: 43,
+          display: {
+            name: "Runtime standard library",
+            summary: "Internal records and contracts for durable workflows, runs, timers, and diagnostics.",
+            category: "infrastructure",
+            audience: "infrastructure",
+            icon: "terminal-window",
+            badges: ["Runtime 0.2"]
+          },
+          installation: {
+            visibility: "advanced",
+            recommendation: "integration-managed",
+            primary_type: null,
+            types: [{ name: "runtime_run", label: "Runtime run" }],
+            caution: "Most collections do not need this pack. Install it only when a runtime integration asks you to."
+          }
+        }]
+      }
+    });
+  });
+  await page.route("https://mdbase.dev/contracts/packs/mdbase.jscontact/2.0.3.json", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: jscontactProvisionDocument
+    });
+  });
+});
 
 test("keeps the application geometry visible while a collection opens", async ({ page }) => {
   await page.goto("?demo=80&delay=450");
@@ -428,11 +587,45 @@ test("creates a folder with its first note", async ({ page }) => {
 test("inspects type definitions and persists editor settings", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
-  await expect(page.getByRole("heading", { name: "note" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+  await page.getByRole("button", { name: "Add a type" }).click();
+  await expect(page.getByRole("heading", { name: "Add a type" })).toBeVisible();
+  await expect(page.getByText("Contact", { exact: true })).toBeVisible();
+  await expect(page.getByText("Adds 1 type")).toBeVisible();
+  await expect(page.getByText("Runtime standard library")).not.toBeVisible();
+  await page.getByText("Technical details").click();
+  await expect(page.getByRole("link", { name: "View pack JSON" })).toHaveAttribute(
+    "href",
+    "https://mdbase.dev/contracts/packs/mdbase.jscontact/2.0.3.json"
+  );
+  await page.getByRole("button", { name: "Developer and infrastructure packs" }).click();
+  await expect(page.getByText("Runtime standard library")).toBeVisible();
+  await expect(page.getByText("Most collections do not need this pack.")).toBeVisible();
+  const installButton = page.getByRole("button", { name: "Add Contact" }).first();
+  const installButtonTop = await installButton.evaluate((element) => element.getBoundingClientRect().top);
+  const packStatusTop = await page.getByText("Adds 1 type").first().evaluate((element) => element.getBoundingClientRect().top);
+  await installButton.click();
+  const packConfirmation = page.getByRole("alert").filter({ hasText: "Add Contact?" });
+  await expect(packConfirmation).toContainText("ready-to-use Contact type");
+  await expect(packConfirmation).toContainText("Existing files will not be overwritten");
+  await expect.poll(() => installButton.evaluate((element) => element.getBoundingClientRect().top)).toBe(installButtonTop);
+  await expect.poll(() => page.getByText("Adds 1 type").first().evaluate((element) => element.getBoundingClientRect().top)).toBe(packStatusTop);
+  await packConfirmation.getByRole("button", { name: "Add Contact" }).click();
+  await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "contact" })).toBeVisible();
+  await expect(page.locator(".visual-field-name input").first()).toHaveValue("version");
+  await page.getByRole("button", { name: "Expand name field" }).click();
+  await expect(page.locator(".visual-field-name input").nth(2)).toHaveValue("full");
+  await page.getByRole("button", { name: "Add field" }).click();
+  const localField = page.locator(".visual-field-name input").last();
+  await expect(localField).toHaveValue("field");
+  await localField.fill("local_context");
+  await localField.press("Tab");
+  await page.getByRole("heading", { name: "Data contracts" }).click();
+  await expect(page.getByText("Mapping ready")).toBeVisible();
   await page.getByRole("button", { name: "YAML" }).click();
-  const yaml = page.getByRole("textbox", { name: "note type YAML" });
-  await expect(yaml).toContainText("kind: mdbase.type");
+  const yaml = page.getByRole("textbox", { name: "contact type YAML" });
+  await expect(yaml).toContainText("contract: mdbase.jscontact.card");
+  await expect(yaml).toContainText("local_context:");
   await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
   await expect(page.getByText("Collection-wide change")).toBeVisible();
 
@@ -454,6 +647,10 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("switch", { name: "Quiet Markdown" })).toHaveAttribute("aria-checked", "false");
 });
 
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
 test("shows line numbers and diagnostics in source mode", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
@@ -470,6 +667,7 @@ test("edits complete type membership, choices, and multiple required fields", as
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
+  await page.getByRole("heading", { name: "Type membership" }).click();
   await expect(page.getByText("Explicit membership comes first.")).toBeVisible();
 
   await page.getByRole("button", { name: "Add path pattern" }).click();
@@ -524,6 +722,7 @@ test("edits and reviews portable collection behaviour", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Collection behaviour" })).toBeVisible();
+  await page.getByRole("heading", { name: "Collection behaviour" }).click();
   const visualScrollerGeometry = await page.locator(".type-inspector").evaluate((inspector) => {
     const scroller = inspector.querySelector<HTMLElement>(".visual-type-editor");
     if (!scroller) throw new Error("The visual type editor is not visible.");
@@ -981,6 +1180,27 @@ test("keeps type editing usable at the minimum mobile width", async ({ page }) =
   await page.getByRole("button", { name: "New type" }).click();
   await expect(page.getByText("New", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
+});
+
+test("keeps a catalog pack summary fixed when mobile confirmation opens", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Back to notes" }).click();
+  await page.getByRole("button", { name: "Collections" }).click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("button", { name: "Add a type" }).click();
+
+  const installButton = page.getByRole("button", { name: "Add Contact" }).first();
+  const status = page.getByText("Adds 1 type");
+  const before = {
+    install: await installButton.evaluate((element) => element.getBoundingClientRect().top),
+    status: await status.evaluate((element) => element.getBoundingClientRect().top)
+  };
+
+  await installButton.click();
+  await expect(page.getByRole("alert").filter({ hasText: "Add Contact?" })).toBeVisible();
+  await expect.poll(() => installButton.evaluate((element) => element.getBoundingClientRect().top)).toBe(before.install);
+  await expect.poll(() => status.evaluate((element) => element.getBoundingClientRect().top)).toBe(before.status);
 });
 
 test("has no automatically detectable accessibility violations across editor surfaces", async ({ page }) => {

@@ -17,6 +17,7 @@ export { KeyboardIcon } from "@phosphor-icons/react/Keyboard";
 export { LinkIcon } from "@phosphor-icons/react/Link";
 export { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 export { NotebookIcon } from "@phosphor-icons/react/Notebook";
+export { PackageIcon } from "@phosphor-icons/react/Package";
 export { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 export { PlusIcon } from "@phosphor-icons/react/Plus";
 export { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";

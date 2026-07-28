@@ -43,6 +43,12 @@ import { ActionMenu } from "./ActionMenu";
 import { ContextMenu } from "./ContextMenu";
 import { ConflictResolver } from "./ConflictResolver";
 import { ConfirmDialog, Dialog } from "./Dialog";
+import {
+  loadContractCatalog,
+  loadTypePackProvision,
+  type ContractCatalog,
+  type ContractCatalogPack
+} from "./contract-catalog";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
 import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
 import {
@@ -103,6 +109,7 @@ import { NEW_TYPE_SOURCE } from "./type-constants";
 
 const TypeList = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeList })));
 const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypeInspector })));
+const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
 
@@ -113,6 +120,10 @@ type Surface = "notes" | "types" | "settings";
 type NoteActivity = "saving" | "properties" | "renaming" | "moving" | "deleting" | "validating";
 type NoteFilter = { kind: "folder" | "tag" | "type"; value: string };
 type ConnectionState = "connected" | "reconnecting";
+type ContractCatalogLoadState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; catalog: ContractCatalog }
+  | { status: "error"; message: string };
 
 interface Confirmation {
   title: string;
@@ -227,12 +238,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
   const [surface, setSurface] = useState<Surface>("notes");
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
+  const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
   const [typeDocument, setTypeDocument] = useState<TypeDocument>();
   const [typeSource, setTypeSource] = useState("");
   const [typeCreating, setTypeCreating] = useState(false);
   const [typeLoading, setTypeLoading] = useState(false);
   const [typeSaving, setTypeSaving] = useState(false);
   const [typeError, setTypeError] = useState<string>();
+  const [contractCatalog, setContractCatalog] = useState<ContractCatalogLoadState>({ status: "idle" });
+  const [contractCatalogReload, setContractCatalogReload] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState<string>();
   const [propertiesOpen, setPropertiesOpen] = useState(false);
@@ -280,6 +294,28 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
   useEffect(() => { saveNoteSort(noteSort); }, [noteSort]);
   useEffect(() => { allNotesRef.current = allNotes; }, [allNotes]);
+  useEffect(() => {
+    if (phase !== "ready" || surface !== "types") return;
+    const controller = new AbortController();
+    let active = true;
+    setContractCatalog({ status: "loading" });
+    void loadContractCatalog({ signal: controller.signal }).then(
+      (catalog) => {
+        if (active) setContractCatalog({ status: "ready", catalog });
+      },
+      (error: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        setContractCatalog({
+          status: "error",
+          message: error instanceof Error ? error.message : "The contract catalog could not be loaded."
+        });
+      }
+    );
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [contractCatalogReload, phase, surface]);
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", updateViewportWidth);
@@ -1232,6 +1268,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function openTypeFromRail(name: string) {
     const open = () => {
       finishSelectSurface("types");
+      setTypeWorkspace("definition");
       setSelectedTypeName(name);
       void loadTypeSource(name);
     };
@@ -1654,10 +1691,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   function selectType(name: string) {
     if (name === selectedTypeName && typeDocument?.name === name && !typeLoading) {
+      setTypeWorkspace("definition");
       setMobilePane("editor");
       return;
     }
     const select = () => {
+      setTypeWorkspace("definition");
       setSelectedTypeName(name);
       setMobilePane("editor");
       void loadTypeSource(name);
@@ -1678,6 +1717,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   function beginTypeCreate() {
     const begin = () => {
       typeGeneration.current += 1;
+      setTypeWorkspace("definition");
       setSelectedTypeName(undefined);
       setTypeDocument(undefined);
       setTypeSource(NEW_TYPE_SOURCE);
@@ -1698,6 +1738,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       tone: "danger",
       onConfirm: begin
     });
+  }
+
+  function openTypePacks() {
+    setTypeWorkspace("packs");
+    setMobilePane("editor");
   }
 
   function cancelTypeCreate() {
@@ -1748,6 +1793,26 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } finally {
       setTypeSaving(false);
     }
+  }
+
+  async function installCatalogPack(pack: ContractCatalogPack) {
+    const previousTypes = new Set(description?.types.map((type) => type.name) ?? []);
+    const provision = await loadTypePackProvision(pack);
+    const installed = await gateway.installTypePack(provision);
+    const next = await refreshDescription();
+    const addedTypes = next.types.filter((type) => !previousTypes.has(type.name));
+    const primaryType = pack.primaryType
+      ? addedTypes.find((type) => type.name === pack.primaryType)
+      : undefined;
+    if (primaryType && !typeDraftDirty()) {
+      setTypeWorkspace("definition");
+      setSelectedTypeName(primaryType.name);
+      setMobilePane("editor");
+      await loadTypeSource(primaryType.name);
+      setNotice(`Added “${pack.displayName}” and opened the new type.`);
+      return;
+    }
+    setNotice(`Installed “${pack.displayName}” (${installed.resources.length} resources, ${addedTypes.length} new ${addedTypes.length === 1 ? "type" : "types"}).`);
   }
 
   function typeDraftDirty() {
@@ -2164,16 +2229,34 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     /> : <>
       {(!layout.listCollapsed || mobileLayout) && <TypeList
         types={description.types}
-        selectedName={selectedTypeName}
+        selectedName={typeWorkspace === "definition" ? selectedTypeName : undefined}
+        packsSelected={typeWorkspace === "packs"}
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl label="Hide types sidebar" action="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
+        onPacks={openTypePacks}
         onCreate={beginTypeCreate}
         onCollections={() => returnToMobilePane("collections")}
       />}
-      <TypeInspector
+      {typeWorkspace === "packs" ? <TypePackBrowser
+        types={description.types}
+        contracts={description.contracts}
+        catalog={contractCatalog.status === "ready" ? contractCatalog.catalog : undefined}
+        loading={contractCatalog.status === "loading"}
+        error={contractCatalog.status === "error" ? contractCatalog.message : undefined}
+        canInstall={Boolean(connectionSummary?.operations.some((operation) =>
+          operation === "all" || operation === "install_type_pack"
+        ))}
+        leadingActions={editorLeadingActions}
+        onInstall={installCatalogPack}
+        onOpenType={selectType}
+        onRequestAccess={() => void connectCollection()}
+        onReload={() => setContractCatalogReload((value) => value + 1)}
+        onBack={() => returnToMobilePane("notes")}
+      /> : <TypeInspector
         type={selectedType}
         availableTypes={description.types}
+        contracts={description.contracts}
         document={typeDocument}
         source={typeSource}
         notes={allNotes}
@@ -2191,8 +2274,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         }}
         onCancel={cancelTypeCreate}
         onCreate={beginTypeCreate}
+        onBrowsePacks={openTypePacks}
         onBack={() => returnToMobilePane("notes")}
-      />
+      />}
     </>}</Suspense>}
 
     {surface === "settings" && <SettingsView

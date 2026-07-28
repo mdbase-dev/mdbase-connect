@@ -1,17 +1,40 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { CollectionTypeDescriptor } from "@mdbase/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase/connect";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { ContractCatalog } from "./contract-catalog";
 import type { TypeDocument } from "./model";
-import { TypeInspector } from "./TypeBrowser";
+import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
+import { NEW_TYPE_SOURCE } from "./type-constants";
 import { readVisualType } from "./type-schema";
 
 describe("recursive type builder", () => {
+  it("summarises secondary type settings behind quiet disclosures", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={collectionSource} contracts={[personContract]} />);
+
+    const membership = screen.getByRole("heading", { name: "Type membership" }).closest<HTMLDetailsElement>("details")!;
+    const behaviour = screen.getByRole("heading", { name: "Collection behaviour" }).closest<HTMLDetailsElement>("details")!;
+    const contracts = screen.getByRole("heading", { name: "Data contracts" }).closest<HTMLDetailsElement>("details")!;
+
+    expect(membership).not.toHaveAttribute("open");
+    expect(behaviour).not.toHaveAttribute("open");
+    expect(contracts).not.toHaveAttribute("open");
+    expect(within(membership).getByText("Explicit declarations only")).toBeInTheDocument();
+    expect(within(behaviour).getByText(/Display · 1 default · 1 link · 1 unique rule · Path policy/)).toBeInTheDocument();
+    expect(within(contracts).getByText("None implemented")).toBeInTheDocument();
+    expect(membership).not.toContainElement(screen.getByRole("heading", { name: "Fields" }));
+
+    await user.click(within(behaviour).getByText("Collection behaviour").closest("summary")!);
+    expect(behaviour).toHaveAttribute("open");
+  });
+
   it("adds and edits nested object fields through the design view", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
+    await user.click(screen.getByRole("button", { name: "Expand profile field" }));
     expect(screen.getByDisplayValue("display_name")).toBeInTheDocument();
     const nestedGroup = screen.getByText("Nested fields").closest<HTMLElement>(".nested-field-group")!;
     await user.click(within(nestedGroup).getByRole("button", { name: "Add nested field" }));
@@ -26,6 +49,25 @@ describe("recursive type builder", () => {
     expect(source).toContain("timezone:");
     expect(source).toContain("required:");
     expect(source).toContain("- timezone");
+  });
+
+  it("keeps a single field branch active while preserving its ancestors", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+
+    const category = screen.getByRole("button", { name: "Expand category field" });
+    await user.click(category);
+    expect(category).toHaveAttribute("aria-expanded", "true");
+
+    const profile = screen.getByRole("button", { name: "Expand profile field" });
+    await user.click(profile);
+    expect(category).toHaveAttribute("aria-expanded", "false");
+    expect(profile).toHaveAttribute("aria-expanded", "true");
+
+    const displayName = screen.getByRole("button", { name: "Expand profile.display_name field" });
+    await user.click(displayName);
+    expect(profile).toHaveAttribute("aria-expanded", "true");
+    expect(displayName).toHaveAttribute("aria-expanded", "true");
   });
 
   it("requires inline confirmation before replacing nested structure", async () => {
@@ -142,18 +184,188 @@ describe("recursive type builder", () => {
     expect(screen.getByText("Future file paths may change")).toBeInTheDocument();
     expect(screen.getByText(/Display metadata · Read defaults · Link rules · Uniqueness rules · Path policy/)).toBeInTheDocument();
   });
+
+  it("suggests a contract from field shape and waits for an explicit claim", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={contractSource} contracts={[personContract]} />);
+
+    expect(screen.getByText("Possible matches")).toBeInTheDocument();
+    expect(screen.getByText("2 of 2 fields match, 1 of 1 required.")).toBeInTheDocument();
+    expect(screen.getByTestId("source")).not.toHaveTextContent("implements:");
+
+    await user.click(screen.getByRole("button", { name: "Review mapping" }));
+
+    expect(screen.getByText("Mapping ready")).toBeInTheDocument();
+    const nameMapping = screen.getByRole("combobox", { name: "example.person name type field" });
+    expect(nameMapping).toHaveValue("name");
+    expect(within(nameMapping).getByRole("option", { name: "age · Integer" })).toBeDisabled();
+    expect(screen.getByText("Required fields covered")).toBeInTheDocument();
+    expect(screen.getAllByText(/satisfies the declared contract field constraints/)).toHaveLength(2);
+    expect(screen.getByTestId("source")).toHaveTextContent("contract: example.person");
+  });
+
+  it("warns when a mapped source field is broader than a required contract field", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness
+      source={contractSource.replace("    required: [name]\n", "")}
+      contracts={[personContract]}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Review mapping" }));
+
+    expect(screen.getByText("Review recommended")).toBeInTheDocument();
+    expect(screen.getByText(/name is optional, so some records may omit this required value/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  });
+
+  it("shows installed linked-schema fields as ready-made rather than empty", () => {
+    const source = `---
+kind: mdbase.type
+name: person
+schema:
+  dialect: json-schema-2020-12
+  ref: ../schemas/person.schema.json
+---
+`;
+    render(<InspectorHarness
+      source={source}
+      type={{
+        ...typeDescriptor,
+        schema: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", description: "Display name" },
+            email: { type: "string", format: "email" }
+          }
+        }
+      }}
+    />);
+
+    expect(screen.getByText("Schema-managed fields")).toBeInTheDocument();
+    expect(screen.getByText("../schemas/person.schema.json")).toBeInTheDocument();
+    expect(screen.getByText("2 fields are supplied by the installed schema.")).toBeInTheDocument();
+    expect(screen.getByText("Display name")).toBeInTheDocument();
+    expect(screen.queryByText("No fields are declared yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add field" })).not.toBeInTheDocument();
+  });
+
+  it("blocks review until required contract fields are mapped", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={contractSource} contracts={[legalPersonContract]} />);
+
+    await user.click(screen.getByRole("button", { name: "Implement contract" }));
+
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByText("Map required contract field legal_name.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "example.legal-person legal_name type field" }), "name");
+    expect(screen.getByText("Mapping ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  });
+
+  it("uses an installed contract as a new-type starting point", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={NEW_TYPE_SOURCE} contracts={[personContract]} creating />);
+
+    await user.click(screen.getByRole("button", { name: "Use contract" }));
+
+    expect(screen.getByDisplayValue("person-2")).toBeInTheDocument();
+    expect(screen.getByText("Mapping ready")).toBeInTheDocument();
+    expect(screen.getByTestId("source")).toHaveTextContent("contract: example.person");
+  });
+
+  it("shows catalog packs in a separate collection workspace", () => {
+    render(<PackHarness catalog={contractCatalog} />);
+
+    expect(screen.getByRole("heading", { name: "Add a type" })).toBeInTheDocument();
+    expect(screen.getByText(/Existing files are never overwritten/)).toBeInTheDocument();
+    expect(screen.getByText("From mdbase")).toBeInTheDocument();
+    expect(screen.getByText("Person")).toBeInTheDocument();
+    expect(screen.getByText("Adds 1 type")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View pack JSON" })).toHaveAttribute(
+      "href",
+      "https://mdbase.dev/contracts/packs/example.people/1.0.0/provision.json"
+    );
+  });
+
+  it("recognises a catalog pack whose contract is installed in the collection", () => {
+    render(<PackHarness
+      contracts={[personContract]}
+      types={[typeDescriptor, { ...typeDescriptor, name: "starter-person" }]}
+      catalog={contractCatalog}
+    />);
+
+    expect(screen.getByText("Person added")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Person" })).not.toBeInTheDocument();
+  });
+
+  it("offers to reload an unavailable catalog", async () => {
+    const user = userEvent.setup();
+    const onReloadCatalog = vi.fn();
+    render(<PackHarness
+      error="The contract catalog returned 503."
+      onReload={onReloadCatalog}
+    />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Catalog unavailable");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onReloadCatalog).toHaveBeenCalledOnce();
+  });
+
+  it("confirms a catalog pack before installing it", async () => {
+    const user = userEvent.setup();
+    const onInstallPack = vi.fn(async () => undefined);
+    render(<PackHarness
+      catalog={contractCatalog}
+      canInstall
+      onInstall={onInstallPack}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Add Person" }));
+    const confirmation = screen.getByRole("alert");
+    expect(confirmation).toHaveTextContent("Add Person?");
+    expect(confirmation).toHaveTextContent("ready-to-use Person type");
+    expect(confirmation).toHaveTextContent("editable contract mapping");
+    expect(confirmation).toHaveTextContent("will not be overwritten");
+    expect(onInstallPack).not.toHaveBeenCalled();
+
+    await user.click(within(confirmation).getByRole("button", { name: "Add Person" }));
+    expect(onInstallPack).toHaveBeenCalledWith(contractCatalog.packs[0]);
+  });
+
+  it("requests expanded collection access when pack installation is not granted", async () => {
+    const user = userEvent.setup();
+    const onRequestPackAccess = vi.fn();
+    render(<PackHarness
+      catalog={contractCatalog}
+      onInstall={vi.fn()}
+      onRequestAccess={onRequestPackAccess}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Allow installs" }));
+    expect(onRequestPackAccess).toHaveBeenCalledOnce();
+  });
 });
 
-function InspectorHarness({ source: initialSource = recursiveSource }: { source?: string }) {
+function InspectorHarness({ source: initialSource = recursiveSource, contracts = [], creating = false, onBrowsePacks, type = typeDescriptor }: {
+  source?: string;
+  contracts?: CollectionContractDescriptor[];
+  creating?: boolean;
+  onBrowsePacks?: () => void;
+  type?: CollectionTypeDescriptor;
+}) {
   const [source, setSource] = useState(initialSource);
   return <>
     <TypeInspector
-      type={typeDescriptor}
+      type={type}
       availableTypes={[typeDescriptor, organisationDescriptor]}
+      contracts={contracts}
       document={{ ...typeDocument, document: initialSource }}
       source={source}
       notes={[]}
-      creating={false}
+      creating={creating}
       loading={false}
       saving={false}
       onSourceChange={setSource}
@@ -161,10 +373,36 @@ function InspectorHarness({ source: initialSource = recursiveSource }: { source?
       onRevert={vi.fn()}
       onCancel={vi.fn()}
       onCreate={vi.fn()}
+      onBrowsePacks={onBrowsePacks}
       onBack={vi.fn()}
     />
     <output data-testid="source">{source}</output>
   </>;
+}
+
+function PackHarness({ contracts = [], types = [typeDescriptor], catalog, loading = false, error, canInstall = false, onInstall, onRequestAccess, onReload }: {
+  contracts?: CollectionContractDescriptor[];
+  types?: CollectionTypeDescriptor[];
+  catalog?: ContractCatalog;
+  loading?: boolean;
+  error?: string;
+  canInstall?: boolean;
+  onInstall?: (pack: ContractCatalog["packs"][number]) => Promise<void>;
+  onRequestAccess?: () => void;
+  onReload?: () => void;
+}) {
+  return <TypePackBrowser
+    types={types}
+    contracts={contracts}
+    catalog={catalog}
+    loading={loading}
+    error={error}
+    canInstall={canInstall}
+    onInstall={onInstall}
+    onRequestAccess={onRequestAccess}
+    onReload={onReload}
+    onBack={vi.fn()}
+  />;
 }
 
 const recursiveSource = `---
@@ -221,6 +459,23 @@ const collectionSource = recursiveSource.replace("schema:", `collection:
       expr: title
 schema:`);
 
+const contractSource = `---
+kind: mdbase.type
+name: person
+version: 1
+description: A person
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [name]
+    properties:
+      name: { type: string }
+      email: { type: string }
+      age: { type: integer }
+---
+`;
+
 const typeDescriptor: CollectionTypeDescriptor = {
   name: "person",
   path: "_types/person.md",
@@ -253,4 +508,75 @@ const typeDocument: TypeDocument = {
   path: "_types/person.md",
   revision: "type-revision-1",
   document: recursiveSource
+};
+
+const personContract: CollectionContractDescriptor = {
+  contract_type: "record",
+  id: "example.person",
+  version: "1.0.0",
+  digest: `sha256:${"1".repeat(64)}`,
+  schema: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      name: { type: "string" },
+      email: { type: "string" }
+    }
+  },
+  implementations: [{
+    type_name: "legacy-person",
+    type_version: 1,
+    digest: `sha256:${"2".repeat(64)}`,
+    fields: { name: "name" }
+  }]
+};
+
+const contractCatalog: ContractCatalog = {
+  catalogVersion: 2,
+  id: "example.contracts",
+  name: "Example contracts",
+  description: "Contract packs used by these tests.",
+  homepage: "https://mdbase.dev/contracts/",
+  publisher: {
+    name: "mdbase",
+    url: "https://mdbase.dev/"
+  },
+  sourceUrl: "https://mdbase.dev/contracts/catalog.json",
+  contracts: [],
+  packs: [{
+    id: "example.people",
+    version: "1.0.0",
+    name: "People starter",
+    description: "A portable person type.",
+    digest: `sha256:${"4".repeat(64)}`,
+    provisionUrl: "https://mdbase.dev/contracts/packs/example.people/1.0.0/provision.json",
+    provides: [{
+      id: personContract.id,
+      version: personContract.version
+    }],
+    resourceCount: 3,
+    displayName: "Person",
+    summary: "Store people with names and email addresses.",
+    category: "people",
+    audience: "general",
+    icon: "address-book",
+    badges: ["Example standard"],
+    visibility: "default",
+    recommendation: "user",
+    primaryType: "starter-person",
+    installedTypes: [{ name: "starter-person", label: "Person" }]
+  }]
+};
+
+const legalPersonContract: CollectionContractDescriptor = {
+  ...personContract,
+  id: "example.legal-person",
+  digest: `sha256:${"3".repeat(64)}`,
+  schema: {
+    type: "object",
+    required: ["legal_name"],
+    properties: {
+      legal_name: { type: "string" }
+    }
+  }
 };

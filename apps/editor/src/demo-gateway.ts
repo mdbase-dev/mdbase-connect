@@ -1,10 +1,12 @@
 import type {
   CollectionChange,
+  CollectionContractDescriptor,
   CollectionDescription,
   CollectionTypeDescriptor,
   CollectionTypeDocument,
   JsonObject,
-  MdbaseDiagnostic
+  MdbaseDiagnostic,
+  TypePackProvision
 } from "@mdbase/connect";
 import { parse } from "yaml";
 import { persistedBody, titlePatch } from "./note";
@@ -19,7 +21,8 @@ import type {
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
-  SaveNoteInput
+  SaveNoteInput,
+  TypePackInstallResult
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
@@ -27,6 +30,8 @@ export class DemoCollectionGateway implements CollectionGateway {
   private sequence = 1;
   private changeCursor = 0;
   private typeSequence = 1;
+  private contractDescriptors: CollectionContractDescriptor[] = [];
+  private packResources = new Map<string, string>();
   private listeners = new Set<(change?: CollectionChange) => void>();
   private readonly openingDelay: number;
   private typeDocuments: CollectionTypeDocument[] = [{
@@ -81,10 +86,10 @@ export class DemoCollectionGateway implements CollectionGateway {
       collection_id: "00000000-0000-4000-8000-000000000001",
       display_name: "Writing",
       spec_version: "0.3.0",
-      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type"],
+      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "install_type_pack"],
       change_cursor: this.sequence,
-      types: this.typeDocuments.map(typeDescriptor),
-      contracts: [],
+      types: this.typeDocuments.map((document) => typeDescriptor(document, this.packResources)),
+      contracts: clone(this.contractDescriptors),
       configuration: {
         spec_version: "0.3.0",
         settings: { types_folder: "_types", validation: "error" }
@@ -341,6 +346,74 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(next);
   }
 
+  async installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult> {
+    const sources = new Map(provision.resources.map((resource) => [resource.source, resource.document]));
+    const planned = provision.manifest.resources.map((resource) => {
+      const document = sources.get(resource.source);
+      if (document === undefined) throw new Error(`Type pack resource “${resource.source}” is missing.`);
+      const existing = this.packResources.get(resource.target);
+      if (existing !== undefined && existing !== document) {
+        throw new Error(`Type-pack target ${resource.target} already exists with different content.`);
+      }
+      return {
+        definition: resource,
+        document,
+        action: existing === document ? "unchanged" as const : "create" as const
+      };
+    });
+    if (planned.length !== sources.size) throw new Error("The type pack contains undeclared resources.");
+
+    const typePlans = planned.filter(({ definition }) => definition.kind === "type")
+      .map(({ definition, document }) => ({
+        definition,
+        document: typeDocument(document, definition.target, `demo-type-${++this.typeSequence}`)
+      }));
+    for (const plan of typePlans) {
+      const existing = this.typeDocuments.find((candidate) => candidate.path === plan.document.path);
+      if (existing && existing.document !== plan.document.document) {
+        throw new Error(`Type “${plan.document.name}” already exists.`);
+      }
+    }
+    const contractPlans = planned.filter(({ definition }) => definition.kind === "contract")
+      .map(({ definition, document }) => demoContractDescriptor(
+        definition.target,
+        definition.digest,
+        document,
+        planned,
+        typePlans
+      ));
+
+    for (const { definition, document } of planned) {
+      this.packResources.set(definition.target, document);
+    }
+    for (const plan of typePlans) {
+      if (!this.typeDocuments.some((candidate) => candidate.path === plan.document.path)) {
+        this.typeDocuments.push(plan.document);
+        this.emit("mdbase.type.changed", {
+          name: plan.document.name,
+          path: plan.document.path,
+          revision: plan.document.revision
+        });
+      }
+    }
+    for (const contract of contractPlans) {
+      const index = this.contractDescriptors.findIndex((candidate) =>
+        candidate.id === contract.id && candidate.version === contract.version);
+      if (index < 0) this.contractDescriptors.push(contract);
+      else this.contractDescriptors[index] = contract;
+    }
+    return {
+      id: provision.manifest.id,
+      version: provision.manifest.version,
+      resources: planned.map(({ definition, action }) => ({
+        target: definition.target,
+        action,
+        digest: definition.digest
+      })),
+      cleanup_deferred: false
+    };
+  }
+
   async watch(onChange: (change?: import("@mdbase/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase/connect").WatchStatus) => void): Promise<void> {
     onStatus?.({ state: "connecting" });
     onStatus?.({ state: "connected", cursor: this.sequence, recovered: false });
@@ -446,11 +519,12 @@ function typeDocument(source: string, path: string | undefined, revision: string
   return { name, path: path ?? `_types/${name}.md`, revision, document: source };
 }
 
-function typeDescriptor(document: CollectionTypeDocument): CollectionTypeDescriptor {
+function typeDescriptor(
+  document: CollectionTypeDocument,
+  resources: ReadonlyMap<string, string> = new Map()
+): CollectionTypeDescriptor {
   const definition = typeDefinition(document.document);
-  const schema = isObject(definition.schema) && isObject(definition.schema.value)
-    ? definition.schema.value
-    : {};
+  const schema = resolvedSchema(definition.schema, document.path, resources);
   return {
     name: document.name,
     path: document.path,
@@ -463,14 +537,92 @@ function typeDescriptor(document: CollectionTypeDocument): CollectionTypeDescrip
   };
 }
 
+function demoContractDescriptor(
+  path: string,
+  digest: string,
+  source: string,
+  resources: Array<{
+    definition: TypePackProvision["manifest"]["resources"][number];
+    document: string;
+  }>,
+  types: Array<{
+    definition: TypePackProvision["manifest"]["resources"][number];
+    document: CollectionTypeDocument;
+  }>
+): CollectionContractDescriptor {
+  const definition = frontmatterDefinition(source, "mdbase.contract");
+  const id = typeof definition.id === "string" ? definition.id : "";
+  const version = typeof definition.version === "string" ? definition.version : "";
+  if (!id || !version) throw new Error("Contract resources need an id and version.");
+  const documents = new Map(resources.map(({ definition: resource, document }) => [
+    resource.target,
+    document
+  ]));
+  const implementations = types.flatMap(({ definition: resource, document }) => {
+    const type = typeDefinition(document.document);
+    if (!Array.isArray(type.implements)) return [];
+    return type.implements.flatMap((candidate) => {
+      if (!isObject(candidate) || candidate.contract !== id || candidate.version !== version) return [];
+      const fields = isObject(candidate.fields)
+        ? Object.fromEntries(Object.entries(candidate.fields)
+          .filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+        : {};
+      return [{
+        type_name: document.name,
+        type_version: typeof type.version === "number" ? type.version : 1,
+        type_path: document.path,
+        digest: resource.digest,
+        fields,
+        ...(isObject(candidate.binding) ? { binding: candidate.binding } : {})
+      }];
+    });
+  });
+  return {
+    contract_type: "record",
+    id,
+    version,
+    digest,
+    schema: resolvedSchema(definition.record_schema, path, documents),
+    ...(isObject(definition.binding_schema)
+      ? { binding_schema: resolvedSchema(definition.binding_schema, path, documents) }
+      : {}),
+    implementations
+  };
+}
+
 function typeDefinition(source: string): JsonObject {
+  return frontmatterDefinition(source, "mdbase.type");
+}
+
+function frontmatterDefinition(source: string, kind: string): JsonObject {
   const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) throw new Error("Type definitions need YAML frontmatter between --- markers.");
+  if (!match) throw new Error("Pack resources need YAML frontmatter between --- markers.");
   const value = parse(match[1]);
-  if (!isObject(value) || value.kind !== "mdbase.type") {
-    throw new Error("Type definitions must declare kind: mdbase.type.");
+  if (!isObject(value) || value.kind !== kind) {
+    throw new Error(`Pack resources must declare kind: ${kind}.`);
   }
   return value;
+}
+
+function resolvedSchema(
+  value: unknown,
+  documentPath: string,
+  resources: ReadonlyMap<string, string>
+): JsonObject {
+  if (!isObject(value)) return {};
+  if (isObject(value.value)) return value.value;
+  if (typeof value.ref !== "string") return {};
+  const target = resolvePackReference(documentPath, value.ref);
+  const document = resources.get(target);
+  if (!document) throw new Error(`Referenced schema “${target}” is missing.`);
+  const parsed = JSON.parse(document);
+  if (!isObject(parsed)) throw new Error(`Referenced schema “${target}” must be an object.`);
+  return parsed;
+}
+
+function resolvePackReference(from: string, reference: string): string {
+  const base = new URL(from, "https://collection.invalid/");
+  return new URL(reference, base).pathname.slice(1);
 }
 
 function isObject(value: unknown): value is JsonObject {

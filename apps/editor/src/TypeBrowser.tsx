@@ -3,19 +3,27 @@ import {
   ArrowLeftIcon as ArrowLeft,
   CaretDownIcon as ChevronDown,
   CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
   FileCodeIcon as FileCode2,
   FilePlusIcon as FilePlus2,
   InfoIcon as Info,
+  LinkIcon as Link2,
   MagnifyingGlassIcon as Search,
+  PackageIcon as Package,
   PlusIcon as Plus,
   SidebarSimpleIcon as PanelLeft,
   TrashIcon as Trash2,
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import type { CollectionTypeDescriptor } from "@mdbase/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase/connect";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
+import {
+  contractCatalogPackStatus,
+  type ContractCatalog,
+  type ContractCatalogPack
+} from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
 import {
   collectionTypeIcon,
@@ -25,6 +33,23 @@ import {
   PhosphorIcon
 } from "./PhosphorIcon";
 import { compareLines } from "./text-diff";
+import {
+  addTypeContractImplementation,
+  assessContractFieldMapping,
+  contractFields,
+  contractKey,
+  createTypeSourceFromContract,
+  mappingForContractField,
+  readTypeContractImplementations,
+  removeTypeContractImplementation,
+  setTypeContractFieldMapping,
+  suggestContractsForType,
+  typeFieldsForContracts,
+  typeSchemaReference,
+  validateTypeContractImplementations,
+  type ContractTypeField,
+  type ContractValidationIssue
+} from "./type-contracts";
 import {
   addTypeField,
   addTypeLinkRule,
@@ -65,12 +90,14 @@ import {
   type VisualTypeDefinition
 } from "./type-schema";
 
-export function TypeList({ types, selectedName, leadingActions, trailingActions, onSelect, onCreate, onCollections }: {
+export function TypeList({ types, selectedName, packsSelected = false, leadingActions, trailingActions, onSelect, onPacks, onCreate, onCollections }: {
   types: CollectionTypeDescriptor[];
   selectedName?: string;
+  packsSelected?: boolean;
   leadingActions?: ReactNode;
   trailingActions?: ReactNode;
   onSelect: (name: string) => void;
+  onPacks: () => void;
   onCreate: () => void;
   onCollections: () => void;
 }) {
@@ -89,6 +116,13 @@ export function TypeList({ types, selectedName, leadingActions, trailingActions,
       <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search types" />
       {search && <button aria-label="Clear type search" onClick={() => setSearch("")}><X aria-hidden="true" /></button>}
     </label>
+    <nav className="type-resource-nav" aria-label="Type resources">
+      <button className={`type-pack-entry${packsSelected ? " selected" : ""}`} aria-current={packsSelected ? "page" : undefined} onClick={onPacks}>
+        <span className="type-row-icon"><Package aria-hidden="true" /></span>
+        <span className="type-row-copy"><strong>Add a type</strong><small>Start with a ready-made type</small></span>
+        <ChevronRight aria-hidden="true" />
+      </button>
+    </nav>
     <div className="type-list" role="listbox" aria-label="Collection types">
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
         <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
@@ -101,9 +135,64 @@ export function TypeList({ types, selectedName, leadingActions, trailingActions,
   </section>;
 }
 
-export function TypeInspector({ type, availableTypes = [], document, source, notes, creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBack }: {
+export function TypePackBrowser({ types, contracts, catalog, loading = false, error, canInstall = false, leadingActions, onInstall, onOpenType, onRequestAccess, onReload, onBack }: {
+  types: CollectionTypeDescriptor[];
+  contracts: CollectionContractDescriptor[];
+  catalog?: ContractCatalog;
+  loading?: boolean;
+  error?: string;
+  canInstall?: boolean;
+  leadingActions?: ReactNode;
+  onInstall?: (pack: ContractCatalogPack) => Promise<void>;
+  onOpenType?: (name: string) => void;
+  onRequestAccess?: () => void;
+  onReload?: () => void;
+  onBack: () => void;
+}) {
+  return <main className="type-inspector type-pack-browser" aria-label="Add a type">
+    <header className="type-inspector-bar">
+      <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+      {leadingActions}
+      <span>Collection resources</span>
+      <small>Catalog</small>
+    </header>
+    <section className="type-heading">
+      <p className="eyebrow">Collection resources</p>
+      <div className="type-heading-title">
+        <Package aria-hidden="true" />
+        <h1>Add a type</h1>
+      </div>
+      <p>Choose a ready-made type, then adapt its fields and contract mapping to fit your collection.</p>
+      <dl>
+        <div><dt>Types</dt><dd>{types.length}</dd></div>
+        <div><dt>Contracts</dt><dd>{contracts.length}</dd></div>
+      </dl>
+    </section>
+    <section className="type-pack-document">
+      <div className="type-pack-intro">
+        <h2>Ready-made types</h2>
+        <p>Adding one creates a new editable type. Existing files are never overwritten.</p>
+      </div>
+      <ContractCatalogBrowser
+        catalog={catalog}
+        contracts={contracts}
+        types={types}
+        loading={loading}
+        error={error}
+        canInstall={canInstall}
+        onInstall={onInstall}
+        onOpenType={onOpenType}
+        onRequestAccess={onRequestAccess}
+        onReload={onReload}
+      />
+    </section>
+  </main>;
+}
+
+export function TypeInspector({ type, availableTypes = [], contracts = [], document, source, notes, creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBrowsePacks, onBack }: {
   type?: CollectionTypeDescriptor;
   availableTypes?: CollectionTypeDescriptor[];
+  contracts?: CollectionContractDescriptor[];
   document?: TypeDocument;
   source: string;
   notes: NoteSummary[];
@@ -117,6 +206,7 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
   onRevert: () => void;
   onCancel: () => void;
   onCreate: () => void;
+  onBrowsePacks?: () => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<"visual" | "yaml">("visual");
@@ -124,6 +214,18 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
   const [visualError, setVisualError] = useState<string>();
   const dirty = creating ? source.trim().length > 0 : Boolean(document && source !== document.document);
   const parsed = useMemo(() => parseVisualType(source), [source]);
+  const contractState = useMemo(() => {
+    if (!parsed.value) return { implementations: [], issues: [] };
+    try {
+      return {
+        implementations: readTypeContractImplementations(source),
+        issues: validateTypeContractImplementations(source, contracts, type?.schema)
+      };
+    } catch {
+      return { implementations: [], issues: [] };
+    }
+  }, [contracts, parsed.value, source, type?.schema]);
+  const contractErrors = contractState.issues.filter((issue) => issue.level === "error");
   const impact = useMemo(() => parsed.value
     ? typeImpact(document?.document, source, notes, type?.name)
     : undefined, [document?.document, notes, parsed.value, source, type?.name]);
@@ -163,6 +265,7 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
       {!creating && <dl>
         <div><dt>Version</dt><dd>{type!.version ?? "Unversioned"}</dd></div>
         <div><dt>Properties</dt><dd>{propertyCount(type!)}</dd></div>
+        <div><dt>Contracts</dt><dd>{contractState.implementations.length}</dd></div>
         <div><dt>Extensions</dt><dd>{Object.keys(type!.extensions).length}</dd></div>
       </dl>}
     </section>
@@ -178,7 +281,7 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
           <div className="type-editor-actions">
             <span className="type-change-scope">Collection-wide change</span>
             <button className="type-secondary-action" onClick={creating ? onCancel : onRevert} disabled={saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value}>{saving ? "Saving…" : "Review changes"}</button>
+            <button className="save-type-button" onClick={() => setReviewing(true)} disabled={loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
           </div>
         </div>
       }
@@ -198,8 +301,13 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
             source={source}
             impact={impact}
             typeNames={availableTypes.map((candidate) => candidate.name)}
+            contracts={contracts}
+            typeSchema={type?.schema}
+            creating={creating}
+            contractIssues={contractState.issues}
             onChange={changeSource}
             onOpenYaml={() => setView("yaml")}
+            onBrowsePacks={onBrowsePacks}
           />
             : view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
               : <CodeEditor
@@ -215,14 +323,26 @@ export function TypeInspector({ type, availableTypes = [], document, source, not
   </main>;
 }
 
-function VisualTypeEditor({ definition, source, impact, typeNames, onChange, onOpenYaml }: {
+function VisualTypeEditor({ definition, source, impact, typeNames, contracts, typeSchema, creating, contractIssues, onChange, onOpenYaml, onBrowsePacks }: {
   definition: VisualTypeDefinition;
   source: string;
   impact?: TypeImpact;
   typeNames: string[];
+  contracts: CollectionContractDescriptor[];
+  typeSchema?: CollectionTypeDescriptor["schema"];
+  creating: boolean;
+  contractIssues: ContractValidationIssue[];
   onChange: (change: (source: string) => string) => void;
   onOpenYaml: () => void;
+  onBrowsePacks?: () => void;
 }) {
+  const [activeField, setActiveField] = useState<string>();
+  const linkedSchema = typeSchemaReference(source);
+  const linkedSchemaFields = linkedSchema
+    ? typeFieldsForContracts(source, typeSchema).filter((field) => !field.label.includes("."))
+    : [];
+  useEffect(() => setActiveField(undefined), [definition.name]);
+
   return <div className="visual-type-editor">
     <section className="visual-type-section visual-type-basics">
       <div className="visual-section-heading"><div><h3>Identity</h3><p>The stable name used by records and connected apps.</p></div></div>
@@ -231,10 +351,12 @@ function VisualTypeEditor({ definition, source, impact, typeNames, onChange, onO
         <label><span>Description</span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
       </div>
     </section>
-    <section className="visual-type-section type-match-section">
-      <div className="visual-section-heading">
-        <div><h3>Type membership</h3><p>{impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed {impact?.affectedNotes === 1 ? "note resolves" : "notes resolve"} to this type.</p></div>
-      </div>
+    <TypeEditorDisclosure
+      className="type-match-section"
+      title="Type membership"
+      description={`${impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed ${impact?.affectedNotes === 1 ? "note resolves" : "notes resolve"} to this type.`}
+      summary={typeMembershipSummary(definition)}
+    >
       <div className="type-membership-guide">
         <Info aria-hidden="true" />
         <div>
@@ -270,14 +392,46 @@ function VisualTypeEditor({ definition, source, impact, typeNames, onChange, onO
         <div><strong>More inferred rules in YAML</strong><p>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</p></div>
         <button onClick={onOpenYaml}>Open YAML</button>
       </div>}
-    </section>
+    </TypeEditorDisclosure>
     <section className="visual-type-section">
-      <div className="visual-type-fields-heading"><div><h3>Fields</h3><p>Objects and lists can contain fields at any depth.</p></div><button onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button></div>
+      <div className="visual-type-fields-heading">
+        <div>
+          <h3>Fields</h3>
+          <p>{linkedSchema
+            ? `${linkedSchemaFields.length} ${linkedSchemaFields.length === 1 ? "field is" : "fields are"} supplied by the installed schema.`
+            : "Objects and lists can contain fields at any depth."}</p>
+        </div>
+        {linkedSchema
+          ? <button onClick={onOpenYaml}><FileCode2 aria-hidden="true" />Edit reference</button>
+          : <button onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button>}
+      </div>
       <div className="visual-field-columns" aria-hidden="true"><span>Field</span><span>Kind</span><span>Required</span><span /></div>
     </section>
     <div className="visual-type-fields">
-      {definition.fields.map((field) => <VisualFieldRow key={typeFieldPathLabel(field.path)} field={field} source={source} depth={0} onChange={onChange} />)}
-      {!definition.fields.length && <p className="quiet-empty">No fields are declared yet.</p>}
+      {linkedSchema ? <>
+        <div className="linked-schema-notice">
+          <Link2 aria-hidden="true" />
+          <div><strong>Schema-managed fields</strong><p><code>{linkedSchema}</code> is installed with this type. Field structure is edited at the schema source.</p></div>
+        </div>
+        {linkedSchemaFields.map((field) => <div className="linked-schema-field" key={field.reference}>
+          <div><code>{field.label}</code>{field.description && <small>{field.description}</small>}</div>
+          <span>{kindName(field.kind)}</span>
+          <span className={field.required ? "required" : ""}>{field.required ? "Required" : "Optional"}</span>
+          <Link2 aria-label="Linked schema field" />
+        </div>)}
+        {!linkedSchemaFields.length && <p className="quiet-empty">The linked schema does not expose object fields.</p>}
+      </> : <>
+        {definition.fields.map((field) => <VisualFieldRow
+          key={typeFieldPathLabel(field.path)}
+          field={field}
+          source={source}
+          depth={0}
+          activeField={activeField}
+          onActivate={setActiveField}
+          onChange={onChange}
+        />)}
+        {!definition.fields.length && <p className="quiet-empty">No fields are declared yet.</p>}
+      </>}
     </div>
     <CollectionBehaviourEditor
       definition={definition}
@@ -285,7 +439,467 @@ function VisualTypeEditor({ definition, source, impact, typeNames, onChange, onO
       onChange={onChange}
       onOpenYaml={onOpenYaml}
     />
+    <ContractEditor
+      source={source}
+      contracts={contracts}
+      typeSchema={typeSchema}
+      creating={creating}
+      typeNames={typeNames}
+      issues={contractIssues}
+      onChange={onChange}
+      onOpenYaml={onOpenYaml}
+      onBrowsePacks={onBrowsePacks}
+    />
     <p className="visual-type-footnote">Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it.</p>
+  </div>;
+}
+
+function TypeEditorDisclosure({ className = "", title, description, summary, attention = false, children }: {
+  className?: string;
+  title: string;
+  description: string;
+  summary: string;
+  attention?: boolean;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  return <details className={`visual-type-section type-editor-disclosure ${className}${attention ? " needs-attention" : ""}`}>
+    <summary aria-labelledby={titleId}>
+      <span className="type-disclosure-heading">
+        <span className="type-disclosure-title" id={titleId} role="heading" aria-level={3}>{title}</span>
+        <span className="type-disclosure-description">{description}</span>
+      </span>
+      <span className="type-disclosure-summary">{summary}</span>
+      <ChevronRight aria-hidden="true" />
+    </summary>
+    <div className="type-disclosure-body">{children}</div>
+  </details>;
+}
+
+function ContractEditor({ source, contracts, typeSchema, creating, typeNames, issues, onChange, onOpenYaml, onBrowsePacks }: {
+  source: string;
+  contracts: CollectionContractDescriptor[];
+  typeSchema?: CollectionTypeDescriptor["schema"];
+  creating: boolean;
+  typeNames: string[];
+  issues: ContractValidationIssue[];
+  onChange: (change: (source: string) => string) => void;
+  onOpenYaml: () => void;
+  onBrowsePacks?: () => void;
+}) {
+  const implementations = useMemo(() => readTypeContractImplementations(source), [source]);
+  const implementedKeys = new Set(implementations.map((implementation) => `${implementation.contract}@${implementation.version}`));
+  const available = contracts.filter((contract) => !implementedKeys.has(contractKey(contract)));
+  const suggestions = useMemo(
+    () => suggestContractsForType(source, contracts, typeSchema).slice(0, 3),
+    [contracts, source, typeSchema]
+  );
+  const typeFields = useMemo(() => typeFieldsForContracts(source, typeSchema), [source, typeSchema]);
+  const implementationIndexes = new Set(implementations.map((implementation) => implementation.sourceIndex));
+  const globalIssues = issues.filter((issue) =>
+    issue.implementationIndex === undefined || !implementationIndexes.has(issue.implementationIndex));
+  const [selectedKey, setSelectedKey] = useState("");
+  const [openMappings, setOpenMappings] = useState<Set<string>>(() => new Set());
+  const selected = available.find((contract) => contractKey(contract) === selectedKey) ?? available[0];
+  const contractErrors = issues.filter((issue) => issue.level === "error").length;
+
+  useEffect(() => {
+    if (!available.length) {
+      setSelectedKey("");
+      return;
+    }
+    if (!available.some((contract) => contractKey(contract) === selectedKey)) {
+      setSelectedKey(contractKey(available[0]));
+    }
+  }, [available.map(contractKey).join("\u0000"), selectedKey]);
+
+  function addContract(contract: CollectionContractDescriptor) {
+    onChange((current) => addTypeContractImplementation(current, contract, typeSchema));
+  }
+
+  const contractSummary = contractErrors
+    ? `${contractErrors} ${contractErrors === 1 ? "issue" : "issues"} need attention`
+    : implementations.length
+      ? `${implementations.length} implemented`
+      : contracts.length
+        ? "None implemented"
+        : "No contracts installed";
+
+  return <TypeEditorDisclosure
+    className="type-contracts-section"
+    title="Data contracts"
+    description="Expose a stable, normalized view to connected applications."
+    summary={contractSummary}
+    attention={contractErrors > 0}
+  >
+
+    {!contracts.length && <div className="contract-empty">
+      <Link2 aria-hidden="true" />
+      <div><strong>No contracts are installed</strong><p>Install a ready-made type pack first, then map another type only when you need a custom implementation.</p></div>
+      {onBrowsePacks && <button onClick={onBrowsePacks}>Browse ready-made types</button>}
+    </div>}
+
+    {contracts.length > 0 && creating && implementations.length === 0 && <div className="contract-starter">
+      <div><strong>Start from a contract</strong><p>Replace the draft fields with the contract schema and create one-to-one mappings.</p></div>
+      <label><span>Contract</span><select
+        aria-label="Starting contract"
+        value={selected ? contractKey(selected) : ""}
+        onChange={(event) => setSelectedKey(event.target.value)}
+      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</select></label>
+      <button disabled={!selected} onClick={() => selected && onChange((current) => createTypeSourceFromContract(current, selected, typeNames))}>Use contract</button>
+    </div>}
+
+    {implementations.length > 0 && <div className="contract-implementation-list">
+      {implementations.map((implementation) => {
+        const implementationKey = `${implementation.contract}@${implementation.version}:${implementation.sourceIndex}`;
+        const contract = contracts.find((candidate) =>
+          candidate.id === implementation.contract && candidate.version === implementation.version);
+        const implementationIssues = issues.filter((issue) => issue.implementationIndex === implementation.sourceIndex);
+        const errors = implementationIssues.filter((issue) => issue.level === "error");
+        const warnings = implementationIssues.filter((issue) => issue.level === "warning");
+        const fields = contract ? contractFields(contract) : [];
+        const mappedCount = fields.filter((field) => mappingForContractField(implementation, field)).length;
+        const requiredFields = fields.filter((field) => field.required);
+        const requiredMapped = requiredFields.filter((field) =>
+          mappingForContractField(implementation, field)).length;
+        return <article className="contract-implementation" key={implementationKey}>
+          <header>
+            <div className={`contract-status${errors.length ? " invalid" : warnings.length ? " review" : ""}`}>
+              {errors.length || warnings.length ? <CircleAlert aria-hidden="true" /> : <Check aria-hidden="true" />}
+              <span>{errors.length ? "Needs attention" : warnings.length ? "Review recommended" : "Mapping ready"}</span>
+            </div>
+            <div className="contract-identity">
+              <strong>{implementation.contract}</strong>
+              <span>{implementation.version}</span>
+            </div>
+            <button
+              className="contract-remove"
+              aria-label={`Remove ${implementation.contract} contract`}
+              onClick={() => onChange((current) => removeTypeContractImplementation(current, implementation.contract, implementation.version))}
+            ><Trash2 aria-hidden="true" />Remove</button>
+          </header>
+          {!contract ? <div className="contract-unavailable">
+            <p>This exact contract is not available in the collection. Restore it or remove the implementation before saving.</p>
+            <button onClick={onOpenYaml}>Open YAML</button>
+          </div> : <>
+            <details
+              open={errors.length > 0 || openMappings.has(implementationKey)}
+              onToggle={(event) => {
+                if (errors.length > 0) return;
+                const open = event.currentTarget.open;
+                setOpenMappings((current) => {
+                  const next = new Set(current);
+                  if (open) next.add(implementationKey);
+                  else next.delete(implementationKey);
+                  return next;
+                });
+              }}
+            >
+              <summary>
+                <span>Field mappings</span>
+                <small>{requiredMapped}/{requiredFields.length} required · {mappedCount}/{fields.length} total{warnings.length ? ` · ${warnings.length} to review` : ""}</small>
+                <ChevronRight aria-hidden="true" />
+              </summary>
+              {fields.length ? <div className="contract-mapping-list">
+                <div className="contract-mapping-overview">
+                  <div><strong>{requiredMapped === requiredFields.length ? "Required fields covered" : `${requiredFields.length - requiredMapped} required ${requiredFields.length - requiredMapped === 1 ? "field" : "fields"} unmapped`}</strong><span>A mapping copies the source value directly. It does not coerce or transform data.</span></div>
+                  <dl>
+                    <div><dt>Required</dt><dd>{requiredMapped}/{requiredFields.length}</dd></div>
+                    <div><dt>Optional</dt><dd>{mappedCount - requiredMapped}/{fields.length - requiredFields.length}</dd></div>
+                  </dl>
+                </div>
+                <div className="contract-mapping-columns" aria-hidden="true"><span>Contract field</span><span>Source field</span><span>Validation</span></div>
+                {fields.map((field) => {
+                  const mapped = mappingForContractField(implementation, field);
+                  const fieldIssue = implementationIssues.find((issue) => issue.field === field.reference);
+                  const mappedField = matchingContractTypeField(typeFields, mapped);
+                  const assessment = assessContractFieldMapping(field, mappedField);
+                  const displayed = fieldIssue
+                    ? {
+                        level: fieldIssue.level,
+                        label: fieldIssue.level === "error" ? "Fix mapping" : "Review",
+                        message: fieldIssue.message
+                      }
+                    : assessment;
+                  const options = typeFields.map((option) => ({
+                    option,
+                    assessment: assessContractFieldMapping(field, option)
+                  }));
+                  const compatible = options.filter((option) => option.assessment.level === "valid");
+                  const review = options.filter((option) => option.assessment.level === "warning");
+                  const incompatible = options.filter((option) => option.assessment.level === "error");
+                  const mappedMissing = Boolean(mapped) && !mappedField;
+                  return <div className={`contract-mapping-row ${displayed.level}`} key={field.reference}>
+                    <div className="contract-field-definition">
+                      <div><code>{field.reference}</code><span className={field.required ? "required" : ""}>{field.required ? "Required" : "Optional"}</span></div>
+                      <small>{field.description || `${kindName(field.kind)} value`}</small>
+                    </div>
+                    <label className="contract-field-source">
+                      <span className="sr-only">{implementation.contract} {field.reference} source field</span>
+                      <select
+                        aria-label={`${implementation.contract} ${field.reference} type field`}
+                        value={mapped}
+                        onChange={(event) => onChange((current) => setTypeContractFieldMapping(
+                          current,
+                          implementation.contract,
+                          implementation.version,
+                          field.reference,
+                          event.target.value || undefined
+                        ))}
+                      >
+                        <option value="">{field.required ? "Choose a source field" : "Not exposed"}</option>
+                        {mappedMissing && <option value={mapped}>Missing field: {mapped}</option>}
+                        <MappingOptionGroup label="Compatible fields" options={compatible} />
+                        <MappingOptionGroup label="Needs review" options={review} />
+                        <MappingOptionGroup label="Incompatible fields" options={incompatible} disabled />
+                      </select>
+                      {mappedField && <small>{kindName(mappedField.kind)} · {mappedField.required ? "always present" : "optional in this type"}</small>}
+                    </label>
+                    <div className={`contract-mapping-validation ${displayed.level}`} role={displayed.level === "error" ? "alert" : undefined}>
+                      {displayed.level === "valid"
+                        ? <Check aria-hidden="true" />
+                        : displayed.level === "unmapped"
+                          ? <span className="contract-status-dot" aria-hidden="true" />
+                          : <CircleAlert aria-hidden="true" />}
+                      <span><strong>{displayed.label}</strong><small>{displayed.message}</small></span>
+                    </div>
+                  </div>;
+                })}
+              </div> : <div className="contract-composed-schema">
+                <p>This contract does not expose simple top-level properties. Configure its field references in YAML.</p>
+                <button onClick={onOpenYaml}>Open YAML</button>
+              </div>}
+            </details>
+            {contract.binding_schema && <div className="contract-binding-note">
+              <Info aria-hidden="true" />
+              <p>This contract defines implementation settings. Configure its <code>binding</code> object in YAML.</p>
+              <button onClick={onOpenYaml}>Open YAML</button>
+            </div>}
+          </>}
+          {implementationIssues.filter((issue) => !issue.field).map((issue, index) =>
+            <p className={`contract-issue ${issue.level}`} role={issue.level === "error" ? "alert" : undefined} key={`${issue.message}:${index}`}>{issue.message}</p>)}
+        </article>;
+      })}
+    </div>}
+
+    {available.length > 0 && (!creating || implementations.length > 0) && <div className="contract-add">
+      <label><span>Installed contract</span><select
+        aria-label="Installed contract"
+        value={selected ? contractKey(selected) : ""}
+        onChange={(event) => setSelectedKey(event.target.value)}
+      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</select></label>
+      <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Implement contract</button>
+    </div>}
+
+    {suggestions.length > 0 && <div className="contract-suggestions">
+      <div className="contract-suggestion-heading"><div><strong>Possible matches</strong><p>Suggested from field names and shapes only. Confirm that the semantics agree.</p></div></div>
+      {suggestions.map((suggestion) => <div className="contract-suggestion" key={contractKey(suggestion.contract)}>
+        <div><strong>{suggestion.contract.id}</strong><span>{suggestion.contract.version}</span></div>
+        <p>{suggestion.matchedFields} of {suggestion.totalFields} fields match{suggestion.requiredFields ? `, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
+        <button onClick={() => addContract(suggestion.contract)}>Review mapping</button>
+      </div>)}
+    </div>}
+
+    {globalIssues.length > 0 && <div className="contract-global-issues">
+      {globalIssues.map((issue, index) =>
+        <p role={issue.level === "error" ? "alert" : undefined} key={`${issue.message}:${index}`}>{issue.message}</p>)}
+      <button onClick={onOpenYaml}>Open YAML</button>
+    </div>}
+  </TypeEditorDisclosure>;
+}
+
+function MappingOptionGroup({ label, options, disabled = false }: {
+  label: string;
+  options: Array<{
+    option: ContractTypeField;
+    assessment: ReturnType<typeof assessContractFieldMapping>;
+  }>;
+  disabled?: boolean;
+}) {
+  if (!options.length) return null;
+  return <optgroup label={label}>
+    {options.map(({ option }) =>
+      <option disabled={disabled} key={option.reference} value={option.reference}>
+        {option.label} · {kindName(option.kind)}{option.required ? " · required" : ""}
+      </option>)}
+  </optgroup>;
+}
+
+function matchingContractTypeField(
+  fields: ContractTypeField[],
+  reference: string
+): ContractTypeField | undefined {
+  if (!reference) return undefined;
+  const normalized = reference.startsWith("/")
+    ? reference.slice(1).split("/")
+      .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+      .join(".")
+    : reference;
+  return fields.find((field) =>
+    field.reference === reference
+    || field.label === reference
+    || field.label === normalized);
+}
+
+function ContractCatalogBrowser({ catalog, contracts, types, loading, error, canInstall, onInstall, onOpenType, onRequestAccess, onReload }: {
+  catalog?: ContractCatalog;
+  contracts: CollectionContractDescriptor[];
+  types: CollectionTypeDescriptor[];
+  loading: boolean;
+  error?: string;
+  canInstall: boolean;
+  onInstall?: (pack: ContractCatalogPack) => Promise<void>;
+  onOpenType?: (name: string) => void;
+  onRequestAccess?: () => void;
+  onReload?: () => void;
+}) {
+  const [confirmingKey, setConfirmingKey] = useState<string>();
+  const [installingKey, setInstallingKey] = useState<string>();
+  const [installError, setInstallError] = useState<{ key: string; message: string }>();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  async function install(pack: ContractCatalogPack) {
+    if (!onInstall) return;
+    const key = `${pack.id}@${pack.version}`;
+    setInstallingKey(key);
+    setInstallError(undefined);
+    try {
+      await onInstall(pack);
+      setConfirmingKey(undefined);
+    } catch (error) {
+      setInstallError({
+        key,
+        message: error instanceof Error ? error.message : "The type pack could not be installed."
+      });
+    } finally {
+      setInstallingKey(undefined);
+    }
+  }
+
+  const visiblePacks = catalog?.packs.filter((pack) => pack.visibility !== "hidden") ?? [];
+  const standardPacks = visiblePacks.filter((pack) => pack.visibility === "default");
+  const advancedPacks = visiblePacks.filter((pack) => pack.visibility === "advanced");
+
+  function renderPack(pack: ContractCatalogPack) {
+    const key = `${pack.id}@${pack.version}`;
+    const status = contractCatalogPackStatus(pack, contracts, types);
+    const statusLabel = status === "installed"
+      ? pack.primaryType ? `${pack.displayName} added` : "Installed"
+      : status === "partial"
+        ? "Partly installed"
+        : pack.installedTypes.length === 1
+          ? "Adds 1 type"
+          : `Adds ${pack.installedTypes.length} types`;
+    const confirming = confirmingKey === key;
+    const installing = installingKey === key;
+    const addLabel = status === "partial"
+      ? `Finish adding ${pack.displayName}`
+      : pack.primaryType
+        ? `Add ${pack.displayName}`
+        : "Install runtime pack";
+    const icon = isPhosphorIconName(pack.icon)
+      ? <PhosphorIcon name={pack.icon} aria-hidden="true" />
+      : <Package aria-hidden="true" />;
+    const primaryTypeLabel = pack.installedTypes
+      .find(({ name }) => name === pack.primaryType)?.label ?? pack.displayName;
+    const confirmationCopy = pack.primaryType
+      ? `Creates a ready-to-use ${primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts.`
+      : `Adds ${pack.installedTypes.length} internal types and ${pack.resourceCount} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts.`;
+
+    return <div className={`contract-catalog-pack ${pack.visibility}`} key={key}>
+      <div className="contract-catalog-pack-summary">
+        <span className="contract-catalog-pack-icon">{icon}</span>
+        <div className="contract-catalog-pack-copy">
+          <div className="contract-catalog-pack-title">
+            <strong>{pack.displayName}</strong>
+            {pack.badges.map((badge) => <span key={badge}>{badge}</span>)}
+          </div>
+          <p>{pack.summary}</p>
+          <div className={`contract-catalog-pack-status ${status}`}>
+            {status === "installed" && <Check aria-hidden="true" />}
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+        <div className="contract-catalog-pack-actions">
+          {status === "installed" && pack.primaryType && onOpenType
+            ? <button onClick={() => onOpenType(pack.primaryType!)}>Open {primaryTypeLabel}</button>
+            : status !== "installed" && onInstall && (canInstall
+              ? <button
+                  disabled={installing}
+                  onClick={() => {
+                    setInstallError(undefined);
+                    setConfirmingKey(key);
+                  }}
+                >{addLabel}</button>
+              : onRequestAccess && <button onClick={onRequestAccess}>Allow installs</button>)}
+        </div>
+      </div>
+      {pack.caution && <div className="contract-catalog-pack-caution">
+        <CircleAlert aria-hidden="true" />
+        <p>{pack.caution}</p>
+      </div>}
+      <details className="contract-catalog-pack-details">
+        <summary>Technical details</summary>
+        <div>
+          <p><span>Pack</span><code>{pack.id}@{pack.version}</code></p>
+          <p><span>Contents</span>{pack.provides.length} {pack.provides.length === 1 ? "contract" : "contracts"} · {pack.resourceCount} resources</p>
+          <a href={pack.provisionUrl} target="_blank" rel="noreferrer">View pack JSON</a>
+        </div>
+      </details>
+      {confirming && <div className="contract-catalog-install-confirm" role="alert">
+        <div>
+          <strong>{addLabel}?</strong>
+          <p>{confirmationCopy}</p>
+        </div>
+        <button disabled={installing} onClick={() => setConfirmingKey(undefined)}>Cancel</button>
+        <button className="confirm-pack-install" disabled={installing} onClick={() => void install(pack)}>
+          {installing ? "Installing…" : addLabel}
+        </button>
+      </div>}
+      {installError?.key === key && <div className="contract-catalog-install-error" role="alert">
+        <div><strong>Couldn’t install {pack.displayName}</strong><p>{installError.message}</p></div>
+        <button onClick={() => setConfirmingKey(key)}>Try again</button>
+      </div>}
+    </div>;
+  }
+
+  return <div className="contract-catalog">
+    <div className="contract-catalog-heading">
+      <div>
+        <strong>{catalog ? `From ${catalog.publisher.name}` : "mdbase catalog"}</strong>
+        <p>Each choice includes its portable contract and an editable local mapping.</p>
+      </div>
+      {catalog && <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">Catalog source</a>}
+    </div>
+    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">
+      <span /><span /><span />
+    </div>}
+    {error && !loading && <div className="contract-catalog-error" role="alert">
+      <div><strong>Catalog unavailable</strong><p>{error}</p></div>
+      {onReload && <button onClick={onReload}>Try again</button>}
+    </div>}
+    {catalog && !loading && <div className="contract-catalog-packs">
+      {standardPacks.map(renderPack)}
+      {!standardPacks.length && !advancedPacks.length
+        && <p className="quiet-empty">The catalog has no published types.</p>}
+      {advancedPacks.length > 0 && <section className="contract-catalog-advanced">
+        <button
+          className="contract-catalog-advanced-toggle"
+          aria-expanded={showAdvanced}
+          onClick={() => setShowAdvanced((current) => !current)}
+        >
+          <span>
+            <strong>Developer and infrastructure packs</strong>
+            <small>For integrations and specialised setups</small>
+          </span>
+          <span>{advancedPacks.length}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+        {showAdvanced && <div className="contract-catalog-advanced-packs">
+          {advancedPacks.map(renderPack)}
+        </div>}
+      </section>}
+    </div>}
   </div>;
 }
 
@@ -319,10 +933,12 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
     ...collection.path.advancedKeys.map((key) => `Path: ${collectionRuleLabel(key)}`)
   ];
 
-  return <section className="visual-type-section collection-behaviour-section">
-    <div className="visual-section-heading">
-      <div><h3>Collection behaviour</h3><p>How this type appears and behaves across compatible tools.</p></div>
-    </div>
+  return <TypeEditorDisclosure
+    className="collection-behaviour-section"
+    title="Collection behaviour"
+    description="How this type appears and behaves across compatible tools."
+    summary={collectionBehaviourSummary(definition)}
+  >
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
@@ -512,7 +1128,36 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
       <div><strong>More collection behaviour in YAML</strong><p>{advancedKeys.join(" · ")}. These settings remain intact.</p></div>
       <button onClick={onOpenYaml}>Open YAML</button>
     </div>}
-  </section>;
+  </TypeEditorDisclosure>;
+}
+
+function typeMembershipSummary(definition: VisualTypeDefinition): string {
+  const rules = [
+    countSummary(definition.pathGlobs.length, "path pattern"),
+    countSummary(definition.fieldsPresent.length, "field selector"),
+    countSummary(definition.advancedMatchKeys.length, "YAML rule")
+  ].filter((value): value is string => Boolean(value));
+  return rules.length ? rules.join(" · ") : "Explicit declarations only";
+}
+
+function collectionBehaviourSummary(definition: VisualTypeDefinition): string {
+  const collection = definition.collection;
+  const displayConfigured = Object.values(collection.display).some(Boolean);
+  const pathConfigured = Boolean(collection.path.pattern || collection.path.folder || collection.path.template);
+  const settings = [
+    displayConfigured ? "Display" : undefined,
+    countSummary(collection.readDefaults.length, "default"),
+    countSummary(collection.links.length, "link"),
+    countSummary(collection.unique.length, "unique rule"),
+    pathConfigured ? "Path policy" : undefined,
+    countSummary(collection.advancedKeys.length + collection.path.advancedKeys.length, "YAML setting")
+  ].filter((value): value is string => Boolean(value));
+  return settings.length ? settings.join(" · ") : "No custom behaviour";
+}
+
+function countSummary(count: number, singular: string): string | undefined {
+  if (!count) return undefined;
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 const FEATURED_PHOSPHOR_ICONS = [
@@ -810,30 +1455,32 @@ function collectionRuleLabel(key: string): string {
   return key.replaceAll("_", " ");
 }
 
-function VisualFieldRow({ field, source, depth, onChange }: {
+function VisualFieldRow({ field, source, depth, activeField, onActivate, onChange }: {
   field: TypeFieldDefinition;
   source: string;
   depth: number;
+  activeField?: string;
+  onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
-  const [expanded, setExpanded] = useState(field.kind === "object" || field.kind === "array");
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
   const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
   const fieldLabel = typeFieldPathLabel(field.path);
+  const expanded = fieldBranchIsActive(activeField, fieldLabel);
   function chooseKind(kind: TypeFieldKind) {
     if (kind === "advanced" || kind === field.kind) return;
     const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
     if (typeFieldConversionImpact(source, field.path, nextKind).length) {
       setPendingKind(nextKind);
-      setExpanded(true);
+      onActivate(fieldLabel);
     } else {
       onChange((current) => setTypeFieldKind(current, field.path, nextKind));
-      if (nextKind === "object" || nextKind === "array") setExpanded(true);
+      if (nextKind === "object" || nextKind === "array") onActivate(fieldLabel);
     }
   }
   return <div className="visual-field-branch" style={{ "--field-depth": depth } as CSSProperties}>
     <div className="visual-field-row">
-      <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+      <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className="visual-field-name"><span className="sr-only">Field name</span><input defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
@@ -856,29 +1503,41 @@ function VisualFieldRow({ field, source, depth, onChange }: {
       </div>}
       <label className="field-description"><span>Description</span><input aria-label={`${fieldLabel} description`} value={field.description ?? ""} placeholder="What belongs in this field?" onChange={(event) => onChange((current) => setTypeFieldDescription(current, field.path, event.target.value))} /></label>
       <FieldConstraints field={field} onChange={onChange} />
-      {field.kind === "object" && <ObjectFields node={field} source={source} depth={depth + 1} onChange={onChange} />}
-      {field.kind === "array" && field.item && <ListItemEditor item={field.item} source={source} depth={depth + 1} onChange={onChange} />}
+      {field.kind === "object" && <ObjectFields node={field} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
+      {field.kind === "array" && field.item && <ListItemEditor item={field.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
     </div>}
   </div>;
 }
 
-function ObjectFields({ node, source, depth, onChange }: {
+function ObjectFields({ node, source, depth, activeField, onActivate, onChange }: {
   node: TypeSchemaNode;
   source: string;
   depth: number;
+  activeField?: string;
+  onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
   return <div className="nested-field-group">
     <div className="nested-field-heading"><div><strong>Nested fields</strong><span>{node.constraints.additionalProperties === false ? "Only declared fields are allowed" : "Other fields are allowed"}</span></div><button onClick={() => onChange((current) => addTypeField(current, node.path))}><Plus aria-hidden="true" />Add nested field</button></div>
-    {node.fields.map((field) => <VisualFieldRow key={typeFieldPathLabel(field.path)} field={field} source={source} depth={depth} onChange={onChange} />)}
+    {node.fields.map((field) => <VisualFieldRow
+      key={typeFieldPathLabel(field.path)}
+      field={field}
+      source={source}
+      depth={depth}
+      activeField={activeField}
+      onActivate={onActivate}
+      onChange={onChange}
+    />)}
     {!node.fields.length && <p className="nested-field-empty">No nested fields yet.</p>}
   </div>;
 }
 
-function ListItemEditor({ item, source, depth, onChange }: {
+function ListItemEditor({ item, source, depth, activeField, onActivate, onChange }: {
   item: TypeSchemaNode;
   source: string;
   depth: number;
+  activeField?: string;
+  onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
@@ -904,10 +1563,16 @@ function ListItemEditor({ item, source, depth, onChange }: {
         setPendingKind(undefined);
       }}>Convert items</button>
     </div>}
-    {item.kind === "object" && <ObjectFields node={item} source={source} depth={depth} onChange={onChange} />}
-    {item.kind === "array" && item.item && <ListItemEditor item={item.item} source={source} depth={depth + 1} onChange={onChange} />}
+    {item.kind === "object" && <ObjectFields node={item} source={source} depth={depth} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
+    {item.kind === "array" && item.item && <ListItemEditor item={item.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
     {item.advancedKeys.length > 0 && <p className="advanced-item-note">Additional item rules remain in YAML.</p>}
   </div>;
+}
+
+function fieldBranchIsActive(activeField: string | undefined, field: string): boolean {
+  return activeField === field
+    || Boolean(activeField?.startsWith(`${field}.`))
+    || Boolean(activeField?.startsWith(`${field}[]`));
 }
 
 function KindOptions({ current }: { current: TypeFieldKind }) {
@@ -1209,6 +1874,12 @@ function kindLabel(kind: Exclude<TypeFieldKind, "advanced">): string {
     datetime: "a date and time"
   };
   return labels[kind];
+}
+
+function kindName(kind: TypeFieldKind): string {
+  if (kind === "advanced") return "Advanced";
+  const label = kindLabel(kind);
+  return `${label.charAt(0).toLocaleUpperCase()}${label.slice(1)}`;
 }
 
 function formatList(values: string[]): string {

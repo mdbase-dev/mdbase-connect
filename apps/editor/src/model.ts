@@ -11,8 +11,11 @@ import type {
   MdbaseConnectionRoute,
   RecordDocument,
   QueryRecord,
+  TypePackProvision,
   WatchStatus
 } from "@mdbase/connect";
+
+export type TypePackInstallResult = import("@mdbase/connect").TypePackInstallResult;
 
 export type NoteFrontmatter = JsonObject;
 
@@ -117,6 +120,7 @@ export interface CollectionGateway {
   readType(name: string): Promise<CollectionTypeDocument>;
   createType(document: string): Promise<CollectionTypeDocument>;
   updateType(document: CollectionTypeDocument, source: string): Promise<CollectionTypeDocument>;
+  installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult>;
   watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void>;
 }
 

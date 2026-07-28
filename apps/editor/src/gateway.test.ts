@@ -199,6 +199,49 @@ describe("ConnectCollectionGateway recovery operations", () => {
     }, {});
   });
 
+  it("installs a complete type pack through one collection operation", async () => {
+    const installTypePack = vi.fn(async () => ({
+      valid: true,
+      diagnostics: [],
+      result: {
+        id: "example.contacts",
+        version: "1.0.0",
+        resources: [{
+          target: "_types/contact.md",
+          action: "create",
+          digest: `sha256:${"1".repeat(64)}`
+        }],
+        cleanup_deferred: false
+      }
+    }));
+    const provision = {
+      manifest: {
+        kind: "mdbase.type-pack" as const,
+        id: "example.contacts",
+        version: "1.0.0",
+        resources: [{
+          kind: "type" as const,
+          source: "types/contact.md",
+          target: "_types/contact.md",
+          digest: `sha256:${"1".repeat(64)}`
+        }]
+      },
+      resources: [{
+        source: "types/contact.md",
+        document: "---\nkind: mdbase.type\nname: contact\n---\n"
+      }],
+      provides: []
+    };
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { installTypePack });
+
+    await expect(gateway.installTypePack(provision)).resolves.toMatchObject({
+      id: "example.contacts",
+      resources: [{ target: "_types/contact.md", action: "create" }]
+    });
+    expect(installTypePack).toHaveBeenCalledWith(provision);
+  });
+
   it("maps canonical mutation preflight impact to editor-safe paths", async () => {
     const preflightRename = vi.fn(async () => ({
       valid: true,

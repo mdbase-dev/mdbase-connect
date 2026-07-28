@@ -9,7 +9,8 @@ import {
   type JsonObject,
   type MdbaseDiagnostic,
   type QueryRecord,
-  type QueryResult
+  type QueryResult,
+  type TypePackProvision
 } from "@mdbase/connect";
 import { persistedBody, titlePatch } from "./note";
 import type {
@@ -23,7 +24,8 @@ import type {
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
-  SaveNoteInput
+  SaveNoteInput,
+  TypePackInstallResult
 } from "./model";
 
 export const CORE_COLLECTION_OPERATIONS: CollectionOperation[] = [
@@ -44,9 +46,12 @@ export const TYPE_DEFINITION_OPERATIONS: CollectionOperation[] = [
   "update_type"
 ];
 
+const INSTALL_TYPE_PACK_OPERATION: CollectionOperation = "install_type_pack";
+
 export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
   ...CORE_COLLECTION_OPERATIONS,
-  ...TYPE_DEFINITION_OPERATIONS
+  ...TYPE_DEFINITION_OPERATIONS,
+  INSTALL_TYPE_PACK_OPERATION
 ];
 
 export function missingCoreOperations(connection: ConnectionSummary | null): string[] {
@@ -371,6 +376,10 @@ export class ConnectCollectionGateway implements CollectionGateway {
       document,
       if_revision: current.revision
     }));
+  }
+
+  async installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult> {
+    return unwrapOperation(await this.requireConnection().installTypePack(provision));
   }
 
   async watch(onChange: (change: import("@mdbase/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase/connect").WatchStatus) => void): Promise<void> {

@@ -690,6 +690,7 @@ function definitionChanges(previousSource: string | undefined, nextSource: strin
   if (previous.value.name !== next.value.name) changes.push("Type name");
   if (previous.value.description !== next.value.description) changes.push("Description");
   if (JSON.stringify(previous.value.match) !== JSON.stringify(next.value.match)) changes.push("Matching rules");
+  if (JSON.stringify(previous.value.implements) !== JSON.stringify(next.value.implements)) changes.push("Data contracts");
   if (JSON.stringify(previous.value.collection) !== JSON.stringify(next.value.collection)) changes.push("Collection behaviour");
   if (JSON.stringify(previous.value.lifecycle) !== JSON.stringify(next.value.lifecycle)) changes.push("Lifecycle");
   if (JSON.stringify(schemaEnvelope(previous.value)) !== JSON.stringify(schemaEnvelope(next.value))) changes.push("Schema settings");
