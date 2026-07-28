@@ -64,7 +64,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <FactRow label="Collection ID" value={description.collection_id} mono />
         <div className="setting-row connection-action">
           <div><h3>Saved access</h3><p>Remove this collection from the editor without changing its files.</p></div>
-          <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget collection</button>
+          <button className="settings-danger-action" onClick={onForget}><Trash2 aria-hidden="true" />Forget from this browser</button>
         </div>
       </section>
     </div>

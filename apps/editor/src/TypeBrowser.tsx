@@ -108,8 +108,8 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
       <button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>
       {leadingActions}
       <div><h1>Types</h1><p>{types.length} {types.length === 1 ? "definition" : "definitions"}</p></div>
-      <button className="icon-button new-type-button" aria-label="New type" title="New type" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>
       {trailingActions}
+      <button className="icon-button new-type-button" aria-label="New type" title="New type" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button>
     </header>
     <label className="search-field">
       <Search aria-hidden="true" /><span className="sr-only">Search types</span>

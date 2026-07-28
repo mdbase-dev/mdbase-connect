@@ -58,8 +58,8 @@ describe("mdbase editor", () => {
     });
 
     await user.click(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByRole("button", { name: "Settings" }));
-    await user.click(screen.getByRole("button", { name: "Forget collection" }));
-    expect(screen.getByRole("alertdialog", { name: "Forget “Writing”?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Forget from this browser" }));
+    expect(screen.getByRole("alertdialog", { name: "Forget “Writing” from this browser?" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
   });
 
@@ -895,6 +895,35 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
     expect(events[0]).toBe("complete");
+  });
+
+  it("forgets one saved connection from the connection screen without implying deletion or revocation", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const disconnected = Object.create(gateway) as CollectionGateway;
+    let connections: ConnectionSummary[] = [
+      { collectionId: "current-notes", displayName: "Notes", operations: [] },
+      { collectionId: "old-notes", displayName: "Old Notes", operations: [] }
+    ];
+    const forgetConnection = vi.fn((collectionId: string) => {
+      connections = connections.filter((connection) => connection.collectionId !== collectionId);
+    });
+    disconnected.connection = () => null;
+    disconnected.connections = () => connections;
+    disconnected.forgetConnection = forgetConnection;
+    render(<App gateway={disconnected} />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Collection options for Old Notes" }));
+    await user.click(screen.getByRole("menuitem", { name: "Forget from this browser" }));
+
+    const confirmation = screen.getByRole("alertdialog", { name: "Forget “Old Notes” from this browser?" });
+    expect(confirmation).toHaveTextContent("does not delete the collection or its files");
+    expect(confirmation).toHaveTextContent("does not revoke mdbase editor’s access");
+    await user.click(within(confirmation).getByRole("button", { name: "Forget from this browser" }));
+
+    expect(forgetConnection).toHaveBeenCalledWith("old-notes");
+    await waitFor(() => expect(screen.queryByText("Old Notes")).not.toBeInTheDocument());
+    expect(screen.getByText("Notes")).toBeInTheDocument();
   });
 
   it("starts a new authorization when choosing another collection from the connection screen", async () => {

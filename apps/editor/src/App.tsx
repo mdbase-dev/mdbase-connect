@@ -1885,27 +1885,36 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setMobilePane(fallback);
   }
 
-  async function forgetCurrentCollection() {
+  async function forgetConnection(collectionId: string) {
+    const active = gateway.connection()?.collectionId === collectionId;
     try {
-      await flushCollectionWork();
-      gateway.disconnect();
-      clearCollectionWorkspace();
+      if (active) await flushCollectionWork();
+      gateway.forgetConnection(collectionId);
       setCollectionSwitcherOpen(false);
-      setPhase("disconnected");
+      setNotice(undefined);
+      if (active) {
+        clearCollectionWorkspace();
+        setPhase("disconnected");
+      }
     } catch (error) {
       setNotice(gatewayError(error));
     }
   }
 
-  function requestForgetCurrentCollection() {
-    const name = description?.display_name ?? gateway.connection()?.displayName ?? "this collection";
+  function requestForgetConnection(connection: ConnectionSummary, displayName?: string) {
+    const name = displayName ?? connection.displayName ?? "this collection";
     setConfirmation({
-      title: `Forget “${name}”?`,
-      body: <p>This removes mdbase editor’s saved access. It does not delete or change any files in the collection.</p>,
-      confirmLabel: "Forget collection",
+      title: `Forget “${name}” from this browser?`,
+      body: <p>This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect.</p>,
+      confirmLabel: "Forget from this browser",
       tone: "danger",
-      onConfirm: forgetCurrentCollection
+      onConfirm: () => forgetConnection(connection.collectionId)
     });
+  }
+
+  function requestForgetCurrentCollection() {
+    const connection = gateway.connection();
+    if (connection) requestForgetConnection(connection, description?.display_name);
   }
 
   useEffect(() => {
@@ -1965,13 +1974,25 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [creationMode, phase, quickOpen, selectedPath, shortcutsOpen, surface, visibleNotes]);
 
   if (phase === "starting") return <OpeningScreen />;
-  if (phase === "disconnected") return <ConnectScreen
-    notice={notice}
-    missingOperations={missingCoreOperations(gateway.connection())}
-    connections={gateway.connections()}
-    onConnect={() => void connectFromConnectScreen()}
-    onOpen={(collectionId) => void openSavedCollection(collectionId)}
-  />;
+  if (phase === "disconnected") return <>
+    <ConnectScreen
+      notice={notice}
+      missingOperations={missingCoreOperations(gateway.connection())}
+      connections={gateway.connections()}
+      onConnect={() => void connectFromConnectScreen()}
+      onOpen={(collectionId) => void openSavedCollection(collectionId)}
+      onForget={requestForgetConnection}
+    />
+    {confirmation && <ConfirmDialog
+      title={confirmation.title}
+      body={confirmation.body}
+      confirmLabel={confirmation.confirmLabel}
+      cancelLabel={confirmation.cancelLabel}
+      tone={confirmation.tone}
+      onConfirm={confirmation.onConfirm}
+      onClose={() => setConfirmation(undefined)}
+    />}
+  </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
@@ -2363,12 +2384,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   </div>;
 }
 
-function ConnectScreen({ notice, missingOperations = [], connections, onConnect, onOpen }: {
+function ConnectScreen({ notice, missingOperations = [], connections, onConnect, onOpen, onForget }: {
   notice?: string;
   missingOperations?: string[];
   connections: ConnectionSummary[];
   onConnect: () => void;
   onOpen: (collectionId: string) => void;
+  onForget: (connection: ConnectionSummary) => void;
 }) {
   const updatingAccess = missingOperations.length > 0;
   return <main className="connect-screen"><section>
@@ -2379,10 +2401,21 @@ function ConnectScreen({ notice, missingOperations = [], connections, onConnect,
       : "Choose the collection you want to write in."}</p>
     {connections.length > 0 && <div className="saved-collections" aria-label="Recent collections">
       <p>Recent collections</p>
-      {connections.map((connection) => <button className="saved-collection-row" key={connection.collectionId} onClick={() => onOpen(connection.collectionId)}>
-        <span><strong>{connection.displayName ?? "Untitled collection"}</strong><small>Previously opened in mdbase editor</small></span>
-        <ChevronRight aria-hidden="true" />
-      </button>)}
+      {connections.map((connection) => {
+        const name = connection.displayName ?? "Untitled collection";
+        return <div className="saved-collection-item" key={connection.collectionId}>
+          <button className="saved-collection-row" onClick={() => onOpen(connection.collectionId)}>
+            <span><strong>{name}</strong><small>Previously opened in mdbase editor</small></span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <ActionMenu label={`Collection options for ${name}`} items={[{
+            label: "Forget from this browser",
+            icon: <Trash2 aria-hidden="true" />,
+            tone: "danger",
+            onSelect: () => onForget(connection)
+          }]} />
+        </div>;
+      })}
     </div>}
     <button className="connect-button" onClick={onConnect}>{updatingAccess
       ? "Update access"

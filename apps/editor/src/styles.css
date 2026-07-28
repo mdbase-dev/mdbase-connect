@@ -344,13 +344,21 @@ select:focus-visible {
   text-transform: uppercase;
 }
 
+.saved-collection-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+
 .saved-collection-row {
+  width: 100%;
   min-height: 58px;
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 9px 3px;
-  border-top: 1px solid var(--line);
   color: var(--muted);
   text-align: left;
 }
@@ -385,6 +393,45 @@ select:focus-visible {
 .saved-collection-row:hover > svg {
   transform: translateX(2px);
   color: var(--accent);
+}
+
+.saved-collection-item .note-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.saved-collection-item .note-actions > .icon-button {
+  width: 32px;
+  height: 32px;
+  color: var(--faint);
+}
+
+.saved-collection-item .note-actions > .icon-button:hover,
+.saved-collection-item .note-actions > .icon-button[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.saved-collection-item .note-actions > .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.saved-collection-item .action-menu {
+  top: 40px;
+  width: 196px;
+}
+
+@media (hover: hover) {
+  .saved-collection-item .note-actions > .icon-button {
+    opacity: 0;
+    transition: opacity 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+  }
+
+  .saved-collection-item:hover .note-actions > .icon-button,
+  .saved-collection-item:focus-within .note-actions > .icon-button {
+    opacity: 1;
+  }
 }
 
 .connect-button:hover {
@@ -1212,7 +1259,9 @@ select:focus-visible {
 }
 
 .note-list-controls {
-  display: flex;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: flex-start;
   gap: 4px;
   margin: 0 12px 8px;
@@ -1220,7 +1269,7 @@ select:focus-visible {
 
 .note-list-controls .search-field {
   min-width: 0;
-  flex: 1;
+  width: 100%;
   margin: 0;
 }
 
@@ -7305,10 +7354,17 @@ label.schema-value {
   }
 
   .type-heading {
-    padding: 28px 22px 22px;
+    padding: 18px 18px 14px;
   }
 
-  .type-heading h1,
+  .type-heading .eyebrow {
+    margin-bottom: 6px;
+  }
+
+  .type-heading h1 {
+    font-size: 24px;
+  }
+
   .settings-document h1 {
     font-size: 27px;
   }
@@ -7712,8 +7768,6 @@ label.schema-value {
   .type-row small,
   .type-inspector-bar,
   .type-inspector-bar small,
-  .type-heading dt,
-  .type-heading dd,
   .type-change-scope,
   .type-view-switch button,
   .visual-type-fields-heading p,

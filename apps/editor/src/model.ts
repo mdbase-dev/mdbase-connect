@@ -102,6 +102,7 @@ export interface CollectionGateway {
   authorize(collectionId?: string): Promise<void>;
   authorizeNewCollection(): Promise<void>;
   completeAuthorization(): Promise<void>;
+  forgetConnection(collectionId: string): void;
   disconnect(): void;
   describe(): Promise<CollectionDescription>;
   list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;

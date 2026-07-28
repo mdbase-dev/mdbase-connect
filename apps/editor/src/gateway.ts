@@ -191,8 +191,16 @@ export class ConnectCollectionGateway implements CollectionGateway {
     this.pendingAuthorizationTarget = undefined;
   }
 
+  forgetConnection(collectionId: string): void {
+    this.manager.connection(collectionId)?.forget();
+    if (this.pendingAuthorizationTarget === collectionId) {
+      this.pendingAuthorizationTarget = undefined;
+    }
+  }
+
   disconnect(): void {
-    this.activeConnection()?.forget();
+    const connection = this.activeConnection();
+    if (connection) this.forgetConnection(connection.collectionId);
   }
 
   describe(): Promise<CollectionDescription> {
