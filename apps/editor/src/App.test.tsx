@@ -259,6 +259,7 @@ describe("mdbase editor", () => {
     render(<App gateway={gateway} />);
     await screen.findByRole("heading", { name: "Writing" });
     const types = screen.getByRole("group", { name: "Types" });
+    await waitFor(() => expect(types).toHaveAttribute("aria-busy", "false"));
     await user.click(within(types).getByRole("button", { name: "Types" }));
     const typeRow = within(types).getByRole("button", { name: /^Show notes with type note,/ });
     typeRow.focus();
