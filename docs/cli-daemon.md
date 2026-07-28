@@ -2,7 +2,7 @@
 
 ## Decision
 
-`mdbase-connect` is the user-facing command and the durable local Connect
+`mdbase` is the user-facing command and contains the durable local Connect
 runtime. The desktop application and command line are peers: both control one
 per-user daemon over the versioned local control protocol.
 
@@ -11,13 +11,16 @@ connectivity, browser loopback access, hosted filesystem mirrors, credentials,
 background work, and synchronization state. Closing the desktop must not stop
 these services.
 
-`mdbase` and `mdbase-connect` remain separate products:
+The executable is unified while its dependency direction remains strict:
 
-- `mdbase` and `mdbase-rs` own collection format and behavior.
-- `mdbase-connect` owns identity, authorization, routing, replication, and
-  service lifecycle.
-- The dependency points from Connect to published mdbase library APIs, never
-  from mdbase to Connect.
+- `mdbase-rs` owns collection format and behavior.
+- the transport-neutral `mdbase-command` adapter maps CLI arguments to
+  canonical engine operations;
+- Connect owns identity, authorization, routing, replication, and service
+  lifecycle;
+- the final `mdbase` executable imports both layers and chooses a direct
+  filesystem or daemon transport;
+- the engine never imports Connect.
 
 During pre-release development the workspace intentionally uses the adjacent
 `../mdbase-rs` checkout. Release builds must replace that path with an immutable
@@ -27,8 +30,7 @@ dependency.
 
 ```text
 ┌─────────────────┐
-│ mdbase-connect  │
-│ CLI             │
+│ mdbase CLI      │
 └────────┬────────┘
          │ versioned per-user socket / named pipe
 ┌────────▼────────┐
@@ -50,17 +52,31 @@ connections. Commands are requests, not independent state owners.
 
 ## Command model
 
-The public command groups are:
+Collection commands operate directly on the current directory or `--root
+PATH`. Supplying `--collection UUID` explicitly sends the same portable
+operation through the Connect daemon:
 
-- `mdbase-connect status`
-- `mdbase-connect login`, `logout`, and `whoami`
-- `mdbase-connect daemon run|install|uninstall|start|stop|restart|status|logs`
-- `mdbase-connect collection list|add|add-copy|create|remove|validate|transfer-authority`
-- `mdbase-connect hosted list|create|rename|delete`
-- `mdbase-connect mirror list|add|sync|resolve|promote|remove`
-- `mdbase-connect access list|pause|resume|approve|deny|update|revoke`
-- `mdbase-connect activity`
-- `mdbase-connect doctor`
+- `mdbase init|read|create|update|delete|rename|query|batch|validate`
+- `mdbase views list|execute`
+- `mdbase types list|show|create|update`
+- `mdbase watch`
+- direct-only maintenance:
+  `mdbase backfill|migrate|migrate-v02|cache`
+
+Connect administration is namespaced:
+
+- `mdbase connect status`
+- `mdbase connect login|logout|whoami`
+- `mdbase connect daemon run|install|uninstall|start|stop|restart|status|logs`
+- `mdbase connect collection list|add|add-copy|create|remove|validate|transfer-authority`
+- `mdbase connect hosted list|create|rename|delete`
+- `mdbase connect mirror list|add|sync|resolve|promote|remove`
+- `mdbase connect access list|pause|resume|approve|deny|update|revoke`
+- `mdbase connect activity|doctor`
+
+`mdbase version --json` reports every embedded compatibility boundary.
+`mdbase profile engine|connect` and the global `--timings` flag provide
+built-in, payload-free performance measurement.
 
 Commands print calm, human-readable output by default. `--json` emits a stable
 machine contract containing the result rather than the local control envelope.
@@ -73,7 +89,7 @@ tests, and debugging. `daemon install` registers a per-user launch agent,
 systemd user unit, or Windows per-user background task. It must not require an
 administrator or run as a different operating-system user. Installation first
 copies the invoking binary atomically into the private
-`<state>/runtime/mdbase-connect` path and registers that stable path. A service
+`<state>/runtime/mdbase` path and registers that stable path. A service
 never points into a versioned Electron bundle, package extraction directory, or
 developer checkout.
 

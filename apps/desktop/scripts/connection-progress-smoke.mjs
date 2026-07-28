@@ -10,7 +10,7 @@ const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const executable = resolve(
   repoRoot,
-  `target/debug/mdbase-connect${process.platform === "win32" ? ".exe" : ""}`
+  `target/debug/mdbase${process.platform === "win32" ? ".exe" : ""}`
 );
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-progress-"));
 const pairingData = join(scratch, "pairing");
@@ -53,7 +53,7 @@ try {
     app.relaunch = () => {};
     app.exit = () => {};
   });
-  const pairingWindow = await firstApp.firstWindow();
+  const pairingWindow = await firstApp.firstWindow({ timeout: 15_000 });
   await pairingWindow.getByRole("heading", { name: "Connect this computer." }).waitFor();
   await pairingWindow.getByLabel("Server").fill(portalUrl);
   await pairingWindow.getByLabel("Computer name").fill("Progress test computer");
@@ -93,7 +93,7 @@ try {
   firstApp = undefined;
 
   connectedApp = await launchDesktop(connectedData, connectorToken);
-  const connectedWindow = await connectedApp.firstWindow();
+  const connectedWindow = await connectedApp.firstWindow({ timeout: 15_000 });
   const headerStatus = connectedWindow.locator(".product-header-meta");
   await headerStatus.getByText("Connecting securely…").waitFor({ timeout: 8_000 });
   await assertAnimated(headerStatus.locator(".status-dot.connecting"));
@@ -113,9 +113,10 @@ try {
     await run(executable, [
       "--state-dir",
       join(userData, "connect-home"),
+      "connect",
       "daemon",
       "stop"
-    ]).catch(() => {});
+    ], { timeout: 5_000 }).catch(() => {});
   }
   await connectedApp?.close().catch(() => {});
   await firstApp?.close().catch(() => {});
@@ -128,6 +129,7 @@ function launchDesktop(userData, connectorToken) {
   return electron.launch({
     cwd: desktopRoot,
     args: [".", `--user-data-dir=${userData}`],
+    timeout: 15_000,
     env: {
       ...process.env,
       MDBASE_CONNECT_BIN: executable,

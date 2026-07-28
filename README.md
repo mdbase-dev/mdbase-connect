@@ -36,8 +36,9 @@ models, and interfaces live in their owning applications.
   hardened browser loopback API, and the outbound relay.
 - `crates/connect-runtime`: the small Connect adapter that compiles exact grant
   criteria into provider-neutral `mdbase-runtime` workflows.
-- `crates/connect-cli`: the sole `mdbase-connect` executable: a complete
-  administration CLI and the foreground/service-managed daemon entry point.
+- `crates/connect-cli`: the final `mdbase` executable. It combines the
+  transport-neutral collection commands from `mdbase-rs` with Connect
+  administration and the foreground/service-managed daemon entry point.
 - `crates/connect-mirror`: the durable Rust filesystem mirror state machine.
 - `apps/desktop`: an Electron client of the same daemon for local and hosted
   collections, application access, browser pairing, activity, tray operation,
@@ -137,22 +138,30 @@ and recovery behavior.
 
 ## Use the CLI and daemon
 
-`mdbase-connect` is both the human/machine CLI and the durable per-user runtime.
-The desktop is an optional peer; closing it does not stop synchronization,
-relay access, or local collection watching.
+`mdbase` is the one human/machine CLI. Direct collection commands live at the
+top level; identity, authorization, replication, and daemon lifecycle live
+under `mdbase connect`. The desktop is an optional peer of that daemon; closing
+it does not stop synchronization, relay access, or local collection watching.
 
 ```bash
-mdbase-connect daemon install
-mdbase-connect login
-mdbase-connect collection list
-mdbase-connect hosted list
-mdbase-connect mirror add <collection-id> /path/to/mirror
-mdbase-connect status
+mdbase --root /path/to/notes query --types task
+mdbase connect daemon install
+mdbase connect login
+mdbase connect collection list
+mdbase connect hosted list
+mdbase connect mirror add <collection-id> /path/to/mirror
+mdbase connect status
 ```
 
 Human-readable output is the default. Add `--json` for the stable automation
-contract. See [`docs/cli-daemon.md`](docs/cli-daemon.md) for the complete
-command model, process boundary, state/secrets contract, and failure model.
+contract on Connect administration commands; collection data commands always
+emit their canonical portable JSON envelope. Use `mdbase --collection <uuid>`
+to route a portable data command through the daemon. `mdbase --timings ...`
+adds payload-free command timing JSON on stderr, and `mdbase profile
+engine|connect` runs repeatable built-in workloads. See
+[`docs/unified-cli.md`](docs/unified-cli.md) and
+[`docs/cli-daemon.md`](docs/cli-daemon.md) for the command model, process
+boundary, state/secrets contract, and failure model.
 
 To run the desktop controller locally:
 
@@ -165,7 +174,7 @@ original, use the desktop's **Register copy** action or the explicit local
 command:
 
 ```bash
-mdbase-connect collection add-copy /path/to/copied-collection
+mdbase connect collection add-copy /path/to/copied-collection
 ```
 
 The command refuses to rewrite the registered original. It changes only the

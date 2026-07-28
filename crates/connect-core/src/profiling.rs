@@ -1,46 +1,31 @@
-use clap::{Parser, ValueEnum};
-use mdbase_connect_core::CollectionRegistry;
+use crate::{CollectionRegistry, ConnectError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Instant;
 
-#[derive(Debug, Parser)]
-#[command(
-    name = "connect-profile",
-    about = "Profile the local Connect request path against a collection"
-)]
-struct Args {
-    /// Existing mdbase collection to profile (records are never modified)
-    #[arg(long)]
-    collection: PathBuf,
-
-    /// Workload to run
-    #[arg(long, value_enum, default_value_t = Scenario::All)]
-    scenario: Scenario,
-
-    /// Number of measured workload iterations
-    #[arg(long, default_value_t = 3)]
-    iterations: usize,
-
-    /// Concurrent query requests per batch
-    #[arg(long, default_value_t = 4)]
-    concurrency: usize,
-
-    /// Emit the full JSON report
-    #[arg(long)]
-    json: bool,
-
-    /// Optionally write the JSON report to a file
-    #[arg(long)]
-    output: Option<PathBuf>,
+/// Transport-free options for profiling the local Connect authority path.
+#[derive(Clone, Copy, Debug)]
+pub struct ProfileOptions {
+    pub scenario: ProfileScenario,
+    pub iterations: usize,
+    pub concurrency: usize,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Scenario {
+impl Default for ProfileOptions {
+    fn default() -> Self {
+        Self {
+            scenario: ProfileScenario::All,
+            iterations: 3,
+            concurrency: 4,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileScenario {
     Query,
     Views,
     Editor,
@@ -49,44 +34,36 @@ enum Scenario {
 }
 
 #[derive(Debug, Serialize)]
-struct Report {
-    tool: &'static str,
-    version: &'static str,
-    scenario: &'static str,
-    iterations: usize,
-    concurrency: usize,
-    operations: Vec<Summary>,
+pub struct ProfileReport {
+    pub tool: &'static str,
+    pub version: &'static str,
+    pub scenario: &'static str,
+    pub iterations: usize,
+    pub concurrency: usize,
+    pub operations: Vec<ProfileSummary>,
 }
 
 #[derive(Debug, Serialize)]
-struct Summary {
-    name: &'static str,
-    iterations: usize,
-    total_ms: f64,
-    min_ms: f64,
-    mean_ms: f64,
-    p50_ms: f64,
-    p95_ms: f64,
-    max_ms: f64,
-    operations_per_second: f64,
+pub struct ProfileSummary {
+    pub name: &'static str,
+    pub iterations: usize,
+    pub total_ms: f64,
+    pub min_ms: f64,
+    pub mean_ms: f64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub max_ms: f64,
+    pub operations_per_second: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    requests_per_iteration: Option<usize>,
+    pub requests_per_iteration: Option<usize>,
 }
 
-fn main() {
-    if let Err(error) = run() {
-        eprintln!("{error}");
-        std::process::exit(1);
-    }
-}
-
-fn run() -> Result<(), String> {
-    let args = Args::parse();
-    if args.iterations == 0 || args.concurrency == 0 {
+/// Run a read-only local-authority workload and return its payload-free report.
+pub fn run(options: ProfileOptions, collection_root: &Path) -> Result<ProfileReport, String> {
+    if options.iterations == 0 || options.concurrency == 0 {
         return Err("--iterations and --concurrency must be greater than zero".to_string());
     }
-    let collection = args
-        .collection
+    let collection = collection_root
         .canonicalize()
         .map_err(|error| format!("collection could not be resolved: {error}"))?;
     let state = tempfile::tempdir().map_err(|error| error.to_string())?;
@@ -109,34 +86,43 @@ fn run() -> Result<(), String> {
         .unwrap_or(0);
 
     let mut operations = Vec::new();
-    if matches!(args.scenario, Scenario::Query | Scenario::All) {
-        operations.push(run_samples("query_page_200", args.iterations, || {
+    if matches!(
+        options.scenario,
+        ProfileScenario::Query | ProfileScenario::All
+    ) {
+        operations.push(run_samples("query_page_200", options.iterations, || {
             query(&registry, registered.id, 200, 0, false, None).map(|_| ())
         })?);
         if let Some(path) = &read_path {
-            operations.push(run_samples("read", args.iterations, || {
+            operations.push(run_samples("read", options.iterations, || {
                 ensure_success(registry.operation(registered.id, "read", &json!({"path": path})))
             })?);
         }
     }
-    if matches!(args.scenario, Scenario::Editor | Scenario::All) {
-        let mut summary = run_samples("editor_two_pass_index", args.iterations, || {
+    if matches!(
+        options.scenario,
+        ProfileScenario::Editor | ProfileScenario::All
+    ) {
+        let mut summary = run_samples("editor_two_pass_index", options.iterations, || {
             editor_index(&registry, registered.id).map(|_| ())
         })?;
         let pages_after_first = record_count.saturating_sub(200).div_ceil(1_000);
         summary.requests_per_iteration = Some(((1 + pages_after_first) * 2) as usize);
         operations.push(summary);
     }
-    if matches!(args.scenario, Scenario::Views | Scenario::All) {
+    if matches!(
+        options.scenario,
+        ProfileScenario::Views | ProfileScenario::All
+    ) {
         let listed = registry
             .operation(registered.id, "list_views", &json!({}))
             .map_err(|error| error.to_string())?;
         ensure_output_success(&listed)?;
         let targets = view_targets(&listed);
-        if matches!(args.scenario, Scenario::Views) && targets.is_empty() {
+        if matches!(options.scenario, ProfileScenario::Views) && targets.is_empty() {
             return Err("the collection does not expose any saved views".to_string());
         }
-        operations.push(run_samples("view_list", args.iterations, || {
+        operations.push(run_samples("view_list", options.iterations, || {
             ensure_success(registry.operation(registered.id, "list_views", &json!({})))
         })?);
         for (format, path, view) in targets {
@@ -145,7 +131,7 @@ fn run() -> Result<(), String> {
             } else {
                 "view_execute_canonical"
             };
-            operations.push(run_samples(name, args.iterations, || {
+            operations.push(run_samples(name, options.iterations, || {
                 ensure_success(registry.operation(
                     registered.id,
                     "execute_view",
@@ -154,11 +140,14 @@ fn run() -> Result<(), String> {
             })?);
         }
     }
-    if matches!(args.scenario, Scenario::Concurrent | Scenario::All) {
-        let mut samples = Vec::with_capacity(args.iterations);
-        for _ in 0..args.iterations {
-            let barrier = Arc::new(Barrier::new(args.concurrency + 1));
-            let handles = (0..args.concurrency)
+    if matches!(
+        options.scenario,
+        ProfileScenario::Concurrent | ProfileScenario::All
+    ) {
+        let mut samples = Vec::with_capacity(options.iterations);
+        for _ in 0..options.iterations {
+            let barrier = Arc::new(Barrier::new(options.concurrency + 1));
+            let handles = (0..options.concurrency)
                 .map(|_| {
                     let registry = registry.clone();
                     let barrier = barrier.clone();
@@ -179,51 +168,24 @@ fn run() -> Result<(), String> {
             samples.push(started.elapsed().as_secs_f64() * 1_000.0);
         }
         let mut summary = summarize("concurrent_query_batch", samples);
-        summary.requests_per_iteration = Some(args.concurrency);
+        summary.requests_per_iteration = Some(options.concurrency);
         operations.push(summary);
     }
 
-    let report = Report {
-        tool: "mdbase-connect-profiler",
+    Ok(ProfileReport {
+        tool: "mdbase-profile-connect",
         version: env!("CARGO_PKG_VERSION"),
-        scenario: match args.scenario {
-            Scenario::Query => "query",
-            Scenario::Views => "views",
-            Scenario::Editor => "editor",
-            Scenario::Concurrent => "concurrent",
-            Scenario::All => "all",
+        scenario: match options.scenario {
+            ProfileScenario::Query => "query",
+            ProfileScenario::Views => "views",
+            ProfileScenario::Editor => "editor",
+            ProfileScenario::Concurrent => "concurrent",
+            ProfileScenario::All => "all",
         },
-        iterations: args.iterations,
-        concurrency: args.concurrency,
+        iterations: options.iterations,
+        concurrency: options.concurrency,
         operations,
-    };
-    let serialized = serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?;
-    if let Some(output) = args.output {
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        fs::write(output, format!("{serialized}\n")).map_err(|error| error.to_string())?;
-    }
-    if args.json {
-        println!("{serialized}");
-    } else {
-        println!("Connect profile (read-only)");
-        println!(
-            "{:<26} {:>6} {:>11} {:>11} {:>11}",
-            "operation", "runs", "mean", "p95", "max"
-        );
-        for operation in &report.operations {
-            println!(
-                "{:<26} {:>6} {:>8.2} ms {:>8.2} ms {:>8.2} ms",
-                operation.name,
-                operation.iterations,
-                operation.mean_ms,
-                operation.p95_ms,
-                operation.max_ms,
-            );
-        }
-    }
-    Ok(())
+    })
 }
 
 fn view_targets(output: &Value) -> Vec<(String, String, String)> {
@@ -320,7 +282,7 @@ fn editor_index(registry: &CollectionRegistry, collection_id: uuid::Uuid) -> Res
     Ok(requests)
 }
 
-fn ensure_success(result: Result<Value, mdbase_connect_core::ConnectError>) -> Result<(), String> {
+fn ensure_success(result: Result<Value, ConnectError>) -> Result<(), String> {
     let output = result.map_err(|error| error.to_string())?;
     ensure_output_success(&output)
 }
@@ -340,7 +302,7 @@ fn run_samples(
     name: &'static str,
     iterations: usize,
     mut operation: impl FnMut() -> Result<(), String>,
-) -> Result<Summary, String> {
+) -> Result<ProfileSummary, String> {
     let mut samples = Vec::with_capacity(iterations);
     for iteration in 0..iterations {
         let started = Instant::now();
@@ -350,11 +312,11 @@ fn run_samples(
     Ok(summarize(name, samples))
 }
 
-fn summarize(name: &'static str, mut samples: Vec<f64>) -> Summary {
+fn summarize(name: &'static str, mut samples: Vec<f64>) -> ProfileSummary {
     samples.sort_by(|left, right| left.total_cmp(right));
     let total_ms = samples.iter().sum::<f64>();
     let mean_ms = total_ms / samples.len() as f64;
-    Summary {
+    ProfileSummary {
         name,
         iterations: samples.len(),
         total_ms,

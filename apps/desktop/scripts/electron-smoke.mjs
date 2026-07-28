@@ -7,7 +7,7 @@ const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const executable = resolve(
   repoRoot,
-  `target/debug/mdbase-connect${process.platform === "win32" ? ".exe" : ""}`
+  `target/debug/mdbase${process.platform === "win32" ? ".exe" : ""}`
 );
 const userData = process.env.MDBASE_CONNECT_SMOKE_DATA;
 if (!userData) throw new Error("MDBASE_CONNECT_SMOKE_DATA is required");
@@ -16,6 +16,7 @@ const run = promisify(execFile);
 const electronApp = await electron.launch({
   cwd: desktopRoot,
   args: [".", `--user-data-dir=${userData}`],
+  timeout: 15_000,
   env: {
     ...process.env,
     MDBASE_CONNECT_BIN: executable,
@@ -26,7 +27,7 @@ const electronApp = await electron.launch({
 });
 
 try {
-  const window = await electronApp.firstWindow();
+  const window = await electronApp.firstWindow({ timeout: 15_000 });
   await window.getByRole("heading", { name: "Your local connection." }).waitFor();
   await window.getByText("Local only").first().waitFor();
   await window.getByRole("button", { name: /Collections/ }).click();
@@ -51,8 +52,9 @@ try {
   await run(executable, [
     "--state-dir",
     resolve(userData, "connect-home"),
+    "connect",
     "daemon",
     "stop"
-  ]).catch(() => {});
+  ], { timeout: 5_000 }).catch(() => {});
   await electronApp.close();
 }

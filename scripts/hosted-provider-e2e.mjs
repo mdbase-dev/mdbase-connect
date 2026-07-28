@@ -29,8 +29,8 @@ const providerBinary = resolve(
 const connectBinary = resolve(
   process.env.MDBASE_CONNECT_E2E_BINARY
     ?? join(repoRoot, "target", "debug", process.platform === "win32"
-      ? "mdbase-connect.exe"
-      : "mdbase-connect")
+      ? "mdbase.exe"
+      : "mdbase")
 );
 const postgresContainer = `mdbase-connect-provider-e2e-${process.pid}`;
 const databasePassword = `test-${crypto.randomUUID()}`;
@@ -3103,6 +3103,7 @@ function connectArguments(profile, command) {
   return [
     "--state-dir", profile.stateDirectory,
     "--endpoint", profile.endpoint,
+    "connect",
     ...command
   ];
 }

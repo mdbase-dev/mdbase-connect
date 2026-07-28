@@ -1877,7 +1877,6 @@ version = "0.4.0-rc.1"
 dependencies = [
  "chrono",
  "chrono-tz",
- "clap",
  "fancy-regex 0.14.0",
  "fs2",
  "jsonschema",
@@ -1898,28 +1897,41 @@ dependencies = [
 ]
 
 [[package]]
-name = "mdbase-connect"
+name = "mdbase-cli"
 version = "0.1.0-beta.9"
 dependencies = [
  "clap",
  "directories",
  "libc",
+ "mdbase-command",
  "mdbase-connect-core",
  "mdbase-connect-daemon",
  "mdbase-connect-protocol",
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "url",
  "uuid",
 ]
 
 [[package]]
+name = "mdbase-command"
+version = "0.1.0-beta.1"
+dependencies = [
+ "chrono",
+ "clap",
+ "mdbase",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mdbase-connect-core"
 version = "0.1.0-beta.9"
 dependencies = [
- "clap",
  "directories",
  "keyring",
  "mdbase",

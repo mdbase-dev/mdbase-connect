@@ -1453,10 +1453,15 @@ impl CollectionRegistry {
                 "Collection-wide validation is unavailable to a contract-scoped application."
                     .to_string(),
             )),
-            "read_type" | "create_type" | "update_type" => Err(ConnectError::AccessDenied(
+            "batch" => Err(ConnectError::AccessDenied(
+                "Batch operations require full collection access.".to_string(),
+            )),
+            "list_types" | "read_type" | "create_type" | "update_type" => Err(
+                ConnectError::AccessDenied(
                 "Type definitions can only be managed by an application with full collection access."
                     .to_string(),
-            )),
+                ),
+            ),
             other => Err(ConnectError::UnsupportedOperation(other.to_string())),
         }
     }
@@ -2924,10 +2929,12 @@ fn execute_loaded(
             "update_view_source" => operations.update_view_source(input),
             "delete_view_source" => operations.delete_view_source(input),
             "validate" => operations.validate(input),
+            "batch" => operations.batch(input),
             "create" => operations.create(input),
             "update" => operations.update(input),
             "delete" => operations.delete(input),
             "rename" => operations.rename(input),
+            "list_types" => operations.list_types(input),
             "read_type" => operations.read_type(input),
             "create_type" => operations.create_type(input),
             "update_type" => operations.update_type(input),
@@ -3116,7 +3123,8 @@ fn parse_v02_query(input: &Value) -> mdbase::api::MdbaseResult<mdbase::api::Quer
 fn is_collection_mutation(operation: &str) -> bool {
     matches!(
         operation,
-        "create"
+        "batch"
+            | "create"
             | "update"
             | "delete"
             | "rename"

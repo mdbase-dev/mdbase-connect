@@ -4,7 +4,7 @@ const path = require("node:path");
 const extension = process.platform === "win32" ? ".exe" : "";
 const connector = path.resolve(
   __dirname,
-  `../../target/release/mdbase-connect${extension}`
+  `../../target/release/mdbase${extension}`
 );
 const macIcon = path.resolve(__dirname, "assets/app-icon.icns");
 const windowsIcon = path.resolve(__dirname, "assets/app-icon.ico");
