@@ -1,4 +1,4 @@
-use mdbase::Collection;
+use mdbase::{field_reference, Collection};
 use mdbase_connect_protocol::{
     CollectionContractDescriptor, CollectionContractImplementationDescriptor,
 };
@@ -453,11 +453,17 @@ fn map_contract_fields(
         .as_object()
         .ok_or_else(|| error("Contract fields must be an object."))?;
     let contract_fields = Value::Object(contract_fields.clone());
-    ensure_only_mapped_contract_fields(&contract_fields, "", mappings)?;
+    ensure_only_mapped_contract_fields(&contract_fields, mappings)?;
     let mut record_fields = json!({});
     for (contract_field, record_field) in mappings {
-        if let Some(value) = get_value_path(&contract_fields, contract_field) {
-            set_value_path(&mut record_fields, record_field, value.clone())?;
+        if let Some(value) = field_reference::get_value(&contract_fields, contract_field) {
+            field_reference::set_value(&mut record_fields, record_field, value.clone()).map_err(
+                |_| {
+                    error(format!(
+                        "Mapped record field '{record_field}' conflicts with another field."
+                    ))
+                },
+            )?;
         }
     }
     Ok(record_fields)
@@ -465,75 +471,53 @@ fn map_contract_fields(
 
 fn ensure_only_mapped_contract_fields(
     value: &Value,
-    prefix: &str,
     mappings: &BTreeMap<String, String>,
 ) -> Result<(), ContractScopeError> {
-    let Value::Object(fields) = value else {
-        if prefix.is_empty() || !mappings.contains_key(prefix) {
-            return Err(error(format!(
-                "Contract field '{prefix}' is not mapped by the selected provider."
-            )));
-        }
-        return Ok(());
-    };
-    if !prefix.is_empty() && mappings.contains_key(prefix) {
-        return Ok(());
-    }
-    for (field, value) in fields {
-        let path = if prefix.is_empty() {
-            field.clone()
-        } else {
-            format!("{prefix}.{field}")
-        };
-        if !mappings.contains_key(&path)
-            && !mappings
-                .keys()
-                .any(|candidate| candidate.starts_with(&format!("{path}.")))
-        {
-            return Err(error(format!(
-                "Contract field '{path}' is not mapped by the selected provider."
-            )));
-        }
-        ensure_only_mapped_contract_fields(value, &path, mappings)?;
+    let mapped_values = mappings
+        .keys()
+        .filter_map(|reference| field_reference::get_value(value, reference))
+        .collect::<Vec<_>>();
+    if let Some(path) = first_unmapped_path(value, &mapped_values, "") {
+        return Err(error(format!(
+            "Contract field '{path}' is not mapped by the selected provider."
+        )));
     }
     Ok(())
 }
 
-fn get_value_path<'a>(value: &'a Value, field_path: &str) -> Option<&'a Value> {
-    field_path
-        .split('.')
-        .try_fold(value, |current, segment| current.get(segment))
+fn first_unmapped_path(value: &Value, mapped_values: &[&Value], pointer: &str) -> Option<String> {
+    if mapped_values
+        .iter()
+        .any(|mapped| std::ptr::eq(*mapped, value))
+    {
+        return None;
+    }
+    match value {
+        Value::Object(object) if !object.is_empty() => {
+            for (key, child) in object {
+                let child_pointer = format!("{pointer}/{}", escape_pointer_token(key));
+                if let Some(unmapped) = first_unmapped_path(child, mapped_values, &child_pointer) {
+                    return Some(unmapped);
+                }
+            }
+            None
+        }
+        Value::Array(array) if !array.is_empty() => {
+            for (index, child) in array.iter().enumerate() {
+                let child_pointer = format!("{pointer}/{index}");
+                if let Some(unmapped) = first_unmapped_path(child, mapped_values, &child_pointer) {
+                    return Some(unmapped);
+                }
+            }
+            None
+        }
+        _ if pointer.is_empty() => None,
+        _ => Some(pointer.to_string()),
+    }
 }
 
-fn set_value_path(
-    target: &mut Value,
-    field_path: &str,
-    value: Value,
-) -> Result<(), ContractScopeError> {
-    let mut current = target;
-    let mut segments = field_path.split('.').peekable();
-    while let Some(segment) = segments.next() {
-        if segments.peek().is_none() {
-            current
-                .as_object_mut()
-                .ok_or_else(|| {
-                    error(format!(
-                        "Mapped record field '{field_path}' conflicts with another field."
-                    ))
-                })?
-                .insert(segment.to_string(), value);
-            return Ok(());
-        }
-        let object = current.as_object_mut().ok_or_else(|| {
-            error(format!(
-                "Mapped record field '{field_path}' conflicts with another field."
-            ))
-        })?;
-        current = object
-            .entry(segment.to_string())
-            .or_insert_with(|| json!({}));
-    }
-    Ok(())
+fn escape_pointer_token(token: &str) -> String {
+    token.replace('~', "~0").replace('/', "~1")
 }
 
 fn error(message: impl Into<String>) -> ContractScopeError {
@@ -572,5 +556,55 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn maps_json_pointer_contract_fields_for_scoped_writes() {
+        let scope = ContractScope::new(vec![CollectionContractDescriptor {
+            id: "example.contact".into(),
+            version: "1.0.0".into(),
+            digest: format!("sha256:{}", "0".repeat(64)),
+            schema: json!({"type": "object"}),
+            binding_schema: None,
+            implementations: vec![CollectionContractImplementationDescriptor {
+                type_name: "contact_card".into(),
+                type_version: 1,
+                type_path: None,
+                digest: format!("sha256:{}", "1".repeat(64)),
+                fields: BTreeMap::from([
+                    ("/@type".into(), "/card/@type".into()),
+                    ("name".into(), "/card/label".into()),
+                    ("/a~1b".into(), "/card/a~1b".into()),
+                ]),
+                binding: None,
+            }],
+        }])
+        .unwrap();
+
+        let (mapped, selector) = scope
+            .map_write_input(
+                &json!({
+                    "type": "contact_card",
+                    "frontmatter": {
+                        "@type": "Contact",
+                        "name": "Ada Lovelace",
+                        "a/b": "slash"
+                    }
+                }),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(selector.type_name.as_deref(), Some("contact_card"));
+        assert_eq!(
+            mapped["frontmatter"],
+            json!({
+                "card": {
+                    "@type": "Contact",
+                    "label": "Ada Lovelace",
+                    "a/b": "slash"
+                }
+            })
+        );
     }
 }
