@@ -112,8 +112,8 @@ Use an exact package version, copy the SHA-384 value from that version's
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@mdbase/connect@0.1.0-beta.9/dist/browser/mdbase-connect.min.js"
-  integrity="sha384-JgzBsv1HgBayXOV/4RiWNNRkv1wRLyTFqOUlPL7q99aTaFIaoCIfws6zpZLExIsi"
+  src="https://cdn.jsdelivr.net/npm/@mdbase/connect@0.1.0-beta.10/dist/browser/mdbase-connect.min.js"
+  integrity="sha384-59o+Qu3oMjMb1kcDBWnSLTqTE3mf1sTMQEjsGN/KckEDkO/M6nTW6AgKghiJFh14"
   crossorigin="anonymous"></script>
 ```
 
