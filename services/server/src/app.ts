@@ -64,6 +64,7 @@ import {
   HostedProviderResponseError,
   HostedProviderUnavailableError
 } from "./hosted-provider.js";
+import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import {
   AuthorityProofError,
   verifyAuthorityRequestProof
@@ -4806,7 +4807,7 @@ export async function buildApp(options: BuildOptions) {
         ),
         contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
-        allowedOperations: operations
+        allowedOperations: hostedReplicaCollectionOperations(operations)
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
@@ -6111,7 +6112,7 @@ async function reconcileApplicationGrants(
           allowedTypes: desiredAllowedTypes,
           contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
           fullCollection: application.requirements.access === "full_collection",
-          allowedOperations: grant.operations
+          allowedOperations: hostedReplicaCollectionOperations(grant.operations)
         });
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
@@ -6970,7 +6971,7 @@ async function approveHostedAuthorization(
       allowedTypes,
       contractScope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: scope.access === "full_collection",
-      allowedOperations: operations,
+      allowedOperations: hostedReplicaCollectionOperations(operations),
       allowedOrigin,
       proofPublicKey: pending.flow === "device_code"
         ? pending.application_public_key!
@@ -8313,7 +8314,7 @@ async function narrowHostedGrantForUser(
     ),
     contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
     fullCollection: current.scope.access === "full_collection",
-    allowedOperations: operations
+    allowedOperations: hostedReplicaCollectionOperations(operations)
   });
   const updated = await options.db.query<{ id: string; operations: string[] }>(
     "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",

@@ -1805,6 +1805,15 @@ function ApprovalForm({
     () => groupAuthorizationOperations(request.requested_operations),
     [request.requested_operations]
   );
+  const permissionCount = permissionGroups.reduce(
+    (count, group) => count + group.operations.length,
+    0
+  );
+  const selectedPermissionCount = permissionGroups.reduce(
+    (count, group) =>
+      count + group.operations.filter((operation) => operations.has(operation.id)).length,
+    0
+  );
 
   useEffect(() => {
     if (!compatible.some((choice) => choice.collection.id === collectionId)) {
@@ -1984,7 +1993,7 @@ function ApprovalForm({
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Permissions</strong>
-          <small>{request.requested_operations.length} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small>
+          <small>{permissionCount} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small>
         </div>
         <PermissionChoices
           groups={permissionGroups}
@@ -2001,7 +2010,7 @@ function ApprovalForm({
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || operations.size === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || selectedPermissionCount === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : `Allow ${request.application_name}`}</button>
         </div>
       </footer>
     </div>
@@ -2065,10 +2074,15 @@ function PermissionChoices({
   onToggle(operation: string): void;
 }) {
   const total = groups.reduce((count, group) => count + group.operations.length, 0);
+  const selectedTotal = groups.reduce(
+    (count, group) =>
+      count + group.operations.filter((operation) => selected.has(operation.id)).length,
+    0
+  );
   return (
     <details className="permission-review">
       <summary>
-        <span><strong>{selected.size} of {total} selected</strong><small>Review or narrow individual actions</small></span>
+        <span><strong>{selectedTotal} of {total} selected</strong><small>Review or narrow individual actions</small></span>
         <b>Review</b>
       </summary>
       <div className="permission-groups">{groups.map((group) => (

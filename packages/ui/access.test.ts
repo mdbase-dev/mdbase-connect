@@ -94,6 +94,16 @@ test("keeps unknown operations visible and readable", () => {
   assert.equal(authorizationOperationLabel("publish_archive"), "Publish archive");
 });
 
+test("keeps transport capabilities out of the user's permission checklist", () => {
+  assert.deepEqual(groupAuthorizationOperations(["read", "sync"]), [{
+    id: "view",
+    label: "View and find records",
+    description: "Read collection details, records, saved views, and type definitions.",
+    operations: [{ id: "read", label: "Read records" }]
+  }]);
+  assert.deepEqual(groupAuthorizationOperations(["sync"]), []);
+});
+
 test("keeps application timers in a distinct permission category", () => {
   assert.deepEqual(groupAuthorizationOperations(["list_timers", "put_timer"]), [{
     id: "schedule",

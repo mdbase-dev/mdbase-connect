@@ -106,7 +106,7 @@ describe("hosted provider control client", () => {
       allowedTypes: ["task"],
       contractScope: [],
       fullCollection: false,
-      allowedOperations: ["read", "query"]
+      allowedOperations: ["read", "sync", "query"]
     });
     await provider.rotateReplicaToken("replica", "new-token", 3600);
     expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([

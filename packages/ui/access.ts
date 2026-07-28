@@ -97,6 +97,8 @@ const authorizationOperationLabels: Record<string, string> = {
   reconcile_timers: "Reconcile application timers"
 };
 
+const TRANSPORT_CAPABILITIES = new Set(["sync"]);
+
 export function groupApplicationAccess<Grant extends ApplicationAccessGrant>(
   grants: readonly Grant[]
 ): ApplicationAccessGroup<Grant>[] {
@@ -129,7 +131,10 @@ export function groupApplicationAccess<Grant extends ApplicationAccessGrant>(
 export function groupAuthorizationOperations(
   operations: readonly string[]
 ): AuthorizationOperationGroup[] {
-  const requested = new Set(operations);
+  const reviewable = operations.filter(
+    (operation) => !TRANSPORT_CAPABILITIES.has(operation)
+  );
+  const requested = new Set(reviewable);
   const groups: AuthorizationOperationGroup[] = authorizationOperationGroups
     .map((group) => ({
       id: group.id,
@@ -144,7 +149,7 @@ export function groupAuthorizationOperations(
     }))
     .filter((group) => group.operations.length > 0);
   const known = new Set<string>(authorizationOperationGroups.flatMap((group) => group.operations));
-  const other = operations.filter((operation) => !known.has(operation));
+  const other = reviewable.filter((operation) => !known.has(operation));
 
   if (other.length > 0) {
     groups.push({

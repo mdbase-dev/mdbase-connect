@@ -1225,7 +1225,7 @@ describe("mdbase connect server", () => {
       },
       payload: new URLSearchParams({
         client_id: applicationId,
-        operations: "describe,query,create,update",
+        operations: "describe,query,create,update,sync",
         collection_hint: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
@@ -1257,7 +1257,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: collectionId,
-        operations: ["describe", "query", "create", "update"]
+        operations: ["describe", "query", "create", "update", "sync"]
       }
     });
     expect(approved.statusCode, JSON.stringify(approved.json())).toBe(200);
@@ -1280,7 +1280,7 @@ describe("mdbase connect server", () => {
     expect(token.json()).toMatchObject({
       collection_id: collectionId,
       application_origin: "null",
-      operations: ["describe", "query", "create", "update"],
+      operations: ["describe", "query", "create", "update", "sync"],
       encryption: null,
       authority: {
         operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
@@ -1614,7 +1614,7 @@ describe("mdbase connect server", () => {
     const verifier = "hosted-unrestricted-verifier-that-is-long-enough-0001";
     const authorization = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update,sync`,
       headers: { cookie }
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
@@ -1652,7 +1652,7 @@ describe("mdbase connect server", () => {
       headers: { cookie },
       payload: {
         collection_id: localControlCollectionId,
-        operations: ["describe", "query", "create", "update"]
+        operations: ["describe", "query", "create", "update", "sync"]
       }
     });
     expect(localApproval.statusCode).toBe(404);
@@ -1662,7 +1662,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
         collection_id: collectionId,
-        operations: ["describe", "query", "create", "update"]
+        operations: ["describe", "query", "create", "update", "sync"]
       }
     });
     expect(approved.statusCode).toBe(200);
@@ -1671,7 +1671,8 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         purpose: "application",
         allowedTypes: [],
-        fullCollection: true
+        fullCollection: true,
+        allowedOperations: ["describe", "query", "create", "update"]
       })
     );
 
@@ -1693,7 +1694,11 @@ describe("mdbase connect server", () => {
     expect(rediscovered.statusCode).toBe(200);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenCalledWith(
       provisioned.rows[0].id,
-      expect.objectContaining({ allowedTypes: [], fullCollection: true })
+      expect.objectContaining({
+        allowedTypes: [],
+        fullCollection: true,
+        allowedOperations: ["describe", "query", "create", "update"]
+      })
     );
     const reconciled = await db.query<{ allowed_types: string[] }>(
       "SELECT allowed_types FROM hosted_replicas WHERE id = $1",
@@ -1711,10 +1716,10 @@ describe("mdbase connect server", () => {
       method: "PATCH",
       url: `/v1/connectors/hosted/grants/${grantId}`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { operations: ["describe", "query"] }
+      payload: { operations: ["describe", "query", "sync"] }
     });
     expect(narrowed.statusCode, JSON.stringify(narrowed.json())).toBe(200);
-    expect(narrowed.json().grant.operations).toEqual(["describe", "query"]);
+    expect(narrowed.json().grant.operations).toEqual(["describe", "query", "sync"]);
     expect(hostedProvider.updateApplicationReplica).toHaveBeenLastCalledWith(
       provisioned.rows[0].id,
       expect.objectContaining({ mode: "read_only", allowedOperations: ["describe", "query"] })
@@ -1723,7 +1728,7 @@ describe("mdbase connect server", () => {
       method: "PATCH",
       url: `/v1/connectors/hosted/grants/${grantId}`,
       headers: { authorization: `Bearer ${connector.token}` },
-      payload: { operations: ["describe", "query", "create"] }
+      payload: { operations: ["describe", "query", "create", "sync"] }
     });
     expect(broadened.statusCode).toBe(400);
     const revoked = await app.inject({

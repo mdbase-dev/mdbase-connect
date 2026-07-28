@@ -1026,6 +1026,15 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
     () => groupAuthorizationOperations(request.requested_operations),
     [request.requested_operations]
   );
+  const permissionCount = permissionGroups.reduce(
+    (count, group) => count + group.operations.length,
+    0
+  );
+  const selectedPermissionCount = permissionGroups.reduce(
+    (count, group) =>
+      count + group.operations.filter((operation) => operations.includes(operation.id)).length,
+    0
+  );
   useEffect(() => {
     if (!available.some((collection) => collection.id === collectionId)) {
       setCollectionId(available[0]?.id ?? "");
@@ -1097,7 +1106,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
           </div>
         </section>
         <section className="request-section">
-          <div><strong>Permissions</strong><small>{request.requested_operations.length} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small></div>
+          <div><strong>Permissions</strong><small>{permissionCount} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small></div>
           <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
         </section>
         <NotificationAccess notifications={request.notifications} />
@@ -1107,7 +1116,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
             : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
           <div className="decision-actions">
             <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
-            <button className="button primary" disabled={busy || !selected || operations.length === 0} onClick={() => void onAct(async () => {
+            <button className="button primary" disabled={busy || !selected || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
               if (selected?.kind === "hosted") {
                 await window.mdbaseConnect.approveHostedAuthorization({ requestId: request.id, collectionId, operations });
               } else {
@@ -1133,6 +1142,11 @@ function RequestPermissionChoices({
 }) {
   const selectedSet = new Set(selected);
   const total = groups.reduce((count, group) => count + group.operations.length, 0);
+  const selectedTotal = groups.reduce(
+    (count, group) =>
+      count + group.operations.filter((operation) => selectedSet.has(operation.id)).length,
+    0
+  );
   function toggle(operation: string, checked: boolean) {
     onChange(checked
       ? [...selected, operation]
@@ -1140,7 +1154,7 @@ function RequestPermissionChoices({
   }
   return (
     <details className="request-permission-review">
-      <summary><span><strong>{selected.length} of {total} selected</strong><small>Review or narrow individual actions</small></span><b>Review</b></summary>
+      <summary><span><strong>{selectedTotal} of {total} selected</strong><small>Review or narrow individual actions</small></span><b>Review</b></summary>
       <div className="request-permission-groups">{groups.map((group) => (
         <fieldset key={group.id}>
           <legend>{group.label}</legend>
@@ -1184,6 +1198,11 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
     () => groupAuthorizationOperations(allowedOperations),
     [allowedOperations]
   );
+  const selectedPermissionCount = permissionGroups.reduce(
+    (count, group) =>
+      count + group.operations.filter((operation) => operations.includes(operation.id)).length,
+    0
+  );
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
@@ -1203,7 +1222,7 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
               else await window.mdbaseConnect.revokeGrant(grant.id);
               onNotice(`${grant.application_name} access was revoked.`);
             }); }}>Revoke</button>
-            <button className="button primary" disabled={busy || !changed || operations.length === 0} onClick={() => void onAct(async () => {
+            <button className="button primary" disabled={busy || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
               if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
               else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });
               onNotice(`${grant.application_name} permissions were updated.`);

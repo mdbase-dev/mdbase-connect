@@ -3,6 +3,7 @@ import type {
   GrantPolicy,
   TypePackProvision
 } from "@mdbase/connect-protocol";
+import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 
 export interface HostedProviderConfig {
@@ -121,7 +122,9 @@ export class HostedProviderClient {
         allowed_types: replica.allowedTypes,
         contract_scope: replica.contractScope ?? [],
         full_collection: replica.fullCollection ?? false,
-        allowed_operations: replica.allowedOperations ?? [],
+        allowed_operations: hostedReplicaCollectionOperations(
+          replica.allowedOperations ?? []
+        ),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
@@ -167,7 +170,9 @@ export class HostedProviderClient {
         allowed_types: policy.allowedTypes,
         contract_scope: policy.contractScope,
         full_collection: policy.fullCollection,
-        allowed_operations: policy.allowedOperations
+        allowed_operations: hostedReplicaCollectionOperations(
+          policy.allowedOperations
+        )
       }
     );
   }

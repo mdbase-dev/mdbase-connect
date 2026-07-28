@@ -2018,7 +2018,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
   };
   document.querySelector("#connect").onclick = () => {
     manager.authorize({
-      operations: ["describe", "query", "create"],
+      operations: ["describe", "query", "create", "sync"],
       openVerification() {},
       onDeviceCode(authorization) {
         globalThis.portableHarness.authorization = authorization;
@@ -2040,6 +2040,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
         displayName: description.display_name,
         created: created.valid,
         records: records.result.results.length,
+        syncAvailable: connection.sync() !== null,
         connections: manager.connections().length
       };
     }).catch((error) => {
@@ -2090,7 +2091,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
         method: "POST",
         body: {
           collection_id: collectionId,
-          operations: ["describe", "query", "create"]
+          operations: ["describe", "query", "create", "sync"]
         }
       }
     );
@@ -2107,6 +2108,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
       displayName: "Hosted writing",
       created: true,
       records: 1,
+      syncAvailable: true,
       connections: 1
     });
     const captured = result.capturedRequest;
