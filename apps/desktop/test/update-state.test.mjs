@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -16,8 +16,10 @@ test("state creation is durable and installation identity is stable", async () =
   const second = await new UpdateStateStore(path).load();
   assert.match(first.installation_id, /^[0-9a-f-]{36}$/);
   assert.equal(second.installation_id, first.installation_id);
-  const mode = (await import("node:fs/promises")).stat(path).then((value) => value.mode & 0o777);
-  assert.equal(await mode, 0o600);
+  // Windows inherits profile-directory ACLs and reports a synthetic POSIX mode.
+  if (process.platform !== "win32") {
+    assert.equal((await stat(path)).mode & 0o777, 0o600);
+  }
 });
 
 test("state writes are atomic and preserve valid transactions", async () => {
