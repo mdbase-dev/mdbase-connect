@@ -14,6 +14,7 @@ const LEGACY_BASELINE_CHECKSUM = createHash("sha256")
   .update("mdbase-connect-control-plane-legacy-baseline-v1")
   .digest("hex");
 const NON_TRANSACTIONAL_DIRECTIVE = "-- mdbase:no-transaction";
+const SKIP_IF_TABLE_DIRECTIVE = "-- mdbase:skip-if-table ";
 
 export interface MigrationOptions {
   lock?: boolean;
@@ -138,6 +139,14 @@ async function applySqlMigrations(
       assertChecksum(existing, checksum);
       continue;
     }
+    const skipIfTable = migrationDirectiveValue(
+      sql,
+      SKIP_IF_TABLE_DIRECTIVE
+    );
+    if (skipIfTable && await tableExists(connection, skipIfTable)) {
+      await recordMigration(connection, id, checksum);
+      continue;
+    }
     if (sql.trimStart().startsWith(NON_TRANSACTIONAL_DIRECTIVE)) {
       await connection.query(sql);
       await recordMigration(connection, id, checksum);
@@ -153,6 +162,36 @@ async function applySqlMigrations(
       throw error;
     }
   }
+}
+
+function migrationDirectiveValue(
+  sql: string,
+  directive: string
+): string | undefined {
+  for (const line of sql.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("--")) break;
+    if (trimmed.startsWith(directive)) {
+      const value = trimmed.slice(directive.length).trim();
+      if (!/^[a-z][a-z0-9_]*$/.test(value)) {
+        throw new Error(`Invalid migration directive: ${trimmed}`);
+      }
+      return value;
+    }
+  }
+  return undefined;
+}
+
+async function tableExists(
+  db: DatabaseQueryable,
+  tableName: string
+): Promise<boolean> {
+  const existing = await db.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName]
+  );
+  return Boolean(existing.rows[0]);
 }
 
 async function sqlMigrations(directory: string): Promise<Array<{

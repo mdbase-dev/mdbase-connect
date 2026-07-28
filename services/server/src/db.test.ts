@@ -34,6 +34,7 @@ describe("database migrations", () => {
     expect(applied.rows.map(({ id }) => id)).toEqual([
       "0000_legacy_baseline",
       "0001_collaboration_foundations",
+      "0001a_authentication_foundations",
       "0002_instance_administration"
     ]);
     const columns = await db.query<{ column_name: string }>(
@@ -118,6 +119,173 @@ describe("database migrations", () => {
       "SELECT id FROM schema_migrations WHERE id = '0002_instance_administration'"
     );
     expect(migration.rows).toEqual([{ id: "0002_instance_administration" }]);
+  });
+
+  it("upgrades a beta.8 schema without losing existing accounts or sessions", async () => {
+    const db = await openDatabase("memory");
+    resources.push(() => db.end());
+    await db.query(`
+      CREATE TABLE users (
+        id uuid PRIMARY KEY,
+        email text UNIQUE,
+        name text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE external_identities (
+        provider text NOT NULL,
+        subject text NOT NULL,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        login text,
+        email text,
+        email_verified boolean NOT NULL DEFAULT false,
+        avatar_url text,
+        last_login_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY(provider, subject),
+        UNIQUE(provider, user_id)
+      );
+      CREATE TABLE sessions (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash text NOT NULL UNIQUE,
+        provider text NOT NULL DEFAULT 'session',
+        expires_at timestamptz NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE connectors (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        token_hash text NOT NULL UNIQUE,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE pairing_requests (
+        id uuid PRIMARY KEY,
+        user_id uuid REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE TABLE mirror_pairing_requests (
+        id uuid PRIMARY KEY,
+        user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+        replica_id uuid
+      );
+      CREATE TABLE hosted_collections (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE
+      );
+      CREATE TABLE hosted_replicas (
+        id uuid PRIMARY KEY,
+        collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
+        revoked_at timestamptz
+      );
+      CREATE TABLE grants (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        hosted_replica_id uuid
+      );
+      CREATE TABLE audit_events (
+        id uuid PRIMARY KEY,
+        user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+    `);
+    const userId = randomUUID();
+    const sessionId = randomUUID();
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Existing user')",
+      [userId, "Person@Example.com"]
+    );
+    await db.query(
+      `INSERT INTO external_identities
+         (provider, subject, user_id, email, email_verified)
+       VALUES ('google', 'existing-subject', $1, $2, true)`,
+      [userId, "Person@Example.com"]
+    );
+    await db.query(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, 'existing-session', now() + interval '30 days')`,
+      [sessionId, userId]
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const account = await db.query<{
+      email: string;
+      suspended_at: Date | null;
+      session_epoch: number;
+    }>(
+      "SELECT email, suspended_at, session_epoch FROM users WHERE id = $1",
+      [userId]
+    );
+    expect(account.rows[0]).toMatchObject({
+      email: "Person@Example.com",
+      suspended_at: null,
+      session_epoch: 1
+    });
+    const identity = await db.query<{
+      normalized_email: string;
+      email_normalization_version: number;
+    }>(
+      `SELECT normalized_email, email_normalization_version
+       FROM external_identities WHERE user_id = $1`,
+      [userId]
+    );
+    expect(identity.rows[0]).toEqual({
+      normalized_email: "person@example.com",
+      email_normalization_version: 1
+    });
+    const session = await db.query<{
+      account_session_epoch: number;
+      revoked_at: Date | null;
+      last_seen_at: Date;
+    }>(
+      `SELECT account_session_epoch, revoked_at, last_seen_at
+       FROM sessions WHERE id = $1`,
+      [sessionId]
+    );
+    expect(session.rows[0]).toMatchObject({
+      account_session_epoch: 1,
+      revoked_at: null
+    });
+    expect(session.rows[0]?.last_seen_at).toBeInstanceOf(Date);
+    const authTables = await db.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_name IN (
+         'email_identities',
+         'password_credentials',
+         'account_agreements',
+         'invitations',
+         'authentication_challenges',
+         'auth_rate_limit_buckets',
+         'authentication_settings',
+         'authentication_settings_history',
+         'authority_adoption_requests',
+         'operator_operations'
+       )`
+    );
+    expect(new Set(authTables.rows.map(({ table_name }) => table_name))).toEqual(
+      new Set([
+        "email_identities",
+        "password_credentials",
+        "account_agreements",
+        "invitations",
+        "authentication_challenges",
+        "auth_rate_limit_buckets",
+        "authentication_settings",
+        "authentication_settings_history",
+        "authority_adoption_requests",
+        "operator_operations"
+      ])
+    );
+    const applied = await db.query<{ id: string }>(
+      "SELECT id FROM schema_migrations ORDER BY id"
+    );
+    expect(applied.rows.map(({ id }) => id)).toEqual([
+      "0000_legacy_baseline",
+      "0001_collaboration_foundations",
+      "0001a_authentication_foundations",
+      "0002_instance_administration"
+    ]);
   });
 
   it("fails closed when an application starts before pre-deploy migration", async () => {
