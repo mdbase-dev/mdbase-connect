@@ -303,6 +303,7 @@ interface Window {
     removeCollection(collectionId: string): Promise<CollectionSummary>;
     openPath(path: string): Promise<string>;
     openCollectionConfig(collectionId: string): Promise<string>;
+    openEditor(collectionId: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;

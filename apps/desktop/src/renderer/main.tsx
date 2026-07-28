@@ -534,6 +534,13 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
         </div>
         <div className="collection-status"><StatusDot state={collection.enabled ? "connected" : "idle"} />{collection.enabled ? "Available" : "Disabled"}</div>
         <div className="row-actions">
+          <button
+            className="quiet-action"
+            disabled={busy}
+            onClick={() => void window.mdbaseConnect.openEditor(collection.id)}
+          >
+            Open in editor <span aria-hidden="true">↗</span>
+          </button>
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : "Details"}</button>
           <button className="quiet-action" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.setCollectionEnabled(collection.id, !collection.enabled); onNotice(collection.enabled ? `${collection.display_name} is no longer available to remote applications.` : `${collection.display_name} is available again.`); })}>{collection.enabled ? "Disable" : "Enable"}</button>
         </div>
@@ -623,6 +630,11 @@ function HostedCollectionRow({
   const [promotionStarting, setPromotionStarting] = useState(false);
   const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
   const activeReplicas = collection.replicas.filter((replica) => replica.revoked_at === null);
+  const editorCollectionId = collection.authority_state === "active"
+    ? collection.id
+    : collection.authority_state === "transferred"
+      ? collection.transferred_collection_id
+      : null;
 
   useEffect(() => {
     if (openMirror) {
@@ -666,6 +678,13 @@ function HostedCollectionRow({
               : "Moving"}
         </div>
         <div className="row-actions">
+          {editorCollectionId && <button
+            className="quiet-action"
+            disabled={busy}
+            onClick={() => void window.mdbaseConnect.openEditor(editorCollectionId)}
+          >
+            Open in editor <span aria-hidden="true">↗</span>
+          </button>}
           <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Mirror" : "Details"}</button>
         </div>
       </div>

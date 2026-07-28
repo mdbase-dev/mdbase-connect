@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { AgentControlError, requestAgent } from "./control-client";
+import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { UpdateCoordinator } from "./update-coordinator";
 import { UpdateStateStore } from "./update-state";
@@ -344,6 +345,10 @@ function registerIpc(): void {
     )).find((candidate) => candidate.id === collectionId);
     if (!collection) throw new Error("That collection is not registered.");
     return shell.openPath(join(collection.path, "mdbase.yaml"));
+  });
+  ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return shell.openExternal(buildEditorUrl(collectionId));
   });
   ipcMain.handle("connect:startup:get", async (event) => {
     trustedIpc(event);

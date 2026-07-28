@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   openPath: (path: string) => ipcRenderer.invoke("connect:path:open", path),
   openCollectionConfig: (collectionId: string) =>
     ipcRenderer.invoke("connect:collections:open-config", collectionId),
+  openEditor: (collectionId: string) =>
+    ipcRenderer.invoke("connect:editor:open", collectionId),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),

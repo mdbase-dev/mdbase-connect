@@ -6,6 +6,7 @@ await build({
   entryPoints: [
     "src/main/main.ts",
     "src/main/preload.ts",
+    "src/main/editor-url.ts",
     "src/main/electron-update-backend.ts",
     "src/main/release-source.ts",
     "src/main/update-coordinator.ts",
