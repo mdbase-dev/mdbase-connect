@@ -92,10 +92,14 @@ test("recovers from a stale local grant without bypassing the connector", async 
 
     const collectionId = "30000000-0000-4000-8000-000000000003";
     const storagePrefix = `mdbase-connect:${configuredServerUrl}:${manifestUrl}`;
-    localStorage.setItem(`${storagePrefix}:connections`, JSON.stringify([collectionId]));
+    localStorage.setItem(
+      `${storagePrefix}:connections`,
+      JSON.stringify({ version: 1, collectionIds: [collectionId] })
+    );
     localStorage.setItem(
       `${storagePrefix}:token:${collectionId}`,
       JSON.stringify({
+        version: 1,
         accessToken: "mdb_stale",
         refreshToken: "ref_stale",
         clientId: "20000000-0000-4000-8000-000000000002",
@@ -103,7 +107,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
         collectionName: "Stale editor collection",
         operations: [
           "describe", "changes", "read", "query", "validate", "create", "update",
-          "delete", "rename", "read_type", "create_type", "update_type"
+          "delete", "rename", "read_type", "create_type", "update_type", "install_type_pack"
         ],
         scope: { contracts: [], access: "full_collection" },
         expiresAt: Date.now() + 60_000,
