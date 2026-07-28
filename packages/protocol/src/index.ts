@@ -67,6 +67,7 @@ export type CollectionOperation =
   | "read_type"
   | "create_type"
   | "update_type"
+  | "install_type_pack"
   | "list_timers"
   | "put_timer"
   | "cancel_timer"
@@ -229,6 +230,19 @@ export interface TypePackProvision {
   resources: TypePackSourceResource[];
   /** Data contracts expected after the complete pack is installed. */
   provides: ContractRequirement[];
+}
+
+export interface TypePackResourceDiff {
+  target: string;
+  action: "create" | "replace" | "unchanged";
+  digest: string;
+}
+
+export interface TypePackInstallResult {
+  id: string;
+  version: string;
+  resources: TypePackResourceDiff[];
+  cleanup_deferred: boolean;
 }
 
 export interface ApplicationProvisions {

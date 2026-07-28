@@ -56,7 +56,8 @@ const authorizationOperationGroups = [
       "update_view_source",
       "delete_view_source",
       "create_type",
-      "update_type"
+      "update_type",
+      "install_type_pack"
     ]
   },
   {
@@ -91,6 +92,7 @@ const authorizationOperationLabels: Record<string, string> = {
   read_type: "Inspect type definitions",
   create_type: "Create type definitions",
   update_type: "Change type definitions",
+  install_type_pack: "Install type packs",
   list_timers: "List application timers",
   put_timer: "Create or update timers",
   cancel_timer: "Cancel timers",

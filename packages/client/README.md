@@ -233,6 +233,19 @@ await connection.updateType({
 Request `read_type`, `create_type`, and `update_type` during authorization.
 Contract-scoped applications cannot manage collection-wide type definitions.
 
+To install a complete catalog pack without exposing its individual collection
+paths, request `install_type_pack`, fetch and verify the published provision,
+then pass it to the atomic collection operation:
+
+```ts
+const response = await fetch(pack.provisionUrl);
+const provision = await response.json();
+await connection.installTypePack(provision);
+```
+
+The caller remains responsible for verifying the catalog digest before sending
+the provision. Existing targets with different content are rejected.
+
 For a local collection, ask for same-computer access from a user gesture:
 
 ```ts

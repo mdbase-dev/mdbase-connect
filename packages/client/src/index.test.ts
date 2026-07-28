@@ -109,10 +109,29 @@ describe("provider-neutral collection client", () => {
       document: "---\nkind: mdbase.type\n---\n",
       if_revision: "sha256:one"
     });
+    await client.installTypePack({
+      manifest: {
+        kind: "mdbase.type-pack",
+        id: "example.tasks",
+        version: "1.0.0",
+        resources: [{
+          kind: "type",
+          source: "types/task.md",
+          target: "_types/task.md",
+          digest: `sha256:${"1".repeat(64)}`
+        }]
+      },
+      resources: [{
+        source: "types/task.md",
+        document: "---\nkind: mdbase.type\n---\n"
+      }],
+      provides: []
+    });
     expect(calls.map(({ operation }) => operation)).toEqual([
       "read_type",
       "create_type",
-      "update_type"
+      "update_type",
+      "install_type_pack"
     ]);
   });
 

@@ -2987,6 +2987,17 @@ impl HostedProvider {
                 self.write_type_operation(collection_id, operation, input)
                     .await
             }
+            "install_type_pack" => {
+                let provision =
+                    serde_json::from_value::<TypePackProvision>(input).map_err(|error| {
+                        ApiError::bad_request(
+                            "invalid_type_pack",
+                            format!("The type-pack provision is invalid: {error}"),
+                        )
+                    })?;
+                self.write_type_pack_operation(collection_id, &provision)
+                    .await
+            }
             "create_view_source" | "update_view_source" | "delete_view_source" => {
                 self.write_view_source_operation(collection_id, operation, input)
                     .await
@@ -5225,6 +5236,7 @@ fn is_full_collection_operation(operation: &str) -> bool {
             | "read_type"
             | "create_type"
             | "update_type"
+            | "install_type_pack"
             | "list_views"
             | "execute_view"
             | "read_view_source"
@@ -5248,6 +5260,7 @@ fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResul
         "read_type",
         "create_type",
         "update_type",
+        "install_type_pack",
         "list_views",
         "execute_view",
         "read_view_source",
@@ -5266,6 +5279,7 @@ fn validate_operations(operations: &[String], mode: SyncReplicaMode) -> ApiResul
         "rename",
         "create_type",
         "update_type",
+        "install_type_pack",
         "create_view_source",
         "update_view_source",
         "delete_view_source",

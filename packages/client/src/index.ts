@@ -29,6 +29,8 @@ import type {
   SyncMutationReceipt,
   SyncSession,
   SyncSnapshotPage,
+  TypePackInstallResult,
+  TypePackProvision,
   UpdateViewSourceInput
 } from "@mdbase/connect-protocol";
 import {
@@ -95,7 +97,9 @@ export type {
   ExecuteViewInput,
   TypePackManifest,
   TypePackManifestResource,
+  TypePackInstallResult,
   TypePackProvision,
+  TypePackResourceDiff,
   TypePackSourceResource
 } from "@mdbase/connect-protocol";
 
@@ -748,6 +752,10 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
 
   updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
     return this.operation("update_type", input);
+  }
+
+  installTypePack(input: TypePackProvision): Promise<MdbaseOperationEnvelope<TypePackInstallResult>> {
+    return this.operation("install_type_pack", input);
   }
 
   listTimers(namespace: string): Promise<MdbaseTimerList> {
@@ -2731,6 +2739,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.updateType(input);
   }
 
+  installTypePack(input: TypePackProvision): Promise<MdbaseOperationEnvelope<TypePackInstallResult>> {
+    return this.collectionClient.installTypePack(input);
+  }
+
   listTimers(namespace: string): Promise<MdbaseTimerList> {
     return this.collectionClient.listTimers(namespace);
   }
@@ -3499,6 +3511,7 @@ function isMutation(operation: CollectionOperation, input?: unknown): boolean {
     || operation === "rename"
     || operation === "create_type"
     || operation === "update_type"
+    || operation === "install_type_pack"
     || operation === "put_timer"
     || operation === "cancel_timer"
     || operation === "reconcile_timers";

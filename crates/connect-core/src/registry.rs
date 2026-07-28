@@ -1481,10 +1481,14 @@ impl CollectionRegistry {
             "batch" => Err(ConnectError::AccessDenied(
                 "Batch operations require full collection access.".to_string(),
             )),
-            "list_types" | "read_type" | "create_type" | "update_type" => Err(
+            "list_types"
+            | "read_type"
+            | "create_type"
+            | "update_type"
+            | "install_type_pack" => Err(
                 ConnectError::AccessDenied(
-                "Type definitions can only be managed by an application with full collection access."
-                    .to_string(),
+                    "Collection schemas can only be managed by an application with full collection access."
+                        .to_string(),
                 ),
             ),
             other => Err(ConnectError::UnsupportedOperation(other.to_string())),
@@ -2913,6 +2917,27 @@ fn execute_loaded(
     input: &Value,
 ) -> Result<Value, ConnectError> {
     if collection.spec_profile() == SpecProfile::V03 {
+        if operation == "install_type_pack" {
+            let provision =
+                serde_json::from_value::<TypePackProvision>(input.clone()).map_err(|error| {
+                    ConnectError::InvalidInput(format!(
+                        "The type-pack provision is invalid: {error}"
+                    ))
+                })?;
+            let manifest = serde_json::to_value(&provision.manifest)?;
+            let resources = provision
+                .resources
+                .iter()
+                .map(|resource| mdbase::v03::TypePackResource {
+                    source: resource.source.clone(),
+                    document: resource.document.clone(),
+                })
+                .collect::<Vec<_>>();
+            return serde_json::to_value(
+                collection.install_type_pack(&manifest, &resources, false),
+            )
+            .map_err(ConnectError::from);
+        }
         let operations = collection
             .v03_operations()
             .map_err(|diagnostic| ConnectError::CollectionOpen(diagnostic.message.clone()))?;
@@ -3127,6 +3152,7 @@ fn is_collection_mutation(operation: &str) -> bool {
             | "rename"
             | "create_type"
             | "update_type"
+            | "install_type_pack"
             | "create_view_source"
             | "update_view_source"
             | "delete_view_source"
@@ -3149,6 +3175,7 @@ fn operation_invalidation(
         operation,
         "create_type"
             | "update_type"
+            | "install_type_pack"
             | "create_view_source"
             | "update_view_source"
             | "delete_view_source"
@@ -3206,6 +3233,7 @@ fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
         "read_type",
         "create_type",
         "update_type",
+        "install_type_pack",
         "list_timers",
         "put_timer",
         "cancel_timer",
@@ -4100,7 +4128,7 @@ schema:
     }
 
     #[test]
-    fn provisions_required_type_contracts_idempotently() {
+    fn installs_type_packs_as_full_collection_operations_and_provisions_idempotently() {
         let state = tempdir().unwrap();
         let collection_parent = tempdir().unwrap();
         let root = collection_parent.path().join("provisioned");
@@ -4202,6 +4230,29 @@ schema:
                 .collect(),
             provides: requirements.contracts.clone(),
         };
+        let installed = registry
+            .operation(
+                collection.id,
+                "install_type_pack",
+                &serde_json::to_value(&provision).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(installed["valid"], true, "{installed}");
+        assert_eq!(installed["result"]["id"], "example.workout");
+        assert_eq!(
+            installed["result"]["resources"].as_array().unwrap().len(),
+            3
+        );
+        assert!(matches!(
+            registry.scoped_operation(
+                collection.id,
+                "install_type_pack",
+                &serde_json::to_value(&provision).unwrap(),
+                &unavailable_contract_scope()
+            ),
+            Err(ConnectError::AccessDenied(_))
+        ));
+
         let provisions = [provision];
 
         let contracts = registry

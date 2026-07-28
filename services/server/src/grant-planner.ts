@@ -12,7 +12,8 @@ const FULL_COLLECTION_OPERATIONS = new Set<CollectionOperation>([
   "execute_view",
   "read_type",
   "create_type",
-  "update_type"
+  "update_type",
+  "install_type_pack"
 ]);
 
 const WRITE_OPERATIONS = new Set<CollectionOperation>([
@@ -22,6 +23,7 @@ const WRITE_OPERATIONS = new Set<CollectionOperation>([
   "rename",
   "create_type",
   "update_type",
+  "install_type_pack",
   "create_view_source",
   "update_view_source",
   "delete_view_source",

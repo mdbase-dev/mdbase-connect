@@ -60,7 +60,8 @@ const PORTABLE_PROFILE_OPERATIONS = new Set([
   "execute_view",
   "read_type",
   "create_type",
-  "update_type"
+  "update_type",
+  "install_type_pack"
 ]);
 
 function requiresMdbase03(operations: readonly string[]): boolean {

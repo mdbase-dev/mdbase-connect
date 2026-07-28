@@ -34,7 +34,7 @@ import { collectionCompatibility } from "./compatibility";
 import { SessionManager } from "./session-manager";
 import "./styles.css";
 
-const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
+const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "install_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
 const editorBaseUrl = import.meta.env.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
 
 function editorUrl(collectionId?: string): string {
