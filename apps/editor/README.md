@@ -54,3 +54,10 @@ Pages project named `mdbase-editor` with production branch `main`.
 Configure the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub
 repository secrets, then set the `CLOUDFLARE_PAGES_ENABLED` repository variable
 to `1`.
+
+The same workflow publishes a permanent staging build at
+`https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
+generates a manifest for the staging editor origin, and targets
+`https://mdbase-connect-staging.onrender.com`. The Pages API attaches the
+custom domain idempotently; Cloudflare DNS must proxy
+`editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.
