@@ -1,18 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
   addTypeField,
+  addTypeLinkRule,
+  addTypeReadDefault,
+  addTypeUniqueRule,
   readVisualType,
+  removeTypeLinkRule,
+  removeTypeReadDefault,
+  removeTypeUniqueRule,
   removeTypeField,
+  renameTypeLinkRule,
+  renameTypeReadDefault,
   renameTypeField,
+  setTypeLinkRule,
+  setTypeLinkTargets,
+  setTypeReadDefault,
   setTypeFieldChoices,
   setTypeFieldConstraint,
+  setTypeFieldDescription,
   setTypeFieldKind,
   setTypeFieldRequired,
   setTypeListItemKind,
+  setTypeUniqueRule,
   typeFieldConversionImpact,
   typeFieldPathLabel,
   typeImpact,
+  updateTypeCollectionDisplay,
   updateTypeFieldsPresent,
+  updateTypePathPolicy,
   updateTypePathGlob,
   updateTypePathGlobs
 } from "./type-schema";
@@ -151,7 +166,125 @@ schema:
 The Markdown body is documentation.
 `;
 
+const collectionSource = recursiveSource.replace("schema:", `collection:
+  display:
+    name_field: title
+    description_field: profile.display_name
+    icon: person
+    color_field: profile.timezone
+  read_defaults:
+    profile:
+      timezone: UTC
+  links:
+    contacts[].value:
+      target_type: [person, organisation]
+      validate_exists: true
+      format: wikilink
+  unique:
+    - field: title
+      scope: type
+    - field: contacts[].value
+      scope: path_glob
+      path_glob: People/**/*.md
+  path:
+    pattern: "People/{title}.md"
+    runtime: example.paths
+  projections:
+    label:
+      expr: title
+  x-example:
+    preserved: true
+schema:`);
+
 describe("recursive visual type source editing", () => {
+  it("reads portable collection behaviour while identifying YAML-only settings", () => {
+    expect(readVisualType(collectionSource).collection).toMatchObject({
+      display: {
+        nameField: "title",
+        descriptionField: "profile.display_name",
+        icon: "person",
+        colorField: "profile.timezone"
+      },
+      readDefaults: [{ field: "profile", value: { timezone: "UTC" } }],
+      links: [{
+        field: "contacts[].value",
+        targetTypes: ["person", "organisation"],
+        validateExists: true,
+        format: "wikilink",
+        advancedKeys: []
+      }],
+      unique: [
+        { sourceIndex: 0, field: "title", scope: "type" },
+        { sourceIndex: 1, field: "contacts[].value", scope: "path_glob", pathGlob: "People/**/*.md" }
+      ],
+      path: {
+        pattern: "People/{title}.md",
+        advancedKeys: ["runtime"]
+      },
+      advancedKeys: ["projections", "x-example"]
+    });
+  });
+
+  it("edits collection behaviour without disturbing projections, extensions, or documentation", () => {
+    let next = updateTypeCollectionDisplay(collectionSource, "icon", "contact");
+    next = updateTypeCollectionDisplay(next, "description_field", "");
+    next = setTypeReadDefault(next, "profile", { timezone: "Australia/Melbourne" });
+    next = addTypeReadDefault(next, "title", "Untitled person");
+    next = renameTypeReadDefault(next, "title", "timezone");
+    next = addTypeLinkRule(next, "profile.display_name");
+    next = setTypeLinkTargets(next, "profile.display_name", ["person"]);
+    next = setTypeLinkRule(next, "profile.display_name", "validate_exists", true);
+    next = renameTypeLinkRule(next, "profile.display_name", "profile.timezone");
+    next = setTypeUniqueRule(next, 0, "scope", "collection");
+    next = addTypeUniqueRule(next, "profile.display_name");
+    next = updateTypePathPolicy(next, "pattern", "Contacts/{title}.md");
+    next = updateTypePathPolicy(next, "folder", "Contacts");
+
+    expect(readVisualType(next).collection).toMatchObject({
+      display: { nameField: "title", icon: "contact" },
+      readDefaults: [
+        { field: "profile", value: { timezone: "Australia/Melbourne" } },
+        { field: "timezone", value: "Untitled person" }
+      ],
+      links: expect.arrayContaining([
+        expect.objectContaining({ field: "profile.timezone", targetTypes: ["person"], validateExists: true })
+      ]),
+      unique: expect.arrayContaining([
+        expect.objectContaining({ field: "title", scope: "collection" }),
+        expect.objectContaining({ field: "profile.display_name", scope: "type" })
+      ]),
+      path: expect.objectContaining({ pattern: "Contacts/{title}.md", folder: "Contacts" })
+    });
+    expect(next).toContain("runtime: example.paths");
+    expect(next).toContain("projections:");
+    expect(next).toContain("x-example:");
+    expect(next).toContain("The Markdown body is documentation.");
+  });
+
+  it("removes collection rules and prunes empty containers", () => {
+    let next = addTypeReadDefault(recursiveSource, "title", "");
+    next = addTypeLinkRule(next, "title");
+    next = addTypeUniqueRule(next, "title");
+    next = removeTypeReadDefault(next, "title");
+    next = removeTypeLinkRule(next, "title");
+    next = removeTypeUniqueRule(next, 0);
+
+    expect(next).not.toContain("collection:");
+  });
+
+  it("preserves spaces while editing a field description", () => {
+    let next = recursiveSource;
+    const title = readVisualType(next).fields.find((field) => field.name === "title")!;
+
+    for (const character of "These are the tags for the notes.") {
+      const current = readVisualType(next).fields.find((field) => field.name === "title")?.description ?? "";
+      next = setTypeFieldDescription(next, title.path, current + character);
+    }
+
+    expect(readVisualType(next).fields.find((field) => field.name === "title")?.description)
+      .toBe("These are the tags for the notes.");
+  });
+
   it("reads objects, lists of objects, nested lists, constraints, and local required fields", () => {
     const definition = readVisualType(recursiveSource);
     expect(definition.pathGlob).toBe("People/**/*.md");
@@ -267,6 +400,18 @@ describe("recursive visual type source editing", () => {
       changedFields: ["profile.display_name"],
       definitionChanges: ["Matching rules"]
     });
+  });
+
+  it("classifies individual collection behaviour changes for review", () => {
+    let next = updateTypeCollectionDisplay(recursiveSource, "name_field", "title");
+    next = addTypeUniqueRule(next, "title");
+    next = updateTypePathPolicy(next, "pattern", "People/{title}.md");
+
+    expect(typeImpact(recursiveSource, next, [], "person").collectionChanges).toEqual([
+      "Display metadata",
+      "Uniqueness rules",
+      "Path policy"
+    ]);
   });
 
   it("edits all portable inferred match selectors and removes an empty match section", () => {

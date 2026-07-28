@@ -36,8 +36,9 @@ import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
 import { parseDocument as parseYamlDocument } from "yaml";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
+import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
-type EditorLanguage = "markdown" | "json" | "yaml" | "plain";
+type EditorLanguage = "markdown" | "json" | "yaml" | "yaml-frontmatter" | "plain";
 type EditorVariant = "writer" | "source";
 export type MarkdownFormat = "bold" | "italic" | "code" | "link";
 
@@ -60,6 +61,10 @@ interface CodeEditorProps {
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
   onOpenLink?: (path: string) => void;
+  onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
+  onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
+  onDismissLinkPreview?: () => void;
+  onBlur?: () => void;
 }
 
 interface RememberedEditor {
@@ -97,7 +102,11 @@ export function CodeEditor({
   recentPaths = [],
   linkSuggestions = [],
   linkTypes = [],
-  onOpenLink
+  onOpenLink,
+  onCreateLink,
+  onPreviewLink,
+  onDismissLinkPreview,
+  onBlur
 }: CodeEditorProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | undefined>(undefined);
@@ -113,6 +122,9 @@ export function CodeEditor({
   const recentPathsRef = useRef(recentPaths);
   const currentPathRef = useRef(currentPath);
   const onOpenLinkRef = useRef(onOpenLink);
+  const onCreateLinkRef = useRef(onCreateLink);
+  const onPreviewLinkRef = useRef(onPreviewLink);
+  const onDismissLinkPreviewRef = useRef(onDismissLinkPreview);
   const lineSeparator = useRef(lineSeparatorFor(value));
 
   linkSuggestionsRef.current = linkSuggestions;
@@ -120,6 +132,9 @@ export function CodeEditor({
   recentPathsRef.current = recentPaths;
   currentPathRef.current = currentPath;
   onOpenLinkRef.current = onOpenLink;
+  onCreateLinkRef.current = onCreateLink;
+  onPreviewLinkRef.current = onPreviewLink;
+  onDismissLinkPreviewRef.current = onDismissLinkPreview;
 
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
@@ -142,7 +157,10 @@ export function CodeEditor({
       variant === "writer" ? writerInteractions(
         () => linkSuggestionsRef.current,
         () => currentPathRef.current,
-        () => onOpenLinkRef.current
+        () => onOpenLinkRef.current,
+        () => onCreateLinkRef.current,
+        () => onPreviewLinkRef.current,
+        () => onDismissLinkPreviewRef.current
       ) : [],
       EditorState.readOnly.of(readOnly),
       EditorView.editable.of(!readOnly),
@@ -173,6 +191,7 @@ export function CodeEditor({
     });
     return () => {
       if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      onDismissLinkPreviewRef.current?.();
       view.destroy();
       viewRef.current = undefined;
     };
@@ -256,7 +275,7 @@ export function CodeEditor({
       ] as Extension)
       : import("@codemirror/lang-yaml").then(({ yaml }) => [
         yaml(),
-        variant === "source" ? linter(yamlLinter) : []
+        variant === "source" ? linter(language === "yaml-frontmatter" ? yamlFrontmatterLinter : yamlLinter) : []
       ] as Extension);
     void load.then((extension) => {
       if (!cancelled && viewRef.current === view) {
@@ -280,6 +299,11 @@ export function CodeEditor({
   return <div
     ref={parentRef}
     className={`code-editor code-editor-${variant} ${className}`.trim()}
+    onBlur={(event) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && event.currentTarget.contains(next)) return;
+      onBlur?.();
+    }}
   />;
 }
 
@@ -635,8 +659,18 @@ const markdownMarkerNames = new Set([
 function writerInteractions(
   suggestions: () => LinkSuggestion[],
   currentPath: () => string | undefined,
-  onOpenLink: () => ((path: string) => void) | undefined
+  onOpenLink: () => ((path: string) => void) | undefined,
+  onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
+  onPreviewLink: () => ((path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void) | undefined,
+  onDismissLinkPreview: () => (() => void) | undefined
 ): Extension {
+  let hoveredPath: string | undefined;
+  const dismissPreview = (view: EditorView) => {
+    if (!hoveredPath) return;
+    hoveredPath = undefined;
+    view.dom.classList.remove("cm-hovering-link");
+    onDismissLinkPreview()?.();
+  };
   return EditorView.domEventHandlers({
     mousedown(event, view) {
       const task = taskTarget(event);
@@ -654,17 +688,49 @@ function writerInteractions(
       if (position === null) return false;
       const link = markdownLinkAt(view.state.doc.toString(), position);
       if (!link) return false;
-      if (/^https?:\/\//i.test(link)) {
+      if (/^https?:\/\//i.test(link.target)) {
         event.preventDefault();
-        window.open(link, "_blank", "noopener,noreferrer");
+        window.open(link.target, "_blank", "noopener,noreferrer");
         return true;
       }
-      const path = resolveSuggestionPath(link, suggestions(), currentPath());
+      if (!link.target || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(link.target)) return false;
+      const path = resolveSuggestionPath(link.target, suggestions(), currentPath());
       const openLink = onOpenLink();
-      if (!path || !openLink) return false;
+      const createLink = onCreateLink();
+      if (!path && !createLink) return false;
+      if (path && !openLink) return false;
       event.preventDefault();
-      openLink(path);
+      dismissPreview(view);
+      if (path) openLink?.(path);
+      else createLink?.(link.target, link.label, link.format);
       return true;
+    },
+    mousemove(event, view) {
+      const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      const path = position === null
+        ? undefined
+        : internalLinkPathAt(view.state.doc.toString(), position, suggestions(), currentPath());
+      if (!path) {
+        dismissPreview(view);
+        return false;
+      }
+      if (hoveredPath === path) return false;
+      if (hoveredPath) onDismissLinkPreview()?.();
+      hoveredPath = path;
+      view.dom.classList.add("cm-hovering-link");
+      const coordinates = view.coordsAtPos(position ?? 0);
+      const anchor: NotePreviewAnchor = {
+        left: event.clientX,
+        right: event.clientX,
+        top: coordinates?.top ?? event.clientY,
+        bottom: coordinates?.bottom ?? event.clientY
+      };
+      onPreviewLink()?.(path, anchor, "editor");
+      return false;
+    },
+    mouseleave(_event, view) {
+      dismissPreview(view);
+      return false;
     }
   });
 }
@@ -688,17 +754,47 @@ function toggleTask(view: EditorView, target: HTMLElement, event: Event): boolea
   return true;
 }
 
-function markdownLinkAt(doc: string, position: number): string | undefined {
+interface MarkdownLinkTarget {
+  target: string;
+  label?: string;
+  format: "wikilink" | "markdown";
+}
+
+function markdownLinkAt(doc: string, position: number): MarkdownLinkTarget | undefined {
   const lineStart = doc.lastIndexOf("\n", position - 1) + 1;
   const lineEnd = doc.indexOf("\n", position);
   const end = lineEnd < 0 ? doc.length : lineEnd;
   const line = doc.slice(lineStart, end);
-  for (const match of line.matchAll(/\[\[([^\]]+)\]\]|\[[^\]]*\]\(([^)]+)\)/g)) {
+  for (const match of line.matchAll(/\[\[([^\]]+)\]\]|\[([^\]]*)\]\(([^)]+)\)/g)) {
     const from = lineStart + match.index;
     const to = from + match[0].length;
-    if (position >= from && position <= to) return (match[1] ?? match[2]).split("|", 1)[0].split("#", 1)[0].trim();
+    if (position < from || position > to || doc[from - 1] === "!") continue;
+    if (match[1] !== undefined) {
+      const [target, label] = match[1].split("|", 2);
+      return {
+        target: target.split("#", 1)[0].trim(),
+        label: label?.trim() || undefined,
+        format: "wikilink"
+      };
+    }
+    return {
+      target: (match[3] ?? "").replace(/^<|>$/g, "").split("#", 1)[0].trim(),
+      label: match[2]?.trim() || undefined,
+      format: "markdown"
+    };
   }
   return undefined;
+}
+
+export function internalLinkPathAt(
+  doc: string,
+  position: number,
+  suggestions: LinkSuggestion[],
+  sourcePath?: string
+): string | undefined {
+  const link = markdownLinkAt(doc, position);
+  if (!link || /^https?:\/\//i.test(link.target)) return undefined;
+  return resolveSuggestionPath(link.target, suggestions, sourcePath);
 }
 
 function resolveSuggestionPath(target: string, suggestions: LinkSuggestion[], sourcePath?: string): string | undefined {
@@ -722,11 +818,45 @@ function resolveSuggestionPath(target: string, suggestions: LinkSuggestion[], so
 }
 
 function yamlLinter(view: EditorView): readonly Diagnostic[] {
-  const parsed = parseYamlDocument(view.state.doc.toString(), { prettyErrors: false });
+  const source = view.state.doc.toString();
+  return yamlDiagnostics(source, 0, source.length);
+}
+
+function yamlFrontmatterLinter(view: EditorView): readonly Diagnostic[] {
+  return yamlFrontmatterDiagnostics(view.state.doc.toString());
+}
+
+export function yamlFrontmatterDiagnostics(source: string): readonly Diagnostic[] {
+  const opening = /^(?:\uFEFF)?---[ \t]*(?:\r?\n|$)/.exec(source);
+  if (!opening) {
+    return [{
+      from: 0,
+      to: Math.min(source.length, Math.max(1, source.indexOf("\n") < 0 ? source.length : source.indexOf("\n"))),
+      severity: "error",
+      message: "Type definitions need YAML frontmatter between --- markers."
+    }];
+  }
+
+  const contentFrom = opening[0].length;
+  const closing = /^---[ \t]*\r?$/m.exec(source.slice(contentFrom));
+  if (!closing) {
+    return [{
+      from: Math.max(0, source.length - 1),
+      to: source.length,
+      severity: "error",
+      message: "Type definitions need a closing --- frontmatter marker."
+    }];
+  }
+
+  return yamlDiagnostics(source.slice(contentFrom, contentFrom + closing.index), contentFrom, source.length);
+}
+
+function yamlDiagnostics(source: string, offset: number, documentLength: number): readonly Diagnostic[] {
+  const parsed = parseYamlDocument(source, { prettyErrors: false });
   return parsed.errors.map((error) => {
     const [start = 0, end = start + 1] = error.pos ?? [];
-    const from = Math.min(view.state.doc.length, Math.max(0, start));
-    const to = Math.min(view.state.doc.length, Math.max(from + 1, end));
+    const from = Math.min(documentLength, Math.max(0, offset + start));
+    const to = Math.min(documentLength, Math.max(from + 1, offset + end));
     return {
       from,
       to,

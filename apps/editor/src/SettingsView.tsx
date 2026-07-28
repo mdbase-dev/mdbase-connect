@@ -1,17 +1,21 @@
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeftIcon as ArrowLeft, TrashIcon as Trash2 } from "./icons";
 import type { CollectionDescription } from "@mdbase/connect";
 import { useEffect, useState, type ReactNode } from "react";
+import type { ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
-export function SettingsView({ description, noteCount, preferences, leadingActions, onChange, onBack, onForget }: {
+export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, onChange, onBack, onForget, onRequestDirectAccess }: {
   description: CollectionDescription;
+  connection: ConnectionSummary | null;
   noteCount: number;
   preferences: EditorPreferences;
+  directAccessBusy: boolean;
   leadingActions?: ReactNode;
   onChange: (value: EditorPreferences) => void;
   onBack: () => void;
   onForget: () => void;
+  onRequestDirectAccess: () => void;
 }) {
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
@@ -54,6 +58,8 @@ export function SettingsView({ description, noteCount, preferences, leadingActio
 
       <section>
         <div className="settings-intro"><h2>Connection</h2><p>Collection-wide access through mdbase connect. Storage remains local or hosted according to the collection you chose.</p></div>
+        <FactRow label="Route" value={connectionRouteLabel(connection)} />
+        <DirectAccessRow connection={connection} busy={directAccessBusy} onRequest={onRequestDirectAccess} />
         <FactRow label="Operations" value={description.operations.join(", ")} mono />
         <FactRow label="Collection ID" value={description.collection_id} mono />
         <div className="setting-row connection-action">
@@ -88,6 +94,37 @@ function SettingRow({ title, description, children }: { title: string; descripti
 
 function FactRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return <div className="fact-row"><span>{label}</span><strong className={mono ? "mono" : ""}>{value}</strong></div>;
+}
+
+function DirectAccessRow({ connection, busy, onRequest }: {
+  connection: ConnectionSummary | null;
+  busy: boolean;
+  onRequest: () => void;
+}) {
+  const status = connection?.directAccess;
+  if (status === "available") return <FactRow label="This computer" value="Available" />;
+  if (!status || status === "disabled") return null;
+  const description = status === "permission_required"
+    ? "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
+    : status === "denied"
+      ? "Local network access is blocked in this browser. Allow it in the site settings, then check again."
+      : status === "checking"
+        ? "Checking for mdbase on this computer."
+        : "mdbase could not be reached on this computer. You can keep editing through mdbase.";
+  const label = status === "permission_required"
+    ? "Allow local access"
+    : status === "checking" || busy
+      ? "Checking…"
+      : "Check again";
+  return <SettingRow title="This computer" description={description}>
+    <button className="settings-secondary-action" disabled={status === "checking" || busy} onClick={onRequest}>{label}</button>
+  </SettingRow>;
+}
+
+function connectionRouteLabel(connection: ConnectionSummary | null): string {
+  if (connection?.route === "remote") return "Hosted";
+  if (connection?.route === "direct" || connection?.directAccess === "available") return "This computer";
+  return "Via mdbase";
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {

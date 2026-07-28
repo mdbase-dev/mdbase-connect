@@ -1,4 +1,4 @@
-import { CircleAlert } from "lucide-react";
+import { WarningCircleIcon as CircleAlert } from "./icons";
 import { useMemo } from "react";
 import { compareLines } from "./text-diff";
 

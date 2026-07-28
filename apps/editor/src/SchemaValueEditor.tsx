@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from "lucide-react";
+import { PlusIcon as Plus, TrashIcon as Trash2 } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";

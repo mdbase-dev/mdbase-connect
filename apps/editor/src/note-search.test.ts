@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildNoteSearchIndex, searchNotes } from "./note-search";
+import {
+  buildNoteSearchIndex,
+  searchNoteResults,
+  searchNotes,
+  searchTextRanges
+} from "./note-search";
 import type { NoteSummary } from "./model";
 
 const notes: NoteSummary[] = [
@@ -46,5 +51,29 @@ describe("note search", () => {
 
   it("preserves collection order for an empty query", () => {
     expect(searchNotes(index, "")).toEqual(notes);
+  });
+
+  it("returns a highlighted excerpt from the field that matched", () => {
+    const [bodyResult] = searchNoteResults(index, "leave room");
+    expect(bodyResult.note.path).toBe("Reading/Interfaces.md");
+    expect(bodyResult.context).toMatchObject({
+      kind: "body",
+      text: "Good tools leave room."
+    });
+    expect(bodyResult.context.ranges.map((range) =>
+      bodyResult.context.text.slice(range.from, range.to)
+    )).toEqual(["leave", "room"]);
+
+    const [metadataResult] = searchNoteResults(index, "roadmap");
+    expect(metadataResult.context.kind).toBe("metadata");
+    expect(metadataResult.context.text).toContain("#roadmap");
+  });
+
+  it("finds every non-overlapping literal search token for quiet highlighting", () => {
+    expect(searchTextRanges("Alpha beta alpha", "alpha beta")).toEqual([
+      { from: 0, to: 5 },
+      { from: 6, to: 10 },
+      { from: 11, to: 16 }
+    ]);
   });
 });

@@ -1,31 +1,32 @@
 import {
-  ArrowLeft,
-  Braces,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  CircleAlert,
-  Copy,
-  FilePlus2,
-  Folder,
-  FolderPlus,
-  Info,
-  Keyboard,
-  Link2,
-  NotebookPen,
-  PanelLeft,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pencil,
-  Search,
-  Settings2,
-  Tag,
-  Trash2,
-  Undo2,
-  X
-} from "lucide-react";
+  ArrowCounterClockwiseIcon as Undo2,
+  ArrowLeftIcon as ArrowLeft,
+  ArrowRightIcon as ArrowRight,
+  BracketsCurlyIcon as Braces,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+  CopyIcon as Copy,
+  FilePlusIcon as FilePlus2,
+  FolderIcon as Folder,
+  FolderPlusIcon as FolderPlus,
+  GearSixIcon as Settings2,
+  InfoIcon as Info,
+  KeyboardIcon as Keyboard,
+  LinkIcon as Link2,
+  MagnifyingGlassIcon as Search,
+  NotebookIcon as NotebookPen,
+  PencilSimpleIcon as Pencil,
+  SidebarSimpleIcon as PanelLeft,
+  SidebarSimpleIcon as PanelLeftClose,
+  SidebarSimpleIcon as PanelLeftOpen,
+  TagIcon as Tag,
+  TrashIcon as Trash2,
+  WarningCircleIcon as CircleAlert,
+  XIcon as X
+} from "./icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MdbaseConnectError, type CollectionChange, type CollectionDescription, type MutationProgress } from "@mdbase/connect";
+import { MdbaseConnectError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -43,9 +44,10 @@ import { ContextMenu } from "./ContextMenu";
 import { ConflictResolver } from "./ConflictResolver";
 import { ConfirmDialog, Dialog } from "./Dialog";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
-import { backlinksFor, linkSuggestions } from "./links";
+import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
 import {
   COLLECTION_WIDTH,
+  INSPECTOR_WIDTH,
   LIST_WIDTH,
   loadLayoutPreferences,
   saveLayoutPreferences,
@@ -76,12 +78,26 @@ import {
 import type { FolderTreeNode } from "./note";
 import { loadNoteSort, noteSortSummary, saveNoteSort, sortNotes, type NoteSort } from "./note-list-view";
 import { NewNoteComposer } from "./NewNoteComposer";
+import {
+  NotePreviewCard,
+  notePreviewPopoverId,
+  useNotePreview,
+  type NotePreviewAnchor,
+  type NotePreviewSource
+} from "./NotePreview";
 import { NoteListViewOptions } from "./NoteListViewOptions";
-import { buildNoteSearchIndex, searchNotes } from "./note-search";
+import {
+  buildNoteSearchIndex,
+  searchNoteResults,
+  searchTextRanges,
+  type NoteSearchContext
+} from "./note-search";
 import { KeyedOperationQueue } from "./operation-queue";
 import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
+import { collectionTypeIcon, isPhosphorIconName, PhosphorIcon } from "./PhosphorIcon";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
+import { SearchMatchText } from "./SearchMatchText";
 import { SettingsView } from "./SettingsView";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 
@@ -173,6 +189,15 @@ type RecoveryAction =
   | { kind: "delete"; document: NoteDocument }
   | { kind: "rename"; from: string; to: string };
 
+interface NoteNavigationHistory {
+  paths: string[];
+  index: number;
+}
+
+interface NoteNavigationOptions {
+  historyIndex?: number;
+}
+
 export function App({ gateway }: { gateway: CollectionGateway }) {
   const [phase, setPhase] = useState<AppPhase>("starting");
   const [description, setDescription] = useState<CollectionDescription>();
@@ -183,8 +208,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [contentIndexing, setContentIndexing] = useState(false);
   const [contentLoaded, setContentLoaded] = useState(0);
   const [contentError, setContentError] = useState<string>();
+  const [connectionSummary, setConnectionSummary] = useState<ConnectionSummary | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
+  const [directAccessBusy, setDirectAccessBusy] = useState(false);
   const [connectionRetry, setConnectionRetry] = useState(0);
   const [collectionTotal, setCollectionTotal] = useState<number>();
   const [selectedPath, setSelectedPath] = useState<string>();
@@ -223,11 +250,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [collectionSwitcherOpen, setCollectionSwitcherOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
+  const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   const [layout, setLayout] = useState<LayoutPreferences>(loadLayoutPreferences);
   const [noteSort, setNoteSort] = useState<NoteSort>(loadNoteSort);
-  const [resizingPane, setResizingPane] = useState<"collection" | "list">();
+  const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [, setSessionTick] = useState(0);
   const indexGeneration = useRef(0);
@@ -236,6 +264,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const typeGeneration = useRef(0);
   const allNotesRef = useRef<NoteSummary[]>([]);
   const currentSession = useRef<NoteSession | undefined>(undefined);
+  const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
+  const linkCreations = useRef(new Set<string>());
   const sessions = useRef(new Map<string, NoteSession>());
   const operationQueue = useRef(new KeyedOperationQueue<NoteSession>());
   const renameRequest = useRef<string | undefined>(undefined);
@@ -244,6 +274,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mobileHistoryInitialized = useRef(false);
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
+  const notePreviewController = useNotePreview(gateway, allNotes);
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
@@ -405,6 +436,44 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     });
   }, []);
 
+  const publishNoteHistory = useCallback((next: NoteNavigationHistory) => {
+    noteHistory.current = next;
+    setNoteHistoryState(next);
+  }, []);
+
+  const recordNoteNavigation = useCallback((path: string) => {
+    const current = noteHistory.current;
+    if (current.paths[current.index] === path) return;
+    const paths = [...current.paths.slice(0, current.index + 1), path].slice(-100);
+    publishNoteHistory({ paths, index: paths.length - 1 });
+  }, [publishNoteHistory]);
+
+  const selectNoteHistoryIndex = useCallback((index: number, path: string) => {
+    const current = noteHistory.current;
+    if (index < 0 || index >= current.paths.length || current.paths[index] !== path) return;
+    publishNoteHistory({ paths: current.paths, index });
+  }, [publishNoteHistory]);
+
+  const replaceNoteHistoryPath = useCallback((from: string, to: string) => {
+    const current = noteHistory.current;
+    if (!current.paths.includes(from)) return;
+    publishNoteHistory({
+      paths: current.paths.map((path) => path === from ? to : path),
+      index: current.index
+    });
+  }, [publishNoteHistory]);
+
+  const forgetNoteHistoryPath = useCallback((path: string) => {
+    const current = noteHistory.current;
+    const paths = current.paths.filter((candidate) => candidate !== path);
+    const removedBeforeOrAtCurrent = current.paths.slice(0, current.index + 1)
+      .filter((candidate) => candidate === path).length;
+    publishNoteHistory({
+      paths,
+      index: Math.min(paths.length - 1, Math.max(-1, current.index - removedBeforeOrAtCurrent))
+    });
+  }, [publishNoteHistory]);
+
   const touchSession = useCallback((session: NoteSession) => {
     if (currentSession.current === session) setSaveState(session.activity === "saving" ? "saving" : session.saveState);
     setSessionTick((value) => value + 1);
@@ -494,7 +563,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     updateNoteSummary(next);
   }, [gateway, refreshCachedNote, updateNoteSummary]);
 
-  const openNote = useCallback(async (path: string): Promise<boolean> => {
+  const openNote = useCallback(async (path: string, options: NoteNavigationOptions = {}): Promise<boolean> => {
     const generation = ++documentGeneration.current;
     const cached = sessions.current.get(path);
     if (cached?.deleted) return false;
@@ -502,14 +571,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCreationContext({});
     setNotice(undefined);
     setPropertiesError(undefined);
-    setPropertiesOpen(false);
-    setBacklinksOpen(false);
+    if (mobileLayout) {
+      setPropertiesOpen(false);
+      setBacklinksOpen(false);
+    }
     setDeletePlan(undefined);
     setRenamePlan(undefined);
     renameRequest.current = undefined;
     setMobilePane("editor");
     if (cached && !cached.deleted) {
       activateSession(cached);
+      if (options.historyIndex === undefined) recordNoteNavigation(path);
+      else selectNoteHistoryIndex(options.historyIndex, path);
       return true;
     }
     setSelectedPath(path);
@@ -520,6 +593,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       const next = await gateway.read(path);
       if (generation !== documentGeneration.current) return false;
       adoptDocument(next);
+      if (options.historyIndex === undefined) recordNoteNavigation(next.path);
+      else selectNoteHistoryIndex(options.historyIndex, next.path);
       return true;
     } catch (error) {
       if (generation === documentGeneration.current) setNotice(gatewayError(error));
@@ -527,7 +602,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } finally {
       if (generation === documentGeneration.current) setNoteLoading(false);
     }
-  }, [activateSession, adoptDocument, gateway]);
+  }, [
+    activateSession,
+    adoptDocument,
+    gateway,
+    mobileLayout,
+    recordNoteNavigation,
+    selectNoteHistoryIndex
+  ]);
 
   const start = useCallback(async () => {
     setPhase("loading");
@@ -624,11 +706,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         await gateway.completeAuthorization();
         if (!alive) return;
         stopConnectionChanges = gateway.onConnectionChange((connection) => {
+          setConnectionSummary(connection);
           if (!connection) {
             setPhase((current) => current === "starting" ? current : "disconnected");
           }
         });
         const connection = gateway.connection();
+        setConnectionSummary(connection);
         if (connection && missingCoreOperations(connection).length === 0) await start();
         else {
           setPhase("disconnected");
@@ -644,6 +728,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       stopConnectionChanges?.();
     };
   }, [gateway, start]);
+
+  useEffect(() => {
+    if (phase !== "ready" || !connectionSummary) return;
+    let cancelled = false;
+    void gateway.checkDirectAccess()
+      .then((connection) => {
+        if (!cancelled) setConnectionSummary(connection);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [connectionSummary?.collectionId, gateway, phase]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -844,34 +939,42 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     void requestSave(session).catch(() => undefined);
   }
 
-  function navigateToNote(path: string) {
+  function navigateToNote(path: string, options: NoteNavigationOptions = {}) {
     if (creationMode && creationDirty) {
       setConfirmation({
         title: `Discard this ${creationMode}?`,
         body: <p>The unfinished {creationMode} hasn’t been created.</p>,
         confirmLabel: `Discard ${creationMode}`,
         tone: "danger",
-        onConfirm: () => finishNavigateToNote(path)
+        onConfirm: () => finishNavigateToNote(path, options)
       });
       return;
     }
-    finishNavigateToNote(path);
+    finishNavigateToNote(path, options);
   }
 
-  function finishNavigateToNote(path: string) {
+  function finishNavigateToNote(path: string, options: NoteNavigationOptions = {}) {
     setCreationDirty(false);
     const generation = ++navigationGeneration.current;
     if (path === currentSession.current?.document.path && !noteLoading) {
       setPendingNotePath(undefined);
       setMobilePane("editor");
+      if (options.historyIndex !== undefined) selectNoteHistoryIndex(options.historyIndex, path);
       return;
     }
     saveCurrentInBackground();
     setPendingNotePath(path);
     setNotice(undefined);
-    void openNote(path).then((opened) => {
+    void openNote(path, options).then((opened) => {
       if (generation === navigationGeneration.current && !opened) setPendingNotePath(undefined);
     });
+  }
+
+  function navigateNoteHistory(direction: -1 | 1) {
+    const targetIndex = noteHistory.current.index + direction;
+    const path = noteHistory.current.paths[targetIndex];
+    if (!path) return;
+    navigateToNote(path, { historyIndex: targetIndex });
   }
 
   useEffect(() => {
@@ -888,9 +991,15 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [typeCreating, typeDocument, typeSource]);
 
   const searchIndex = useMemo(() => buildNoteSearchIndex(allNotes), [allNotes]);
-  const searchedNotes = useMemo(() => {
-    return searchNotes(searchIndex, deferredSearch);
+  const searchedResults = useMemo(() => {
+    return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
   }, [deferredSearch, searchIndex]);
+  const searchedNotes = useMemo(() => searchedResults
+    ? searchedResults.map((result) => result.note)
+    : allNotes, [allNotes, searchedResults]);
+  const searchContexts = useMemo(() => new Map(
+    searchedResults?.map((result) => [result.note.path, result.context]) ?? []
+  ), [searchedResults]);
   const visibleNotes = useMemo(() => {
     const filtered = !noteFilter
       ? searchedNotes
@@ -927,6 +1036,39 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try { await gateway.authorize(); } catch (error) { setNotice(gatewayError(error)); }
   }
 
+  async function connectFromConnectScreen() {
+    setNotice(undefined);
+    try {
+      const connection = gateway.connection();
+      if (gateway.authorizationTarget() || missingCoreOperations(connection).length > 0) {
+        await gateway.authorize();
+      }
+      else await gateway.authorizeNewCollection();
+    } catch (error) {
+      setNotice(gatewayError(error));
+    }
+  }
+
+  async function requestDirectAccess() {
+    setDirectAccessBusy(true);
+    setNotice(undefined);
+    try {
+      const connection = await gateway.requestDirectAccess();
+      setConnectionSummary(connection);
+      if (connection?.directAccess === "available") {
+        setNotice("mdbase editor can now use mdbase on this computer.");
+      } else if (connection?.directAccess === "denied") {
+        setNotice("Local network access is blocked in this browser. Allow it in the site settings, then try again.");
+      } else if (connection?.directAccess === "unavailable") {
+        setNotice("mdbase could not be reached on this computer. Editing will continue through mdbase.");
+      }
+    } catch (error) {
+      setNotice(gatewayError(error));
+    } finally {
+      setDirectAccessBusy(false);
+    }
+  }
+
   async function flushCollectionWork() {
     await Promise.all([...sessions.current.values()]
       .filter((session) => !session.deleted)
@@ -940,6 +1082,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     typeGeneration.current += 1;
     currentSession.current = undefined;
     sessions.current.clear();
+    publishNoteHistory({ paths: [], index: -1 });
+    linkCreations.current.clear();
     setDescription(undefined);
     setAllNotes([]);
     setCollectionTotal(undefined);
@@ -1121,6 +1265,42 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCreationContext({});
     setMobilePane("editor");
     adoptDocument(created);
+    recordNoteNavigation(created.path);
+  }
+
+  function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
+    const sourcePath = currentSession.current?.document.path;
+    const linked = unresolvedNoteTarget(target, label, sourcePath, format);
+    if (!linked) {
+      setNotice("That link does not point to a Markdown note that can be created.");
+      return;
+    }
+    if (linkCreations.current.has(linked.path)) return;
+    linkCreations.current.add(linked.path);
+    saveCurrentInBackground();
+    setPendingNotePath(linked.path);
+    setNotice(undefined);
+    void gateway.create({
+      title: linked.title,
+      path: linked.path,
+      properties: {}
+    }).then((created) => {
+      const summary = summaryFromDocument(created);
+      setAllNotes((notes) => [summary, ...notes.filter((note) => note.path !== created.path)]);
+      setCollectionTotal((total) => total === undefined ? undefined : total + 1);
+      documentGeneration.current += 1;
+      setPropertiesError(undefined);
+      setDeletePlan(undefined);
+      setMobilePane("editor");
+      adoptDocument(created);
+      recordNoteNavigation(created.path);
+    }).catch(async (error) => {
+      const opened = await openNote(linked.path);
+      if (!opened) setNotice(gatewayError(error));
+    }).finally(() => {
+      linkCreations.current.delete(linked.path);
+      setPendingNotePath((current) => current === linked.path ? undefined : current);
+    });
   }
 
   async function requestRename() {
@@ -1211,6 +1391,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         localStorage.setItem("mdbase-editor:last-note", renamed.path);
       }
       setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
+      replaceNoteHistoryPath(from, renamed.path);
       setRecoveryAction({ kind: "rename", from, to: renamed.path });
       touchSession(session);
     } catch (error) {
@@ -1287,16 +1468,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }
 
-  async function saveRecordSource(source: string, previousSource: string): Promise<boolean> {
-    const session = currentSession.current;
-    if (!session) return false;
-    setPropertiesError(undefined);
+  async function saveRecordSource(path: string, source: string, previousSource: string): Promise<boolean> {
+    const session = sessions.current.get(path);
+    if (!session || session.deleted) return false;
+    if (currentSession.current === session) setPropertiesError(undefined);
     try {
       await flushSession(session);
       const currentSource = session.document.document ?? composeRecordSource(session.document.frontmatter, session.document.body ?? "");
       if (currentSource !== previousSource) {
         const message = "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record.";
-        setPropertiesError(message);
+        if (currentSession.current === session) setPropertiesError(message);
+        else setNotice(`Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
         return false;
       }
       const updated = await runNoteOperation(session, "properties", () => gateway.updateDocument(
@@ -1321,7 +1503,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     } catch (error) {
       const message = gatewayError(error);
       session.error = message;
-      setPropertiesError(message);
+      if (currentSession.current === session) setPropertiesError(message);
       setNotice(currentSession.current === session
         ? message
         : `Couldn’t update source for “${session.draft.title || session.document.path}”. ${message}`);
@@ -1385,6 +1567,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     const path = session.document.path;
     const next = allNotes.find((note) => note.path !== path);
     session.deleted = true;
+    forgetNoteHistoryPath(path);
     setDeletePlan(undefined);
     if (currentSession.current === session) {
       currentSession.current = undefined;
@@ -1457,6 +1640,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           localStorage.setItem("mdbase-editor:last-note", restored.path);
         }
         setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, action.to), restored.path));
+        replaceNoteHistoryPath(action.to, restored.path);
         touchSession(session);
         setNotice(`Restored the path to “${action.from}”.`);
       }
@@ -1687,6 +1871,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed }));
         return;
       }
+      if (event.altKey && !modifier && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+          && surface === "notes" && !creationMode) {
+        event.preventDefault();
+        navigateNoteHistory(event.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
       if (event.altKey && !modifier && (key === "j" || key === "k") && surface === "notes" && !creationMode) {
         event.preventDefault();
         const selectedIndex = visibleNotes.findIndex((note) => note.path === selectedPath);
@@ -1714,7 +1904,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     notice={notice}
     missingOperations={missingCoreOperations(gateway.connection())}
     connections={gateway.connections()}
-    onConnect={() => void connectCollection()}
+    onConnect={() => void connectFromConnectScreen()}
     onOpen={(collectionId) => void openSavedCollection(collectionId)}
   />;
   if (phase === "loading" || !description) return <OpeningScreen />;
@@ -1725,16 +1915,25 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const listTrack = hasListPane && !layout.listCollapsed ? layout.listWidth : 0;
   const editorMinimum = viewportWidth <= 1120 ? 320 : 380;
   const inspectorVisible = propertiesOpen || backlinksOpen;
-  const inspectorWidth = inspectorVisible && viewportWidth > 1120 ? 340 : 0;
+  const inspectorResizeMax = Math.max(INSPECTOR_WIDTH.min, Math.min(
+    INSPECTOR_WIDTH.max,
+    viewportWidth > 1120
+      ? viewportWidth - collectionTrack - listTrack - editorMinimum
+      : viewportWidth - editorMinimum
+  ));
+  const inspectorTrack = Math.min(layout.inspectorWidth, inspectorResizeMax);
+  const reservedInspectorWidth = inspectorVisible && viewportWidth > 1120 ? inspectorTrack : 0;
   const collectionResizeMax = Math.max(COLLECTION_WIDTH.min, Math.min(
     COLLECTION_WIDTH.max,
-    viewportWidth - listTrack - editorMinimum - inspectorWidth
+    viewportWidth - listTrack - editorMinimum - reservedInspectorWidth
   ));
   const listResizeMax = Math.max(LIST_WIDTH.min, Math.min(
     LIST_WIDTH.max,
-    viewportWidth - collectionTrack - editorMinimum - inspectorWidth
+    viewportWidth - collectionTrack - editorMinimum - reservedInspectorWidth
   ));
   const listName = surface === "types" ? "types" : "notes";
+  const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
+  const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = currentSession.current?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument) : undefined;
   const editorNotice = activeRemoteDocument ? undefined : notice;
@@ -1756,14 +1955,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
   return <div
     className={`app-shell surface-${surface} pane-${mobilePane}${inspectorVisible ? " inspector-visible" : ""}${layout.collectionCollapsed ? " collection-pane-collapsed" : ""}${hasListPane && layout.listCollapsed ? " list-pane-collapsed" : ""}${hasListPane ? "" : " no-list-pane"}${resizingPane ? " resizing-pane" : ""}`}
-    style={{ "--collection-track": `${collectionTrack}px`, "--list-track": `${listTrack}px` } as CSSProperties}
+    style={{
+      "--collection-track": `${collectionTrack}px`,
+      "--list-track": `${listTrack}px`,
+      "--inspector-track": `${inspectorTrack}px`
+    } as CSSProperties}
   >
     {(!layout.collectionCollapsed || mobileLayout) && <CollectionRail
       collectionId={description.collection_id}
       name={description.display_name}
       count={collectionTotal ?? allNotes.length}
-      typeCount={description.types.length}
-      typeNames={description.types.map((type) => type.name)}
+      types={description.types}
       activeFilter={noteFilter}
       notes={allNotes}
       foldersLoading={foldersLoading}
@@ -1781,6 +1983,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onShortcuts={() => setShortcutsOpen(true)}
       connectionState={connectionState}
       connectionIssue={connectionIssue}
+      directAccess={connectionSummary?.directAccess}
+      directAccessBusy={directAccessBusy}
+      onRequestDirectAccess={() => void requestDirectAccess()}
       onReconnect={() => void refreshAfterConnectionGap()}
       onSwitch={() => setCollectionSwitcherOpen(true)}
       onCollapse={() => setLayout((current) => ({ ...current, collectionCollapsed: true }))}
@@ -1789,6 +1994,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     {surface === "notes" && <>
       {(!layout.listCollapsed || mobileLayout) && <NoteList
         notes={visibleNotes}
+        types={description.types}
         loading={listLoading}
         structureLoading={foldersLoading}
         contentIndexing={contentIndexing}
@@ -1800,6 +2006,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         pendingPath={pendingNotePath}
         statuses={noteStatuses}
         search={search}
+        searchQuery={deferredSearch}
+        searchContexts={searchContexts}
         sort={noteSort}
         scopeLabel={filterScopeLabel(noteFilter)}
         collectionName={filterLabel(noteFilter, description.display_name)}
@@ -1809,6 +2017,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onQuickOpen={() => setQuickOpen(true)}
         onRetryContent={() => void loadContentIndex()}
         onSelect={navigateToNote}
+        previewPath={notePreviewController.preview?.path}
+        onPreview={notePreviewController.request}
+        onDismissPreview={notePreviewController.dismiss}
         onCreate={beginCreate}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
@@ -1829,6 +2040,22 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           <header className="editor-bar">
             <button className="mobile-back icon-button" aria-label="Back to notes" onClick={() => returnToMobilePane("notes")}><ArrowLeft aria-hidden="true" /></button>
             {editorLeadingActions}
+            <div className="note-history" role="group" aria-label="Note history">
+              <button
+                className="icon-button"
+                aria-label="Back in note history"
+                title={historyBackPath ? `Back to ${historyBackPath} · Alt+Left` : "No earlier note"}
+                disabled={!historyBackPath}
+                onClick={() => navigateNoteHistory(-1)}
+              ><ArrowLeft aria-hidden="true" /></button>
+              <button
+                className="icon-button"
+                aria-label="Forward in note history"
+                title={historyForwardPath ? `Forward to ${historyForwardPath} · Alt+Right` : "No later note"}
+                disabled={!historyForwardPath}
+                onClick={() => navigateNoteHistory(1)}
+              ><ArrowRight aria-hidden="true" /></button>
+            </div>
             <div className="path-wrap">
               {editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
                 <label className="sr-only" htmlFor="note-path">Markdown path</label>
@@ -1900,6 +2127,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
                 linkSuggestions={linkOptions}
                 linkTypes={linkTypeNames}
                 onOpenLink={navigateToNote}
+                onCreateLink={createLinkedNote}
+                onPreviewLink={notePreviewController.request}
+                onDismissLinkPreview={notePreviewController.dismiss}
               />
             </Suspense>
           </article>
@@ -1910,7 +2140,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           onRetry={() => void start()}
         />}
       </main>}
-      {propertiesOpen && document && <Suspense fallback={<aside className="properties-panel properties-panel-loading" aria-label="Note properties" aria-busy="true"><div /><span /><span /><span /></aside>}>
+      {propertiesOpen && (document ? <Suspense fallback={<InspectorPanelLoading label="Note properties" />}>
         <PropertiesPanel
           key={document.path}
           note={document}
@@ -1919,10 +2149,12 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
           error={propertiesError}
           onClose={() => setPropertiesOpen(false)}
           onSave={saveProperties}
-          onSaveDocument={saveRecordSource}
+          onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />
-      </Suspense>}
-      {backlinksOpen && document && <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />}
+      </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
+      {backlinksOpen && (document
+        ? <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
+        : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{typeAccessMissing.length > 0 ? <TypeAccessPrompt
@@ -1941,6 +2173,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
       <TypeInspector
         type={selectedType}
+        availableTypes={description.types}
         document={typeDocument}
         source={typeSource}
         notes={allNotes}
@@ -1964,15 +2197,18 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
     {surface === "settings" && <SettingsView
       description={description}
+      connection={connectionSummary}
       noteCount={allNotes.length}
       preferences={preferences}
+      directAccessBusy={directAccessBusy}
       leadingActions={layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
       onBack={() => returnToMobilePane("collections")}
       onForget={requestForgetCurrentCollection}
+      onRequestDirectAccess={() => void requestDirectAccess()}
     />}
 
-    {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
+    {(!layout.collectionCollapsed || (hasListPane && !layout.listCollapsed) || (inspectorVisible && !mobileLayout)) && <aside className="pane-resizers" aria-label="Sidebar layout controls">
       {!layout.collectionCollapsed && <PaneResizeHandle
         className="collection-resizer"
         label="Resize collections sidebar"
@@ -1992,6 +2228,17 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onChange={(listWidth) => setLayout((current) => ({ ...current, listWidth }))}
         onReset={() => setLayout((current) => ({ ...current, listWidth: LIST_WIDTH.default }))}
         onDragChange={(dragging) => setResizingPane(dragging ? "list" : undefined)}
+      />}
+      {inspectorVisible && !mobileLayout && <PaneResizeHandle
+        className="inspector-resizer"
+        label="Resize note inspector"
+        value={inspectorTrack}
+        min={INSPECTOR_WIDTH.min}
+        max={inspectorResizeMax}
+        direction="reverse"
+        onChange={(inspectorWidth) => setLayout((current) => ({ ...current, inspectorWidth }))}
+        onReset={() => setLayout((current) => ({ ...current, inspectorWidth: INSPECTOR_WIDTH.default }))}
+        onDragChange={(dragging) => setResizingPane(dragging ? "inspector" : undefined)}
       />}
     </aside>}
     {recoveryAction && <div className="recovery-bar" role="status">
@@ -2028,6 +2275,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}
+    <NotePreviewCard preview={notePreviewController.preview} />
   </div>;
 }
 
@@ -2135,21 +2383,22 @@ function MdbaseMark() {
 }
 
 function Wordmark() {
-  return <div className="wordmark"><MdbaseMark /><span className="wordmark-label">mdbase <strong>editor</strong></span></div>;
+  return <div className="wordmark"><MdbaseMark /><span className="wordmark-label"><span>mdbase</span><strong>editor</strong></span></div>;
 }
 
-function CollectionRail({ collectionId, name, count, typeCount, typeNames, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onSwitch, onCollapse }: {
+function CollectionRail({ collectionId, name, count, types, activeFilter, notes, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onCreateNoteWithTag, onCreateNoteWithType, onOpenType, onCopyFacet, onTypes, onSettings, onShortcuts, onReconnect, onRequestDirectAccess, onSwitch, onCollapse }: {
   collectionId: string;
   name: string;
   count: number;
-  typeCount: number;
-  typeNames: string[];
+  types: CollectionTypeDescriptor[];
   activeFilter?: NoteFilter;
   notes: NoteSummary[];
   foldersLoading: boolean;
   surface: Surface;
   connectionState: ConnectionState;
   connectionIssue?: string;
+  directAccess?: ConnectionSummary["directAccess"];
+  directAccessBusy: boolean;
   onFilter: (filter?: NoteFilter) => void;
   onCreateFolder: () => void;
   onCreateNoteInFolder: (folder: string) => void;
@@ -2162,19 +2411,24 @@ function CollectionRail({ collectionId, name, count, typeCount, typeNames, activ
   onSettings: () => void;
   onShortcuts: () => void;
   onReconnect: () => void;
+  onRequestDirectAccess: () => void;
   onSwitch: () => void;
   onCollapse: () => void;
 }) {
-  const typeNamesKey = typeNames.join("\u0000");
+  const typeKey = types.map((type) => `${type.name}:${collectionTypeIcon(type) ?? ""}`).join("\u0000");
   const collectionFolders = useMemo(() => folderTree(notes), [notes]);
   const tagFacets = useMemo(() => collectionTags(notes), [notes]);
-  const typeFacets = useMemo(() => collectionTypes(notes, typeNames), [notes, typeNamesKey]);
+  const typeFacets = useMemo(() => {
+    const icons = new Map(types.map((type) => [type.name, collectionTypeIcon(type)]));
+    return collectionTypes(notes, types.map((type) => type.name))
+      .map((item) => ({ ...item, icon: icons.get(item.name) }));
+  }, [notes, typeKey]);
   return <aside className="collection-rail" aria-label="Collection navigation">
     <div className="rail-header"><Wordmark /><PaneControl label="Hide collections sidebar" action="hide" onClick={onCollapse} /></div>
     <nav>
       <button className="collection-name" aria-label={`Switch collection, current collection ${name}`} onClick={onSwitch}><span>{name}</span><ChevronDown aria-hidden="true" /></button>
       <button className={surface === "notes" && !activeFilter ? "selected" : ""} aria-label={`Notes, ${count} total`} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
-      <button className={surface === "types" ? "selected" : ""} aria-label={`Types (${typeCount})`} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{typeCount}</small></button>
+      <button className={surface === "types" ? "selected" : ""} aria-label={`Types (${types.length})`} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{types.length}</small></button>
       <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
       <FolderFilterSection
         collectionId={collectionId}
@@ -2210,7 +2464,9 @@ function CollectionRail({ collectionId, name, count, typeCount, typeNames, activ
       />
     </nav>
     <footer className="connection-footer">
-      <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>
+      {directAccess === "permission_required" && connectionState === "connected"
+        ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
+        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
       {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
       <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
     </footer>
@@ -2364,7 +2620,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
 function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter, onCreateNote, onOpenType, onCopy }: {
   label: string;
   kind: "tag" | "type";
-  items: Array<{ name: string; count: number }>;
+  items: Array<{ name: string; count: number; icon?: string }>;
   activeFilter?: NoteFilter;
   loading: boolean;
   onFilter: (filter: NoteFilter) => void;
@@ -2406,7 +2662,9 @@ function RailFilterSection({ label, kind, items, activeFilter, loading, onFilter
           aria-label={`${kind === "tag" ? `Show notes tagged #${item.name}` : `Show notes with type ${item.name}`}, ${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"}`}
           onClick={() => onFilter({ kind, value: item.name })}
         >
-          <span><Icon aria-hidden="true" />{kind === "tag" ? `#${item.name}` : item.name}</span>
+          <span>{kind === "type" && isPhosphorIconName(item.icon)
+            ? <PhosphorIcon name={item.icon} aria-hidden="true" />
+            : <Icon aria-hidden="true" />}{kind === "tag" ? `#${item.name}` : item.name}</span>
           <small aria-label={facetCountLabel(kind, item, loading)}>{item.count}{loading && "+"}</small>
         </button>
       </ContextMenu>)}
@@ -2461,12 +2719,15 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
   return `${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"} ${subject}`;
 }
 
-function NoteList({ notes, selectedPath, pendingPath, statuses, search, sort, scopeLabel, collectionName, loading, structureLoading, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryContent, onSelect, onCreate, onCollections }: {
+function NoteList({ notes, types, selectedPath, pendingPath, statuses, search, searchQuery, searchContexts, sort, scopeLabel, collectionName, loading, structureLoading, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryContent, onSelect, previewPath, onPreview, onDismissPreview, onCreate, onCollections }: {
   notes: NoteSummary[];
+  types: CollectionTypeDescriptor[];
   selectedPath?: string;
   pendingPath?: string;
   statuses: Map<string, NoteRowStatus>;
   search: string;
+  searchQuery: string;
+  searchContexts: Map<string, NoteSearchContext>;
   sort: NoteSort;
   scopeLabel?: string;
   collectionName: string;
@@ -2485,11 +2746,15 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, sort, sc
   onQuickOpen: () => void;
   onRetryContent: () => void;
   onSelect: (path: string) => void;
+  previewPath?: string;
+  onPreview: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
+  onDismissPreview: () => void;
   onCreate: () => void;
   onCollections: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({ count: notes.length, getScrollElement: () => scrollRef.current, estimateSize: () => 76, overscan: 8 });
+  const typeIcons = useMemo(() => new Map(types.map((type) => [type.name, collectionTypeIcon(type)])), [types]);
   return <section className="note-list-pane" aria-label="Notes">
     <header className="list-header"><button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{noteCountLabel(notes.length, loading, structureLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort)}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}>Retry search</button>}</p></div>{trailingActions}<button className="icon-button new-note" aria-label="New note" onClick={onCreate}><FilePlus2 aria-hidden="true" /></button></header>
     <div className="note-list-controls">
@@ -2502,7 +2767,35 @@ function NoteList({ notes, selectedPath, pendingPath, statuses, search, sort, sc
         const status: NoteRowStatus | undefined = pendingPath === note.path
           ? { label: "Opening", tone: "busy", busy: true }
           : statuses.get(note.path);
-        return <button key={note.path} role="option" aria-selected={note.path === selectedPath} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`} onClick={() => { if (!status?.disabled) onSelect(note.path); }} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><span className="note-title">{noteTitle(note)}</span>{status ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
+        const searchContext = searchQuery.trim() ? searchContexts.get(note.path) : undefined;
+        const title = noteTitle(note);
+        const typeIcon = note.types.map((type) => typeIcons.get(type)).find(isPhosphorIconName);
+        const requestPreview = (target: HTMLButtonElement) => {
+          const { left, right, top, bottom } = target.getBoundingClientRect();
+          onPreview(note.path, { left, right, top, bottom }, "sidebar");
+        };
+        return <button
+          key={note.path}
+          role="option"
+          aria-selected={note.path === selectedPath}
+          aria-busy={status?.busy || undefined}
+          aria-disabled={status?.disabled || undefined}
+          aria-describedby={previewPath === note.path ? notePreviewPopoverId() : undefined}
+          className={`note-row${note.path === selectedPath ? " selected" : ""}${status ? ` ${status.tone}` : ""}`}
+          onMouseEnter={(event) => requestPreview(event.currentTarget)}
+          onMouseLeave={onDismissPreview}
+          onFocus={(event) => requestPreview(event.currentTarget)}
+          onBlur={onDismissPreview}
+          onClick={() => {
+            onDismissPreview();
+            if (!status?.disabled) onSelect(note.path);
+          }}
+          style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}
+        ><span className="note-title-line">{typeIcon && <PhosphorIcon name={typeIcon} aria-hidden="true" />}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span></span>{status
+            ? <span className="note-transition">{status.label}</span>
+            : searchContext
+              ? <span className={`note-detail note-search-context ${searchContext.kind}`}><SearchMatchText text={searchContext.text} ranges={searchContext.ranges} /></span>
+              : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
       })}</div> : structureLoading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
@@ -2594,6 +2887,10 @@ function NoteSkeleton({ leadingActions }: { leadingActions?: React.ReactNode }) 
   return <div className="note-skeleton" aria-label="Loading note" aria-busy="true"><div className="skeleton-bar">{leadingActions}<span /></div><div className="skeleton-document"><span className="skeleton-title" /><span /><span /><span className="short" /></div></div>;
 }
 
+function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {
+  return <aside className="properties-panel properties-panel-loading" aria-label={label} aria-busy="true"><div /><span /><span /><span /></aside>;
+}
+
 function TypeAccessPrompt({ leadingActions, onAuthorize, onBack }: {
   leadingActions?: React.ReactNode;
   onAuthorize: () => void;
@@ -2634,18 +2931,20 @@ function PaneControl({ label, action, onClick }: { label: string; action: "show"
   return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><Icon aria-hidden="true" /></button>;
 }
 
-function PaneResizeHandle({ className, label, value, min, max, onChange, onReset, onDragChange }: {
+function PaneResizeHandle({ className, label, value, min, max, direction = "forward", onChange, onReset, onDragChange }: {
   className: string;
   label: string;
   value: number;
   min: number;
   max: number;
+  direction?: "forward" | "reverse";
   onChange: (value: number) => void;
   onReset: () => void;
   onDragChange: (dragging: boolean) => void;
 }) {
   const drag = useRef<{ pointerId: number; startX: number; startValue: number } | undefined>(undefined);
   const boundedMax = Math.max(min, max);
+  const directionFactor = direction === "reverse" ? -1 : 1;
   const setBoundedValue = (next: number) => onChange(Math.round(Math.min(boundedMax, Math.max(min, next))));
 
   function finishDrag(element: HTMLDivElement, pointerId: number) {
@@ -2675,7 +2974,7 @@ function PaneResizeHandle({ className, label, value, min, max, onChange, onReset
     }}
     onPointerMove={(event) => {
       if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-      setBoundedValue(drag.current.startValue + event.clientX - drag.current.startX);
+      setBoundedValue(drag.current.startValue + directionFactor * (event.clientX - drag.current.startX));
     }}
     onPointerUp={(event) => {
       if (drag.current?.pointerId === event.pointerId) finishDrag(event.currentTarget, event.pointerId);
@@ -2686,8 +2985,8 @@ function PaneResizeHandle({ className, label, value, min, max, onChange, onReset
     onKeyDown={(event) => {
       const step = event.shiftKey ? 24 : 8;
       let next: number | undefined;
-      if (event.key === "ArrowLeft") next = value - step;
-      if (event.key === "ArrowRight") next = value + step;
+      if (event.key === "ArrowLeft") next = value - directionFactor * step;
+      if (event.key === "ArrowRight") next = value + directionFactor * step;
       if (event.key === "Home") next = min;
       if (event.key === "End") next = boundedMax;
       if (next === undefined) return;

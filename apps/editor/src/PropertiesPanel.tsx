@@ -1,4 +1,11 @@
-import { Braces, FileCode2, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  BracketsCurlyIcon as Braces,
+  FileCodeIcon as FileCode2,
+  MagnifyingGlassIcon as Search,
+  PlusIcon as Plus,
+  TrashIcon as Trash2,
+  XIcon as X
+} from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
@@ -36,6 +43,10 @@ export function PropertiesPanel({
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
   const [source, setSource] = useState(initialDocument);
   const sourceBaseline = useRef(initialDocument);
+  const latestSource = useRef(source);
+  const sourceSaveCallback = useRef(onSaveDocument);
+  const sourceSavePromise = useRef<Promise<boolean> | undefined>(undefined);
+  const lastSourceSubmitted = useRef(initialDocument);
   const [rawError, setRawError] = useState<string>();
   const [editorValidity, setEditorValidity] = useState<Record<string, boolean>>({});
   const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
@@ -75,10 +86,17 @@ export function PropertiesPanel({
   useEffect(() => { latestDraft.current = draft; }, [draft]);
   useEffect(() => { latestFieldsInvalid.current = fieldsInvalid; }, [fieldsInvalid]);
   useEffect(() => { saveCallback.current = onSave; }, [onSave]);
+  latestSource.current = source;
+  sourceSaveCallback.current = onSaveDocument;
   useEffect(() => {
     const previous = sourceBaseline.current;
     sourceBaseline.current = initialDocument;
-    setSource((current) => current === previous ? initialDocument : current);
+    setSource((current) => {
+      if (current !== previous) return current;
+      latestSource.current = initialDocument;
+      lastSourceSubmitted.current = initialDocument;
+      return initialDocument;
+    });
   }, [initialDocument]);
   useEffect(() => {
     if (!changed || fieldsInvalid) {
@@ -107,6 +125,13 @@ export function PropertiesPanel({
     if (!latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {
       void Promise.resolve(saveCallback.current(note.path, latest)).catch(() => undefined);
     }
+  }, [note.path]);
+  useEffect(() => () => {
+    const latest = latestSource.current;
+    const baseline = sourceBaseline.current;
+    if (latest === baseline || latest === lastSourceSubmitted.current || sourceSavePromise.current) return;
+    lastSourceSubmitted.current = latest;
+    void Promise.resolve(sourceSaveCallback.current?.(latest, baseline)).catch(() => undefined);
   }, [note.path]);
 
   function change(next: JsonObject) {
@@ -154,18 +179,43 @@ export function PropertiesPanel({
     }
   }
 
-  async function saveSource() {
-    if (!sourceChanged || saving) return;
+  async function saveSource(closeAfterSave = false) {
+    if (!sourceChanged) {
+      if (closeAfterSave) onClose();
+      return;
+    }
+    if (sourceSavePromise.current) {
+      const succeeded = await sourceSavePromise.current;
+      if (succeeded && closeAfterSave) onClose();
+      return;
+    }
+    const next = source;
+    const baseline = sourceBaseline.current;
+    lastSourceSubmitted.current = next;
     setSaving(true);
-    const succeeded = await onSaveDocument?.(source, initialDocument);
+    const pending = Promise.resolve(onSaveDocument?.(next, baseline))
+      .then((result) => result !== false)
+      .catch(() => false);
+    sourceSavePromise.current = pending;
+    const succeeded = await pending;
+    sourceSavePromise.current = undefined;
     setSaving(false);
-    if (succeeded !== false) onClose();
+    if (!succeeded) lastSourceSubmitted.current = baseline;
+    if (succeeded && closeAfterSave) onClose();
+  }
+
+  function closePanel() {
+    if (mode === "source" && sourceChanged) {
+      void saveSource(true);
+      return;
+    }
+    onClose();
   }
 
   return <aside className="properties-panel" aria-label="Note properties">
     <header className="panel-header">
       <div><h2>Properties</h2><p>{note.types.length ? note.types.join(", ") : "Untyped record"}</p></div>
-      <button className="icon-button" aria-label="Close properties" onClick={onClose}><X aria-hidden="true" /></button>
+      <button className="icon-button" aria-label="Close properties" onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
     <dl className="file-facts">
@@ -251,13 +301,20 @@ export function PropertiesPanel({
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
     </div> : <div id="properties-source-panel" className="record-source" role="tabpanel" aria-labelledby="properties-source-tab">
       <p>Exact Markdown source, including YAML frontmatter and body.</p>
-      <CodeEditor value={source} onChange={setSource} label="Complete record source" language="markdown" lineWrapping={false} />
+      <CodeEditor value={source} onChange={setSource} onBlur={() => void saveSource()} label="Complete record source" language="markdown" lineWrapping={false} />
     </div>}
 
     <div className="property-footer">
       {error && <p className="property-error" role="alert">{error}</p>}
       {mode === "source"
-        ? <button className="property-save" disabled={!sourceChanged || saving} onClick={() => void saveSource()}>{saving ? "Saving…" : "Save source"}</button>
+        ? <div className="source-save-actions">
+          <p className="property-save-state" aria-live="polite">{saving
+            ? "Saving source…"
+            : sourceChanged
+              ? "Source saves when focus leaves the editor"
+              : "Source saved"}</p>
+          <button className="property-save" disabled={!sourceChanged || saving} onClick={() => void saveSource(true)}>{saving ? "Saving…" : "Save source"}</button>
+        </div>
         : <p className="property-save-state" aria-live="polite">{rawError
           ? "Fix the JSON to continue saving"
           : Object.keys(fieldErrors).length > 0

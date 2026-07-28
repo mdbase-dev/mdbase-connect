@@ -4,6 +4,7 @@ import {
   MdbaseCollectionClient,
   MdbaseConnectError,
   MdbaseOperationValidationError,
+  type DirectAccessStatus,
   type MdbaseConnect
 } from "@mdbase/connect";
 import { ConnectCollectionGateway, gatewayError } from "./gateway";
@@ -65,6 +66,61 @@ describe("ConnectCollectionGateway collection index", () => {
 });
 
 describe("ConnectCollectionGateway recovery operations", () => {
+  it("checks and requests direct access through the active SDK connection", async () => {
+    let directAccess: DirectAccessStatus = "permission_required";
+    const checkDirectAccess = vi.fn(async () => "permission_required" as const);
+    const requestDirectAccess = vi.fn(async () => {
+      directAccess = "available";
+      return directAccess;
+    });
+    const connection = {
+      route: "relay" as const,
+      get directAccess() { return directAccess; },
+      checkDirectAccess,
+      requestDirectAccess
+    };
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, connection);
+
+    await expect(gateway.checkDirectAccess()).resolves.toMatchObject({
+      route: "relay",
+      directAccess: "permission_required"
+    });
+    await expect(gateway.requestDirectAccess()).resolves.toMatchObject({
+      route: "relay",
+      directAccess: "available"
+    });
+    expect(checkDirectAccess).toHaveBeenCalledOnce();
+    expect(requestDirectAccess).toHaveBeenCalledOnce();
+  });
+
+  it("carries a deep-linked collection into first-time authorization", async () => {
+    const originalLocation = `${location.pathname}${location.search}${location.hash}`;
+    history.replaceState(null, "", "/?collection=deep-linked-collection");
+    const authorize = vi.fn(async () => undefined);
+    const manager = {
+      authorize,
+      connections: () => [],
+      connection: () => undefined,
+      onConnectionsChange: () => () => undefined
+    } as unknown as MdbaseConnect;
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    Object.defineProperty(gateway, "manager", { value: manager });
+    Object.defineProperty(gateway, "browserLocation", {
+      value: new MdbaseBrowserLocation(manager)
+    });
+
+    await gateway.authorize();
+
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      collectionId: "deep-linked-collection",
+      returnTo: "/?collection=deep-linked-collection"
+    }));
+    gateway.selectConnection("saved-collection");
+    expect(gateway.authorizationTarget()).toBeNull();
+    history.replaceState(null, "", originalLocation);
+  });
+
   it("turns stale connector grants into a clear authorization action", () => {
     expect(gatewayError(new MdbaseConnectError(
       "direct_operation_rejected",
@@ -94,7 +150,9 @@ describe("ConnectCollectionGateway recovery operations", () => {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
-      missingOperations: ["update"]
+      missingOperations: ["update"],
+      route: "relay",
+      directAccess: "unavailable"
     });
     await gateway.authorize();
     expect(requestOperations).toHaveBeenCalledWith(
@@ -202,11 +260,15 @@ function injectConnection(
     collectionId?: string;
     displayName?: string;
     operations?: string[];
+    route?: "remote" | "direct" | "relay";
+    directAccess?: "disabled" | "permission_required" | "checking" | "available" | "unavailable" | "denied";
     authorizationCapabilities?: () => { missingOperations: string[] };
   };
   bound.collectionId ??= "collection";
   bound.displayName ??= "Notes";
   bound.operations ??= [];
+  bound.route ??= "relay";
+  bound.directAccess ??= "unavailable";
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
   const manager = {
     connections: () => [{

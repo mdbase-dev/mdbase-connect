@@ -1,4 +1,4 @@
-import { Check, SlidersHorizontal } from "lucide-react";
+import { CheckIcon as Check, SlidersHorizontalIcon as SlidersHorizontal } from "./icons";
 import { useEffect, useRef, useState } from "react";
 import { noteSortOptions, type NoteSort } from "./note-list-view";
 

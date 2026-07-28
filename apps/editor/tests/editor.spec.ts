@@ -35,6 +35,72 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   expect(caretColor).not.toBe("rgba(0, 0, 0, 0)");
 });
 
+test("keeps the writing measure while placing editor scrollbars at the pane edge", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 760 });
+  await page.goto("?demo=12");
+
+  const title = page.getByRole("textbox", { name: "Note title" });
+  const body = page.getByRole("textbox", { name: "Note body" });
+  const longLine = "A long readable line ".repeat(100);
+  await body.fill(Array.from({ length: 80 }, (_, index) => `${index + 1}. ${longLine}`).join("\n"));
+
+  const wrapped = await page.locator(".writing-surface").evaluate((surface) => {
+    const titleInput = surface.querySelector<HTMLElement>(".title-input");
+    const scroller = surface.querySelector<HTMLElement>(".body-editor .cm-scroller");
+    const line = surface.querySelector<HTMLElement>(".body-editor .cm-line");
+    if (!titleInput || !scroller || !line) throw new Error("The writing surface is incomplete.");
+    const surfaceBounds = surface.getBoundingClientRect();
+    const titleBounds = titleInput.getBoundingClientRect();
+    const scrollerBounds = scroller.getBoundingClientRect();
+    const lineBounds = line.getBoundingClientRect();
+    return {
+      surfaceRight: surfaceBounds.right,
+      scrollerRight: scrollerBounds.right,
+      titleLeft: titleBounds.left,
+      titleWidth: titleBounds.width,
+      lineLeft: lineBounds.left,
+      lineWidth: lineBounds.width,
+      clientWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth,
+      clientHeight: scroller.clientHeight,
+      scrollHeight: scroller.scrollHeight
+    };
+  });
+
+  expect(Math.abs(wrapped.surfaceRight - wrapped.scrollerRight)).toBeLessThanOrEqual(1);
+  expect(Math.abs(wrapped.titleLeft - wrapped.lineLeft)).toBeLessThanOrEqual(1);
+  expect(wrapped.titleWidth).toBeLessThanOrEqual(760);
+  expect(wrapped.lineWidth).toBeLessThanOrEqual(760);
+  expect(wrapped.scrollWidth).toBeLessThanOrEqual(wrapped.clientWidth + 1);
+  expect(wrapped.scrollHeight).toBeGreaterThan(wrapped.clientHeight);
+
+  await page.evaluate(() => {
+    localStorage.setItem("mdbase-editor:preferences", JSON.stringify({
+      vim: false,
+      lineWrapping: false,
+      quietMarkdown: true,
+      fontSize: 17
+    }));
+  });
+  await page.reload();
+  await expect(title).toBeVisible();
+  await body.fill(longLine);
+
+  const unwrapped = await page.locator(".writing-surface").evaluate((surface) => {
+    const scroller = surface.querySelector<HTMLElement>(".body-editor .cm-scroller");
+    if (!scroller) throw new Error("The note editor is incomplete.");
+    return {
+      surfaceRight: surface.getBoundingClientRect().right,
+      scrollerRight: scroller.getBoundingClientRect().right,
+      clientWidth: scroller.clientWidth,
+      scrollWidth: scroller.scrollWidth
+    };
+  });
+
+  expect(Math.abs(unwrapped.surfaceRight - unwrapped.scrollerRight)).toBeLessThanOrEqual(1);
+  expect(unwrapped.scrollWidth).toBeGreaterThan(unwrapped.clientWidth);
+});
+
 test("formats, finds, and checks Markdown without adding permanent editor chrome", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
@@ -108,6 +174,65 @@ test("modifier-clicks an internal Markdown link to open its note", async ({ page
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
 });
 
+test("creates a note from an unresolved Markdown link", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.fill("[Fresh idea](fresh-idea.md)\n\nKeep writing.");
+  await page.locator(".body-editor .cm-line").filter({ hasText: "Fresh idea" }).click({ modifiers: ["Control"] });
+
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Fresh idea");
+  await expect(page.getByRole("button", { name: "Notes/fresh-idea.md" })).toBeVisible();
+  await page.getByRole("button", { name: "Back in note history" }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+});
+
+test("moves backward and forward through opened notes", async ({ page }) => {
+  await page.goto("?demo=12");
+  const back = page.getByRole("button", { name: "Back in note history" });
+  const forward = page.getByRole("button", { name: "Forward in note history" });
+  await expect(back).toBeDisabled();
+  await expect(forward).toBeDisabled();
+
+  await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click();
+  await page.getByRole("option").filter({ hasText: "Reading list 4" }).click();
+  await back.click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(forward).toBeEnabled();
+
+  await page.keyboard.press("Alt+ArrowLeft");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+
+  await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click();
+  await expect(forward).toBeDisabled();
+});
+
+test("previews sidebar notes and internal editor links on hover", async ({ page }) => {
+  await page.goto("?demo=12");
+
+  const gardenRow = page.getByRole("option").filter({ hasText: "Garden notes 2" });
+  await gardenRow.hover();
+  const preview = page.getByRole("tooltip");
+  await expect(preview).toBeVisible({ timeout: 1_500 });
+  await expect(preview).toHaveAccessibleName("Preview of Garden notes 2");
+  await expect(preview).toContainText("Journal/garden-notes-2.md");
+
+  await page.getByRole("textbox", { name: "Search every note" }).hover();
+  await expect(preview).not.toBeVisible();
+
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.fill("[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
+  const linkedLine = page.locator(".body-editor .cm-line").filter({ hasText: "Garden notes 2" });
+  const box = await linkedLine.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + 42, box!.y + box!.height / 2);
+
+  await expect(preview).toBeVisible({ timeout: 1_500 });
+  await expect(preview).toHaveAccessibleName("Preview of Garden notes 2");
+  await expect(preview).toContainText("Journal/garden-notes-2.md");
+});
+
 test("filters collection facets, follows backlinks, and completes wikilinks", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
@@ -134,9 +259,36 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   const body = page.getByRole("textbox", { name: "Note body" });
   await body.click();
   await page.keyboard.press("Control+End");
-  await page.keyboard.type("\n\n[[the shape");
+  await page.keyboard.type("\n\n[[");
   const completion = page.locator(".cm-tooltip-autocomplete");
   await expect(completion).toBeVisible();
+  const appearance = await completion.evaluate((popup) => {
+    const list = popup.querySelector<HTMLElement>("ul");
+    const row = popup.querySelector<HTMLElement>("li");
+    const label = popup.querySelector<HTMLElement>(".cm-completionLabel");
+    const detail = popup.querySelector<HTMLElement>(".cm-completionDetail");
+    if (!list || !row || !label || !detail) throw new Error("The completion popup is incomplete.");
+    return {
+      popupWidth: popup.getBoundingClientRect().width,
+      listHeight: list.clientHeight,
+      listScrollHeight: list.scrollHeight,
+      rowHeight: row.getBoundingClientRect().height,
+      listFont: getComputedStyle(list).fontFamily,
+      labelFont: getComputedStyle(label).fontFamily,
+      labelWeight: getComputedStyle(label).fontWeight,
+      detailFont: getComputedStyle(detail).fontFamily
+    };
+  });
+  expect(appearance.popupWidth).toBeGreaterThanOrEqual(320);
+  expect(appearance.rowHeight).toBeGreaterThanOrEqual(40);
+  expect(appearance.listHeight).toBeLessThanOrEqual(252);
+  expect(appearance.listScrollHeight).toBeGreaterThan(appearance.listHeight);
+  expect(appearance.listFont).toContain("Atkinson Hyperlegible");
+  expect(appearance.labelFont).toContain("Atkinson Hyperlegible");
+  expect(appearance.labelWeight).toBe("700");
+  expect(appearance.detailFont).toContain("Azeret Mono");
+
+  await page.keyboard.type("the shape");
   await expect(completion.getByText("The shape of useful tools", { exact: true }).first()).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
@@ -200,15 +352,34 @@ test("creates a note only after the creation form is complete", async ({ page })
 test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   await page.goto("?demo=12");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
 
   await page.keyboard.press("Control+p");
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
-  await quickOpen.getByRole("combobox", { name: "Find a note" }).fill("qstn kpng");
+  const finder = quickOpen.getByRole("combobox", { name: "Find a note" });
+  await expect(finder).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await finder.fill("qstn kpng");
   await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
   await page.keyboard.press("Enter");
 
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Questions worth keeping 7");
+});
+
+test("shows the matching note text in sidebar and quick-open search results", async ({ page }) => {
+  await page.goto("?demo=12");
+  const query = "Record 4 remains lightweight";
+  await page.getByRole("textbox", { name: "Search every note" }).fill(query);
+  const sidebarResult = page.getByRole("option", { name: /Reading list 4/ });
+  await expect(sidebarResult.locator(".note-search-context")).toContainText(query);
+  expect(await sidebarResult.locator(".note-search-context mark").count()).toBeGreaterThanOrEqual(4);
+
+  await page.keyboard.press("Control+p");
+  const quickOpen = page.getByRole("dialog", { name: "Quick open" });
+  await quickOpen.getByRole("combobox", { name: "Find a note" }).fill(query);
+  const quickResult = quickOpen.getByRole("option", { name: /Reading list 4/ });
+  await expect(quickResult.locator(".search-result-context")).toContainText(query);
+  await expect(quickResult.locator(".search-result-context")).toHaveClass(/body/);
 });
 
 test("sorts notes and clears the active scope from view options", async ({ page }) => {
@@ -309,6 +480,9 @@ test("edits complete type membership, choices, and multiple required fields", as
   await page.getByRole("textbox", { name: "Required match field 1" }).press("Tab");
 
   await page.getByRole("button", { name: "Expand title field" }).click();
+  const description = page.getByRole("textbox", { name: "title description" });
+  await description.pressSequentially("These are the titles for the notes.");
+  await expect(description).toHaveValue("These are the titles for the notes.");
   await page.getByRole("button", { name: "Add choice" }).click();
   await page.getByRole("textbox", { name: "title choice 1" }).fill("journal");
   await page.getByRole("textbox", { name: "title choice 1" }).press("Enter");
@@ -342,6 +516,82 @@ test("edits complete type membership, choices, and multiple required fields", as
   await expect(source).toContainText("- tags");
   await expect(source).toContainText("- journal");
   await expect(source).toContainText("- reflection");
+  await expect(source).toContainText("These are the titles for the notes.");
+});
+
+test("edits and reviews portable collection behaviour", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await expect(page.getByRole("heading", { name: "Collection behaviour" })).toBeVisible();
+  const visualScrollerGeometry = await page.locator(".type-inspector").evaluate((inspector) => {
+    const scroller = inspector.querySelector<HTMLElement>(".visual-type-editor");
+    if (!scroller) throw new Error("The visual type editor is not visible.");
+    return {
+      inspectorRight: inspector.getBoundingClientRect().right,
+      scrollerRight: scroller.getBoundingClientRect().right,
+      clientHeight: scroller.clientHeight,
+      scrollHeight: scroller.scrollHeight
+    };
+  });
+  expect(Math.abs(visualScrollerGeometry.inspectorRight - visualScrollerGeometry.scrollerRight)).toBeLessThanOrEqual(1);
+  expect(visualScrollerGeometry.scrollHeight).toBeGreaterThan(visualScrollerGeometry.clientHeight);
+
+  await page.getByRole("combobox", { name: "Name field" }).selectOption("title");
+  await page.getByRole("combobox", { name: "Display icon" }).fill("note");
+  await page.getByRole("listbox", { name: "Phosphor icons" }).getByRole("option", { name: "note", exact: true }).click();
+
+  await page.getByRole("button", { name: "Add default" }).click();
+  await page.getByRole("combobox", { name: "Default field 1" }).selectOption("title");
+  await page.getByRole("textbox", { name: "Default value for title" }).fill("Untitled note");
+
+  await page.getByRole("button", { name: "Add link rule" }).click();
+  await page.getByRole("combobox", { name: "Link field 1" }).selectOption("tags[]");
+  await page.getByRole("combobox", { name: "tags[] link format" }).selectOption("wikilink");
+  await page.getByRole("checkbox", { name: "Require an existing target" }).check();
+  await page.getByRole("button", { name: "Add target type" }).click();
+  await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).fill("note");
+  await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).press("Tab");
+
+  await page.getByRole("button", { name: "Add unique rule" }).click();
+  await page.getByRole("combobox", { name: "Unique field 1" }).selectOption("title");
+  await page.getByRole("combobox", { name: "title uniqueness scope" }).selectOption("collection");
+  await page.getByRole("textbox", { name: "Path pattern", exact: true }).fill("Notes/{title}.md");
+  const pathControlTops = await Promise.all([
+    page.getByRole("textbox", { name: "Path pattern", exact: true }).evaluate((input) => input.getBoundingClientRect().top),
+    page.getByRole("textbox", { name: "Path folder" }).evaluate((input) => input.getBoundingClientRect().top),
+    page.getByRole("textbox", { name: "Path template" }).evaluate((input) => input.getBoundingClientRect().top)
+  ]);
+  expect(Math.max(...pathControlTops) - Math.min(...pathControlTops)).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await expect(page.getByText("Validation may change")).toBeVisible();
+  await expect(page.getByText("Future file paths may change")).toBeVisible();
+  await expect(page.locator(".type-collection-changes")).toContainText("Display metadata");
+  await expect(page.locator(".type-collection-changes")).toContainText("Read defaults");
+  await expect(page.locator(".type-collection-changes")).toContainText("Link rules");
+  await expect(page.locator(".type-collection-changes")).toContainText("Uniqueness rules");
+  await expect(page.locator(".type-collection-changes")).toContainText("Path policy");
+
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "YAML" }).click();
+  const source = page.getByRole("textbox", { name: "note type YAML" });
+  await expect(source).toContainText("name_field: title");
+  await expect(source).toContainText('title: "Untitled note"');
+  await expect(source).toContainText("tags[]:");
+  await expect(source).toContainText("target_type: note");
+  await expect(source).toContainText("scope: collection");
+  await expect(source).toContainText("pattern: Notes/{title}.md");
+  const yamlScrollerGeometry = await page.locator(".type-inspector").evaluate((inspector) => {
+    const scroller = inspector.querySelector<HTMLElement>(".type-source .cm-scroller");
+    if (!scroller) throw new Error("The YAML type editor is not visible.");
+    return {
+      inspectorRight: inspector.getBoundingClientRect().right,
+      scrollerRight: scroller.getBoundingClientRect().right
+    };
+  });
+  expect(Math.abs(yamlScrollerGeometry.inspectorRight - yamlScrollerGeometry.scrollerRight)).toBeLessThanOrEqual(1);
 });
 
 test("builds and saves a recursive list-of-objects field", async ({ page }) => {
@@ -414,6 +664,37 @@ test("resizes, collapses, and restores the desktop sidebars", async ({ page }) =
   expect(restored).toBeCloseTo(after, 0);
 });
 
+test("keeps the current note inspector open and resizable between note switches", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 760 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Note properties" }).click();
+
+  const panel = page.getByRole("complementary", { name: "Note properties" });
+  await expect(panel).toContainText("Notes/the-shape-of-useful-tools.md");
+  const resize = page.getByRole("separator", { name: "Resize note inspector" });
+  const before = await panel.evaluate((element) => element.getBoundingClientRect().width);
+  const handle = await resize.boundingBox();
+  if (!handle) throw new Error("The inspector resize handle is not visible.");
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 - 48, handle.y + 80);
+  await page.mouse.up();
+  const after = await panel.evaluate((element) => element.getBoundingClientRect().width);
+  expect(after).toBeGreaterThan(before + 40);
+
+  await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Journal/garden-notes-2.md");
+  await expect(resize).toHaveAttribute("aria-valuenow", String(Math.round(after)));
+
+  await page.reload();
+  await page.getByRole("button", { name: "Note properties" }).click();
+  await expect(page.getByRole("separator", { name: "Resize note inspector" })).toHaveAttribute("aria-valuenow", String(Math.round(after)));
+  const restored = await panel.evaluate((element) => element.getBoundingClientRect().width);
+  expect(restored).toBeCloseTo(after, 0);
+});
+
 test("keeps dense collection counts and footer controls inside the minimum rail", async ({ page }) => {
   await page.goto("?demo=10000");
   await expect(page.getByText("10,000 notes")).toBeVisible();
@@ -421,8 +702,18 @@ test("keeps dense collection counts and footer controls inside the minimum rail"
   const rail = page.getByRole("complementary", { name: "Collection navigation" });
   const wordmarkLabel = rail.locator(".wordmark-label");
   await expect(wordmarkLabel).toBeVisible();
+  await expect(wordmarkLabel.locator("strong")).toBeHidden();
+  const [compactLabelBox, compactCollapseBox] = await Promise.all([
+    wordmarkLabel.boundingBox(),
+    rail.getByRole("button", { name: "Hide collections sidebar" }).boundingBox()
+  ]);
+  if (!compactLabelBox || !compactCollapseBox) throw new Error("The compact collection header is not visible.");
+  expect(compactLabelBox.x + compactLabelBox.width).toBeLessThanOrEqual(compactCollapseBox.x);
 
   const collectionResize = page.getByRole("separator", { name: "Resize collections sidebar" });
+  await collectionResize.focus();
+  await page.keyboard.press("End");
+  await expect(wordmarkLabel.locator("strong")).toBeVisible();
   await collectionResize.focus();
   await page.keyboard.press("Home");
   await expect(collectionResize).toHaveAttribute("aria-valuenow", "144");
@@ -525,9 +816,11 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(source).toContainText("title: Source-backed title");
   const original = await source.textContent();
   await source.fill(`${original ?? ""}\nSource tail.\n`);
-  await panel.getByRole("button", { name: "Save source" }).click();
+  await panel.getByRole("tab", { name: "Source" }).click();
+  await expect(panel.getByText("Source saved")).toBeVisible();
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "Close properties" }).click();
   await expect(panel).not.toBeVisible();
-
   await page.getByRole("button", { name: "Note properties" }).click();
   await panel.getByRole("tab", { name: "Source" }).click();
   await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
@@ -656,6 +949,19 @@ test("keeps type editing usable at the minimum mobile width", async ({ page }) =
   await page.getByRole("button", { name: "Types (1)" }).click();
   await page.getByRole("option", { name: /note/ }).click();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("note");
+  await expect(page.getByRole("heading", { name: "Collection behaviour" })).toBeVisible();
+  const collectionGeometry = await page.locator(".collection-behaviour-section").evaluate((section) => {
+    const bounds = section.getBoundingClientRect();
+    const controls = [...section.querySelectorAll<HTMLElement>("input, select, button")];
+    return {
+      pageInsideViewport: document.documentElement.scrollWidth <= window.innerWidth,
+      controlsInside: controls.every((control) => {
+        const controlBounds = control.getBoundingClientRect();
+        return controlBounds.left >= bounds.left - 0.5 && controlBounds.right <= bounds.right + 0.5;
+      })
+    };
+  });
+  expect(collectionGeometry).toEqual({ pageInsideViewport: true, controlsInside: true });
   await page.getByRole("button", { name: "YAML" }).click();
   const typeEditor = page.getByRole("textbox", { name: "note type YAML" });
   await expect(typeEditor).toBeVisible();

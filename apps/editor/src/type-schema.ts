@@ -4,6 +4,8 @@ import type { NoteSummary } from "./model";
 export type TypeFieldKind = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "advanced";
 export type TypeSchemaPath = string[];
 export type TypeValuePath = Array<string | "[]">;
+export type TypeLinkFormat = "wikilink" | "markdown" | "path" | "any";
+export type TypeUniqueScope = "collection" | "type" | "path_glob";
 
 export interface TypeFieldConstraints {
   constant?: unknown;
@@ -46,6 +48,42 @@ export interface VisualTypeDefinition {
   advancedMatchKeys: string[];
   advancedMatch: boolean;
   fields: TypeFieldDefinition[];
+  collection: TypeCollectionDefinition;
+}
+
+export interface TypeCollectionDefinition {
+  display: {
+    nameField?: string;
+    descriptionField?: string;
+    icon?: string;
+    colorField?: string;
+  };
+  readDefaults: Array<{ field: string; value: unknown }>;
+  links: TypeLinkRuleDefinition[];
+  unique: TypeUniqueRuleDefinition[];
+  path: {
+    pattern?: string;
+    template?: string;
+    folder?: string;
+    advancedKeys: string[];
+  };
+  advancedKeys: string[];
+}
+
+export interface TypeLinkRuleDefinition {
+  field: string;
+  targetTypes: string[];
+  validateExists: boolean;
+  format?: TypeLinkFormat;
+  advancedKeys: string[];
+}
+
+export interface TypeUniqueRuleDefinition {
+  sourceIndex: number;
+  field: string;
+  scope?: TypeUniqueScope;
+  pathGlob?: string;
+  advancedKeys: string[];
 }
 
 export interface TypeImpact {
@@ -56,6 +94,7 @@ export interface TypeImpact {
   affectedNotes: number;
   missingRequired: Array<{ field: string; count: number }>;
   definitionChanges: string[];
+  collectionChanges: string[];
 }
 
 interface ParsedTypeSource {
@@ -99,7 +138,8 @@ export function readVisualType(source: string): VisualTypeDefinition {
     fieldsPresent,
     advancedMatchKeys,
     advancedMatch: advancedMatchKeys.length > 0,
-    fields: readObjectFields(schema, [], [])
+    fields: readObjectFields(schema, [], []),
+    collection: readTypeCollection(value.collection)
   };
 }
 
@@ -118,6 +158,112 @@ export function updateTypePathGlobs(source: string, values: string[]): string {
 
 export function updateTypeFieldsPresent(source: string, values: string[]): string {
   return updateMatchList(source, "fields_present", normalizedStrings(values), false);
+}
+
+export function updateTypeCollectionDisplay(
+  source: string,
+  key: "name_field" | "description_field" | "icon" | "color_field",
+  value: string
+): string {
+  return mutate(source, (document) => {
+    if (value === "") deleteInAndPrune(document, ["collection", "display", key]);
+    else document.setIn(["collection", "display", key], value);
+  });
+}
+
+export function addTypeReadDefault(source: string, field: string, value: unknown): string {
+  return mutate(source, (document) => {
+    if (document.getIn(["collection", "read_defaults", field]) !== undefined) {
+      throw new Error(`A read default for “${field}” already exists.`);
+    }
+    document.setIn(["collection", "read_defaults", field], value);
+  });
+}
+
+export function renameTypeReadDefault(source: string, from: string, to: string): string {
+  return renameCollectionMapEntry(source, ["collection", "read_defaults"], from, to, "read default");
+}
+
+export function setTypeReadDefault(source: string, field: string, value: unknown): string {
+  return mutate(source, (document) => document.setIn(["collection", "read_defaults", field], value));
+}
+
+export function removeTypeReadDefault(source: string, field: string): string {
+  return mutate(source, (document) => deleteInAndPrune(document, ["collection", "read_defaults", field]));
+}
+
+export function addTypeLinkRule(source: string, field: string): string {
+  return mutate(source, (document) => {
+    if (document.getIn(["collection", "links", field]) !== undefined) {
+      throw new Error(`A link rule for “${field}” already exists.`);
+    }
+    document.setIn(["collection", "links", field], {});
+  });
+}
+
+export function renameTypeLinkRule(source: string, from: string, to: string): string {
+  return renameCollectionMapEntry(source, ["collection", "links"], from, to, "link rule");
+}
+
+export function setTypeLinkRule(
+  source: string,
+  field: string,
+  key: "target_type" | "validate_exists" | "format",
+  value: unknown
+): string {
+  return mutate(source, (document) => {
+    const path = ["collection", "links", field, key];
+    if (value === undefined || value === "") document.deleteIn(path);
+    else document.setIn(path, value);
+  });
+}
+
+export function setTypeLinkTargets(source: string, field: string, targetTypes: string[]): string {
+  const values = normalizedStrings(targetTypes);
+  return setTypeLinkRule(source, field, "target_type", values.length > 1 ? values : values[0]);
+}
+
+export function removeTypeLinkRule(source: string, field: string): string {
+  return mutate(source, (document) => deleteInAndPrune(document, ["collection", "links", field]));
+}
+
+export function addTypeUniqueRule(source: string, field: string): string {
+  return mutate(source, (document) => {
+    const rules = document.getIn(["collection", "unique"]);
+    if (isSeq(rules)) rules.add({ field, scope: "type" });
+    else document.setIn(["collection", "unique"], [{ field, scope: "type" }]);
+  });
+}
+
+export function setTypeUniqueRule(
+  source: string,
+  index: number,
+  key: "field" | "scope" | "path_glob",
+  value: string | undefined
+): string {
+  return mutate(source, (document) => {
+    const path = ["collection", "unique", index, key];
+    if (value === undefined || value === "") document.deleteIn(path);
+    else document.setIn(path, value);
+    if (key === "scope" && value !== "path_glob") {
+      document.deleteIn(["collection", "unique", index, "path_glob"]);
+    }
+  });
+}
+
+export function removeTypeUniqueRule(source: string, index: number): string {
+  return mutate(source, (document) => deleteInAndPrune(document, ["collection", "unique", index]));
+}
+
+export function updateTypePathPolicy(
+  source: string,
+  key: "pattern" | "template" | "folder",
+  value: string
+): string {
+  return mutate(source, (document) => {
+    if (value === "") deleteInAndPrune(document, ["collection", "path", key]);
+    else document.setIn(["collection", "path", key], value);
+  });
 }
 
 function updateMatchList(source: string, key: "path_glob" | "fields_present", values: string[], scalarWhenSingle: boolean): string {
@@ -197,7 +343,7 @@ export function setTypeFieldRequired(source: string, pathOrName: TypeSchemaPath 
 }
 
 export function setTypeFieldDescription(source: string, pathOrName: TypeSchemaPath | string, description: string): string {
-  return setTypeFieldConstraint(source, pathOrName, "description", description.trim() || undefined);
+  return setTypeFieldConstraint(source, pathOrName, "description", description);
 }
 
 export function setTypeFieldConstraint(source: string, pathOrName: TypeSchemaPath | string, key: string, value: unknown): string {
@@ -260,7 +406,96 @@ export function typeImpact(previousSource: string | undefined, nextSource: strin
       const field = after.get(fieldName)!;
       return { field: fieldName, count: affected.filter((note) => missingRequiredValue(note.frontmatter, field.valuePath)).length };
     }).filter((item) => item.count > 0),
-    definitionChanges: definitionChanges(previousSource, nextSource)
+    definitionChanges: definitionChanges(previousSource, nextSource),
+    collectionChanges: typeCollectionChanges(previousSource, nextSource)
+  };
+}
+
+function readTypeCollection(value: unknown): TypeCollectionDefinition {
+  const collection = record(value);
+  const display = record(collection.display);
+  const linksValue = record(collection.links);
+  const uniqueValue = array(collection.unique);
+  const path = record(collection.path);
+  const linkFormats: TypeLinkFormat[] = ["wikilink", "markdown", "path", "any"];
+  const uniqueScopes: TypeUniqueScope[] = ["collection", "type", "path_glob"];
+
+  const links = Object.entries(linksValue).flatMap(([field, rawRule]) => {
+    if (!isRecord(rawRule)) return [];
+    const targetType = rawRule.target_type;
+    const targetTypes = typeof targetType === "string"
+      ? [targetType]
+      : array(targetType).filter((item): item is string => typeof item === "string");
+    const advancedKeys = Object.keys(rawRule).filter((key) => {
+      if (key === "target_type") {
+        return typeof targetType !== "string"
+          && !(Array.isArray(targetType) && targetType.every((item) => typeof item === "string"));
+      }
+      if (key === "validate_exists") return typeof rawRule.validate_exists !== "boolean";
+      if (key === "format") return !linkFormats.includes(rawRule.format as TypeLinkFormat);
+      return true;
+    });
+    return [{
+      field,
+      targetTypes,
+      validateExists: rawRule.validate_exists === true,
+      ...(linkFormats.includes(rawRule.format as TypeLinkFormat) ? { format: rawRule.format as TypeLinkFormat } : {}),
+      advancedKeys
+    }];
+  });
+
+  const unique = uniqueValue.flatMap((rawRule, sourceIndex) => {
+    if (!isRecord(rawRule) || typeof rawRule.field !== "string") return [];
+    const advancedKeys = Object.keys(rawRule).filter((key) => {
+      if (key === "field") return typeof rawRule.field !== "string";
+      if (key === "scope") return !uniqueScopes.includes(rawRule.scope as TypeUniqueScope);
+      if (key === "path_glob") return typeof rawRule.path_glob !== "string";
+      return true;
+    });
+    return [{
+      sourceIndex,
+      field: rawRule.field,
+      ...(uniqueScopes.includes(rawRule.scope as TypeUniqueScope) ? { scope: rawRule.scope as TypeUniqueScope } : {}),
+      ...(typeof rawRule.path_glob === "string" ? { pathGlob: rawRule.path_glob } : {}),
+      advancedKeys
+    }];
+  });
+
+  const supportedCollectionKeys = new Set(["display", "read_defaults", "links", "unique", "path"]);
+  const advancedKeys = Object.keys(collection).filter((key) => !supportedCollectionKeys.has(key));
+  const displayKeys = new Set(["name_field", "description_field", "icon", "color_field"]);
+  for (const key of Object.keys(display)) {
+    if (!displayKeys.has(key) || typeof display[key] !== "string") advancedKeys.push(`display.${key}`);
+  }
+  if ("display" in collection && !isRecord(collection.display)) advancedKeys.push("display with an unsupported value");
+  if ("read_defaults" in collection && !isRecord(collection.read_defaults)) advancedKeys.push("read defaults with an unsupported value");
+  if ("links" in collection && (!isRecord(collection.links) || Object.keys(linksValue).length !== links.length)) {
+    advancedKeys.push("links with unsupported values");
+  }
+  if ("unique" in collection && (!Array.isArray(collection.unique) || uniqueValue.length !== unique.length)) {
+    advancedKeys.push("unique rules with unsupported values");
+  }
+
+  return {
+    display: {
+      ...(typeof display.name_field === "string" ? { nameField: display.name_field } : {}),
+      ...(typeof display.description_field === "string" ? { descriptionField: display.description_field } : {}),
+      ...(typeof display.icon === "string" ? { icon: display.icon } : {}),
+      ...(typeof display.color_field === "string" ? { colorField: display.color_field } : {})
+    },
+    readDefaults: Object.entries(record(collection.read_defaults)).map(([field, defaultValue]) => ({ field, value: defaultValue })),
+    links,
+    unique,
+    path: {
+      ...(typeof path.pattern === "string" ? { pattern: path.pattern } : {}),
+      ...(typeof path.template === "string" ? { template: path.template } : {}),
+      ...(typeof path.folder === "string" ? { folder: path.folder } : {}),
+      advancedKeys: Object.keys(path).filter((key) => {
+        if (key === "pattern" || key === "template" || key === "folder") return typeof path[key] !== "string";
+        return true;
+      })
+    },
+    advancedKeys: [...new Set(advancedKeys)]
   };
 }
 
@@ -462,6 +697,27 @@ function definitionChanges(previousSource: string | undefined, nextSource: strin
   return changes;
 }
 
+function typeCollectionChanges(previousSource: string | undefined, nextSource: string): string[] {
+  const previous = previousSource ? record(parseTypeSource(previousSource).value.collection) : {};
+  const next = record(parseTypeSource(nextSource).value.collection);
+  const sections: Array<[string, string]> = [
+    ["display", "Display metadata"],
+    ["read_defaults", "Read defaults"],
+    ["links", "Link rules"],
+    ["unique", "Uniqueness rules"],
+    ["path", "Path policy"],
+    ["projections", "Projections"]
+  ];
+  const changes = sections
+    .filter(([key]) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]))
+    .map(([, label]) => label);
+  const known = new Set(sections.map(([key]) => key));
+  const previousOther = Object.fromEntries(Object.entries(previous).filter(([key]) => !known.has(key)));
+  const nextOther = Object.fromEntries(Object.entries(next).filter(([key]) => !known.has(key)));
+  if (JSON.stringify(previousOther) !== JSON.stringify(nextOther)) changes.push("Other collection rules");
+  return changes;
+}
+
 function schemaEnvelope(value: Record<string, unknown>): Record<string, unknown> {
   const schema = record(value.schema);
   const embedded = record(schema.value);
@@ -526,6 +782,29 @@ function array(value: unknown): unknown[] {
 
 function normalizedStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function renameCollectionMapEntry(source: string, parentPath: string[], from: string, to: string, label: string): string {
+  const name = to.trim();
+  if (!name || name === from) return source;
+  return mutate(source, (document) => {
+    if (document.getIn([...parentPath, name]) !== undefined) {
+      throw new Error(`A ${label} for “${name}” already exists.`);
+    }
+    const value = document.getIn([...parentPath, from]);
+    document.setIn([...parentPath, name], value);
+    document.deleteIn([...parentPath, from]);
+  });
+}
+
+function deleteInAndPrune(document: Document, path: Array<string | number>) {
+  document.deleteIn(path);
+  for (let length = path.length - 1; length >= 1; length -= 1) {
+    const parentPath = path.slice(0, length);
+    const parent = document.getIn(parentPath);
+    if ((isMap(parent) || isSeq(parent)) && parent.items.length === 0) document.deleteIn(parentPath);
+    else break;
+  }
 }
 
 function record(value: unknown): Record<string, unknown> {

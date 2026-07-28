@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { NoteSummary } from "./model";
-import { backlinksFor, linkMatches, linkSuggestions, wikilinkFor } from "./links";
+import {
+  backlinksFor,
+  linkMatches,
+  linkSuggestions,
+  unresolvedNoteTarget,
+  wikilinkFor
+} from "./links";
 
 describe("collection links", () => {
   const notes = [
@@ -76,6 +82,33 @@ describe("collection links", () => {
     expect(linkMatches(suggestions, "adlv")).toMatchObject([{
       suggestion: { path: "People/ada-lovelace.md" }
     }]);
+  });
+
+  it("turns unresolved Markdown and wiki targets into nearby notes", () => {
+    expect(unresolvedNoteTarget(
+      "fresh-idea.md",
+      "Fresh idea",
+      "Notes/source.md",
+      "markdown"
+    )).toEqual({ path: "Notes/fresh-idea.md", title: "Fresh idea" });
+    expect(unresolvedNoteTarget(
+      "Projects/launch",
+      undefined,
+      "Notes/source.md",
+      "wikilink"
+    )).toEqual({ path: "Projects/launch.md", title: "launch" });
+    expect(unresolvedNoteTarget(
+      "../shared",
+      undefined,
+      "Notes/Drafts/source.md",
+      "markdown"
+    )).toEqual({ path: "Notes/shared.md", title: "shared" });
+  });
+
+  it("does not turn external, escaping, or non-Markdown targets into notes", () => {
+    expect(unresolvedNoteTarget("https://example.com", "Example", "Notes/source.md", "markdown")).toBeUndefined();
+    expect(unresolvedNoteTarget("../../outside", undefined, "Notes/source.md", "markdown")).toBeUndefined();
+    expect(unresolvedNoteTarget("diagram.png", undefined, "Notes/source.md", "markdown")).toBeUndefined();
   });
 });
 

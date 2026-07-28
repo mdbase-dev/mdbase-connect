@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",
+    "icons": "node scripts/write-phosphor-icon-names.mjs",
     "manifest": "node scripts/write-manifest.mjs"
   },
   "dependencies": {
@@ -30,9 +31,10 @@
     "@lezer/highlight": "^1.2.3",
     "@mdbase/connect": "file:vendor/mdbase-connect-0.1.0-beta.9.tgz",
     "@mdbase/connect-protocol": "file:vendor/mdbase-connect-protocol-0.1.0-beta.9.tgz",
+    "@phosphor-icons/react": "^2.1.10",
+    "@phosphor-icons/web": "^2.1.2",
     "@replit/codemirror-vim": "^6.3.0",
     "@tanstack/react-virtual": "^3.14.7",
-    "lucide-react": "^1.25.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "yaml": "^2.9.0"

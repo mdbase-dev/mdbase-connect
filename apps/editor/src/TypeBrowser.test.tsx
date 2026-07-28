@@ -74,6 +74,19 @@ describe("recursive type builder", () => {
       .find((field) => field.name === "category")?.constraints.choices).toEqual(["personal", "work", "archive"]);
   });
 
+  it("accepts spaces in field descriptions", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Expand category field" }));
+    const description = screen.getByRole("textbox", { name: "category description" });
+    await user.type(description, "These are the tags for the notes.");
+
+    expect(description).toHaveValue("These are the tags for the notes.");
+    expect(readVisualType(screen.getByTestId("source").textContent ?? "").fields
+      .find((field) => field.name === "category")?.description).toBe("These are the tags for the notes.");
+  });
+
   it("explains explicit and inferred matching while routing complex rules to YAML", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={advancedMatchSource} />);
@@ -84,6 +97,51 @@ describe("recursive type builder", () => {
     await user.click(screen.getByRole("button", { name: "Open YAML" }));
     expect(screen.getByRole("textbox", { name: "person type YAML" })).toBeInTheDocument();
   });
+
+  it("edits collection display, defaults, links, uniqueness, and path policy", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={collectionSource} />);
+
+    expect(screen.getByRole("heading", { name: "Collection behaviour" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Name field" }), "category");
+    const icon = screen.getByRole("combobox", { name: "Display icon" });
+    await user.clear(icon);
+    await user.type(icon, "notebook");
+    await user.click(within(screen.getByRole("listbox", { name: "Phosphor icons" })).getByRole("option", { name: "notebook" }));
+
+    const defaultValue = screen.getByRole("textbox", { name: "Default value for category" });
+    await user.clear(defaultValue);
+    await user.type(defaultValue, "A quiet default");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "category link format" }), "markdown");
+    await user.click(screen.getByRole("checkbox", { name: "Require an existing target" }));
+    const targetType = screen.getByRole("combobox", { name: "category target type 1" });
+    await user.clear(targetType);
+    const targetSuggestions = screen.getByRole("listbox", { name: "category target type suggestions" });
+    expect(targetSuggestions).toHaveClass("string-list-suggestions");
+    await user.click(within(targetSuggestions).getByRole("option", { name: "any" }));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "title uniqueness scope" }), "path_glob");
+    await user.type(screen.getByRole("textbox", { name: "title uniqueness path pattern" }), "People/**/*.md");
+
+    const pathPattern = screen.getByRole("textbox", { name: /^Path pattern$/ });
+    await user.clear(pathPattern);
+    await user.type(pathPattern, "People/title.md");
+
+    const definition = readVisualType(screen.getByTestId("source").textContent ?? "");
+    expect(definition.collection).toMatchObject({
+      display: { nameField: "category", icon: "notebook" },
+      readDefaults: [{ field: "category", value: "A quiet default" }],
+      links: [expect.objectContaining({ field: "category", format: "markdown", validateExists: true })],
+      unique: [expect.objectContaining({ field: "title", scope: "path_glob", pathGlob: "People/**/*.md" })],
+      path: expect.objectContaining({ pattern: "People/title.md" })
+    });
+
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(screen.getByText("Validation may change")).toBeInTheDocument();
+    expect(screen.getByText("Future file paths may change")).toBeInTheDocument();
+    expect(screen.getByText(/Display metadata · Read defaults · Link rules · Uniqueness rules · Path policy/)).toBeInTheDocument();
+  });
 });
 
 function InspectorHarness({ source: initialSource = recursiveSource }: { source?: string }) {
@@ -91,6 +149,7 @@ function InspectorHarness({ source: initialSource = recursiveSource }: { source?
   return <>
     <TypeInspector
       type={typeDescriptor}
+      availableTypes={[typeDescriptor, organisationDescriptor]}
       document={{ ...typeDocument, document: initialSource }}
       source={source}
       notes={[]}
@@ -141,6 +200,27 @@ match:
     status:
       neq: archived`);
 
+const collectionSource = recursiveSource.replace("schema:", `collection:
+  display:
+    name_field: title
+    description_field: profile.display_name
+    icon: person
+  read_defaults:
+    category: personal
+  links:
+    category:
+      target_type: person
+      format: wikilink
+  unique:
+    - field: title
+      scope: type
+  path:
+    pattern: "People/{title}.md"
+  projections:
+    label:
+      expr: title
+schema:`);
+
 const typeDescriptor: CollectionTypeDescriptor = {
   name: "person",
   path: "_types/person.md",
@@ -157,6 +237,14 @@ const typeDescriptor: CollectionTypeDescriptor = {
       }
     }
   },
+  extensions: {}
+};
+
+const organisationDescriptor: CollectionTypeDescriptor = {
+  name: "organisation",
+  path: "_types/organisation.md",
+  description: "An organisation",
+  schema: { type: "object", properties: { title: { type: "string" } } },
   extensions: {}
 };
 

@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeftIcon as ArrowLeft } from "./icons";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CreateNoteInput } from "./model";

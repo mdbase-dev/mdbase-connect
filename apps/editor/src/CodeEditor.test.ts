@@ -1,7 +1,15 @@
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { lineSeparatorFor, linkCompletion, markdownEdit, mentionScope, restoreLineSeparators } from "./CodeEditor";
+import {
+  internalLinkPathAt,
+  lineSeparatorFor,
+  linkCompletion,
+  markdownEdit,
+  mentionScope,
+  restoreLineSeparators,
+  yamlFrontmatterDiagnostics
+} from "./CodeEditor";
 import type { LinkSuggestion } from "./links";
 
 describe("mdbase mention scope", () => {
@@ -43,6 +51,36 @@ it("retains the source document line separator while editing", () => {
   const separator = lineSeparatorFor("---\r\ntitle: Note\r\n---\r\n");
   const state = EditorState.create({ doc: "---\r\ntitle: Note\r\n---\r\n" });
   expect(restoreLineSeparators(state.doc.toString(), separator)).toBe("---\r\ntitle: Note\r\n---\r\n");
+});
+
+describe("YAML frontmatter diagnostics", () => {
+  it("accepts a complete type file as one frontmatter document", () => {
+    expect(yamlFrontmatterDiagnostics(`---
+kind: mdbase.type
+name: note
+---
+`)).toEqual([]);
+  });
+
+  it("offsets YAML errors into the complete type source", () => {
+    const source = `---
+kind: mdbase.type
+schema: [
+---
+`;
+    const diagnostics = yamlFrontmatterDiagnostics(source);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).not.toContain("multiple documents");
+    expect(diagnostics[0].from).toBeGreaterThan(source.indexOf("schema:"));
+  });
+
+  it("reports incomplete frontmatter boundaries", () => {
+    expect(yamlFrontmatterDiagnostics("kind: mdbase.type\n")[0].message)
+      .toBe("Type definitions need YAML frontmatter between --- markers.");
+    expect(yamlFrontmatterDiagnostics("---\nkind: mdbase.type\n")[0].message)
+      .toBe("Type definitions need a closing --- frontmatter marker.");
+  });
 });
 
 describe("Markdown formatting", () => {
@@ -120,4 +158,24 @@ describe("object link completion", () => {
     const state = EditorState.create({ doc });
     return linkCompletion(new CompletionContext(state, doc.length, false), suggestions, types);
   }
+});
+
+describe("internal link previews", () => {
+  const suggestions: LinkSuggestion[] = [
+    { path: "People/ada.md", title: "Ada Lovelace", aliases: ["Ada"], types: ["person"] },
+    { path: "Projects/Engine.md", title: "Analytical Engine", types: ["project"] }
+  ];
+
+  it("resolves wiki and Markdown links while ignoring external URLs", () => {
+    const wiki = "See [[People/ada|Ada]].";
+    const markdown = "Read [the engine](Projects/Engine.md).";
+    const external = "Visit [mdbase](https://mdbase.dev).";
+
+    expect(internalLinkPathAt(wiki, wiki.indexOf("Ada"), suggestions, "Notes/Today.md"))
+      .toBe("People/ada.md");
+    expect(internalLinkPathAt(markdown, markdown.indexOf("engine"), suggestions, "Notes/Today.md"))
+      .toBe("Projects/Engine.md");
+    expect(internalLinkPathAt(external, external.indexOf("mdbase"), suggestions, "Notes/Today.md"))
+      .toBeUndefined();
+  });
 });

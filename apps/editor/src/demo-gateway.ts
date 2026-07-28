@@ -50,11 +50,23 @@ export class DemoCollectionGateway implements CollectionGateway {
     return connection ? [connection] : [];
   }
 
+  authorizationTarget(): string | null {
+    return null;
+  }
+
   selectConnection(_collectionId: string): void {}
 
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
     listener(this.connection());
     return () => undefined;
+  }
+
+  async checkDirectAccess(): Promise<ConnectionSummary | null> {
+    return this.connection();
+  }
+
+  async requestDirectAccess(): Promise<ConnectionSummary | null> {
+    return this.connection();
   }
 
   async authorize(): Promise<void> {}
@@ -407,6 +419,9 @@ version: 1
 description: A general note with optional tags.
 match:
   path_glob: Notes/**/*.md
+collection:
+  display:
+    icon: notebook
 schema:
   dialect: json-schema-2020-12
   value:
@@ -443,6 +458,7 @@ function typeDescriptor(document: CollectionTypeDocument): CollectionTypeDescrip
     ...(typeof definition.description === "string" ? { description: definition.description } : {}),
     definition,
     schema,
+    ...(isObject(definition.collection) ? { collection: definition.collection } : {}),
     extensions: {}
   };
 }

@@ -14,6 +14,7 @@ describe("layout preferences", () => {
     saveLayoutPreferences({
       collectionWidth: 212,
       listWidth: 388,
+      inspectorWidth: 420,
       collectionCollapsed: true,
       listCollapsed: false
     });
@@ -21,6 +22,7 @@ describe("layout preferences", () => {
     expect(loadLayoutPreferences()).toEqual({
       collectionWidth: 212,
       listWidth: 388,
+      inspectorWidth: 420,
       collectionCollapsed: true,
       listCollapsed: false
     });
@@ -30,6 +32,7 @@ describe("layout preferences", () => {
     localStorage.setItem("mdbase-editor:layout", JSON.stringify({
       collectionWidth: 20,
       listWidth: 900,
+      inspectorWidth: 900,
       collectionCollapsed: "yes",
       listCollapsed: true
     }));
@@ -37,6 +40,7 @@ describe("layout preferences", () => {
     expect(loadLayoutPreferences()).toEqual({
       collectionWidth: 144,
       listWidth: 520,
+      inspectorWidth: 560,
       collectionCollapsed: false,
       listCollapsed: true
     });

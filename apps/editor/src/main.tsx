@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
+import "./phosphor-icons.generated.css";
 import "./styles.css";
 
 const demoCount = import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1"

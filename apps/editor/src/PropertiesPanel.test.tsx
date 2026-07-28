@@ -7,8 +7,8 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { schemaDateInputValue } from "./schema-date";
 
 vi.mock("./CodeEditor", () => ({
-  CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) =>
-    <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} />
+  CodeEditor: ({ value, onChange, onBlur, label }: { value: string; onChange?: (value: string) => void; onBlur?: () => void; label: string }) =>
+    <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} onBlur={onBlur} />
 }));
 
 describe("typed note properties", () => {
@@ -91,15 +91,24 @@ describe("typed note properties", () => {
   it("shows and saves the complete exact record source", async () => {
     const user = userEvent.setup();
     const onSaveDocument = vi.fn();
-    render(<PropertiesPanel note={sourceNote} types={[]} onClose={() => undefined} onSave={async () => undefined} onSaveDocument={onSaveDocument} />);
+    const onClose = vi.fn();
+    render(<PropertiesPanel note={sourceNote} types={[]} onClose={onClose} onSave={async () => undefined} onSaveDocument={onSaveDocument} />);
 
     await user.click(screen.getByRole("tab", { name: "Source" }));
     const editor = screen.getByLabelText("Complete record source");
     const normalized = sourceNote.document!.replace(/\r\n/g, "\n");
     expect(editor).toHaveValue(normalized);
     fireEvent.change(editor, { target: { value: `${normalized}More.\n` } });
+    fireEvent.blur(editor);
+    await waitFor(() => expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More.\n`, sourceNote.document));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
+
+    onSaveDocument.mockClear();
+    fireEvent.change(editor, { target: { value: `${normalized}More again.\n` } });
     await user.click(screen.getByRole("button", { name: "Save source" }));
-    expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More.\n`, sourceNote.document);
+    await waitFor(() => expect(onSaveDocument).toHaveBeenCalledWith(`${normalized}More again.\n`, sourceNote.document));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 

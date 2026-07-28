@@ -67,6 +67,7 @@ const PAGE_SIZE = 1_000;
 export class ConnectCollectionGateway implements CollectionGateway {
   private readonly manager: MdbaseConnect<NoteFrontmatter>;
   private readonly browserLocation: MdbaseBrowserLocation<NoteFrontmatter>;
+  private pendingAuthorizationTarget?: string;
   private indexSnapshot?: string;
   private readonly renamePreflights = new Map<string, import("@mdbase/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase/connect").DeletePreflightResult>();
@@ -81,6 +82,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
     this.browserLocation = new MdbaseBrowserLocation(this.manager, {
       fallbackPath: appRoot.pathname
     });
+    const selectedCollectionId = this.browserLocation.selectedCollectionId();
+    this.pendingAuthorizationTarget = selectedCollectionId
+      && !this.manager.connection(selectedCollectionId)
+      ? selectedCollectionId
+      : undefined;
   }
 
   connection(): ConnectionSummary | null {
@@ -90,7 +96,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
       collectionId: connection.collectionId,
       displayName: connection.displayName,
       operations: connection.operations,
-      missingOperations: connection.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations
+      missingOperations: connection.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations,
+      route: connection.route,
+      directAccess: connection.directAccess
     };
   }
 
@@ -100,21 +108,57 @@ export class ConnectCollectionGateway implements CollectionGateway {
       displayName: connection.displayName,
       operations: connection.operations,
       missingOperations: this.manager.connection(connection.collectionId)
-        ?.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations ?? []
+        ?.authorizationCapabilities(FULL_COLLECTION_OPERATIONS).missingOperations ?? [],
+      route: connection.route,
+      directAccess: connection.directAccess
     }));
   }
 
+  authorizationTarget(): string | null {
+    return this.pendingAuthorizationTarget ?? null;
+  }
+
   selectConnection(collectionId: string): void {
+    this.pendingAuthorizationTarget = undefined;
     this.browserLocation.selectConnection(collectionId, { replace: true });
   }
 
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void {
-    return this.browserLocation.onChange(() => listener(this.connection()));
+    let stopActiveConnection: (() => void) | undefined;
+    const subscribeToActiveConnection = () => {
+      stopActiveConnection?.();
+      const connection = this.activeConnection();
+      stopActiveConnection = connection?.onConnectionChange(() => listener(this.connection()));
+      if (!connection) listener(null);
+    };
+    const stopLocation = this.browserLocation.onChange(subscribeToActiveConnection);
+    subscribeToActiveConnection();
+    return () => {
+      stopLocation();
+      stopActiveConnection?.();
+    };
+  }
+
+  async checkDirectAccess(): Promise<ConnectionSummary | null> {
+    const connection = this.activeConnection();
+    if (!connection) return null;
+    await connection.checkDirectAccess();
+    return this.connection();
+  }
+
+  async requestDirectAccess(): Promise<ConnectionSummary | null> {
+    const connection = this.activeConnection();
+    if (!connection) return null;
+    await connection.requestDirectAccess();
+    return this.connection();
   }
 
   async authorize(collectionId?: string): Promise<void> {
-    const current = collectionId
-      ? this.manager.connection(collectionId)
+    const requestedCollectionId = collectionId
+      ?? this.pendingAuthorizationTarget
+      ?? undefined;
+    const current = requestedCollectionId
+      ? this.manager.connection(requestedCollectionId)
       : this.activeConnection();
     const returnLocation = this.browserLocation.authorizationReturnTo();
     if (current) {
@@ -123,12 +167,13 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }
     await this.manager.authorize({
       operations: FULL_COLLECTION_OPERATIONS,
-      collectionId,
+      collectionId: requestedCollectionId,
       returnTo: returnLocation
     });
   }
 
   async authorizeNewCollection(): Promise<void> {
+    this.pendingAuthorizationTarget = undefined;
     await this.manager.authorize({
       operations: FULL_COLLECTION_OPERATIONS,
       returnTo: this.browserLocation.authorizationReturnTo()
@@ -138,6 +183,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async completeAuthorization(): Promise<void> {
     if (!this.browserLocation.isAuthorizationCallback(location.href)) return;
     await this.browserLocation.completeAuthorization();
+    this.pendingAuthorizationTarget = undefined;
   }
 
   disconnect(): void {

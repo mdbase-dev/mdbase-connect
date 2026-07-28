@@ -1,4 +1,4 @@
-import { MoreHorizontal } from "lucide-react";
+import { DotsThreeIcon as MoreHorizontal } from "./icons";
 import {
   useEffect,
   useLayoutEffect,

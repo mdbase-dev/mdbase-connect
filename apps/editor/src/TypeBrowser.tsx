@@ -1,30 +1,67 @@
-import { ArrowLeft, ChevronDown, ChevronRight, CircleAlert, FileCode2, FilePlus2, Info, PanelLeft, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import {
+  ArrowCounterClockwiseIcon as RotateCcw,
+  ArrowLeftIcon as ArrowLeft,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  FileCodeIcon as FileCode2,
+  FilePlusIcon as FilePlus2,
+  InfoIcon as Info,
+  MagnifyingGlassIcon as Search,
+  PlusIcon as Plus,
+  SidebarSimpleIcon as PanelLeft,
+  TrashIcon as Trash2,
+  WarningCircleIcon as CircleAlert,
+  XIcon as X
+} from "./icons";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import type { NoteSummary, TypeDocument } from "./model";
+import {
+  collectionTypeIcon,
+  isPhosphorIconName,
+  normalizePhosphorIconName,
+  PHOSPHOR_ICON_NAMES,
+  PhosphorIcon
+} from "./PhosphorIcon";
 import { compareLines } from "./text-diff";
 import {
   addTypeField,
+  addTypeLinkRule,
+  addTypeReadDefault,
+  addTypeUniqueRule,
   readVisualType,
+  removeTypeLinkRule,
+  removeTypeReadDefault,
   removeTypeField,
+  removeTypeUniqueRule,
+  renameTypeLinkRule,
+  renameTypeReadDefault,
   renameTypeField,
+  setTypeLinkRule,
+  setTypeLinkTargets,
+  setTypeReadDefault,
   setTypeFieldChoices,
   setTypeFieldConstraint,
   setTypeFieldDescription,
   setTypeFieldKind,
   setTypeFieldRequired,
   setTypeListItemKind,
+  setTypeUniqueRule,
   typeFieldConversionImpact,
   typeFieldPathLabel,
   typeImpact,
   updateTypeFieldsPresent,
+  updateTypeCollectionDisplay,
   updateTypeIdentity,
+  updateTypePathPolicy,
   updateTypePathGlobs,
   type TypeFieldDefinition,
   type TypeFieldKind,
   type TypeImpact,
+  type TypeLinkFormat,
   type TypeSchemaNode,
+  type TypeUniqueScope,
   type VisualTypeDefinition
 } from "./type-schema";
 
@@ -54,15 +91,19 @@ export function TypeList({ types, selectedName, leadingActions, trailingActions,
     </label>
     <div className="type-list" role="listbox" aria-label="Collection types">
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
-        <FileCode2 aria-hidden="true" /><span><strong>{type.name}</strong><small>{type.description || `${propertyCount(type)} schema properties`}</small></span>
+        <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
+          ? <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />
+          : <FileCode2 aria-hidden="true" />}</span>
+        <span className="type-row-copy"><strong>{type.name}</strong><small>{type.description || `${propertyCount(type)} schema properties`}</small></span>
       </button>)}
       {!visible.length && <p className="quiet-empty">{types.length ? "No types found." : "This collection has no type definitions yet."}</p>}
     </div>
   </section>;
 }
 
-export function TypeInspector({ type, document, source, notes, creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBack }: {
+export function TypeInspector({ type, availableTypes = [], document, source, notes, creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBack }: {
   type?: CollectionTypeDescriptor;
+  availableTypes?: CollectionTypeDescriptor[];
   document?: TypeDocument;
   source: string;
   notes: NoteSummary[];
@@ -114,7 +155,10 @@ export function TypeInspector({ type, document, source, notes, creating, loading
     </header>
     <section className="type-heading">
       <p className="eyebrow">{creating ? "Create type" : "Type definition"}</p>
-      <h1>{name}</h1>
+      <div className="type-heading-title">
+        {!creating && isPhosphorIconName(collectionTypeIcon(type)) && <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />}
+        <h1>{name}</h1>
+      </div>
       {creating ? <p>Give the type a unique name and describe its fields in JSON Schema.</p> : type!.description && <p>{type!.description}</p>}
       {!creating && <dl>
         <div><dt>Version</dt><dd>{type!.version ?? "Unversioned"}</dd></div>
@@ -153,6 +197,7 @@ export function TypeInspector({ type, document, source, notes, creating, loading
             definition={parsed.value}
             source={source}
             impact={impact}
+            typeNames={availableTypes.map((candidate) => candidate.name)}
             onChange={changeSource}
             onOpenYaml={() => setView("yaml")}
           />
@@ -162,7 +207,7 @@ export function TypeInspector({ type, document, source, notes, creating, loading
                 value={source}
                 onChange={(next) => { onSourceChange(next); setVisualError(undefined); setReviewing(false); }}
                 label={`${name} type YAML`}
-                language="yaml"
+                language="yaml-frontmatter"
                 lineWrapping={false}
                 autoFocus={creating}
               />}
@@ -170,10 +215,11 @@ export function TypeInspector({ type, document, source, notes, creating, loading
   </main>;
 }
 
-function VisualTypeEditor({ definition, source, impact, onChange, onOpenYaml }: {
+function VisualTypeEditor({ definition, source, impact, typeNames, onChange, onOpenYaml }: {
   definition: VisualTypeDefinition;
   source: string;
   impact?: TypeImpact;
+  typeNames: string[];
   onChange: (change: (source: string) => string) => void;
   onOpenYaml: () => void;
 }) {
@@ -233,8 +279,535 @@ function VisualTypeEditor({ definition, source, impact, onChange, onOpenYaml }: 
       {definition.fields.map((field) => <VisualFieldRow key={typeFieldPathLabel(field.path)} field={field} source={source} depth={0} onChange={onChange} />)}
       {!definition.fields.length && <p className="quiet-empty">No fields are declared yet.</p>}
     </div>
+    <CollectionBehaviourEditor
+      definition={definition}
+      typeNames={typeNames}
+      onChange={onChange}
+      onOpenYaml={onOpenYaml}
+    />
     <p className="visual-type-footnote">Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it.</p>
   </div>;
+}
+
+interface TypeFieldOption {
+  value: string;
+  label: string;
+  node: TypeSchemaNode;
+}
+
+function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml }: {
+  definition: VisualTypeDefinition;
+  typeNames: string[];
+  onChange: (change: (source: string) => string) => void;
+  onOpenYaml: () => void;
+}) {
+  const collection = definition.collection;
+  const fields = typeFieldOptions(definition.fields);
+  const topLevelFields = definition.fields.map((field) => ({
+    value: field.name,
+    label: field.name,
+    node: field
+  }));
+  const linkFields = fields.filter((option) => option.node.kind === "string");
+  const usedDefaults = new Set(collection.readDefaults.map((entry) => entry.field));
+  const usedLinks = new Set(collection.links.map((rule) => rule.field));
+  const nextDefault = topLevelFields.find((option) => !usedDefaults.has(option.value));
+  const nextLink = linkFields.find((option) => !usedLinks.has(option.value));
+  const firstUnique = fields[0];
+  const advancedKeys = [
+    ...collection.advancedKeys.map(collectionRuleLabel),
+    ...collection.path.advancedKeys.map((key) => `Path: ${collectionRuleLabel(key)}`)
+  ];
+
+  return <section className="visual-type-section collection-behaviour-section">
+    <div className="visual-section-heading">
+      <div><h3>Collection behaviour</h3><p>How this type appears and behaves across compatible tools.</p></div>
+    </div>
+
+    <div className="collection-behaviour-group">
+      <div className="collection-group-heading">
+        <div><h4>Display</h4><p>Advisory labels and colour used when records of this type are shown.</p></div>
+      </div>
+      <div className="collection-display-grid">
+        <CollectionFieldSelect
+          label="Name field"
+          value={collection.display.nameField ?? ""}
+          fields={fields.filter(textLikeField)}
+          onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "name_field", value))}
+        />
+        <CollectionFieldSelect
+          label="Description field"
+          value={collection.display.descriptionField ?? ""}
+          fields={fields.filter(textLikeField)}
+          onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "description_field", value))}
+        />
+        <IconPicker
+          value={collection.display.icon ?? ""}
+          onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "icon", value))}
+        />
+        <CollectionFieldSelect
+          label="Colour field"
+          value={collection.display.colorField ?? ""}
+          fields={fields}
+          onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "color_field", value))}
+        />
+      </div>
+    </div>
+
+    <div className="collection-behaviour-group">
+      <div className="collection-group-heading">
+        <div><h4>Read defaults</h4><p>Effective values for missing properties. Source files stay unchanged.</p></div>
+        <button
+          disabled={!nextDefault}
+          onClick={() => nextDefault && onChange((source) => addTypeReadDefault(source, nextDefault.value, defaultValueForField(nextDefault.node)))}
+        ><Plus aria-hidden="true" />Add default</button>
+      </div>
+      <div className="collection-rule-list">
+        {collection.readDefaults.map((entry, index) => {
+          const option = topLevelFields.find((candidate) => candidate.value === entry.field);
+          return <div className="collection-default-row" key={entry.field}>
+            <CollectionFieldSelect
+              label={`Default field ${index + 1}`}
+              visibleLabel="Field"
+              value={entry.field}
+              fields={topLevelFields.filter((candidate) => candidate.value === entry.field || !usedDefaults.has(candidate.value))}
+              allowEmpty={false}
+              onChange={(value) => onChange((source) => renameTypeReadDefault(source, entry.field, value))}
+            />
+            <DefaultValueEditor
+              field={entry.field}
+              node={option?.node}
+              value={entry.value}
+              onChange={(value) => onChange((source) => setTypeReadDefault(source, entry.field, value))}
+            />
+            <button className="icon-button collection-rule-remove" aria-label={`Remove read default for ${entry.field}`} title={`Remove read default for ${entry.field}`} onClick={() => onChange((source) => removeTypeReadDefault(source, entry.field))}><Trash2 aria-hidden="true" /></button>
+          </div>;
+        })}
+        {!collection.readDefaults.length && <p className="collection-empty-rule">Missing properties have no type-specific read defaults.</p>}
+      </div>
+    </div>
+
+    <div className="collection-behaviour-group">
+      <div className="collection-group-heading">
+        <div><h4>Links</h4><p>Describe which properties point to other records and how targets are validated.</p></div>
+        <button
+          disabled={!nextLink}
+          onClick={() => nextLink && onChange((source) => addTypeLinkRule(source, nextLink.value))}
+        ><Plus aria-hidden="true" />Add link rule</button>
+      </div>
+      <div className="collection-rule-list">
+        {collection.links.map((rule, index) => <div className="collection-link-rule" key={rule.field}>
+          <div className="collection-link-primary">
+            <CollectionFieldSelect
+              label={`Link field ${index + 1}`}
+              visibleLabel="Field"
+              value={rule.field}
+              fields={linkFields.filter((candidate) => candidate.value === rule.field || !usedLinks.has(candidate.value))}
+              allowEmpty={false}
+              onChange={(value) => onChange((source) => renameTypeLinkRule(source, rule.field, value))}
+            />
+            <label><span>Format</span><select
+              aria-label={`${rule.field} link format`}
+              value={rule.format ?? ""}
+              onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (event.target.value || undefined) as TypeLinkFormat | undefined))}
+            >
+              <option value="">Any supported format</option>
+              <option value="wikilink">Wikilink</option>
+              <option value="markdown">Markdown link</option>
+              <option value="path">Path</option>
+              <option value="any">Any</option>
+            </select></label>
+            <label className="collection-toggle"><input
+              type="checkbox"
+              checked={rule.validateExists}
+              onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))}
+            /><span>Require an existing target</span></label>
+            <button className="icon-button collection-rule-remove" aria-label={`Remove link rule for ${rule.field}`} title={`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))}><Trash2 aria-hidden="true" /></button>
+          </div>
+          <StringListEditor
+            label="Allowed target types"
+            values={rule.targetTypes}
+            itemLabel={`${rule.field} target type`}
+            addLabel="Add target type"
+            placeholder="person or any"
+            helper="Leave empty to allow records of any type."
+            suggestions={["any", ...typeNames]}
+            onChange={(values) => onChange((source) => setTypeLinkTargets(source, rule.field, values))}
+          />
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">Additional link settings remain in YAML: {rule.advancedKeys.join(", ")}.</p>}
+        </div>)}
+        {!collection.links.length && <p className="collection-empty-rule">No properties are marked as links.</p>}
+      </div>
+    </div>
+
+    <div className="collection-behaviour-group">
+      <div className="collection-group-heading">
+        <div><h4>Uniqueness</h4><p>Require a property value to be unique across a deliberate comparison set.</p></div>
+        <button
+          disabled={!firstUnique}
+          onClick={() => firstUnique && onChange((source) => addTypeUniqueRule(source, firstUnique.value))}
+        ><Plus aria-hidden="true" />Add unique rule</button>
+      </div>
+      <div className="collection-rule-list">
+        {collection.unique.map((rule, index) => <div className={`collection-unique-rule${rule.scope === "path_glob" ? " has-path" : ""}`} key={`${rule.sourceIndex}:${rule.field}`}>
+          <CollectionFieldSelect
+            label={`Unique field ${index + 1}`}
+            visibleLabel="Field"
+            value={rule.field}
+            fields={fields}
+            allowEmpty={false}
+            onChange={(value) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "field", value))}
+          />
+          <label><span>Scope</span><select
+            aria-label={`${rule.field} uniqueness scope`}
+            value={rule.scope ?? ""}
+            onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "scope", (event.target.value || undefined) as TypeUniqueScope | undefined))}
+          >
+            <option value="">Choose scope</option>
+            <option value="type">This type</option>
+            <option value="collection">Entire collection</option>
+            <option value="path_glob">Path pattern</option>
+          </select></label>
+          {rule.scope === "path_glob" && <label className="collection-unique-path"><span>Path pattern</span><input
+            aria-label={`${rule.field} uniqueness path pattern`}
+            value={rule.pathGlob ?? ""}
+            placeholder="Projects/**/*.md"
+            onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "path_glob", event.target.value || undefined))}
+          /></label>}
+          <button className="icon-button collection-rule-remove" aria-label={`Remove uniqueness rule for ${rule.field}`} title={`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))}><Trash2 aria-hidden="true" /></button>
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">Additional uniqueness settings remain in YAML: {rule.advancedKeys.join(", ")}.</p>}
+        </div>)}
+        {!collection.unique.length && <p className="collection-empty-rule">No cross-record uniqueness rules.</p>}
+      </div>
+    </div>
+
+    <div className="collection-behaviour-group">
+      <div className="collection-group-heading">
+        <div><h4>Path policy</h4><p>Guide compatible tools when they create or rename records of this type.</p></div>
+      </div>
+      <div className="collection-path-grid">
+        <label><span>Pattern</span><input
+          aria-label="Path pattern"
+          value={collection.path.pattern ?? ""}
+          placeholder="tasks/{id}.md"
+          onChange={(event) => onChange((source) => updateTypePathPolicy(source, "pattern", event.target.value))}
+        /><small>Portable <code>{"{field}"}</code> placeholders.</small></label>
+        <label><span>Folder</span><input
+          aria-label="Path folder"
+          value={collection.path.folder ?? ""}
+          placeholder="tasks"
+          onChange={(event) => onChange((source) => updateTypePathPolicy(source, "folder", event.target.value))}
+        /></label>
+        <label><span>Template</span><input
+          aria-label="Path template"
+          value={collection.path.template ?? ""}
+          placeholder="{title}.md"
+          onChange={(event) => onChange((source) => updateTypePathPolicy(source, "template", event.target.value))}
+        /></label>
+      </div>
+    </div>
+
+    {advancedKeys.length > 0 && <div className="advanced-match-note collection-advanced-note">
+      <Info aria-hidden="true" />
+      <div><strong>More collection behaviour in YAML</strong><p>{advancedKeys.join(" · ")}. These settings remain intact.</p></div>
+      <button onClick={onOpenYaml}>Open YAML</button>
+    </div>}
+  </section>;
+}
+
+const FEATURED_PHOSPHOR_ICONS = [
+  "note",
+  "notebook",
+  "book-open",
+  "article",
+  "text-aa",
+  "list-checks",
+  "check-circle",
+  "bookmark-simple",
+  "tag",
+  "folder",
+  "archive",
+  "calendar",
+  "clock",
+  "user",
+  "users",
+  "address-book",
+  "chat-circle",
+  "envelope",
+  "phone",
+  "link",
+  "paperclip",
+  "image",
+  "camera",
+  "map-pin",
+  "globe",
+  "house",
+  "building-office",
+  "briefcase",
+  "projector-screen-chart",
+  "chart-line-up",
+  "target",
+  "lightbulb",
+  "brain",
+  "sparkle",
+  "star",
+  "heart",
+  "flag",
+  "push-pin",
+  "bell",
+  "warning-circle",
+  "info",
+  "question",
+  "check",
+  "x",
+  "plus",
+  "minus",
+  "gear-six",
+  "wrench",
+  "code",
+  "terminal",
+  "database",
+  "cloud",
+  "lock",
+  "shield-check",
+  "key",
+  "rocket-launch",
+  "plant",
+  "leaf",
+  "coffee",
+  "music-notes",
+  "palette",
+  "pencil-simple",
+  "graduation-cap"
+] as const;
+
+function IconPicker({ value, onChange }: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const listId = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
+  const [query, setQuery] = useState(value);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const normalized = normalizePhosphorIconName(value);
+  const valid = isPhosphorIconName(value);
+  const queryValid = isPhosphorIconName(query);
+  const options = useMemo(() => {
+    const search = query.trim().toLocaleLowerCase();
+    if (!search) return [...FEATURED_PHOSPHOR_ICONS];
+    const terms = search.split(/[\s-]+/).filter(Boolean);
+    return PHOSPHOR_ICON_NAMES
+      .filter((name) => terms.every((term) => name.includes(term)))
+      .sort((left, right) => {
+        const leftStarts = left.startsWith(search) ? 0 : 1;
+        const rightStarts = right.startsWith(search) ? 0 : 1;
+        return leftStarts - rightStarts || left.length - right.length || left.localeCompare(right);
+      })
+      .slice(0, 72);
+  }, [query]);
+
+  useEffect(() => setQuery(value), [value]);
+  useEffect(() => setActiveIndex(0), [query]);
+
+  function choose(name: string) {
+    onChange(name);
+    setQuery(name);
+    setOpen(false);
+  }
+
+  function openPicker() {
+    const bounds = root.current?.getBoundingClientRect();
+    if (!open) setQuery("");
+    setDropUp(Boolean(bounds && window.innerHeight - bounds.bottom < 270 && bounds.top > 270));
+    setOpen(true);
+  }
+
+  return <div
+    className="icon-picker"
+    ref={root}
+    onBlur={(event) => {
+      if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+      setOpen(false);
+      if (query.trim() && queryValid) onChange(normalizePhosphorIconName(query));
+      setQuery(value);
+    }}
+  >
+    <span>Icon</span>
+    <div className={`icon-picker-control${open ? " open" : ""}${open ? query && !queryValid ? " invalid" : "" : value && !valid ? " invalid" : ""}`}>
+      <span className="icon-picker-current" aria-hidden="true">
+        {valid ? <PhosphorIcon name={normalized} /> : <FileCode2 />}
+      </span>
+      <input
+        role="combobox"
+        aria-label="Display icon"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-activedescendant={open && options.length ? `${listId}-${activeIndex}` : undefined}
+        value={open ? query : value}
+        placeholder="Choose an icon"
+        spellCheck="false"
+        autoComplete="off"
+        onFocus={openPicker}
+        onClick={openPicker}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            openPicker();
+            setActiveIndex((current) => Math.min(current + 1, Math.max(0, options.length - 1)));
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            openPicker();
+            setActiveIndex((current) => Math.max(0, current - 1));
+          } else if (event.key === "Enter" && open && options[activeIndex]) {
+            event.preventDefault();
+            choose(options[activeIndex]);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setOpen(false);
+          }
+        }}
+      />
+      {(value || open && query) && <button
+        type="button"
+        className="icon-picker-clear"
+        aria-label="Clear display icon"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          onChange("");
+          setQuery("");
+        }}
+      ><X aria-hidden="true" /></button>}
+    </div>
+    {open && <div className={`icon-picker-popover${dropUp ? " drop-up" : ""}`} id={listId} role="listbox" aria-label="Phosphor icons">
+      {options.length ? <div className="icon-picker-grid">
+        {options.map((name, index) => <button
+          id={`${listId}-${index}`}
+          key={name}
+          type="button"
+          role="option"
+          aria-selected={normalized === name}
+          className={activeIndex === index ? "active" : ""}
+          title={name}
+          onMouseEnter={() => setActiveIndex(index)}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => choose(name)}
+        ><PhosphorIcon name={name} aria-hidden="true" /><span className="sr-only">{name}</span></button>)}
+      </div> : <p>No matching icons.</p>}
+      <footer>{query.trim() ? `${options.length} ${options.length === 1 ? "match" : "matches"}` : "Common icons"}<span>Phosphor Regular</span></footer>
+    </div>}
+    {open
+      ? query && !queryValid && <small className="icon-picker-error">Choose an icon from the Phosphor library.</small>
+      : value && !valid && <small className="icon-picker-error">Choose an icon from the Phosphor library.</small>}
+  </div>;
+}
+
+function CollectionFieldSelect({ label, visibleLabel, value, fields, allowEmpty = true, onChange }: {
+  label: string;
+  visibleLabel?: string;
+  value: string;
+  fields: TypeFieldOption[];
+  allowEmpty?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const options = fields.some((field) => field.value === value) || !value
+    ? fields
+    : [{ value, label: value, node: advancedFieldNode(value) }, ...fields];
+  return <label><span>{visibleLabel ?? label}</span><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+    {allowEmpty && <option value="">Not set</option>}
+    {options.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
+  </select></label>;
+}
+
+function DefaultValueEditor({ field, node, value, onChange }: {
+  field: string;
+  node?: TypeSchemaNode;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  if (node?.kind === "boolean" && typeof value === "boolean") {
+    return <label><span>Default value</span><select aria-label={`Default value for ${field}`} value={String(value)} onChange={(event) => onChange(event.target.value === "true")}>
+      <option value="true">True</option>
+      <option value="false">False</option>
+    </select></label>;
+  }
+  if ((node?.kind === "string" || node?.kind === "date" || node?.kind === "datetime") && typeof value === "string") {
+    return <label><span>Default value</span><input aria-label={`Default value for ${field}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+  }
+  return <JsonValueInput field={field} value={value} onChange={onChange} />;
+}
+
+function JsonValueInput({ field, value, onChange }: { field: string; value: unknown; onChange: (value: unknown) => void }) {
+  const valueKey = JSON.stringify(value) ?? "null";
+  const [draft, setDraft] = useState(valueKey);
+  const [error, setError] = useState<string>();
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (dirty) return;
+    setDraft(valueKey);
+  }, [dirty, valueKey]);
+
+  function commit() {
+    try {
+      onChange(JSON.parse(draft));
+      setError(undefined);
+      setDirty(false);
+    } catch {
+      setError("Enter a valid JSON value.");
+    }
+  }
+
+  return <label className="collection-json-value"><span>Default value</span><input
+    aria-label={`Default value for ${field}`}
+    aria-invalid={error ? "true" : undefined}
+    value={draft}
+    onChange={(event) => { setDraft(event.target.value); setDirty(true); setError(undefined); }}
+    onBlur={commit}
+  />{error && <small role="alert">{error}</small>}</label>;
+}
+
+function typeFieldOptions(fields: TypeFieldDefinition[]): TypeFieldOption[] {
+  const options: TypeFieldOption[] = [];
+  const visitNode = (node: TypeSchemaNode, includeNode: boolean) => {
+    if (includeNode) {
+      const value = typeFieldPathLabel(node.path);
+      options.push({ value, label: value, node });
+    }
+    node.fields.forEach((field) => visitNode(field, true));
+    if (node.item) visitNode(node.item, true);
+  };
+  fields.forEach((field) => visitNode(field, true));
+  return options.filter((option, index) => options.findIndex((candidate) => candidate.value === option.value) === index);
+}
+
+function textLikeField(option: TypeFieldOption): boolean {
+  return option.node.kind === "string" || option.node.kind === "date" || option.node.kind === "datetime";
+}
+
+function defaultValueForField(field: TypeSchemaNode): unknown {
+  if (field.kind === "boolean") return false;
+  if (field.kind === "number" || field.kind === "integer") return 0;
+  if (field.kind === "array") return [];
+  if (field.kind === "object") return {};
+  return "";
+}
+
+function advancedFieldNode(value: string): TypeSchemaNode {
+  return { path: [value], valuePath: [value], kind: "advanced", fields: [], constraints: {}, advancedKeys: [], raw: {} };
+}
+
+function collectionRuleLabel(key: string): string {
+  if (key === "projections") return "Computed projections";
+  if (key === "runtime") return "Runtime path handling";
+  if (key === "generated_by") return "Generated path ownership";
+  if (key.startsWith("x-")) return key;
+  return key.replaceAll("_", " ");
 }
 
 function VisualFieldRow({ field, source, depth, onChange }: {
@@ -351,18 +924,23 @@ function KindOptions({ current }: { current: TypeFieldKind }) {
   </>;
 }
 
-function StringListEditor({ label, values, itemLabel, addLabel, placeholder, helper, onChange }: {
+function StringListEditor({ label, values, itemLabel, addLabel, placeholder, helper, suggestions, onChange }: {
   label: string;
   values: string[];
   itemLabel: string;
   addLabel: string;
   placeholder?: string;
   helper?: string;
+  suggestions?: string[];
   onChange: (values: string[]) => void;
 }) {
+  const suggestionsId = useId();
   const valuesKey = JSON.stringify(values);
   const [drafts, setDrafts] = useState(values);
   const [dirty, setDirty] = useState(false);
+  const [openSuggestions, setOpenSuggestions] = useState<number>();
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [suggestionsDropUp, setSuggestionsDropUp] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const skipBlur = useRef(false);
   const focusLast = useRef(false);
@@ -401,41 +979,119 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
     setDirty(true);
   }
 
+  const suggestedValues = [...new Set(suggestions ?? [])];
+  const matchingSuggestions = (value: string) => {
+    const search = value.trim().toLocaleLowerCase();
+    return suggestedValues.filter((suggestion) => !search || suggestion.toLocaleLowerCase().includes(search));
+  };
+  const chooseSuggestion = (index: number, suggestion: string) => {
+    const next = drafts.map((item, itemIndex) => itemIndex === index ? suggestion : item);
+    setOpenSuggestions(undefined);
+    setActiveSuggestion(0);
+    commit(next);
+  };
+  const openSuggestionList = (index: number, input: HTMLInputElement) => {
+    const bounds = input.getBoundingClientRect();
+    setSuggestionsDropUp(window.innerHeight - bounds.bottom < 180 && bounds.top > 180);
+    setOpenSuggestions(index);
+  };
+
   return <div className="string-list-editor">
     <div className="string-list-heading"><span>{label}</span><button onClick={addItem}><Plus aria-hidden="true" />{addLabel}</button></div>
     {helper && <small>{helper}</small>}
     <div className="string-list-items" ref={list}>
       {drafts.map((value, index) => <div className="string-list-item" key={index}>
         <span aria-hidden="true">{index + 1}</span>
-        <label><span className="sr-only">{itemLabel} {index + 1}</span><input
-          value={value}
-          placeholder={placeholder}
-          spellCheck="false"
-          onChange={(event) => {
-            setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item));
-            setDirty(true);
-          }}
-          onBlur={() => {
-            if (skipBlur.current) {
-              skipBlur.current = false;
-              return;
-            }
-            commit(drafts);
-          }}
-          onPaste={(event) => {
-            const pasted = event.clipboardData.getData("text");
-            if (!/[\r\n]/.test(pasted)) return;
-            event.preventDefault();
-            const pastedItems = pasted.split(/\r?\n/).filter(Boolean);
-            commit([...drafts.slice(0, index), ...pastedItems, ...drafts.slice(index + 1)]);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || !event.currentTarget.value.trim()) return;
-            event.preventDefault();
-            skipBlur.current = true;
-            commit(drafts, true);
-          }}
-        /></label>
+        <div className="string-list-input">
+          <label><span className="sr-only">{itemLabel} {index + 1}</span><input
+            value={value}
+            role={suggestions?.length ? "combobox" : undefined}
+            aria-autocomplete={suggestions?.length ? "list" : undefined}
+            aria-expanded={suggestions?.length ? openSuggestions === index : undefined}
+            aria-controls={suggestions?.length ? `${suggestionsId}-${index}` : undefined}
+            aria-activedescendant={suggestions?.length && openSuggestions === index && matchingSuggestions(value).length
+              ? `${suggestionsId}-${index}-${activeSuggestion}`
+              : undefined}
+            placeholder={placeholder}
+            spellCheck="false"
+            autoComplete="off"
+            onFocus={(event) => {
+              if (suggestions?.length) {
+                openSuggestionList(index, event.currentTarget);
+                setActiveSuggestion(0);
+              }
+            }}
+            onChange={(event) => {
+              setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item));
+              setDirty(true);
+              openSuggestionList(index, event.currentTarget);
+              setActiveSuggestion(0);
+            }}
+            onBlur={() => {
+              setOpenSuggestions(undefined);
+              if (skipBlur.current) {
+                skipBlur.current = false;
+                return;
+              }
+              commit(drafts);
+            }}
+            onPaste={(event) => {
+              const pasted = event.clipboardData.getData("text");
+              if (!/[\r\n]/.test(pasted)) return;
+              event.preventDefault();
+              const pastedItems = pasted.split(/\r?\n/).filter(Boolean);
+              commit([...drafts.slice(0, index), ...pastedItems, ...drafts.slice(index + 1)]);
+            }}
+            onKeyDown={(event) => {
+              const matches = matchingSuggestions(event.currentTarget.value);
+              if (suggestions?.length && event.key === "ArrowDown") {
+                event.preventDefault();
+                openSuggestionList(index, event.currentTarget);
+                setActiveSuggestion((current) => Math.min(current + 1, Math.max(0, matches.length - 1)));
+                return;
+              }
+              if (suggestions?.length && event.key === "ArrowUp") {
+                event.preventDefault();
+                openSuggestionList(index, event.currentTarget);
+                setActiveSuggestion((current) => Math.max(0, current - 1));
+                return;
+              }
+              if (event.key === "Escape" && openSuggestions === index) {
+                event.preventDefault();
+                setOpenSuggestions(undefined);
+                return;
+              }
+              if (event.key === "Enter" && openSuggestions === index && matches[activeSuggestion]) {
+                event.preventDefault();
+                chooseSuggestion(index, matches[activeSuggestion]);
+                return;
+              }
+              if (event.key !== "Enter" || !event.currentTarget.value.trim()) return;
+              event.preventDefault();
+              skipBlur.current = true;
+              commit(drafts, true);
+            }}
+          /></label>
+          {suggestions?.length && openSuggestions === index && <div
+            className={`string-list-suggestions${suggestionsDropUp ? " drop-up" : ""}`}
+            id={`${suggestionsId}-${index}`}
+            role="listbox"
+            aria-label={`${itemLabel} suggestions`}
+          >
+            {matchingSuggestions(value).map((suggestion, suggestionIndex) => <button
+              id={`${suggestionsId}-${index}-${suggestionIndex}`}
+              type="button"
+              role="option"
+              aria-selected={value === suggestion}
+              className={activeSuggestion === suggestionIndex ? "active" : ""}
+              key={suggestion}
+              onMouseEnter={() => setActiveSuggestion(suggestionIndex)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseSuggestion(index, suggestion)}
+            >{suggestion}</button>)}
+            {!matchingSuggestions(value).length && <p>No matches.</p>}
+          </div>}
+        </div>
         <button className="string-list-remove" aria-label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))}><Trash2 aria-hidden="true" /></button>
       </div>)}
       {!drafts.length && <p>No entries.</p>}
@@ -519,6 +1175,18 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><dt>Fields changed</dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
     {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong>Definition changes</strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
+    {impact.collectionChanges.length > 0 && <div className="type-collection-changes">
+      <strong>Collection behaviour</strong>
+      <p>{impact.collectionChanges.join(" · ")}</p>
+    </div>}
+    {impact.collectionChanges.some((change) => change === "Link rules" || change === "Uniqueness rules") && <div className="type-impact-warning" role="alert">
+      <CircleAlert aria-hidden="true" />
+      <div><strong>Validation may change</strong><p>Link and uniqueness rules can make matching records valid or invalid without changing their source files.</p></div>
+    </div>}
+    {impact.collectionChanges.includes("Path policy") && <div className="type-impact-warning" role="alert">
+      <CircleAlert aria-hidden="true" />
+      <div><strong>Future file paths may change</strong><p>Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update.</p></div>
+    </div>}
     {impact.missingRequired.length > 0 && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
       <div><strong>Existing notes need attention</strong>{impact.missingRequired.map((item) => <p key={item.field}>{item.count.toLocaleString()} {item.count === 1 ? "note is" : "notes are"} missing required field <code>{item.field}</code>.</p>)}</div>

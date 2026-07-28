@@ -19,6 +19,11 @@ export interface LinkMatchContext {
   recentPaths?: string[];
 }
 
+export interface UnresolvedNoteTarget {
+  path: string;
+  title: string;
+}
+
 interface LinkReference {
   target: string;
   format?: string;
@@ -95,6 +100,51 @@ export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title
   return basename(suggestion.path).localeCompare(label, undefined, { sensitivity: "accent" }) === 0
     ? target
     : `${target}|${label}`;
+}
+
+export function unresolvedNoteTarget(
+  target: string,
+  label: string | undefined,
+  sourcePath: string | undefined,
+  format: "wikilink" | "markdown"
+): UnresolvedNoteTarget | undefined {
+  const rawTarget = target.split("#", 1)[0].split("?", 1)[0].trim().replaceAll("\\", "/");
+  if (!rawTarget || rawTarget.startsWith("#") || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(rawTarget)) return undefined;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawTarget);
+  } catch {
+    decoded = rawTarget;
+  }
+  const sourceFolder = sourcePath ? folder(sourcePath) : "";
+  const rootRelative = decoded.startsWith("/");
+  const explicitlyRelative = decoded.startsWith("./") || decoded.startsWith("../");
+  const base = rootRelative
+    ? ""
+    : format === "markdown" || explicitlyRelative || !decoded.includes("/")
+      ? sourceFolder
+      : "";
+  const path = normalizeNewNotePath(base, decoded.replace(/^\/+/, ""));
+  if (!path || path.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
+  const extension = path.split("/").at(-1)?.match(/(\.[^./]+)$/)?.[1];
+  if (extension && extension.toLocaleLowerCase() !== ".md") return undefined;
+  const markdownPath = extension ? path : `${path}.md`;
+  const title = label?.trim() || basename(markdownPath);
+  return title ? { path: markdownPath, title } : undefined;
+}
+
+function normalizeNewNotePath(base: string, target: string): string | undefined {
+  const parts = base.split("/").filter(Boolean);
+  for (const part of target.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) return undefined;
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  return parts.join("/");
 }
 
 function bestLinkMatch(entry: IndexedSuggestion, query: string): LinkMatch {

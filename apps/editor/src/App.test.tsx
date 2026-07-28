@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionChange, type JsonObject, type WatchStatus } from "@mdbase/connect";
+import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type JsonObject, type WatchStatus } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -63,6 +63,23 @@ describe("mdbase editor", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
   });
 
+  it("requests browser permission before using mdbase on this computer", async () => {
+    const gateway = new DirectAccessGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const allow = await screen.findByRole("button", { name: "Use this computer" });
+    expect(gateway.checkCalls).toBe(1);
+    await user.click(allow);
+
+    await waitFor(() => expect(gateway.requestCalls).toBe(1));
+    expect(screen.queryByRole("button", { name: "Use this computer" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByText("Available")).toBeInTheDocument();
+    expect(screen.getByText("This computer", { selector: ".fact-row strong" })).toBeInTheDocument();
+  });
+
   it("opens a collection, selects a note, and autosaves body changes", async () => {
     const gateway = new DemoCollectionGateway(12);
     const seeded = (await gateway.list())[0]!;
@@ -81,6 +98,31 @@ describe("mdbase editor", () => {
     expect(saved.body).toContain("A saved sentence.");
     await user.click(screen.getByRole("button", { name: "Note properties" }));
     expect(await screen.findByRole("textbox", { name: "status value" })).toHaveValue("draft");
+
+    await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Note properties" })).getByText("Journal/garden-notes-2.md")).toBeInTheDocument();
+  });
+
+  it("previews notes from the virtualized sidebar after a deliberate hover", async () => {
+    render(<App gateway={new DemoCollectionGateway(12)} />);
+
+    await screen.findByRole("heading", { name: "Writing" });
+    const row = screen.getAllByRole("option")[1] as HTMLButtonElement;
+    const title = row.querySelector(".note-title")?.textContent;
+    expect(title).toBeTruthy();
+
+    fireEvent.mouseEnter(row);
+    await waitFor(() => expect(document.querySelector(".note-preview")).not.toBeNull(), { timeout: 1_500 });
+    const preview = screen.getByRole("tooltip");
+    expect(preview).toHaveAccessibleName(/Preview of/);
+    expect(preview.querySelector("header strong")?.textContent).toBeTruthy();
+    expect(preview.querySelector("header span")?.textContent).toMatch(/\.md$/);
+    expect(row).toHaveAttribute("aria-describedby", "note-preview-popover");
+
+    fireEvent.mouseLeave(row);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
   });
 
   it("does not reload the collection index after saving one note", async () => {
@@ -306,6 +348,7 @@ describe("mdbase editor", () => {
     expect(within(backlinks).getByText("1 note link here")).toBeInTheDocument();
     await user.click(within(backlinks).getByRole("button", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
+    expect(screen.getByRole("complementary", { name: "Backlinks" })).toBeInTheDocument();
   });
 
   it("sorts the note list, preserves relevance during search, and clears the active scope", async () => {
@@ -315,6 +358,7 @@ describe("mdbase editor", () => {
     await screen.findByRole("heading", { name: "Writing" });
     await screen.findByText("4 notes · modified newest");
     const noteList = screen.getByRole("listbox", { name: "Collection notes" });
+    await within(noteList).findByText("The shape of useful tools", { selector: ".note-title" });
     expect(within(noteList).getAllByRole("option")[0]).toHaveAccessibleName(/The shape of useful tools/);
 
     await user.click(screen.getByRole("button", { name: "View options" }));
@@ -834,6 +878,62 @@ describe("mdbase editor", () => {
     expect(screen.getByText(/original files can stay untouched/i)).toBeInTheDocument();
   });
 
+  it("completes an authorization callback before reading the remembered connection", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const callbackGateway = Object.create(gateway) as CollectionGateway;
+    const events: string[] = [];
+    callbackGateway.completeAuthorization = vi.fn(async () => {
+      events.push("complete");
+    });
+    callbackGateway.connection = vi.fn(() => {
+      events.push("connection");
+      return gateway.connection();
+    });
+    callbackGateway.onConnectionChange = vi.fn(() => () => undefined);
+
+    render(<App gateway={callbackGateway} />);
+
+    expect(await screen.findByRole("heading", { name: "Writing" })).toBeInTheDocument();
+    expect(events[0]).toBe("complete");
+  });
+
+  it("starts a new authorization when choosing another collection from the connection screen", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const disconnected = Object.create(gateway) as CollectionGateway;
+    const authorize = vi.fn(async () => undefined);
+    const authorizeNewCollection = vi.fn(async () => undefined);
+    disconnected.authorize = authorize;
+    disconnected.authorizeNewCollection = authorizeNewCollection;
+    disconnected.describe = vi.fn(async () => {
+      throw new Error("The current collection could not be opened.");
+    });
+    render(<App gateway={disconnected} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+
+    expect(authorizeNewCollection).toHaveBeenCalledOnce();
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("authorizes the requested collection from a portal deep link", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const disconnected = Object.create(gateway) as CollectionGateway;
+    const authorize = vi.fn(async () => undefined);
+    const authorizeNewCollection = vi.fn(async () => undefined);
+    disconnected.authorizationTarget = () => "deep-linked-collection";
+    disconnected.authorize = authorize;
+    disconnected.authorizeNewCollection = authorizeNewCollection;
+    disconnected.describe = vi.fn(async () => {
+      throw new Error("The requested collection has not been authorized.");
+    });
+    render(<App gateway={disconnected} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
+
+    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorizeNewCollection).not.toHaveBeenCalled();
+  });
+
   it("returns to collection authorization when the SDK invalidates a stale grant", async () => {
     const gateway = new RevokedAuthorizationGateway();
     render(<App gateway={gateway} />);
@@ -935,6 +1035,32 @@ class RevokedAuthorizationGateway extends DemoCollectionGateway {
   rejectAuthorization(): void {
     this.connected = false;
     for (const listener of this.connectionListeners) listener(null);
+  }
+}
+
+class DirectAccessGateway extends DemoCollectionGateway {
+  private directAccess: DirectAccessStatus = "permission_required";
+  checkCalls = 0;
+  requestCalls = 0;
+
+  override connection(): ConnectionSummary | null {
+    const connection = super.connection();
+    return connection ? {
+      ...connection,
+      route: this.directAccess === "available" ? "direct" : "relay",
+      directAccess: this.directAccess
+    } : null;
+  }
+
+  override async checkDirectAccess(): Promise<ConnectionSummary | null> {
+    this.checkCalls += 1;
+    return this.connection();
+  }
+
+  override async requestDirectAccess(): Promise<ConnectionSummary | null> {
+    this.requestCalls += 1;
+    this.directAccess = "available";
+    return this.connection();
   }
 }
 

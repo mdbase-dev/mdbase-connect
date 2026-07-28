@@ -1,9 +1,14 @@
-import { Search, X } from "lucide-react";
+import { MagnifyingGlassIcon as Search, XIcon as X } from "./icons";
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "./Dialog";
-import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
-import { searchNotes, type NoteSearchEntry } from "./note-search";
+import {
+  searchNoteResults,
+  searchTextRanges,
+  type NoteSearchEntry,
+  type NoteSearchResult
+} from "./note-search";
+import { SearchMatchText } from "./SearchMatchText";
 
 export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
   index: NoteSearchEntry[];
@@ -13,14 +18,14 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const notes = useMemo(() => query.trim()
-    ? searchNotes(index, query, 12)
+  const results = useMemo(() => query.trim()
+    ? searchNoteResults(index, query, 12)
     : recentNotes(index, recentPaths).slice(0, 12), [index, query, recentPaths]);
   useEffect(() => setActiveIndex(0), [query]);
 
-  function choose(note: NoteSummary | undefined) {
-    if (!note) return;
-    onSelect(note.path);
+  function choose(result: NoteSearchResult | undefined) {
+    if (!result) return;
+    onSelect(result.note.path);
     onClose();
   }
 
@@ -35,20 +40,20 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
           role="combobox"
           aria-expanded="true"
           aria-controls="quick-open-results"
-          aria-activedescendant={notes[activeIndex] ? `quick-open-${activeIndex}` : undefined}
+          aria-activedescendant={results[activeIndex] ? `quick-open-${activeIndex}` : undefined}
           value={query}
           placeholder="Find a note by title or path"
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
-              setActiveIndex((current) => Math.min(notes.length - 1, current + 1));
+              setActiveIndex((current) => Math.min(results.length - 1, current + 1));
             } else if (event.key === "ArrowUp") {
               event.preventDefault();
               setActiveIndex((current) => Math.max(0, current - 1));
             } else if (event.key === "Enter") {
               event.preventDefault();
-              choose(notes[activeIndex]);
+              choose(results[activeIndex]);
             } else if (event.key === "Escape") {
               event.preventDefault();
               onClose();
@@ -59,29 +64,35 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
       </div>
       <p className="sr-only" aria-live="polite">{query.trim() ? "Best matches" : "Recent notes"}</p>
       <div id="quick-open-results" className="quick-open-results" role="listbox" aria-label="Matching notes">
-        {notes.map((note, noteIndex) => <button
+        {results.map((result, noteIndex) => <button
           id={`quick-open-${noteIndex}`}
           role="option"
           aria-selected={activeIndex === noteIndex}
           className={activeIndex === noteIndex ? "selected" : ""}
-          key={note.path}
+          key={result.note.path}
           onMouseEnter={() => setActiveIndex(noteIndex)}
-          onClick={() => choose(note)}
-        ><span><strong>{noteTitle(note)}</strong><small>{note.path}</small></span></button>)}
-        {!notes.length && <p>No matching notes.</p>}
+          onClick={() => choose(result)}
+        ><span>
+          <strong><SearchMatchText text={noteTitle(result.note)} ranges={searchTextRanges(noteTitle(result.note), query)} /></strong>
+          <small className={`search-result-context ${result.context.kind}`}><SearchMatchText text={result.context.text} ranges={result.context.ranges} /></small>
+        </span></button>)}
+        {!results.length && <p>No matching notes.</p>}
       </div>
       <footer><span><kbd>↑↓</kbd> choose · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</span></footer>
   </Dialog>;
 }
 
-function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSummary[] {
+function recentNotes(index: NoteSearchEntry[], paths: string[]): NoteSearchResult[] {
   const byPath = new Map(index.map((entry) => [entry.note.path, entry.note]));
   const recent = paths.flatMap((path) => {
     const note = byPath.get(path);
-    return note ? [note] : [];
+    return note ? [{ note, context: { kind: "path" as const, text: note.path, ranges: [] } }] : [];
   });
   if (recent.length) return recent;
-  return index.slice(0, 12).map((entry) => entry.note);
+  return index.slice(0, 12).map((entry) => ({
+    note: entry.note,
+    context: { kind: "path" as const, text: entry.note.path, ranges: [] }
+  }));
 }
 
 export function ShortcutHelp({ onClose }: { onClose: () => void }) {
@@ -92,6 +103,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     [`${modifier} B / I`, "Bold or italic"],
     [`${modifier} K`, "Add a link"],
     ["/", "Markdown commands"],
+    ["Alt ← / →", "Back or forward"],
     ["Alt J / K", "Next or previous note"],
     [`${modifier} Shift N`, "New note"],
     [`${modifier} Shift L`, "Show or hide the notes sidebar"],

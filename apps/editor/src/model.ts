@@ -7,6 +7,8 @@ import type {
   MutationProgress,
   RenamePreflightResult,
   DeletePreflightResult,
+  DirectAccessStatus,
+  MdbaseConnectionRoute,
   RecordDocument,
   QueryRecord,
   WatchStatus
@@ -31,6 +33,8 @@ export interface ConnectionSummary {
   displayName?: string;
   operations: string[];
   missingOperations?: string[];
+  route?: MdbaseConnectionRoute;
+  directAccess?: DirectAccessStatus;
 }
 
 export interface SaveNoteInput {
@@ -87,8 +91,11 @@ export interface NoteListProgress {
 export interface CollectionGateway {
   connection(): ConnectionSummary | null;
   connections(): ConnectionSummary[];
+  authorizationTarget(): string | null;
   selectConnection(collectionId: string): void;
   onConnectionChange(listener: (connection: ConnectionSummary | null) => void): () => void;
+  checkDirectAccess(): Promise<ConnectionSummary | null>;
+  requestDirectAccess(): Promise<ConnectionSummary | null>;
   authorize(collectionId?: string): Promise<void>;
   authorizeNewCollection(): Promise<void>;
   completeAuthorization(): Promise<void>;
