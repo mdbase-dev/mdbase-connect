@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import {
   MdbaseCollectionClient,
@@ -11,11 +12,12 @@ import type {
   CollectionOperation,
   JsonObject,
   MdbaseOperationEnvelope,
-  RecordDocument
+  RecordDocument,
+  TypePackProvision
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
-import contractExtensionSchema from "@mdbase/connect-protocol/schemas/contract-extension.v1.schema.json" with { type: "json" };
+import dataContractSchema from "@mdbase/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
 
 export interface ValidationIssue {
@@ -35,11 +37,11 @@ const ajv = new Ajv2020({
   formats: { "date-time": true, uri: true }
 });
 ajv.addSchema(appManifestSchema);
-ajv.addSchema(contractExtensionSchema);
+ajv.addSchema(dataContractSchema);
 ajv.addSchema(connectProtocolSchema);
 
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
-const contractValidator = requiredValidator(String(contractExtensionSchema.$id));
+const contractValidator = requiredValidator(String(dataContractSchema.$id));
 
 export interface ManifestValidationOptions {
   /** Allow HTTP only for localhost/loopback developer manifests. */
@@ -58,7 +60,7 @@ export function validateAppManifest(
   return validateProvisionRequirements(value);
 }
 
-export function validateContractExtension(value: unknown): ValidationResult {
+export function validateDataContract(value: unknown): ValidationResult {
   return validationResult(contractValidator, value);
 }
 
@@ -69,22 +71,78 @@ export function validateProtocolValue(value: unknown, definition?: string): Vali
   return validationResult(requiredValidator(reference), value);
 }
 
-export interface ContractExtension extends JsonObject {
-  contract: string;
-  version: number;
+export interface DataContractDocument extends JsonObject {
+  kind: "mdbase.contract";
+  id: string;
+  version: string;
+  schema: JsonObject;
 }
 
-export function defineContract<const Contract extends ContractExtension>(contract: Contract): Contract {
-  const result = validateContractExtension(contract);
+export function defineDataContract<const Contract extends DataContractDocument>(
+  contract: Contract
+): Contract {
+  const result = validateDataContract(contract);
   if (!result.valid) {
-    throw new ContractDefinitionError(result.issues);
+    throw new DataContractDefinitionError(result.issues);
   }
   return contract;
 }
 
-export class ContractDefinitionError extends Error {
+export class DataContractDefinitionError extends Error {
   constructor(public readonly issues: ValidationIssue[]) {
-    super(`Invalid contract extension: ${formatValidationIssues(issues)}`);
+    super(`Invalid data contract: ${formatValidationIssues(issues)}`);
+  }
+}
+
+export interface TypePackResourceInput {
+  kind: "contract" | "type" | "schema";
+  source: string;
+  /** Collection-relative install location. Defaults to `source`. */
+  target?: string;
+  /** Exact UTF-8 resource document included in the provision. */
+  document: string;
+}
+
+export interface TypePackDefinition {
+  id: string;
+  version: string;
+  name?: string;
+  description?: string;
+  resources: TypePackResourceInput[];
+  provides: Array<{ id: string; version: string }>;
+}
+
+/**
+ * Build a complete, digest-pinned type-pack provision from readable source
+ * documents. This keeps application manifests reviewable without asking
+ * developers to calculate SHA-256 values by hand.
+ */
+export function defineTypePack(definition: TypePackDefinition): TypePackProvision {
+  const provision: TypePackProvision = {
+    manifest: {
+      kind: "mdbase.type-pack",
+      id: definition.id,
+      version: definition.version,
+      ...(definition.name ? { name: definition.name } : {}),
+      ...(definition.description ? { description: definition.description } : {}),
+      resources: definition.resources.map(({ kind, source, target = source, document }) => ({
+        kind,
+        source,
+        target,
+        digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+      }))
+    },
+    resources: definition.resources.map(({ source, document }) => ({ source, document })),
+    provides: definition.provides.map((contract) => ({ ...contract }))
+  };
+  const result = validateProtocolValue(provision, "typePackProvision");
+  if (!result.valid) throw new TypePackDefinitionError(result.issues);
+  return provision;
+}
+
+export class TypePackDefinitionError extends Error {
+  constructor(public readonly issues: ValidationIssue[]) {
+    super(`Invalid type pack: ${formatValidationIssues(issues)}`);
   }
 }
 
@@ -457,15 +515,60 @@ function validateProvisionRequirements(value: unknown): ValidationResult {
     return `${value.id}@${value.version}`;
   }));
   const provisions = asObject(manifest.provisions);
-  const types = Array.isArray(provisions.types) ? provisions.types : [];
-  for (const [typeIndex, provisionValue] of types.entries()) {
+  const packs = Array.isArray(provisions.type_packs)
+    ? provisions.type_packs
+    : [];
+  for (const [packIndex, provisionValue] of packs.entries()) {
     const provision = asObject(provisionValue);
-    for (const providedValue of provision.provides as unknown[]) {
+    const providedContracts = Array.isArray(provision.provides)
+      ? provision.provides
+      : [];
+    for (const providedValue of providedContracts) {
       const provided = asObject(providedValue);
       if (!required.has(`${provided.id}@${provided.version}`)) {
         return semanticIssue(
-          `/provisions/types/${typeIndex}/provides`,
+          `/provisions/type_packs/${packIndex}/provides`,
           "may only contain contracts required by the application"
+        );
+      }
+    }
+    const manifest = asObject(provision.manifest);
+    const declaredResources = Array.isArray(manifest.resources)
+      ? manifest.resources.map(asObject)
+      : [];
+    const embeddedResources = Array.isArray(provision.resources)
+      ? provision.resources.map(asObject)
+      : [];
+    const embedded = new Map(
+      embeddedResources.map((resource) => [
+        String(resource.source),
+        resource.document
+      ])
+    );
+    if (
+      embedded.size !== embeddedResources.length
+      || declaredResources.length !== embeddedResources.length
+    ) {
+      return semanticIssue(
+        `/provisions/type_packs/${packIndex}/resources`,
+        "must match manifest source paths exactly"
+      );
+    }
+    for (const [resourceIndex, resource] of declaredResources.entries()) {
+      const source = String(resource.source);
+      const document = embedded.get(source);
+      if (typeof document !== "string") {
+        return semanticIssue(
+          `/provisions/type_packs/${packIndex}/resources`,
+          `is missing manifest source ${source}`
+        );
+      }
+      const digest =
+        `sha256:${createHash("sha256").update(document).digest("hex")}`;
+      if (digest !== resource.digest) {
+        return semanticIssue(
+          `/provisions/type_packs/${packIndex}/manifest/resources/${resourceIndex}/digest`,
+          "does not match the embedded document"
         );
       }
     }

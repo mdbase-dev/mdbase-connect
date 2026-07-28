@@ -37,7 +37,7 @@ export async function buildApp(options: BuildOptions) {
     homepage: config.publicUrl,
     redirect_uris: [`${config.publicUrl}/oauth/connect/callback`],
     requirements: { access: "full_collection", contracts: [] },
-    provisions: { types: [] }
+    provisions: { type_packs: [] }
   };
   const gateway = new ConnectGateway(
     options.db,

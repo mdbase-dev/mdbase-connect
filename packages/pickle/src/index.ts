@@ -11,11 +11,13 @@ import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
-  PICKLE_PROVISION_TYPES,
+  PICKLE_REQUEST_CONTRACT_DOCUMENT,
+  PICKLE_TYPE_PACK_PROVISION,
   PICKLE_REQUEST_TYPE_DOCUMENT
 } from "./resources.js";
 
 export const PICKLE_REQUEST_CONTRACT = "pickle.request";
+export const PICKLE_REQUEST_CONTRACT_VERSION = "1.0.0";
 export const PICKLE_NOTIFICATION_CRITERION = "pickle.request.created";
 
 const SYSTEM_RESPONSE_FIELDS = new Set([
@@ -53,17 +55,16 @@ export interface PickleFrontmatter extends JsonObject {
   metadata?: JsonObject;
 }
 
-export interface PickleContractConfiguration extends JsonObject {
-  contract: typeof PICKLE_REQUEST_CONTRACT;
-  version: number;
-  field_roles: Record<string, string>;
+export interface PickleContractImplementation {
+  typeName: string;
+  fields: Record<string, string>;
+  binding?: JsonObject;
+  requestType: CollectionTypeDescriptor;
 }
 
 export interface PickleContract {
   descriptor: CollectionContractDescriptor;
-  configuration: PickleContractConfiguration;
-  requestType: CollectionTypeDescriptor;
-  requestTypeName: string;
+  implementations: PickleContractImplementation[];
 }
 
 export interface PickleLink {
@@ -132,27 +133,37 @@ export function resolvePickleContract(
   description: CollectionDescription
 ): PickleContract {
   const descriptor = description.contracts.find(
-    (contract) => contract.id === PICKLE_REQUEST_CONTRACT
+    (contract) =>
+      contract.id === PICKLE_REQUEST_CONTRACT &&
+      contract.version === PICKLE_REQUEST_CONTRACT_VERSION
   );
   if (!descriptor) {
     throw new PickleContractError(
       "This collection does not provide the Pickle request contract."
     );
   }
-  const configuration = parseConfiguration(descriptor.configuration);
-  const requestType = description.types.find(
-    (candidate) => candidate.name === descriptor.type_name
-  );
-  if (!requestType) {
-    throw new PickleContractError(
-      "The Pickle request type is missing from this collection."
+  const implementations = descriptor.implementations.map((implementation) => {
+    const requestType = description.types.find(
+      (candidate) => candidate.name === implementation.type_name
     );
-  }
+    if (!requestType)
+      throw new PickleContractError(
+        `The Pickle request type ${implementation.type_name} is missing from this collection.`
+      );
+    return {
+      typeName: implementation.type_name,
+      fields: parseFields(implementation.fields),
+      binding: implementation.binding,
+      requestType
+    };
+  });
+  if (!implementations.length)
+    throw new PickleContractError(
+      "The Pickle request contract has no type implementations."
+    );
   return {
     descriptor,
-    configuration,
-    requestType,
-    requestTypeName: descriptor.type_name
+    implementations
   };
 }
 
@@ -174,7 +185,7 @@ export class PickleCollection {
   async list(): Promise<PickleRequest[]> {
     const { collection, contract } = await this.describe();
     const requestQuery = await this.connect.queryAll({
-      types: [contract.requestTypeName],
+      types: contract.implementations.map(({ typeName }) => typeName),
       include_body: true,
       frontmatter_mode: "effective"
     });
@@ -182,12 +193,13 @@ export class PickleCollection {
     const responseTypes = [
       ...new Set(
         requests
-          .map((record) =>
-            stringField(
+          .map((record) => {
+            const implementation = implementationForRecord(contract, record);
+            return stringField(
               record.effective_frontmatter,
-              role(contract, "response_type", "response_type")
-            )
-          )
+              role(implementation, "response_type", "response_type")
+            );
+          })
           .filter(Boolean)
       )
     ];
@@ -255,17 +267,18 @@ function normalizeRequest(
   description: CollectionDescription,
   contract: PickleContract
 ): PickleRequest {
+  const implementation = implementationForRecord(contract, record);
   const responseType =
     stringField(
       record.effective_frontmatter,
-      role(contract, "response_type", "response_type")
+      role(implementation, "response_type", "response_type")
     ) || "pickle_response_approval";
   const linked = responseRecords.filter((candidate) =>
     linkTargets(candidate.effective_frontmatter.request, record.path)
   );
   const status = stringField(
     record.effective_frontmatter,
-    role(contract, "status", "status")
+    role(implementation, "status", "status")
   );
   const state: PickleRequestState =
     status === "cancelled"
@@ -279,27 +292,27 @@ function normalizeRequest(
     linked.length === 1 ? normalizeResponse(linked[0]) : undefined;
   return {
     id:
-      stringField(record.effective_frontmatter, role(contract, "id", "id")) ||
+      stringField(record.effective_frontmatter, role(implementation, "id", "id")) ||
       record.path,
     path: record.path,
     title:
-      stringField(record.effective_frontmatter, role(contract, "title", "title")) ||
+      stringField(record.effective_frontmatter, role(implementation, "title", "title")) ||
       record.path,
     source:
-      stringField(record.effective_frontmatter, role(contract, "source", "source")) ||
+      stringField(record.effective_frontmatter, role(implementation, "source", "source")) ||
       "agent",
     message: stringField(
       record.effective_frontmatter,
-      role(contract, "message", "message")
+      role(implementation, "message", "message")
     ),
     body: record.body ?? "",
     kind:
-      stringField(record.effective_frontmatter, role(contract, "kind", "kind")) ||
+      stringField(record.effective_frontmatter, role(implementation, "kind", "kind")) ||
       "approval",
     priority:
       stringField(
         record.effective_frontmatter,
-        role(contract, "priority", "priority")
+        role(implementation, "priority", "priority")
       ) || "normal",
     status: status || undefined,
     state,
@@ -311,26 +324,26 @@ function normalizeRequest(
     createdAt:
       stringField(
         record.effective_frontmatter,
-        role(contract, "created_at", "created_at")
+        role(implementation, "created_at", "created_at")
       ) || undefined,
     dueAt: stringField(record.effective_frontmatter, "due_at") || undefined,
     tags: stringList(
-      getField(record.effective_frontmatter, role(contract, "tags", "tags"))
+      getField(record.effective_frontmatter, role(implementation, "tags", "tags"))
     ),
     links: links(
-      getField(record.effective_frontmatter, role(contract, "links", "links"))
+      getField(record.effective_frontmatter, role(implementation, "links", "links"))
     ),
     attachments: attachments(
       getField(
         record.effective_frontmatter,
-        role(contract, "attachment_paths", "attachment_paths")
+        role(implementation, "attachment_paths", "attachment_paths")
       )
     ),
     metadata:
       asObject(
         getField(
           record.effective_frontmatter,
-          role(contract, "metadata", "metadata")
+          role(implementation, "metadata", "metadata")
         )
       ) ?? {},
     response,
@@ -368,27 +381,36 @@ function requireEffectiveFrontmatter(
   return record as PickleQueryRecord;
 }
 
-function parseConfiguration(value: JsonObject): PickleContractConfiguration {
-  const roles = asObject(value.field_roles);
+function parseFields(value: Record<string, string>): Record<string, string> {
   if (
-    value.contract !== PICKLE_REQUEST_CONTRACT ||
-    typeof value.version !== "number" ||
-    !roles ||
-    !Object.values(roles).every(
+    !Object.values(value).every(
       (field) => typeof field === "string" && validFieldPath(field)
     )
-  ) {
+  )
     throw new PickleContractError("The Pickle request contract is malformed.");
-  }
-  return value as PickleContractConfiguration;
+  return value;
 }
 
 function role(
-  contract: PickleContract,
+  implementation: PickleContractImplementation,
   name: string,
   fallback: string
 ): string {
-  return contract.configuration.field_roles[name] ?? fallback;
+  return implementation.fields[name] ?? fallback;
+}
+
+function implementationForRecord(
+  contract: PickleContract,
+  record: Pick<QueryRecord, "path" | "types">
+): PickleContractImplementation {
+  const matches = contract.implementations.filter((implementation) =>
+    record.types.includes(implementation.typeName)
+  );
+  if (matches.length !== 1)
+    throw new PickleContractError(
+      `Pickle request ${record.path} matches ${matches.length} contract implementations; exactly one is required.`
+    );
+  return matches[0];
 }
 
 function getField(value: JsonObject, path: string): unknown {

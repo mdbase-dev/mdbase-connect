@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
   HostedProviderClient,
   HostedProviderResponseError,
@@ -39,6 +40,7 @@ describe("hosted provider control client", () => {
           purpose: "mirror",
           mode: "read_only",
           allowed_types: ["task"],
+          contract_scope: [],
           full_collection: false,
           allowed_operations: [],
           token: "replica-secret"
@@ -102,6 +104,7 @@ describe("hosted provider control client", () => {
       grantId: "grant",
       mode: "read_only",
       allowedTypes: ["task"],
+      contractScope: [],
       fullCollection: false,
       allowedOperations: ["read", "query"]
     });
@@ -114,6 +117,7 @@ describe("hosted provider control client", () => {
           grant_id: "grant",
           mode: "read_only",
           allowed_types: ["task"],
+          contract_scope: [],
           full_collection: false,
           allowed_operations: ["read", "query"]
         })
@@ -157,13 +161,18 @@ describe("hosted provider control client", () => {
     );
   });
 
-  it("sends bounded type provisions and returns authoritative contract metadata", async () => {
+  it("sends bounded type packs and returns authoritative contract metadata", async () => {
     const contract = {
       id: "workout.record",
-      version: 1,
-      type_name: "workout",
-      extension: "x-workout",
-      configuration: { contract: "workout.record", version: 1 }
+      version: "1.0.0",
+      digest: `sha256:${"0".repeat(64)}`,
+      schema: { type: "object" },
+      implementations: [{
+        type_name: "workout",
+        type_version: 1,
+        digest: `sha256:${"1".repeat(64)}`,
+        fields: {}
+      }]
     };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ contracts: [contract] }), {
@@ -175,17 +184,28 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
+    const document = "---\nkind: mdbase.type\nname: workout\n---\n";
     const provision = {
-      name: "Workout",
-      document: "---\nkind: mdbase.type\nname: workout\n---\n",
-      provides: [{ id: "workout.record", version: 1 }]
+      manifest: {
+        kind: "mdbase.type-pack" as const,
+        id: "example.workouts",
+        version: "1.0.0",
+        resources: [{
+          kind: "type" as const,
+          source: "workout.md",
+          target: "_types/workout.md",
+          digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+        }]
+      },
+      resources: [{ source: "workout.md", document }],
+      provides: [{ id: "workout.record", version: "1.0.0" }]
     };
-    await expect(provider.provisionTypes("collection", [provision])).resolves.toEqual([contract]);
+    await expect(provider.provisionTypePacks("collection", [provision])).resolves.toEqual([contract]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://provider.example/internal/v1/collections/collection/types/provision",
+      "https://provider.example/internal/v1/collections/collection/type-packs/provision",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ types: [provision] })
+        body: JSON.stringify({ type_packs: [provision] })
       })
     );
   });

@@ -26,6 +26,18 @@ afterEach(() => {
 });
 
 const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
+const WORK_ITEM_CONTRACT = {
+  id: "example.work-item",
+  version: "1.0.0",
+  digest: `sha256:${"0".repeat(64)}`,
+  schema: { type: "object" },
+  implementations: [{
+    type_name: "task",
+    type_version: 1,
+    digest: `sha256:${"1".repeat(64)}`,
+    fields: { title: "title" }
+  }]
+};
 
 describe("PKCE", () => {
   it("creates an OAuth S256 verifier and challenge", async () => {
@@ -1766,7 +1778,7 @@ describe("authorization renewal", () => {
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
       scope: {
-        contracts: [{ id: "example.work-item", version: 1 }],
+        contracts: [WORK_ITEM_CONTRACT],
         access: "contract",
       },
       expiresAt: Date.now() + 60_000,
@@ -1810,7 +1822,7 @@ describe("authorization renewal", () => {
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query", "create", "update", "delete"],
       scope: {
-        contracts: [{ id: "example.work-item", version: 1 }],
+        contracts: [WORK_ITEM_CONTRACT],
         access: "contract",
       },
       expiresAt: Date.now() + 60_000,
@@ -1867,7 +1879,7 @@ describe("authorization renewal", () => {
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
       scope: {
-        contracts: [{ id: "example.work-item", version: 1 }],
+        contracts: [WORK_ITEM_CONTRACT],
         access: "contract",
       },
       expiresAt: Date.now() - 1,
@@ -1882,7 +1894,7 @@ describe("authorization renewal", () => {
         collection_id: "00000000-0000-0000-0000-000000000002",
         operations: ["query"],
         scope: {
-          contracts: [{ id: "example.work-item", version: 1 }],
+          contracts: [WORK_ITEM_CONTRACT],
           access: "contract",
         }
       }), { status: 200, headers: { "content-type": "application/json" } }))
@@ -1919,7 +1931,7 @@ describe("authorization renewal", () => {
       collectionId: "00000000-0000-0000-0000-000000000002",
       operations: ["query"],
       scope: {
-        contracts: [{ id: "example.work-item", version: 1 }],
+        contracts: [WORK_ITEM_CONTRACT],
         access: "contract",
       },
       refreshExpiresAt: Date.now() + 60_000

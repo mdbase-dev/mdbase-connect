@@ -26,7 +26,7 @@ Notifications use the bundled v1 application manifest:
   "homepage": "https://tasks.example",
   "redirect_uris": ["https://tasks.example/auth/mdbase/callback"],
   "requirements": {
-    "contracts": [{ "id": "example.work-item", "version": 1 }]
+    "contracts": [{ "id": "example.work-item", "version": "1.0.0" }]
   },
   "notifications": {
     "criteria": [{

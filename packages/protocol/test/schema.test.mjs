@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const schema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-protocol.v1.schema.json"), "utf8"));
 const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-app.schema.json"), "utf8"));
 const notificationWebhookSchema = JSON.parse(readFileSync(resolve(here, "../schemas/notification-webhook.v1.schema.json"), "utf8"));
-const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/contract-extension.v1.schema.json"), "utf8"));
+const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/data-contract.schema.json"), "utf8"));
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v1.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -49,7 +49,7 @@ test("v1 application manifests carry a stable reverse-domain id", () => {
       "dev.mdbase.tasks://auth/mdbase/callback"
     ],
     requirements: {
-      contracts: [{ id: "example.work-item", version: 1 }]
+      contracts: [{ id: "example.work-item", version: "1.0.0" }]
     },
     notifications: {
       criteria: []
@@ -69,7 +69,7 @@ test("v1 portable manifests explicitly avoid web origin claims", () => {
     name: "Portable Workouts",
     project_url: "https://workouts.example/source",
     requirements: {
-      contracts: [{ id: "workout.record", version: 1 }]
+      contracts: [{ id: "workout.record", version: "1.0.0" }]
     }
   };
   assert.equal(validate(declaration), true, JSON.stringify(validate.errors));
@@ -189,7 +189,7 @@ test("application manifests declare authority-evaluated notification criteria", 
   }), false);
 });
 
-test("application manifests declare connector-controlled type provisioning", () => {
+test("application manifests declare connector-controlled type-pack provisioning", () => {
   const validate = validator(manifestSchema.$id);
   const manifest = {
     manifest_version: 1,
@@ -200,13 +200,26 @@ test("application manifests declare connector-controlled type provisioning", () 
     requirements: {
       collection_kind: "hosted",
       access: "full_collection",
-      contracts: [{ id: "example.work-item", version: 1 }]
+      contracts: [{ id: "example.work-item", version: "1.0.0" }]
     },
     provisions: {
-      types: [{
-        name: "Task",
-        document: "---\nkind: mdbase.type\nname: task\n---\n",
-        provides: [{ id: "example.work-item", version: 1 }]
+      type_packs: [{
+        manifest: {
+          kind: "mdbase.type-pack",
+          id: "example.tasks",
+          version: "1.0.0",
+          resources: [{
+            kind: "contract",
+            source: "contract.md",
+            target: "_contracts/example.work-item.md",
+            digest: `sha256:${"0".repeat(64)}`
+          }]
+        },
+        resources: [{
+          source: "contract.md",
+          document: "---\nkind: mdbase.contract\nid: example.work-item\nversion: 1.0.0\n---\n"
+        }],
+        provides: [{ id: "example.work-item", version: "1.0.0" }]
       }]
     }
   };
@@ -224,7 +237,7 @@ test("application manifests declare connector-controlled type provisioning", () 
     validate({
       ...manifest,
       provisions: {
-        types: [{ ...manifest.provisions.types[0], provides: [] }]
+        type_packs: [{ ...manifest.provisions.type_packs[0], provides: [] }]
       }
     }),
     true,
@@ -272,10 +285,16 @@ test("sync wire objects are independently addressable", () => {
       types: [{ name: "task", version: 1, schema: { type: "object" }, extensions: {} }],
       contracts: [{
         id: "example.work-item",
-        version: 1,
-        type_name: "task",
-        extension: "x-work-item",
-        configuration: { contract: "example.work-item", version: 1 }
+        version: "1.0.0",
+        digest: `sha256:${"0".repeat(64)}`,
+        schema: { type: "object" },
+        implementations: [{
+          type_name: "task",
+          type_version: 1,
+          type_path: "_types/task.md",
+          digest: `sha256:${"1".repeat(64)}`,
+          fields: { title: "title" }
+        }]
       }]
     }
   };
@@ -385,8 +404,24 @@ test("collection descriptions and operation envelopes have addressable schemas",
   assert.equal(validateEnvelope({ valid: true, result: {} }), false);
 });
 
-test("contract extensions require a stable contract identity and version", () => {
+test("data contracts require a stable identity, exact version, and JSON Schema", () => {
   const validate = validator(contractSchema.$id);
-  assert.equal(validate({ contract: "example.work-item", version: 1, field_roles: {} }), true);
-  assert.equal(validate({ contract: "Invalid Contract", version: 0 }), false);
+  assert.equal(validate({
+    kind: "mdbase.contract",
+    id: "example.work-item",
+    version: "1.0.0",
+    schema: {
+      dialect: "json-schema-2020-12",
+      value: { type: "object" }
+    }
+  }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    kind: "mdbase.contract",
+    id: "Invalid Contract",
+    version: 1,
+    schema: {
+      dialect: "json-schema-2020-12",
+      value: { type: "object" }
+    }
+  }), false);
 });

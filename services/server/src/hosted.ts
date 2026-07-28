@@ -422,7 +422,9 @@ export function typesForContracts(
   const requested = new Set(required.map(({ id, version }) => `${id}@${version}`));
   return [...new Set(available
     .filter(({ id, version }) => requested.has(`${id}@${version}`))
-    .map(({ type_name }) => type_name))];
+    .flatMap(({ implementations }) =>
+      implementations.map(({ type_name }) => type_name)
+    ))];
 }
 
 export function mdbaseResources(): SyncCollectionResources {

@@ -13,9 +13,10 @@ use mdbase_connect_protocol::{
     CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, GrantSummary,
     SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
     SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
-    SyncResourceDocument, SyncSession, SyncSnapshotPage, TypeProvision, AUTHORITY_PROOF_DOMAIN,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
     AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
+use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -79,6 +80,8 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub allowed_types: Vec<String>,
     #[serde(default)]
+    pub contract_scope: Vec<CollectionContractDescriptor>,
+    #[serde(default)]
     pub full_collection: bool,
     #[serde(default)]
     pub allowed_operations: Vec<String>,
@@ -99,6 +102,8 @@ pub struct UpdateApplicationReplica {
     pub mode: SyncReplicaMode,
     #[serde(default)]
     pub allowed_types: Vec<String>,
+    #[serde(default)]
+    pub contract_scope: Vec<CollectionContractDescriptor>,
     #[serde(default)]
     pub full_collection: bool,
     pub allowed_operations: Vec<String>,
@@ -180,6 +185,7 @@ struct Replica {
     purpose: ReplicaPurpose,
     mode: SyncReplicaMode,
     allowed_types: Vec<String>,
+    contract_scope: Vec<CollectionContractDescriptor>,
     full_collection: bool,
     allowed_operations: Vec<String>,
     allowed_origin: Option<String>,
@@ -603,7 +609,10 @@ impl HostedProvider {
         for resource in &manifest.resources.documents {
             if !paths.insert(resource.path.as_str())
                 || resource.document.len() as u64 > self.limits.max_bytes_per_document
-                || !matches!(resource.kind.as_str(), "configuration" | "type" | "view")
+                || !matches!(
+                    resource.kind.as_str(),
+                    "configuration" | "contract" | "schema" | "type" | "view"
+                )
             {
                 return Err(ApiError::bad_request(
                     "invalid_authority_import_manifest",
@@ -1143,6 +1152,9 @@ impl HostedProvider {
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_replica_capability(&input)?;
+        let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
+            ApiError::internal(format!("Contract scope could not be serialized: {error}"))
+        })?;
         let token_ttl_seconds = input.token_ttl_seconds.unwrap_or(30 * 24 * 60 * 60);
         if !(60..=30 * 24 * 60 * 60).contains(&token_ttl_seconds) {
             return Err(ApiError::bad_request(
@@ -1169,7 +1181,8 @@ impl HostedProvider {
         })?;
         let max_replicas = number(collection.get::<i64, _>("max_replicas"), "replica quota")?;
         if let Some(existing) = sqlx::query(
-            r#"SELECT collection_id, name, purpose, mode, allowed_types, full_collection,
+            r#"SELECT collection_id, name, purpose, mode, allowed_types, contract_scope,
+                      full_collection,
                       allowed_operations, allowed_origin, proof_public_key, grant_id,
                       token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
@@ -1184,6 +1197,7 @@ impl HostedProvider {
                 && existing.get::<String, _>("purpose") == purpose
                 && existing.get::<String, _>("mode") == mode
                 && existing.get::<Vec<String>, _>("allowed_types") == input.allowed_types
+                && existing.get::<Value, _>("contract_scope") == contract_scope
                 && existing.get::<bool, _>("full_collection") == input.full_collection
                 && existing.get::<Vec<String>, _>("allowed_operations") == input.allowed_operations
                 && existing
@@ -1223,11 +1237,12 @@ impl HostedProvider {
         }
         let result = sqlx::query(
             r#"INSERT INTO hosted_provider_replicas
-                 (id, collection_id, name, purpose, mode, allowed_types, full_collection,
+                 (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
+                  full_collection,
                   allowed_operations, allowed_origin, proof_public_key, grant_id, token_hash,
                   token_expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                       now() + ($13 * interval '1 second'))"#,
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                       now() + ($14 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -1235,6 +1250,7 @@ impl HostedProvider {
         .bind(purpose)
         .bind(mode)
         .bind(input.allowed_types)
+        .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
         .bind(input.allowed_origin)
@@ -1690,7 +1706,7 @@ impl HostedProvider {
         }
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
@@ -1768,27 +1784,34 @@ impl HostedProvider {
         validate_collection_scope(
             input.full_collection,
             &input.allowed_types,
+            &input.contract_scope,
             &input.allowed_operations,
         )?;
+        let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
+            ApiError::internal(format!("Contract scope could not be serialized: {error}"))
+        })?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET scope_epoch = scope_epoch + CASE
                      WHEN mode IS DISTINCT FROM $2
                        OR allowed_types IS DISTINCT FROM $3
-                       OR full_collection IS DISTINCT FROM $4
-                       OR allowed_operations IS DISTINCT FROM $5
-                       OR grant_id IS DISTINCT FROM $6
+                       OR contract_scope IS DISTINCT FROM $4
+                       OR full_collection IS DISTINCT FROM $5
+                       OR allowed_operations IS DISTINCT FROM $6
+                       OR grant_id IS DISTINCT FROM $7
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
-                   full_collection = $4,
-                   allowed_operations = $5,
-                   grant_id = $6
+                   contract_scope = $4,
+                   full_collection = $5,
+                   allowed_operations = $6,
+                   grant_id = $7
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
         .bind(replica_mode(input.mode))
         .bind(input.allowed_types)
+        .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
         .bind(input.grant_id)
@@ -2833,6 +2856,7 @@ impl HostedProvider {
             .authenticate_for(collection_id, token, ReplicaPurpose::Application)
             .await?;
         authorize_application_operation(&replica, operation, request_origin)?;
+        let contract_scope = self.contract_scope(collection_id, &replica).await?;
         if matches!(
             operation,
             "list_timers" | "put_timer" | "cancel_timer" | "reconcile_timers"
@@ -2868,20 +2892,94 @@ impl HostedProvider {
             }
             "read" | "query" | "validate" | "read_type" | "list_views" | "execute_view"
             | "read_view_source" => {
-                let scoped_input = scope_read_input(operation, input, &replica.allowed_types)?;
+                let (scoped_input, selector) = match (&contract_scope, operation) {
+                    (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
+                    (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
+                    _ => (
+                        scope_read_input(operation, input, &replica.allowed_types)?,
+                        None,
+                    ),
+                };
                 let result = self
                     .execute_read_operation(collection_id, operation, &scoped_input)
                     .await?;
-                if matches!(operation, "read" | "validate") {
+                if contract_scope.is_none() && matches!(operation, "read" | "validate") {
                     ensure_operation_result_visible(&result, &replica.allowed_types)?;
                 }
-                serde_json::to_value(result).map_err(|error| {
-                    ApiError::internal(format!("Hosted operation could not serialize: {error}"))
-                })
+                if let Some(scope) = &contract_scope {
+                    self.project_contract_operation(collection_id, scope, result, selector.as_ref())
+                        .await
+                } else {
+                    serde_json::to_value(result).map_err(|error| {
+                        ApiError::internal(format!("Hosted operation could not serialize: {error}"))
+                    })
+                }
             }
             "create" | "update" | "delete" | "rename" => {
-                self.write_operation(collection_id, token, &replica, operation, input)
+                let (input, selector) = if let Some(scope) = &contract_scope {
+                    let (scoped_input, selected) = if matches!(operation, "create" | "update") {
+                        let (mapped, selector) = scope
+                            .map_write_input(&input, operation == "create")
+                            .map_err(scope_error)?;
+                        (mapped, Some(selector))
+                    } else {
+                        let (identity, selector) =
+                            scope.identity_input(&input).map_err(scope_error)?;
+                        (identity, selector)
+                    };
+                    if operation != "create" {
+                        let path_key = if operation == "rename" {
+                            "from"
+                        } else {
+                            "path"
+                        };
+                        let path = scoped_input
+                            .get(path_key)
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                ApiError::bad_request(
+                                    "invalid_operation_input",
+                                    format!("Hosted {operation} requires {path_key}."),
+                                )
+                            })?;
+                        let current = self
+                            .execute_read_operation(collection_id, "read", &json!({"path": path}))
+                            .await?;
+                        self.project_contract_operation(
+                            collection_id,
+                            scope,
+                            current,
+                            selected.as_ref(),
+                        )
+                        .await?;
+                    }
+                    (scoped_input, selected)
+                } else {
+                    (input, None)
+                };
+                let result = self
+                    .write_operation(collection_id, token, &replica, operation, input)
+                    .await?;
+                if operation == "delete" {
+                    return Ok(result);
+                }
+                if let Some(scope) = &contract_scope {
+                    let envelope: OperationResult =
+                        serde_json::from_value(result).map_err(|error| {
+                            ApiError::internal(format!(
+                                "Hosted operation result could not be projected: {error}"
+                            ))
+                        })?;
+                    self.project_contract_operation(
+                        collection_id,
+                        scope,
+                        envelope,
+                        selector.as_ref(),
+                    )
                     .await
+                } else {
+                    Ok(result)
+                }
             }
             "create_type" | "update_type" => {
                 self.write_type_operation(collection_id, operation, input)
@@ -2898,63 +2996,93 @@ impl HostedProvider {
         }
     }
 
-    pub async fn provision_types(
+    async fn contract_scope(
         &self,
         collection_id: Uuid,
-        provisions: Vec<TypeProvision>,
+        replica: &Replica,
+    ) -> ApiResult<Option<ContractScope>> {
+        if replica.full_collection {
+            return Ok(None);
+        }
+        let current = self.collection_resources(collection_id).await?.contracts;
+        for pinned in &replica.contract_scope {
+            let matching = current
+                .iter()
+                .find(|contract| contract.id == pinned.id && contract.version == pinned.version);
+            if matching != Some(pinned) {
+                return Err(ApiError::forbidden(
+                    "contract_scope_changed",
+                    format!(
+                        "The approved provider set for {} version {} has changed.",
+                        pinned.id, pinned.version
+                    ),
+                ));
+            }
+        }
+        ContractScope::new(replica.contract_scope.clone())
+            .map(Some)
+            .map_err(scope_error)
+    }
+
+    async fn project_contract_operation(
+        &self,
+        collection_id: Uuid,
+        scope: &ContractScope,
+        result: OperationResult,
+        selector: Option<&ContractSelector>,
+    ) -> ApiResult<Value> {
+        let working_set = self.working_set(collection_id).await;
+        let cached = working_set.lock().await;
+        let cached = cached.as_ref().ok_or_else(|| {
+            ApiError::internal("Hosted working set was unavailable during contract projection.")
+        })?;
+        cached
+            .workspace
+            .project_contract_result(scope, result, selector)
+    }
+
+    pub async fn provision_type_packs(
+        &self,
+        collection_id: Uuid,
+        provisions: Vec<TypePackProvision>,
     ) -> ApiResult<Vec<CollectionContractDescriptor>> {
         let mut resources = self.collection_resources(collection_id).await?;
         for provision in provisions {
-            let type_exists = resources
-                .types
-                .iter()
-                .any(|existing| existing.name.eq_ignore_ascii_case(&provision.name));
-            if !type_exists {
-                let mut input = json!({ "document": provision.document });
-                if let Some(path) = provision.path {
-                    input["path"] = json!(path);
-                }
-                let result = self
-                    .write_type_operation(collection_id, "create_type", input)
-                    .await?;
-                if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                    let detail = result
-                        .pointer("/diagnostics/0/message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("the type definition was rejected");
-                    return Err(ApiError::bad_request(
-                        "type_provision_failed",
-                        format!(
-                            "The {} type could not be installed: {detail}",
-                            provision.name
-                        ),
-                    ));
-                }
-                if result
-                    .pointer("/result/name")
+            let result = self
+                .write_type_pack_operation(collection_id, &provision)
+                .await?;
+            if result.get("valid").and_then(Value::as_bool) != Some(true) {
+                let detail = result
+                    .pointer("/diagnostics/0/message")
                     .and_then(Value::as_str)
-                    .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
-                {
-                    return Err(ApiError::bad_request(
-                        "type_provision_failed",
-                        format!(
-                            "The installed type did not match the declared {} type.",
-                            provision.name
-                        ),
-                    ));
-                }
-                resources = self.collection_resources(collection_id).await?;
+                    .unwrap_or("the type pack was rejected");
+                return Err(ApiError::bad_request(
+                    "type_pack_provision_failed",
+                    format!(
+                        "The {} type pack could not be installed: {detail}",
+                        provision
+                            .manifest
+                            .name
+                            .as_deref()
+                            .unwrap_or(&provision.manifest.id)
+                    ),
+                ));
             }
+            resources = self.collection_resources(collection_id).await?;
             if provision.provides.iter().any(|provided| {
                 !resources.contracts.iter().any(|available| {
                     available.id == provided.id && available.version == provided.version
                 })
             }) {
                 return Err(ApiError::bad_request(
-                    "type_provision_failed",
+                    "type_pack_provision_failed",
                     format!(
-                        "The {} type did not provide every contract declared by the application.",
-                        provision.name
+                        "The {} type pack did not provide every contract declared by the application.",
+                        provision
+                            .manifest
+                            .name
+                            .as_deref()
+                            .unwrap_or(&provision.manifest.id)
                     ),
                 ));
             }
@@ -3677,6 +3805,253 @@ impl HostedProvider {
         })
     }
 
+    async fn write_type_pack_operation(
+        &self,
+        collection_id: Uuid,
+        provision: &TypePackProvision,
+    ) -> ApiResult<Value> {
+        let mut transaction = self.pool.begin().await?;
+        let collection = sqlx::query(
+            r#"SELECT head, wrapped_data_key, resources_ciphertext, max_document_bytes
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state = 'active' FOR UPDATE"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let mut head = number(collection.get::<i64, _>("head"), "collection head")?;
+        let max_document_bytes = number(
+            collection.get::<i64, _>("max_document_bytes"),
+            "maximum document size",
+        )?;
+        if provision
+            .resources
+            .iter()
+            .any(|resource| resource.document.len() as u64 > max_document_bytes)
+        {
+            return Err(ApiError::bad_request(
+                "document_quota_exceeded",
+                "A type pack resource exceeds the hosted document size limit.",
+            ));
+        }
+        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let working_set = self.working_set(collection_id).await;
+        let mut cached = working_set.lock().await;
+        if cached
+            .as_ref()
+            .is_none_or(|working_set| working_set.head != Some(head))
+        {
+            let resources =
+                load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
+                    .await?;
+            let records =
+                load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
+            let workspace = WorkingSet::materialize(
+                resources,
+                records.values().map(|record| StoredDocument {
+                    record_id: record.record.record_id,
+                    path: record.record.path.clone(),
+                    document: record.document.clone(),
+                }),
+            )?;
+            *cached = Some(CachedCollection {
+                head: Some(head),
+                workspace,
+                records,
+                query_cache: HashMap::new(),
+                query_order: VecDeque::new(),
+            });
+        }
+        let cached = cached
+            .as_mut()
+            .expect("hosted working set was initialized above");
+        let already_installed = provision
+            .manifest
+            .resources
+            .iter()
+            .all(|manifest_resource| {
+                let Some(source) = provision
+                    .resources
+                    .iter()
+                    .find(|source| source.source == manifest_resource.source)
+                else {
+                    return false;
+                };
+                cached
+                    .workspace
+                    .resource_document(&manifest_resource.target)
+                    .is_ok_and(|current| current == source.document)
+            });
+        let envelope = cached.workspace.install_type_pack(provision)?;
+        if !envelope.valid {
+            transaction.commit().await?;
+            return serde_json::to_value(envelope).map_err(|error| {
+                ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
+            });
+        }
+        if already_installed {
+            transaction.commit().await?;
+            return serde_json::to_value(envelope).map_err(|error| {
+                ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
+            });
+        }
+        cached.head = None;
+        let (types, contracts) = cached.workspace.type_resources()?;
+        let record_inputs = cached
+            .records
+            .iter()
+            .map(|(id, persisted)| {
+                (
+                    *id,
+                    persisted.record.path.clone(),
+                    persisted.record.frontmatter.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let classifications = cached.workspace.classify_records(&record_inputs)?;
+
+        for resource in &provision.manifest.resources {
+            head = head.checked_add(1).ok_or_else(|| {
+                ApiError::internal("The hosted collection sequence is exhausted.")
+            })?;
+            let document = cached.workspace.resource_document(&resource.target)?;
+            let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+            let ciphertext = self.crypto.encrypt_bytes(
+                &data_key,
+                document.as_bytes(),
+                &resource_document_aad(collection_id, &resource.target),
+            )?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_resources
+                     (collection_id, path, kind, revision, document_ciphertext)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (collection_id, path) DO UPDATE SET
+                     kind = EXCLUDED.kind,
+                     revision = EXCLUDED.revision,
+                     document_ciphertext = EXCLUDED.document_ciphertext,
+                     updated_at = now()"#,
+            )
+            .bind(collection_id)
+            .bind(&resource.target)
+            .bind(&resource.kind)
+            .bind(&revision)
+            .bind(ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+            let type_name = if resource.kind == "type" {
+                resource
+                    .target
+                    .rsplit('/')
+                    .next()
+                    .and_then(|file| file.strip_suffix(".md"))
+            } else {
+                None
+            };
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_resource_changes
+                     (collection_id, sequence, resource_kind, type_name, path, revision)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(head, "resource change sequence")?)
+            .bind(&resource.kind)
+            .bind(type_name)
+            .bind(&resource.target)
+            .bind(&revision)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        let resource_revision = format!("hosted:1:{head}:resources");
+        let mut resources: SyncCollectionResources = self.crypto.decrypt_json(
+            &data_key,
+            collection.get("resources_ciphertext"),
+            &resources_aad(collection_id),
+        )?;
+        resources.revision = resource_revision.clone();
+        resources.types = types;
+        resources.contracts = contracts;
+        let resources_ciphertext =
+            self.crypto
+                .encrypt_json(&data_key, &resources, &resources_aad(collection_id))?;
+
+        for (record_id, next_types) in classifications {
+            let Some(persisted) = cached.records.get_mut(&record_id) else {
+                continue;
+            };
+            if persisted.record.types == next_types {
+                continue;
+            }
+            persisted.record.types = next_types;
+            let sequence: i64 = sqlx::query_scalar(
+                "SELECT sequence FROM hosted_provider_records WHERE collection_id = $1 AND record_id = $2",
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            let sequence_u64 = number(sequence, "record sequence")?;
+            let current_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                persisted,
+                &current_record_aad(collection_id, record_id, sequence_u64),
+            )?;
+            let version_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                persisted,
+                &record_version_aad(collection_id, record_id, sequence_u64),
+            )?;
+            sqlx::query(
+                r#"UPDATE hosted_provider_records
+                   SET types = $3, payload_ciphertext = $4, updated_at = now()
+                   WHERE collection_id = $1 AND record_id = $2"#,
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(&persisted.record.types)
+            .bind(current_ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                r#"UPDATE hosted_provider_record_versions
+                   SET types = $4, payload_ciphertext = $5
+                   WHERE collection_id = $1 AND record_id = $2 AND sequence = $3"#,
+            )
+            .bind(collection_id)
+            .bind(record_id)
+            .bind(sequence)
+            .bind(&persisted.record.types)
+            .bind(version_ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        sqlx::query(
+            r#"UPDATE hosted_provider_collections
+               SET head = $2, resource_revision = $3, resources_ciphertext = $4, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(collection_id)
+        .bind(to_i64(head, "collection head")?)
+        .bind(resource_revision)
+        .bind(resources_ciphertext)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        cached.head = Some(head);
+        cached.query_cache.clear();
+        cached.query_order.clear();
+        serde_json::to_value(envelope).map_err(|error| {
+            ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
+        })
+    }
+
     async fn write_view_source_operation(
         &self,
         collection_id: Uuid,
@@ -3839,7 +4214,7 @@ impl HostedProvider {
         purpose: ReplicaPurpose,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -3861,7 +4236,7 @@ impl HostedProvider {
         request_origin: Option<&str>,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
@@ -3927,7 +4302,7 @@ async fn authenticate_in(
     purpose: ReplicaPurpose,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -3950,7 +4325,7 @@ async fn authenticate_in_for_sync(
     request_origin: Option<&str>,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, full_collection, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2
@@ -3991,6 +4366,9 @@ fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<Replica> {
             _ => return Err(ApiError::internal("Stored replica mode is invalid.")),
         },
         allowed_types: row.get("allowed_types"),
+        contract_scope: serde_json::from_value(row.get("contract_scope")).map_err(|error| {
+            ApiError::internal(format!("Stored contract scope is invalid: {error}"))
+        })?,
         full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
         allowed_origin: row.get("allowed_origin"),
@@ -4272,6 +4650,12 @@ fn authorize_sync_access(
     required_operation: &str,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
+    if replica.purpose == ReplicaPurpose::Application && !replica.full_collection {
+        return Err(ApiError::forbidden(
+            "scope_denied",
+            "Contract-scoped replicas are unavailable because the sync document format contains whole records. Use projected collection operations or request explicit full-collection access.",
+        ));
+    }
     match replica.purpose {
         ReplicaPurpose::Application => {
             authorize_application_operation(replica, required_operation, request_origin)
@@ -4282,6 +4666,10 @@ fn authorize_sync_access(
             "Mirror credentials cannot be used by browser applications.",
         )),
     }
+}
+
+fn scope_error(error: impl std::fmt::Display) -> ApiError {
+    ApiError::forbidden("scope_denied", error.to_string())
 }
 
 fn mutation_operation_name(operation: SyncMutationOperation) -> &'static str {
@@ -4469,9 +4857,14 @@ fn scoped_resources(
     }
     let allowed = allowed_types.iter().collect::<BTreeSet<_>>();
     resources.types.retain(|item| allowed.contains(&item.name));
+    for contract in &mut resources.contracts {
+        contract
+            .implementations
+            .retain(|implementation| allowed.contains(&implementation.type_name));
+    }
     resources
         .contracts
-        .retain(|item| allowed.contains(&item.type_name));
+        .retain(|contract| !contract.implementations.is_empty());
     resources.documents.retain(|document| {
         document.kind == "configuration"
             || document
@@ -4669,6 +5062,7 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
                 || input.proof_public_key.is_some()
                 || input.grant_id.is_some()
                 || input.full_collection
+                || !input.contract_scope.is_empty()
             {
                 return Err(ApiError::bad_request(
                     "invalid_mirror_capability",
@@ -4692,6 +5086,7 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
             validate_collection_scope(
                 input.full_collection,
                 &input.allowed_types,
+                &input.contract_scope,
                 &input.allowed_operations,
             )?;
             if input.proof_public_key.is_some() && input.allowed_origin.is_none() {
@@ -4740,6 +5135,7 @@ fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
 fn validate_collection_scope(
     full_collection: bool,
     allowed_types: &[String],
+    contract_scope: &[CollectionContractDescriptor],
     operations: &[String],
 ) -> ApiResult<()> {
     if full_collection != allowed_types.is_empty() {
@@ -4747,6 +5143,29 @@ fn validate_collection_scope(
             "invalid_application_scope",
             "Full collection access requires no type restrictions; contract access requires at least one allowed type.",
         ));
+    }
+    if full_collection && !contract_scope.is_empty() {
+        return Err(ApiError::bad_request(
+            "invalid_application_scope",
+            "Full collection access must not carry a contract projection.",
+        ));
+    }
+    if !full_collection {
+        let expected_types = contract_scope
+            .iter()
+            .flat_map(|contract| contract.implementations.iter())
+            .map(|implementation| implementation.type_name.as_str())
+            .collect::<BTreeSet<_>>();
+        let actual_types = allowed_types
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        if contract_scope.is_empty() || expected_types != actual_types {
+            return Err(ApiError::bad_request(
+                "invalid_application_scope",
+                "Contract access requires exact approved contract descriptors whose provider union matches allowed_types.",
+            ));
+        }
     }
     if !full_collection
         && operations
@@ -5007,6 +5426,10 @@ fn canonicalize_imported_snapshot(
                                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
                                     "configuration"
                                 }
+                                mdbase::runtime::CollectionSnapshotResourceKind::Contract => {
+                                    "contract"
+                                }
+                                mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
                                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
                                 mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
                             }
@@ -5213,14 +5636,25 @@ mod tests {
     }
 
     #[test]
-    fn portable_imports_are_canonicalized_by_rust_including_types_and_views() {
+    fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() {
         let record_id = Uuid::new_v4();
         let configuration = "spec_version: 0.3.0\nsettings:\n  types_folder: _types\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n";
         let type_document = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: tasks/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title:\n        type: string\n---\n\nTask\n";
+        let contract_document = "---\nkind: mdbase.contract\nid: example.task\nversion: 1.0.0\nschema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
+        let schema_document =
+            "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
         let record_document = "---\ntitle: One\n---\n\nBody\n";
         let workspace = WorkingSet::materialize(
             [
                 ("mdbase.yaml".to_string(), configuration.to_string()),
+                (
+                    "_contracts/task.md".to_string(),
+                    contract_document.to_string(),
+                ),
+                (
+                    "_schemas/task.json".to_string(),
+                    schema_document.to_string(),
+                ),
                 ("_types/task.md".to_string(), type_document.to_string()),
                 ("views/tasks.base".to_string(), "views: []\n".to_string()),
             ],
@@ -5241,6 +5675,8 @@ mod tests {
                     mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
                         "configuration"
                     }
+                    mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract",
+                    mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
                     mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
                     mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
                 }
@@ -5321,10 +5757,22 @@ mod tests {
             }],
             contracts: vec![CollectionContractDescriptor {
                 id: "example.work-item".to_string(),
-                version: 1,
-                type_name: "task".to_string(),
-                extension: "x-example".to_string(),
-                configuration: json!({ "contract": "example.work-item", "version": 1 }),
+                version: "1.0.0".to_string(),
+                digest: format!("sha256:{}", "0".repeat(64)),
+                schema: json!({ "type": "object" }),
+                binding_schema: None,
+                implementations: vec![
+                    mdbase_connect_protocol::CollectionContractImplementationDescriptor {
+                        type_name: "task".to_string(),
+                        type_version: 1,
+                        type_path: Some("_types/task.md".to_string()),
+                        digest: format!("sha256:{}", "1".repeat(64)),
+                        fields: [("title".to_string(), "title".to_string())]
+                            .into_iter()
+                            .collect(),
+                        binding: None,
+                    },
+                ],
             }],
             documents: Vec::new(),
         };
@@ -5370,6 +5818,7 @@ mod tests {
             purpose: ReplicaPurpose::Application,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: Vec::new(),
+            contract_scope: Vec::new(),
             full_collection: true,
             allowed_operations: vec![
                 "query".to_string(),
@@ -5408,6 +5857,7 @@ mod tests {
             purpose: portable_capability.purpose,
             mode: portable_capability.mode,
             allowed_types: portable_capability.allowed_types,
+            contract_scope: portable_capability.contract_scope,
             full_collection: portable_capability.full_collection,
             allowed_operations: portable_capability.allowed_operations,
             allowed_origin: portable_capability.allowed_origin,
@@ -5448,11 +5898,51 @@ mod tests {
                 .code,
             "invalid_application_scope"
         );
+        contract_capability.allowed_types = vec!["task".to_string()];
+        contract_capability.allowed_operations = vec!["query".to_string()];
+        contract_capability.contract_scope = vec![CollectionContractDescriptor {
+            id: "example.task".to_string(),
+            version: "1.0.0".to_string(),
+            digest: format!("sha256:{}", "0".repeat(64)),
+            schema: json!({"type": "object"}),
+            binding_schema: None,
+            implementations: vec![
+                mdbase_connect_protocol::CollectionContractImplementationDescriptor {
+                    type_name: "task".to_string(),
+                    type_version: 1,
+                    type_path: Some("_types/task.md".to_string()),
+                    digest: format!("sha256:{}", "1".repeat(64)),
+                    fields: BTreeMap::from([("title".to_string(), "summary".to_string())]),
+                    binding: None,
+                },
+            ],
+        }];
+        validate_replica_capability(&contract_capability).unwrap();
+        let contract_replica = Replica {
+            id: contract_capability.replica_id,
+            purpose: contract_capability.purpose,
+            mode: contract_capability.mode,
+            allowed_types: contract_capability.allowed_types,
+            contract_scope: contract_capability.contract_scope,
+            full_collection: contract_capability.full_collection,
+            allowed_operations: contract_capability.allowed_operations,
+            allowed_origin: contract_capability.allowed_origin,
+            proof_public_key: contract_capability.proof_public_key,
+            grant_id: contract_capability.grant_id,
+            scope_epoch: 1,
+        };
+        assert_eq!(
+            authorize_sync_access(&contract_replica, "query", Some("https://tasks.example"))
+                .unwrap_err()
+                .code,
+            "scope_denied"
+        );
         let replica = Replica {
             id: capability.replica_id,
             purpose: capability.purpose,
             mode: capability.mode,
             allowed_types: capability.allowed_types,
+            contract_scope: capability.contract_scope,
             full_collection: capability.full_collection,
             allowed_operations: capability.allowed_operations,
             allowed_origin: capability.allowed_origin,
@@ -5547,6 +6037,7 @@ mod tests {
             purpose: ReplicaPurpose::Mirror,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: Vec::new(),
+            contract_scope: Vec::new(),
             full_collection: false,
             allowed_operations: Vec::new(),
             allowed_origin: None,
@@ -5591,6 +6082,7 @@ mod tests {
             purpose: ReplicaPurpose::Application,
             mode: SyncReplicaMode::ReadOnly,
             allowed_types: vec!["task".to_string()],
+            contract_scope: Vec::new(),
             full_collection: false,
             allowed_operations: vec!["create".to_string()],
             allowed_origin: Some("https://tasks.example".to_string()),

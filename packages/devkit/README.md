@@ -2,7 +2,7 @@
 
 Developer tools for applications built on mdbase connect.
 
-The package provides canonical manifest and contract validation plus an
+The package provides canonical manifest and data-contract validation plus an
 in-memory transport for frontend tests. The sandbox supports typed CRUD,
 revision preconditions, read defaults, type-filtered pagination, and change
 cursors. It rejects CEL filters and ordering so semantic tests cannot silently
@@ -30,12 +30,30 @@ mdbase-connect-dev validate-manifest public/.well-known/mdbase-app.json --allow-
 mdbase-connect-dev validate-contract worklog-contract.json
 ```
 
-Bundled application declarations support connector-controlled type
-provisioning. Put each complete portable type document in `provisions.types`,
-declare any contracts it provides, and list those contracts under
-`requirements.contracts`. Auxiliary types installed with the same approved set
-use an empty `provides` array. The validator rejects provisions that claim
-contracts the application does not require.
+Bundled application declarations support connector-controlled type-pack
+provisioning. Put the contract, its implementing types, and any referenced
+schemas in one `provisions.type_packs` transaction. Each manifest entry pins
+the exact destination and SHA-256 digest. `provides` declares which exact
+contracts the pack satisfies; auxiliary types belong in the same pack. The
+validator rejects missing sources, digest mismatches, and claims for contracts
+the application does not require.
+
+Use `defineTypePack` to generate the manifest entries and digests from readable
+documents:
+
+```ts
+import { defineTypePack } from "@mdbase/connect-dev";
+
+const provision = defineTypePack({
+  id: "example.tasks",
+  version: "1.0.0",
+  provides: [{ id: "example.task", version: "1.0.0" }],
+  resources: [
+    { kind: "contract", source: "_contracts/example.task.md", document: contractDocument },
+    { kind: "type", source: "_types/task.md", document: typeDocument }
+  ]
+});
+```
 
 Native applications may add a reverse-domain private-use callback scheme that
 matches the v1 manifest's application ID, such as

@@ -41,7 +41,7 @@ export function isNativeRedirectUri(url: URL, publisherHostname?: string): boole
 export const CONNECT_SCHEMA_IDS = {
   appManifest: "https://mdbase.dev/connect/schemas/mdbase-app.v1.json",
   notificationWebhook: "https://mdbase.dev/connect/schemas/notification-webhook.v1.json",
-  contractExtension: "https://mdbase.dev/connect/schemas/contract-extension.v1.json",
+  dataContract: "https://mdbase.dev/schemas/v0.3/data-contract.schema.json",
   protocol: "https://mdbase.dev/connect/schemas/connect-protocol.v1.json",
   encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v1.json",
   sync: "https://mdbase.dev/connect/schemas/sync.v1.json"
@@ -76,7 +76,7 @@ export interface NotificationCriterion {
   /** Stable, manifest-owned identifier selected by an installation. */
   id: string;
   /** Runtime event contract evaluated at the collection authority. */
-  event: ContractRequirement;
+  event: RuntimeContractRequirement;
   /** Canonical mdbase CEL. Event content never leaves the authority for evaluation. */
   if?: { $expr: string };
   debounce?: string;
@@ -187,6 +187,13 @@ export interface NotificationWebhook {
 
 export interface ContractRequirement {
   id: string;
+  /** Exact semantic version of the collection-local mdbase data contract. */
+  version: string;
+}
+
+/** A versioned runtime event contract used by notifications, not record scope. */
+export interface RuntimeContractRequirement {
+  id: string;
   version: number;
 }
 
@@ -198,26 +205,48 @@ export interface ApplicationRequirements {
   collection_kind?: "hosted";
 }
 
-export interface TypeProvision {
-  /** Type name shown during approval and verified after installation. */
-  name: string;
-  /** Optional collection-relative destination. The collection validates the final path. */
-  path?: string;
-  /** Complete portable mdbase type document. */
+export interface TypePackManifestResource {
+  kind: "contract" | "type" | "schema";
+  source: string;
+  target: string;
+  digest: string;
+}
+
+export interface TypePackManifest {
+  kind: "mdbase.type-pack";
+  id: string;
+  version: string;
+  name?: string;
+  description?: string;
+  resources: TypePackManifestResource[];
+  [extension: `x-${string}`]: unknown;
+}
+
+export interface TypePackSourceResource {
+  source: string;
   document: string;
-  /**
-   * Contracts expected to be exposed after this type is installed. Auxiliary
-   * types that belong to the approved provision set may use an empty array.
-   */
+}
+
+export interface TypePackProvision {
+  /** Canonical type-pack manifest shown during approval and verified on install. */
+  manifest: TypePackManifest;
+  /** Exact UTF-8 resource bytes, keyed by each manifest source path. */
+  resources: TypePackSourceResource[];
+  /** Data contracts expected after the complete pack is installed. */
   provides: ContractRequirement[];
 }
 
 export interface ApplicationProvisions {
-  types: TypeProvision[];
+  type_packs: TypePackProvision[];
 }
 
 export interface GrantScope {
-  contracts: ContractRequirement[];
+  /**
+   * Exact contract definitions and sorted implementation sets approved by the
+   * user. Digests make the scope fail closed if either the interface or any
+   * provider changes after approval.
+   */
+  contracts: CollectionContractDescriptor[];
   access: "contract" | "full_collection";
 }
 
@@ -311,7 +340,7 @@ export interface SyncCollectionResources {
 
 export interface SyncResourceDocument {
   path: string;
-  kind: "configuration" | "type" | "view";
+  kind: "configuration" | "type" | "contract" | "schema" | "view";
   revision: string;
   document: string;
 }
@@ -441,7 +470,7 @@ export interface AuthorizationCollectionOffer {
   collection_id: string;
   display_name: string;
   spec_version: string;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
 }
 
 export interface AuthorizationOfferResponse {
@@ -457,7 +486,7 @@ export interface AuthorizationActivationResponse {
   protocol_version: 1;
   request_id: string;
   ok: boolean;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
   error?: {
     code: string;
     message: string;
@@ -470,7 +499,7 @@ export interface ConnectorCollection {
   display_name: string;
   spec_version: string;
   enabled: boolean;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
 }
 
 export type JsonObject = Record<string, unknown>;
@@ -611,6 +640,14 @@ export interface CollectionFileMetadata extends JsonObject {
   embeds?: unknown[];
 }
 
+export interface DataContractViewIdentity {
+  id: string;
+  version: string;
+  digest: string;
+  type: string;
+  implementation_digest: string;
+}
+
 /**
  * A projected query row. Frontmatter members are optional because
  * `frontmatter_mode` selects which fixed-semantics representation is returned.
@@ -621,24 +658,29 @@ export interface QueryRecord<Frontmatter extends JsonObject = JsonObject> {
   effective_frontmatter?: Frontmatter;
   body?: string;
   types: string[];
-  file: CollectionFileMetadata & { path: string };
+  file: Partial<CollectionFileMetadata> & { path?: string };
+  /** Present when the authority returned a normalized contract projection. */
+  contract?: DataContractViewIdentity;
 }
 
-/** A complete authoritative record returned by read and successful mutations. */
+/** An authoritative record or a field-limited data-contract projection. */
 export interface RecordDocument<Frontmatter extends JsonObject = JsonObject> {
   path: string;
   revision: string;
   types: string[];
   frontmatter: Frontmatter;
   effective_frontmatter: Frontmatter;
-  body: string;
+  /** Omitted from contract-scoped results. */
+  body?: string;
   /**
    * The exact UTF-8 Markdown source, including frontmatter delimiters,
    * comments, quoting, whitespace, line endings, and trailing newline.
    * Returned only when the operation requests it.
    */
   document?: string;
-  file: CollectionFileMetadata;
+  file: Partial<CollectionFileMetadata> & { path?: string };
+  /** Present when the authority returned a normalized contract projection. */
+  contract?: DataContractViewIdentity;
 }
 
 export interface CollectionTypeDescriptor {
@@ -664,10 +706,25 @@ export interface CollectionTypeDocument {
 
 export interface CollectionContractDescriptor {
   id: string;
-  version: number;
+  version: string;
+  /** Digest of the resolved contract schemas and metadata. */
+  digest: string;
+  /** Resolved portable record-view schema. */
+  schema: JsonObject;
+  /** Resolved implementation-binding schema, when the contract declares one. */
+  binding_schema?: JsonObject;
+  /** Every type currently implementing this exact contract, sorted by type name. */
+  implementations: CollectionContractImplementationDescriptor[];
+}
+
+export interface CollectionContractImplementationDescriptor {
   type_name: string;
-  extension: string;
-  configuration: JsonObject;
+  type_version: number;
+  type_path?: string;
+  /** Digest of the contract digest, type schema, fields, and binding. */
+  digest: string;
+  fields: Record<string, string>;
+  binding?: JsonObject;
 }
 
 export interface CollectionDescription {

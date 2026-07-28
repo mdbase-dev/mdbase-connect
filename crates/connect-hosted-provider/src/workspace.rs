@@ -6,6 +6,7 @@ use std::{
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
 use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
+use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use serde_json::{json, Map, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -202,6 +203,30 @@ impl WorkingSet {
         }
     }
 
+    pub fn project_contract_result(
+        &self,
+        scope: &ContractScope,
+        envelope: OperationResult,
+        selector: Option<&ContractSelector>,
+    ) -> ApiResult<Value> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted contract projection registry is invalid: {error}"
+            ))
+        })?;
+        scope
+            .project_result(
+                &collection,
+                serde_json::to_value(envelope).map_err(|error| {
+                    ApiError::internal(format!(
+                        "Hosted operation could not serialize before projection: {error}"
+                    ))
+                })?,
+                selector,
+            )
+            .map_err(|error| ApiError::forbidden("scope_denied", error.to_string()))
+    }
+
     pub fn view_source_operation(
         &self,
         operation: &str,
@@ -251,6 +276,31 @@ impl WorkingSet {
         }
     }
 
+    pub fn install_type_pack(
+        &self,
+        provision: &mdbase_connect_protocol::TypePackProvision,
+    ) -> ApiResult<OperationResult> {
+        let collection = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted collection working set is invalid: {error:?}"
+            ))
+        })?;
+        let manifest = serde_json::to_value(&provision.manifest).map_err(|error| {
+            ApiError::internal(format!(
+                "The type pack manifest could not serialize: {error}"
+            ))
+        })?;
+        let resources = provision
+            .resources
+            .iter()
+            .map(|resource| mdbase::v03::TypePackResource {
+                source: resource.source.clone(),
+                document: resource.document.clone(),
+            })
+            .collect::<Vec<_>>();
+        Ok(collection.install_type_pack(&manifest, &resources, false))
+    }
+
     pub fn resource_document(&self, path: &str) -> ApiResult<String> {
         fs::read_to_string(safe_path(self.directory.path(), path)?).map_err(Into::into)
     }
@@ -272,7 +322,6 @@ impl WorkingSet {
             ));
         }
         let mut types = Vec::new();
-        let mut contracts = Vec::new();
         for type_file in report.types {
             let description = type_file
                 .frontmatter
@@ -289,21 +338,6 @@ impl WorkingSet {
                 .filter(|(key, _)| key.starts_with("x-"))
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect::<Map<_, _>>();
-            for (extension, configuration) in &extensions {
-                let Some(id) = configuration.get("contract").and_then(Value::as_str) else {
-                    continue;
-                };
-                contracts.push(mdbase_connect_protocol::CollectionContractDescriptor {
-                    id: id.to_string(),
-                    version: configuration
-                        .get("version")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(1),
-                    type_name: type_file.name.clone(),
-                    extension: extension.clone(),
-                    configuration: configuration.clone(),
-                });
-            }
             types.push(mdbase_connect_protocol::CollectionTypeDescriptor {
                 name: type_file.name,
                 version: type_file.version,
@@ -320,14 +354,44 @@ impl WorkingSet {
                 extensions,
             });
         }
-        types.sort_by(|left, right| left.name.cmp(&right.name));
-        contracts.sort_by(|left, right| {
-            (&left.id, left.version, &left.type_name).cmp(&(
-                &right.id,
-                right.version,
-                &right.type_name,
+        let registry = Collection::open(self.directory.path()).map_err(|error| {
+            ApiError::internal(format!(
+                "The hosted data contract registry is invalid: {error}"
             ))
-        });
+        })?;
+        let mut contracts: Vec<mdbase_connect_protocol::CollectionContractDescriptor> = registry
+            .list_data_contracts()
+            .into_iter()
+            .filter_map(|definition| {
+                let implementations = registry
+                    .get_data_contract_implementations(&definition.id, &definition.version)
+                    .into_iter()
+                    .map(|implementation| {
+                        mdbase_connect_protocol::CollectionContractImplementationDescriptor {
+                            type_name: implementation.type_name,
+                            type_version: implementation.type_version,
+                            type_path: implementation.source_path,
+                            digest: implementation.implementation_digest,
+                            fields: implementation.fields,
+                            binding: implementation.binding,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                (!implementations.is_empty()).then_some(
+                    mdbase_connect_protocol::CollectionContractDescriptor {
+                        implementations,
+                        id: definition.id,
+                        version: definition.version,
+                        digest: definition.digest,
+                        schema: definition.schema,
+                        binding_schema: definition.binding_schema,
+                    },
+                )
+            })
+            .collect();
+        types.sort_by(|left, right| left.name.cmp(&right.name));
+        contracts
+            .sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
         Ok((types, contracts))
     }
 

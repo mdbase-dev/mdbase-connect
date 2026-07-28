@@ -35,7 +35,7 @@ export function collectionCompatibility(
   }
   const unavailable = request.requirements.contracts.filter((requirement) =>
     !hasContract(collection.contracts, requirement)
-    && !request.provisions.types.some((provision) =>
+    && !request.provisions.type_packs.some((provision) =>
       provision.provides.some((provided) => sameContract(provided, requirement))
     )
   );

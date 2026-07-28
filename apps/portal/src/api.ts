@@ -35,7 +35,7 @@ export interface DashboardData {
     display_name: string;
     spec_version: string;
     enabled: boolean;
-    contracts: ContractRequirement[];
+    contracts: CollectionContractDescriptor[];
     last_seen_at: string;
   }>;
   hosted_collections: HostedCollection[];
@@ -81,7 +81,7 @@ export interface HostedCollection {
   template: "mdbase";
   provider_url: string;
   spec_version: string;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
   authority_state: "active" | "transferring" | "transferred";
   authority_epoch: number;
   transferred_collection_id: string | null;
@@ -131,7 +131,7 @@ export interface AvailableCollection {
   connector_name: string;
   display_name: string;
   spec_version: string;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
 }
 
 export interface UnavailableConnector {
@@ -142,6 +142,25 @@ export interface UnavailableConnector {
 
 export interface ContractRequirement {
   id: string;
+  version: string;
+}
+
+export interface CollectionContractDescriptor extends ContractRequirement {
+  digest: string;
+  schema: Record<string, unknown>;
+  binding_schema?: Record<string, unknown>;
+  implementations: Array<{
+    type_name: string;
+    type_version: number;
+    type_path?: string;
+    digest: string;
+    fields: Record<string, string>;
+    binding?: Record<string, unknown>;
+  }>;
+}
+
+export interface RuntimeContractRequirement {
+  id: string;
   version: number;
 }
 
@@ -151,20 +170,31 @@ export interface ApplicationRequirements {
   collection_kind?: "local" | "hosted";
 }
 
-export interface TypeProvision {
-  name: string;
-  path?: string;
-  document: string;
+export interface TypePackProvision {
+  manifest: {
+    kind: "mdbase.type-pack";
+    id: string;
+    version: string;
+    name?: string;
+    description?: string;
+    resources: Array<{
+      kind: "contract" | "type" | "schema";
+      source: string;
+      target: string;
+      digest: string;
+    }>;
+  };
+  resources: Array<{ source: string; document: string }>;
   provides: ContractRequirement[];
 }
 
 export interface ApplicationProvisions {
-  types: TypeProvision[];
+  type_packs: TypePackProvision[];
 }
 
 export interface NotificationCriterion {
   id: string;
-  event: ContractRequirement;
+  event: RuntimeContractRequirement;
   if?: { $expr: string };
   debounce?: string;
   minimum_interval?: string;
@@ -180,6 +210,6 @@ export interface ApplicationNotifications {
 }
 
 export interface GrantScope {
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
   access: "contract" | "full_collection";
 }

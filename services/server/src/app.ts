@@ -21,7 +21,7 @@ import type {
   GrantPolicy,
   GrantScope,
   NotificationCriterion,
-  TypeProvision
+  TypePackProvision
 } from "@mdbase/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
@@ -169,7 +169,26 @@ const DEVICE_AUTHORIZATION_SECONDS = 600;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
 const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
-  version: z.number().int().positive()
+  version: z.string().regex(
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+  )
+}).strict();
+const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const collectionContractImplementationSchema = z.object({
+  type_name: z.string().min(1).max(100),
+  type_version: z.number().int().positive(),
+  type_path: z.string().min(1).max(500).optional(),
+  digest: digestSchema,
+  fields: z.record(z.string(), z.string().min(1)),
+  binding: z.record(z.string(), z.unknown()).optional()
+}).strict();
+const collectionContractDescriptorSchema = z.object({
+  id: contractRequirementSchema.shape.id,
+  version: contractRequirementSchema.shape.version,
+  digest: digestSchema,
+  schema: z.record(z.string(), z.unknown()),
+  binding_schema: z.record(z.string(), z.unknown()).optional(),
+  implementations: z.array(collectionContractImplementationSchema).min(1).max(100)
 }).strict();
 const encryptedRelayRequestSchema = z.object({
   type: z.literal("encrypted_operation_request"),
@@ -2505,7 +2524,7 @@ export async function buildApp(options: BuildOptions) {
         display_name: z.string().min(1).max(200),
         spec_version: z.string().min(1).max(30),
         enabled: z.boolean(),
-        contracts: z.array(contractRequirementSchema).max(100).default([])
+        contracts: z.array(collectionContractDescriptorSchema).max(100).default([])
       })).max(1_000)
     }).parse(request.body);
     if (new Set(input.collections.map((collection) => collection.id)).size !== input.collections.length) {
@@ -3392,7 +3411,7 @@ export async function buildApp(options: BuildOptions) {
       application_id: z.uuid(),
       collection_id: z.uuid(),
       operations: z.array(operationSchema).min(1),
-      contracts: z.array(contractRequirementSchema).max(100).optional()
+      contracts: z.array(collectionContractDescriptorSchema).max(100).optional()
     }).parse(request.body);
     if (input.contracts) {
       await options.db.query(
@@ -3402,7 +3421,7 @@ export async function buildApp(options: BuildOptions) {
         [connector.id, input.collection_id, JSON.stringify(input.contracts)]
       );
     }
-    const collection = await options.db.query<{ id: string; contracts: ContractRequirement[]; spec_version: string }>(
+    const collection = await options.db.query<{ id: string; contracts: CollectionContractDescriptor[]; spec_version: string }>(
       `SELECT id, contracts, spec_version FROM collections
        WHERE connector_id = $1 AND local_id = $2 AND enabled = true
          AND present = true AND authority_state = 'active'`,
@@ -3434,7 +3453,10 @@ export async function buildApp(options: BuildOptions) {
     }
     assertOperationsAllowedByRequirements(input.operations, application.rows[0].requirements);
     assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
-    const scope = scopeForRequirements(application.rows[0].requirements);
+    const scope = scopeForRequirements(
+      application.rows[0].requirements,
+      collection.rows[0].contracts
+    );
     if (!contractsSatisfy(
       collection.rows[0].contracts,
       requiredContractsForRequirements(application.rows[0].requirements)
@@ -3520,7 +3542,7 @@ export async function buildApp(options: BuildOptions) {
     const input = z.object({
       collection_id: z.uuid(),
       operations: z.array(operationSchema).min(1),
-      contracts: z.array(contractRequirementSchema).max(100).optional()
+      contracts: z.array(collectionContractDescriptorSchema).max(100).optional()
     }).parse(request.body);
     if (input.contracts) {
       await options.db.query(
@@ -4155,7 +4177,7 @@ export async function buildApp(options: BuildOptions) {
       collection_id: z.uuid(),
       operations: z.array(operationSchema).min(1)
     }).parse(request.body);
-    const ownership = await options.db.query<{ connector_id: string; contracts: ContractRequirement[]; spec_version: string }>(
+    const ownership = await options.db.query<{ connector_id: string; contracts: CollectionContractDescriptor[]; spec_version: string }>(
       `SELECT col.connector_id, col.contracts, col.spec_version FROM collections col
        JOIN connectors c ON c.id = col.connector_id
        WHERE col.id = $1 AND c.user_id = $2`,
@@ -4187,7 +4209,10 @@ export async function buildApp(options: BuildOptions) {
     }
     assertOperationsAllowedByRequirements(input.operations, application.rows[0].requirements);
     assertCollectionSupportsOperations(ownership.rows[0].spec_version, input.operations);
-    const scope = scopeForRequirements(application.rows[0].requirements);
+    const scope = scopeForRequirements(
+      application.rows[0].requirements,
+      ownership.rows[0].contracts
+    );
     if (!contractsSatisfy(
       ownership.rows[0].contracts,
       requiredContractsForRequirements(application.rows[0].requirements)
@@ -4261,6 +4286,7 @@ export async function buildApp(options: BuildOptions) {
           effectiveHostedContractDescriptors(current.hosted_contracts, current.template!),
           current.scope.contracts
         ),
+        contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
         allowedOperations: operations
       });
@@ -5421,7 +5447,6 @@ async function reconcileApplicationGrants(
     notifications: ApplicationNotifications;
   }
 ): Promise<void> {
-  const desiredScope = scopeForRequirements(application.requirements);
   const requiredContracts = requiredContractsForRequirements(application.requirements);
   const grants = await db.query<{
     id: string;
@@ -5430,7 +5455,7 @@ async function reconcileApplicationGrants(
     hosted_collection_id: string | null;
     hosted_replica_id: string | null;
     operations: string[];
-    local_contracts: ContractRequirement[] | null;
+    local_contracts: CollectionContractDescriptor[] | null;
     spec_version: string | null;
     hosted_contracts: CollectionContractDescriptor[] | null;
     template: string | null;
@@ -5488,9 +5513,14 @@ async function reconcileApplicationGrants(
     const hostedDescriptors = grant.template
       ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
       : [];
-    const availableContracts = grant.template
-      ? contractRequirements(hostedDescriptors)
+    const availableDescriptors = grant.template
+      ? hostedDescriptors
       : grant.local_contracts ?? [];
+    const availableContracts = contractRequirements(availableDescriptors);
+    const desiredScope = scopeForRequirements(
+      application.requirements,
+      availableDescriptors
+    );
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
     const collectionCompatible = collectionKindCompatible
@@ -5517,6 +5547,7 @@ async function reconcileApplicationGrants(
           grantId: grant.id,
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
+          contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
           fullCollection: application.requirements.access === "full_collection",
           allowedOperations: grant.operations
         });
@@ -5591,7 +5622,7 @@ interface LiveAuthorizationCollection {
   connector_name: string;
   display_name: string;
   spec_version: string;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
 }
 
 async function liveAuthorizationCollections(
@@ -5821,11 +5852,12 @@ async function approvePortalAuthorization(
       local_id: string;
       display_name: string;
       spec_version: string;
+      contracts: CollectionContractDescriptor[];
       relay_public_key: string | null;
       authority_epoch: string | number;
     }>(
       `SELECT offer.connector_id, offer.local_id, col.display_name, col.spec_version,
-              con.relay_public_key, col.authority_epoch
+              col.contracts, con.relay_public_key, col.authority_epoch
        FROM authorization_collection_offers offer
        JOIN collections col ON col.id = offer.collection_id
        JOIN connectors con ON con.id = offer.connector_id
@@ -5846,7 +5878,7 @@ async function approvePortalAuthorization(
       );
     }
     assertCollectionSupportsOperations(selected.spec_version, operations);
-    const scope = scopeForRequirements(pending.requirements);
+    const scope = scopeForRequirements(pending.requirements, selected.contracts);
     let encryption: GrantEncryption | undefined;
     if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
       if (!pending.application_public_key || !selected.relay_public_key) {
@@ -5958,10 +5990,13 @@ async function approvePortalAuthorization(
         "The authorization request changed before activation completed."
       );
     }
+    const finalScope = scopeForRequirements(requirements, activation.contracts);
     await finalize.query(
-      "UPDATE grants SET activated_at = now() WHERE id = $1 AND activated_at IS NULL",
-      [grantId]
+      `UPDATE grants SET activated_at = now(), scope = $2::jsonb
+       WHERE id = $1 AND activated_at IS NULL`,
+      [grantId, JSON.stringify(finalScope)]
     );
+    grant!.scope = finalScope;
     await finalize.query(
       `UPDATE authorization_collection_offers SET consumed_at = now()
        WHERE id = $1 AND authorization_id = $2`,
@@ -6088,7 +6123,7 @@ async function approveAuthorization(
     }
     assertOperationsAllowedByRequirements(input.operations, pending.requirements);
     const collection = await connection.query<{
-    contracts: ContractRequirement[];
+    contracts: CollectionContractDescriptor[];
     local_id: string;
     relay_public_key: string | null;
     spec_version: string;
@@ -6099,7 +6134,10 @@ async function approveAuthorization(
        AND col.present = true AND col.authority_state = 'active'`,
     [input.collectionId, input.connectorId]
     );
-    scope = scopeForRequirements(pending.requirements);
+    scope = scopeForRequirements(
+      pending.requirements,
+      collection.rows[0]?.contracts ?? []
+    );
     if (!collection.rows[0]) {
       throw new RequestValidationError(
         "This collection does not provide the contracts required by the application."
@@ -6243,11 +6281,10 @@ async function approveHostedAuthorization(
       throw new RequestValidationError("Approved operations must be requested by the application.");
     }
     assertOperationsAllowedByRequirements(input.operations, pending.requirements);
-    const scope = scopeForRequirements(pending.requirements);
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
     let availableContracts = contractRequirements(availableDescriptors);
-    const provisions = requiredTypeProvisions(
+    const provisions = requiredTypePackProvisions(
       pending.requirements,
       pending.provisions,
       availableContracts
@@ -6258,7 +6295,10 @@ async function approveHostedAuthorization(
       );
     }
     if (provisions.length > 0) {
-      availableDescriptors = await provider.provisionTypes(input.collectionId, provisions);
+      availableDescriptors = await provider.provisionTypePacks(
+        input.collectionId,
+        provisions
+      );
       availableContracts = contractRequirements(availableDescriptors);
       await connection.query(
         "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1",
@@ -6270,6 +6310,10 @@ async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
+    const scope = scopeForRequirements(
+      pending.requirements,
+      availableDescriptors
+    );
     const allowedTypes = allowedTypesForRequirements(
       availableDescriptors,
       pending.requirements
@@ -6298,6 +6342,7 @@ async function approveHostedAuthorization(
       purpose: "application",
       mode: write ? "read_write" : "read_only",
       allowedTypes,
+      contractScope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: pending.requirements.access === "full_collection",
       allowedOperations: operations,
       allowedOrigin,
@@ -6546,17 +6591,21 @@ async function issueApplicationTokens(
   };
 }
 
-function scopeForRequirements(requirements: ApplicationRequirements | null | undefined): GrantScope {
+function scopeForRequirements(
+  requirements: ApplicationRequirements | null | undefined,
+  available: CollectionContractDescriptor[] = []
+): GrantScope {
   if (requirements?.access === "full_collection") {
     return { access: "full_collection", contracts: [] };
   }
-  const contracts = requirements?.contracts ?? [];
+  const required = new Set(
+    (requirements?.contracts ?? []).map(({ id, version }) => `${id}@${version}`)
+  );
   return {
     access: "contract",
-    contracts: [...new Map(contracts.map((contract) => [
-      `${contract.id}@${contract.version}`,
-      contract
-    ])).values()]
+    contracts: available.filter(({ id, version }) =>
+      required.has(`${id}@${version}`)
+    )
   };
 }
 
@@ -6727,20 +6776,19 @@ function contractsSatisfy(
   return required.every((contract) => present.has(`${contract.id}@${contract.version}`));
 }
 
-function requiredTypeProvisions(
+function requiredTypePackProvisions(
   requirements: ApplicationRequirements,
   provisions: ApplicationProvisions,
   available: ContractRequirement[]
-): TypeProvision[] | null {
+): TypePackProvision[] | null {
   const missing = requirements.contracts.filter((required) =>
     !available.some((present) => present.id === required.id && present.version === required.version)
   );
-  if (missing.some((required) => !provisions.types.some((provision) =>
+  if (missing.some((required) => !provisions.type_packs.some((provision) =>
     provision.provides.some((provided) => provided.id === required.id && provided.version === required.version)
   ))) return null;
-  return provisions.types.filter((provision) =>
-    provision.provides.length === 0
-    || provision.provides.some((provided) =>
+  return provisions.type_packs.filter((provision) =>
+    provision.provides.some((provided) =>
       missing.some((required) =>
         required.id === provided.id && required.version === provided.version
       )
@@ -7500,6 +7548,7 @@ async function narrowHostedGrantForUser(
       effectiveHostedContractDescriptors(current.hosted_contracts, current.template),
       current.scope.contracts
     ),
+    contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
     fullCollection: current.scope.access === "full_collection",
     allowedOperations: operations
   });

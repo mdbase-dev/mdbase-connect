@@ -40,7 +40,7 @@ describe("portable application manifests", () => {
       project_url: "https://workouts.example/source",
       icon: "https://workouts.example/icon.svg",
       requirements: {
-        contracts: [{ id: "workout.record", version: 1 }]
+        contracts: [{ id: "workout.record", version: "1.0.0" }]
       }
     });
 
@@ -48,7 +48,7 @@ describe("portable application manifests", () => {
       distribution: "portable",
       project_url: "https://workouts.example/source",
       requirements: {
-        contracts: [{ id: "workout.record", version: 1 }]
+        contracts: [{ id: "workout.record", version: "1.0.0" }]
       }
     });
     expect(registered.canonicalIdentity)

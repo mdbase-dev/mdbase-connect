@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import {
   formatValidationIssues,
   validateAppManifest,
-  validateContractExtension
+  validateDataContract
 } from "./index.js";
 
 const arguments_ = process.argv.slice(2);
@@ -19,7 +19,7 @@ if (!source || !["validate-manifest", "validate-contract"].includes(command ?? "
     const value = JSON.parse(await readFile(resolve(source), "utf8"));
     const result = command === "validate-manifest"
       ? validateAppManifest(value, { allowLocal })
-      : validateContractExtension(value);
+      : validateDataContract(value);
     if (result.valid) {
       console.log(`${source} is valid`);
     } else {

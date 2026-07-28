@@ -7,7 +7,8 @@ import type {
   EncryptedRelayEnvelope,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
-  GrantPolicy
+  GrantPolicy,
+  GrantScope
 } from "@mdbase/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
@@ -242,10 +243,7 @@ export class RelayHub {
       local_id: string;
       collection_name: string;
       operations: string[];
-      scope: {
-        contracts: Array<{ id: string; version: number }>;
-        access: "contract" | "full_collection";
-      };
+      scope: GrantScope;
       encryption: unknown | null;
       notification_criteria: unknown[];
       created_at: string;

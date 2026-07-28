@@ -4,6 +4,7 @@
 //! This crate only compiles application notification criteria into workflows
 //! and converts authority events into canonical runtime envelopes.
 
+pub mod contract_scope;
 mod timers;
 
 use mdbase::runtime_contracts::{
@@ -295,7 +296,7 @@ fn contract(value: Value) -> ContractDocument {
 mod tests {
     use super::*;
     use mdbase_connect_protocol::{
-        ApplicationAccess, ContractRequirement, GrantScope, NotificationPresentation,
+        ApplicationAccess, GrantScope, NotificationPresentation, RuntimeContractRequirement,
         RuntimeExpression,
     };
 
@@ -319,7 +320,7 @@ mod tests {
             },
             notification_criteria: vec![NotificationCriterion {
                 id: "task.reminder".to_string(),
-                event: ContractRequirement {
+                event: RuntimeContractRequirement {
                     id: TIMER_EVENT_ID.to_string(),
                     version: 1,
                 },

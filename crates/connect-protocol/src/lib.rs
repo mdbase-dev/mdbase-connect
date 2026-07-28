@@ -355,7 +355,7 @@ pub struct CollectionSummary {
     pub spec_version: String,
     pub enabled: bool,
     #[serde(default)]
-    pub contracts: Vec<ContractRequirement>,
+    pub contracts: Vec<CollectionContractDescriptor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -377,13 +377,27 @@ pub struct CollectionTypeDescriptor {
     pub extensions: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollectionContractDescriptor {
     pub id: String,
-    pub version: u64,
+    pub version: String,
+    pub digest: String,
+    pub schema: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_schema: Option<Value>,
+    pub implementations: Vec<CollectionContractImplementationDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectionContractImplementationDescriptor {
     pub type_name: String,
-    pub extension: String,
-    pub configuration: Value,
+    pub type_version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_path: Option<String>,
+    pub digest: String,
+    pub fields: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -724,6 +738,12 @@ pub struct ApplicationSummary {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractRequirement {
     pub id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeContractRequirement {
+    pub id: String,
     pub version: u64,
 }
 
@@ -745,17 +765,43 @@ pub enum ApplicationAccess {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationProvisions {
     #[serde(default)]
-    pub types: Vec<TypeProvision>,
+    pub type_packs: Vec<TypePackProvision>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TypeProvision {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    pub document: String,
+pub struct TypePackProvision {
+    pub manifest: TypePackManifest,
+    pub resources: Vec<TypePackSourceResource>,
     #[serde(default)]
     pub provides: Vec<ContractRequirement>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypePackManifest {
+    pub kind: String,
+    pub id: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub resources: Vec<TypePackManifestResource>,
+    #[serde(flatten)]
+    pub extensions: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypePackManifestResource {
+    pub kind: String,
+    pub source: String,
+    pub target: String,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypePackSourceResource {
+    pub source: String,
+    pub document: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -767,7 +813,7 @@ pub struct ApplicationNotifications {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationCriterion {
     pub id: String,
-    pub event: ContractRequirement,
+    pub event: RuntimeContractRequirement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#if: Option<RuntimeExpression>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -795,7 +841,7 @@ pub struct NotificationPresentation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrantScope {
     #[serde(default)]
-    pub contracts: Vec<ContractRequirement>,
+    pub contracts: Vec<CollectionContractDescriptor>,
     pub access: ApplicationAccess,
 }
 
@@ -943,7 +989,7 @@ pub struct AuthorizationCollectionOffer {
     pub display_name: String,
     pub spec_version: String,
     #[serde(default)]
-    pub contracts: Vec<ContractRequirement>,
+    pub contracts: Vec<CollectionContractDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1022,7 +1068,7 @@ pub enum RelayMessage {
         request_id: Uuid,
         ok: bool,
         #[serde(default)]
-        contracts: Vec<ContractRequirement>,
+        contracts: Vec<CollectionContractDescriptor>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<ControlError>,
     },

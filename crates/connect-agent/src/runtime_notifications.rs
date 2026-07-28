@@ -435,8 +435,8 @@ mod tests {
     use super::*;
     use axum::{extract::State, routing::post, Json, Router};
     use mdbase_connect_protocol::{
-        ApplicationAccess, ContractRequirement, GrantPolicy, GrantScope, NotificationCriterion,
-        NotificationPresentation, RuntimeExpression,
+        ApplicationAccess, GrantPolicy, GrantScope, NotificationCriterion,
+        NotificationPresentation, RuntimeContractRequirement, RuntimeExpression,
     };
     use rusqlite::Connection;
     use tempfile::tempdir;
@@ -501,7 +501,7 @@ mod tests {
             },
             notification_criteria: vec![NotificationCriterion {
                 id: "task.ready".to_string(),
-                event: ContractRequirement {
+                event: RuntimeContractRequirement {
                     id: "mdbase.record.modified".to_string(),
                     version: 1,
                 },
@@ -553,7 +553,7 @@ mod tests {
                 notification_criteria: vec![
                     NotificationCriterion {
                         id: "task.ready".to_string(),
-                        event: ContractRequirement {
+                        event: RuntimeContractRequirement {
                             id: "mdbase.record.modified".to_string(),
                             version: 1,
                         },
@@ -568,7 +568,7 @@ mod tests {
                     },
                     NotificationCriterion {
                         id: "reminder.due".to_string(),
-                        event: ContractRequirement {
+                        event: RuntimeContractRequirement {
                             id: "timer.fired".to_string(),
                             version: 1,
                         },
@@ -730,7 +730,7 @@ mod tests {
                 collection_name: "Tasks".to_string(),
                 notification_criteria: vec![NotificationCriterion {
                     id: "task.reminder".to_string(),
-                    event: ContractRequirement {
+                    event: RuntimeContractRequirement {
                         id: "timer.fired".to_string(),
                         version: 1,
                     },

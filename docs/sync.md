@@ -101,14 +101,16 @@ application ── mdbase operations ──> hosted provider ──> authoritati
 The Connect control plane continues to own accounts, app identity, grants,
 tokens, and routing. A hosted provider owns collection payloads and invokes
 `mdbase-rs` for collection behavior. Replicas authenticate through Connect and
-hold an exact collection, access mode, and contract scope.
+hold an exact collection and access mode. The current whole-record replication
+profile requires full-collection approval; contract-scoped applications use
+normalized operations instead.
 
 Two replica forms serve different purposes:
 
 | Replica | Local representation | Typical scope | Purpose |
 | --- | --- | --- | --- |
-| Application cache | App-owned database | One or more domain contracts | Fast startup and offline application use |
-| Filesystem mirror | mdbase directory and replica metadata | User-selected full collection or contracts | Local Markdown access and desktop tooling |
+| Application cache | App-owned database | Full collection (current sync profile) | Fast startup and offline application use |
+| Filesystem mirror | mdbase directory and replica metadata | Full collection | Local Markdown access and desktop tooling |
 
 An application cache is a projection of a collection. It does not need to be a
 complete mdbase directory. A filesystem mirror materializes Markdown documents
@@ -433,9 +435,12 @@ whole-collection administration capability is introduced.
 
 ## Application cache behavior
 
-An application cache stores only records in its approved contract scope. It
-opens from local state, applies user actions optimistically to the cache, and
-records the corresponding mutation before reporting success to the UI.
+The current sync wire format carries complete Markdown records, so the
+authority refuses sync sessions for contract-scoped grants. This prevents an
+offline cache from accidentally receiving bodies or unmapped fields that its
+contract does not expose. A full-collection application cache opens from local
+state, applies user actions optimistically, and records the corresponding
+mutation before reporting success to the UI.
 Background and resume tasks push pending mutations and pull authoritative
 changes when the operating system permits network work.
 
@@ -471,7 +476,7 @@ mutation enforcement. Mutations are currently submitted individually; durable
 causal links preserve local ordering.
 
 Replication is versioned independently from the mdbase spec, Connect relay
-protocol, app manifest, and domain contracts. Shared Rust and TypeScript
+protocol, app manifest, and data contracts. Shared Rust and TypeScript
 fixtures should cover every wire object before a hosted provider is deployed.
 
 ## Security and privacy

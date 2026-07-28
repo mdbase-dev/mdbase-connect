@@ -107,6 +107,22 @@ views:
         direction: ASC
 `);
   await mkdir(join(collectionPath, "_types"), { recursive: true });
+  await mkdir(join(collectionPath, "_contracts"), { recursive: true });
+  await writeFile(join(collectionPath, "_contracts", "workout.record.md"), `---
+kind: mdbase.contract
+id: workout.record
+version: 1.0.0
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title, status]
+    additionalProperties: false
+    properties:
+      title: { type: string }
+      status: { enum: [open, done] }
+---
+`);
   await writeFile(join(collectionPath, "_types", "workout.md"), `---
 kind: mdbase.type
 name: workout
@@ -121,13 +137,12 @@ schema:
       type: { const: workout }
       title: { type: string }
       status: { enum: [open, done] }
-x-workout:
-  contract: workout.record
-  version: 1
-  field_roles:
-    title: title
-    status: status
-  status:
+implements:
+  - contract: workout.record
+    version: 1.0.0
+    fields:
+      title: title
+      status: status
 ---
 `);
   await writeFile(join(collectionPath, "_types", "private.md"), `---
@@ -222,7 +237,14 @@ secret: connector scope test
     "collection", "create", duplicateCollectionPath,
     "--name", "Workouts"
   ]);
-  await mkdir(join(duplicateCollectionPath, "_types"), { recursive: true });
+  await Promise.all([
+    mkdir(join(duplicateCollectionPath, "_contracts"), { recursive: true }),
+    mkdir(join(duplicateCollectionPath, "_types"), { recursive: true })
+  ]);
+  await writeFile(
+    join(duplicateCollectionPath, "_contracts", "workout.record.md"),
+    await readFile(join(collectionPath, "_contracts", "workout.record.md"))
+  );
   await writeFile(
     join(duplicateCollectionPath, "_types", "workout.md"),
     await readFile(join(collectionPath, "_types", "workout.md"))
@@ -662,8 +684,8 @@ secret: connector scope test
   const create = await poll(async () => {
     const response = await rawOperation(collection.id, "create", accessToken, {
       path: "sessions/first.md",
-      frontmatter: { type: "workout", title: "First connected workout", status: "open" },
-      body: "Created through the relay."
+      type: "workout",
+      frontmatter: { title: "First connected workout", status: "open" }
     });
     return response.status === 200 ? response : null;
   }, "authorized relay create did not reach the connector");
@@ -990,7 +1012,7 @@ async function availableTcpPort() {
 async function openManifestServer() {
   const primary = await openApplicationServer(
     "MVP Workout App",
-    [{ id: "workout.record", version: 1 }]
+    [{ id: "workout.record", version: "1.0.0" }]
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {

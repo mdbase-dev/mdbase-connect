@@ -114,31 +114,32 @@ envelope. Reads and successful writes carry opaque revisions. Mutations accept
 `if_revision`, which allows clients to prevent lost updates without knowing
 how a provider constructs its revision token.
 
-An application manifest may require exact domain contract versions. These
+An application manifest may require exact data-contract versions. These
 requirements determine collection compatibility and provisioning. Access is
-contract-scoped by default: the connector resolves each contract to its current
-local type and applies that scope to discovery, queries, direct record access,
-mutations, and change delivery. Applications that need collection-level
+contract-scoped by default: the connector pins the exact contract plus every
+approved implementation, unions those provider types, and exposes normalized
+contract views for queries, direct record access, mutations, and change
+delivery. Applications that need collection-level
 features such as saved views may declare `requirements.access` as
 `full_collection`; their contract requirements continue to govern compatibility
 and setup. Query type filters are constrained locally for contract-scoped
 grants; direct paths are checked against matched record types; and updates and
 renames are checked against their prospective type membership before writing.
 
-An application manifest may pair required contracts with portable type provisions.
+An application manifest may pair required contracts with portable type packs.
 A collection is then either ready, provisionable, or incompatible. During
-approval, the authority that owns the collection installs only provisions
-needed for missing contracts, reopens the collection, and verifies the exact
-contract identities and versions before a grant is created. This setup action
-does not give the application continuing `create_type` or `update_type`
-permission. Local collection paths and record payloads remain outside the
-control plane; only the declared type documents and resulting contract metadata
-participate in authorization.
+approval, the authority installs each required pack as one preflighted
+transaction, reopens the collection, and verifies the exact contract and
+implementation digests before creating a grant. A pack contains the contract,
+every implementing type, and any referenced schemas; a failure writes none of
+them. This setup action does not give the application continuing `create_type`
+or `update_type` permission. Local collection paths and record payloads remain
+outside the control plane.
 
 `describe` returns the collection's spec version, supported operations, JSON
 Schemas, collection-relative type paths, complete portable type definitions,
-canonical collection settings, `x-*` type extensions, discovered contract
-declarations, and the current change cursor. It omits absolute paths and
+canonical collection settings, first-class contract descriptors, and the
+current change cursor. It omits absolute paths and
 implementation-specific or extension values from the collection configuration.
 
 ## Change delivery
@@ -184,12 +185,19 @@ cannot add evaluation logic to an existing grant. Changed criteria therefore
 require explicit reauthorization before the authority receives an updated
 policy.
 
-## Domain contracts
+## Data contracts
 
-A type may declare an optional domain contract in an extension such as
-`x-workout`. Discovery returns the extension unchanged along with its type
-name and version. An adapter can then translate stable domain roles into the
-collection's configured field names.
+A contract is a versioned JSON Schema stored as an `mdbase.contract` record.
+A type opts into it through `implements`, which maps stable contract fields to
+that type's concrete fields. Several types may implement the same contract;
+reads and queries union those providers and return one normalized contract
+view. If a record has more than one approved view, the application supplies
+the exact `{ id, version, type }` selector.
+
+Contract-scoped applications never receive the raw Markdown body or unmapped
+frontmatter. Writes accept normalized contract fields and the authority maps
+them back through the selected implementation. Full-record access is a
+separate, explicitly approved capability.
 
 Application adapters implement their behavior through generic mdbase
 operations. Revision-sensitive changes read the latest revision and submit a
@@ -315,6 +323,6 @@ is in [Hosted collections and sync](./sync.md).
 ## Versioning
 
 The mdbase spec version, Connect protocol version, app manifest version, and
-domain contract versions evolve independently. The unreleased wire contracts
+data-contract versions evolve independently. The unreleased wire contracts
 all begin at v1. Future incompatible formats will use new declared versions and
 ship as coordinated agent, server, and SDK releases.

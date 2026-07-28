@@ -239,31 +239,63 @@ metadata, not proof of a publisher; grants remain bound to the authorization
 completed by that installation. No developer account, public manifest host, or
 manually issued client secret is required.
 
-Applications declare required domain contracts in their bundled manifest. Connect only
-offers collections that are compatible or can be configured safely, then derives
-the record scope from this declaration. It may include portable
-type definitions for the connector to install during approval:
+Applications declare exact data-contract versions in their bundled manifest.
+Connect offers collections that already provide those contracts or can install
+the declared type pack safely. The developer helper computes every resource
+digest:
 
-```json
-{
-  "manifest_version": 1,
-  "id": "dev.mdbase.worklog",
-  "name": "Worklog",
-  "homepage": "https://worklog.example",
-  "redirect_uris": ["https://worklog.example/auth/mdbase/callback"],
-  "requirements": {
-    "collection_kind": "hosted",
-    "access": "full_collection",
-    "contracts": [{ "id": "example.work-item", "version": 1 }]
+```ts
+import { defineTypePack } from "@mdbase/connect-dev";
+
+const contract = `---
+kind: mdbase.contract
+id: example.work-item
+version: 1.0.0
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title]
+    properties:
+      title: { type: string }
+---
+`;
+const type = `---
+kind: mdbase.type
+name: work-item
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields: { title: title }
+---
+`;
+
+export const manifest = {
+  manifest_version: 1,
+  id: "dev.mdbase.worklog",
+  name: "Worklog",
+  homepage: "https://worklog.example",
+  redirect_uris: ["https://worklog.example/auth/mdbase/callback"],
+  requirements: {
+    contracts: [{ id: "example.work-item", version: "1.0.0" }]
   },
-  "provisions": {
-    "types": [{
-      "name": "work-item",
-      "document": "---\nkind: mdbase.type\nname: work-item\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-worklog:\n  contract: example.work-item\n  version: 1\n---\n",
-      "provides": [{ "id": "example.work-item", "version": 1 }]
-    }]
+  provisions: {
+    type_packs: [defineTypePack({
+      id: "example.work-items",
+      version: "1.0.0",
+      provides: [{ id: "example.work-item", version: "1.0.0" }],
+      resources: [
+        { kind: "contract", source: "_contracts/example.work-item.md", document: contract },
+        { kind: "type", source: "_types/work-item.md", document: type }
+      ]
+    })]
   }
-}
+};
 ```
 
 Set `collection_kind` to `hosted` when the application needs a durable
@@ -280,14 +312,14 @@ order. Property descriptors retain source labels for projected and computed
 values. `executeView()` returns their values on each result row.
 
 Provisioning is part of the approval flow. The connector validates and
-installs only the missing type definitions, verifies that they expose the
-declared contracts, and creates the scoped grant afterward. The application is
-not granted collection-wide `create_type` access.
+installs each missing type pack transactionally, verifies its exact contracts
+and implementations, and creates the scoped grant afterward. The application
+is not granted collection-wide type-management access.
 
 The SDK returns the mdbase operation envelope, carries revision tokens in typed
 record results, and accepts `if_revision` on mutations. `describe()` exposes
 JSON Schemas, portable type definitions, canonical collection settings, and
-optional domain contracts. `watch()` resumes from a local collection cursor;
+first-class data contracts. `watch()` resumes from a local collection cursor;
 the Connect server does not store the change feed.
 `preflightRename()` and `preflightDelete()` run the canonical collection
 operation without changing records or advancing the change cursor, so an app

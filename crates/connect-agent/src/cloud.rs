@@ -272,7 +272,7 @@ impl CloudControlClient {
     pub async fn create_grant(
         &self,
         params: &GrantCreateParams,
-        contracts: &[mdbase_connect_protocol::ContractRequirement],
+        contracts: &[mdbase_connect_protocol::CollectionContractDescriptor],
     ) -> Result<Value, ConnectError> {
         self.json(
             Method::POST,
@@ -308,7 +308,7 @@ impl CloudControlClient {
     pub async fn approve_authorization(
         &self,
         params: &AuthorizationApproveParams,
-        contracts: &[mdbase_connect_protocol::ContractRequirement],
+        contracts: &[mdbase_connect_protocol::CollectionContractDescriptor],
     ) -> Result<Value, ConnectError> {
         self.json(
             Method::POST,

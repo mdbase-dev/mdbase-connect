@@ -1,7 +1,7 @@
 import type {
   CollectionContractDescriptor,
   GrantPolicy,
-  TypeProvision
+  TypePackProvision
 } from "@mdbase/connect-protocol";
 import { safeEqual } from "./security.js";
 
@@ -17,6 +17,7 @@ export interface HostedReplicaEnrollment {
   purpose?: "mirror" | "application";
   mode: "read_only" | "read_write";
   allowedTypes: string[];
+  contractScope?: CollectionContractDescriptor[];
   fullCollection?: boolean;
   allowedOperations?: string[];
   allowedOrigin?: string;
@@ -96,14 +97,14 @@ export class HostedProviderClient {
     await this.request("DELETE", `/internal/v1/collections/${encodeURIComponent(collectionId)}`);
   }
 
-  async provisionTypes(
+  async provisionTypePacks(
     collectionId: string,
-    provisions: TypeProvision[]
+    provisions: TypePackProvision[]
   ): Promise<CollectionContractDescriptor[]> {
     const result = await this.request(
       "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/types/provision`,
-      { types: provisions }
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/type-packs/provision`,
+      { type_packs: provisions }
     ) as { contracts?: CollectionContractDescriptor[] } | undefined;
     return result?.contracts ?? [];
   }
@@ -118,6 +119,7 @@ export class HostedProviderClient {
         purpose: replica.purpose ?? "mirror",
         mode: replica.mode,
         allowed_types: replica.allowedTypes,
+        contract_scope: replica.contractScope ?? [],
         full_collection: replica.fullCollection ?? false,
         allowed_operations: replica.allowedOperations ?? [],
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
@@ -151,6 +153,7 @@ export class HostedProviderClient {
       grantId: string;
       mode: "read_only" | "read_write";
       allowedTypes: string[];
+      contractScope: CollectionContractDescriptor[];
       fullCollection: boolean;
       allowedOperations: string[];
     }
@@ -162,6 +165,7 @@ export class HostedProviderClient {
         grant_id: policy.grantId,
         mode: policy.mode,
         allowed_types: policy.allowedTypes,
+        contract_scope: policy.contractScope,
         full_collection: policy.fullCollection,
         allowed_operations: policy.allowedOperations
       }

@@ -267,7 +267,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       icon text,
       redirect_uris jsonb NOT NULL,
       requirements jsonb NOT NULL DEFAULT '{"contracts":[]}'::jsonb,
-      provisions jsonb NOT NULL DEFAULT '{"types":[]}'::jsonb,
+      provisions jsonb NOT NULL DEFAULT '{"type_packs":[]}'::jsonb,
       notifications jsonb NOT NULL DEFAULT '{"criteria":[]}'::jsonb,
       first_seen_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()

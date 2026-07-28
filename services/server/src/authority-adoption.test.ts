@@ -8,6 +8,18 @@ import {
 } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
+const TASKS_CONTRACT = {
+  id: "example.tasks",
+  version: "1.0.0",
+  digest: `sha256:${"0".repeat(64)}`,
+  schema: { type: "object" },
+  implementations: [{
+    type_name: "task",
+    type_version: 1,
+    digest: `sha256:${"1".repeat(64)}`,
+    fields: {}
+  }]
+};
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
@@ -53,7 +65,7 @@ describe("portable local collection adoption", () => {
           manifest_digest: manifestDigest,
           source_revision: sourceRevision,
           source_head: 3,
-          contracts: [{ id: "tasks", version: 1 }],
+          contracts: [TASKS_CONTRACT],
           expires_at: new Date(Date.now() + 30 * 60_000).toISOString()
         };
       },
@@ -143,7 +155,11 @@ describe("portable local collection adoption", () => {
       headers: { authorization: `Bearer ${secret}` },
       payload: {
         ...completion,
-        contracts: [{ id: "forged.contract", version: 999 }]
+        contracts: [{
+          ...TASKS_CONTRACT,
+          id: "forged.contract",
+          version: "999.0.0"
+        }]
       }
     });
     expect(forgedContracts.statusCode).toBe(400);
@@ -199,14 +215,14 @@ describe("portable local collection adoption", () => {
     const metadata = await db.query<{
       authority_state: string;
       authority_epoch: string | number;
-      contracts: Array<{ id: string; version: number }>;
+      contracts: Array<{ id: string; version: string }>;
     }>(
       "SELECT authority_state, authority_epoch, contracts FROM hosted_collections WHERE id = $1",
       [collectionId]
     );
     expect(metadata.rows[0]).toMatchObject({
       authority_state: "active",
-      contracts: [{ id: "tasks", version: 1 }]
+      contracts: [TASKS_CONTRACT]
     });
     expect(Number(metadata.rows[0].authority_epoch)).toBe(2);
 

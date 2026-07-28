@@ -10,10 +10,10 @@ use mdbase_connect_protocol::crypto::{
     parse_counter, validate_envelope, RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
 };
 use mdbase_connect_protocol::{
-    AgentConnectionState, AgentStatus, ApplicationAccess, ApplicationRequirements, AuthorityTarget,
-    AuthorizationCollectionOffer, ContractRequirement, ControlCommand, ControlError,
-    ControlRequest, ControlResponse, GrantScope, RelayMessage, SyncReplicaMode,
-    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
+    AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
+    AuthorizationCollectionOffer, ControlCommand, ControlError, ControlRequest, ControlResponse,
+    RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION,
+    LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -296,7 +296,7 @@ impl AgentState {
                                 collection_id: collection.id,
                                 display_name: description.display_name,
                                 spec_version: description.spec_version,
-                                contracts: contract_requirements(&description.contracts),
+                                contracts: description.contracts,
                             })
                         })
                         .collect()
@@ -313,7 +313,7 @@ impl AgentState {
                 collection_id,
                 requirements,
                 provisions,
-                grant,
+                mut grant,
                 ..
             } => {
                 let result = (|| {
@@ -327,7 +327,9 @@ impl AgentState {
                             "The proposed grant names a different collection.".to_string(),
                         ));
                     }
-                    if !scope_matches_requirements(&grant.scope, &requirements) {
+                    if grant.scope.access
+                        != requirements.access.unwrap_or(ApplicationAccess::Contract)
+                    {
                         return Err(ConnectError::AccessDenied(
                             "The proposed grant scope does not match the application request."
                                 .to_string(),
@@ -350,11 +352,26 @@ impl AgentState {
                             before.display_name
                         )));
                     }
-                    let contracts = self.registry.provision_types(
+                    let contracts = self.registry.provision_type_packs(
                         collection_id,
                         &requirements,
-                        &provisions.types,
+                        &provisions.type_packs,
                     )?;
+                    grant.scope.contracts =
+                        if grant.scope.access == ApplicationAccess::FullCollection {
+                            Vec::new()
+                        } else {
+                            contracts
+                                .iter()
+                                .filter(|available| {
+                                    requirements.contracts.iter().any(|required| {
+                                        available.id == required.id
+                                            && available.version == required.version
+                                    })
+                                })
+                                .cloned()
+                                .collect()
+                        };
                     self.watcher.rescan(collection_id);
                     self.registry.upsert_grant(&grant)?;
                     Ok(contracts)
@@ -1257,16 +1274,18 @@ impl AgentState {
         collection_id: uuid::Uuid,
         requirements: &mdbase_connect_protocol::ApplicationRequirements,
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
-    ) -> Result<Vec<mdbase_connect_protocol::ContractRequirement>, ConnectError> {
+    ) -> Result<Vec<mdbase_connect_protocol::CollectionContractDescriptor>, ConnectError> {
         let registered = self.registry.get(collection_id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
                 "This collection is disabled on its computer.".to_string(),
             ));
         }
-        let contracts =
-            self.registry
-                .provision_types(collection_id, requirements, &provisions.types)?;
+        let contracts = self.registry.provision_type_packs(
+            collection_id,
+            requirements,
+            &provisions.type_packs,
+        )?;
         self.watcher.rescan(collection_id);
         let mut collection = self.registry.get(collection_id)?;
         collection.contracts = contracts;
@@ -1361,57 +1380,17 @@ impl AgentState {
     }
 }
 
-fn contract_requirements(
-    contracts: &[mdbase_connect_protocol::CollectionContractDescriptor],
-) -> Vec<ContractRequirement> {
-    let mut contracts = contracts
-        .iter()
-        .map(|contract| ContractRequirement {
-            id: contract.id.clone(),
-            version: contract.version,
-        })
-        .collect::<Vec<_>>();
-    contracts.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.version.cmp(&right.version))
-    });
-    contracts.dedup();
-    contracts
-}
-
-fn scope_matches_requirements(scope: &GrantScope, requirements: &ApplicationRequirements) -> bool {
-    let expected_access = requirements.access.unwrap_or(ApplicationAccess::Contract);
-    let mut actual_contracts = scope.contracts.clone();
-    let mut expected_contracts = if expected_access == ApplicationAccess::FullCollection {
-        Vec::new()
-    } else {
-        requirements.contracts.clone()
-    };
-    actual_contracts.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.version.cmp(&right.version))
-    });
-    expected_contracts.sort_by(|left, right| {
-        left.id
-            .cmp(&right.id)
-            .then_with(|| left.version.cmp(&right.version))
-    });
-    actual_contracts.dedup();
-    expected_contracts.dedup();
-    scope.access == expected_access && actual_contracts == expected_contracts
-}
-
 fn requirements_can_be_provisioned(
     requirements: &mdbase_connect_protocol::ApplicationRequirements,
     provisions: &mdbase_connect_protocol::ApplicationProvisions,
-    available: &[mdbase_connect_protocol::ContractRequirement],
+    available: &[mdbase_connect_protocol::CollectionContractDescriptor],
 ) -> bool {
     requirements.contracts.iter().all(|required| {
-        available.contains(required)
+        available
+            .iter()
+            .any(|contract| contract.id == required.id && contract.version == required.version)
             || provisions
-                .types
+                .type_packs
                 .iter()
                 .any(|provision| provision.provides.contains(required))
     })

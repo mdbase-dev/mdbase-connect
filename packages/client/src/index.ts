@@ -70,6 +70,7 @@ export type {
   CollectionTypeDescriptor,
   CollectionTypeDocument,
   ContractRequirement,
+  DataContractViewIdentity,
   GrantScope,
   JsonObject,
   MdbaseAppManifest,
@@ -92,7 +93,10 @@ export type {
   DeleteViewSourceInput,
   DeleteViewSourceResult,
   ExecuteViewInput,
-  TypeProvision
+  TypePackManifest,
+  TypePackManifestResource,
+  TypePackProvision,
+  TypePackSourceResource
 } from "@mdbase/connect-protocol";
 
 export interface MdbaseConnectOptions {
@@ -342,11 +346,24 @@ export function showMdbasePushNotification(
 
 export interface ReadInput {
   path: string;
-  /** Include the exact UTF-8 Markdown source in `result.document`. */
+  /** Select an exact approved contract view when more than one is possible. */
+  contract?: DataContractSelector;
+  /** Include the exact UTF-8 Markdown source; requires full-collection access. */
   include_document?: boolean;
 }
 
+export interface DataContractSelector {
+  id: string;
+  version: string;
+  /** Required when several approved types implement the selected contract. */
+  type?: string;
+}
+
 export interface QueryInput {
+  /**
+   * Contract-scoped queries accept only `types`, pagination,
+   * `frontmatter_mode`, and `contract`; filter normalized fields in the app.
+   */
   types?: string[];
   where?: unknown;
   order_by?: unknown;
@@ -356,6 +373,8 @@ export interface QueryInput {
   snapshot?: string;
   include_body?: boolean;
   frontmatter_mode?: "effective" | "persisted" | "both";
+  /** Narrow a contract-scoped query to one exact contract/provider view. */
+  contract?: DataContractSelector;
   [key: string]: unknown;
 }
 
@@ -435,7 +454,9 @@ export interface PendingMutationSummary {
 export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
   path?: string;
   type?: string;
+  contract?: DataContractSelector;
   frontmatter?: Partial<Frontmatter> & JsonObject;
+  /** Requires full-collection access; contract creates are frontmatter-only. */
   body?: string;
   if_revision?: string;
   /** Include the resulting exact Markdown source in `result.document`. */
@@ -444,8 +465,9 @@ export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
 
 interface UpdateInputBase {
   path: string;
+  contract?: DataContractSelector;
   if_revision?: string;
-  /** Include the resulting exact Markdown source in `result.document`. */
+  /** Include the resulting exact Markdown source; requires full-collection access. */
   include_document?: boolean;
 }
 
@@ -468,6 +490,7 @@ export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInp
 
 export interface DeleteInput {
   path: string;
+  contract?: DataContractSelector;
   check_backlinks?: boolean;
   if_revision?: string;
 }
@@ -489,6 +512,7 @@ export interface DeletePreflightResult {
 export interface RenameInput {
   from: string;
   to: string;
+  contract?: DataContractSelector;
   update_refs?: boolean;
   if_revision?: string;
   /** Include the resulting exact Markdown source in `result.document`. */
@@ -3403,7 +3427,24 @@ function parseGrantScope(value: unknown): GrantScope | null {
     !contract
     || typeof contract !== "object"
     || typeof contract.id !== "string"
-    || !Number.isInteger(contract.version)
+    || typeof contract.version !== "string"
+    || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(contract.version)
+    || !/^sha256:[0-9a-f]{64}$/.test(contract.digest)
+    || !contract.schema
+    || typeof contract.schema !== "object"
+    || Array.isArray(contract.schema)
+    || !Array.isArray(contract.implementations)
+    || contract.implementations.some((implementation) =>
+      !implementation
+      || typeof implementation !== "object"
+      || typeof implementation.type_name !== "string"
+      || !Number.isInteger(implementation.type_version)
+      || !/^sha256:[0-9a-f]{64}$/.test(implementation.digest)
+      || !implementation.fields
+      || typeof implementation.fields !== "object"
+      || Array.isArray(implementation.fields)
+      || Object.values(implementation.fields).some((field) => typeof field !== "string")
+    )
   )) return null;
   return scope as GrantScope;
 }

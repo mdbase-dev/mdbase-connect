@@ -1877,7 +1877,6 @@ version = "0.4.0-rc.1"
 dependencies = [
  "chrono",
  "chrono-tz",
- "clap",
  "fancy-regex 0.14.0",
  "fs2",
  "jsonschema",
@@ -1924,6 +1923,7 @@ dependencies = [
  "keyring",
  "mdbase",
  "mdbase-connect-protocol",
+ "mdbase-connect-runtime",
  "notify",
  "rusqlite",
  "serde",
@@ -2051,6 +2051,7 @@ dependencies = [
  "mdbase-runtime",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",

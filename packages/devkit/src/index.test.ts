@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import type { CollectionDescription } from "@mdbase/connect-protocol";
 import {
-  ContractDefinitionError,
+  DataContractDefinitionError,
+  TypePackDefinitionError,
   createSandbox,
-  defineContract,
+  defineDataContract,
+  defineTypePack,
   validateAppManifest,
-  validateContractExtension,
+  validateDataContract,
   validateProtocolValue
 } from "./index.js";
 
@@ -20,12 +23,36 @@ const taskDescription: Partial<CollectionDescription> = {
   }],
   contracts: [{
     id: "example.work-item",
-    version: 1,
-    type_name: "task",
-    extension: "x-work-item",
-    configuration: { contract: "example.work-item", version: 1 }
+    version: "1.0.0",
+    digest: `sha256:${"0".repeat(64)}`,
+    schema: { type: "object" },
+    implementations: [{
+      type_name: "task",
+      type_version: 1,
+      digest: `sha256:${"1".repeat(64)}`,
+      fields: { title: "title" }
+    }]
   }]
 };
+
+function taskTypePack(provides = [{ id: "example.work-item", version: "1.0.0" }]) {
+  const document = "---\nkind: mdbase.type\nname: task\n---\n";
+  return {
+    manifest: {
+      kind: "mdbase.type-pack",
+      id: "example.tasks",
+      version: "1.0.0",
+      resources: [{
+        kind: "type",
+        source: "task.md",
+        target: "_types/task.md",
+        digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+      }]
+    },
+    resources: [{ source: "task.md", document }],
+    provides
+  };
+}
 
 describe("canonical developer validation", () => {
   it("validates public application manifests with the packaged schema", () => {
@@ -35,7 +62,7 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: 1 }] }
+      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] }
     })).toEqual({ valid: true, issues: [] });
     const invalid = validateAppManifest({
       manifest_version: 1,
@@ -79,13 +106,9 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
       provisions: {
-        types: [{
-          name: "Task",
-          document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "example.work-item", version: 1 }]
-        }]
+        type_packs: [taskTypePack()]
       }
     }).valid).toBe(true);
     expect(validateAppManifest({
@@ -94,13 +117,9 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
       provisions: {
-        types: [{
-          name: "Unrelated",
-          document: "---\nkind: mdbase.type\nname: unrelated\n---\n",
-          provides: [{ id: "other.contract", version: 1 }]
-        }]
+        type_packs: [taskTypePack([{ id: "other.contract", version: "1.0.0" }])]
       }
     }).valid).toBe(false);
   });
@@ -115,17 +134,9 @@ describe("canonical developer validation", () => {
         "https://tasks.example/callback",
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
-      requirements: { contracts: [{ id: "example.work-item", version: 1 }] },
+      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
       provisions: {
-        types: [{
-          name: "Task",
-          document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "example.work-item", version: 1 }]
-        }, {
-          name: "Task comment",
-          document: "---\nkind: mdbase.type\nname: task_comment\n---\n",
-          provides: []
-        }]
+        type_packs: [taskTypePack()]
       }
     };
 
@@ -136,16 +147,54 @@ describe("canonical developer validation", () => {
     }).valid).toBe(false);
   });
 
-  it("defines extension contracts without erasing application-specific fields", () => {
-    const contract = defineContract({
-      contract: "example.work-item",
-      version: 1,
-      field_roles: { title: "title" }
+  it("defines first-class data contracts without erasing extension fields", () => {
+    const contract = defineDataContract({
+      kind: "mdbase.contract",
+      id: "example.work-item",
+      version: "1.0.0",
+      schema: {
+        dialect: "json-schema-2020-12",
+        value: { type: "object" }
+      },
+      "x-example": { owner: "Tasks" }
     });
-    expect(contract.field_roles.title).toBe("title");
-    expect(() => defineContract({ contract: "Invalid Contract", version: 0 }))
-      .toThrow(ContractDefinitionError);
-    expect(validateContractExtension(contract).valid).toBe(true);
+    expect(contract["x-example"].owner).toBe("Tasks");
+    expect(() => defineDataContract({
+      kind: "mdbase.contract",
+      id: "Invalid Contract",
+      version: "1",
+      schema: {
+        dialect: "json-schema-2020-12",
+        value: { type: "object" }
+      }
+    })).toThrow(DataContractDefinitionError);
+    expect(validateDataContract(contract).valid).toBe(true);
+  });
+
+  it("builds readable type packs with exact generated resource digests", () => {
+    const document = "---\nkind: mdbase.type\nname: task\nversion: 1\n---\n";
+    const pack = defineTypePack({
+      id: "example.tasks",
+      version: "1.0.0",
+      resources: [{
+        kind: "type",
+        source: "_types/task.md",
+        document
+      }],
+      provides: [{ id: "example.work-item", version: "1.0.0" }]
+    });
+    expect(pack.manifest.resources[0]).toEqual({
+      kind: "type",
+      source: "_types/task.md",
+      target: "_types/task.md",
+      digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+    });
+    expect(() => defineTypePack({
+      id: "invalid",
+      version: "1",
+      resources: [],
+      provides: []
+    })).toThrow(TypePackDefinitionError);
   });
 
   it("validates addressable wire definitions", () => {

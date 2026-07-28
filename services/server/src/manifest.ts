@@ -11,6 +11,12 @@ export { isNativeRedirectUri };
 
 const contractSchema = z.object({
   id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
+  version: z.string().regex(
+    /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+  )
+}).strict();
+const runtimeContractSchema = z.object({
+  id: contractSchema.shape.id,
   version: z.number().int().positive()
 }).strict();
 const applicationIdSchema = z.string()
@@ -24,6 +30,32 @@ const contractsSchema = z.array(contractSchema).max(20).refine(
   (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
   "Contracts must be unique."
 );
+const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const typePackResourceSchema = z.object({
+  kind: z.enum(["contract", "type", "schema"]),
+  source: z.string().min(1).max(240),
+  target: z.string().min(1).max(240),
+  digest: digestSchema
+}).strict();
+const typePackManifestSchema = z.object({
+  kind: z.literal("mdbase.type-pack"),
+  id: contractSchema.shape.id,
+  version: contractSchema.shape.version,
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  resources: z.array(typePackResourceSchema).min(1).max(100)
+}).catchall(z.unknown()).superRefine((manifest, context) => {
+  const standard = new Set(["kind", "id", "version", "name", "description", "resources"]);
+  for (const key of Object.keys(manifest)) {
+    if (!standard.has(key) && !/^x-[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(key)) {
+      context.addIssue({
+        code: "custom",
+        path: [key],
+        message: "Only x-* extension keys are allowed in a type-pack manifest."
+      });
+    }
+  }
+});
 const requirementsSchema = z.object({
   contracts: contractsSchema,
   access: z.enum(["contract", "full_collection"]).optional(),
@@ -31,7 +63,7 @@ const requirementsSchema = z.object({
 }).strict().default({ contracts: [] });
 const notificationCriterionSchema = z.object({
   id: contractSchema.shape.id,
-  event: contractSchema,
+  event: runtimeContractSchema,
   if: z.object({ $expr: z.string().min(1).max(4_096) }).strict().optional(),
   debounce: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),
   minimum_interval: z.string().regex(/^[0-9]+(?:ms|s|m|h|d)$/).optional(),
@@ -60,13 +92,15 @@ const manifestFields = {
   name: z.string().trim().min(1).max(100),
   requirements: requirementsSchema,
   provisions: z.object({
-    types: z.array(z.object({
-      name: z.string().trim().min(1).max(100),
-      path: z.string().trim().min(1).max(240).optional(),
-      document: z.string().min(1).max(131_072),
+    type_packs: z.array(z.object({
+      manifest: typePackManifestSchema,
+      resources: z.array(z.object({
+        source: z.string().min(1).max(240),
+        document: z.string().max(262_144)
+      }).strict()).min(1).max(100),
       provides: contractsSchema
     }).strict()).max(20)
-  }).strict().default({ types: [] }),
+  }).strict().default({ type_packs: [] }),
   notifications: z.object({
     criteria: z.array(notificationCriterionSchema).max(50).refine(
       (criteria) => new Set(criteria.map((criterion) => criterion.id)).size === criteria.length,
@@ -163,13 +197,54 @@ function validateProvisionContracts(
   context: z.RefinementCtx
 ): void {
   const required = new Set(manifest.requirements.contracts.map((contract) => `${contract.id}@${contract.version}`));
-  for (const [typeIndex, provision] of manifest.provisions.types.entries()) {
+  for (const [packIndex, provision] of manifest.provisions.type_packs.entries()) {
     for (const provided of provision.provides) {
       if (!required.has(`${provided.id}@${provided.version}`)) {
         context.addIssue({
           code: "custom",
-          path: ["provisions", "types", typeIndex, "provides"],
-          message: "Type provisions may only provide contracts required by the application."
+          path: ["provisions", "type_packs", packIndex, "provides"],
+          message: "Type packs may only provide contracts required by the application."
+        });
+      }
+    }
+    const declared = new Set(
+      provision.manifest.resources.map((resource) => resource.source)
+    );
+    const embedded = new Set(
+      provision.resources.map((resource) => resource.source)
+    );
+    if (
+      declared.size !== provision.manifest.resources.length
+      || embedded.size !== provision.resources.length
+      || declared.size !== embedded.size
+      || [...declared].some((source) => !embedded.has(source))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["provisions", "type_packs", packIndex, "resources"],
+        message: "Embedded type-pack resources must match manifest source paths exactly."
+      });
+    }
+    const documents = new Map(
+      provision.resources.map((resource) => [resource.source, resource.document])
+    );
+    for (const [resourceIndex, resource] of provision.manifest.resources.entries()) {
+      const document = documents.get(resource.source);
+      if (document === undefined) continue;
+      const digest = `sha256:${createHash("sha256").update(document).digest("hex")}`;
+      if (digest !== resource.digest) {
+        context.addIssue({
+          code: "custom",
+          path: [
+            "provisions",
+            "type_packs",
+            packIndex,
+            "manifest",
+            "resources",
+            resourceIndex,
+            "digest"
+          ],
+          message: "Type-pack resource digest does not match its embedded document."
         });
       }
     }

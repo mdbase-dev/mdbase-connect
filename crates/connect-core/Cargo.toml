@@ -10,6 +10,7 @@ clap.workspace = true
 directories.workspace = true
 mdbase.workspace = true
 mdbase-connect-protocol = { path = "../connect-protocol" }
+mdbase-connect-runtime = { path = "../connect-runtime" }
 keyring.workspace = true
 notify.workspace = true
 rusqlite.workspace = true

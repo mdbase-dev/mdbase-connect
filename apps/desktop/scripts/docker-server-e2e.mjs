@@ -155,7 +155,7 @@ try {
     homepage: "https://desktop-docker-e2e.example",
     redirect_uris: ["https://desktop-docker-e2e.example/callback"],
     requirements: { contracts: [], access: "full_collection" },
-    provisions: { types: [] },
+    provisions: { type_packs: [] },
     notifications: { criteria: [] }
   };
   const registration = await jsonRequest("/v1/apps/register", {

@@ -15,19 +15,25 @@ const adoptionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const now = Date.parse("2026-07-27T00:00:00.000Z");
 
 describe("portable authority snapshot", () => {
-  it("is deterministic, includes view resources, and derives stable record IDs", () => {
+  it("is deterministic, includes first-class resources, and derives stable record IDs", () => {
     const first = snapshot([
+      { path: "_schemas/task.json", kind: "schema" as const, document: "{\"type\":\"object\"}\n" },
+      { path: "_contracts/task.md", kind: "contract" as const, document: "---\nkind: mdbase.contract\n---\n" },
       { path: "views/tasks.base", kind: "view" as const, document: "views: []\n" },
       { path: "mdbase.yaml", kind: "configuration" as const, document: "spec_version: 0.3.0\n" }
     ]);
     const repeated = snapshot([
       { path: "mdbase.yaml", kind: "configuration" as const, document: "spec_version: 0.3.0\n" },
-      { path: "views/tasks.base", kind: "view" as const, document: "views: []\n" }
+      { path: "views/tasks.base", kind: "view" as const, document: "views: []\n" },
+      { path: "_contracts/task.md", kind: "contract" as const, document: "---\nkind: mdbase.contract\n---\n" },
+      { path: "_schemas/task.json", kind: "schema" as const, document: "{\"type\":\"object\"}\n" }
     ]);
 
     expect(repeated).toEqual(first);
     expect(first.resources.documents?.map(({ kind, path }) => [kind, path])).toEqual([
       ["configuration", "mdbase.yaml"],
+      ["contract", "_contracts/task.md"],
+      ["schema", "_schemas/task.json"],
       ["view", "views/tasks.base"]
     ]);
     expect(first.records[0]?.record_id).toBe(

@@ -27,7 +27,7 @@ import {
   type DashboardData,
   type HostedCollection,
   type PendingAuthorization,
-  type TypeProvision,
+  type TypePackProvision,
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
@@ -1937,16 +1937,20 @@ function pluralLabel(count: number, singular: string, pluralValue: string) { ret
 function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
   collection: Pick<AvailableCollection, "contracts">
-): TypeProvision[] {
+): TypePackProvision[] {
   const missing = request.requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
-  return request.provisions.types.filter((provision) =>
+  return request.provisions.type_packs.filter((provision) =>
     provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
   );
 }
 
 function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
 function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
-function provisionNames(provisions: TypeProvision[]) { return provisions.map((provision) => provision.name).join(" and "); }
+function provisionNames(provisions: TypePackProvision[]) {
+  return provisions
+    .map((provision) => provision.manifest.name ?? provision.manifest.id)
+    .join(" and ");
+}
 function scopeDescription(contracts: ContractRequirement[]) {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);
   return `Access is limited to records matching ${names.join(" and ")}.`;

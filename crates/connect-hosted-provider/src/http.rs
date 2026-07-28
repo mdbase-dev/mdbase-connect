@@ -12,7 +12,7 @@ use axum::{
 };
 use mdbase_connect_protocol::{
     AuthorityImportManifest, AuthorityImportRecordPage, GrantSummary, SyncChangesPage,
-    SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypeProvision,
+    SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
     AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
     AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
 };
@@ -101,8 +101,8 @@ struct CompactRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct ProvisionTypesRequest {
-    types: Vec<TypeProvision>,
+struct ProvisionTypePacksRequest {
+    type_packs: Vec<TypePackProvision>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,8 +159,8 @@ pub fn app(state: AppState) -> Router {
             post(compact_collection),
         )
         .route(
-            "/internal/v1/collections/{collection_id}/types/provision",
-            post(provision_types),
+            "/internal/v1/collections/{collection_id}/type-packs/provision",
+            post(provision_type_packs),
         )
         .route(
             "/internal/v1/collections/{collection_id}/authority-transfers",
@@ -659,20 +659,20 @@ async fn mutate(
     ))
 }
 
-async fn provision_types(
+async fn provision_type_packs(
     State(state): State<AppState>,
     Path(collection_id): Path<Uuid>,
-    Json(input): Json<ProvisionTypesRequest>,
+    Json(input): Json<ProvisionTypePacksRequest>,
 ) -> ApiResult<Json<Value>> {
-    if input.types.len() > 20 {
+    if input.type_packs.len() > 20 {
         return Err(ApiError::bad_request(
-            "too_many_type_provisions",
-            "An application may provision at most 20 type definitions.",
+            "too_many_type_pack_provisions",
+            "An application may provision at most 20 type packs.",
         ));
     }
     let contracts = state
         .provider
-        .provision_types(collection_id, input.types)
+        .provision_type_packs(collection_id, input.type_packs)
         .await?;
     Ok(Json(json!({ "contracts": contracts })))
 }

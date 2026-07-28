@@ -645,7 +645,7 @@ export function buildPortableAuthoritySnapshot(
   const resources = input.resources.map((resource): SyncResourceDocument => {
     const path = portablePath(resource.path);
     if (!paths.add(path)) duplicatePath(path);
-    if (!["configuration", "type", "view"].includes(resource.kind)) {
+    if (!["configuration", "contract", "schema", "type", "view"].includes(resource.kind)) {
       throw new AuthorityAdoptionError(
         "invalid_authority_snapshot",
         `Unsupported collection resource kind for ${path}.`

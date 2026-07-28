@@ -9,10 +9,11 @@ Build an application with the task-oriented
 [Connect SDK guide](https://mdbase.dev/sdk/), or start with the
 [five-minute quickstart](https://mdbase.dev/sdk/quickstart/).
 
-Applications bundle declarations that can include portable type provisions.
+Applications bundle declarations that can include transactional type packs.
 When a selected collection is missing a required contract, its local or hosted
-authority installs the declared type during approval, verifies the resulting
-contract scope, and creates the grant afterward. Setup does not grant the
+authority installs the contract, implementing types, and referenced schemas as
+one verified change during approval. It pins the resulting contract and
+implementation digests before creating the grant. Setup does not grant the
 application general type-management access.
 
 This is a functional beta foundation. The tested path covers creating a local

@@ -1,5 +1,6 @@
 import {
   createECDH,
+  createHash,
   generateKeyPairSync,
   randomUUID,
   sign
@@ -106,18 +107,22 @@ describe("mdbase connect server", () => {
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
       requirements: {
-        contracts: [{ id: "example.work-item", version: 1 }]
+        contracts: [{ id: "example.work-item", version: "1.0.0" }]
       },
       provisions: {
-        types: [{
-          name: "task",
-          document: "---\nkind: mdbase.type\nname: task\n---\n",
-          provides: [{ id: "example.work-item", version: 1 }]
-        }, {
-          name: "task_comment",
-          document: "---\nkind: mdbase.type\nname: task_comment\n---\n",
-          provides: []
-        }]
+        type_packs: [typePackProvision(
+          "example.tasks",
+          [
+            ["type", "task.md", "_types/task.md", "---\nkind: mdbase.type\nname: task\n---\n"],
+            [
+              "type",
+              "task-comment.md",
+              "_types/task_comment.md",
+              "---\nkind: mdbase.type\nname: task_comment\n---\n"
+            ]
+          ],
+          [{ id: "example.work-item", version: "1.0.0" }]
+        )]
       }
     };
 
@@ -141,7 +146,7 @@ describe("mdbase connect server", () => {
     expect(repeated.json().application.id).toBe(first.json().application.id);
     expect(first.json().application.canonical_identity)
       .toMatch(/^bundle:dev\.mdbase\.tasks:sha256:[a-f0-9]{64}$/);
-    expect(first.json().application.provisions.types).toHaveLength(2);
+    expect(first.json().application.provisions.type_packs).toHaveLength(1);
     expect(changed.statusCode).toBe(200);
     expect(changed.json().application.id).not.toBe(first.json().application.id);
   });
@@ -248,7 +253,7 @@ describe("mdbase connect server", () => {
           display_name: "Workouts",
           spec_version: "0.3.0",
           enabled: true,
-          contracts: [{ id: "workout.record", version: 1 }]
+          contracts: [contractDescriptor()]
         }, {
           id: incompatibleLocalCollectionId,
           display_name: "Z Archive",
@@ -260,7 +265,7 @@ describe("mdbase connect server", () => {
           display_name: "Legacy workouts",
           spec_version: "0.2.0",
           enabled: true,
-          contracts: [{ id: "workout.record", version: 1 }]
+          contracts: [contractDescriptor()]
         }]
       }
     });
@@ -275,7 +280,7 @@ describe("mdbase connect server", () => {
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
-      contracts: [{ id: "workout.record", version: 1 }]
+      contracts: [{ id: "workout.record", version: "1.0.0" }]
     });
     const applicationId = discovered.json().application.id as string;
     const invalidEncryption = await app.inject({
@@ -303,7 +308,7 @@ describe("mdbase connect server", () => {
         JSON.stringify({ contracts: [] }),
         legacyIncompatibleGrantId,
         synchronized.json().collections[1].id,
-        JSON.stringify({ contracts: [{ id: "workout.record", version: 1 }] })
+        JSON.stringify({ contracts: [contractDescriptor()] })
       ]
     );
     const rediscovered = await app.inject({
@@ -320,7 +325,7 @@ describe("mdbase connect server", () => {
       expect.objectContaining({
         scope: {
           access: "contract",
-          contracts: [{ id: "workout.record", version: 1 }]
+          contracts: [contractDescriptor()]
         },
         revoked_at: null
       })
@@ -405,7 +410,7 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
     expect(localControl.json().pending_authorizations[0].collection_hint).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
-      contracts: [{ id: "workout.record", version: 1 }]
+      contracts: [{ id: "workout.record", version: "1.0.0" }]
     });
 
     const connectorLegacyApproval = await app.inject({
@@ -453,7 +458,7 @@ describe("mdbase connect server", () => {
     expect(token.json().operations).toEqual(["read", "query"]);
     expect(token.json().scope).toEqual({
       access: "contract",
-      contracts: [{ id: "workout.record", version: 1 }]
+      contracts: [contractDescriptor()]
     });
     expect(token.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
     expect(token.json().refresh_token).toMatch(/^ref_/);
@@ -1015,7 +1020,7 @@ describe("mdbase connect server", () => {
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
-      provisionTypes: vi.fn(),
+      provisionTypePacks: vi.fn(),
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
@@ -1237,7 +1242,7 @@ describe("mdbase connect server", () => {
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
-      provisionTypes: vi.fn(),
+      provisionTypePacks: vi.fn(),
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
@@ -1597,20 +1602,14 @@ describe("mdbase connect server", () => {
   it("provisions required types before creating a full-collection grant", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
-    const contract = {
-      id: "workout.record",
-      version: 1,
-      type_name: "workout",
-      extension: "x-workout",
-      configuration: { contract: "workout.record", version: 1 }
-    };
+    const contract = contractDescriptor();
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
-      provisionTypes: vi.fn().mockResolvedValue([contract]),
+      provisionTypePacks: vi.fn().mockResolvedValue([contract]),
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
@@ -1642,25 +1641,25 @@ describe("mdbase connect server", () => {
       payload: { display_name: "Training", template: "mdbase" }
     });
     const collectionId = collection.json().collection.id as string;
-    const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n";
+    const contractDocument = "---\nkind: mdbase.contract\nid: workout.record\nversion: 1.0.0\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nimplements:\n  - contract: workout.record\n    version: 1.0.0\n    fields: {}\n---\n";
+    const auxiliaryDocument = "---\nkind: mdbase.type\nname: workout_note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    const pack = typePackProvision(
+      "example.workouts",
+      [
+        ["contract", "contract.md", "_contracts/workout.record.md", contractDocument],
+        ["type", "workout.md", "_types/workout.md", typeDocument],
+        ["type", "workout-note.md", "_types/workout_note.md", auxiliaryDocument]
+      ],
+      [{ id: "workout.record", version: "1.0.0" }]
+    );
     const manifestServer = applicationManifestFixture(
       {
-        contracts: [{ id: "workout.record", version: 1 }],
+        contracts: [{ id: "workout.record", version: "1.0.0" }],
         access: "full_collection"
       },
       "Workout Tracker",
-      { types: [
-        {
-          name: "Workout",
-          document: typeDocument,
-          provides: [{ id: "workout.record", version: 1 }]
-        },
-        {
-          name: "workout_note",
-          document: "---\nkind: mdbase.type\nname: workout_note\n---\n",
-          provides: []
-        }
-      ] }
+      { type_packs: [pack] }
     );
     const discovered = await app.inject({
       method: "POST",
@@ -1668,7 +1667,8 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     const applicationId = discovered.json().application.id as string;
-    expect(discovered.json().application.provisions.types[0].name).toBe("Workout");
+    expect(discovered.json().application.provisions.type_packs[0].manifest.id)
+      .toBe("example.workouts");
     const authorization = await app.inject({
       method: "GET",
       url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("hosted-provision-verifier-that-is-long-enough-0001")}&code_challenge_method=S256&operations=read,query,create`,
@@ -1680,8 +1680,8 @@ describe("mdbase connect server", () => {
       url: `/v1/authorization-requests/${requestId}`,
       headers: { cookie }
     });
-    expect(pending.json().authorization.provisions.types[0].provides).toEqual([
-      { id: "workout.record", version: 1 }
+    expect(pending.json().authorization.provisions.type_packs[0].provides).toEqual([
+      { id: "workout.record", version: "1.0.0" }
     ]);
     const approved = await app.inject({
       method: "POST",
@@ -1690,12 +1690,9 @@ describe("mdbase connect server", () => {
       payload: { collection_id: collectionId, operations: ["read", "query", "create"] }
     });
     expect(approved.statusCode).toBe(200);
-    expect(hostedProvider.provisionTypes).toHaveBeenCalledWith(
+    expect(hostedProvider.provisionTypePacks).toHaveBeenCalledWith(
       collectionId,
-      [
-        expect.objectContaining({ name: "Workout", document: typeDocument }),
-        expect.objectContaining({ name: "workout_note", provides: [] })
-      ]
+      [pack]
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
@@ -1779,17 +1776,10 @@ function pollDeviceToken(
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {
-    contracts: [{ id: "workout.record", version: 1 }]
+    contracts: [{ id: "workout.record", version: "1.0.0" }]
   },
   name = "Workout Tracker",
-  provisions?: {
-    types: Array<{
-      name: string;
-      path?: string;
-      document: string;
-      provides: Array<{ id: string; version: number }>;
-    }>;
-  }
+  provisions?: NonNullable<MdbaseAppManifest["provisions"]>
 ): {
   manifest: MdbaseAppManifest;
   redirectUri: string;
@@ -1809,5 +1799,51 @@ function applicationManifestFixture(
     },
     redirectUri: `${origin}/auth/mdbase/callback`,
     nativeRedirectUri
+  };
+}
+
+function contractDescriptor(
+  id = "workout.record",
+  typeName = "workout"
+) {
+  return {
+    id,
+    version: "1.0.0",
+    digest: `sha256:${"0".repeat(64)}`,
+    schema: { type: "object" },
+    implementations: [{
+      type_name: typeName,
+      type_version: 1,
+      type_path: `_types/${typeName}.md`,
+      digest: `sha256:${"1".repeat(64)}`,
+      fields: {}
+    }]
+  };
+}
+
+function typePackProvision(
+  id: string,
+  resources: Array<[
+    kind: "contract" | "type" | "schema",
+    source: string,
+    target: string,
+    document: string
+  ]>,
+  provides: Array<{ id: string; version: string }>
+) {
+  return {
+    manifest: {
+      kind: "mdbase.type-pack" as const,
+      id,
+      version: "1.0.0",
+      resources: resources.map(([kind, source, target, document]) => ({
+        kind,
+        source,
+        target,
+        digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+      }))
+    },
+    resources: resources.map(([, source, , document]) => ({ source, document })),
+    provides
   };
 }

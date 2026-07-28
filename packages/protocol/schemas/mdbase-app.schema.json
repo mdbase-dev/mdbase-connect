@@ -37,12 +37,12 @@
     "provisions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["types"],
+      "required": ["type_packs"],
       "properties": {
-        "types": {
+        "type_packs": {
           "type": "array",
           "maxItems": 20,
-          "items": { "$ref": "#/$defs/typeProvision" }
+          "items": { "$ref": "#/$defs/typePackProvision" }
         }
       }
     },
@@ -96,6 +96,18 @@
       "required": ["id", "version"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        }
+      }
+    },
+    "runtimeContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
         "version": { "type": "integer", "minimum": 1 }
       }
     },
@@ -120,14 +132,18 @@
         }
       }
     },
-    "typeProvision": {
+    "typePackProvision": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "document", "provides"],
+      "required": ["manifest", "resources", "provides"],
       "properties": {
-        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "path": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "document": { "type": "string", "minLength": 1, "maxLength": 131072 },
+        "manifest": { "$ref": "#/$defs/typePackManifest" },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/typePackSourceResource" }
+        },
         "provides": {
           "type": "array",
           "maxItems": 20,
@@ -136,13 +152,52 @@
         }
       }
     },
+    "typePackManifest": {
+      "type": "object",
+      "required": ["kind", "id", "version", "resources"],
+      "properties": {
+        "kind": { "const": "mdbase.type-pack" },
+        "id": { "$ref": "#/$defs/identifier" },
+        "version": { "$ref": "#/$defs/contract/properties/version" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/typePackManifestResource" }
+        }
+      },
+      "patternProperties": { "^x-[A-Za-z][A-Za-z0-9._:-]{0,127}$": true },
+      "additionalProperties": false
+    },
+    "typePackManifestResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "target", "digest"],
+      "properties": {
+        "kind": { "enum": ["contract", "type", "schema"] },
+        "source": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "typePackSourceResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "document"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "document": { "type": "string", "maxLength": 262144 }
+      }
+    },
     "notificationCriterion": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "event", "presentation"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
-        "event": { "$ref": "#/$defs/contract" },
+        "event": { "$ref": "#/$defs/runtimeContract" },
         "if": {
           "type": "object",
           "additionalProperties": false,

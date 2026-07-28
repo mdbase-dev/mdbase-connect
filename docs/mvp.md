@@ -8,7 +8,7 @@ The original local-collection MVP is complete when a user can:
 4. Open an unrelated application that bundles an mdbase app declaration.
 5. See the pending request in the local controller, choose a collection, and
    approve exact operations and its contract-derived record scope there.
-6. Discover its schemas and optional domain contracts without exposing its
+6. Discover its schemas and first-class data contracts without exposing its
    filesystem path.
 7. Read, query, and conditionally update records through the relay while records
    outside the approved contract remain inaccessible.
@@ -25,8 +25,8 @@ The original local-collection MVP is complete when a user can:
     application installation and the local connector, and reject replay,
     tampering, or plaintext fallback.
 
-The example contract fixtures prove that an independent frontend can follow a
-configurable domain contract.
+The contract fixtures prove that independent frontends can consume the same
+normalized interface even when collections use different implementing types.
 
 The current private beta extends that milestone with hosted collections,
 offline SDK replicas, and receive-only or writable filesystem mirrors. These

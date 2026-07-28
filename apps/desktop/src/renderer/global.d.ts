@@ -15,10 +15,29 @@ interface CollectionSummary {
   path: string;
   spec_version: string;
   enabled: boolean;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
 }
 
 interface ContractRequirement {
+  id: string;
+  version: string;
+}
+
+interface CollectionContractDescriptor extends ContractRequirement {
+  digest: string;
+  schema: Record<string, unknown>;
+  binding_schema?: Record<string, unknown>;
+  implementations: Array<{
+    type_name: string;
+    type_version: number;
+    type_path?: string;
+    digest: string;
+    fields: Record<string, string>;
+    binding?: Record<string, unknown>;
+  }>;
+}
+
+interface RuntimeContractRequirement {
   id: string;
   version: number;
 }
@@ -29,20 +48,31 @@ interface ApplicationRequirements {
   collection_kind?: "hosted";
 }
 
-interface TypeProvision {
-  name: string;
-  path?: string;
-  document: string;
+interface TypePackProvision {
+  manifest: {
+    kind: "mdbase.type-pack";
+    id: string;
+    version: string;
+    name?: string;
+    description?: string;
+    resources: Array<{
+      kind: "contract" | "type" | "schema";
+      source: string;
+      target: string;
+      digest: string;
+    }>;
+  };
+  resources: Array<{ source: string; document: string }>;
   provides: ContractRequirement[];
 }
 
 interface ApplicationProvisions {
-  types: TypeProvision[];
+  type_packs: TypePackProvision[];
 }
 
 interface NotificationCriterion {
   id: string;
-  event: ContractRequirement;
+  event: RuntimeContractRequirement;
   if?: { $expr: string };
   debounce?: string;
   minimum_interval?: string;
@@ -58,7 +88,7 @@ interface ApplicationNotifications {
 }
 
 interface GrantScope {
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
   access: "contract" | "full_collection";
 }
 
@@ -170,7 +200,7 @@ interface HostedCollectionSummary {
   template: "mdbase";
   sync_url: string;
   spec_version: string;
-  contracts: ContractRequirement[];
+  contracts: CollectionContractDescriptor[];
   authority_state: "active" | "transferring" | "transferred";
   authority_epoch: number;
   transferred_collection_id: string | null;

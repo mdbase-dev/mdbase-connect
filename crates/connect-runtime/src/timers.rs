@@ -336,8 +336,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use mdbase_connect_protocol::{
-        ApplicationAccess, ContractRequirement, GrantScope, NotificationCriterion,
-        NotificationPresentation,
+        ApplicationAccess, GrantScope, NotificationCriterion, NotificationPresentation,
+        RuntimeContractRequirement,
     };
     use mdbase_runtime::{
         DenyAllAuthorizer, InMemoryRuntimeStore, ManualClock, ProviderRegistry, RuntimeConfig,
@@ -466,7 +466,7 @@ mod tests {
             },
             notification_criteria: vec![NotificationCriterion {
                 id: criterion_id.to_string(),
-                event: ContractRequirement {
+                event: RuntimeContractRequirement {
                     id: TIMER_EVENT_ID.to_string(),
                     version: 1,
                 },

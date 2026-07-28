@@ -1475,9 +1475,9 @@ function neededProvisions(
   requirements: ApplicationRequirements,
   provisions: ApplicationProvisions | undefined,
   collection: Pick<AuthorizationCollection, "contracts">
-): TypeProvision[] {
+): TypePackProvision[] {
   const missing = requirements.contracts.filter((requirement) => !hasContract(collection.contracts, requirement));
-  return (provisions?.types ?? []).filter((provision) =>
+  return (provisions?.type_packs ?? []).filter((provision) =>
     provision.provides.some((provided) => missing.some((requirement) => sameContract(provided, requirement)))
   );
 }
@@ -1503,7 +1503,7 @@ function hostedCollectionCompatible(
   }
   return request.requirements.contracts.every((required) =>
     hasContract(collection.contracts, required)
-    || request.provisions.types.some((provision) =>
+    || request.provisions.type_packs.some((provision) =>
       provision.provides.some((provided) => sameContract(provided, required))
     )
   );
@@ -1637,7 +1637,11 @@ function authorityPromotionPhaseLabel(
 
 function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
 function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
-function provisionNames(provisions: TypeProvision[]) { return provisions.map((provision) => provision.name).join(" and "); }
+function provisionNames(provisions: TypePackProvision[]) {
+  return provisions
+    .map((provision) => provision.manifest.name ?? provision.manifest.id)
+    .join(" and ");
+}
 
 function scopeDescription(contracts: ContractRequirement[]): string {
   const names = contracts.map((contract) => `${contract.id} v${contract.version}`);

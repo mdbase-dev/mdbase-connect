@@ -54,11 +54,12 @@ let controlApp;
 let controlDatabase;
 let manifestServer;
 let notificationCallbackServer;
-const WORK_ITEM_PROVISION = {
-  name: "task",
-  document: "---\nkind: mdbase.type\nname: task\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [type, title]\n    properties:\n      type: { const: task }\n      title: { type: string }\n      status: { enum: [open, done] }\nx-example:\n  contract: example.work-item\n  version: 1\n---\n",
-  provides: [{ id: "example.work-item", version: 1 }]
-};
+const WORK_ITEM_PROVISION = workItemTypePack({
+  packId: "example.work-items",
+  name: "Work items",
+  contractId: "example.work-item",
+  types: [{ name: "task", titleField: "title" }]
+});
 
 const { HttpSyncTransport, MemoryReplicaStore, OfflineReplica, SyncError } =
   await import("../packages/sync/dist/index.js");
@@ -121,32 +122,149 @@ try {
   });
   assert.equal(publicPreflight.headers.get("access-control-allow-origin"), "*");
 
-  phase("provisioning a portable application type through the internal authority");
+  phase("provisioning and enforcing portable data-contract views");
   const provisionCollectionId = crypto.randomUUID();
   await internalRequest(provider.url, "/internal/v1/collections", {
     method: "POST",
     body: { collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe" }
   });
-  const typeProvision = {
+  const typeProvision = workItemTypePack({
+    packId: "example.workouts",
     name: "Workout",
-    document: "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nx-workout:\n  contract: workout.record\n  version: 1\n---\n",
-    provides: [{ id: "workout.record", version: 1 }]
-  };
+    contractId: "workout.record",
+    types: [
+      { name: "workout", titleField: "title" },
+      { name: "training", titleField: "summary" }
+    ]
+  });
   const provisionedTypes = await internalRequest(
     provider.url,
-    `/internal/v1/collections/${provisionCollectionId}/types/provision`,
-    { method: "POST", body: { types: [typeProvision] } }
+    `/internal/v1/collections/${provisionCollectionId}/type-packs/provision`,
+    { method: "POST", body: { type_packs: [typeProvision] } }
   );
+  assert.equal(provisionedTypes.contracts[0]?.id, "workout.record");
+  assert.equal(provisionedTypes.contracts[0]?.version, "1.0.0");
   assert.deepEqual(
-    provisionedTypes.contracts.map(({ id, version, type_name }) => ({ id, version, type_name })),
-    [{ id: "workout.record", version: 1, type_name: "workout" }]
+    provisionedTypes.contracts[0]?.implementations.map(({ type_name }) => type_name),
+    ["training", "workout"]
   );
   const repeatedProvision = await internalRequest(
     provider.url,
-    `/internal/v1/collections/${provisionCollectionId}/types/provision`,
-    { method: "POST", body: { types: [typeProvision] } }
+    `/internal/v1/collections/${provisionCollectionId}/type-packs/provision`,
+    { method: "POST", body: { type_packs: [typeProvision] } }
   );
   assert.equal(repeatedProvision.contracts.length, 1);
+
+  const fullReplicaToken = `full-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: crypto.randomUUID(),
+        name: "Projection fixture writer",
+        purpose: "application",
+        mode: "read_write",
+        allowed_types: [],
+        contract_scope: [],
+        full_collection: true,
+        allowed_operations: ["create"],
+        grant_id: crypto.randomUUID(),
+        token: fullReplicaToken
+      }
+    }
+  );
+  for (const fixture of [
+    {
+      path: "workout.md",
+      frontmatter: { type: "workout", title: "Visible workout", status: "open", secret: "hidden" }
+    },
+    {
+      path: "training.md",
+      frontmatter: { type: "training", summary: "Visible training", status: "open", secret: "hidden" }
+    }
+  ]) {
+    const created = await rawRequest(
+      provider.url,
+      `/v1/authorities/${provisionCollectionId}/operations/create`,
+      {
+        method: "POST",
+        token: fullReplicaToken,
+        body: { ...fixture, body: "private markdown body" }
+      }
+    );
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+  }
+
+  const contractReplicaToken = `contract-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${provisionCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: crypto.randomUUID(),
+        name: "Contract projection reader",
+        purpose: "application",
+        mode: "read_write",
+        allowed_types: ["training", "workout"],
+        contract_scope: provisionedTypes.contracts,
+        full_collection: false,
+        allowed_operations: ["read", "query", "create", "update"],
+        grant_id: crypto.randomUUID(),
+        token: contractReplicaToken
+      }
+    }
+  );
+  const projectedQuery = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/query`,
+    { method: "POST", token: contractReplicaToken, body: {} }
+  );
+  assert.equal(projectedQuery.status, 200, JSON.stringify(projectedQuery.body));
+  assert.ok(
+    Array.isArray(projectedQuery.body.result?.result?.results),
+    JSON.stringify(projectedQuery.body)
+  );
+  const projectedRecords = projectedQuery.body.result.result.results;
+  assert.deepEqual(
+    projectedRecords.map(({ frontmatter }) => frontmatter.title).sort(),
+    ["Visible training", "Visible workout"]
+  );
+  for (const record of projectedRecords) {
+    assert.equal(record.body, undefined);
+    assert.equal(record.frontmatter.secret, undefined);
+    assert.equal(record.contract.id, "workout.record");
+  }
+  const ambiguousCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: contractReplicaToken,
+      body: {
+        path: "ambiguous.md",
+        frontmatter: { title: "Ambiguous", status: "open" }
+      }
+    }
+  );
+  assert.equal(ambiguousCreate.status, 403);
+  const selectedCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: contractReplicaToken,
+      body: {
+        path: "selected.md",
+        contract: { id: "workout.record", version: "1.0.0", type: "training" },
+        frontmatter: { title: "Selected provider", status: "open" }
+      }
+    }
+  );
+  assert.equal(selectedCreate.status, 200, JSON.stringify(selectedCreate.body));
+  assert.equal(selectedCreate.body.result.result.frontmatter.title, "Selected provider");
   await internalRequest(provider.url, `/internal/v1/collections/${provisionCollectionId}`, {
     method: "DELETE"
   });
@@ -193,7 +311,9 @@ try {
       display_name: "Notification records"
     }
   });
-  await provisionTypes(notificationProvider.url, notificationCollectionId, [WORK_ITEM_PROVISION]);
+  const notificationContracts = (
+    await provisionTypes(notificationProvider.url, notificationCollectionId, [WORK_ITEM_PROVISION])
+  ).contracts;
   await internalRequest(
     notificationProvider.url,
     `/internal/v1/collections/${notificationCollectionId}/replicas`,
@@ -219,6 +339,7 @@ try {
         purpose: "application",
         mode: "read_write",
         allowed_types: ["task"],
+        contract_scope: notificationContracts,
         allowed_operations: ["list_timers", "reconcile_timers"],
         grant_id: notificationGrantId,
         token: timerToken
@@ -239,7 +360,7 @@ try {
         collection_id: notificationCollectionId,
         collection_name: "Notification tasks",
         operations: ["changes", "list_timers", "reconcile_timers"],
-        scope: { contracts: [], access: "full_collection" },
+        scope: { contracts: notificationContracts, access: "contract" },
         notification_criteria: [
           {
             id: "task.created",
@@ -638,8 +759,8 @@ try {
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
     name: "Workout Inline E2E",
-    requirements: { contracts: [{ id: "workout.record", version: 1 }] },
-    provisions: { types: [typeProvision] }
+    requirements: { contracts: [{ id: "workout.record", version: "1.0.0" }] },
+    provisions: { type_packs: [typeProvision] }
   });
   try {
     const inlineStorage = memoryStorage();
@@ -1194,7 +1315,10 @@ schema:
     { code: "ENOENT" }
   );
   assert.match(await readFile(join(mirrorRoot, "mdbase.yaml"), "utf8"), /spec_version: 0\.3\.0/);
-  assert.match(await readFile(join(mirrorRoot, "_types", "task.md"), "utf8"), /x-example:/);
+  assert.match(
+    await readFile(join(mirrorRoot, "_types", "task.md"), "utf8"),
+    /implements:\s+- contract: example\.work-item/
+  );
   const directoryMirror = new DirectoryMirror(
     mirrorRoot,
     mirror.id,
@@ -2659,9 +2783,11 @@ async function portableAuthorityAdoptionE2E(
   );
   assert.equal(contracts.rows[0].authority_state, "active");
   assert.equal(Number(contracts.rows[0].authority_epoch), 2);
+  assert.equal(contracts.rows[0].contracts[0]?.id, "example.work-item");
+  assert.equal(contracts.rows[0].contracts[0]?.version, "1.0.0");
   assert.deepEqual(
-    contracts.rows[0].contracts.map(({ id, version, type_name }) => ({ id, version, type_name })),
-    [{ id: "example.work-item", version: 1, type_name: "task" }]
+    contracts.rows[0].contracts[0]?.implementations.map(({ type_name }) => type_name),
+    ["task"]
   );
 
   const mirrorSession = client.mirrorEnrollmentSession(session, recovered);
@@ -2693,14 +2819,13 @@ function portableAdoptionResources(collectionId) {
       kind: "configuration",
       document: `spec_version: 0.3.0\nx-mdbase-connect:\n  collection_id: ${collectionId}\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n`
     },
-    {
-      path: "_types/task.md",
-      kind: "type",
-      document: WORK_ITEM_PROVISION.document.replace(
-        "schema:\n",
-        "match:\n  path_glob: tasks/**/*.md\nschema:\n"
-      )
-    },
+    ...WORK_ITEM_PROVISION.resources.map(({ source, document }) => ({
+      path: source,
+      kind: source.startsWith("_contracts/") ? "contract" : "type",
+      document: source.startsWith("_types/")
+        ? document.replace("schema:\n", "match:\n  path_glob: tasks/**/*.md\nschema:\n")
+        : document
+    })),
     {
       path: "views/tasks.base",
       kind: "view",
@@ -3239,6 +3364,71 @@ async function postgresQuery(sql) {
   return stdout.trim();
 }
 
+function workItemTypePack({ packId, name, contractId, types }) {
+  const version = "1.0.0";
+  const contractSource = `_contracts/${contractId}.md`;
+  const contractDocument = `---
+kind: mdbase.contract
+id: ${contractId}
+version: ${version}
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title, status]
+    additionalProperties: false
+    properties:
+      title: { type: string, minLength: 1 }
+      status: { enum: [open, done] }
+---
+`;
+  const resources = [{ source: contractSource, document: contractDocument }];
+  for (const { name, titleField } of types) {
+    resources.push({
+      source: `_types/${name}.md`,
+      document: `---
+kind: mdbase.type
+name: ${name}
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [type, ${titleField}, status]
+    additionalProperties: false
+    properties:
+      type: { const: ${name} }
+      ${titleField}: { type: string, minLength: 1 }
+      status: { enum: [open, done] }
+      secret: { type: string }
+implements:
+  - contract: ${contractId}
+    version: ${version}
+    fields:
+      title: ${titleField}
+      status: status
+---
+`
+    });
+  }
+  return {
+    manifest: {
+      kind: "mdbase.type-pack",
+      id: packId,
+      version,
+      name,
+      resources: resources.map(({ source, document }) => ({
+        kind: source.startsWith("_contracts/") ? "contract" : "type",
+        source,
+        target: source,
+        digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+      }))
+    },
+    resources,
+    provides: [{ id: contractId, version }]
+  };
+}
+
 async function registerReplica(url, cookie, collectionId, name, mode, allowedTypes) {
   const response = await controlRequest(url, `/v1/hosted/collections/${collectionId}/replicas`, cookie, {
     method: "POST",
@@ -3337,11 +3527,11 @@ async function internalRequest(url, path, options = {}) {
   return response.body;
 }
 
-function provisionTypes(url, collectionId, types) {
+function provisionTypes(url, collectionId, typePacks) {
   return internalRequest(
     url,
-    `/internal/v1/collections/${collectionId}/types/provision`,
-    { method: "POST", body: { types } }
+    `/internal/v1/collections/${collectionId}/type-packs/provision`,
+    { method: "POST", body: { type_packs: typePacks } }
   );
 }
 
@@ -3419,7 +3609,7 @@ async function waitForOutput(action, message) {
 async function openManifestServer({
   name = "Hosted SDK E2E",
   requirements = { contracts: [] },
-  provisions = { types: [] }
+  provisions = { type_packs: [] }
 } = {}) {
   const server = createServer((_request, response) => {
     const address = server.address();

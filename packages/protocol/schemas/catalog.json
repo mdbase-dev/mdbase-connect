@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "schemas": {
     "app_manifest": "./mdbase-app.schema.json",
-    "contract_extension": "./contract-extension.v1.schema.json",
+    "data_contract": "./data-contract.schema.json",
     "connect_protocol": "./connect-protocol.v1.schema.json",
     "encrypted_relay": "./encrypted-relay.v1.schema.json",
     "notification_webhook": "./notification-webhook.v1.schema.json",

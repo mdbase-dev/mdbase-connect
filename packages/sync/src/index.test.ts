@@ -303,8 +303,30 @@ describe("hosted sync vertical slice", () => {
           { name: "private", schema: {}, extensions: {} }
         ],
         contracts: [
-          { id: "example.work-item", version: 1, type_name: "task", extension: "x-work-item", configuration: {} },
-          { id: "private.note", version: 1, type_name: "private", extension: "x-private", configuration: {} }
+          {
+            id: "example.work-item",
+            version: "1.0.0",
+            digest: `sha256:${"0".repeat(64)}`,
+            schema: {},
+            implementations: [{
+              type_name: "task",
+              type_version: 1,
+              digest: `sha256:${"1".repeat(64)}`,
+              fields: {}
+            }]
+          },
+          {
+            id: "private.note",
+            version: "1.0.0",
+            digest: `sha256:${"2".repeat(64)}`,
+            schema: {},
+            implementations: [{
+              type_name: "private",
+              type_version: 1,
+              digest: `sha256:${"3".repeat(64)}`,
+              fields: {}
+            }]
+          }
         ]
       }
     });

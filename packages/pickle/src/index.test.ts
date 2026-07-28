@@ -12,6 +12,7 @@ import {
 
 const requestType = {
   name: "approval_request",
+  version: 1,
   schema: { type: "object" },
   collection: { path: { folder: "requests" } },
   lifecycle: {},
@@ -19,6 +20,7 @@ const requestType = {
 };
 const approvalType = {
   name: "approval_response",
+  version: 1,
   schema: {
     type: "object",
     required: ["request", "decision"],
@@ -48,13 +50,15 @@ const approvalType = {
 };
 const contract = {
   id: PICKLE_REQUEST_CONTRACT,
-  version: 1,
-  type_name: requestType.name,
-  extension: "x-pickle",
-  configuration: {
-    contract: PICKLE_REQUEST_CONTRACT,
-    version: 1,
-    field_roles: {
+  version: "1.0.0",
+  digest: `sha256:${"0".repeat(64)}`,
+  schema: { type: "object" },
+  implementations: [
+    {
+      type_name: requestType.name,
+      type_version: 1,
+      digest: `sha256:${"1".repeat(64)}`,
+      fields: {
       id: "request_id",
       title: "subject",
       source: "origin",
@@ -68,8 +72,9 @@ const contract = {
       links: "links",
       attachment_paths: "attachment_paths",
       metadata: "metadata"
+      }
     }
-  }
+  ]
 };
 
 describe("Pickle contract adapter", () => {
@@ -205,10 +210,10 @@ describe("Pickle contract adapter", () => {
         contracts: [
           {
             ...contract,
-            configuration: {
-              ...contract.configuration,
-              field_roles: { title: "__proto__.polluted" }
-            }
+            implementations: [{
+              ...contract.implementations[0],
+              fields: { title: "__proto__.polluted" }
+            }]
           }
         ]
       })

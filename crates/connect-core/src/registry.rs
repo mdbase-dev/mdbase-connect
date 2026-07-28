@@ -1,5 +1,4 @@
 use directories::ProjectDirs;
-use mdbase::frontmatter::parser::{is_parse_error, parse_document, yaml_mapping_to_json};
 use mdbase::runtime::FilesystemProvider;
 use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::{
@@ -7,8 +6,9 @@ use mdbase_connect_protocol::{
     CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, CollectionSummary,
     CollectionTypeDescriptor, ContractRequirement, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
     GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
-    TypeProvision, CONTROL_PROTOCOL_VERSION,
+    TypePackProvision, CONTROL_PROTOCOL_VERSION,
 };
+use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -461,14 +461,7 @@ impl CollectionRegistry {
             }
             let _ = self.refresh_summary_metadata(collection);
             if let Ok(description) = self.describe(collection.id) {
-                collection.contracts = description
-                    .contracts
-                    .into_iter()
-                    .map(|contract| ContractRequirement {
-                        id: contract.id,
-                        version: contract.version,
-                    })
-                    .collect();
+                collection.contracts = description.contracts;
             }
         }
         collections.sort_by(|left, right| {
@@ -956,12 +949,12 @@ impl CollectionRegistry {
         }))
     }
 
-    pub fn provision_types(
+    pub fn provision_type_packs(
         &self,
         id: Uuid,
         requirements: &ApplicationRequirements,
-        provisions: &[TypeProvision],
-    ) -> Result<Vec<ContractRequirement>, ConnectError> {
+        provisions: &[TypePackProvision],
+    ) -> Result<Vec<CollectionContractDescriptor>, ConnectError> {
         let mut description = self.describe(id)?;
         let missing = requirements
             .contracts
@@ -980,44 +973,54 @@ impl CollectionRegistry {
             ));
         }
 
-        for provision in provisions {
-            let type_exists = description
-                .types
+        for provision in provisions.iter().filter(|provision| {
+            provision
+                .provides
                 .iter()
-                .any(|existing| existing.name.eq_ignore_ascii_case(&provision.name));
-            if !type_exists {
-                let mut input = json!({ "document": provision.document });
-                if let Some(path) = &provision.path {
-                    input["path"] = json!(path);
-                }
-                let result = self.operation(id, "create_type", &input)?;
-                if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                    return Err(ConnectError::AccessDenied(format!(
-                        "The {} type could not be installed: {}",
-                        provision.name,
-                        error_message(&result, "the type definition was rejected")
-                    )));
-                }
-                if result
-                    .pointer("/result/name")
-                    .and_then(Value::as_str)
-                    .is_none_or(|name| !name.eq_ignore_ascii_case(&provision.name))
-                {
-                    return Err(ConnectError::AccessDenied(format!(
-                        "The installed type did not match the declared {} type.",
-                        provision.name
-                    )));
-                }
-                description = self.describe(id)?;
+                .any(|provided| missing.contains(provided))
+        }) {
+            let registered = self.get(id)?;
+            let provider = self.provider_for(&registered)?;
+            let manifest = serde_json::to_value(&provision.manifest)?;
+            let resources = provision
+                .resources
+                .iter()
+                .map(|resource| mdbase::v03::TypePackResource {
+                    source: resource.source.clone(),
+                    document: resource.document.clone(),
+                })
+                .collect::<Vec<_>>();
+            let result = provider.with_collection(|collection| {
+                Ok::<_, ConnectError>(collection.install_type_pack(&manifest, &resources, false))
+            })?;
+            if !result.valid {
+                return Err(ConnectError::AccessDenied(format!(
+                    "The {} type pack could not be installed: {}",
+                    provision
+                        .manifest
+                        .name
+                        .as_deref()
+                        .unwrap_or(&provision.manifest.id),
+                    result
+                        .diagnostics
+                        .first()
+                        .map(|diagnostic| diagnostic.message.as_str())
+                        .unwrap_or("the type pack was rejected")
+                )));
             }
+            description = self.describe(id)?;
             if provision
                 .provides
                 .iter()
                 .any(|provided| !has_contract(&description.contracts, provided))
             {
                 return Err(ConnectError::AccessDenied(format!(
-                    "The {} type did not provide every contract declared by the application.",
-                    provision.name
+                    "The {} type pack did not provide every contract declared by the application.",
+                    provision
+                        .manifest
+                        .name
+                        .as_deref()
+                        .unwrap_or(&provision.manifest.id)
                 )));
             }
         }
@@ -1032,7 +1035,7 @@ impl CollectionRegistry {
                     .to_string(),
             ));
         }
-        Ok(contract_requirements(&description.contracts))
+        Ok(description.contracts)
     }
 
     pub fn scoped_operation(
@@ -1086,6 +1089,12 @@ impl CollectionRegistry {
         scope: &GrantScope,
         synchronize: impl FnOnce(&CollectionInvalidation),
     ) -> Result<Value, ConnectError> {
+        if scope.access == mdbase_connect_protocol::ApplicationAccess::Contract {
+            return Err(ConnectError::AccessDenied(
+                "Contract-scoped replicas are not available because the sync document format contains whole records. Use projected read/query/create/update operations, or request explicit full-collection access."
+                    .to_string(),
+            ));
+        }
         let registered = self.get(id)?;
         if !registered.enabled {
             return Err(ConnectError::AccessDenied(
@@ -1293,7 +1302,8 @@ impl CollectionRegistry {
         input: &Value,
         scope: &GrantScope,
     ) -> Result<Value, ConnectError> {
-        let Some(allowed_types) = self.resolve_scope_types_loaded(registered, collection, scope)?
+        let Some(resolved_scope) =
+            self.resolve_contract_scope_loaded(registered, collection, scope)?
         else {
             return match operation {
                 "describe" => serde_json::to_value(self.describe_loaded(registered, collection)?)
@@ -1303,6 +1313,7 @@ impl CollectionRegistry {
                 _ => execute_loaded(collection, operation, input),
             };
         };
+        let allowed_types = &resolved_scope.allowed_types;
 
         match operation {
             "describe" => {
@@ -1311,10 +1322,9 @@ impl CollectionRegistry {
                     .types
                     .retain(|type_definition| allowed_types.contains(&type_definition.name));
                 description.contracts.retain(|contract| {
-                    allowed_types.contains(&contract.type_name)
-                        && scope.contracts.iter().any(|required| {
-                            required.id == contract.id && required.version == contract.version
-                        })
+                    scope.contracts.iter().any(|pinned| {
+                        pinned.id == contract.id && pinned.version == contract.version
+                    })
                 });
                 serde_json::to_value(description).map_err(ConnectError::from)
             }
@@ -1325,9 +1335,13 @@ impl CollectionRegistry {
                 serde_json::to_value(page).map_err(ConnectError::from)
             }
             "query" => {
-                let input = scoped_query(input, &allowed_types)?;
-                ensure_query_stays_within_record(&input)?;
-                execute_loaded(collection, operation, &input)
+                let (input, selector) = resolved_scope
+                    .query_input(input)
+                    .map_err(contract_scope_error)?;
+                let result = execute_loaded(collection, operation, &input)?;
+                resolved_scope
+                    .project_result(collection, result, selector.as_ref())
+                    .map_err(contract_scope_error)
             }
             "list_views"
             | "execute_view"
@@ -1339,11 +1353,19 @@ impl CollectionRegistry {
                     .to_string(),
             )),
             "read" => {
-                let result = execute_loaded(collection, operation, input)?;
-                ensure_result_in_scope(&result, &allowed_types)?;
-                Ok(result)
+                let (input, selector) = resolved_scope
+                    .read_input(input)
+                    .map_err(contract_scope_error)?;
+                let result = execute_loaded(collection, operation, &input)?;
+                ensure_result_in_scope(&result, allowed_types)?;
+                resolved_scope
+                    .project_result(collection, result, selector.as_ref())
+                    .map_err(contract_scope_error)
             }
             "create" => {
+                let (input, selector) = resolved_scope
+                    .map_write_input(input, true)
+                    .map_err(contract_scope_error)?;
                 let frontmatter = input
                     .get("frontmatter")
                     .cloned()
@@ -1353,101 +1375,104 @@ impl CollectionRegistry {
                 if let Some(requested_type) = input.get("type").and_then(Value::as_str) {
                     prospective_types.push(requested_type.to_lowercase());
                 }
-                ensure_types_in_scope(&prospective_types, &allowed_types)?;
+                ensure_types_in_scope(&prospective_types, allowed_types)?;
                 ensure_no_new_out_of_scope_types(
                     &prospective_types,
                     &BTreeSet::new(),
-                    &allowed_types,
+                    allowed_types,
                 )?;
-                let result = execute_loaded(collection, operation, input)?;
+                let result = execute_loaded(collection, operation, &input)?;
                 if result.get("valid").and_then(Value::as_bool) != Some(false) {
-                    ensure_result_in_scope(&result, &allowed_types)?;
+                    ensure_result_in_scope(&result, allowed_types)?;
                 }
-                Ok(result)
+                resolved_scope
+                    .project_result(collection, result, Some(&selector))
+                    .map_err(contract_scope_error)
             }
             "update" => {
-                let path = required_string(input, "path")?;
+                let (input, selector) = resolved_scope
+                    .map_write_input(input, false)
+                    .map_err(contract_scope_error)?;
+                let path = required_string(&input, "path")?;
                 let current = execute_loaded(collection, "read", &json!({ "path": path }))?;
-                ensure_result_in_scope(&current, &allowed_types)?;
+                ensure_result_in_scope(&current, allowed_types)?;
                 let current_types = result_types(&current);
-                let mut prospective =
-                    if let Some(document) = input.get("document").and_then(Value::as_str) {
-                        let candidate = parse_document(document);
-                        match candidate.frontmatter.as_ref() {
-                            Some(frontmatter) if is_parse_error(frontmatter) => {
-                                return execute_loaded(collection, operation, input);
-                            }
-                            Some(serde_yaml::Value::Mapping(mapping)) => {
-                                yaml_mapping_to_json(mapping)
-                                    .as_object()
-                                    .cloned()
-                                    .unwrap_or_default()
-                            }
-                            Some(_) => return execute_loaded(collection, operation, input),
-                            None => serde_json::Map::new(),
-                        }
-                    } else {
-                        current
-                            .pointer("/result/frontmatter")
-                            .and_then(Value::as_object)
-                            .cloned()
-                            .unwrap_or_default()
-                    };
-                if input.get("document").is_none() {
-                    if let Some(fields) = input.get("patch").and_then(Value::as_object) {
-                        for (field, value) in fields {
-                            if value.is_null() {
-                                prospective.remove(field);
-                            } else {
-                                prospective.insert(field.clone(), value.clone());
-                            }
+                let mut prospective = current
+                    .pointer("/result/frontmatter")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                if let Some(fields) = input.get("patch").and_then(Value::as_object) {
+                    for (field, value) in fields {
+                        if value.is_null() {
+                            prospective.remove(field);
+                        } else {
+                            prospective.insert(field.clone(), value.clone());
                         }
                     }
                 }
                 let prospective_types =
                     collection.determine_types_for_path(&Value::Object(prospective), Some(path));
-                ensure_types_in_scope(&prospective_types, &allowed_types)?;
+                ensure_types_in_scope(&prospective_types, allowed_types)?;
                 ensure_no_new_out_of_scope_types(
                     &prospective_types,
                     &current_types,
-                    &allowed_types,
+                    allowed_types,
                 )?;
-                execute_loaded(collection, operation, input)
+                let result = execute_loaded(collection, operation, &input)?;
+                resolved_scope
+                    .project_result(collection, result, Some(&selector))
+                    .map_err(contract_scope_error)
             }
             "delete" => {
-                let path = required_string(input, "path")?;
+                let (scoped_input, selector) = resolved_scope
+                    .identity_input(input)
+                    .map_err(contract_scope_error)?;
+                let path = required_string(&scoped_input, "path")?;
                 let current = execute_loaded(collection, "read", &json!({ "path": path }))?;
-                ensure_result_in_scope(&current, &allowed_types)?;
-                let mut scoped_input = input.clone();
+                ensure_result_in_scope(&current, allowed_types)?;
+                resolved_scope
+                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .map_err(contract_scope_error)?;
+                let mut scoped_input = scoped_input;
                 if let Some(object) = scoped_input.as_object_mut() {
                     object.insert("check_backlinks".to_string(), Value::Bool(false));
                 }
                 execute_loaded(collection, operation, &scoped_input)
             }
             "rename" => {
-                let from = required_string(input, "from")?;
-                let to = required_string(input, "to")?;
-                if input.get("update_refs").and_then(Value::as_bool) == Some(true) {
+                let (scoped_input, selector) = resolved_scope
+                    .identity_input(input)
+                    .map_err(contract_scope_error)?;
+                let from = required_string(&scoped_input, "from")?;
+                let to = required_string(&scoped_input, "to")?;
+                if scoped_input.get("update_refs").and_then(Value::as_bool) == Some(true) {
                     return Err(ConnectError::AccessDenied(
                         "Reference updates can affect records outside this application's scope."
                             .to_string(),
                     ));
                 }
                 let current = execute_loaded(collection, "read", &json!({ "path": from }))?;
-                ensure_result_in_scope(&current, &allowed_types)?;
+                ensure_result_in_scope(&current, allowed_types)?;
+                resolved_scope
+                    .authorize_record_result(collection, &current, selector.as_ref())
+                    .map_err(contract_scope_error)?;
                 let current_types = result_types(&current);
                 let frontmatter = current
                     .pointer("/result/frontmatter")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
                 let prospective_types = collection.determine_types_for_path(&frontmatter, Some(to));
-                ensure_types_in_scope(&prospective_types, &allowed_types)?;
+                ensure_types_in_scope(&prospective_types, allowed_types)?;
                 ensure_no_new_out_of_scope_types(
                     &prospective_types,
                     &current_types,
-                    &allowed_types,
+                    allowed_types,
                 )?;
-                execute_loaded(collection, operation, input)
+                let result = execute_loaded(collection, operation, &scoped_input)?;
+                resolved_scope
+                    .project_result(collection, result, selector.as_ref())
+                    .map_err(contract_scope_error)
             }
             "validate" => Err(ConnectError::AccessDenied(
                 "Collection-wide validation is unavailable to a contract-scoped application."
@@ -1484,6 +1509,17 @@ impl CollectionRegistry {
         collection: &Collection,
         scope: &GrantScope,
     ) -> Result<Option<BTreeSet<String>>, ConnectError> {
+        Ok(self
+            .resolve_contract_scope_loaded(registered, collection, scope)?
+            .map(|scope| scope.allowed_types))
+    }
+
+    fn resolve_contract_scope_loaded(
+        &self,
+        registered: &CollectionSummary,
+        collection: &Collection,
+        scope: &GrantScope,
+    ) -> Result<Option<ContractScope>, ConnectError> {
         if scope.access == mdbase_connect_protocol::ApplicationAccess::FullCollection {
             return Ok(None);
         }
@@ -1493,24 +1529,31 @@ impl CollectionRegistry {
             ));
         }
         let description = self.describe_loaded(registered, collection)?;
-        let mut type_names = BTreeSet::new();
-        for required in &scope.contracts {
-            let matching = description.contracts.iter().filter(|contract| {
-                contract.id == required.id && contract.version == required.version
-            });
-            let mut found = false;
-            for contract in matching {
-                found = true;
-                type_names.insert(contract.type_name.to_lowercase());
-            }
-            if !found {
+        let mut allowed_types = BTreeSet::new();
+        for pinned in &scope.contracts {
+            let Some(current) = description
+                .contracts
+                .iter()
+                .find(|contract| contract.id == pinned.id && contract.version == pinned.version)
+            else {
                 return Err(ConnectError::AccessDenied(format!(
                     "The collection no longer provides {} version {}.",
-                    required.id, required.version
+                    pinned.id, pinned.version
+                )));
+            };
+            if current != pinned {
+                return Err(ConnectError::AccessDenied(format!(
+                    "The approved provider set for {} version {} has changed.",
+                    pinned.id, pinned.version
                 )));
             }
+            for implementation in &current.implementations {
+                allowed_types.insert(implementation.type_name.to_lowercase());
+            }
         }
-        Ok(Some(type_names))
+        let resolved = ContractScope::new(scope.contracts.clone()).map_err(contract_scope_error)?;
+        debug_assert_eq!(resolved.allowed_types, allowed_types);
+        Ok(Some(resolved))
     }
 
     pub fn describe(&self, id: Uuid) -> Result<CollectionDescription, ConnectError> {
@@ -1554,21 +1597,6 @@ impl CollectionRegistry {
                     .filter(|(key, _)| key.starts_with("x-"))
                     .map(|(key, value)| (key.clone(), value.clone()))
                     .collect::<serde_json::Map<_, _>>();
-                for (extension, configuration) in &extensions {
-                    let Some(id) = configuration.get("contract").and_then(Value::as_str) else {
-                        continue;
-                    };
-                    contracts.push(CollectionContractDescriptor {
-                        id: id.to_string(),
-                        version: configuration
-                            .get("version")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(1),
-                        type_name: type_file.name.clone(),
-                        extension: extension.clone(),
-                        configuration: configuration.clone(),
-                    });
-                }
                 types.push(CollectionTypeDescriptor {
                     name: type_file.name,
                     version: type_file.version,
@@ -1585,15 +1613,38 @@ impl CollectionRegistry {
                     extensions,
                 });
             }
+            contracts = collection
+                .list_data_contracts()
+                .into_iter()
+                .filter_map(|definition| {
+                    let implementations = collection
+                        .get_data_contract_implementations(&definition.id, &definition.version)
+                        .into_iter()
+                        .map(|implementation| {
+                            mdbase_connect_protocol::CollectionContractImplementationDescriptor {
+                                type_name: implementation.type_name,
+                                type_version: implementation.type_version,
+                                type_path: implementation.source_path,
+                                digest: implementation.implementation_digest,
+                                fields: implementation.fields,
+                                binding: implementation.binding,
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    (!implementations.is_empty()).then_some(CollectionContractDescriptor {
+                        implementations,
+                        id: definition.id,
+                        version: definition.version,
+                        digest: definition.digest,
+                        schema: definition.schema,
+                        binding_schema: definition.binding_schema,
+                    })
+                })
+                .collect();
         }
         types.sort_by(|left, right| left.name.cmp(&right.name));
-        contracts.sort_by(|left, right| {
-            (&left.id, left.version, &left.type_name).cmp(&(
-                &right.id,
-                right.version,
-                &right.type_name,
-            ))
-        });
+        contracts
+            .sort_by(|left, right| (&left.id, &left.version).cmp(&(&right.id, &right.version)));
         Ok(CollectionDescription {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id: registered.id,
@@ -2390,9 +2441,14 @@ fn sync_resources(
         description
             .types
             .retain(|type_definition| allowed_types.contains(&type_definition.name));
+        for contract in &mut description.contracts {
+            contract
+                .implementations
+                .retain(|implementation| allowed_types.contains(&implementation.type_name));
+        }
         description
             .contracts
-            .retain(|contract| allowed_types.contains(&contract.type_name));
+            .retain(|contract| !contract.implementations.is_empty());
     }
     let type_paths = description
         .types
@@ -2406,6 +2462,8 @@ fn sync_resources(
             matches!(
                 resource.kind,
                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration
+                    | mdbase::runtime::CollectionSnapshotResourceKind::Contract
+                    | mdbase::runtime::CollectionSnapshotResourceKind::Schema
                     | mdbase::runtime::CollectionSnapshotResourceKind::View
             ) || type_paths.contains(resource.path.as_str())
         })
@@ -2415,6 +2473,8 @@ fn sync_resources(
                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
                     "configuration".to_string()
                 }
+                mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract".to_string(),
+                mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema".to_string(),
                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type".to_string(),
                 mdbase::runtime::CollectionSnapshotResourceKind::View => "view".to_string(),
             },
@@ -2431,64 +2491,8 @@ fn sync_resources(
     }
 }
 
-fn scoped_query(input: &Value, allowed_types: &BTreeSet<String>) -> Result<Value, ConnectError> {
-    let mut scoped = input.as_object().cloned().ok_or_else(|| {
-        ConnectError::AccessDenied("Scoped query input must be an object.".to_string())
-    })?;
-    if let Some(requested) = scoped.get("types") {
-        let requested = requested.as_array().ok_or_else(|| {
-            ConnectError::AccessDenied("Scoped query types must be a list.".to_string())
-        })?;
-        if requested.is_empty() {
-            scoped.insert(
-                "types".to_string(),
-                Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-            );
-            return Ok(Value::Object(scoped));
-        }
-        for type_name in requested {
-            let type_name = type_name.as_str().ok_or_else(|| {
-                ConnectError::AccessDenied("Scoped query type names must be strings.".to_string())
-            })?;
-            if !allowed_types.contains(&type_name.to_lowercase()) {
-                return Err(ConnectError::AccessDenied(format!(
-                    "Type '{type_name}' is outside this application's record scope."
-                )));
-            }
-        }
-    } else {
-        scoped.insert(
-            "types".to_string(),
-            Value::Array(allowed_types.iter().cloned().map(Value::String).collect()),
-        );
-    }
-    Ok(Value::Object(scoped))
-}
-
-fn ensure_query_stays_within_record(input: &Value) -> Result<(), ConnectError> {
-    let crosses_record_boundary = match input {
-        Value::String(source) => {
-            let compact = source
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect::<String>();
-            compact.contains(".asFile") || compact.contains(".backlinks")
-        }
-        Value::Array(values) => values
-            .iter()
-            .any(|value| ensure_query_stays_within_record(value).is_err()),
-        Value::Object(values) => values
-            .values()
-            .any(|value| ensure_query_stays_within_record(value).is_err()),
-        _ => false,
-    };
-    if crosses_record_boundary {
-        return Err(ConnectError::AccessDenied(
-            "Cross-record query traversal is unavailable to a contract-scoped application."
-                .to_string(),
-        ));
-    }
-    Ok(())
+fn contract_scope_error(error: ContractScopeError) -> ConnectError {
+    ConnectError::AccessDenied(error.0)
 }
 
 fn ensure_result_in_scope(
@@ -2895,16 +2899,6 @@ fn has_contract(
         .any(|contract| contract.id == required.id && contract.version == required.version)
 }
 
-fn contract_requirements(contracts: &[CollectionContractDescriptor]) -> Vec<ContractRequirement> {
-    contracts
-        .iter()
-        .map(|contract| ContractRequirement {
-            id: contract.id.clone(),
-            version: contract.version,
-        })
-        .collect()
-}
-
 fn execute_loaded(
     collection: &Collection,
     operation: &str,
@@ -3229,6 +3223,55 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+    }
+
+    fn write_work_item_contract(root: &Path) {
+        fs::write(
+            root.join("_contracts/example.work-item.md"),
+            r#"---
+kind: mdbase.contract
+id: example.work-item
+version: 1.0.0
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title]
+    additionalProperties: false
+    properties:
+      title: { type: string }
+      status: { type: string }
+---
+"#,
+        )
+        .unwrap();
+    }
+
+    fn work_item_scope(registry: &CollectionRegistry, collection_id: Uuid) -> GrantScope {
+        let description = registry.describe(collection_id).unwrap();
+        let contract = description
+            .contracts
+            .into_iter()
+            .find(|contract| contract.id == "example.work-item")
+            .expect("example.work-item is advertised");
+        GrantScope {
+            contracts: vec![contract],
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
+        }
+    }
+
+    fn unavailable_contract_scope() -> GrantScope {
+        GrantScope {
+            contracts: vec![CollectionContractDescriptor {
+                id: "some.app".to_string(),
+                version: "1.0.0".to_string(),
+                digest: format!("sha256:{}", "0".repeat(64)),
+                schema: json!({"type": "object"}),
+                binding_schema: None,
+                implementations: Vec::new(),
+            }],
+            access: mdbase_connect_protocol::ApplicationAccess::Contract,
+        }
     }
 
     #[test]
@@ -4031,13 +4074,7 @@ schema:
         assert_eq!(updated["valid"], true, "{updated}");
         assert_ne!(updated["result"]["revision"], revision);
 
-        let contract_scope = GrantScope {
-            contracts: vec![ContractRequirement {
-                id: "some.app".to_string(),
-                version: 1,
-            }],
-            access: mdbase_connect_protocol::ApplicationAccess::Contract,
-        };
+        let contract_scope = unavailable_contract_scope();
         assert!(matches!(
             registry.scoped_operation(
                 collection.id,
@@ -4059,14 +4096,24 @@ schema:
         let requirements = ApplicationRequirements {
             contracts: vec![ContractRequirement {
                 id: "workout.record".to_string(),
-                version: 1,
+                version: "1.0.0".to_string(),
             }],
             ..Default::default()
         };
-        let provision = TypeProvision {
-            name: "Workout".to_string(),
-            path: None,
-            document: r#"---
+        let contract_document = r#"---
+kind: mdbase.contract
+id: workout.record
+version: 1.0.0
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    additionalProperties: false
+    properties:
+      type: { const: workout }
+---
+"#;
+        let type_document = r#"---
 kind: mdbase.type
 name: workout
 version: 1
@@ -4076,18 +4123,14 @@ schema:
     type: object
     properties:
       type: { const: workout }
-x-workout:
-  contract: workout.record
-  version: 1
+implements:
+  - contract: workout.record
+    version: 1.0.0
+    fields:
+      type: type
 ---
-"#
-            .to_string(),
-            provides: requirements.contracts.clone(),
-        };
-        let auxiliary = TypeProvision {
-            name: "workout_note".to_string(),
-            path: None,
-            document: r#"---
+"#;
+        let auxiliary_document = r#"---
 kind: mdbase.type
 name: workout_note
 version: 1
@@ -4098,20 +4141,67 @@ schema:
     properties:
       type: { const: workout_note }
 ---
-"#
-            .to_string(),
-            provides: Vec::new(),
+"#;
+        let resources = [
+            (
+                "contract.md",
+                "_contracts/workout.record.md",
+                "contract",
+                contract_document,
+            ),
+            ("workout.md", "_types/workout.md", "type", type_document),
+            (
+                "workout-note.md",
+                "_types/workout_note.md",
+                "type",
+                auxiliary_document,
+            ),
+        ];
+        let provision = TypePackProvision {
+            manifest: mdbase_connect_protocol::TypePackManifest {
+                kind: "mdbase.type-pack".to_string(),
+                id: "example.workout".to_string(),
+                version: "1.0.0".to_string(),
+                name: Some("Workout".to_string()),
+                description: None,
+                resources: resources
+                    .iter()
+                    .map(|(source, target, kind, document)| {
+                        mdbase_connect_protocol::TypePackManifestResource {
+                            kind: (*kind).to_string(),
+                            source: (*source).to_string(),
+                            target: (*target).to_string(),
+                            digest: format!("sha256:{:x}", Sha256::digest(document.as_bytes())),
+                        }
+                    })
+                    .collect(),
+                extensions: Default::default(),
+            },
+            resources: resources
+                .iter()
+                .map(
+                    |(source, _, _, document)| mdbase_connect_protocol::TypePackSourceResource {
+                        source: (*source).to_string(),
+                        document: (*document).to_string(),
+                    },
+                )
+                .collect(),
+            provides: requirements.contracts.clone(),
         };
-        let provisions = [provision, auxiliary];
+        let provisions = [provision];
 
         let contracts = registry
-            .provision_types(collection.id, &requirements, &provisions)
+            .provision_type_packs(collection.id, &requirements, &provisions)
             .unwrap();
-        assert!(contracts.contains(&requirements.contracts[0]));
+        assert!(contracts.iter().any(|contract| {
+            contract.id == requirements.contracts[0].id
+                && contract.version == requirements.contracts[0].version
+        }));
+        assert!(root.join("_contracts/workout.record.md").is_file());
         assert!(root.join("_types/workout.md").is_file());
         assert!(root.join("_types/workout_note.md").is_file());
         registry
-            .provision_types(collection.id, &requirements, &provisions)
+            .provision_type_packs(collection.id, &requirements, &provisions)
             .unwrap();
     }
 
@@ -4122,6 +4212,7 @@ schema:
         let root = collection_parent.path().join("tasks");
         let registry = CollectionRegistry::open(state.path()).unwrap();
         let collection = registry.create(&root, Some("Tasks")).unwrap();
+        write_work_item_contract(&root);
         fs::write(
             root.join("_types/task.md"),
             r#"---
@@ -4136,9 +4227,11 @@ schema:
     properties:
       type: { const: task }
       title: { type: string }
-x-work-item:
-  contract: example.work-item
-  version: 1
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: title
 ---
 "#,
         )
@@ -4159,13 +4252,7 @@ x-work-item:
             .as_str()
             .expect("create result has a revision")
             .to_string();
-        let scope = GrantScope {
-            contracts: vec![ContractRequirement {
-                id: "example.work-item".to_string(),
-                version: 1,
-            }],
-            access: mdbase_connect_protocol::ApplicationAccess::Contract,
-        };
+        let scope = work_item_scope(&registry, collection.id);
         let barrier = Arc::new(Barrier::new(3));
 
         let writers = ["First", "Second"].map(|title| {
@@ -4236,6 +4323,20 @@ x-private:
 "#,
         )
         .unwrap();
+        write_work_item_contract(&root);
+        fs::write(
+            root.join("_contracts/example.unimplemented.md"),
+            r#"---
+kind: mdbase.contract
+id: example.unimplemented
+version: 1.0.0
+schema:
+  dialect: json-schema-2020-12
+  value: { type: object }
+---
+"#,
+        )
+        .unwrap();
         fs::write(
             root.join("_types/task.md"),
             r#"---
@@ -4249,11 +4350,11 @@ schema:
     type: object
     properties:
       title: { type: string }
-x-work-item:
-  contract: example.work-item
-  version: 1
-  field_roles: { title: title, status: status }
-  status: { completed_values: [done], default: open }
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: title
 ---
 "#,
         )
@@ -4283,6 +4384,11 @@ x-work-item:
             Some("0.3.0")
         );
         assert_eq!(description.contracts[0].id, "example.work-item");
+        assert_eq!(
+            description.contracts.len(),
+            1,
+            "contracts without an implementation are not application capabilities"
+        );
         let serialized = serde_json::to_string(&description).unwrap();
         assert!(!serialized.contains(root.to_string_lossy().as_ref()));
         assert!(!serialized.contains("not-for-apps"));
@@ -4295,6 +4401,7 @@ x-work-item:
         let root = collection_parent.path().join("mixed");
         let registry = CollectionRegistry::open(state.path()).unwrap();
         let collection = registry.create(&root, Some("Mixed")).unwrap();
+        write_work_item_contract(&root);
         fs::write(
             root.join("_types/task.md"),
             r#"---
@@ -4309,11 +4416,11 @@ schema:
     properties:
       type: { const: task }
       title: { type: string }
-x-work-item:
-  contract: example.work-item
-  version: 1
-  field_roles: { title: title, status: status }
-  status: { completed_values: [done], default: open }
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: title
 ---
 "#,
         )
@@ -4340,6 +4447,10 @@ schema:
             ("tasks/one.md", "task", "title", "Visible"),
             ("private/one.md", "private", "secret", "Hidden"),
         ] {
+            let mut frontmatter = json!({ "type": type_name, field: value });
+            if type_name == "task" {
+                frontmatter["unmapped_secret"] = json!("must never cross the grant");
+            }
             let created = registry
                 .operation(
                     collection.id,
@@ -4347,19 +4458,14 @@ schema:
                     &json!({
                         "path": path,
                         "type": type_name,
-                        "frontmatter": { "type": type_name, field: value }
+                        "frontmatter": frontmatter,
+                        "body": "private body"
                     }),
                 )
                 .unwrap();
             assert_eq!(created["valid"], true, "{created}");
         }
-        let scope = GrantScope {
-            contracts: vec![ContractRequirement {
-                id: "example.work-item".to_string(),
-                version: 1,
-            }],
-            access: mdbase_connect_protocol::ApplicationAccess::Contract,
-        };
+        let scope = work_item_scope(&registry, collection.id);
 
         let empty_contract_scope = GrantScope {
             contracts: vec![],
@@ -4384,7 +4490,14 @@ schema:
             .is_compatible(
                 collection.id,
                 &ApplicationRequirements {
-                    contracts: scope.contracts.clone(),
+                    contracts: scope
+                        .contracts
+                        .iter()
+                        .map(|contract| ContractRequirement {
+                            id: contract.id.clone(),
+                            version: contract.version.clone(),
+                        })
+                        .collect(),
                     ..Default::default()
                 }
             )
@@ -4400,6 +4513,28 @@ schema:
             .unwrap();
         assert_eq!(query["result"]["results"].as_array().unwrap().len(), 1);
         assert_eq!(query["result"]["results"][0]["path"], "tasks/one.md");
+        assert_eq!(
+            query["result"]["results"][0]["frontmatter"],
+            json!({ "title": "Visible" })
+        );
+        assert_eq!(
+            query["result"]["results"][0]["contract"]["id"],
+            "example.work-item"
+        );
+        assert!(query["result"]["results"][0].get("body").is_none());
+        assert!(query["result"]["results"][0]["frontmatter"]
+            .get("unmapped_secret")
+            .is_none());
+        let read = registry
+            .scoped_operation(
+                collection.id,
+                "read",
+                &json!({ "path": "tasks/one.md" }),
+                &scope,
+            )
+            .unwrap();
+        assert_eq!(read["result"]["frontmatter"], json!({ "title": "Visible" }));
+        assert!(read["result"].get("body").is_none());
         assert!(matches!(
             registry.scoped_operation(
                 collection.id,
@@ -4534,6 +4669,169 @@ schema:
             .unwrap();
         assert_eq!(changes["events"].as_array().unwrap().len(), 2);
         assert_eq!(changes["events"][0]["payload"]["path"], "tasks/changed.md");
+    }
+
+    #[test]
+    fn contract_scope_unions_pinned_providers_and_rejects_provider_drift() {
+        let state = tempdir().unwrap();
+        let collection_parent = tempdir().unwrap();
+        let root = collection_parent.path().join("multiple-providers");
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let collection = registry.create(&root, Some("Multiple providers")).unwrap();
+        write_work_item_contract(&root);
+
+        for (name, title_field) in [("task", "title"), ("action", "summary")] {
+            fs::write(
+                root.join(format!("_types/{name}.md")),
+                format!(
+                    r#"---
+kind: mdbase.type
+name: {name}
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    additionalProperties: true
+    properties:
+      {title_field}: {{ type: string }}
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: {title_field}
+---
+"#
+                ),
+            )
+            .unwrap();
+        }
+        for (path, type_name, field) in [
+            ("tasks/one.md", "task", "title"),
+            ("actions/one.md", "action", "summary"),
+        ] {
+            let created = registry
+                .operation(
+                    collection.id,
+                    "create",
+                    &json!({
+                        "path": path,
+                        "type": type_name,
+                        "frontmatter": { field: "Visible" }
+                    }),
+                )
+                .unwrap();
+            assert_eq!(created["valid"], true, "{created}");
+        }
+
+        let scope = work_item_scope(&registry, collection.id);
+        assert_eq!(
+            scope.contracts[0]
+                .implementations
+                .iter()
+                .map(|implementation| implementation.type_name.as_str())
+                .collect::<Vec<_>>(),
+            ["action", "task"]
+        );
+        let query = registry
+            .scoped_operation(collection.id, "query", &json!({}), &scope)
+            .unwrap();
+        assert_eq!(query["result"]["results"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            query["result"]["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["frontmatter"]["title"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["Visible", "Visible"]
+        );
+
+        let created = registry
+            .scoped_operation(
+                collection.id,
+                "create",
+                &json!({
+                    "path": "actions/two.md",
+                    "type": "action",
+                    "contract": {
+                        "id": "example.work-item",
+                        "version": "1.0.0",
+                        "type": "action"
+                    },
+                    "frontmatter": { "title": "Created through the contract" }
+                }),
+                &scope,
+            )
+            .unwrap();
+        assert_eq!(
+            created["result"]["frontmatter"],
+            json!({ "title": "Created through the contract" })
+        );
+        let raw = registry
+            .operation(collection.id, "read", &json!({ "path": "actions/two.md" }))
+            .unwrap();
+        assert_eq!(
+            raw["result"]["frontmatter"]["summary"],
+            "Created through the contract"
+        );
+        assert!(raw["result"]["frontmatter"].get("title").is_none());
+
+        let updated = registry
+            .scoped_operation(
+                collection.id,
+                "update",
+                &json!({
+                    "path": "actions/two.md",
+                    "contract": {
+                        "id": "example.work-item",
+                        "version": "1.0.0",
+                        "type": "action"
+                    },
+                    "patch": { "title": "Updated through the contract" }
+                }),
+                &scope,
+            )
+            .unwrap();
+        assert_eq!(
+            updated["result"]["frontmatter"]["title"],
+            "Updated through the contract"
+        );
+        let raw = registry
+            .operation(collection.id, "read", &json!({ "path": "actions/two.md" }))
+            .unwrap();
+        assert_eq!(
+            raw["result"]["frontmatter"]["summary"],
+            "Updated through the contract"
+        );
+
+        fs::write(
+            root.join("_types/todo.md"),
+            r#"---
+kind: mdbase.type
+name: todo
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    additionalProperties: true
+    properties:
+      label: { type: string }
+implements:
+  - contract: example.work-item
+    version: 1.0.0
+    fields:
+      title: label
+---
+"#,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            registry.scoped_operation(collection.id, "query", &json!({}), &scope),
+            Err(ConnectError::AccessDenied(message)) if message.contains("changed")
+        ));
     }
 
     #[test]
