@@ -31,6 +31,7 @@ import {
   type UnavailableConnector
 } from "./api";
 import { collectionCompatibility } from "./compatibility";
+import { SessionManager } from "./session-manager";
 import "./styles.css";
 
 const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
@@ -43,6 +44,8 @@ function Portal() {
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
   if (location.pathname === "/signup") return <Signup />;
+  if (location.pathname === "/forgot-password") return <ForgotPassword />;
+  if (location.pathname === "/reset-password") return <ResetPassword />;
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
@@ -120,6 +123,7 @@ function Login() {
         {error && <div className="message error" role="alert">{error}</div>}
         {config.password_login && (
           <PasswordLoginForm
+            recoveryAvailable={config.password_recovery === true}
             onError={setError}
             onSignedIn={() => { location.href = returnTarget(); }}
           />
@@ -163,9 +167,11 @@ function Login() {
 }
 
 function PasswordLoginForm({
+  recoveryAvailable,
   onError,
   onSignedIn
 }: {
+  recoveryAvailable: boolean;
   onError(value: string): void;
   onSignedIn(): void;
 }) {
@@ -216,7 +222,183 @@ function PasswordLoginForm({
       <button className="button primary" disabled={busy} type="submit">
         {busy ? "Signing in…" : "Sign in with email"}
       </button>
+      {recoveryAvailable && (
+        <a className="quiet-auth-link" href="/forgot-password">
+          Forgot your password?
+        </a>
+      )}
     </form>
+  );
+}
+
+function ForgotPassword() {
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api<AuthConfig>("/v1/auth/config")
+      .then(setConfig)
+      .catch((reason) => setError(message(reason)));
+  }, []);
+
+  async function requestReset(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api("/v1/auth/password/recovery", {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      setSubmitted(true);
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!config) return <Loading error={error} />;
+  const available = config.password_recovery === true;
+  return (
+    <main className="center-page">
+      <PageBrand label="connect" />
+      <section className="auth-panel">
+        <p className="eyebrow">Account recovery</p>
+        <h1>{submitted ? "Check your email." : "Reset your password"}</h1>
+        <p role={submitted ? "status" : undefined} aria-live={submitted ? "polite" : undefined}>{submitted
+          ? "If an mdbase connect account uses that address, its one-time reset link is on the way."
+          : available
+            ? "Enter the email address attached to your account. The reset link expires after one hour."
+            : "Password recovery is temporarily unavailable. You can still return to sign in."}</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        {!submitted && available && (
+          <form className="password-auth-form" onSubmit={(event) => void requestReset(event)}>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                autoComplete="username"
+                autoFocus
+                maxLength={320}
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+            <button className="button primary" disabled={busy} type="submit">
+              {busy ? "Sending link…" : "Send reset link"}
+            </button>
+          </form>
+        )}
+        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+      </section>
+    </main>
+  );
+}
+
+function ResetPassword() {
+  const [resetToken] = useState(() => tokenFromFragment("reset"));
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [completed, setCompleted] = useState(false);
+
+  useEffect(() => {
+    void api<AuthConfig>("/v1/auth/config")
+      .then(setConfig)
+      .catch((reason) => setError(message(reason)));
+  }, []);
+
+  async function resetPassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (password !== passwordConfirmation) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api("/v1/auth/password/reset", {
+        method: "POST",
+        body: JSON.stringify({
+          reset_token: resetToken,
+          password
+        })
+      });
+      setCompleted(true);
+    } catch (reason) {
+      setError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  if (!config) return <Loading error={error} />;
+  const ready = Boolean(resetToken && config.password_login);
+  return (
+    <main className="center-page">
+      <PageBrand label="connect" />
+      <section className="auth-panel">
+        <p className="eyebrow">Account recovery</p>
+        <h1>{completed
+          ? "Password changed."
+          : ready
+            ? "Choose a new password"
+            : "This reset link can’t be opened"}</h1>
+        <p role={completed ? "status" : undefined} aria-live={completed ? "polite" : undefined}>{completed
+          ? "Your other browser sessions have been signed out. This browser is now signed in with the new password."
+          : ready
+            ? "Replacing your password signs out every other browser session connected to the account."
+            : resetToken
+              ? "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
+              : "Open the complete password reset link from your email."}</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        {!completed && ready && (
+          <form className="password-auth-form" onSubmit={(event) => void resetPassword(event)}>
+            <label>
+              <span>New password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                autoFocus
+                minLength={15}
+                maxLength={1024}
+                aria-describedby="reset-password-guidance"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            <p className="field-note" id="reset-password-guidance">
+              Use at least 15 characters. Spaces are welcome.
+            </p>
+            <label>
+              <span>Confirm new password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={15}
+                maxLength={1024}
+                required
+                value={passwordConfirmation}
+                onChange={(event) => setPasswordConfirmation(event.target.value)}
+              />
+            </label>
+            <button className="button primary" disabled={busy} type="submit">
+              {busy ? "Changing password…" : "Change password"}
+            </button>
+          </form>
+        )}
+        {completed
+          ? <a className="button secondary auth-complete-action" href="/">Open your account</a>
+          : <a className="quiet-auth-link" href="/login">Return to sign in</a>}
+      </section>
+    </main>
   );
 }
 
@@ -401,6 +583,7 @@ interface AuthConfig {
   registration: "closed" | "invite" | "open";
   development_login: boolean;
   password_login?: true;
+  password_recovery?: true;
   password_registration?: true;
   agreements?: {
     terms: { version: string; url: string };
@@ -625,7 +808,10 @@ function Dashboard() {
         <section id="account">
           <SectionHeading title="Account" note="Authentication and service details." />
           <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Registration" value={registrationLabel(data.authentication.registration)} detail={data.authentication.registration === "open" ? "New identities may create an account" : data.authentication.registration === "invite" ? "New accounts require an invitation" : "New account creation is paused"} /></div>
-          {data.authentication.provider !== "tailscale" && <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>}
+          {data.authentication.provider !== "tailscale" && <>
+            <SessionManager onError={setError} />
+            <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>
+          </>}
         </section>
       </main>
     </div>
@@ -1958,8 +2144,11 @@ function returnTarget() {
   return target.origin === location.origin ? target.href : "/";
 }
 function invitationTokenFromFragment() {
+  return tokenFromFragment("invitation");
+}
+function tokenFromFragment(name: string) {
   const token = new URLSearchParams(location.hash.slice(1))
-    .get("invitation")
+    .get(name)
     ?.trim() ?? "";
   if (location.hash) {
     history.replaceState(history.state, "", `${location.pathname}${location.search}`);

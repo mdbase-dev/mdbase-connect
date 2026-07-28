@@ -13,6 +13,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     registration: "closed" as const,
     authRateLimitSecret: null,
     authenticationLegalDocuments: null,
+    transactionalEmail: null,
     hostedCollections: false,
     hostedProvider: null,
     allowInsecureHostedProvider: false,
@@ -175,6 +176,30 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_TERMS_URL: "http://mdbase.dev/terms/",
       MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/"
     })).toThrow(/must use HTTPS/);
+  });
+
+  it("loads transactional email only when the provider key and sender are complete", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_RESEND_API_KEY: "re_test",
+      MDBASE_CONNECT_EMAIL_FROM: "mdbase connect <connect@example.com>"
+    });
+    expect(value.transactionalEmail).toEqual({
+      apiKey: "re_test",
+      from: "mdbase connect <connect@example.com>"
+    });
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_RESEND_API_KEY: "re_test"
+    })).toThrow(/configured together/);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_RESEND_API_KEY: "re_test",
+      MDBASE_CONNECT_EMAIL_FROM: "connect@example.com\nBcc: other@example.com"
+    })).toThrow(/invalid/);
   });
 
   it("rejects public URLs containing path or credential components", () => {

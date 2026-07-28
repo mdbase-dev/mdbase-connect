@@ -23,6 +23,10 @@ export interface ExternalSession {
   userId: string;
 }
 
+export interface CreateExternalSessionOptions {
+  clientName?: string;
+}
+
 export class AccountUnavailableError extends Error {
   constructor() {
     super("Account is unavailable.");
@@ -32,7 +36,8 @@ export class AccountUnavailableError extends Error {
 
 export async function createExternalSession(
   db: DatabasePool,
-  identity: VerifiedExternalIdentity
+  identity: VerifiedExternalIdentity,
+  options: CreateExternalSessionOptions = {}
 ): Promise<ExternalSession> {
   const token = randomToken("ses");
   const normalizedEmail = normalizedVerifiedEmail(identity);
@@ -81,11 +86,19 @@ export async function createExternalSession(
     await connection.query("DELETE FROM sessions WHERE expires_at <= now()");
     const createdSession = await connection.query(
       `INSERT INTO sessions
-         (id, user_id, token_hash, provider, account_session_epoch, expires_at)
-       SELECT $1, id, $3, $4, session_epoch, now() + interval '30 days'
+         (id, user_id, token_hash, provider, account_session_epoch,
+          expires_at, client_name)
+       SELECT $1, id, $3, $4, session_epoch,
+              now() + interval '30 days', $5
        FROM users WHERE id = $2 AND suspended_at IS NULL
        RETURNING id`,
-      [randomUUID(), userId, tokenHash(token), identity.provider]
+      [
+        randomUUID(),
+        userId,
+        tokenHash(token),
+        identity.provider,
+        options.clientName ?? null
+      ]
     );
     if (!createdSession.rows[0]) throw new AccountUnavailableError();
     await connection.query(

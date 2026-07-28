@@ -86,6 +86,15 @@ import {
   AuthenticationPolicyIncompleteError
 } from "./password-auth.js";
 import {
+  InvalidPasswordResetError,
+  PasswordRecoveryService,
+  PasswordRecoveryUnavailableError
+} from "./password-recovery.js";
+import {
+  AccountSessionService,
+  sessionClientName
+} from "./account-sessions.js";
+import {
   PASSWORD_MAX_UTF8_BYTES,
   PasswordPolicyError
 } from "./password.js";
@@ -107,6 +116,11 @@ import {
   NotificationService,
   type NotificationTransports
 } from "./notifications.js";
+import {
+  EmailDeliveryError,
+  type EmailTransport
+} from "./email.js";
+import { sendPasswordResetEmail } from "./password-reset-email.js";
 
 const OPERATIONS = [
   "describe",
@@ -155,6 +169,24 @@ const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
 };
 const PASSWORD_SIGNUP_IP_LIMIT: AuthRateLimitRule = {
   maxAttempts: 10,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_RECOVERY_EMAIL_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 3,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_RECOVERY_IP_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 10,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_RESET_TOKEN_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 5,
   windowSeconds: 60 * 60,
   baseBlockSeconds: 15 * 60,
   maxBlockSeconds: 6 * 60 * 60
@@ -208,6 +240,7 @@ interface BuildOptions {
   registration?: RegistrationMode;
   authRateLimitSecret?: string;
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
+  emailTransport?: EmailTransport;
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
@@ -229,6 +262,11 @@ interface User {
   name: string;
   login: string | null;
   authentication_provider?: "github" | "google" | "password" | "session" | "tailscale";
+}
+
+interface SessionContext {
+  user: User;
+  sessionId: string;
 }
 
 interface ConnectorIdentity {
@@ -319,6 +357,11 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     authenticationPolicy
   );
+  const passwordRecovery = new PasswordRecoveryService(
+    options.db,
+    authenticationPolicy
+  );
+  const accountSessions = new AccountSessionService(options.db);
   const authenticationRateLimiter = options.authRateLimitSecret
     ? new AuthRateLimiter(options.db, options.authRateLimitSecret)
     : null;
@@ -492,6 +535,12 @@ export async function buildApp(options: BuildOptions) {
         "This invitation is invalid, expired, or can no longer be used."
       ));
     }
+    if (error instanceof InvalidPasswordResetError) {
+      return reply.code(400).send(apiError(
+        "invalid_password_reset",
+        "This password reset link is invalid, expired, or has already been used."
+      ));
+    }
     if (error instanceof PasswordPolicyError) {
       return reply.code(400).send(apiError("invalid_password", error.message));
     }
@@ -505,6 +554,12 @@ export async function buildApp(options: BuildOptions) {
       return reply.code(503).send(apiError(
         "authentication_unavailable",
         "Password authentication is temporarily unavailable."
+      ));
+    }
+    if (error instanceof PasswordRecoveryUnavailableError) {
+      return reply.code(503).send(apiError(
+        "password_recovery_unavailable",
+        "Password recovery is temporarily unavailable."
       ));
     }
     if (error instanceof AuthenticationPolicyIncompleteError) {
@@ -562,6 +617,10 @@ export async function buildApp(options: BuildOptions) {
       && Boolean(authenticationSettings.termsVersion)
       && Boolean(authenticationSettings.privacyVersion)
       && options.authenticationLegalDocuments !== undefined;
+    const passwordRecoveryAvailable =
+      passwordLogin
+      && authenticationSettings.emailDeliveryEnabled
+      && options.emailTransport !== undefined;
     const providers = [
       ...(options.googleAuth
         ? [{ id: "google" as const, label: "Continue with Google", login_url: "/auth/google" }]
@@ -587,6 +646,9 @@ export async function buildApp(options: BuildOptions) {
       ...(passwordLogin
         ? {
             password_login: true,
+            ...(passwordRecoveryAvailable
+              ? { password_recovery: true }
+              : {}),
             ...(passwordRegistration
               ? {
                   password_registration: true,
@@ -651,7 +713,8 @@ export async function buildApp(options: BuildOptions) {
       name: input.name,
       password: input.password,
       termsVersion: input.terms_version,
-      privacyVersion: input.privacy_version
+      privacyVersion: input.privacy_version,
+      clientName: sessionClientName(request.headers["user-agent"])
     });
     setSessionCookie(reply, session.token, publicUrl);
     return reply.code(201).send({ user: session.user });
@@ -739,10 +802,147 @@ export async function buildApp(options: BuildOptions) {
     if (!allowed) return;
     const session = await passwordAccounts.authenticate({
       email: normalizedEmail,
-      password: input.password
+      password: input.password,
+      clientName: sessionClientName(request.headers["user-agent"])
     });
     setSessionCookie(reply, session.token, publicUrl);
     return { user: session.user };
+  });
+
+  app.post("/v1/auth/password/recovery", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, publicUrl);
+    if (!authenticationRateLimiter || !options.emailTransport) {
+      throw new PasswordRecoveryUnavailableError();
+    }
+    const input = z.object({
+      email: z.email().max(320)
+    }).strict().parse(request.body);
+    const normalizedEmail = normalizeEmailAddress(input.email);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.recovery.email",
+          key: normalizedEmail,
+          rule: PASSWORD_RECOVERY_EMAIL_LIMIT
+        },
+        {
+          scope: "password.recovery.ip",
+          key: request.ip,
+          rule: PASSWORD_RECOVERY_IP_LIMIT
+        },
+        {
+          scope: "password.recovery.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const reset = await passwordRecovery.create(normalizedEmail);
+    reply.code(202).send({
+      accepted: true,
+      message: "If an account uses that email, a password reset link is on its way."
+    });
+    if (!reset) return reply;
+
+    let delivery:
+      | {
+          status: "sent";
+          provider: string;
+          messageId: string;
+        }
+      | {
+          status: "failed";
+          provider: string;
+          code: string;
+          retryable: boolean;
+        };
+    try {
+      const sent = await sendPasswordResetEmail(options.emailTransport, {
+        challengeId: reset.challengeId,
+        to: reset.email,
+        resetUrl:
+          `${publicUrl}/reset-password#reset=${encodeURIComponent(reset.token)}`,
+        expiresAt: reset.expiresAt
+      });
+      delivery = {
+        status: "sent",
+        provider: sent.provider,
+        messageId: sent.messageId
+      };
+    } catch (error) {
+      delivery = {
+        status: "failed",
+        provider: error instanceof EmailDeliveryError ? "resend" : "unknown",
+        code: error instanceof EmailDeliveryError
+          ? error.code
+          : "unexpected_error",
+        retryable: error instanceof EmailDeliveryError && error.retryable
+      };
+      request.log.error({
+        challenge_id: reset.challengeId,
+        provider: delivery.provider,
+        provider_code: delivery.code,
+        retryable: delivery.retryable
+      }, "Password reset email delivery failed");
+    }
+    try {
+      await passwordRecovery.recordDelivery(
+        reset.challengeId,
+        reset.userId,
+        delivery
+      );
+    } catch (error) {
+      request.log.error({
+        err: error,
+        challenge_id: reset.challengeId
+      }, "Password reset delivery audit failed");
+    }
+    return reply;
+  });
+
+  app.post("/v1/auth/password/reset", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, publicUrl);
+    if (!authenticationRateLimiter) {
+      throw new PasswordRecoveryUnavailableError();
+    }
+    const input = z.object({
+      reset_token: z.string().min(1).max(200),
+      password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES)
+    }).strict().parse(request.body);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.reset.token",
+          key: input.reset_token,
+          rule: PASSWORD_RESET_TOKEN_LIMIT
+        },
+        {
+          scope: "password.reset.ip",
+          key: request.ip,
+          rule: PASSWORD_RECOVERY_IP_LIMIT
+        },
+        {
+          scope: "password.reset.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const session = await passwordRecovery.complete({
+      token: input.reset_token,
+      password: input.password,
+      clientName: sessionClientName(request.headers["user-agent"])
+    });
+    setSessionCookie(reply, session.token, publicUrl);
+    return { user: session.user, other_sessions_signed_out: true };
   });
 
   app.get("/auth/github", {
@@ -833,6 +1033,8 @@ export async function buildApp(options: BuildOptions) {
       email,
       emailVerified: false,
       avatarUrl: null
+    }, {
+      clientName: sessionClientName(request.headers["user-agent"])
     });
     setSessionCookie(reply, session.token, publicUrl);
     return reply.redirect(state.rows[0].return_to);
@@ -920,6 +1122,8 @@ export async function buildApp(options: BuildOptions) {
       email,
       emailVerified: identity.emailVerified,
       avatarUrl: identity.avatarUrl
+    }, {
+      clientName: sessionClientName(request.headers["user-agent"])
     });
     setSessionCookie(reply, session.token, publicUrl);
     return { redirect_to: state.rows[0].return_to };
@@ -2267,10 +2471,17 @@ export async function buildApp(options: BuildOptions) {
     const token = randomToken("ses");
     await options.db.query(
       `INSERT INTO sessions
-         (id, user_id, token_hash, account_session_epoch, expires_at)
-       SELECT $1, id, $3, session_epoch, now() + interval '30 days'
+         (id, user_id, token_hash, account_session_epoch,
+          expires_at, client_name)
+       SELECT $1, id, $3, session_epoch,
+              now() + interval '30 days', $4
        FROM users WHERE id = $2 AND suspended_at IS NULL`,
-      [randomUUID(), user.rows[0].id, tokenHash(token)]
+      [
+        randomUUID(),
+        user.rows[0].id,
+        tokenHash(token),
+        sessionClientName(request.headers["user-agent"])
+      ]
     );
     setSessionCookie(reply, token, publicUrl);
     return { user: user.rows[0] };
@@ -2279,9 +2490,76 @@ export async function buildApp(options: BuildOptions) {
   app.post("/v1/logout", async (request, reply) => {
     const token = sessionToken(request);
     if (token) await options.db.query("DELETE FROM sessions WHERE token_hash = $1", [tokenHash(token)]);
-    reply.clearCookie("mdbase_session", { path: "/" });
-    reply.clearCookie("__Host-mdbase_session", { path: "/", secure: true });
+    clearSessionCookies(reply);
     return { ok: true };
+  });
+
+  app.get("/v1/account/sessions", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const authenticated = await requireSessionContext(
+      request,
+      reply,
+      options.db
+    );
+    if (!authenticated) return;
+    const sessions = await accountSessions.list(
+      authenticated.user.id,
+      authenticated.sessionId
+    );
+    return {
+      sessions: sessions.map((session) => ({
+        id: session.id,
+        provider: session.provider,
+        client_name: session.clientName,
+        created_at: session.createdAt.toISOString(),
+        last_seen_at: session.lastSeenAt.toISOString(),
+        expires_at: session.expiresAt.toISOString(),
+        current: session.current
+      }))
+    };
+  });
+
+  app.delete("/v1/account/sessions/:sessionId", async (request, reply) => {
+    requireSameOrigin(request, publicUrl);
+    const authenticated = await requireSessionContext(
+      request,
+      reply,
+      options.db
+    );
+    if (!authenticated) return;
+    const params = z.object({ sessionId: z.uuid() }).parse(request.params);
+    const revoked = await accountSessions.revoke(
+      authenticated.user.id,
+      params.sessionId
+    );
+    if (!revoked) {
+      return reply.code(404).send(apiError(
+        "session_not_found",
+        "That browser session is no longer active."
+      ));
+    }
+    if (params.sessionId === authenticated.sessionId) {
+      clearSessionCookies(reply);
+    }
+    return {
+      ok: true,
+      current_session_revoked: params.sessionId === authenticated.sessionId
+    };
+  });
+
+  app.post("/v1/account/sessions/revoke-others", async (request, reply) => {
+    requireSameOrigin(request, publicUrl);
+    const authenticated = await requireSessionContext(
+      request,
+      reply,
+      options.db
+    );
+    if (!authenticated) return;
+    const revokedCount = await accountSessions.revokeOthers(
+      authenticated.user.id,
+      authenticated.sessionId
+    );
+    return { ok: true, revoked_count: revokedCount };
   });
 
   app.get("/v1/me", async (request, reply) => {
@@ -6752,10 +7030,20 @@ class RequestValidationError extends Error {}
 class OriginDeniedError extends Error {}
 
 async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
+  return (await sessionContext(request, db))?.user ?? null;
+}
+
+async function sessionContext(
+  request: FastifyRequest,
+  db: DatabasePool
+): Promise<SessionContext | null> {
   const token = sessionToken(request);
   if (!token) return null;
-  const user = await db.query<User>(
-    `SELECT u.id,
+  const result = await db.query<User & {
+    session_id: string;
+    last_seen_at: Date | string;
+  }>(
+    `SELECT u.id, s.id AS session_id, s.last_seen_at,
             COALESCE(i.email, e.email, u.email) AS email,
             u.name, i.login, s.provider AS authentication_provider
      FROM sessions s
@@ -6770,7 +7058,24 @@ async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<U
        AND s.account_session_epoch = u.session_epoch`,
     [tokenHash(token)]
   );
-  return user.rows[0] ?? null;
+  const row = result.rows[0];
+  if (!row) return null;
+  if (Date.now() - new Date(row.last_seen_at).getTime() >= 5 * 60 * 1_000) {
+    await db.query(
+      `UPDATE sessions SET last_seen_at = now()
+       WHERE id = $1
+         AND revoked_at IS NULL
+         AND expires_at > now()
+         AND last_seen_at < now() - interval '5 minutes'`,
+      [row.session_id]
+    );
+  }
+  const {
+    session_id: sessionId,
+    last_seen_at: _lastSeenAt,
+    ...user
+  } = row;
+  return { user, sessionId };
 }
 
 async function tailscaleUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
@@ -7661,6 +7966,18 @@ async function requireUser(
   return user;
 }
 
+async function requireSessionContext(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  db: DatabasePool
+): Promise<SessionContext | null> {
+  const authenticated = await sessionContext(request, db);
+  if (!authenticated) {
+    reply.code(401).send(apiError("not_authenticated", "Sign in to continue."));
+  }
+  return authenticated;
+}
+
 async function connectorFromRequest(request: FastifyRequest, db: DatabasePool): Promise<ConnectorIdentity | null> {
   const token = bearerToken(request);
   if (!token) return null;
@@ -7710,6 +8027,11 @@ function setSessionCookie(reply: FastifyReply, token: string, publicUrl: string)
     path: "/",
     maxAge: 60 * 60 * 24 * 30
   });
+}
+
+function clearSessionCookies(reply: FastifyReply): void {
+  reply.clearCookie("mdbase_session", { path: "/" });
+  reply.clearCookie("__Host-mdbase_session", { path: "/", secure: true });
 }
 
 function sessionCookieName(publicUrl: string): string {

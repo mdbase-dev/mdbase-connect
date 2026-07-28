@@ -143,6 +143,8 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     CREATE INDEX IF NOT EXISTS authentication_challenges_expiry_idx
       ON authentication_challenges(expires_at)
       WHERE consumed_at IS NULL AND invalidated_at IS NULL;
+    CREATE INDEX IF NOT EXISTS authentication_challenges_user_idx
+      ON authentication_challenges(user_id, purpose, created_at DESC);
     CREATE TABLE IF NOT EXISTS auth_rate_limit_buckets (
       scope text NOT NULL,
       key_digest text NOT NULL,
@@ -199,8 +201,11 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       expires_at timestamptz NOT NULL,
       revoked_at timestamptz,
       last_seen_at timestamptz NOT NULL DEFAULT now(),
+      client_name text,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE INDEX IF NOT EXISTS sessions_user_idx
+      ON sessions(user_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS connectors (
       id uuid PRIMARY KEY,
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -550,6 +555,19 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "UPDATE sessions SET last_seen_at = created_at WHERE last_seen_at IS NULL"
   );
   await ensureNotNullable(db, "sessions", "last_seen_at");
+  await ensureColumn(
+    db,
+    "sessions",
+    "client_name",
+    "ALTER TABLE sessions ADD COLUMN client_name text"
+  );
+  await db.query(
+    "CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id, created_at DESC)"
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS authentication_challenges_user_idx
+       ON authentication_challenges(user_id, purpose, created_at DESC)`
+  );
   await ensureColumn(
     db,
     "external_identities",
