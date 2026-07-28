@@ -106,10 +106,10 @@ services require a branch reference; deploy tooling separately verifies and
 deploys the exact tag commit:
 
 ```bash
-pnpm version:check v0.1.0-beta.11
-git branch releases/v0.1.0-beta.11
-git tag -a v0.1.0-beta.11 -m "mdbase connect 0.1.0-beta.11"
-git push origin releases/v0.1.0-beta.11 v0.1.0-beta.11
+pnpm version:check v0.1.0-beta.12
+git branch releases/v0.1.0-beta.12
+git tag -a v0.1.0-beta.12 -m "mdbase connect 0.1.0-beta.12"
+git push origin releases/v0.1.0-beta.12 v0.1.0-beta.12
 ```
 
 When platform publisher configuration is wholly absent, the workflow publishes
