@@ -1,21 +1,107 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mdbase.dev/schemas/v0.3/data-contract.schema.json",
-  "title": "mdbase v0.3 data contract frontmatter",
+  "title": "mdbase v0.3 contract frontmatter",
   "type": "object",
-  "required": ["kind", "id", "version", "schema"],
+  "required": ["kind", "contract_type", "id", "version"],
   "properties": {
-    "kind": { "const": "mdbase.contract" },
-    "id": { "$ref": "#/$defs/contractId" },
-    "version": { "$ref": "#/$defs/semanticVersion" },
-    "name": { "type": "string", "minLength": 1 },
-    "description": { "type": "string" },
-    "schema": { "$ref": "#/$defs/schemaWrapper" },
-    "binding_schema": { "$ref": "#/$defs/schemaWrapper" }
+    "kind": {
+      "const": "mdbase.contract"
+    },
+    "contract_type": {
+      "enum": ["record", "event", "action"]
+    },
+    "id": {
+      "$ref": "#/$defs/contractId"
+    },
+    "version": {
+      "$ref": "#/$defs/semanticVersion"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "record_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "binding_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "data_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "source_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "input_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "output_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "error_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "provider_schema": {
+      "$ref": "#/$defs/schemaWrapper"
+    },
+    "behavior": {
+      "$ref": "#/$defs/actionBehavior"
+    }
   },
   "patternProperties": {
     "^x-[A-Za-z][A-Za-z0-9._:-]{0,127}$": true
   },
+  "oneOf": [
+    {
+      "properties": {
+        "contract_type": { "const": "record" },
+        "record_schema": true,
+        "binding_schema": true,
+        "data_schema": false,
+        "source_schema": false,
+        "input_schema": false,
+        "output_schema": false,
+        "error_schema": false,
+        "provider_schema": false,
+        "behavior": false
+      },
+      "required": ["record_schema"]
+    },
+    {
+      "properties": {
+        "contract_type": { "const": "event" },
+        "record_schema": false,
+        "binding_schema": false,
+        "data_schema": true,
+        "source_schema": true,
+        "input_schema": false,
+        "output_schema": false,
+        "error_schema": false,
+        "provider_schema": false,
+        "behavior": false
+      },
+      "required": ["data_schema"]
+    },
+    {
+      "properties": {
+        "contract_type": { "const": "action" },
+        "record_schema": false,
+        "binding_schema": false,
+        "data_schema": false,
+        "source_schema": false,
+        "input_schema": true,
+        "output_schema": true,
+        "error_schema": true,
+        "provider_schema": true,
+        "behavior": true
+      },
+      "required": ["input_schema"]
+    }
+  ],
   "additionalProperties": false,
   "$defs": {
     "contractId": {
@@ -32,9 +118,16 @@
       "type": "object",
       "required": ["dialect"],
       "properties": {
-        "dialect": { "const": "json-schema-2020-12" },
-        "value": { "type": "object" },
-        "ref": { "type": "string", "minLength": 1 }
+        "dialect": {
+          "const": "json-schema-2020-12"
+        },
+        "value": {
+          "type": "object"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "oneOf": [
         {
@@ -52,6 +145,18 @@
           }
         }
       ],
+      "additionalProperties": false
+    },
+    "actionBehavior": {
+      "type": "object",
+      "properties": {
+        "idempotency": {
+          "enum": ["none", "optional", "required"]
+        },
+        "cancellation": {
+          "enum": ["none", "cooperative"]
+        }
+      },
       "additionalProperties": false
     }
   }

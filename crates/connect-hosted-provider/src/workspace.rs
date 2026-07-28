@@ -380,10 +380,13 @@ impl WorkingSet {
                 (!implementations.is_empty()).then_some(
                     mdbase_connect_protocol::CollectionContractDescriptor {
                         implementations,
+                        contract_type: definition.contract_type,
                         id: definition.id,
                         version: definition.version,
                         digest: definition.digest,
-                        schema: definition.schema,
+                        schema: definition
+                            .record_schema
+                            .expect("record implementations require record_schema"),
                         binding_schema: definition.binding_schema,
                     },
                 )

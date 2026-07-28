@@ -3426,6 +3426,7 @@ function parseGrantScope(value: unknown): GrantScope | null {
   if (scope.contracts.some((contract) =>
     !contract
     || typeof contract !== "object"
+    || contract.contract_type !== "record"
     || typeof contract.id !== "string"
     || typeof contract.version !== "string"
     || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(contract.version)

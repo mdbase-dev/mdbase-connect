@@ -1638,10 +1638,13 @@ impl CollectionRegistry {
                         .collect::<Vec<_>>();
                     (!implementations.is_empty()).then_some(CollectionContractDescriptor {
                         implementations,
+                        contract_type: definition.contract_type,
                         id: definition.id,
                         version: definition.version,
                         digest: definition.digest,
-                        schema: definition.schema,
+                        schema: definition
+                            .record_schema
+                            .expect("record implementations require record_schema"),
                         binding_schema: definition.binding_schema,
                     })
                 })
@@ -3238,9 +3241,10 @@ mod tests {
             root.join("_contracts/example.work-item.md"),
             r#"---
 kind: mdbase.contract
+contract_type: record
 id: example.work-item
 version: 1.0.0
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     type: object
@@ -3271,6 +3275,7 @@ schema:
     fn unavailable_contract_scope() -> GrantScope {
         GrantScope {
             contracts: vec![CollectionContractDescriptor {
+                contract_type: "record".to_string(),
                 id: "some.app".to_string(),
                 version: "1.0.0".to_string(),
                 digest: format!("sha256:{}", "0".repeat(64)),
@@ -4110,9 +4115,10 @@ schema:
         };
         let contract_document = r#"---
 kind: mdbase.contract
+contract_type: record
 id: workout.record
 version: 1.0.0
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     type: object
@@ -4336,9 +4342,10 @@ x-private:
             root.join("_contracts/example.unimplemented.md"),
             r#"---
 kind: mdbase.contract
+contract_type: record
 id: example.unimplemented
 version: 1.0.0
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value: { type: object }
 ---

@@ -42,6 +42,7 @@ export const CONNECT_SCHEMA_IDS = {
   appManifest: "https://mdbase.dev/connect/schemas/mdbase-app.v1.json",
   notificationWebhook: "https://mdbase.dev/connect/schemas/notification-webhook.v1.json",
   dataContract: "https://mdbase.dev/schemas/v0.3/data-contract.schema.json",
+  eventActionInterop: "https://mdbase.dev/schemas/interop/v0.1/profile.schema.json",
   protocol: "https://mdbase.dev/connect/schemas/connect-protocol.v1.json",
   encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v1.json",
   sync: "https://mdbase.dev/connect/schemas/sync.v1.json"
@@ -705,6 +706,8 @@ export interface CollectionTypeDocument {
 }
 
 export interface CollectionContractDescriptor {
+  /** Collection operations expose only record contracts. */
+  contract_type: "record";
   id: string;
   version: string;
   /** Digest of the resolved contract schemas and metadata. */

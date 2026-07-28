@@ -531,6 +531,7 @@ mod tests {
     #[test]
     fn rejects_unmapped_write_fields() {
         let scope = ContractScope::new(vec![CollectionContractDescriptor {
+            contract_type: "record".into(),
             id: "example.task".into(),
             version: "1.0.0".into(),
             digest: format!("sha256:{}", "0".repeat(64)),
@@ -561,6 +562,7 @@ mod tests {
     #[test]
     fn maps_json_pointer_contract_fields_for_scoped_writes() {
         let scope = ContractScope::new(vec![CollectionContractDescriptor {
+            contract_type: "record".into(),
             id: "example.contact".into(),
             version: "1.0.0".into(),
             digest: format!("sha256:{}", "0".repeat(64)),

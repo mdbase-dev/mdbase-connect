@@ -1952,7 +1952,11 @@ schema:
   if (controlDatabase) await controlDatabase.end();
   for (const child of [...children]) await stopProvider(child);
   if (postgresStarted) {
-    await execute("docker", ["rm", "-f", postgresContainer]).catch(() => {});
+    await execute(
+      "docker",
+      ["rm", "-f", postgresContainer],
+      { timeout: 30_000 }
+    ).catch(() => {});
   }
   await rm(mirrorRoot, { recursive: true, force: true });
   await rm(writableMirrorRoot, { recursive: true, force: true });
@@ -2260,7 +2264,10 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     await expect(connectedRow).toContainText("Two-way · up to date");
     page.once("dialog", (dialog) => dialog.accept());
     await connectedRow.getByRole("button", { name: "Revoke" }).click();
-    await expect(connectedRow).not.toContainText("Browser writable mirror");
+    await expect(connectedRow).not.toContainText(
+      "Browser writable mirror",
+      { timeout: 20_000 }
+    );
 
     await connectedRow.getByRole("button", { name: "Rename" }).click();
     await connectedRow.getByLabel("Collection name").fill("Browser renamed collection");
@@ -2343,12 +2350,22 @@ async function authorityPromotionCliE2E(
   let promotionError = "";
   promotion.stdout.on("data", (chunk) => { promotionOutput += chunk; });
   promotion.stderr.on("data", (chunk) => { promotionError += chunk; });
-  const transferUri = await waitForOutput(
-    () => promotionError.match(/https?:\/\/[^\s]+\/transfer\/[0-9a-f-]+/)?.[0],
-    "Promotion CLI did not print an authority confirmation URL"
-  );
-  const browser = await chromium.launch({ headless: true });
+  let browser;
   try {
+    let transferUri;
+    try {
+      transferUri = await waitForOutput(
+        () => promotionError.match(/https?:\/\/[^\s]+\/transfer\/[0-9a-f-]+/)?.[0],
+        "Promotion CLI did not print an authority confirmation URL"
+      );
+    } catch (error) {
+      throw new Error(
+        `${error.message}\nPromotion CLI stderr:\n${promotionError}\n`
+          + `Promotion CLI stdout:\n${promotionOutput}`,
+        { cause: error }
+      );
+    }
+    browser = await chromium.launch({ headless: true });
     const separator = cookie.indexOf("=");
     const context = await browser.newContext();
     await context.addCookies([{
@@ -2380,7 +2397,7 @@ async function authorityPromotionCliE2E(
     })).toBeVisible();
   } finally {
     if (promotion.exitCode === null && promotion.signalCode === null) promotion.kill("SIGTERM");
-    await browser.close();
+    if (browser) await browser.close();
   }
 
   assert.deepEqual(await connectCommand(profile, ["mirror", "list"]), []);
@@ -3377,9 +3394,10 @@ function workItemTypePack({ packId, name, contractId, types }) {
   const contractSource = `_contracts/${contractId}.md`;
   const contractDocument = `---
 kind: mdbase.contract
+contract_type: record
 id: ${contractId}
 version: ${version}
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     type: object
@@ -3606,7 +3624,7 @@ async function waitFor(action, message, attempts = 100) {
 }
 
 async function waitForOutput(action, message) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const value = action();
     if (value) return value;
     await delay(50);

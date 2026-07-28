@@ -249,9 +249,10 @@ import { defineTypePack } from "@mdbase/connect-dev";
 
 const contract = `---
 kind: mdbase.contract
+contract_type: record
 id: example.work-item
 version: 1.0.0
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     type: object

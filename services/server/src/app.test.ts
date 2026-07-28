@@ -1782,7 +1782,7 @@ describe("mdbase connect server", () => {
       payload: { display_name: "Training", template: "mdbase" }
     });
     const collectionId = collection.json().collection.id as string;
-    const contractDocument = "---\nkind: mdbase.contract\nid: workout.record\nversion: 1.0.0\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    const contractDocument = "---\nkind: mdbase.contract\ncontract_type: record\nid: workout.record\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
     const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nimplements:\n  - contract: workout.record\n    version: 1.0.0\n    fields: {}\n---\n";
     const auxiliaryDocument = "---\nkind: mdbase.type\nname: workout_note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
     const pack = typePackProvision(
@@ -1948,6 +1948,7 @@ function contractDescriptor(
   typeName = "workout"
 ) {
   return {
+    contract_type: "record",
     id,
     version: "1.0.0",
     digest: `sha256:${"0".repeat(64)}`,

@@ -429,8 +429,9 @@
     "collectionContract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "digest", "schema", "implementations"],
+      "required": ["contract_type", "id", "version", "digest", "schema", "implementations"],
       "properties": {
+        "contract_type": { "const": "record" },
         "id": { "type": "string", "minLength": 1 },
         "version": { "$ref": "#/$defs/semanticVersion" },
         "digest": { "$ref": "#/$defs/digest" },

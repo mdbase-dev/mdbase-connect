@@ -216,14 +216,24 @@ cannot add evaluation logic to an existing grant. Changed criteria therefore
 require explicit reauthorization before the authority receives an updated
 policy.
 
-## Data contracts
+## Contracts
 
-A contract is a versioned JSON Schema stored as an `mdbase.contract` record.
-A type opts into it through `implements`, which maps stable contract fields to
-that type's concrete fields. Several types may implement the same contract;
-reads and queries union those providers and return one normalized contract
-view. If a record has more than one approved view, the application supplies
-the exact `{ id, version, type }` selector.
+An `mdbase.contract` is a versioned, digest-addressed JSON Schema artifact.
+Its explicit `contract_type` is `record`, `event`, or `action`. Connect's
+collection-operation grants use record contracts: a type opts in through
+`implements`, which maps stable contract fields to concrete fields. Several
+types may implement the same record contract; reads and queries union those
+implementations and return one normalized view. If a record has more than one
+approved view, the application supplies the exact `{ id, version, type }`
+selector.
+
+Event sources and action providers are executable application declarations,
+not type implementations. They use the mdbase event/action interoperability
+profile and CloudEvents envelope. Connect ships exact copies of those portable
+schemas from `@mdbase/connect-protocol`; a future durable binding can add
+authority routing, journals, and offline delivery without defining another
+event/action vocabulary. Installing or validating any contract grants no
+authority.
 
 Contract-scoped applications never receive the raw Markdown body or unmapped
 frontmatter. Writes accept normalized contract fields and the authority maps

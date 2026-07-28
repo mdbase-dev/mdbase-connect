@@ -73,12 +73,32 @@ export function validateProtocolValue(value: unknown, definition?: string): Vali
 
 export interface DataContractDocument extends JsonObject {
   kind: "mdbase.contract";
+  contract_type: "record" | "event" | "action";
   id: string;
   version: string;
-  schema: JsonObject;
 }
 
-export function defineDataContract<const Contract extends DataContractDocument>(
+export interface RecordDataContractDocument extends DataContractDocument {
+  contract_type: "record";
+  record_schema: JsonObject;
+}
+
+export interface EventDataContractDocument extends DataContractDocument {
+  contract_type: "event";
+  data_schema: JsonObject;
+}
+
+export interface ActionDataContractDocument extends DataContractDocument {
+  contract_type: "action";
+  input_schema: JsonObject;
+}
+
+export function defineDataContract<
+  const Contract extends
+    | RecordDataContractDocument
+    | EventDataContractDocument
+    | ActionDataContractDocument
+>(
   contract: Contract
 ): Contract {
   const result = validateDataContract(contract);

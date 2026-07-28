@@ -111,9 +111,10 @@ views:
   await mkdir(join(collectionPath, "_contracts"), { recursive: true });
   await writeFile(join(collectionPath, "_contracts", "workout.record.md"), `---
 kind: mdbase.contract
+contract_type: record
 id: workout.record
 version: 1.0.0
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     type: object

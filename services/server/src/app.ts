@@ -215,6 +215,7 @@ const collectionContractImplementationSchema = z.object({
   binding: z.record(z.string(), z.unknown()).optional()
 }).strict();
 const collectionContractDescriptorSchema = z.object({
+  contract_type: z.literal("record"),
   id: contractRequirementSchema.shape.id,
   version: contractRequirementSchema.shape.version,
   digest: digestSchema,

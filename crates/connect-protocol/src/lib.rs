@@ -379,6 +379,7 @@ pub struct CollectionTypeDescriptor {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollectionContractDescriptor {
+    pub contract_type: String,
     pub id: String,
     pub version: String,
     pub digest: String,

@@ -1,10 +1,11 @@
 export const PICKLE_REQUEST_CONTRACT_DOCUMENT = `---
 kind: mdbase.contract
+contract_type: record
 id: pickle.request
 version: 1.0.0
 name: Pickle request
 description: A portable asynchronous request that needs a human response.
-schema:
+record_schema:
   dialect: json-schema-2020-12
   value:
     $schema: "https://json-schema.org/draft/2020-12/schema"

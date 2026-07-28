@@ -27,6 +27,7 @@ afterEach(() => {
 
 const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
 const WORK_ITEM_CONTRACT = {
+  contract_type: "record",
   id: "example.work-item",
   version: "1.0.0",
   digest: `sha256:${"0".repeat(64)}`,

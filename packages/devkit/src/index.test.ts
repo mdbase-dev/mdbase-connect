@@ -150,9 +150,10 @@ describe("canonical developer validation", () => {
   it("defines first-class data contracts without erasing extension fields", () => {
     const contract = defineDataContract({
       kind: "mdbase.contract",
+      contract_type: "record",
       id: "example.work-item",
       version: "1.0.0",
-      schema: {
+      record_schema: {
         dialect: "json-schema-2020-12",
         value: { type: "object" }
       },
@@ -161,14 +162,45 @@ describe("canonical developer validation", () => {
     expect(contract["x-example"].owner).toBe("Tasks");
     expect(() => defineDataContract({
       kind: "mdbase.contract",
+      contract_type: "record",
       id: "Invalid Contract",
       version: "1",
-      schema: {
+      record_schema: {
         dialect: "json-schema-2020-12",
         value: { type: "object" }
       }
     })).toThrow(DataContractDefinitionError);
     expect(validateDataContract(contract).valid).toBe(true);
+  });
+
+  it("defines event and action contracts without pretending types implement them", () => {
+    const event = defineDataContract({
+      kind: "mdbase.contract",
+      contract_type: "event",
+      id: "example.work-item.completed",
+      version: "1.0.0",
+      data_schema: {
+        dialect: "json-schema-2020-12",
+        value: { type: "object", required: ["id"], properties: { id: { type: "string" } } }
+      }
+    });
+    const action = defineDataContract({
+      kind: "mdbase.contract",
+      contract_type: "action",
+      id: "example.work-item.create",
+      version: "1.0.0",
+      input_schema: {
+        dialect: "json-schema-2020-12",
+        value: { type: "object", required: ["title"], properties: { title: { type: "string" } } }
+      }
+    });
+
+    expect(validateDataContract(event).valid).toBe(true);
+    expect(validateDataContract(action).valid).toBe(true);
+    expect(validateDataContract({
+      ...event,
+      record_schema: event.data_schema
+    }).valid).toBe(false);
   });
 
   it("builds readable type packs with exact generated resource digests", () => {

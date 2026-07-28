@@ -5642,7 +5642,7 @@ mod tests {
         let record_id = Uuid::new_v4();
         let configuration = "spec_version: 0.3.0\nsettings:\n  types_folder: _types\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n";
         let type_document = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: tasks/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title:\n        type: string\n---\n\nTask\n";
-        let contract_document = "---\nkind: mdbase.contract\nid: example.task\nversion: 1.0.0\nschema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
+        let contract_document = "---\nkind: mdbase.contract\ncontract_type: record\nid: example.task\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
         let schema_document =
             "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
         let record_document = "---\ntitle: One\n---\n\nBody\n";
@@ -5758,6 +5758,7 @@ mod tests {
                 extensions: Map::new(),
             }],
             contracts: vec![CollectionContractDescriptor {
+                contract_type: "record".to_string(),
                 id: "example.work-item".to_string(),
                 version: "1.0.0".to_string(),
                 digest: format!("sha256:{}", "0".repeat(64)),
@@ -5903,6 +5904,7 @@ mod tests {
         contract_capability.allowed_types = vec!["task".to_string()];
         contract_capability.allowed_operations = vec!["query".to_string()];
         contract_capability.contract_scope = vec![CollectionContractDescriptor {
+            contract_type: "record".to_string(),
             id: "example.task".to_string(),
             version: "1.0.0".to_string(),
             digest: format!("sha256:{}", "0".repeat(64)),
