@@ -42,6 +42,7 @@ function Portal() {
   const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
+  if (location.pathname === "/signup") return <Signup />;
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
   if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
@@ -105,7 +106,7 @@ function Login() {
     : config.provider === "github"
       ? [{ id: "github" as const, label: "Continue with GitHub", login_url: "/auth/github" }]
       : [];
-  if (providers.length > 0) return (
+  if (providers.length > 0 || config.password_login) return (
     <main className="center-page">
       <PageBrand label="connect" />
       <section className="auth-panel">
@@ -114,10 +115,19 @@ function Login() {
         <p>{continuingAuthorization
           ? `After you choose a collection and approve access, you’ll return to the app.${config.registration === "open" ? "" : " Sign-in is currently limited to invited accounts."}`
           : config.registration === "open"
-            ? "Choose an identity provider to create or open your account."
-            : "Access is currently limited to invited accounts."}</p>
+            ? "Open your account with email or a connected identity provider."
+            : "Access is currently limited to invited accounts. Sign in with the method attached to yours."}</p>
         {error && <div className="message error" role="alert">{error}</div>}
-        <div className="auth-providers">
+        {config.password_login && (
+          <PasswordLoginForm
+            onError={setError}
+            onSignedIn={() => { location.href = returnTarget(); }}
+          />
+        )}
+        {providers.length > 0 && <div className="auth-providers">
+          {config.password_login && providers.length > 0 && (
+            <div className="provider-divider"><span>or</span></div>
+          )}
           {providers.map((provider, index) => <React.Fragment key={provider.id}>
             {index > 0 && <div className="provider-divider"><span>or</span></div>}
             {provider.id === "google"
@@ -126,7 +136,12 @@ function Login() {
                   {provider.label}
                 </a>}
           </React.Fragment>)}
-        </div>
+        </div>}
+        {config.password_registration && (
+          <p className="auth-footnote">
+            New here? Your invitation email contains the one-time account setup link.
+          </p>
+        )}
       </section>
     </main>
   );
@@ -147,6 +162,233 @@ function Login() {
   );
 }
 
+function PasswordLoginForm({
+  onError,
+  onSignedIn
+}: {
+  onError(value: string): void;
+  onSignedIn(): void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function signIn(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    onError("");
+    try {
+      await api("/v1/auth/password/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+      });
+      onSignedIn();
+    } catch (reason) {
+      onError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="password-auth-form" onSubmit={(event) => void signIn(event)}>
+      <label>
+        <span>Email</span>
+        <input
+          type="email"
+          autoComplete="username"
+          maxLength={320}
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>Password</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          maxLength={1024}
+          required
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+      <button className="button primary" disabled={busy} type="submit">
+        {busy ? "Signing in…" : "Sign in with email"}
+      </button>
+    </form>
+  );
+}
+
+function Signup() {
+  const [invitationToken] = useState(invitationTokenFromFragment);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [invitation, setInvitation] = useState<InvitationPreview | null>(null);
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [agreementsAccepted, setAgreementsAccepted] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const prepared = useRef(false);
+
+  useEffect(() => {
+    if (prepared.current) return;
+    prepared.current = true;
+    async function prepare() {
+      try {
+        const authentication = await api<AuthConfig>("/v1/auth/config");
+        setConfig(authentication);
+        if (
+          !invitationToken
+          || !authentication.password_registration
+          || !authentication.agreements
+        ) return;
+        const result = await api<{ invitation: InvitationPreview }>(
+          "/v1/auth/password/invitation",
+          {
+            method: "POST",
+            body: JSON.stringify({ invitation_token: invitationToken })
+          }
+        );
+        setInvitation(result.invitation);
+      } catch (reason) {
+        setError(message(reason));
+      } finally {
+        setLoading(false);
+      }
+    }
+    void prepare();
+  }, [invitationToken]);
+
+  async function createAccount(event: React.FormEvent) {
+    event.preventDefault();
+    if (!config?.agreements || !invitation) return;
+    if (password !== passwordConfirmation) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api("/v1/auth/password/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          invitation_token: invitationToken,
+          name,
+          password,
+          terms_version: config.agreements.terms.version,
+          privacy_version: config.agreements.privacy.version
+        })
+      });
+      location.href = returnTarget();
+    } catch (reason) {
+      setError(message(reason));
+      setBusy(false);
+    }
+  }
+
+  if (loading || !config) return <Loading error={error} />;
+  const ready = Boolean(
+    invitation
+    && config.password_registration
+    && config.agreements
+  );
+  return (
+    <main className="center-page">
+      <PageBrand label="connect" />
+      <section className="auth-panel">
+        <p className="eyebrow">Private preview / invitation</p>
+        <h1>{ready ? "Create your account" : "This invitation can’t be opened"}</h1>
+        <p>{ready
+          ? "Your email is already verified by this one-time invitation. Choose the name and password you’ll use for mdbase connect."
+          : invitationToken
+            ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
+            : "Open the complete account setup link from your invitation email."}</p>
+        {error && <div className="message error" role="alert">{error}</div>}
+        {ready && invitation && config.agreements && (
+          <form className="password-auth-form signup-form" onSubmit={(event) => void createAccount(event)}>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                autoComplete="username"
+                readOnly
+                value={invitation.email}
+              />
+            </label>
+            <label>
+              <span>Name</span>
+              <input
+                autoComplete="name"
+                maxLength={100}
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={15}
+                maxLength={1024}
+                aria-describedby="password-guidance"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+            <p className="field-note" id="password-guidance">
+              Use at least 15 characters. Spaces are welcome.
+            </p>
+            <label>
+              <span>Confirm password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={15}
+                maxLength={1024}
+                required
+                value={passwordConfirmation}
+                onChange={(event) => setPasswordConfirmation(event.target.value)}
+              />
+            </label>
+            <label className="auth-agreement">
+              <input
+                type="checkbox"
+                required
+                checked={agreementsAccepted}
+                onChange={(event) => setAgreementsAccepted(event.target.checked)}
+              />
+              <span>
+                I agree to the{" "}
+                <a href={config.agreements.terms.url} target="_blank" rel="noreferrer">
+                  Terms of Service
+                </a>{" "}
+                and have read the{" "}
+                <a href={config.agreements.privacy.url} target="_blank" rel="noreferrer">
+                  Privacy Policy
+                </a>.
+              </span>
+            </label>
+            <button
+              className="button primary"
+              disabled={busy || !agreementsAccepted}
+              type="submit"
+            >
+              {busy ? "Creating account…" : "Create account"}
+            </button>
+          </form>
+        )}
+        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+      </section>
+    </main>
+  );
+}
+
 interface AuthProviderOption {
   id: "google" | "github";
   label: string;
@@ -156,8 +398,21 @@ interface AuthProviderOption {
 interface AuthConfig {
   provider: "google" | "github" | "tailscale" | "development" | "session";
   providers: AuthProviderOption[];
-  registration: "closed" | "open";
+  registration: "closed" | "invite" | "open";
   development_login: boolean;
+  password_login?: true;
+  password_registration?: true;
+  agreements?: {
+    terms: { version: string; url: string };
+    privacy: { version: string; url: string };
+  };
+}
+
+interface InvitationPreview {
+  email: string;
+  expires_at: string;
+  terms_version: string;
+  privacy_version: string;
 }
 
 interface GoogleAccountsApi {
@@ -369,7 +624,7 @@ function Dashboard() {
         </section>
         <section id="account">
           <SectionHeading title="Account" note="Authentication and service details." />
-          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Registration" value={data.authentication.registration === "open" ? "Open" : "Invitation only"} detail={data.authentication.registration === "open" ? "New identities may create an account" : "New accounts require service access"} /></div>
+          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Registration" value={registrationLabel(data.authentication.registration)} detail={data.authentication.registration === "open" ? "New identities may create an account" : data.authentication.registration === "invite" ? "New accounts require an invitation" : "New account creation is paused"} /></div>
           {data.authentication.provider !== "tailscale" && <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>}
         </section>
       </main>
@@ -1648,6 +1903,15 @@ function returnTarget() {
   const target = new URL(requested, location.origin);
   return target.origin === location.origin ? target.href : "/";
 }
+function invitationTokenFromFragment() {
+  const token = new URLSearchParams(location.hash.slice(1))
+    .get("invitation")
+    ?.trim() ?? "";
+  if (location.hash) {
+    history.replaceState(history.state, "", `${location.pathname}${location.search}`);
+  }
+  return token;
+}
 function isAuthorizationReturnTarget() {
   try {
     return new URL(returnTarget(), location.origin).pathname.startsWith("/authorize/");
@@ -1662,7 +1926,13 @@ function authenticationLabel(provider: DashboardData["authentication"]["provider
   if (provider === "google") return "Google";
   if (provider === "github") return "GitHub";
   if (provider === "tailscale") return "Tailscale identity";
+  if (provider === "password") return "Email and password";
   return "Development session";
+}
+function registrationLabel(registration: DashboardData["authentication"]["registration"]) {
+  if (registration === "open") return "Open";
+  if (registration === "invite") return "Invitation only";
+  return "Closed";
 }
 function relativeTime(value: string) {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1_000);

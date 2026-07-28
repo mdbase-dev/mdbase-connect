@@ -5,7 +5,12 @@ import type { RelayBrokerConfig } from "./relay-broker.js";
 import type { VapidConfig } from "./web-push.js";
 import type { WebhookSigningConfig } from "./webhook.js";
 
-export type RegistrationMode = "closed" | "open";
+export type RegistrationMode = "closed" | "invite" | "open";
+
+export interface AuthenticationLegalDocuments {
+  termsUrl: string;
+  privacyUrl: string;
+}
 
 export interface RuntimeConfig {
   host: string;
@@ -15,6 +20,8 @@ export interface RuntimeConfig {
   githubAuth: GitHubAuthConfig | null;
   googleAuth: GoogleAuthConfig | null;
   registration: RegistrationMode;
+  authRateLimitSecret: string | null;
+  authenticationLegalDocuments: AuthenticationLegalDocuments | null;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   allowInsecureHostedProvider: boolean;
@@ -40,8 +47,15 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   const externalAuth = Boolean(config.githubAuth || config.googleAuth);
   const authenticationModes = [config.devAuth, config.tailscaleAuth, externalAuth]
     .filter(Boolean).length;
-  if (authenticationModes !== 1) {
-    throw new Error("Exactly one authentication mode must be configured before the server starts.");
+  if (authenticationModes > 1) {
+    throw new Error(
+      "Development, Tailscale, and external-provider authentication modes are mutually exclusive."
+    );
+  }
+  if (authenticationModes === 0 && config.authRateLimitSecret === null) {
+    throw new Error(
+      "At least one authentication path must be configured before the server starts."
+    );
   }
   if (config.githubAuth) {
     if (!config.githubAuth.clientId.trim() || !config.githubAuth.clientSecret.trim()) {
@@ -65,6 +79,24 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
         throw new Error("Google allowed subjects must be valid account subject identifiers.");
       }
     }
+  }
+  if (
+    config.authRateLimitSecret !== null
+    && Buffer.byteLength(config.authRateLimitSecret, "utf8") < 32
+  ) {
+    throw new Error(
+      "Authentication rate-limit digest secret must contain at least 32 bytes."
+    );
+  }
+  if (config.authenticationLegalDocuments) {
+    validatePublicDocumentUrl(
+      config.authenticationLegalDocuments.termsUrl,
+      "MDBASE_CONNECT_TERMS_URL"
+    );
+    validatePublicDocumentUrl(
+      config.authenticationLegalDocuments.privacyUrl,
+      "MDBASE_CONNECT_PRIVACY_URL"
+    );
   }
   let hostedProvider = config.hostedProvider;
   if (config.hostedCollections && !hostedProvider) {
@@ -185,6 +217,18 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const allowedGoogleSubjects = commaSeparatedSet(env.MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS);
   const googleConfigured = Boolean(googleClientId || allowedGoogleSubjects.size);
   const registration = registrationMode(env.MDBASE_CONNECT_REGISTRATION);
+  const authRateLimitSecret =
+    env.MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET?.trim() || null;
+  const termsUrl = env.MDBASE_CONNECT_TERMS_URL?.trim() ?? "";
+  const privacyUrl = env.MDBASE_CONNECT_PRIVACY_URL?.trim() ?? "";
+  if (Boolean(termsUrl) !== Boolean(privacyUrl)) {
+    throw new Error(
+      "MDBASE_CONNECT_TERMS_URL and MDBASE_CONNECT_PRIVACY_URL must be configured together."
+    );
+  }
+  const authenticationLegalDocuments = termsUrl && privacyUrl
+    ? { termsUrl, privacyUrl }
+    : null;
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
   const hostedProviderUrl = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
@@ -245,6 +289,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       ? { clientId: googleClientId, allowedSubjects: allowedGoogleSubjects }
       : null,
     registration,
+    authRateLimitSecret,
+    authenticationLegalDocuments,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedProvider: hostedProviderConfigured
       ? {
@@ -311,14 +357,32 @@ function commaSeparatedSet(value: string | undefined): Set<string> {
 
 function registrationMode(value: string | undefined): RegistrationMode {
   const normalized = value?.trim() || "closed";
-  if (normalized !== "closed" && normalized !== "open") {
-    throw new Error("MDBASE_CONNECT_REGISTRATION must be either closed or open.");
+  if (normalized !== "closed" && normalized !== "invite" && normalized !== "open") {
+    throw new Error(
+      "MDBASE_CONNECT_REGISTRATION must be closed, invite, or open."
+    );
   }
   return normalized;
 }
 
 function isLoopback(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+}
+
+function validatePublicDocumentUrl(value: string, name: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be an absolute URL.`);
+  }
+  if (
+    url.username
+    || url.password
+    || (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback(url.hostname)))
+  ) {
+    throw new Error(`${name} must use HTTPS outside loopback development.`);
+  }
 }
 
 function validateRelayBrokerServer(server: string): void {

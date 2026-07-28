@@ -31,6 +31,10 @@ import { z, ZodError } from "zod";
 import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import {
+  AuthRateLimiter,
+  type AuthRateLimitRule
+} from "./auth-rate-limit.js";
+import {
   ApplicationManifestError,
   registerApplicationManifest,
   type RegisteredApplicationManifest
@@ -68,13 +72,36 @@ import {
   GitHubIdentityError,
   type GitHubAuthConfig
 } from "./github-auth.js";
-import { createExternalSession } from "./external-auth.js";
+import {
+  AccountUnavailableError,
+  createExternalSession
+} from "./external-auth.js";
+import { AuthenticationPolicyStore } from "./authentication-policy.js";
+import {
+  InvalidInvitationError,
+  InvitationTargetConflictError,
+  PasswordAccountService,
+  PasswordAuthenticationUnavailableError,
+  PasswordLoginRejectedError,
+  AuthenticationPolicyIncompleteError
+} from "./password-auth.js";
+import {
+  PASSWORD_MAX_UTF8_BYTES,
+  PasswordPolicyError
+} from "./password.js";
+import {
+  InvalidEmailAddressError,
+  normalizeEmailAddress
+} from "./email-identity.js";
 import {
   GoogleIdentityError,
   verifyGoogleCredential,
   type GoogleAuthConfig
 } from "./google-auth.js";
-import type { RegistrationMode } from "./runtime-config.js";
+import type {
+  AuthenticationLegalDocuments,
+  RegistrationMode
+} from "./runtime-config.js";
 import {
   activeGrantForToken,
   NotificationService,
@@ -108,6 +135,36 @@ const OPERATIONS = [
 ] as const;
 const operationSchema = z.enum(OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+const PASSWORD_LOGIN_EMAIL_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 5,
+  windowSeconds: 15 * 60,
+  baseBlockSeconds: 5 * 60,
+  maxBlockSeconds: 60 * 60
+};
+const PASSWORD_LOGIN_IP_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 30,
+  windowSeconds: 15 * 60,
+  baseBlockSeconds: 5 * 60,
+  maxBlockSeconds: 60 * 60
+};
+const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 5,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_SIGNUP_IP_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 10,
+  windowSeconds: 60 * 60,
+  baseBlockSeconds: 15 * 60,
+  maxBlockSeconds: 6 * 60 * 60
+};
+const PASSWORD_AUTH_GLOBAL_LIMIT: AuthRateLimitRule = {
+  maxAttempts: 300,
+  windowSeconds: 60,
+  baseBlockSeconds: 60,
+  maxBlockSeconds: 15 * 60
+};
 const DEVICE_AUTHORIZATION_SECONDS = 600;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
 const contractRequirementSchema = z.object({
@@ -149,6 +206,8 @@ interface BuildOptions {
   githubAuth?: GitHubAuthConfig;
   googleAuth?: GoogleAuthConfig;
   registration?: RegistrationMode;
+  authRateLimitSecret?: string;
+  authenticationLegalDocuments?: AuthenticationLegalDocuments;
   hostedCollections?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
@@ -169,7 +228,7 @@ interface User {
   email: string | null;
   name: string;
   login: string | null;
-  authentication_provider?: "github" | "google" | "session" | "tailscale";
+  authentication_provider?: "github" | "google" | "password" | "session" | "tailscale";
 }
 
 interface ConnectorIdentity {
@@ -252,7 +311,17 @@ export async function buildApp(options: BuildOptions) {
   });
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
   const revision = options.revision?.trim() || undefined;
-  const registration = options.registration ?? "closed";
+  const authenticationPolicy = new AuthenticationPolicyStore(
+    options.db,
+    options.registration ?? "closed"
+  );
+  const passwordAccounts = new PasswordAccountService(
+    options.db,
+    authenticationPolicy
+  );
+  const authenticationRateLimiter = options.authRateLimitSecret
+    ? new AuthRateLimiter(options.db, options.authRateLimitSecret)
+    : null;
   const relay = new RelayHub(options.db, options.relayBroker);
   const notifications = options.notifications
     ? new NotificationService(
@@ -358,6 +427,12 @@ export async function buildApp(options: BuildOptions) {
     if (error instanceof RequestValidationError) {
       return reply.code(400).send(apiError("invalid_request", error.message));
     }
+    if (error instanceof OriginDeniedError) {
+      return reply.code(403).send(apiError(
+        "origin_denied",
+        "The request origin is not allowed."
+      ));
+    }
     if (error instanceof RelayUnavailableError) {
       return reply.code(409).send(apiError("connector_offline", error.message));
     }
@@ -396,6 +471,49 @@ export async function buildApp(options: BuildOptions) {
         "Google sign-in could not be completed. Please try again."
       ));
     }
+    if (error instanceof AccountUnavailableError) {
+      return reply.code(403).send(apiError(
+        "account_not_allowed",
+        "This account does not have access."
+      ));
+    }
+    if (error instanceof PasswordLoginRejectedError) {
+      return reply.code(401).send(apiError(
+        "invalid_credentials",
+        "Email or password is incorrect."
+      ));
+    }
+    if (
+      error instanceof InvalidInvitationError
+      || error instanceof InvitationTargetConflictError
+    ) {
+      return reply.code(400).send(apiError(
+        "invalid_invitation",
+        "This invitation is invalid, expired, or can no longer be used."
+      ));
+    }
+    if (error instanceof PasswordPolicyError) {
+      return reply.code(400).send(apiError("invalid_password", error.message));
+    }
+    if (error instanceof InvalidEmailAddressError) {
+      return reply.code(400).send(apiError(
+        "invalid_request",
+        "Email address is invalid."
+      ));
+    }
+    if (error instanceof PasswordAuthenticationUnavailableError) {
+      return reply.code(503).send(apiError(
+        "authentication_unavailable",
+        "Password authentication is temporarily unavailable."
+      ));
+    }
+    if (error instanceof AuthenticationPolicyIncompleteError) {
+      request.log.error("Password authentication policy is incomplete");
+      return reply.code(503).send(apiError(
+        "authentication_unavailable",
+        "Password authentication is temporarily unavailable."
+      ));
+    }
     const statusCode = httpErrorStatus(error);
     if (statusCode === 413) {
       return reply.code(413).send(apiError(
@@ -432,7 +550,18 @@ export async function buildApp(options: BuildOptions) {
     }
   });
 
-  app.get("/v1/auth/config", async () => {
+  app.get("/v1/auth/config", async (_request, reply) => {
+    reply.header("cache-control", "no-store");
+    const authenticationSettings = await authenticationPolicy.current();
+    const passwordLogin =
+      authenticationSettings.passwordAuthEnabled
+      && authenticationRateLimiter !== null;
+    const passwordRegistration =
+      passwordLogin
+      && authenticationSettings.registrationMode === "invite"
+      && Boolean(authenticationSettings.termsVersion)
+      && Boolean(authenticationSettings.privacyVersion)
+      && options.authenticationLegalDocuments !== undefined;
     const providers = [
       ...(options.googleAuth
         ? [{ id: "google" as const, label: "Continue with Google", login_url: "/auth/google" }]
@@ -453,10 +582,167 @@ export async function buildApp(options: BuildOptions) {
     return {
       provider,
       providers,
-      registration,
+      registration: authenticationSettings.registrationMode,
       development_login: options.devAuth === true,
+      ...(passwordLogin
+        ? {
+            password_login: true,
+            ...(passwordRegistration
+              ? {
+                  password_registration: true,
+                  agreements: {
+                    terms: {
+                      version: authenticationSettings.termsVersion!,
+                      url: options.authenticationLegalDocuments!.termsUrl
+                    },
+                    privacy: {
+                      version: authenticationSettings.privacyVersion!,
+                      url: options.authenticationLegalDocuments!.privacyUrl
+                    }
+                  }
+                }
+              : {})
+          }
+        : {}),
       ...(providers.length === 1 ? { login_url: providers[0].login_url } : {})
     };
+  });
+
+  app.post("/v1/auth/password/signup", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, publicUrl);
+    if (!authenticationRateLimiter) {
+      throw new PasswordAuthenticationUnavailableError();
+    }
+    if (!options.authenticationLegalDocuments) {
+      throw new AuthenticationPolicyIncompleteError();
+    }
+    const input = z.object({
+      invitation_token: z.string().min(1).max(200),
+      name: z.string().trim().min(1).max(100),
+      password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES),
+      terms_version: z.string().min(1).max(100),
+      privacy_version: z.string().min(1).max(100)
+    }).strict().parse(request.body);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.signup.token",
+          key: input.invitation_token,
+          rule: PASSWORD_SIGNUP_TOKEN_LIMIT
+        },
+        {
+          scope: "password.signup.ip",
+          key: request.ip,
+          rule: PASSWORD_SIGNUP_IP_LIMIT
+        },
+        {
+          scope: "password.signup.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const session = await passwordAccounts.acceptInvitation({
+      invitationToken: input.invitation_token,
+      name: input.name,
+      password: input.password,
+      termsVersion: input.terms_version,
+      privacyVersion: input.privacy_version
+    });
+    setSessionCookie(reply, session.token, publicUrl);
+    return reply.code(201).send({ user: session.user });
+  });
+
+  app.post("/v1/auth/password/invitation", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, publicUrl);
+    if (!authenticationRateLimiter) {
+      throw new PasswordAuthenticationUnavailableError();
+    }
+    if (!options.authenticationLegalDocuments) {
+      throw new AuthenticationPolicyIncompleteError();
+    }
+    const input = z.object({
+      invitation_token: z.string().min(1).max(200)
+    }).strict().parse(request.body);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.signup.token",
+          key: input.invitation_token,
+          rule: PASSWORD_SIGNUP_TOKEN_LIMIT
+        },
+        {
+          scope: "password.signup.ip",
+          key: request.ip,
+          rule: PASSWORD_SIGNUP_IP_LIMIT
+        },
+        {
+          scope: "password.signup.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const invitation = await passwordAccounts.invitationDetails(
+      input.invitation_token
+    );
+    return {
+      invitation: {
+        email: invitation.email,
+        expires_at: invitation.expiresAt.toISOString(),
+        terms_version: invitation.termsVersion,
+        privacy_version: invitation.privacyVersion
+      }
+    };
+  });
+
+  app.post("/v1/auth/password/login", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    requireSameOrigin(request, publicUrl);
+    if (!authenticationRateLimiter) {
+      throw new PasswordAuthenticationUnavailableError();
+    }
+    const input = z.object({
+      email: z.email().max(320),
+      password: z.string().min(1).max(PASSWORD_MAX_UTF8_BYTES)
+    }).strict().parse(request.body);
+    const normalizedEmail = normalizeEmailAddress(input.email);
+    const allowed = await consumeAuthenticationLimits(
+      authenticationRateLimiter,
+      [
+        {
+          scope: "password.login.email",
+          key: normalizedEmail,
+          rule: PASSWORD_LOGIN_EMAIL_LIMIT
+        },
+        {
+          scope: "password.login.ip",
+          key: request.ip,
+          rule: PASSWORD_LOGIN_IP_LIMIT
+        },
+        {
+          scope: "password.login.global",
+          key: "global",
+          rule: PASSWORD_AUTH_GLOBAL_LIMIT
+        }
+      ],
+      reply
+    );
+    if (!allowed) return;
+    const session = await passwordAccounts.authenticate({
+      email: normalizedEmail,
+      password: input.password
+    });
+    setSessionCookie(reply, session.token, publicUrl);
+    return { user: session.user };
   });
 
   app.get("/auth/github", {
@@ -466,6 +752,7 @@ export async function buildApp(options: BuildOptions) {
     const query = z.object({ return_to: z.string().max(2_048).optional() }).parse(request.query);
     const state = randomToken("oauth");
     const codeVerifier = randomToken("pkce");
+    const authenticationSettings = await authenticationPolicy.current();
     await options.db.query(
       "DELETE FROM oauth_login_states WHERE expires_at <= now() OR consumed_at IS NOT NULL"
     );
@@ -488,7 +775,10 @@ export async function buildApp(options: BuildOptions) {
     authorize.searchParams.set("state", state);
     authorize.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
     authorize.searchParams.set("code_challenge_method", "S256");
-    authorize.searchParams.set("allow_signup", registration === "open" ? "true" : "false");
+    authorize.searchParams.set(
+      "allow_signup",
+      authenticationSettings.registrationMode === "open" ? "true" : "false"
+    );
     return reply.redirect(authorize.href);
   });
 
@@ -524,7 +814,12 @@ export async function buildApp(options: BuildOptions) {
     if (!/^[1-9][0-9]*$/.test(identity.id) || !identity.login || identity.login.length > 100) {
       throw new GitHubIdentityError("GitHub returned an invalid user identity.");
     }
-    if (!identityAllowed(registration, options.githubAuth.allowedUserIds, identity.id)) {
+    const authenticationSettings = await authenticationPolicy.current();
+    if (!identityAllowed(
+      authenticationSettings.registrationMode,
+      options.githubAuth.allowedUserIds,
+      identity.id
+    )) {
       request.log.warn({ github_user_id: identity.id }, "GitHub user is not on the login allowlist");
       return reply.code(403).send(apiError("account_not_allowed", "This account does not have access."));
     }
@@ -603,7 +898,12 @@ export async function buildApp(options: BuildOptions) {
     if (!/^[A-Za-z0-9_-]{1,255}$/.test(identity.id)) {
       throw new GoogleIdentityError("Google returned an invalid account subject.");
     }
-    if (!identityAllowed(registration, options.googleAuth.allowedSubjects, identity.id)) {
+    const authenticationSettings = await authenticationPolicy.current();
+    if (!identityAllowed(
+      authenticationSettings.registrationMode,
+      options.googleAuth.allowedSubjects,
+      identity.id
+    )) {
       request.log.warn({ google_subject: identity.id }, "Google user is not on the login allowlist");
       return reply.code(403).send(apiError("account_not_allowed", "This account does not have access."));
     }
@@ -1966,8 +2266,10 @@ export async function buildApp(options: BuildOptions) {
     );
     const token = randomToken("ses");
     await options.db.query(
-      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
-       VALUES ($1, $2, $3, now() + interval '30 days')`,
+      `INSERT INTO sessions
+         (id, user_id, token_hash, account_session_epoch, expires_at)
+       SELECT $1, id, $3, session_epoch, now() + interval '30 days'
+       FROM users WHERE id = $2 AND suspended_at IS NULL`,
       [randomUUID(), user.rows[0].id, tokenHash(token)]
     );
     setSessionCookie(reply, token, publicUrl);
@@ -2091,12 +2393,13 @@ export async function buildApp(options: BuildOptions) {
        ORDER BY ar.expires_at`,
       [user.id]
     );
+    const authenticationSettings = await authenticationPolicy.current();
     return {
       user,
       hosted_collections_available: options.hostedCollections === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
-        registration
+        registration: authenticationSettings.registrationMode
       },
       connectors: connectors.rows,
       collections: collections.rows,
@@ -6446,18 +6749,25 @@ function requiredTypeProvisions(
 }
 
 class RequestValidationError extends Error {}
+class OriginDeniedError extends Error {}
 
 async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
   const token = sessionToken(request);
   if (!token) return null;
   const user = await db.query<User>(
     `SELECT u.id,
-            CASE WHEN i.provider IS NULL THEN u.email ELSE i.email END AS email,
+            COALESCE(i.email, e.email, u.email) AS email,
             u.name, i.login, s.provider AS authentication_provider
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      LEFT JOIN external_identities i ON i.user_id = u.id AND i.provider = s.provider
-     WHERE s.token_hash = $1 AND s.expires_at > now()`,
+     LEFT JOIN email_identities e ON e.user_id = u.id
+       AND e.is_primary = true AND e.retired_at IS NULL
+     WHERE s.token_hash = $1
+       AND s.expires_at > now()
+       AND s.revoked_at IS NULL
+       AND u.suspended_at IS NULL
+       AND s.account_session_epoch = u.session_epoch`,
     [tokenHash(token)]
   );
   return user.rows[0] ?? null;
@@ -6471,13 +6781,15 @@ async function tailscaleUser(request: FastifyRequest, db: DatabasePool): Promise
   const suppliedName = (Array.isArray(nameHeader) ? nameHeader[0] : nameHeader)?.trim();
   const fallbackName = login.split("@")[0] || login;
   const name = suppliedName && suppliedName.length <= 100 ? suppliedName : fallbackName.slice(0, 100);
-  const user = await db.query<User>(
+  const user = await db.query<User & { suspended_at: string | null }>(
     `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
      ON CONFLICT(email) DO UPDATE SET name = excluded.name
-     RETURNING id, email, name`,
+     RETURNING id, email, name, suspended_at`,
     [randomUUID(), login, name]
   );
-  return { ...user.rows[0], login: null, authentication_provider: "tailscale" };
+  if (!user.rows[0] || user.rows[0].suspended_at) return null;
+  const { suspended_at: _suspendedAt, ...activeUser } = user.rows[0];
+  return { ...activeUser, login: null, authentication_provider: "tailscale" };
 }
 
 async function authenticatedUser(
@@ -7416,6 +7728,46 @@ function identityAllowed(
   subject: string
 ): boolean {
   return registration === "open" || allowedSubjects.has(subject);
+}
+
+function requireSameOrigin(request: FastifyRequest, publicUrl: string): void {
+  if (request.headers.origin !== new URL(publicUrl).origin) {
+    throw new OriginDeniedError();
+  }
+}
+
+interface AuthenticationLimitAttempt {
+  scope: string;
+  key: string;
+  rule: AuthRateLimitRule;
+}
+
+async function consumeAuthenticationLimits(
+  limiter: AuthRateLimiter,
+  attempts: AuthenticationLimitAttempt[],
+  reply: FastifyReply
+): Promise<boolean> {
+  let retryAfterSeconds = 0;
+  for (const attempt of attempts) {
+    const decision = await limiter.consume(
+      attempt.scope,
+      attempt.key,
+      attempt.rule
+    );
+    if (!decision.allowed) {
+      retryAfterSeconds = Math.max(
+        retryAfterSeconds,
+        decision.retryAfterSeconds
+      );
+    }
+  }
+  if (retryAfterSeconds === 0) return true;
+  reply.header("retry-after", String(retryAfterSeconds));
+  await reply.code(429).send(apiError(
+    "authentication_throttled",
+    "Too many authentication attempts. Please try again later."
+  ));
+  return false;
 }
 
 function safeReturnTarget(requested: string | undefined, publicUrl: string): string {

@@ -23,8 +23,8 @@ export interface DashboardData {
   user: { id: string; name: string; email: string | null; login: string | null };
   hosted_collections_available?: boolean;
   authentication: {
-    provider: "google" | "github" | "tailscale" | "session";
-    registration: "closed" | "open";
+    provider: "google" | "github" | "password" | "tailscale" | "session";
+    registration: "closed" | "invite" | "open";
   };
   connectors: Array<{ id: string; name: string; last_seen_at: string | null; created_at: string }>;
   collections: Array<{

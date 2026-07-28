@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
+import {
+  EMAIL_NORMALIZATION_VERSION,
+  normalizeEmailAddress
+} from "./email-identity.js";
 import { randomToken, tokenHash } from "./security.js";
 
 export type ExternalProvider = "github" | "google";
@@ -19,11 +23,19 @@ export interface ExternalSession {
   userId: string;
 }
 
+export class AccountUnavailableError extends Error {
+  constructor() {
+    super("Account is unavailable.");
+    this.name = "AccountUnavailableError";
+  }
+}
+
 export async function createExternalSession(
   db: DatabasePool,
   identity: VerifiedExternalIdentity
 ): Promise<ExternalSession> {
   const token = randomToken("ses");
+  const normalizedEmail = normalizedVerifiedEmail(identity);
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
@@ -42,12 +54,15 @@ export async function createExternalSession(
     }
     await connection.query(
       `INSERT INTO external_identities
-         (provider, subject, user_id, login, email, email_verified, avatar_url, last_login_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+         (provider, subject, user_id, login, email, email_verified,
+          normalized_email, email_normalization_version, avatar_url, last_login_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
        ON CONFLICT(provider, subject) DO UPDATE SET
          login = excluded.login,
          email = excluded.email,
          email_verified = excluded.email_verified,
+         normalized_email = excluded.normalized_email,
+         email_normalization_version = excluded.email_normalization_version,
          avatar_url = excluded.avatar_url,
          last_login_at = now(),
          updated_at = now()`,
@@ -58,15 +73,21 @@ export async function createExternalSession(
         identity.login,
         identity.email,
         identity.emailVerified,
+        normalizedEmail,
+        normalizedEmail ? EMAIL_NORMALIZATION_VERSION : null,
         identity.avatarUrl
       ]
     );
     await connection.query("DELETE FROM sessions WHERE expires_at <= now()");
-    await connection.query(
-      `INSERT INTO sessions (id, user_id, token_hash, provider, expires_at)
-       VALUES ($1, $2, $3, $4, now() + interval '30 days')`,
+    const createdSession = await connection.query(
+      `INSERT INTO sessions
+         (id, user_id, token_hash, provider, account_session_epoch, expires_at)
+       SELECT $1, id, $3, $4, session_epoch, now() + interval '30 days'
+       FROM users WHERE id = $2 AND suspended_at IS NULL
+       RETURNING id`,
       [randomUUID(), userId, tokenHash(token), identity.provider]
     );
+    if (!createdSession.rows[0]) throw new AccountUnavailableError();
     await connection.query(
       `INSERT INTO audit_events (id, user_id, event_type, subject_id, metadata)
        VALUES ($1, $2, 'session.created', NULL, $3::jsonb)`,
@@ -79,6 +100,15 @@ export async function createExternalSession(
     throw error;
   } finally {
     connection.release();
+  }
+}
+
+function normalizedVerifiedEmail(identity: VerifiedExternalIdentity): string | null {
+  if (!identity.emailVerified || !identity.email) return null;
+  try {
+    return normalizeEmailAddress(identity.email);
+  } catch {
+    return null;
   }
 }
 

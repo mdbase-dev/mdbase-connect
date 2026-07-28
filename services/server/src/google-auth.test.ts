@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAuth2Client } from "google-auth-library";
 import { buildApp } from "./app.js";
+import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import { createDatabase } from "./db.js";
 import {
   GoogleIdentityError,
@@ -140,7 +141,7 @@ describe("Google authentication", () => {
     expect(verifyCredential).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps closed registration allowlisted and permits explicit open registration", async () => {
+  it("keeps closed registration allowlisted and applies an audited policy change without restart", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const identity = {
@@ -165,19 +166,22 @@ describe("Google authentication", () => {
     expect(denied.statusCode).toBe(403);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(0);
 
-    const { app: open } = await buildApp({
-      db,
-      publicUrl: "https://connect.example",
-      registration: "open",
-      googleAuth: {
-        clientId: "google-client.apps.googleusercontent.com",
-        allowedSubjects: new Set(),
-        verifyCredential: async () => identity
-      }
+    const policy = new AuthenticationPolicyStore(db, "closed");
+    await policy.update({
+      registrationMode: "open",
+      passwordAuthEnabled: false,
+      emailDeliveryEnabled: false,
+      termsVersion: null,
+      privacyVersion: null,
+      expectedRevision: 0,
+      updatedBy: "operator:test",
+      reason: "Exercise dynamic registration"
     });
-    resources.push(() => open.close());
-    const openStart = await open.inject({ method: "GET", url: "/auth/google" });
-    const admitted = await googleCallback(open, openStart);
+    const config = await closed.inject({ method: "GET", url: "/v1/auth/config" });
+    expect(config.json().registration).toBe("open");
+
+    const openStart = await closed.inject({ method: "GET", url: "/auth/google" });
+    const admitted = await googleCallback(closed, openStart);
     expect(admitted.statusCode).toBe(200);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(1);
   });

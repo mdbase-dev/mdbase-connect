@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "auth:admin": "node dist/auth-admin-cli.js",
     "dev": "tsx watch src/index.ts",
     "migrate": "node dist/migrate.js",
     "start": "node dist/index.js",
@@ -22,6 +23,7 @@
     "@mdbase/connect-protocol": "workspace:*",
     "@mdbase/connect-sync": "workspace:*",
     "@nats-io/transport-node": "^3.4.0",
+    "@node-rs/argon2": "^2.0.2",
     "fastify": "^5.10.0",
     "google-auth-library": "^10.9.0",
     "pg": "^8.22.0",

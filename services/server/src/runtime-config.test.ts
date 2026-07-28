@@ -11,6 +11,8 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     githubAuth: null,
     googleAuth: null,
     registration: "closed" as const,
+    authRateLimitSecret: null,
+    authenticationLegalDocuments: null,
     hostedCollections: false,
     hostedProvider: null,
     allowInsecureHostedProvider: false,
@@ -44,7 +46,7 @@ describe("public runtime configuration", () => {
   });
 
   it("refuses to start without a real authentication mode", () => {
-    expect(() => validateRuntimeConfig(config())).toThrow(/Exactly one authentication mode/);
+    expect(() => validateRuntimeConfig(config())).toThrow(/authentication path/);
   });
 
   it("accepts one allowlisted GitHub provider on a canonical HTTPS origin", () => {
@@ -77,7 +79,7 @@ describe("public runtime configuration", () => {
       PUBLIC_URL: "http://localhost:8787",
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_TAILSCALE_AUTH: "1"
-    })).toThrow(/Exactly one authentication mode/);
+    })).toThrow(/mutually exclusive/);
   });
 
   it("supports Google and GitHub together while keeping registration policy explicit", () => {
@@ -115,6 +117,64 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
       MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: "not a subject"
     })).toThrow(/subject identifiers/);
+  });
+
+  it("accepts invite-only registration without opening external providers", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
+      MDBASE_CONNECT_ALLOWED_GOOGLE_SUBJECTS: "109876543210",
+      MDBASE_CONNECT_REGISTRATION: "invite"
+    });
+    expect(value.registration).toBe("invite");
+    expect(value.googleAuth?.allowedSubjects).toEqual(new Set(["109876543210"]));
+
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
+      MDBASE_CONNECT_REGISTRATION: "waitlist"
+    })).toThrow(/closed, invite, or open/);
+  });
+
+  it("validates the shared authentication rate-limit digest secret", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32)
+    });
+    expect(value.authRateLimitSecret).toBe("x".repeat(32));
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "too-short"
+    })).toThrow(/at least 32 bytes/);
+  });
+
+  it("supports password-only authentication infrastructure and validates legal document URLs", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
+      MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/",
+      MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/"
+    });
+    expect(value.authenticationLegalDocuments).toEqual({
+      termsUrl: "https://mdbase.dev/terms/",
+      privacyUrl: "https://mdbase.dev/privacy/"
+    });
+    expect(value.githubAuth).toBeNull();
+    expect(value.googleAuth).toBeNull();
+
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
+      MDBASE_CONNECT_TERMS_URL: "https://mdbase.dev/terms/"
+    })).toThrow(/configured together/);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
+      MDBASE_CONNECT_TERMS_URL: "http://mdbase.dev/terms/",
+      MDBASE_CONNECT_PRIVACY_URL: "https://mdbase.dev/privacy/"
+    })).toThrow(/must use HTTPS/);
   });
 
   it("rejects public URLs containing path or credential components", () => {

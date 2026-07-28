@@ -74,6 +74,9 @@ services:
       MDBASE_CONNECT_GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       MDBASE_CONNECT_ALLOWED_GITHUB_USER_IDS: ${ALLOWED_GITHUB_USER_IDS}
       MDBASE_CONNECT_REGISTRATION: ${REGISTRATION_MODE:-closed}
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: ${AUTH_RATE_LIMIT_SECRET:-}
+      MDBASE_CONNECT_TERMS_URL: ${TERMS_URL:-}
+      MDBASE_CONNECT_PRIVACY_URL: ${PRIVACY_URL:-}
       MDBASE_CONNECT_HOSTED_COLLECTIONS: ${HOSTED_COLLECTIONS:-0}
       MDBASE_CONNECT_HOSTED_PROVIDER_URL: ${HOSTED_PROVIDER_PUBLIC_URL:-}
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: ${HOSTED_PROVIDER_INTERNAL_TOKEN:-}
@@ -102,6 +105,29 @@ services:
       timeout: 3s
       retries: 12
     restart: unless-stopped
+
+  auth-admin:
+    <<: *connect-image
+    profiles: ["admin"]
+    entrypoint: ["node", "services/server/dist/auth-admin-cli.js"]
+    command: ["policy", "show"]
+    environment:
+      DATABASE_URL: postgres://mdbase_connect:${CONTROL_DATABASE_PASSWORD}@control-db:5432/mdbase_connect
+      PUBLIC_URL: ${CONNECT_PUBLIC_URL}
+      MDBASE_CONNECT_REGISTRATION: ${REGISTRATION_MODE:-closed}
+      MDBASE_CONNECT_RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MDBASE_CONNECT_EMAIL_FROM: ${EMAIL_FROM:-}
+    depends_on:
+      control-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
 
   hosted-db:
     profiles: ["hosted"]

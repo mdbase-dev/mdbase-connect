@@ -1238,6 +1238,68 @@ select {
   margin-top: 1.5rem;
 }
 
+.password-auth-form {
+  display: grid;
+  width: min(25rem, 100%);
+  margin-top: 1.6rem;
+}
+
+.password-auth-form label:first-child {
+  margin-top: 0;
+}
+
+.password-auth-form input[readonly] {
+  color: var(--ink-soft);
+  background: var(--paper-hover);
+}
+
+.password-auth-form .field-note {
+  margin-top: 0.45rem;
+}
+
+.auth-panel .auth-agreement {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 1.25rem;
+  cursor: pointer;
+}
+
+.auth-agreement input {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+  margin: 0.16rem 0 0;
+  accent-color: var(--accent-dark);
+}
+
+.auth-panel .auth-agreement > span {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.auth-agreement a,
+.quiet-auth-link {
+  color: var(--accent-dark);
+  text-underline-offset: 0.16em;
+}
+
+.auth-panel > .auth-footnote {
+  max-width: 25rem;
+  margin-top: 1.4rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.72rem;
+}
+
+.quiet-auth-link {
+  display: inline-block;
+  margin-top: 1.4rem;
+  font-size: 0.72rem;
+}
+
 .auth-providers {
   display: grid;
   width: min(25rem, 100%);

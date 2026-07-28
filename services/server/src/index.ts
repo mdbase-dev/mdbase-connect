@@ -23,6 +23,9 @@ const { app } = await buildApp({
   githubAuth: runtime.githubAuth ?? undefined,
   googleAuth: runtime.googleAuth ?? undefined,
   registration: runtime.registration,
+  authRateLimitSecret: runtime.authRateLimitSecret ?? undefined,
+  authenticationLegalDocuments:
+    runtime.authenticationLegalDocuments ?? undefined,
   hostedCollections: runtime.hostedCollections,
   hostedProvider: runtime.hostedProvider
     ? new HostedProviderClient(runtime.hostedProvider)

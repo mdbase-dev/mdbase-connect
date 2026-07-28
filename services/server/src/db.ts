@@ -1,4 +1,8 @@
 import pg, { type Pool, type QueryResult, type QueryResultRow } from "pg";
+import {
+  EMAIL_NORMALIZATION_VERSION,
+  normalizeEmailAddress
+} from "./email-identity.js";
 
 export interface DatabaseQueryable {
   query<R extends QueryResultRow = any>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
@@ -41,6 +45,8 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       id uuid PRIMARY KEY,
       email text UNIQUE,
       name text NOT NULL,
+      suspended_at timestamptz,
+      session_epoch bigint NOT NULL DEFAULT 1,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS external_identities (
@@ -50,12 +56,129 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       login text,
       email text,
       email_verified boolean NOT NULL DEFAULT false,
+      normalized_email text,
+      email_normalization_version integer,
       avatar_url text,
       last_login_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY(provider, subject),
       UNIQUE(provider, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS email_identities (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      email text NOT NULL,
+      normalized_email text NOT NULL,
+      normalization_version integer NOT NULL DEFAULT 1,
+      verified_at timestamptz,
+      is_primary boolean NOT NULL DEFAULT false,
+      retired_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS email_identities_active_email_idx
+      ON email_identities(normalized_email) WHERE retired_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS email_identities_primary_user_idx
+      ON email_identities(user_id) WHERE is_primary = true AND retired_at IS NULL;
+    CREATE INDEX IF NOT EXISTS email_identities_user_idx
+      ON email_identities(user_id);
+    CREATE TABLE IF NOT EXISTS password_credentials (
+      user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      password_hash text NOT NULL,
+      credential_version bigint NOT NULL DEFAULT 1,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS account_agreements (
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      document text NOT NULL,
+      version text NOT NULL,
+      acceptance_method text NOT NULL,
+      accepted_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY(user_id, document, version)
+    );
+    CREATE TABLE IF NOT EXISTS invitations (
+      id uuid PRIMARY KEY,
+      email text NOT NULL,
+      normalized_email text NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      created_by text NOT NULL,
+      terms_version text,
+      privacy_version text,
+      expires_at timestamptz NOT NULL,
+      accepted_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      accepted_at timestamptz,
+      revoked_at timestamptz,
+      revoked_by text,
+      revocation_reason text,
+      send_count integer NOT NULL DEFAULT 0,
+      last_sent_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS invitations_active_email_idx
+      ON invitations(normalized_email)
+      WHERE accepted_at IS NULL AND revoked_at IS NULL;
+    CREATE INDEX IF NOT EXISTS invitations_expiry_idx
+      ON invitations(expires_at) WHERE accepted_at IS NULL AND revoked_at IS NULL;
+    CREATE TABLE IF NOT EXISTS authentication_challenges (
+      id uuid PRIMARY KEY,
+      purpose text NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      normalized_email text NOT NULL,
+      user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+      invitation_id uuid REFERENCES invitations(id) ON DELETE CASCADE,
+      expires_at timestamptz NOT NULL,
+      consumed_at timestamptz,
+      invalidated_at timestamptz,
+      attempt_count integer NOT NULL DEFAULT 0,
+      max_attempts integer NOT NULL DEFAULT 1,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      CHECK (attempt_count >= 0),
+      CHECK (max_attempts > 0)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS authentication_challenges_active_email_idx
+      ON authentication_challenges(purpose, normalized_email)
+      WHERE consumed_at IS NULL AND invalidated_at IS NULL;
+    CREATE INDEX IF NOT EXISTS authentication_challenges_expiry_idx
+      ON authentication_challenges(expires_at)
+      WHERE consumed_at IS NULL AND invalidated_at IS NULL;
+    CREATE TABLE IF NOT EXISTS auth_rate_limit_buckets (
+      scope text NOT NULL,
+      key_digest text NOT NULL,
+      window_started_at timestamptz NOT NULL,
+      attempt_count integer NOT NULL DEFAULT 0,
+      blocked_until timestamptz,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY(scope, key_digest),
+      CHECK (attempt_count >= 0)
+    );
+    CREATE INDEX IF NOT EXISTS auth_rate_limit_buckets_updated_idx
+      ON auth_rate_limit_buckets(updated_at);
+    CREATE TABLE IF NOT EXISTS authentication_settings (
+      singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton = true),
+      registration_mode text NOT NULL
+        CHECK (registration_mode IN ('closed', 'invite', 'open')),
+      password_auth_enabled boolean NOT NULL DEFAULT false,
+      email_delivery_enabled boolean NOT NULL DEFAULT false,
+      terms_version text,
+      privacy_version text,
+      revision bigint NOT NULL DEFAULT 1,
+      updated_by text NOT NULL,
+      update_reason text NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS authentication_settings_history (
+      revision bigint PRIMARY KEY,
+      registration_mode text NOT NULL
+        CHECK (registration_mode IN ('closed', 'invite', 'open')),
+      password_auth_enabled boolean NOT NULL,
+      email_delivery_enabled boolean NOT NULL,
+      terms_version text,
+      privacy_version text,
+      updated_by text NOT NULL,
+      update_reason text NOT NULL,
+      updated_at timestamptz NOT NULL
     );
     CREATE TABLE IF NOT EXISTS oauth_login_states (
       id uuid PRIMARY KEY,
@@ -72,7 +195,10 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       token_hash text NOT NULL UNIQUE,
       provider text NOT NULL DEFAULT 'session',
+      account_session_epoch bigint NOT NULL DEFAULT 1,
       expires_at timestamptz NOT NULL,
+      revoked_at timestamptz,
+      last_seen_at timestamptz NOT NULL DEFAULT now(),
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS connectors (
@@ -384,6 +510,70 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     CREATE INDEX IF NOT EXISTS notification_webhook_deliveries_ready_idx
       ON notification_webhook_deliveries(status, available_at);
   `);
+  await ensureColumn(
+    db,
+    "users",
+    "suspended_at",
+    "ALTER TABLE users ADD COLUMN suspended_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "users",
+    "session_epoch",
+    "ALTER TABLE users ADD COLUMN session_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await db.query("UPDATE users SET session_epoch = 1 WHERE session_epoch IS NULL");
+  await ensureNotNullable(db, "users", "session_epoch");
+  await ensureColumn(
+    db,
+    "sessions",
+    "account_session_epoch",
+    "ALTER TABLE sessions ADD COLUMN account_session_epoch bigint NOT NULL DEFAULT 1"
+  );
+  await db.query(
+    "UPDATE sessions SET account_session_epoch = 1 WHERE account_session_epoch IS NULL"
+  );
+  await ensureNotNullable(db, "sessions", "account_session_epoch");
+  await ensureColumn(
+    db,
+    "sessions",
+    "revoked_at",
+    "ALTER TABLE sessions ADD COLUMN revoked_at timestamptz"
+  );
+  await ensureColumn(
+    db,
+    "sessions",
+    "last_seen_at",
+    "ALTER TABLE sessions ADD COLUMN last_seen_at timestamptz NOT NULL DEFAULT now()"
+  );
+  await db.query(
+    "UPDATE sessions SET last_seen_at = created_at WHERE last_seen_at IS NULL"
+  );
+  await ensureNotNullable(db, "sessions", "last_seen_at");
+  await ensureColumn(
+    db,
+    "external_identities",
+    "email_verified",
+    "ALTER TABLE external_identities ADD COLUMN email_verified boolean NOT NULL DEFAULT false"
+  );
+  await ensureColumn(
+    db,
+    "external_identities",
+    "normalized_email",
+    "ALTER TABLE external_identities ADD COLUMN normalized_email text"
+  );
+  await ensureColumn(
+    db,
+    "external_identities",
+    "email_normalization_version",
+    "ALTER TABLE external_identities ADD COLUMN email_normalization_version integer"
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS external_identities_verified_email_idx
+     ON external_identities(normalized_email)
+     WHERE email_verified = true AND normalized_email IS NOT NULL`
+  );
+  await backfillExternalIdentityEmails(db);
   const authorizationColumns = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
      WHERE table_name = 'authorization_requests'`
@@ -670,12 +860,6 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
     "transferred_collection_id",
     "ALTER TABLE hosted_collections ADD COLUMN transferred_collection_id uuid"
   );
-  await ensureColumn(
-    db,
-    "external_identities",
-    "email_verified",
-    "ALTER TABLE external_identities ADD COLUMN email_verified boolean NOT NULL DEFAULT false"
-  );
   await ensureColumn(db, "external_identities", "avatar_url", "ALTER TABLE external_identities ADD COLUMN avatar_url text");
   await ensureColumn(db, "external_identities", "last_login_at", "ALTER TABLE external_identities ADD COLUMN last_login_at timestamptz");
   await ensureColumn(
@@ -833,6 +1017,42 @@ export async function backfillSessionProviders(db: DatabaseQueryable): Promise<v
        AND external_identities.user_id = sessions.user_id
        AND external_identities.provider = 'github'`
   );
+}
+
+export async function backfillExternalIdentityEmails(
+  db: DatabaseQueryable
+): Promise<void> {
+  const identities = await db.query<{
+    provider: string;
+    subject: string;
+    email: string;
+  }>(
+    `SELECT provider, subject, email FROM external_identities
+     WHERE email_verified = true
+       AND email IS NOT NULL
+       AND COALESCE(normalized_email, '') = ''`
+  );
+  for (const identity of identities.rows) {
+    let normalizedEmail: string;
+    try {
+      normalizedEmail = normalizeEmailAddress(identity.email);
+    } catch {
+      // Invalid provider presentation data is not an account-linking key.
+      continue;
+    }
+    await db.query(
+      `UPDATE external_identities
+       SET normalized_email = $3, email_normalization_version = $4
+       WHERE provider = $1 AND subject = $2
+         AND COALESCE(normalized_email, '') = ''`,
+      [
+        identity.provider,
+        identity.subject,
+        normalizedEmail,
+        EMAIL_NORMALIZATION_VERSION
+      ]
+    );
+  }
 }
 
 export async function revokeLegacyHostedBearerGrants(db: DatabaseQueryable): Promise<void> {

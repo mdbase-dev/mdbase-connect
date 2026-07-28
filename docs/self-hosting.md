@@ -33,8 +33,10 @@ ignored by Git and must not be copied into images or backups.
 
 ## DNS, TLS, and authentication
 
-Choose a public HTTPS origin such as `https://connect.example.com`. Create a
-GitHub OAuth application with:
+Choose a public HTTPS origin such as `https://connect.example.com`.
+Authentication may use GitHub, invited email/password accounts, or both.
+
+For GitHub, create an OAuth application with:
 
 - homepage: the exact Connect origin;
 - callback: `<Connect origin>/auth/github/callback`;
@@ -42,7 +44,28 @@ GitHub OAuth application with:
 
 Fill `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and
 `ALLOWED_GITHUB_USER_IDS`. The allowlist contains immutable numeric GitHub user
-IDs. Leave registration `closed` until account creation is deliberately opened.
+IDs.
+
+For password authentication, generate `AUTH_RATE_LIMIT_SECRET` and configure
+the HTTPS `TERMS_URL` and `PRIVACY_URL` published by the operator. The secret
+must be stable and identical across every Connect instance. Leave registration
+`closed` and password authentication disabled in the database until deployment
+and migration checks pass. Then use the audited operator CLI described in
+[`account-authentication.md`](./account-authentication.md) to configure document
+versions, enable invite mode, and create invitations.
+
+The optional `auth-admin` Compose profile runs the same CLI as a hardened
+one-shot container without exposing an administration endpoint. For example:
+
+```bash
+docker compose --env-file deploy/self-host/.env \
+  -f deploy/self-host/compose.yml \
+  --profile admin run --rm auth-admin policy show
+```
+
+Populate `RESEND_API_KEY` and `EMAIL_FROM` only if the operator wants
+`invite create --send-email enabled`; otherwise the CLI returns the sensitive
+invitation URL for delivery through another trusted process.
 
 The Compose stack binds application ports to host loopback. Terminate TLS in a
 reverse proxy on the same host and forward to `127.0.0.1:8787`. An example
@@ -184,7 +207,10 @@ environment and verify it first.
 - Public origins use HTTPS and resolve only to the TLS proxy.
 - Application, database, NATS, and monitoring ports are not publicly exposed.
 - Development and Tailscale authentication are disabled.
-- Registration is closed or intentionally open with abuse controls.
+- Registration is closed, invitation-only, or intentionally open with abuse
+  controls.
+- Password authentication has a stable shared rate-limit secret and current
+  legal-document URLs before it is enabled.
 - Every secret is unique, stable where required, and stored outside Git.
 - Databases have encrypted off-host backups and a tested restore procedure.
 - `/ready`, resource exhaustion, certificate expiry, and backup failures alert

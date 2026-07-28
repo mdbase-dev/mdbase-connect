@@ -57,6 +57,19 @@ Open registration applies to every configured external provider. Do not enable
 it on the public service until the homepage, privacy policy, support contact,
 account lifecycle, monitoring, and abuse response are ready.
 
+Invitation-only registration is also available:
+
+```text
+MDBASE_CONNECT_REGISTRATION=invite
+```
+
+Invite mode does not admit an external provider merely because its verified
+email matches an invitation. Existing provider subject allowlists continue to
+work, and linking an invited email identity to Google or GitHub requires fresh
+proof of both identities. The deployment value is the fail-safe default; an
+audited database policy may change the effective mode without restarting the
+service.
+
 To bootstrap the first preview user, configure the client ID while leaving the
 Google allowlist empty. Closed registration rejects every Google account in
 that state. Attempt a sign-in, find the verified `google_subject` field in the
