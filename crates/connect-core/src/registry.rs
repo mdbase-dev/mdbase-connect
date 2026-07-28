@@ -1331,7 +1331,7 @@ impl CollectionRegistry {
             "changes" => {
                 let mut page = self.changes(registered.id, input)?;
                 page.events
-                    .retain(|event| change_is_in_scope(event, &allowed_types, Some(collection)));
+                    .retain(|event| change_is_in_scope(event, allowed_types, Some(collection)));
                 serde_json::to_value(page).map_err(ConnectError::from)
             }
             "query" => {
