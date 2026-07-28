@@ -408,6 +408,7 @@ secret: connector scope test
   const sdkStorage = new MemoryStorage();
   const sdkStoragePrefix = `mdbase-connect:${serverUrl}:bundle:${manifest.applicationManifest.id}`;
   sdkStorage.setItem(`${sdkStoragePrefix}:token:${collection.id}`, JSON.stringify({
+    version: 1,
     accessToken,
     refreshToken: refreshed.body.refresh_token,
     clientId: appId,
@@ -424,7 +425,10 @@ secret: connector scope test
     keyHandle: "e2e-grant",
     savedAt: Date.now()
   }));
-  sdkStorage.setItem(`${sdkStoragePrefix}:connections`, JSON.stringify([collection.id]));
+  sdkStorage.setItem(`${sdkStoragePrefix}:connections`, JSON.stringify({
+    version: 1,
+    collectionIds: [collection.id]
+  }));
   const sdk = new MdbaseConnect({
     serverUrl,
     manifest: manifest.applicationManifest,
@@ -523,6 +527,7 @@ secret: connector scope test
       redirectUri: manifest.browserRedirectUri,
       loopbackUrl,
       token: {
+        version: 1,
         accessToken: browserToken.body.access_token,
         refreshToken: browserToken.body.refresh_token,
         clientId: browserAppId,
@@ -1081,7 +1086,7 @@ async function openApplicationServer(name, contracts, access) {
       );
       localStorage.setItem(
         \`\${storagePrefix}:connections\`,
-        JSON.stringify([config.token.collectionId])
+        JSON.stringify({ version: 1, collectionIds: [config.token.collectionId] })
       );
       const connect = new MdbaseConnect({
         serverUrl: config.serverUrl,
