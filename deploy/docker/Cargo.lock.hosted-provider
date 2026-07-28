@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase"
-version = "0.4.0-rc.2"
+version = "0.4.0-rc.3"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2061,7 +2061,9 @@ dependencies = [
  "chrono",
  "mdbase",
  "mdbase-connect-protocol",
+ "mdbase-interop",
  "mdbase-runtime",
+ "semver",
  "serde",
  "serde_json",
  "thiserror",
@@ -2071,16 +2073,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdbase-interop"
+version = "0.1.0-rc.2"
+source = "git+https://github.com/mdbase-dev/mdbase-spec.git?rev=4f305d8b90408f58aefa62542d676f349956c151#4f305d8b90408f58aefa62542d676f349956c151"
+dependencies = [
+ "hex",
+ "jsonschema",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "mdbase-runtime"
-version = "0.2.0-rc.1"
+version = "0.3.0-rc.1"
 dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "jsonschema",
  "mdbase",
+ "mdbase-interop",
  "regex",
  "rusqlite",
+ "semver",
  "serde",
+ "serde_jcs",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
@@ -2896,6 +2915,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "ryu-js"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6518fc26bced4d53678a22d6e423e9d8716377def84545fe328236e3af070e7f"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3022,6 +3047,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.2",
+]
+
+[[package]]
+name = "serde_jcs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cacecf649bc1a7c5f0e299cc813977c6a78116abda2b93b1ee01735b71ead9a8"
+dependencies = [
+ "ryu-js",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
