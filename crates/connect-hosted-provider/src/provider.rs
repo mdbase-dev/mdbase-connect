@@ -252,42 +252,37 @@ impl HostedProvider {
                 .await
             {
                 Ok(pool) => match hosted_migrator().run(&pool).await {
-                    Ok(()) => {
-                        prepare_bridge_operation_requests_schema(&pool).await?;
-                        match verify_database_key(&pool, &crypto).await {
-                            Ok(()) => {
-                                let notifications = notification_config
-                                    .clone()
-                                    .map(|config| {
-                                        HostedNotificationRuntime::new(pool.clone(), config)
-                                    })
-                                    .transpose()?;
-                                return Ok(Self {
-                                    pool,
-                                    crypto,
-                                    limits,
-                                    working_sets: Arc::new(Mutex::new(HashMap::new())),
-                                    notifications,
-                                });
-                            }
-                            Err(DatabaseKeyError::Invalid(error)) => {
-                                pool.close().await;
-                                return Err(error);
-                            }
-                            Err(DatabaseKeyError::Database(error))
-                                if started.elapsed() < DATABASE_STARTUP_TIMEOUT =>
-                            {
-                                tracing::warn!(error = %error, "hosted provider key check unavailable; retrying");
-                                pool.close().await;
-                            }
-                            Err(DatabaseKeyError::Database(error)) => {
-                                tracing::error!(error = %error, "hosted provider key check failed");
-                                return Err(ApiError::internal(
-                                    "The hosted provider could not verify its authoritative store.",
-                                ));
-                            }
+                    Ok(()) => match verify_database_key(&pool, &crypto).await {
+                        Ok(()) => {
+                            let notifications = notification_config
+                                .clone()
+                                .map(|config| HostedNotificationRuntime::new(pool.clone(), config))
+                                .transpose()?;
+                            return Ok(Self {
+                                pool,
+                                crypto,
+                                limits,
+                                working_sets: Arc::new(Mutex::new(HashMap::new())),
+                                notifications,
+                            });
                         }
-                    }
+                        Err(DatabaseKeyError::Invalid(error)) => {
+                            pool.close().await;
+                            return Err(error);
+                        }
+                        Err(DatabaseKeyError::Database(error))
+                            if started.elapsed() < DATABASE_STARTUP_TIMEOUT =>
+                        {
+                            tracing::warn!(error = %error, "hosted provider key check unavailable; retrying");
+                            pool.close().await;
+                        }
+                        Err(DatabaseKeyError::Database(error)) => {
+                            tracing::error!(error = %error, "hosted provider key check failed");
+                            return Err(ApiError::internal(
+                                "The hosted provider could not verify its authoritative store.",
+                            ));
+                        }
+                    },
                     Err(error) if started.elapsed() < DATABASE_STARTUP_TIMEOUT => {
                         tracing::warn!(error = %error, "hosted provider migration unavailable; retrying");
                         pool.close().await;
@@ -5994,30 +5989,6 @@ fn hosted_migrator() -> sqlx::migrate::Migrator {
     let mut migrator = sqlx::migrate!("./migrations");
     migrator.set_ignore_missing(true);
     migrator
-}
-
-async fn prepare_bridge_operation_requests_schema(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(
-        r#"
-        CREATE TABLE IF NOT EXISTS hosted_provider_operation_requests (
-          replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id) ON DELETE CASCADE,
-          request_id uuid NOT NULL,
-          operation text NOT NULL,
-          request_hash bytea NOT NULL,
-          prepared_mutation_ciphertext bytea,
-          response_ciphertext bytea,
-          created_at timestamptz NOT NULL DEFAULT now(),
-          completed_at timestamptz,
-          PRIMARY KEY (replica_id, request_id)
-        );
-
-        CREATE INDEX IF NOT EXISTS hosted_provider_operation_requests_created_idx
-          ON hosted_provider_operation_requests (created_at);
-        "#,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]
