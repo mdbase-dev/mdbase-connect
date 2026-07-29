@@ -146,5 +146,7 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   await db.query(
     "ALTER TABLE mcp_connection_tickets ADD COLUMN IF NOT EXISTS collection_id uuid"
   );
-  await db.query("ALTER TABLE mcp_connection_tickets DROP COLUMN IF EXISTS collection_hint");
+  // Retain the unused legacy column until the previous release is outside the
+  // production rollback window. Runtime compatibility is not a license for a
+  // destructive deploy-time migration.
 }

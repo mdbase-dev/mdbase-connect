@@ -777,7 +777,9 @@ export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> 
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
   await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
   await ensureColumn(db, "authorization_requests", "collection_id", "ALTER TABLE authorization_requests ADD COLUMN collection_id uuid");
-  await db.query("ALTER TABLE authorization_requests DROP COLUMN IF EXISTS collection_hint");
+  // Retain the unused legacy column until the previous release is outside the
+  // production rollback window. Runtime compatibility is not a license for a
+  // destructive deploy-time migration.
   await ensureColumn(
     db,
     "authorization_requests",
