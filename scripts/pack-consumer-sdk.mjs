@@ -8,7 +8,9 @@ const packageDirectories = new Map([
   ["connect", "packages/client"],
   ["protocol", "packages/protocol"],
   ["sync", "packages/sync"],
+  ["pickle", "packages/pickle"],
 ]);
+const defaultPackages = ["connect", "protocol", "sync"];
 
 const options = parseArguments(process.argv.slice(2));
 const destination = resolve(options.destination);
@@ -81,14 +83,14 @@ function parseArguments(arguments_) {
   const destinationIndex = arguments_.indexOf("--destination");
   if (destinationIndex === -1 || !arguments_[destinationIndex + 1]) {
     throw new Error(
-      "Usage: node scripts/pack-consumer-sdk.mjs --destination <vendor-directory> [--packages connect,protocol,sync]",
+      "Usage: node scripts/pack-consumer-sdk.mjs --destination <vendor-directory> [--packages connect,protocol,sync,pickle]",
     );
   }
   const packagesIndex = arguments_.indexOf("--packages");
   return {
     destination: arguments_[destinationIndex + 1],
     packages: packagesIndex === -1
-      ? [...packageDirectories.keys()]
+      ? defaultPackages
       : arguments_[packagesIndex + 1]?.split(",").filter(Boolean) ?? [],
   };
 }

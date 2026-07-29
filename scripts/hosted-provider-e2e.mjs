@@ -541,12 +541,16 @@ try {
   await postgresQuery(`
     UPDATE hosted_provider_notification_grants
     SET grant_json = jsonb_set(
-      grant_json,
-      '{notification_criteria,0,event,version}',
-      '1'::jsonb
+      jsonb_set(
+        grant_json,
+        '{notification_criteria,0,event,version}',
+        '1'::jsonb
+      ),
+      '{notification_criteria,1,event,id}',
+      '"timer.fired"'::jsonb
     )
     WHERE grant_id = '${notificationGrantId}';
-    DELETE FROM _sqlx_migrations WHERE version = 15;
+    DELETE FROM _sqlx_migrations WHERE version IN (15, 16);
     UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
   `);
   const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
@@ -566,6 +570,14 @@ try {
       WHERE grant_id = '${notificationGrantId}'
     `),
     "1.0.0"
+  );
+  assert.equal(
+    await postgresQuery(`
+      SELECT grant_json #>> '{notification_criteria,1,event,id}'
+      FROM hosted_provider_notification_grants
+      WHERE grant_id = '${notificationGrantId}'
+    `),
+    "mdbase.runtime.timer.fired"
   );
   assert.equal(
     await postgresQuery("SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE"),

@@ -38,7 +38,8 @@ describe("database migrations", () => {
       "0002_instance_administration",
       "0003_authorization_request_collection",
       "0004_separate_application_keys",
-      "0005_notification_contract_versions"
+      "0005_notification_contract_versions",
+      "0006_notification_event_ids"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -293,7 +294,8 @@ describe("database migrations", () => {
       "0002_instance_administration",
       "0003_authorization_request_collection",
       "0004_separate_application_keys",
-      "0005_notification_contract_versions"
+      "0005_notification_contract_versions",
+      "0006_notification_event_ids"
     ]);
   });
 
@@ -319,7 +321,7 @@ describe("database migrations", () => {
     await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
   });
 
-  it("upgrades persisted notification contract versions before they are read", async () => {
+  it("upgrades persisted notification contracts before they are read", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const userId = randomUUID();
@@ -328,8 +330,8 @@ describe("database migrations", () => {
     const grantId = randomUUID();
     const criterion = {
       id: "task.created",
-      event: { id: "mdbase.record.created", version: 1 },
-      presentation: { title: "Task created" }
+      event: { id: "timer.fired", version: 1 },
+      presentation: { title: "Task reminder" }
     };
     await db.query(
       "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
@@ -358,21 +360,33 @@ describe("database migrations", () => {
       [grantId, userId, applicationId, collectionId, JSON.stringify([criterion])]
     );
     await db.query(
-      "DELETE FROM schema_migrations WHERE id = '0005_notification_contract_versions'"
+      `DELETE FROM schema_migrations
+       WHERE id IN (
+         '0005_notification_contract_versions',
+         '0006_notification_event_ids'
+       )`
     );
 
     await runControlPlaneMigrations(db);
 
     const application = await db.query<{
-      notifications: { criteria: Array<{ event: { version: unknown } }> };
+      notifications: {
+        criteria: Array<{ event: { id: string; version: unknown } }>;
+      };
     }>("SELECT notifications FROM applications WHERE id = $1", [applicationId]);
     const grant = await db.query<{
-      notification_criteria: Array<{ event: { version: unknown } }>;
+      notification_criteria: Array<{
+        event: { id: string; version: unknown };
+      }>;
     }>("SELECT notification_criteria FROM grants WHERE id = $1", [grantId]);
     expect(application.rows[0]?.notifications.criteria[0]?.event.version)
       .toBe("1.0.0");
+    expect(application.rows[0]?.notifications.criteria[0]?.event.id)
+      .toBe("mdbase.runtime.timer.fired");
     expect(grant.rows[0]?.notification_criteria[0]?.event.version)
       .toBe("1.0.0");
+    expect(grant.rows[0]?.notification_criteria[0]?.event.id)
+      .toBe("mdbase.runtime.timer.fired");
   });
 
   it("fails closed when an application starts before pre-deploy migration", async () => {
