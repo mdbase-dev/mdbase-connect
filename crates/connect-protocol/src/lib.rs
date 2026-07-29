@@ -1297,7 +1297,7 @@ mod tests {
         for message in [
             RelayMessage::RelayHello {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
-                connector_version: "0.1.0-beta.18".to_string(),
+                connector_version: "0.1.0-beta.19".to_string(),
                 capabilities: RELAY_CAPABILITIES
                     .iter()
                     .map(|value| (*value).to_string())
