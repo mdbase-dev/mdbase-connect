@@ -2073,6 +2073,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdbase-connect-testbed-adapter"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "mdbase-connect-protocol",
+ "mdbase-connect-runtime",
+ "mdbase-runtime",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mdbase-interop"
 version = "0.1.0-rc.2"
 source = "git+https://github.com/mdbase-dev/mdbase-spec.git?rev=4f305d8b90408f58aefa62542d676f349956c151#4f305d8b90408f58aefa62542d676f349956c151"

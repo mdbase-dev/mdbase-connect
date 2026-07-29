@@ -13,6 +13,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  runtime-testbed:
+    name: Runtime interoperability testbed
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+      - id: mdbase_revision
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mdbase-dev/mdbase-spec
+          ref: 9155a3d7b390da0c5b7d1928b95f89ad23b8fb2c
+          path: mdbase-spec
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: rustup toolchain install 1.94.0 --profile minimal
+      - run: rustup override set 1.94.0
+      - name: Install portable testbed runner
+        working-directory: mdbase-spec/packages/testbed
+        run: npm ci
+      - name: Exercise the Connect notification runtime
+        run: >-
+          node ../mdbase-spec/packages/testbed/src/cli.mjs run
+          --adapter command:cargo
+          --adapter-arg run
+          --adapter-arg --locked
+          --adapter-arg --quiet
+          --adapter-arg -p
+          --adapter-arg mdbase-connect-testbed-adapter
+          --adapter-arg --
+          --scenario runtime.application-execution
+          --timeout-ms 120000
+
   node:
     runs-on: ubuntu-latest
     steps:

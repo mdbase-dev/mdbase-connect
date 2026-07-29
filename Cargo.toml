@@ -7,6 +7,7 @@ members = [
   "crates/connect-cli",
   "crates/connect-hosted-provider",
   "crates/connect-runtime",
+  "crates/connect-testbed-adapter",
 ]
 resolver = "2"
 

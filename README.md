@@ -173,6 +173,11 @@ pnpm typecheck
 pnpm test
 ```
 
+The private `mdbase-connect-testbed-adapter` crate drives the production
+notification catalog, authorization hook, action provider, runtime, and store
+through the spec-owned `runtime.application-execution` black-box scenario. It
+is verification plumbing only and is never published as a Connect API.
+
 The end-to-end suites cover local authorization, the encrypted relay, hosted
 replication, and the production hosted provider:
 
