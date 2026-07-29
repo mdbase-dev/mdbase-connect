@@ -88,6 +88,7 @@ import {
   type TypeFieldKind,
   type TypeImpact,
   type TypeLinkFormat,
+  type TypeMembershipImpact,
   type TypeSchemaNode,
   type TypeUniqueScope,
   type VisualTypeDefinition
@@ -192,13 +193,14 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
   </main>;
 }
 
-export function TypeInspector({ type, availableTypes = [], contracts = [], document, source, notes, creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBrowsePacks, onBack }: {
+export function TypeInspector({ type, availableTypes = [], contracts = [], document, source, notes, explicitTypeKeys = ["type", "types"], creating, loading, saving, error, leadingActions, onSourceChange, onSave, onRevert, onCancel, onCreate, onBrowsePacks, onOpenSettings, onBack }: {
   type?: CollectionTypeDescriptor;
   availableTypes?: CollectionTypeDescriptor[];
   contracts?: CollectionContractDescriptor[];
   document?: TypeDocument;
   source: string;
   notes: NoteSummary[];
+  explicitTypeKeys?: string[];
   creating: boolean;
   loading: boolean;
   saving: boolean;
@@ -210,6 +212,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
   onCancel: () => void;
   onCreate: () => void;
   onBrowsePacks?: () => void;
+  onOpenSettings?: () => void;
   onBack: () => void;
 }) {
   const [view, setView] = useState<"visual" | "yaml">("visual");
@@ -230,8 +233,8 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
   }, [contracts, parsed.value, source, type?.schema]);
   const contractErrors = contractState.issues.filter((issue) => issue.level === "error");
   const impact = useMemo(() => parsed.value
-    ? typeImpact(document?.document, source, notes, type?.name)
-    : undefined, [document?.document, notes, parsed.value, source, type?.name]);
+    ? typeImpact(document?.document, source, notes, type?.name, explicitTypeKeys)
+    : undefined, [document?.document, explicitTypeKeys.join("\u0000"), notes, parsed.value, source, type?.name]);
   useEffect(() => {
     setView("visual");
     setReviewing(false);
@@ -306,11 +309,14 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
             typeNames={availableTypes.map((candidate) => candidate.name)}
             contracts={contracts}
             typeSchema={type?.schema}
+            notes={notes}
+            explicitTypeKeys={explicitTypeKeys}
             creating={creating}
             contractIssues={contractState.issues}
             onChange={changeSource}
             onOpenYaml={() => setView("yaml")}
             onBrowsePacks={onBrowsePacks}
+            onOpenSettings={onOpenSettings}
           />
             : view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
               : <CodeEditor
@@ -326,24 +332,32 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
   </main>;
 }
 
-function VisualTypeEditor({ definition, source, impact, typeNames, contracts, typeSchema, creating, contractIssues, onChange, onOpenYaml, onBrowsePacks }: {
+function VisualTypeEditor({ definition, source, impact, typeNames, contracts, typeSchema, notes, explicitTypeKeys, creating, contractIssues, onChange, onOpenYaml, onBrowsePacks, onOpenSettings }: {
   definition: VisualTypeDefinition;
   source: string;
   impact?: TypeImpact;
   typeNames: string[];
   contracts: CollectionContractDescriptor[];
   typeSchema?: CollectionTypeDescriptor["schema"];
+  notes: NoteSummary[];
+  explicitTypeKeys: string[];
   creating: boolean;
   contractIssues: ContractValidationIssue[];
   onChange: (change: (source: string) => string) => void;
   onOpenYaml: () => void;
   onBrowsePacks?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const [activeField, setActiveField] = useState<string>();
   const linkedSchema = typeSchemaReference(source);
   const linkedSchemaFields = linkedSchema
     ? typeFieldsForContracts(source, typeSchema).filter((field) => !field.label.includes("."))
     : [];
+  const fieldSuggestions = useMemo(
+    () => membershipFieldSuggestions(source, typeSchema, notes, explicitTypeKeys),
+    [explicitTypeKeys.join("\u0000"), notes, source, typeSchema]
+  );
+  const pathSuggestions = useMemo(() => membershipPathSuggestions(notes), [notes]);
   useEffect(() => setActiveField(undefined), [definition.name]);
 
   return <div className="visual-type-editor">
@@ -357,34 +371,46 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
     <TypeEditorDisclosure
       className="type-match-section"
       title="Type membership"
-      description={`${impact?.affectedNotes.toLocaleString() ?? "No"} currently indexed ${impact?.affectedNotes === 1 ? "note resolves" : "notes resolve"} to this type.`}
+      description="How notes are assigned to this type."
       summary={typeMembershipSummary(definition)}
     >
-      <div className="type-membership-guide">
-        <Info aria-hidden="true" />
+      <div className="type-membership-method type-explicit-membership">
         <div>
-          <strong>Explicit membership comes first.</strong>
-          <p>A record may name this type using the collection’s configured type keys, normally <code>type</code> or <code>types</code>. When it does, inferred rules are skipped.</p>
-          <p>Without an explicit declaration, every inferred rule below must match. More than one type may match the same record.</p>
+          <strong>Explicit assignment</strong>
+          {explicitTypeKeys.length
+            ? <p>Notes can name <code>{definition.name}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</p>
+            : <p>This collection has explicit type assignment disabled. Every note is classified by automatic rules.</p>}
+        </div>
+        {onOpenSettings && <button onClick={onOpenSettings}>View settings</button>}
+      </div>
+      <div className="type-membership-method type-automatic-membership">
+        <div>
+          <strong>Automatic matching</strong>
+          <p>{explicitTypeKeys.length
+            ? "Notes without an explicit assignment belong to this type when every configured condition group below matches."
+            : "Notes belong to this type when every configured condition group below matches."}</p>
         </div>
       </div>
-      <div className="type-match-rules">
+      <div className={`type-match-rules${definition.pathGlobs.length && definition.fieldsPresent.length ? " combined" : ""}`}>
         <StringListEditor
-          label="Path patterns"
+          label="Path matches any"
           values={definition.pathGlobs}
           itemLabel="Path pattern"
           addLabel="Add path pattern"
           placeholder="Journal/**/*.md"
-          helper="Any one pattern may match the collection-relative record path."
+          helper="Optional. One pattern must match the collection-relative path."
+          suggestions={pathSuggestions}
           onChange={(values) => onChange((source) => updateTypePathGlobs(source, values))}
         />
+        {definition.pathGlobs.length > 0 && definition.fieldsPresent.length > 0 && <span className="type-match-operator" aria-label="and">AND</span>}
         <StringListEditor
-          label="Fields that must be present"
+          label="Frontmatter contains all"
           values={definition.fieldsPresent}
           itemLabel="Required match field"
           addLabel="Add field selector"
           placeholder="status"
-          helper="Every selector must resolve to a persisted, non-null frontmatter value."
+          helper="Optional. Every selector must have a persisted, non-null value."
+          suggestions={fieldSuggestions}
           onChange={(values) => onChange((source) => updateTypeFieldsPresent(source, values))}
         />
       </div>
@@ -395,6 +421,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
         <div><strong>More inferred rules in YAML</strong><p>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</p></div>
         <button onClick={onOpenYaml}>Open YAML</button>
       </div>}
+      {impact && <TypeMembershipPreview impact={impact.membership} advanced={definition.advancedMatch} />}
     </TypeEditorDisclosure>
     <section className="visual-type-section">
       <div className="visual-type-fields-heading">
@@ -1213,6 +1240,66 @@ function typeMembershipSummary(definition: VisualTypeDefinition): string {
   return rules.length ? rules.join(" · ") : "Explicit declarations only";
 }
 
+function membershipFieldSuggestions(
+  source: string,
+  typeSchema: CollectionTypeDescriptor["schema"] | undefined,
+  notes: NoteSummary[],
+  explicitTypeKeys: string[]
+): string[] {
+  const explicitKeys = new Set(explicitTypeKeys);
+  const suggestions = new Set(
+    typeFieldsForContracts(source, typeSchema)
+      .map((field) => field.reference)
+      .filter((reference) => !explicitKeys.has(reference))
+  );
+  for (const note of notes) {
+    for (const key of Object.keys(note.frontmatter)) {
+      if (!explicitKeys.has(key)) suggestions.add(key);
+    }
+  }
+  return [...suggestions].sort((left, right) => left.localeCompare(right)).slice(0, 100);
+}
+
+function membershipPathSuggestions(notes: NoteSummary[]): string[] {
+  const suggestions = new Set<string>();
+  for (const note of notes) {
+    const parts = note.path.replaceAll("\\", "/").split("/").slice(0, -1);
+    if (!parts.length) continue;
+    suggestions.add(`${parts[0]}/**/*.md`);
+    if (parts.length > 1) suggestions.add(`${parts.join("/")}/**/*.md`);
+  }
+  return [...suggestions].sort((left, right) => left.localeCompare(right)).slice(0, 50);
+}
+
+function TypeMembershipPreview({ impact, advanced = false, afterUpdate = false }: {
+  impact: TypeMembershipImpact;
+  advanced?: boolean;
+  afterUpdate?: boolean;
+}) {
+  if (!impact.complete) return <div className="type-membership-preview incomplete">
+    <div>
+      <strong>{impact.current.toLocaleString()} currently indexed {impact.current === 1 ? "note matches" : "notes match"}</strong>
+      <p>The after-save preview is unavailable because {advanced ? "additional YAML rules" : "some matching rules"} must be evaluated by the collection.</p>
+    </div>
+  </div>;
+  const next = impact.next ?? 0;
+  const changed = impact.addedPaths.length + impact.removedPaths.length;
+  return <div className="type-membership-preview">
+    <div>
+      <strong>{next.toLocaleString()} {next === 1 ? "note" : "notes"} {afterUpdate ? "after update" : "with these rules"}</strong>
+      <p>{impact.current.toLocaleString()} now · {impact.addedPaths.length.toLocaleString()} gain this type · {impact.removedPaths.length.toLocaleString()} lose it{impact.overlapping ? ` · ${impact.overlapping.toLocaleString()} also ${impact.overlapping === 1 ? "matches" : "match"} another type` : ""}</p>
+    </div>
+    {changed > 0 && <details>
+      <summary>Show affected notes</summary>
+      <div className="type-membership-paths">
+        {impact.addedPaths.slice(0, 10).map((path) => <p key={`added:${path}`}><span>Gains</span><code>{path}</code></p>)}
+        {impact.removedPaths.slice(0, 10).map((path) => <p key={`removed:${path}`}><span>Loses</span><code>{path}</code></p>)}
+        {changed > 20 && <p><span>More</span>{(changed - 20).toLocaleString()} additional notes</p>}
+      </div>
+    </details>}
+  </div>;
+}
+
 function collectionBehaviourSummary(definition: VisualTypeDefinition): string {
   const collection = definition.collection;
   const displayConfigured = Object.values(collection.display).some(Boolean);
@@ -1912,6 +1999,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
       <div><dt>Fields removed</dt><dd>{impact.removedFields.length}</dd></div>
       <div><dt>Fields changed</dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
+    <TypeMembershipPreview impact={impact.membership} afterUpdate />
     {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong>Definition changes</strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
     {impact.collectionChanges.length > 0 && <div className="type-collection-changes">
       <strong>Collection behaviour</strong>

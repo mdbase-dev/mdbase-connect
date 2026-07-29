@@ -189,15 +189,16 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "New note" }));
     const title = await screen.findByRole("textbox", { name: "Title" });
     await user.type(title, "A useful note");
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("A useful note.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("A useful note.md");
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "note");
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/A useful note.md");
+    await user.type(screen.getByRole("textbox", { name: "Note body" }), "The opening paragraph is already here.");
     await user.click(screen.getByRole("button", { name: "Create note" }));
     expect(await screen.findByDisplayValue("A useful note")).toBeInTheDocument();
     await waitFor(async () => expect((await gateway.list()).length).toBe(5));
     const created = await gateway.read("Notes/A useful note.md");
     expect(created.frontmatter.title).toBe("A useful note");
-    expect(created.body).toBe("");
+    expect(created.body).toBe("The opening paragraph is already here.");
   });
 
   it("creates untyped notes at the collection root", async () => {
@@ -208,11 +209,14 @@ describe("mdbase editor", () => {
     await screen.findByRole("heading", { name: "Writing" });
     await user.click(screen.getByRole("button", { name: "New note" }));
     await user.type(await screen.findByRole("textbox", { name: "Title" }), "Root note");
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Root note.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Root note.md");
+    await user.type(screen.getByRole("textbox", { name: "Note body" }), "Captured before creation.");
     await user.click(screen.getByRole("button", { name: "Create note" }));
 
     expect(await screen.findByDisplayValue("Root note")).toBeInTheDocument();
-    expect((await gateway.read("Root note.md")).types).toEqual([]);
+    const created = await gateway.read("Root note.md");
+    expect(created.types).toEqual([]);
+    expect(created.body).toBe("# Root note\n\nCaptured before creation.");
   });
 
   it("creates a new folder with its first note", async () => {
@@ -238,6 +242,7 @@ describe("mdbase editor", () => {
     const gateway = new DemoCollectionGateway(2);
     await gateway.create({
       title: "Nested plan",
+      body: "",
       path: "Projects/Alpha/Nested plan.md",
       properties: {}
     });
@@ -310,7 +315,7 @@ describe("mdbase editor", () => {
     await user.click(within(await screen.findByRole("menu", { name: "note type actions" }))
       .getByRole("menuitem", { name: "New note of type" }));
     expect(screen.getByRole("combobox", { name: "Type" })).toHaveValue("note");
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/Untitled.md");
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Notes/Untitled.md");
   });
 
   it("collapses collection facets, filters notes, and follows backlinks", async () => {

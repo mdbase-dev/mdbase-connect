@@ -203,7 +203,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
       path: input.path,
       ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties,
-      body: input.titleField ? "" : `# ${input.title}\n`,
+      body: input.titleField
+        ? input.body
+        : persistedBody(input.title, input.body, { kind: "heading" }),
       include_document: true
     }));
   }

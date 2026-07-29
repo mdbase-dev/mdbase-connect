@@ -175,8 +175,17 @@ export class DemoCollectionGateway implements CollectionGateway {
     note.frontmatter = { ...input.properties, ...(input.type ? { type: input.type } : {}) };
     note.effective_frontmatter = structuredClone(note.frontmatter);
     note.types = input.type ? [input.type] : [];
-    if (input.titleField) note.body = "";
+    note.body = input.titleField
+      ? input.body
+      : persistedBody(input.title, input.body, { kind: "heading" });
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
+    note.file = {
+      ...note.file!,
+      size: new TextEncoder().encode(note.document).byteLength,
+      tags: demoTags(note.frontmatter, note.body),
+      links: demoLinks(note.body),
+      embeds: demoEmbeds(note.body)
+    };
     this.notes.unshift(note);
     this.emit("mdbase.record.created", { path: note.path, types: note.types });
     return clone(note);

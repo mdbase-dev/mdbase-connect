@@ -19,6 +19,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
 }) {
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
+  const explicitTypeKeys = stringListValue(settings.explicit_type_keys, ["type", "types"]);
   return <main className="settings-view" aria-label="Editor settings">
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label="Back to collection" onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span>Settings</span></header>
     {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
@@ -52,6 +53,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <FactRow label="Records" value={String(noteCount)} />
         <FactRow label="Types" value={String(description.types.length)} />
         <FactRow label="Types folder" value={stringValue(settings.types_folder, "_types")} />
+        <FactRow label="Explicit type keys" value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : "Disabled"} mono />
         <FactRow label="Validation" value={stringValue(settings.validation, "error")} />
         <FactRow label="Runtime" value={runtime.enabled === true ? `Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : "Disabled"} />
       </section>
@@ -137,4 +139,8 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === "string" && value ? value : fallback;
+}
+
+function stringListValue(value: unknown, fallback: string[]): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : fallback;
 }

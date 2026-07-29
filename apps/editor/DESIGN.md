@@ -66,11 +66,21 @@ focus state uses the normal caret and selection only: the editor surface never
 gains a border, outline, or glow. Vim bindings are optional and loaded only
 when enabled. Frontmatter opens as typed rows first, with JSON available as an
 escape hatch for nested or unfamiliar values.
+Open-ended object properties use compact key/value rows with an explicit empty
+state; an empty object should not become a miniature code editor. A schema
+field named `name` only doubles as the note title when it is textual, so
+structured identity fields remain available to the property editor.
 
-Creating a note is a short composition step. Nothing is written until the
-title, path, selected type, and any required fields are ready and the user
-chooses Create note. While an existing note is fetched, a stable document
-skeleton preserves the pane geometry and avoids flashing the empty state.
+Creating a note opens a local title and Markdown body draft immediately. Type
+selection remains visible; the suggested path is visible but its editor stays
+collapsed until needed. Nothing is persisted until the title, path, selected
+type, and any required fields are ready and the user chooses Create note. The
+same controlled property fields used by the note inspector appear during typed
+creation: required fields stay expanded, optional fields live in a Properties
+disclosure, and raw source remains inspector-only. The initial create operation
+includes the drafted body and properties. While an existing note is fetched, a
+stable document skeleton preserves the pane geometry and avoids flashing the
+empty state.
 The collection opens into the same three-pane geometry: the first page becomes
 usable immediately while the remaining index continues in the note list. A
 newly created note is adopted from the create response, so the editor never

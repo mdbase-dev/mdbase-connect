@@ -1318,6 +1318,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setNotice(undefined);
     void gateway.create({
       title: linked.title,
+      body: "",
       path: linked.path,
       properties: {}
     }).then((created) => {
@@ -2116,6 +2117,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         defaultTag={creationContext.tag}
         defaultType={creationContext.type}
         purpose={creationMode}
+        preferences={preferences}
+        recordPaths={allNotes.map((note) => note.path)}
         leadingActions={editorLeadingActions}
         onCreate={createNote}
         onCancel={cancelCreation}
@@ -2280,6 +2283,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         document={typeDocument}
         source={typeSource}
         notes={allNotes}
+        explicitTypeKeys={collectionExplicitTypeKeys(description.configuration)}
         creating={typeCreating}
         loading={typeLoading}
         saving={typeSaving}
@@ -2295,6 +2299,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         onCancel={cancelTypeCreate}
         onCreate={beginTypeCreate}
         onBrowsePacks={openTypePacks}
+        onOpenSettings={() => selectSurface("settings")}
         onBack={() => returnToMobilePane("notes")}
       />}
     </>}</Suspense>}
@@ -3218,6 +3223,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
     || target.matches("input, textarea, select, [role='textbox']")
     || Boolean(target.closest("[contenteditable='true']"))
   );
+}
+
+function collectionExplicitTypeKeys(configuration: unknown): string[] {
+  if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) return ["type", "types"];
+  const settings = (configuration as Record<string, unknown>).settings;
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return ["type", "types"];
+  const configured = (settings as Record<string, unknown>).explicit_type_keys;
+  if (!Array.isArray(configured)) return ["type", "types"];
+  return configured.filter((key): key is string => typeof key === "string");
 }
 
 function isMobileHistoryState(value: unknown): value is MobileHistoryState {

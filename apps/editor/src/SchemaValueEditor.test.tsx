@@ -89,6 +89,29 @@ describe("recursive schema values", () => {
       }
     });
   });
+
+  it("edits open-ended object maps without falling back to raw JSON", async () => {
+    const user = userEvent.setup();
+    render(<MapValueHarness />);
+
+    expect(screen.queryByRole("textbox", { name: "organizations JSON value" })).not.toBeInTheDocument();
+    expect(screen.getByText("No entries yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add entry" }));
+
+    const key = screen.getByRole("textbox", { name: "organizations entry 1 key" });
+    expect(key).toHaveValue("entry");
+    await user.clear(key);
+    await user.type(key, "acme");
+
+    const organization = screen.getByRole("group", { name: "acme value" });
+    await user.click(within(organization).getByRole("button", { name: "Add optional field" }));
+    await user.click(within(organization).getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("name"), "Acme Corporation");
+
+    expect(JSON.parse(screen.getByTestId("map-value").textContent ?? "{}")).toEqual({
+      acme: { name: "Acme Corporation" }
+    });
+  });
 });
 
 function ValueHarness() {
@@ -107,6 +130,14 @@ function BindingHarness() {
   return <>
     <SchemaValueEditor name="settings" schema={bindingSchema} rootSchema={bindingSchema} value={value} required onChange={setValue} />
     <output data-testid="binding-value">{JSON.stringify(value)}</output>
+  </>;
+}
+
+function MapValueHarness() {
+  const [value, setValue] = useState<unknown>({});
+  return <>
+    <SchemaValueEditor name="organizations" schema={organizationMapSchema} value={value} onChange={setValue} />
+    <output data-testid="map-value">{JSON.stringify(value)}</output>
   </>;
 }
 
@@ -165,5 +196,17 @@ const bindingSchema: JsonObject = {
         default: { $ref: "#/$defs/nonEmptyString" }
       }
     }
+  }
+};
+
+const organizationMapSchema: JsonObject = {
+  type: "object",
+  propertyNames: { type: "string", minLength: 1 },
+  additionalProperties: {
+    type: "object",
+    properties: {
+      name: { type: "string", minLength: 1 }
+    },
+    additionalProperties: false
   }
 };

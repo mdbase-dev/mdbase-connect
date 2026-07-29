@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import { describe, expect, it, vi } from "vitest";
@@ -12,8 +12,10 @@ describe("new note schema fields", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "event");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Planning session");
-    const eventDate = screen.getByLabelText("event_date");
-    const startsAt = screen.getByLabelText("starts_at");
+    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.paste("Decide what ships next.");
+    const eventDate = screen.getByLabelText("event_date value");
+    const startsAt = screen.getByLabelText("starts_at value");
     expect(eventDate).toHaveAttribute("type", "date");
     expect(startsAt).toHaveAttribute("type", "datetime-local");
 
@@ -24,6 +26,7 @@ describe("new note schema fields", () => {
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
       title: "Planning session",
+      body: "Decide what ships next.",
       path: "Events/Planning session.md",
       type: "event",
       titleField: "title",
@@ -50,6 +53,7 @@ describe("new note schema fields", () => {
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
       title: "Reading list",
+      body: "",
       path: "Research/Ideas/Reading list.md",
       type: undefined,
       titleField: undefined,
@@ -64,6 +68,8 @@ describe("new note schema fields", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Ada Lovelace");
+    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.paste("Met at the analytical engine meetup.");
     expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
 
     await user.type(screen.getByLabelText("display_name"), "Ada");
@@ -74,6 +80,7 @@ describe("new note schema fields", () => {
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
       title: "Ada Lovelace",
+      body: "Met at the analytical engine meetup.",
       path: "People/Ada Lovelace.md",
       type: "contact",
       titleField: "title",
@@ -83,6 +90,82 @@ describe("new note schema fields", () => {
         contacts: [{ kind: "email", value: "ada@example.com" }]
       }
     });
+  });
+
+  it("keeps type visible, collapses path editing, and includes a local body draft", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    const onDraftChange = vi.fn();
+    render(<NewNoteComposer types={[eventType]} onCreate={onCreate} onCancel={() => undefined} onDraftChange={onDraftChange} />);
+
+    expect(screen.getByRole("combobox", { name: "Type" })).toBeVisible();
+    expect(screen.getByLabelText("Suggested path")).toHaveTextContent("Untitled.md");
+    const pathDetails = screen.getByText("File path", { selector: "summary > span" }).closest("details");
+    expect(pathDetails).not.toHaveAttribute("open");
+
+    await user.click(screen.getByRole("textbox", { name: "Note body" }));
+    await user.paste("A thought before the filing details.");
+    await waitFor(() => expect(onDraftChange).toHaveBeenLastCalledWith(true));
+
+    await user.click(screen.getByText("File path", { selector: "summary > span" }));
+    expect(pathDetails).toHaveAttribute("open");
+
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "Fast capture");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Note body" }), { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Fast capture",
+      body: "A thought before the filing details."
+    })));
+  });
+
+  it("adds optional typed properties with the same structured field experience", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer types={[optionalType]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "note");
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "Typed draft");
+    expect(screen.getByText("1 available")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Properties", { selector: "summary > span" }));
+    await user.click(screen.getByRole("button", { name: "Add property" }));
+    await user.click(screen.getByRole("button", { name: /status/i }));
+    await user.selectOptions(screen.getByLabelText("status value"), "draft");
+    expect(screen.getByText("1 set")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      properties: { title: "Typed draft", status: "draft" }
+    })));
+  });
+
+  it("keeps a structured name property separate from the note title", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer types={[jsContactType]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "Ada Lovelace");
+    expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
+
+    const name = screen.getByRole("group", { name: "name value" });
+    await user.click(within(name).getByRole("button", { name: "Add optional field" }));
+    await user.selectOptions(within(name).getByRole("combobox", { name: "Optional field" }), "full");
+    await user.click(within(name).getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("full"), "Ada Lovelace");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      titleField: undefined,
+      properties: {
+        "@type": "Card",
+        version: "2.0",
+        name: {
+          "@type": "Name",
+          full: "Ada Lovelace"
+        }
+      }
+    })));
   });
 });
 
@@ -130,6 +213,47 @@ const contactType: CollectionTypeDescriptor = {
         }
       }
     }
+  },
+  extensions: {}
+};
+
+const optionalType: CollectionTypeDescriptor = {
+  name: "note",
+  schema: {
+    type: "object",
+    required: ["title"],
+    properties: {
+      title: { type: "string" },
+      status: { type: "string", enum: ["draft", "done"], description: "The note workflow state." }
+    }
+  },
+  extensions: {}
+};
+
+const jsContactType: CollectionTypeDescriptor = {
+  name: "contact",
+  schema: {
+    type: "object",
+    required: ["@type", "version", "name"],
+    properties: {
+      "@type": { const: "Card" },
+      version: { const: "2.0" },
+      name: {
+        type: "object",
+        required: [],
+        properties: {
+          "@type": { const: "Name" },
+          components: { type: "array", items: { type: "string" } },
+          full: { type: "string", minLength: 1 }
+        },
+        anyOf: [
+          { required: ["components"] },
+          { required: ["full"] }
+        ],
+        additionalProperties: false
+      }
+    },
+    additionalProperties: false
   },
   extensions: {}
 };

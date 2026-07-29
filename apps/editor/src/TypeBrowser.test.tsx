@@ -4,7 +4,7 @@ import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@md
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";
-import type { TypeDocument } from "./model";
+import type { NoteSummary, TypeDocument } from "./model";
 import { TypeInspector, TypePackBrowser } from "./TypeBrowser";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { readVisualType } from "./type-schema";
@@ -132,12 +132,36 @@ describe("recursive type builder", () => {
   it("explains explicit and inferred matching while routing complex rules to YAML", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={advancedMatchSource} />);
-    expect(screen.getByText("Explicit membership comes first.")).toBeInTheDocument();
+    expect(screen.getByText("Explicit assignment")).toBeInTheDocument();
+    expect(screen.getByText("Automatic matching")).toBeInTheDocument();
+    expect(screen.getByText("Path matches any")).toBeInTheDocument();
+    expect(screen.getByText("Frontmatter contains all")).toBeInTheDocument();
     expect(screen.getByDisplayValue("People/**/*.md")).toBeInTheDocument();
     expect(screen.getByLabelText("Required match field 1")).toHaveValue("profile");
     expect(screen.getByText(/Structured frontmatter conditions/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open YAML" }));
     expect(screen.getByRole("textbox", { name: "person type YAML" })).toBeInTheDocument();
+  });
+
+  it("previews membership changes as visual rules are edited", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness notes={[
+      noteSummary("Inbox/explicit.md", { type: "person" }, ["person"]),
+      noteSummary("People/new.md", { title: "New" }, []),
+      noteSummary("People/other.md", { type: "organisation" }, ["organisation"])
+    ]} />);
+
+    await user.click(screen.getByText("Type membership").closest("summary")!);
+    expect(screen.getByText("1 note with these rules")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add path pattern" }));
+    await user.type(screen.getByLabelText("Path pattern 1"), "People/**/*.md");
+    await user.tab();
+
+    expect(screen.getByText("2 notes with these rules")).toBeInTheDocument();
+    expect(screen.getByText(/1 gain this type · 0 lose it/)).toBeInTheDocument();
+    await user.click(screen.getByText("Show affected notes"));
+    expect(screen.getByText("People/new.md")).toBeInTheDocument();
+    expect(screen.queryByText("People/other.md")).not.toBeInTheDocument();
   });
 
   it("edits collection display, defaults, links, uniqueness, and path policy", async () => {
@@ -399,9 +423,11 @@ schema:
   });
 });
 
-function InspectorHarness({ source: initialSource = recursiveSource, contracts = [], creating = false, onBrowsePacks, type = typeDescriptor }: {
+function InspectorHarness({ source: initialSource = recursiveSource, contracts = [], notes = [], explicitTypeKeys, creating = false, onBrowsePacks, type = typeDescriptor }: {
   source?: string;
   contracts?: CollectionContractDescriptor[];
+  notes?: NoteSummary[];
+  explicitTypeKeys?: string[];
   creating?: boolean;
   onBrowsePacks?: () => void;
   type?: CollectionTypeDescriptor;
@@ -414,7 +440,8 @@ function InspectorHarness({ source: initialSource = recursiveSource, contracts =
       contracts={contracts}
       document={{ ...typeDocument, document: initialSource }}
       source={source}
-      notes={[]}
+      notes={notes}
+      explicitTypeKeys={explicitTypeKeys}
       creating={creating}
       loading={false}
       saving={false}
@@ -428,6 +455,26 @@ function InspectorHarness({ source: initialSource = recursiveSource, contracts =
     />
     <output data-testid="source">{source}</output>
   </>;
+}
+
+function noteSummary(
+  path: string,
+  frontmatter: NoteSummary["frontmatter"],
+  types: string[]
+): NoteSummary {
+  return {
+    path,
+    frontmatter,
+    effective_frontmatter: structuredClone(frontmatter),
+    types,
+    file: {
+      path,
+      name: path,
+      folder: "",
+      size: 0,
+      mtime: ""
+    }
+  };
 }
 
 function PackHarness({ contracts = [], types = [typeDescriptor], catalog, loading = false, error, canInstall = false, onInstall, onRequestAccess, onReload }: {

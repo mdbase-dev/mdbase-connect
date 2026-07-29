@@ -31,6 +31,9 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
   if (type === "object" && canEditObject(resolved)) {
     return <ObjectValueEditor name={name} schema={resolved} rootSchema={root} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
+  if (type === "object" && canEditObjectMap(resolved)) {
+    return <ObjectMapValueEditor name={name} schema={resolved} rootSchema={root} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
+  }
   if (type === "array" && canEditArray(resolved)) {
     return <ArrayValueEditor name={name} schema={resolved} rootSchema={root} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
@@ -179,6 +182,76 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
   </fieldset>;
 }
 
+function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideLabel, onChange, onValidityChange }: {
+  name: string;
+  schema?: JsonObject;
+  rootSchema?: JsonObject;
+  value: unknown;
+  required: boolean;
+  hideLabel: boolean;
+  onChange: (value: unknown) => void;
+  onValidityChange?: (valid: boolean) => void;
+}) {
+  const objectValue = isObject(value) ? value : {};
+  const entries = Object.entries(objectValue);
+  const entrySchema = isObject(schema?.additionalProperties) ? schema.additionalProperties as JsonObject : undefined;
+  const label = schemaLabel(name, required, hideLabel, schema);
+
+  function renameEntry(previousName: string, nextName: string) {
+    if (nextName === previousName || (nextName in objectValue && nextName !== previousName)) return;
+    onChange(Object.fromEntries(entries.map(([entryName, entryValue]) =>
+      entryName === previousName ? [nextName, entryValue] : [entryName, entryValue]
+    )));
+  }
+
+  function updateEntry(entryName: string, next: unknown) {
+    onChange({ ...objectValue, [entryName]: next });
+  }
+
+  function removeEntry(entryName: string) {
+    const next = { ...objectValue };
+    delete next[entryName];
+    onChange(next);
+  }
+
+  function addEntry() {
+    let candidate = "entry";
+    let suffix = 2;
+    while (candidate in objectValue) candidate = `entry-${suffix++}`;
+    onChange({ ...objectValue, [candidate]: schemaInitialValue(entrySchema, rootSchema) });
+  }
+
+  return <fieldset className="schema-value schema-object schema-object-map">
+    <legend>{label}</legend>
+    <div className="schema-map-entries">
+      {entries.map(([entryName, entryValue], index) => <div className="schema-map-entry" key={index}>
+        <label className="schema-map-key">
+          <span className="sr-only">{name} entry {index + 1} key</span>
+          <input
+            aria-label={`${name} entry ${index + 1} key`}
+            value={entryName}
+            placeholder="Key"
+            spellCheck={false}
+            onChange={(event) => renameEntry(entryName, event.target.value)}
+          />
+        </label>
+        <SchemaValueEditor
+          name={`${entryName || `Entry ${index + 1}`} value`}
+          schema={entrySchema}
+          rootSchema={rootSchema}
+          value={entryValue}
+          hideLabel
+          onChange={(next) => updateEntry(entryName, next)}
+          onValidityChange={onValidityChange}
+        />
+        <button type="button" className="schema-remove-value" aria-label={`Remove ${entryName || `entry ${index + 1}`}`} onClick={() => removeEntry(entryName)}><Trash2 aria-hidden="true" /></button>
+      </div>)}
+      {!entries.length && <p className="schema-empty-value">No entries yet.</p>}
+    </div>
+    <button type="button" className="schema-add-trigger" onClick={addEntry}><Plus aria-hidden="true" />Add entry</button>
+  </fieldset>;
+}
+
 function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityChange }: {
   name: string;
   type: "array" | "object";
@@ -259,7 +332,8 @@ export function schemaValueComplete(schema: JsonObject | undefined, value: unkno
 export function isStructuredSchema(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): boolean {
   const resolved = resolveSchema(rootSchema, schema);
   const type = schemaType(resolved);
-  return (type === "object" && canEditObject(resolved)) || (type === "array" && canEditArray(resolved));
+  return (type === "object" && (canEditObject(resolved) || canEditObjectMap(resolved)))
+    || (type === "array" && canEditArray(resolved));
 }
 
 function schemaType(schema?: JsonObject, value?: unknown): string {
@@ -282,6 +356,10 @@ function schemaRequired(schema?: JsonObject): string[] {
 
 function canEditObject(schema?: JsonObject): boolean {
   return isObject(schema?.properties);
+}
+
+function canEditObjectMap(schema?: JsonObject): boolean {
+  return schema?.additionalProperties === true || isObject(schema?.additionalProperties);
 }
 
 function canEditArray(schema?: JsonObject): boolean {

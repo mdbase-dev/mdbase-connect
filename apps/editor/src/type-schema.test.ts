@@ -104,6 +104,32 @@ implements:
     expect(next).not.toContain("/profile/display_name");
   });
 
+  it("preserves contract implementations when adding and renaming a field beside an advanced map", () => {
+    const mapped = source.replace("extension:", `implements:
+  - contract: example.task
+    version: 1.0.0
+    fields:
+      title: title
+extension:`).replace("    required: [title]", `      organizations:
+        type: object
+        propertyNames:
+          type: string
+          minLength: 1
+        additionalProperties:
+          type: object
+          properties:
+            name: { type: string, minLength: 1 }
+          additionalProperties: false
+    required: [title]`);
+
+    const added = addTypeField(mapped);
+    const renamed = renameTypeField(added, "field", "local_context");
+
+    expect(added).toContain("contract: example.task");
+    expect(renamed).toContain("contract: example.task");
+    expect(renamed).toContain("local_context:");
+  });
+
   it("keeps every selected required field when the YAML uses a sequence node", () => {
     let next = setTypeFieldRequired(source, "due", true);
     next = addTypeField(next);
@@ -135,6 +161,41 @@ implements:
       newlyRequired: ["field"],
       affectedNotes: 2,
       missingRequired: [{ field: "field", count: 1 }]
+    });
+  });
+
+  it("previews notes that gain and lose membership through visual match rules", () => {
+    const previous = updateTypePathGlobs(source, ["Archive/**/*.md"]);
+    let next = updateTypePathGlobs(previous, ["Tasks/**/*.md"]);
+    next = updateTypeFieldsPresent(next, ["status"]);
+    const notes: NoteSummary[] = [
+      noteSummary("Inbox/explicit.md", { type: "task", title: "Explicit" }, ["task"]),
+      noteSummary("Archive/old.md", { status: "open", title: "Old" }, ["task"]),
+      noteSummary("Tasks/new.md", { status: "open", title: "New" }, ["project"]),
+      noteSummary("Tasks/missing.md", { title: "Missing status" }, []),
+      noteSummary("Tasks/other.md", { type: "project", status: "open", title: "Other" }, ["project"])
+    ];
+
+    expect(typeImpact(previous, next, notes, "task").membership).toEqual({
+      current: 2,
+      next: 2,
+      addedPaths: ["Tasks/new.md"],
+      removedPaths: ["Archive/old.md"],
+      overlapping: 1,
+      complete: true
+    });
+  });
+
+  it("uses configured explicit keys when previewing membership", () => {
+    const next = updateTypePathGlobs(source, ["Notes/**/*.md"]);
+    const notes: NoteSummary[] = [
+      noteSummary("Notes/custom.md", { kind: "task" }, ["task"]),
+      noteSummary("Notes/default-key.md", { type: "project" }, ["project"])
+    ];
+
+    expect(typeImpact(source, next, notes, "task", ["kind"]).membership).toMatchObject({
+      next: 2,
+      addedPaths: ["Notes/default-key.md"]
     });
   });
 });

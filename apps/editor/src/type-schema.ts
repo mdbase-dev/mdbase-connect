@@ -92,9 +92,19 @@ export interface TypeImpact {
   changedFields: string[];
   newlyRequired: string[];
   affectedNotes: number;
+  membership: TypeMembershipImpact;
   missingRequired: Array<{ field: string; count: number }>;
   definitionChanges: string[];
   collectionChanges: string[];
+}
+
+export interface TypeMembershipImpact {
+  current: number;
+  next?: number;
+  addedPaths: string[];
+  removedPaths: string[];
+  overlapping: number;
+  complete: boolean;
 }
 
 interface ParsedTypeSource {
@@ -383,8 +393,15 @@ export function typeFieldPathLabel(path: TypeSchemaPath): string {
   return label || "field";
 }
 
-export function typeImpact(previousSource: string | undefined, nextSource: string, notes: NoteSummary[], currentTypeName?: string): TypeImpact {
-  const previous = previousSource ? readVisualType(previousSource) : { name: "", description: "", advancedMatch: false, fields: [] };
+export function typeImpact(
+  previousSource: string | undefined,
+  nextSource: string,
+  notes: NoteSummary[],
+  currentTypeName?: string,
+  explicitTypeKeys: string[] = ["type", "types"]
+): TypeImpact {
+  const previousDefinition = previousSource ? readVisualType(previousSource) : undefined;
+  const previous = previousDefinition ?? { name: "", description: "", advancedMatch: false, fields: [] };
   const next = readVisualType(nextSource);
   const before = flattenFields(previous.fields);
   const after = flattenFields(next.fields);
@@ -395,14 +412,42 @@ export function typeImpact(previousSource: string | undefined, nextSource: strin
     return previousField && fieldSignature(previousField) !== fieldSignature(field);
   }).map(([name]) => name);
   const newlyRequired = [...after].filter(([name, field]) => field.required && !before.get(name)?.required).map(([name]) => name);
-  const typeNames = new Set([currentTypeName, previous.name, next.name].filter((name): name is string => Boolean(name)));
-  const affected = notes.filter((note) => note.types.some((name) => typeNames.has(name)) || explicitTypeNames(note).some((name) => typeNames.has(name)));
+  const previousNames = [currentTypeName, previous.name].filter((name): name is string => Boolean(name));
+  const currentMembers = currentTypeName
+    ? previousDefinition && !previousDefinition.advancedMatch
+      ? notes.filter((note) => noteMatchesVisualType(note, previousDefinition, explicitTypeKeys))
+      : notes.filter((note) => note.types.some((name) => sameTypeName(name, currentTypeName)))
+    : [];
+  const prospectiveMembers = next.advancedMatch
+    ? undefined
+    : notes.filter((note) => noteMatchesVisualType(note, next, explicitTypeKeys));
+  const currentPaths = new Set(currentMembers.map((note) => note.path));
+  const prospectivePaths = new Set(prospectiveMembers?.map((note) => note.path) ?? []);
+  const membership: TypeMembershipImpact = {
+    current: currentMembers.length,
+    ...(prospectiveMembers ? { next: prospectiveMembers.length } : {}),
+    addedPaths: prospectiveMembers
+      ? prospectiveMembers.filter((note) => !currentPaths.has(note.path)).map((note) => note.path)
+      : [],
+    removedPaths: prospectiveMembers
+      ? currentMembers.filter((note) => !prospectivePaths.has(note.path)).map((note) => note.path)
+      : [],
+    overlapping: prospectiveMembers
+      ? prospectiveMembers.filter((note) => note.types.some((name) =>
+        !previousNames.some((previousName) => sameTypeName(name, previousName))
+        && !sameTypeName(name, next.name)
+      )).length
+      : 0,
+    complete: Boolean(prospectiveMembers)
+  };
+  const affected = prospectiveMembers ?? currentMembers;
   return {
     addedFields,
     removedFields,
     changedFields,
     newlyRequired,
     affectedNotes: affected.length,
+    membership,
     missingRequired: newlyRequired.map((fieldName) => {
       const field = after.get(fieldName)!;
       return { field: fieldName, count: affected.filter((note) => missingRequiredValue(note.frontmatter, field.valuePath)).length };
@@ -780,9 +825,106 @@ function containersAt(value: unknown, path: TypeValuePath): unknown[] {
   return values;
 }
 
-function explicitTypeNames(note: NoteSummary): string[] {
-  const values = [note.frontmatter.type, note.frontmatter.types];
+function noteMatchesVisualType(note: NoteSummary, definition: VisualTypeDefinition, explicitTypeKeys: string[]): boolean {
+  const hasExplicitDeclaration = explicitTypeKeys.some((key) =>
+    Object.prototype.hasOwnProperty.call(note.frontmatter, key));
+  if (hasExplicitDeclaration) {
+    return explicitTypeNames(note, explicitTypeKeys).some((name) => sameTypeName(name, definition.name));
+  }
+  const hasAutomaticRules = definition.pathGlobs.length > 0 || definition.fieldsPresent.length > 0;
+  if (!hasAutomaticRules) return false;
+  if (definition.pathGlobs.length > 0
+    && !definition.pathGlobs.some((pattern) => matchesPathGlob(note.path, pattern))) return false;
+  return definition.fieldsPresent.every((reference) => fieldReferenceValue(note.frontmatter, reference) != null);
+}
+
+function explicitTypeNames(note: NoteSummary, explicitTypeKeys: string[]): string[] {
+  const values = explicitTypeKeys.map((key) => note.frontmatter[key]);
   return values.flatMap((value) => typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+}
+
+function sameTypeName(left: string, right: string): boolean {
+  return left.toLocaleLowerCase() === right.toLocaleLowerCase();
+}
+
+function matchesPathGlob(pathValue: string, patternValue: string): boolean {
+  const path = pathValue.replaceAll("\\", "/").split("/");
+  const pattern = patternValue.replaceAll("\\", "/").split("/");
+  const memo = new Map<string, boolean>();
+  const matchParts = (pathIndex: number, patternIndex: number): boolean => {
+    const key = `${pathIndex}:${patternIndex}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+    let matched: boolean;
+    if (patternIndex === pattern.length) matched = pathIndex === path.length;
+    else if (pathIndex === path.length) matched = pattern.slice(patternIndex).every((part) => part === "**");
+    else if (pattern[patternIndex] === "**") {
+      matched = matchParts(pathIndex, patternIndex + 1) || matchParts(pathIndex + 1, patternIndex);
+    } else {
+      matched = segmentMatches(path[pathIndex], pattern[patternIndex])
+        && matchParts(pathIndex + 1, patternIndex + 1);
+    }
+    memo.set(key, matched);
+    return matched;
+  };
+  return matchParts(0, 0);
+}
+
+function segmentMatches(segmentValue: string, patternValue: string): boolean {
+  const segment = [...segmentValue];
+  const pattern = [...patternValue];
+  const memo = new Map<string, boolean>();
+  const matchCharacters = (segmentIndex: number, patternIndex: number): boolean => {
+    const key = `${segmentIndex}:${patternIndex}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) return cached;
+    let matched: boolean;
+    if (patternIndex === pattern.length) matched = segmentIndex === segment.length;
+    else if (segmentIndex === segment.length) matched = pattern.slice(patternIndex).every((character) => character === "*");
+    else if (pattern[patternIndex] === "*") {
+      matched = matchCharacters(segmentIndex, patternIndex + 1)
+        || matchCharacters(segmentIndex + 1, patternIndex);
+    } else if (pattern[patternIndex] === "?") {
+      matched = matchCharacters(segmentIndex + 1, patternIndex + 1);
+    } else {
+      matched = segment[segmentIndex] === pattern[patternIndex]
+        && matchCharacters(segmentIndex + 1, patternIndex + 1);
+    }
+    memo.set(key, matched);
+    return matched;
+  };
+  return matchCharacters(0, 0);
+}
+
+function fieldReferenceValue(source: Record<string, unknown>, reference: string): unknown {
+  const pointer = reference.startsWith("/");
+  const fieldPath = /^[A-Za-z_][A-Za-z0-9_:-]*(?:\[\])?(?:\.[A-Za-z_][A-Za-z0-9_:-]*(?:\[\])?)*$/;
+  const jsonPointer = /^(?:\/(?:[^~/]|~[01])*)+$/;
+  if (!fieldPath.test(reference) && !jsonPointer.test(reference)) return undefined;
+  const segments = pointer
+    ? reference.slice(1).split("/").map((token) => ({ key: token.replaceAll("~1", "/").replaceAll("~0", "~"), each: false }))
+    : reference.split(".").map((token) => ({
+      key: token.endsWith("[]") ? token.slice(0, -2) : token,
+      each: token.endsWith("[]")
+    }));
+  let current: unknown[] = [source];
+  for (const segment of segments) {
+    const next: unknown[] = [];
+    for (const value of current) {
+      let selected: unknown;
+      if (isRecord(value)) selected = value[segment.key];
+      else if (pointer && Array.isArray(value) && /^(0|[1-9][0-9]*)$/.test(segment.key)) selected = value[Number(segment.key)];
+      if (selected === undefined) continue;
+      if (segment.each) {
+        if (Array.isArray(selected)) next.push(...selected);
+      } else {
+        next.push(selected);
+      }
+    }
+    current = next;
+    if (!current.length) break;
+  }
+  return current[0];
 }
 
 function constraintLabel(key: string): string {

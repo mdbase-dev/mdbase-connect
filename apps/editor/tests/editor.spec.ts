@@ -48,6 +48,16 @@ schema:
       phone: { type: string, minLength: 1 }
       organisation: { type: string, minLength: 1 }
       birthday: { type: string, format: date }
+      organizations:
+        type: object
+        propertyNames:
+          type: string
+          minLength: 1
+        additionalProperties:
+          type: object
+          properties:
+            name: { type: string, minLength: 1 }
+          additionalProperties: false
     additionalProperties: true
 implements:
   - contract: mdbase.contact
@@ -505,9 +515,15 @@ test("creates a note only after the creation form is complete", async ({ page })
   const create = page.getByRole("button", { name: "Create note" });
   await expect(create).toBeDisabled();
   await page.getByRole("textbox", { name: "Title" }).fill("A useful note");
-  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("A useful note.md");
+  await expect(page.getByLabel("Suggested path")).toHaveText("A useful note.md");
   await page.getByRole("combobox", { name: "Type" }).selectOption("note");
-  await expect(page.getByRole("textbox", { name: "Path" })).toHaveValue("Notes/A useful note.md");
+  await expect(page.getByLabel("Suggested path")).toHaveText("Notes/A useful note.md");
+  await page.locator(".new-note-properties > summary").click();
+  await page.getByRole("button", { name: "Add property" }).click();
+  await page.locator(".new-note-properties .property-options button").filter({ hasText: "tags" }).click();
+  await page.getByRole("button", { name: "Add tag" }).click();
+  await page.getByLabel("tags value item 1").fill("captured");
+  await page.getByRole("textbox", { name: "Note body" }).fill("The opening paragraph is already here.");
   await expect(create).toBeEnabled();
   const createStarted = Date.now();
   await create.click();
@@ -515,7 +531,11 @@ test("creates a note only after the creation form is complete", async ({ page })
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("A useful note");
   const createReadyMs = Date.now() - createStarted;
   expect(createReadyMs).toBeLessThan(500);
-  await expect(page.locator(".body-editor .cm-placeholder")).toHaveText("Start writing");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await expect(body).toContainText("The opening paragraph is already here.");
+  await expect(body).toBeFocused();
+  await page.getByRole("button", { name: "Note properties" }).click();
+  await expect(page.getByLabel("tags value item 1")).toHaveValue("captured");
   await expect(page.locator(".list-header p")).toContainText("5 notes");
   await expect(page.getByRole("button", { name: "Notes/A useful note.md" })).toBeVisible();
 });
@@ -626,6 +646,9 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("heading", { name: "contact" })).toBeVisible();
   await expect(page.locator(".visual-field-name input").first()).toHaveValue("type");
   await expect(page.locator(".visual-field-name input").nth(1)).toHaveValue("name");
+  await page.getByRole("button", { name: "YAML" }).click();
+  await expect(page.getByRole("textbox", { name: "contact type YAML" })).toContainText("contract: mdbase.contact");
+  await page.getByRole("button", { name: "Design" }).click();
   await page.getByRole("button", { name: "Add field" }).click();
   const localField = page.locator(".visual-field-name input").last();
   await expect(localField).toHaveValue("field");
@@ -635,10 +658,26 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByText("Mapping ready")).toBeVisible();
   await page.getByRole("button", { name: "YAML" }).click();
   const yaml = page.getByRole("textbox", { name: "contact type YAML" });
+  await yaml.click();
+  await page.keyboard.press("Control+End");
   await expect(yaml).toContainText("contract: mdbase.contact");
   await expect(yaml).toContainText("local_context:");
   await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
   await expect(page.getByText("Collection-wide change")).toBeVisible();
+
+  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: "New note" }).click();
+  await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
+  await page.getByText("Properties", { exact: true }).click();
+  await page.getByRole("button", { name: "Add property" }).click();
+  await page.getByRole("searchbox", { name: "Find a property" }).fill("organizations");
+  await page.locator(".property-options button").filter({ hasText: "organizations" }).click();
+  const organizations = page.getByRole("group", { name: "organizations value" });
+  await expect(organizations.getByText("No entries yet.")).toBeVisible();
+  await expect(organizations.getByRole("button", { name: "Add entry" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "organizations JSON value" })).toHaveCount(0);
+  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("alertdialog", { name: "Discard this note?" }).getByRole("button", { name: "Discard note" }).click();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
@@ -679,14 +718,15 @@ test("edits complete type membership, choices, and multiple required fields", as
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
   await page.getByRole("heading", { name: "Type membership" }).click();
-  await expect(page.getByText("Explicit membership comes first.")).toBeVisible();
+  await expect(page.getByText("Explicit assignment", { exact: true })).toBeVisible();
+  await expect(page.getByText("Automatic matching", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Add path pattern" }).click();
-  await page.getByRole("textbox", { name: "Path pattern 2" }).fill("Journal/**/*.md");
-  await page.getByRole("textbox", { name: "Path pattern 2" }).press("Tab");
+  await page.getByRole("combobox", { name: "Path pattern 2" }).fill("Journal/**/*.md");
+  await page.getByRole("combobox", { name: "Path pattern 2" }).press("Tab");
   await page.getByRole("button", { name: "Add field selector" }).click();
-  await page.getByRole("textbox", { name: "Required match field 1" }).fill("title");
-  await page.getByRole("textbox", { name: "Required match field 1" }).press("Tab");
+  await page.getByRole("combobox", { name: "Required match field 1" }).fill("title");
+  await page.getByRole("combobox", { name: "Required match field 1" }).press("Tab");
 
   await page.getByRole("button", { name: "Expand title field" }).click();
   const description = page.getByRole("textbox", { name: "title description" });

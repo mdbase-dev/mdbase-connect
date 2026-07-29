@@ -234,6 +234,50 @@ describe("ConnectCollectionGateway recovery operations", () => {
     }, {});
   });
 
+  it("includes a local body draft in the initial create operation", async () => {
+    const document: NoteDocument = {
+      path: "Notes/drafted.md",
+      frontmatter: { title: "Drafted" },
+      effective_frontmatter: { title: "Drafted" },
+      body: "Written before creation.",
+      types: ["note"],
+      revision: "created",
+      file: { name: "drafted.md", folder: "Notes", size: 0, mtime: "" }
+    };
+    const create = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { create });
+
+    await gateway.create({
+      title: "Drafted",
+      body: "Written before creation.",
+      path: document.path,
+      type: "note",
+      titleField: "title",
+      properties: { title: "Drafted" }
+    });
+    await gateway.create({
+      title: "Heading note",
+      body: "Also written before creation.",
+      path: "Heading note.md",
+      properties: {}
+    });
+
+    expect(create).toHaveBeenNthCalledWith(1, {
+      path: document.path,
+      type: "note",
+      frontmatter: { title: "Drafted" },
+      body: "Written before creation.",
+      include_document: true
+    });
+    expect(create).toHaveBeenNthCalledWith(2, {
+      path: "Heading note.md",
+      frontmatter: {},
+      body: "# Heading note\n\nAlso written before creation.",
+      include_document: true
+    });
+  });
+
   it("installs a complete type pack through one collection operation", async () => {
     const installTypePack = vi.fn(async () => ({
       valid: true,

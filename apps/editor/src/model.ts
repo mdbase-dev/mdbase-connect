@@ -66,6 +66,7 @@ export interface SaveNoteInput {
 
 export interface CreateNoteInput {
   title: string;
+  body: string;
   path: string;
   type?: string;
   titleField?: string;
