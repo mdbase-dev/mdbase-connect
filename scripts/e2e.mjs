@@ -417,7 +417,7 @@ secret: connector scope test
     refreshToken: refreshed.body.refresh_token,
     clientId: appId,
     collectionId: collection.id,
-    collectionName: collection.name,
+    collectionName: collection.display_name,
     operations: refreshed.body.operations,
     scope: refreshed.body.scope,
     // Direct access remains usable while the cloud access token needs renewal.
