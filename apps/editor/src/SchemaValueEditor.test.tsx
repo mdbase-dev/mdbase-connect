@@ -61,6 +61,25 @@ describe("recursive schema values", () => {
     });
   });
 
+  it("places newly added optional fields where the add control was used", async () => {
+    const user = userEvent.setup();
+    render(<FieldOrderHarness />);
+
+    const settings = screen.getByRole("group", { name: "Settings" });
+    const existingField = within(settings).getByLabelText("required_middle");
+    await user.click(within(settings).getByRole("button", { name: "Add optional field" }));
+    await user.selectOptions(within(settings).getByRole("combobox", { name: "Optional field" }), "optional_before");
+    await user.click(within(settings).getByRole("button", { name: "Add" }));
+
+    const addedField = within(settings).getByLabelText("optional_before");
+    const addTrigger = within(settings).getByRole("button", { name: "Add optional field" });
+    expect(existingField.compareDocumentPosition(addedField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(addedField.compareDocumentPosition(addTrigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("field-order-value")).toHaveTextContent(
+      JSON.stringify({ required_middle: "", optional_before: "" })
+    );
+  });
+
   it("resolves local JSON Schema references into readable controls", async () => {
     const user = userEvent.setup();
     expect(schemaInitialValue(bindingSchema)).toEqual({
@@ -76,7 +95,9 @@ describe("recursive schema values", () => {
     expect(screen.getByText("Statuses that count as complete.")).toBeInTheDocument();
 
     const completedValues = screen.getByText("Completed Values").closest<HTMLElement>("fieldset")!;
-    expect(within(completedValues).getByRole("button", { name: "Remove completed_values item 1" })).toBeDisabled();
+    const removeCompletedValue = within(completedValues).getByRole("button", { name: "Remove completed_values item 1" });
+    expect(removeCompletedValue).toBeDisabled();
+    expect(removeCompletedValue).toHaveClass("icon-button", "inline-remove-button", "schema-remove-value");
     await user.type(screen.getByLabelText("completed_values item 1"), "done");
     await user.click(within(completedValues).getByRole("button", { name: "Add item" }));
     await user.type(screen.getByLabelText("completed_values item 2"), "cancelled");
@@ -104,6 +125,11 @@ describe("recursive schema values", () => {
     await user.type(key, "acme");
 
     const organization = screen.getByRole("group", { name: "acme value" });
+    expect(screen.getByRole("button", { name: "Remove acme" })).toHaveClass(
+      "icon-button",
+      "inline-remove-button",
+      "schema-remove-value"
+    );
     await user.click(within(organization).getByRole("button", { name: "Add optional field" }));
     await user.click(within(organization).getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("name"), "Acme Corporation");
@@ -130,6 +156,14 @@ function BindingHarness() {
   return <>
     <SchemaValueEditor name="settings" schema={bindingSchema} rootSchema={bindingSchema} value={value} required onChange={setValue} />
     <output data-testid="binding-value">{JSON.stringify(value)}</output>
+  </>;
+}
+
+function FieldOrderHarness() {
+  const [value, setValue] = useState<unknown>({ required_middle: "" });
+  return <>
+    <SchemaValueEditor name="settings" schema={fieldOrderSchema} value={value} required onChange={setValue} />
+    <output data-testid="field-order-value">{JSON.stringify(value)}</output>
   </>;
 }
 
@@ -196,6 +230,16 @@ const bindingSchema: JsonObject = {
         default: { $ref: "#/$defs/nonEmptyString" }
       }
     }
+  }
+};
+
+const fieldOrderSchema: JsonObject = {
+  type: "object",
+  required: ["required_middle"],
+  properties: {
+    optional_before: { type: "string" },
+    required_middle: { type: "string" },
+    optional_after: { type: "string" }
   }
 };
 

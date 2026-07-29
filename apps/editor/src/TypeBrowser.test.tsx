@@ -34,6 +34,11 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
+    expect(screen.getByRole("button", { name: "Remove title field" })).toHaveClass(
+      "icon-button",
+      "inline-remove-button",
+      "remove-type-field"
+    );
     await user.click(screen.getByRole("button", { name: "Expand profile field" }));
     expect(screen.getByDisplayValue("display_name")).toBeInTheDocument();
     const nestedGroup = screen.getByText("Nested fields").closest<HTMLElement>(".nested-field-group")!;
@@ -326,7 +331,14 @@ schema:
     expect(screen.getByText("Binding setting status is required by example.workflow-person.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Configure settings" }));
+    expect(screen.getByText("Application behavior")).toBeInTheDocument();
+    expect(screen.getByText(/Control how compatible apps interpret and act on this type/)).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove completed_values item 1" })).toHaveClass(
+      "icon-button",
+      "inline-remove-button",
+      "schema-remove-value"
+    );
     expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
     await user.type(screen.getByLabelText("completed_values item 1"), "done");
     await user.type(screen.getByLabelText("default"), "open");

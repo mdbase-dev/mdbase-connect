@@ -20,6 +20,7 @@ import type { CollectionContractDescriptor, CollectionTypeDescriptor, JsonObject
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
+import { InlineRemoveButton } from "./InlineRemoveButton";
 import {
   contractCatalogPackStatus,
   type ContractCatalog,
@@ -725,8 +726,8 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
               <div className="contract-settings-body">
                 <div className="contract-settings-intro">
                   <div>
-                    <strong>How this type behaves in compatible apps</strong>
-                    <p>These choices belong to this type and are checked against the contract’s schema.</p>
+                    <strong>Application behavior</strong>
+                    <p>Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema.</p>
                   </div>
                   <button type="button" onClick={onOpenYaml}>Edit YAML</button>
                 </div>
@@ -1096,7 +1097,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               value={entry.value}
               onChange={(value) => onChange((source) => setTypeReadDefault(source, entry.field, value))}
             />
-            <button className="icon-button collection-rule-remove" aria-label={`Remove read default for ${entry.field}`} title={`Remove read default for ${entry.field}`} onClick={() => onChange((source) => removeTypeReadDefault(source, entry.field))}><Trash2 aria-hidden="true" /></button>
+            <InlineRemoveButton className="collection-rule-remove" label={`Remove read default for ${entry.field}`} onClick={() => onChange((source) => removeTypeReadDefault(source, entry.field))} />
           </div>;
         })}
         {!collection.readDefaults.length && <p className="collection-empty-rule">Missing properties have no type-specific read defaults.</p>}
@@ -1138,7 +1139,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               checked={rule.validateExists}
               onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))}
             /><span>Require an existing target</span></label>
-            <button className="icon-button collection-rule-remove" aria-label={`Remove link rule for ${rule.field}`} title={`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))}><Trash2 aria-hidden="true" /></button>
+            <InlineRemoveButton className="collection-rule-remove" label={`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))} />
           </div>
           <StringListEditor
             label="Allowed target types"
@@ -1190,7 +1191,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             placeholder="Projects/**/*.md"
             onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "path_glob", event.target.value || undefined))}
           /></label>}
-          <button className="icon-button collection-rule-remove" aria-label={`Remove uniqueness rule for ${rule.field}`} title={`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))}><Trash2 aria-hidden="true" /></button>
+          <InlineRemoveButton className="collection-rule-remove" label={`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))} />
           {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">Additional uniqueness settings remain in YAML: {rule.advancedKeys.join(", ")}.</p>}
         </div>)}
         {!collection.unique.length && <p className="collection-empty-rule">No cross-record uniqueness rules.</p>}
@@ -1648,7 +1649,7 @@ function VisualFieldRow({ field, source, depth, activeField, onActivate, onChang
         <KindOptions current={field.kind} />
       </select></label>
       <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
-      <button className="icon-button remove-type-field" aria-label={`Remove ${fieldLabel} field`} title={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))}><Trash2 aria-hidden="true" /></button>
+      <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />
     </div>
     {expanded && <div className="visual-field-details">
       <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong>Advanced YAML rules</strong>}</div>
@@ -1917,7 +1918,7 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
             {!matchingSuggestions(value).length && <p>No matches.</p>}
           </div>}
         </div>
-        <button className="string-list-remove" aria-label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))}><Trash2 aria-hidden="true" /></button>
+        <InlineRemoveButton className="string-list-remove" label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))} />
       </div>)}
       {!drafts.length && <p>No entries.</p>}
     </div>

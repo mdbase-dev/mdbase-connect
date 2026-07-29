@@ -1,7 +1,8 @@
-import { PlusIcon as Plus, TrashIcon as Trash2 } from "./icons";
+import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
+import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 
 export function SchemaValueEditor({ name, schema, rootSchema, value, required = false, hideLabel = false, onChange, onValidityChange }: {
@@ -95,7 +96,10 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
   const optionalFields = Object.keys(properties).filter((field) => !requiredFields.includes(field) && !(field in objectValue));
   const [adding, setAdding] = useState(false);
   const [fieldToAdd, setFieldToAdd] = useState(optionalFields[0] ?? "");
-  const visibleFields = Object.keys(properties).filter((field) => requiredFields.includes(field) || field in objectValue);
+  const visibleFields = [
+    ...Object.keys(objectValue).filter((field) => field in properties),
+    ...requiredFields.filter((field) => field in properties && !(field in objectValue))
+  ];
   const label = schemaLabel(name, required, hideLabel, schema);
 
   function updateField(field: string, next: unknown) {
@@ -109,7 +113,7 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
   }
 
   function addField() {
-    const field = fieldToAdd || optionalFields[0];
+    const field = optionalFields.includes(fieldToAdd) ? fieldToAdd : optionalFields[0];
     if (!field) return;
     onChange({ ...objectValue, [field]: schemaInitialValue(properties[field], rootSchema) });
     setAdding(false);
@@ -128,7 +132,7 @@ function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabe
           onChange={(next) => updateField(field, next)}
           onValidityChange={onValidityChange}
         />
-        {!requiredFields.includes(field) && <button type="button" className="schema-remove-value" aria-label={`Remove ${field}`} onClick={() => removeField(field)}><Trash2 aria-hidden="true" /></button>}
+        {!requiredFields.includes(field) && <InlineRemoveButton className="schema-remove-value" label={`Remove ${field}`} onClick={() => removeField(field)} />}
       </div>)}
       {!visibleFields.length && <p className="schema-empty-value">No declared values.</p>}
     </div>
@@ -167,14 +171,13 @@ function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel
       {list.map((item, index) => <div className="schema-array-item" key={index}>
         <span className="schema-item-number">{index + 1}</span>
         <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} rootSchema={rootSchema} value={item} hideLabel={!isStructuredSchema(items, rootSchema)} onChange={(next) => updateItem(index, next)} onValidityChange={onValidityChange} />
-        <button
-          type="button"
+        <InlineRemoveButton
           className="schema-remove-value"
-          aria-label={`Remove ${name} item ${index + 1}`}
+          label={`Remove ${name} item ${index + 1}`}
           disabled={list.length <= minimum}
           title={list.length <= minimum ? `At least ${minimum} ${minimum === 1 ? "item is" : "items are"} required.` : undefined}
           onClick={() => removeItem(index)}
-        ><Trash2 aria-hidden="true" /></button>
+        />
       </div>)}
       {!list.length && <p className="schema-empty-value">No items yet.</p>}
     </div>
@@ -244,7 +247,7 @@ function ObjectMapValueEditor({ name, schema, rootSchema, value, required, hideL
           onChange={(next) => updateEntry(entryName, next)}
           onValidityChange={onValidityChange}
         />
-        <button type="button" className="schema-remove-value" aria-label={`Remove ${entryName || `entry ${index + 1}`}`} onClick={() => removeEntry(entryName)}><Trash2 aria-hidden="true" /></button>
+        <InlineRemoveButton className="schema-remove-value" label={`Remove ${entryName || `entry ${index + 1}`}`} onClick={() => removeEntry(entryName)} />
       </div>)}
       {!entries.length && <p className="schema-empty-value">No entries yet.</p>}
     </div>

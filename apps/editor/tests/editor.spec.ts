@@ -25,6 +25,37 @@ description: A compact application-facing view of a person or organisation.
 record_schema:
   dialect: json-schema-2020-12
   ref: ../../schemas/mdbase.contact/1.0.0.schema.json
+binding_schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [display, communication]
+    additionalProperties: false
+    properties:
+      archive:
+        type: object
+        required: [archived_tag]
+        additionalProperties: false
+        properties:
+          archived_tag: { type: string, minLength: 1 }
+      display:
+        type: object
+        required: [name_order]
+        additionalProperties: false
+        properties:
+          name_order: { type: string, enum: [display, family_given] }
+          show_organisation: { type: boolean }
+      communication:
+        type: object
+        required: [accepted_formats, write_format]
+        additionalProperties: false
+        properties:
+          accepted_formats:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items: { type: string, enum: [email, phone] }
+          write_format: { type: string, enum: [email, phone] }
 ---
 `;
 const contactType = `---
@@ -72,6 +103,12 @@ implements:
       primary_phone: phone
       organisation: organisation
       birthday: birthday
+    binding:
+      display:
+        name_order: display
+      communication:
+        accepted_formats: [email, phone]
+        write_format: email
 ---
 `;
 const contactResources = [
@@ -682,7 +719,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("heading", { name: "contact" })).toBeVisible();
   await expect(page.locator(".visual-field-name input").first()).toHaveValue("type");
   await expect(page.locator(".visual-field-name input").nth(1)).toHaveValue("name");
-  await page.getByRole("button", { name: "YAML" }).click();
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
   const installedYaml = page.getByRole("textbox", { name: "contact type YAML" });
   await installedYaml.click();
   await page.keyboard.press("Control+End");
@@ -695,7 +732,52 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await localField.press("Tab");
   await page.getByRole("heading", { name: "Works with applications" }).click();
   await expect(page.getByText("Mapping ready")).toBeVisible();
-  await page.getByRole("button", { name: "YAML" }).click();
+  const contractSettings = page.locator(".contract-settings");
+  await contractSettings.locator("summary").click();
+  await expect(contractSettings.getByText("Application behavior")).toBeVisible();
+  const rootFields = contractSettings.locator(".contract-settings-body > .schema-object > .schema-object-fields");
+  await expect(rootFields.locator(":scope > .schema-nested-value")).toHaveCount(2);
+  const hierarchy = await contractSettings.evaluate((settings) => {
+    const section = settings.querySelector<HTMLElement>(
+      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value"
+    );
+    const nestedFields = settings.querySelector<HTMLElement>(
+      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-object-fields"
+    );
+    const addItem = [...settings.querySelectorAll<HTMLButtonElement>(".schema-add-trigger")]
+      .find((button) => button.textContent?.includes("Add item"));
+    if (!section || !nestedFields || !addItem) throw new Error("Contract setting hierarchy is incomplete.");
+    return {
+      sectionDivider: getComputedStyle(section).borderTopStyle,
+      nestingGuide: getComputedStyle(nestedFields).borderLeftStyle,
+      addItemBorder: getComputedStyle(addItem).borderTopWidth
+    };
+  });
+  expect(hierarchy).toEqual({
+    sectionDivider: "solid",
+    nestingGuide: "solid",
+    addItemBorder: "0px"
+  });
+  const addSetting = contractSettings.locator(
+    ".contract-settings-body > .schema-object > .schema-add-trigger"
+  );
+  await addSetting.click();
+  await contractSettings.locator(
+    ".contract-settings-body > .schema-object > .schema-add-value select"
+  ).selectOption("archive");
+  await contractSettings.locator(
+    ".contract-settings-body > .schema-object > .schema-add-value button"
+  ).filter({ hasText: "Add" }).click();
+  const addedArchive = rootFields.locator(":scope > .schema-nested-value").last();
+  await expect(addedArchive.getByText("Archive", { exact: true })).toBeVisible();
+  await addedArchive.getByLabel("archived_tag").fill("archived");
+  const fieldOrder = await contractSettings.evaluate((settings) =>
+    [...settings.querySelectorAll(
+      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value"
+    )].map((section) => section.querySelector(".schema-value-label > span")?.textContent?.replace("Required", "").trim())
+  );
+  expect(fieldOrder).toEqual(["Display", "Communication", "Archive"]);
+  await page.getByRole("button", { name: "YAML", exact: true }).click();
   const yaml = page.getByRole("textbox", { name: "contact type YAML" });
   await yaml.click();
   await page.keyboard.press("Control+End");

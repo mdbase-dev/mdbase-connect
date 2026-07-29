@@ -1,12 +1,12 @@
 import {
   MagnifyingGlassIcon as Search,
   PlusIcon as Plus,
-  TrashIcon as Trash2,
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useState } from "react";
 import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
+import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
 
 type PropertyKind = "text" | "number" | "boolean" | "list" | "object";
@@ -190,7 +190,7 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
     <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} />
     {schemaAllowsNull(schema) && value !== null && <button type="button" className="set-null-property" onClick={() => onChange(null)}>Set to null</button>}
     {error && <p className="field-error" role="alert">{error}</p>}
-    {onRemove && <button type="button" className="remove-property" aria-label={`Remove ${name} property`} onClick={onRemove}><Trash2 aria-hidden="true" /></button>}
+    {onRemove && <InlineRemoveButton className="remove-property" label={`Remove ${name} property`} onClick={onRemove} />}
   </div>;
 }
 
@@ -237,7 +237,11 @@ function StringListEditor({ name, value, suggestions, onChange }: { name: string
   return <div className="property-string-list" role="group" aria-label={name}>
     {value.map((item, index) => <div key={index}>
       <input aria-label={`${name} value item ${index + 1}`} list={suggestions.length ? listId : undefined} value={item} onChange={(event) => onChange(value.map((current, itemIndex) => itemIndex === index ? event.target.value : current))} />
-      <button type="button" aria-label={`Remove ${name} item ${index + 1}`} onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}><X aria-hidden="true" /></button>
+      <InlineRemoveButton
+        className="property-list-remove"
+        label={`Remove ${name} item ${index + 1}`}
+        onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}
+      />
     </div>)}
     {suggestions.length > 0 && <datalist id={listId}>{suggestions.map((path) => <option key={path} value={path} />)}</datalist>}
     <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> Add {name === "tags" ? "tag" : "item"}</button>

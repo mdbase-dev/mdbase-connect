@@ -1170,6 +1170,28 @@ select:focus-visible {
   stroke-width: 1.65;
 }
 
+.icon-button.inline-remove-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--faint);
+}
+
+.icon-button.inline-remove-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.icon-button.inline-remove-button svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.65;
+}
+
 .backlink-button {
   width: auto;
   min-width: 32px;
@@ -3436,22 +3458,8 @@ kbd {
 
 .remove-property {
   position: absolute;
-  top: 36px;
-  right: 0;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  color: var(--faint);
-}
-
-.remove-property:hover {
-  color: var(--danger);
-}
-
-.remove-property svg {
-  width: 13px;
-  height: 13px;
+  top: 33px;
+  right: -4px;
 }
 
 .nested-property {
@@ -3579,13 +3587,13 @@ label.schema-value {
 .schema-nested-value {
   position: relative;
   min-width: 0;
-  padding-right: 26px;
+  padding-right: 34px;
 }
 
 .schema-array-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 24px;
+  grid-template-columns: 18px minmax(0, 1fr) 32px;
   align-items: start;
   gap: 7px;
   padding: 10px 0 0;
@@ -3595,7 +3603,7 @@ label.schema-value {
 .schema-map-entry {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(88px, 0.34fr) minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(88px, 0.34fr) minmax(0, 1fr) 32px;
   align-items: start;
   gap: 8px;
   padding: 10px 0 0;
@@ -3634,25 +3642,12 @@ label.schema-value {
   text-align: center;
 }
 
-.schema-remove-value {
-  width: 24px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  color: var(--faint);
-}
-
 .schema-nested-value > .schema-remove-value {
   position: absolute;
-  top: 20px;
+  top: 17px;
   right: 0;
 }
 
-.schema-remove-value:hover {
-  color: var(--danger);
-}
-
-.schema-remove-value svg,
 .schema-add-trigger svg {
   width: 12px;
   height: 12px;
@@ -4018,7 +4013,7 @@ label.schema-value {
 
 .property-string-list > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   gap: 4px;
 }
 
@@ -5063,22 +5058,6 @@ label.schema-value {
   text-transform: none !important;
 }
 
-.collection-rule-remove {
-  width: 30px;
-  height: 34px;
-  color: var(--faint);
-}
-
-.collection-rule-remove:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.collection-rule-remove svg {
-  width: 13px;
-  height: 13px;
-}
-
 .collection-empty-rule {
   min-height: 34px;
   display: flex;
@@ -5898,7 +5877,8 @@ label.schema-value {
 .contract-suggestion button,
 .contract-unavailable button,
 .contract-composed-schema button,
-.contract-settings button,
+.contract-settings-intro > button,
+.contract-settings-empty > button,
 .contract-global-issues button {
   min-height: 32px;
   padding: 0 9px;
@@ -5915,7 +5895,8 @@ label.schema-value {
 .contract-suggestion button:hover,
 .contract-unavailable button:hover,
 .contract-composed-schema button:hover,
-.contract-settings button:hover,
+.contract-settings-intro > button:hover,
+.contract-settings-empty > button:hover,
 .contract-global-issues button:hover {
   border-color: var(--accent);
   background: var(--hover);
@@ -6282,7 +6263,7 @@ label.schema-value {
 .contract-settings-intro strong {
   display: block;
   color: var(--ink);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .contract-settings-intro p,
@@ -6299,12 +6280,8 @@ label.schema-value {
   min-height: 28px;
 }
 
-.contract-settings-body > .schema-object {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.contract-settings-body .schema-object {
+.contract-settings-body .schema-object,
+.contract-settings-body .schema-array {
   margin-top: 3px;
 }
 
@@ -6316,6 +6293,56 @@ label.schema-value {
 .contract-settings-body .schema-object > legend,
 .contract-settings-body .schema-array > legend {
   font-size: 10px;
+}
+
+.contract-settings-body > .schema-object {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields {
+  gap: 0;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value {
+  padding: 18px 36px 20px 4px;
+  border-top: 1px solid var(--line);
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object,
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-array {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-value > legend > .schema-value-label > span:first-child,
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > label.schema-value > .schema-value-label > span:first-child {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-object-fields,
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-array > .schema-array-items {
+  gap: 16px;
+  margin-top: 14px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-add-trigger,
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-add-value,
+.contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-array > .schema-add-trigger {
+  margin-left: 14px;
+}
+
+.contract-settings-body > .schema-object > .schema-add-trigger,
+.contract-settings-body > .schema-object > .schema-add-value {
+  margin-left: 4px;
 }
 
 .contract-settings-empty {
@@ -6480,9 +6507,6 @@ label.schema-value {
 }
 
 .visual-field-required input { accent-color: var(--accent); }
-.remove-type-field { color: var(--faint); }
-.remove-type-field:hover { color: var(--danger); background: var(--danger-soft); }
-
 .visual-field-details {
   padding: 2px 2px 18px 28px;
 }
@@ -6579,7 +6603,7 @@ label.schema-value {
 .string-list-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 28px;
+  grid-template-columns: 16px minmax(0, 1fr) 32px;
   align-items: center;
   gap: 6px;
 }
@@ -6652,25 +6676,6 @@ label.schema-value {
   padding: 7px 9px;
   color: var(--faint);
   font-size: 10px;
-}
-
-.string-list-remove {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 3px;
-  color: var(--faint);
-}
-
-.string-list-remove:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.string-list-remove svg {
-  width: 12px;
-  height: 12px;
 }
 
 .string-list-items > p {
@@ -8166,7 +8171,7 @@ label.schema-value {
   }
 
   .schema-map-entry {
-    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-columns: minmax(0, 1fr) 32px;
   }
 
   .schema-map-entry > .schema-value {
