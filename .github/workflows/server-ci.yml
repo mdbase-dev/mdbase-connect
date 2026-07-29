@@ -242,6 +242,8 @@ jobs:
             postgres:18-alpine \
             psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
             --set ON_ERROR_STOP=1 <<'SQL'
+          DELETE FROM _sqlx_migrations WHERE version = 15;
+
           INSERT INTO hosted_provider_collections
             (id, template, spec_version, max_records, max_content_bytes,
              max_document_bytes, max_replicas, resource_revision,
@@ -274,6 +276,40 @@ jobs:
             }'::jsonb
           );
           SQL
+
+      - name: Reproduce the previous release partial migration
+        run: |
+          . .github/previous-release.env
+          if docker run --name mdbase-provider-previous-migration \
+            --network host \
+            --env DATABASE_URL \
+            --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
+            --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+            "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"; then
+            echo "Previous provider unexpectedly accepted the profile-0.1 timer ID." >&2
+            docker rm --force mdbase-provider-previous-migration >/dev/null
+            exit 1
+          fi
+          previous_logs=$(docker logs mdbase-provider-previous-migration 2>&1)
+          echo "$previous_logs"
+          grep --fixed-strings "unsupported_notification_event" <<<"$previous_logs"
+          docker rm --force mdbase-provider-previous-migration >/dev/null
+
+          previous_contract=$(docker run --rm --network host \
+            --env PGPASSWORD=previous-provider-upgrade \
+            postgres:18-alpine \
+            psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+            --set ON_ERROR_STOP=1 \
+            --tuples-only --no-align \
+            --command "SELECT concat(
+                         grant_json #>> '{notification_criteria,0,event,id}',
+                         '|',
+                         grant_json #>> '{notification_criteria,0,event,version}'
+                       )
+                       FROM hosted_provider_notification_grants
+                       WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
+          echo "Previous release partial migration: $previous_contract"
+          [[ "$previous_contract" == "timer.fired|1.0.0" ]]
 
       - name: Require candidate migration and recovery readiness
         run: |
