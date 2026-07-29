@@ -66,6 +66,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE }}:sha-${{ env.SOURCE_COMMIT }}
+          build-args: MDBASE_CONNECT_REVISION=${{ env.SOURCE_COMMIT }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}

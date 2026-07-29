@@ -20,9 +20,11 @@ RUN pnpm --filter @mdbase/connect-protocol build \
 
 FROM node:24-bookworm-slim AS runtime
 
+ARG MDBASE_CONNECT_REVISION
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=8790
+    PORT=8790 \
+    RENDER_GIT_COMMIT=${MDBASE_CONNECT_REVISION}
 
 WORKDIR /app
 COPY --from=build /app /app

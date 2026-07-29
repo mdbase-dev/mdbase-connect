@@ -20,6 +20,7 @@ RUN cargo build --locked --release -p mdbase-connect-hosted-provider
 
 FROM debian:bookworm-slim AS runtime
 
+ARG MDBASE_CONNECT_REVISION
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
@@ -29,7 +30,8 @@ COPY --from=build /build/mdbase-connect/target/release/mdbase-connect-hosted-pro
 
 ENV HOST=0.0.0.0 \
     PORT=8790 \
-    RUST_LOG=mdbase_connect_hosted_provider=info,tower_http=debug
+    RUST_LOG=mdbase_connect_hosted_provider=info,tower_http=debug \
+    RENDER_GIT_COMMIT=${MDBASE_CONNECT_REVISION}
 
 EXPOSE 8790
 USER mdbase
