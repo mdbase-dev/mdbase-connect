@@ -277,22 +277,25 @@ jobs:
           );
           SQL
 
-      - name: Reproduce the previous release partial migration
+      - name: Apply the previous release migration
         run: |
           . .github/previous-release.env
-          if docker run --name mdbase-provider-previous-migration \
+          docker run --detach --name mdbase-provider-previous-migration \
             --network host \
             --env DATABASE_URL \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
-            "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"; then
-            echo "Previous provider unexpectedly accepted the profile-0.1 timer ID." >&2
-            docker rm --force mdbase-provider-previous-migration >/dev/null
-            exit 1
-          fi
-          previous_logs=$(docker logs mdbase-provider-previous-migration 2>&1)
-          echo "$previous_logs"
-          grep --fixed-strings "unsupported_notification_event" <<<"$previous_logs"
+            "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker logs mdbase-provider-previous-migration
+              exit 1
+            fi
+            sleep 2
+          done
           docker rm --force mdbase-provider-previous-migration >/dev/null
 
           previous_contract=$(docker run --rm --network host \
