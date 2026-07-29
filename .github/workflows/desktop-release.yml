@@ -12,11 +12,9 @@ on:
       - "scripts/verify-windows-packages.ps1"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
-  workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: desktop-release-${{ github.ref }}
@@ -24,9 +22,11 @@ concurrency:
 
 jobs:
   build:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
     name: ${{ matrix.label }}
-    environment: desktop-release
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -409,6 +409,10 @@ jobs:
     name: Publish GitHub release
     needs: build
     runs-on: ubuntu-24.04
+    environment: desktop-release
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
