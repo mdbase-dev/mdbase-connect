@@ -102,16 +102,6 @@ jobs:
             --predicate "$RUNNER_TEMP/release-image.json" \
             "$image_ref"
 
-      - name: Make the release package publicly pullable
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE: ${{ matrix.package }}
-        run: |
-          gh api \
-            --method PATCH \
-            "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/$PACKAGE" \
-            --field visibility=public
-
       - name: Record published digest
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
