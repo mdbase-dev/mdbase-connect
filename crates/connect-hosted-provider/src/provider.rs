@@ -263,38 +263,36 @@ impl HostedProvider {
             {
                 Ok(pool) => match hosted_migrator().run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
-                            Ok(()) => {
-                                let notifications = notification_config
-                                    .clone()
-                                    .map(|config| {
-                                        HostedNotificationRuntime::new(pool.clone(), config)
-                                    })
-                                    .transpose()?;
-                                let provider = Self {
-                                    pool,
-                                    crypto,
-                                    limits,
-                                    working_sets: Arc::new(Mutex::new(HashMap::new())),
-                                    notifications,
-                                    notification_recovery: Arc::new(RwLock::new(
-                                        NotificationRecoveryStatus {
-                                            configured: notification_config.is_some(),
-                                            recovery: if notification_config.is_some() {
-                                                "pending"
-                                            } else {
-                                                "disabled"
-                                            },
-                                            consecutive_failures: 0,
-                                            last_success_at: None,
+                        Ok(()) => {
+                            let notifications = notification_config
+                                .clone()
+                                .map(|config| HostedNotificationRuntime::new(pool.clone(), config))
+                                .transpose()?;
+                            let provider = Self {
+                                pool,
+                                crypto,
+                                limits,
+                                working_sets: Arc::new(Mutex::new(HashMap::new())),
+                                notifications,
+                                notification_recovery: Arc::new(RwLock::new(
+                                    NotificationRecoveryStatus {
+                                        configured: notification_config.is_some(),
+                                        recovery: if notification_config.is_some() {
+                                            "pending"
+                                        } else {
+                                            "disabled"
                                         },
-                                    )),
-                                };
-                                if let Some(notifications) = &provider.notifications {
-                                    notifications.prepare().await?;
-                                    provider.recover_notifications(1_000).await?;
-                                }
-                                return Ok(provider);
+                                        consecutive_failures: 0,
+                                        last_success_at: None,
+                                    },
+                                )),
+                            };
+                            if let Some(notifications) = &provider.notifications {
+                                notifications.prepare().await?;
+                                provider.recover_notifications(1_000).await?;
                             }
+                            return Ok(provider);
+                        }
                         Err(DatabaseKeyError::Invalid(error)) => {
                             pool.close().await;
                             return Err(error);
