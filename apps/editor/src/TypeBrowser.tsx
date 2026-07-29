@@ -16,9 +16,10 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
+import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import {
   contractCatalogPackStatus,
   type ContractCatalog,
@@ -36,12 +37,14 @@ import { compareLines } from "./text-diff";
 import {
   addTypeContractImplementation,
   assessContractFieldMapping,
+  contractViewPreview,
   contractFields,
   contractKey,
   createTypeSourceFromContract,
   mappingForContractField,
   readTypeContractImplementations,
   removeTypeContractImplementation,
+  setTypeContractBinding,
   setTypeContractFieldMapping,
   suggestContractsForType,
   typeFieldsForContracts,
@@ -265,7 +268,7 @@ export function TypeInspector({ type, availableTypes = [], contracts = [], docum
       {!creating && <dl>
         <div><dt>Version</dt><dd>{type!.version ?? "Unversioned"}</dd></div>
         <div><dt>Properties</dt><dd>{propertyCount(type!)}</dd></div>
-        <div><dt>Contracts</dt><dd>{contractState.implementations.length}</dd></div>
+        <div><dt>App views</dt><dd>{contractState.implementations.length}</dd></div>
         <div><dt>Extensions</dt><dd>{Object.keys(type!.extensions).length}</dd></div>
       </dl>}
     </section>
@@ -500,6 +503,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
     issue.implementationIndex === undefined || !implementationIndexes.has(issue.implementationIndex));
   const [selectedKey, setSelectedKey] = useState("");
   const [openMappings, setOpenMappings] = useState<Set<string>>(() => new Set());
+  const [openSettings, setOpenSettings] = useState<Set<string>>(() => new Set());
   const selected = available.find((contract) => contractKey(contract) === selectedKey) ?? available[0];
   const contractErrors = issues.filter((issue) => issue.level === "error").length;
 
@@ -520,27 +524,27 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
   const contractSummary = contractErrors
     ? `${contractErrors} ${contractErrors === 1 ? "issue" : "issues"} need attention`
     : implementations.length
-      ? `${implementations.length} implemented`
+      ? `${implementations.length} ${implementations.length === 1 ? "connection" : "connections"} configured`
       : contracts.length
-        ? "None implemented"
-        : "No contracts installed";
+        ? "No connections"
+        : "No app contracts installed";
 
   return <TypeEditorDisclosure
     className="type-contracts-section"
-    title="Data contracts"
-    description="Expose a stable, normalized view to connected applications."
+    title="Works with applications"
+    description="Tell compatible apps what this type’s fields mean."
     summary={contractSummary}
     attention={contractErrors > 0}
   >
 
     {!contracts.length && <div className="contract-empty">
       <Link2 aria-hidden="true" />
-      <div><strong>No contracts are installed</strong><p>Install a ready-made type pack first, then map another type only when you need a custom implementation.</p></div>
+      <div><strong>No application contracts are installed</strong><p>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</p></div>
       {onBrowsePacks && <button onClick={onBrowsePacks}>Browse ready-made types</button>}
     </div>}
 
     {contracts.length > 0 && creating && implementations.length === 0 && <div className="contract-starter">
-      <div><strong>Start from a contract</strong><p>Replace the draft fields with the contract schema and create one-to-one mappings.</p></div>
+      <div><strong>Start with app compatibility</strong><p>Create fields that already match an installed contract. You can rename and remap them later.</p></div>
       <label><span>Contract</span><select
         aria-label="Starting contract"
         value={selected ? contractKey(selected) : ""}
@@ -557,6 +561,8 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
         const implementationIssues = issues.filter((issue) => issue.implementationIndex === implementation.sourceIndex);
         const errors = implementationIssues.filter((issue) => issue.level === "error");
         const warnings = implementationIssues.filter((issue) => issue.level === "warning");
+        const bindingIssues = implementationIssues.filter((issue) =>
+          !issue.field && issue.message.toLowerCase().includes("binding"));
         const fields = contract ? contractFields(contract) : [];
         const mappedCount = fields.filter((field) => mappingForContractField(implementation, field)).length;
         const requiredFields = fields.filter((field) => field.required);
@@ -670,11 +676,78 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                 <button onClick={onOpenYaml}>Open YAML</button>
               </div>}
             </details>
-            {contract.binding_schema && <div className="contract-binding-note">
-              <Info aria-hidden="true" />
-              <p>This contract defines implementation settings. Configure its <code>binding</code> object in YAML.</p>
-              <button onClick={onOpenYaml}>Open YAML</button>
-            </div>}
+            {contract.binding_schema && <details
+              className="contract-settings"
+              open={bindingIssues.length > 0 || openSettings.has(implementationKey)}
+              onToggle={(event) => {
+                if (bindingIssues.length > 0) return;
+                const open = event.currentTarget.open;
+                setOpenSettings((current) => {
+                  const next = new Set(current);
+                  if (open) next.add(implementationKey);
+                  else next.delete(implementationKey);
+                  return next;
+                });
+              }}
+            >
+              <summary>
+                <span>Contract settings</span>
+                <small>{implementation.binding ? "Configured" : bindingIssues.length ? "Setup required" : "Optional"}</small>
+                <ChevronRight aria-hidden="true" />
+              </summary>
+              <div className="contract-settings-body">
+                <div className="contract-settings-intro">
+                  <div>
+                    <strong>How this type behaves in compatible apps</strong>
+                    <p>These choices belong to this type and are checked against the contract’s schema.</p>
+                  </div>
+                  <button type="button" onClick={onOpenYaml}>Edit YAML</button>
+                </div>
+                {implementation.binding || openSettings.has(implementationKey)
+                  ? <SchemaValueEditor
+                      name={`${implementation.contract} settings`}
+                      schema={contract.binding_schema}
+                      rootSchema={contract.binding_schema}
+                      value={implementation.binding ?? {}}
+                      required
+                      hideLabel
+                      onChange={(next) => {
+                        if (!isJsonObject(next)) return;
+                        onChange((current) => setTypeContractBinding(
+                          current,
+                          implementation.contract,
+                          implementation.version,
+                          next
+                        ));
+                      }}
+                    />
+                  : <div className="contract-settings-empty">
+                      <p>Set the contract’s required behavior choices before saving this type.</p>
+                      <button type="button" onClick={() => {
+                        const initial = schemaInitialValue(contract.binding_schema, contract.binding_schema);
+                        if (!isJsonObject(initial)) return;
+                        setOpenSettings((current) => new Set(current).add(implementationKey));
+                        onChange((current) => setTypeContractBinding(
+                          current,
+                          implementation.contract,
+                          implementation.version,
+                          initial
+                        ));
+                      }}>Configure settings</button>
+                    </div>}
+              </div>
+            </details>}
+            <details className="contract-view-preview">
+              <summary>
+                <span>Application view</span>
+                <small>{mappedCount} {mappedCount === 1 ? "value" : "values"} exposed</small>
+                <ChevronRight aria-hidden="true" />
+              </summary>
+              <div className="contract-preview-body">
+                <p>Apps read these contract field names while your notes keep their own field names.</p>
+                <pre>{JSON.stringify(contractViewPreview(implementation), null, 2)}</pre>
+              </div>
+            </details>
           </>}
           {implementationIssues.filter((issue) => !issue.field).map((issue, index) =>
             <p className={`contract-issue ${issue.level}`} role={issue.level === "error" ? "alert" : undefined} key={`${issue.message}:${index}`}>{issue.message}</p>)}
@@ -688,11 +761,11 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
         value={selected ? contractKey(selected) : ""}
         onChange={(event) => setSelectedKey(event.target.value)}
       >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</select></label>
-      <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Implement contract</button>
+      <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Connect application contract</button>
     </div>}
 
     {suggestions.length > 0 && <div className="contract-suggestions">
-      <div className="contract-suggestion-heading"><div><strong>Possible matches</strong><p>Suggested from field names and shapes only. Confirm that the semantics agree.</p></div></div>
+      <div className="contract-suggestion-heading"><div><strong>Possible app compatibility</strong><p>Suggested from field names and shapes only. Confirm that the meanings agree.</p></div></div>
       {suggestions.map((suggestion) => <div className="contract-suggestion" key={contractKey(suggestion.contract)}>
         <div><strong>{suggestion.contract.id}</strong><span>{suggestion.contract.version}</span></div>
         <p>{suggestion.matchedFields} of {suggestion.totalFields} fields match{suggestion.requiredFields ? `, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
@@ -1899,4 +1972,8 @@ function parseVisualType(source: string): { value?: VisualTypeDefinition; error?
 function propertyCount(type: CollectionTypeDescriptor): number {
   const properties = type.schema.properties;
   return properties && !Array.isArray(properties) && typeof properties === "object" ? Object.keys(properties).length : 0;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -80,6 +80,30 @@ describe("visual type source editing", () => {
     ]));
   });
 
+  it("renames contract mapping targets with the field they reference", () => {
+    const mapped = recursiveSource.replace("name: person\n", `name: person
+implements:
+  - contract: example.person
+    version: 1.0.0
+    fields:
+      name: title
+      email: profile.display_name
+  - contract: example.directory-entry
+    version: 1.0.0
+    fields:
+      /contact/email: /profile/display_name
+`);
+
+    let next = renameTypeField(mapped, "title", "name");
+    next = renameTypeField(next, ["properties", "profile", "properties", "display_name"], "label");
+
+    expect(next).toContain("name: name");
+    expect(next).toContain("email: profile.label");
+    expect(next).toContain("/contact/email: /profile/label");
+    expect(next).not.toContain("profile.display_name");
+    expect(next).not.toContain("/profile/display_name");
+  });
+
   it("keeps every selected required field when the YAML uses a sequence node", () => {
     let next = setTypeFieldRequired(source, "due", true);
     next = addTypeField(next);

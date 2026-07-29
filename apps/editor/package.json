@@ -35,6 +35,7 @@
     "@phosphor-icons/web": "^2.1.2",
     "@replit/codemirror-vim": "^6.3.0",
     "@tanstack/react-virtual": "^3.14.7",
+    "ajv": "^8.20.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "yaml": "^2.9.0"

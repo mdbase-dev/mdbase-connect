@@ -4,35 +4,40 @@ import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import { schemaDateFormat, schemaDateInputType, schemaDateInputValue, schemaDateValue } from "./schema-date";
 
-export function SchemaValueEditor({ name, schema, value, required = false, hideLabel = false, onChange, onValidityChange }: {
+export function SchemaValueEditor({ name, schema, rootSchema, value, required = false, hideLabel = false, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
+  rootSchema?: JsonObject;
   value: unknown;
   required?: boolean;
   hideLabel?: boolean;
   onChange: (value: unknown) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
-  const supplied = suppliedValue(schema);
+  const root = rootSchema ?? schema;
+  const resolved = useMemo(() => resolveSchema(root, schema), [root, schema]);
+  const supplied = suppliedValue(resolved);
   useEffect(() => {
-    if (value === undefined && (required || supplied !== undefined)) onChange(supplied ?? schemaInitialValue(schema));
-  }, [onChange, required, schema, supplied, value]);
+    if (value === undefined && (required || supplied !== undefined)) {
+      onChange(supplied ?? schemaInitialValue(resolved, root));
+    }
+  }, [onChange, required, resolved, root, supplied, value]);
 
-  const type = schemaType(schema, value);
-  const label = hideLabel ? <span className="sr-only">{name}</span> : <span>{name}{required && <small aria-hidden="true">Required</small>}</span>;
-  if (schema && "const" in schema) {
-    return <div className="schema-value schema-constant">{label}<output>{formatValue(schema.const)}</output></div>;
+  const type = schemaType(resolved, value);
+  const label = schemaLabel(name, required, hideLabel, resolved);
+  if (resolved && "const" in resolved) {
+    return <div className="schema-value schema-constant">{label}<output>{formatValue(resolved.const)}</output></div>;
   }
-  if (type === "object" && canEditObject(schema)) {
-    return <ObjectValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
+  if (type === "object" && canEditObject(resolved)) {
+    return <ObjectValueEditor name={name} schema={resolved} rootSchema={root} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
-  if (type === "array" && canEditArray(schema)) {
-    return <ArrayValueEditor name={name} schema={schema} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
+  if (type === "array" && canEditArray(resolved)) {
+    return <ArrayValueEditor name={name} schema={resolved} rootSchema={root} value={value} required={required} hideLabel={hideLabel} onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (type === "object" || type === "array") {
     return <JsonSchemaValueEditor name={name} type={type} label={label} value={value} onChange={onChange} onValidityChange={onValidityChange} />;
   }
-  const choices = Array.isArray(schema?.enum) ? schema.enum.filter((item) => item === null || ["string", "number", "boolean"].includes(typeof item)) : [];
+  const choices = Array.isArray(resolved?.enum) ? resolved.enum.filter((item) => item === null || ["string", "number", "boolean"].includes(typeof item)) : [];
   if (choices.length) return <label className="schema-value">{label}<select
     aria-label={name}
     value={choiceKey(value)}
@@ -43,7 +48,7 @@ export function SchemaValueEditor({ name, schema, value, required = false, hideL
   >
     <option value="">Choose</option>{choices.map((choice, index) => <option key={`${choiceKey(choice)}:${index}`} value={choiceKey(choice)}>{formatValue(choice)}</option>)}
   </select></label>;
-  const dateFormat = schemaDateFormat(schema);
+  const dateFormat = schemaDateFormat(resolved);
   if (dateFormat) return <label className="schema-value">{label}<input
     aria-label={name}
     type={schemaDateInputType(dateFormat)}
@@ -56,15 +61,25 @@ export function SchemaValueEditor({ name, schema, value, required = false, hideL
     aria-label={name}
     type="number"
     step={type === "integer" ? 1 : "any"}
+    min={typeof resolved?.minimum === "number" ? resolved.minimum : undefined}
+    max={typeof resolved?.maximum === "number" ? resolved.maximum : undefined}
     value={typeof value === "number" ? value : ""}
     onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
   /></label>;
-  return <label className="schema-value">{label}<input aria-label={name} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className="schema-value">{label}<input
+    aria-label={name}
+    minLength={typeof resolved?.minLength === "number" ? resolved.minLength : undefined}
+    maxLength={typeof resolved?.maxLength === "number" ? resolved.maxLength : undefined}
+    pattern={typeof resolved?.pattern === "string" ? resolved.pattern : undefined}
+    value={typeof value === "string" ? value : ""}
+    onChange={(event) => onChange(event.target.value)}
+  /></label>;
 }
 
-function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange, onValidityChange }: {
+function ObjectValueEditor({ name, schema, rootSchema, value, required, hideLabel, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
+  rootSchema?: JsonObject;
   value: unknown;
   required: boolean;
   hideLabel: boolean;
@@ -78,7 +93,7 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange,
   const [adding, setAdding] = useState(false);
   const [fieldToAdd, setFieldToAdd] = useState(optionalFields[0] ?? "");
   const visibleFields = Object.keys(properties).filter((field) => requiredFields.includes(field) || field in objectValue);
-  const label = hideLabel ? <span className="sr-only">{name}</span> : <span>{name}{required && <small aria-hidden="true">Required</small>}</span>;
+  const label = schemaLabel(name, required, hideLabel, schema);
 
   function updateField(field: string, next: unknown) {
     onChange({ ...objectValue, [field]: next });
@@ -93,7 +108,7 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange,
   function addField() {
     const field = fieldToAdd || optionalFields[0];
     if (!field) return;
-    onChange({ ...objectValue, [field]: schemaInitialValue(properties[field]) });
+    onChange({ ...objectValue, [field]: schemaInitialValue(properties[field], rootSchema) });
     setAdding(false);
   }
 
@@ -104,6 +119,7 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange,
         <SchemaValueEditor
           name={field}
           schema={properties[field]}
+          rootSchema={rootSchema}
           value={objectValue[field]}
           required={requiredFields.includes(field)}
           onChange={(next) => updateField(field, next)}
@@ -114,16 +130,17 @@ function ObjectValueEditor({ name, schema, value, required, hideLabel, onChange,
       {!visibleFields.length && <p className="schema-empty-value">No declared values.</p>}
     </div>
     {optionalFields.length > 0 && (adding ? <div className="schema-add-value">
-      <label><span className="sr-only">Optional field</span><select value={fieldToAdd || optionalFields[0]} onChange={(event) => setFieldToAdd(event.target.value)}>{optionalFields.map((field) => <option key={field} value={field}>{field}</option>)}</select></label>
+      <label><span className="sr-only">Optional field</span><select value={fieldToAdd || optionalFields[0]} onChange={(event) => setFieldToAdd(event.target.value)}>{optionalFields.map((field) => <option key={field} value={field}>{humanizeName(field)}</option>)}</select></label>
       <button type="button" onClick={addField}>Add</button>
       <button type="button" onClick={() => setAdding(false)}>Cancel</button>
     </div> : <button type="button" className="schema-add-trigger" onClick={() => { setFieldToAdd(optionalFields[0]); setAdding(true); }}><Plus aria-hidden="true" />Add optional field</button>)}
   </fieldset>;
 }
 
-function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange, onValidityChange }: {
+function ArrayValueEditor({ name, schema, rootSchema, value, required, hideLabel, onChange, onValidityChange }: {
   name: string;
   schema?: JsonObject;
+  rootSchema?: JsonObject;
   value: unknown;
   required: boolean;
   hideLabel: boolean;
@@ -132,7 +149,9 @@ function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange, 
 }) {
   const items = isObject(schema?.items) ? schema.items as JsonObject : undefined;
   const list = Array.isArray(value) ? value : [];
-  const label = hideLabel ? <span className="sr-only">{name}</span> : <span>{name}{required && <small aria-hidden="true">Required</small>}</span>;
+  const minimum = typeof schema?.minItems === "number" ? Math.max(0, Math.floor(schema.minItems)) : 0;
+  const maximum = typeof schema?.maxItems === "number" ? Math.max(0, Math.floor(schema.maxItems)) : undefined;
+  const label = schemaLabel(name, required, hideLabel, schema);
   function updateItem(index: number, next: unknown) {
     onChange(list.map((item, itemIndex) => itemIndex === index ? next : item));
   }
@@ -144,12 +163,19 @@ function ArrayValueEditor({ name, schema, value, required, hideLabel, onChange, 
     <div className="schema-array-items">
       {list.map((item, index) => <div className="schema-array-item" key={index}>
         <span className="schema-item-number">{index + 1}</span>
-        <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} value={item} hideLabel={!isStructuredSchema(items)} onChange={(next) => updateItem(index, next)} onValidityChange={onValidityChange} />
-        <button type="button" className="schema-remove-value" aria-label={`Remove ${name} item ${index + 1}`} onClick={() => removeItem(index)}><Trash2 aria-hidden="true" /></button>
+        <SchemaValueEditor name={`${name} item ${index + 1}`} schema={items} rootSchema={rootSchema} value={item} hideLabel={!isStructuredSchema(items, rootSchema)} onChange={(next) => updateItem(index, next)} onValidityChange={onValidityChange} />
+        <button
+          type="button"
+          className="schema-remove-value"
+          aria-label={`Remove ${name} item ${index + 1}`}
+          disabled={list.length <= minimum}
+          title={list.length <= minimum ? `At least ${minimum} ${minimum === 1 ? "item is" : "items are"} required.` : undefined}
+          onClick={() => removeItem(index)}
+        ><Trash2 aria-hidden="true" /></button>
       </div>)}
       {!list.length && <p className="schema-empty-value">No items yet.</p>}
     </div>
-    <button type="button" className="schema-add-trigger" onClick={() => onChange([...list, schemaInitialValue(items)])}><Plus aria-hidden="true" />Add item</button>
+    <button type="button" className="schema-add-trigger" disabled={maximum !== undefined && list.length >= maximum} onClick={() => onChange([...list, schemaInitialValue(items, rootSchema)])}><Plus aria-hidden="true" />Add item</button>
   </fieldset>;
 }
 
@@ -179,57 +205,61 @@ function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityC
   }} />{error && <small className="schema-value-error" role="alert">{error}</small>}</label>;
 }
 
-export function schemaInitialValue(schema?: JsonObject): unknown {
-  const supplied = suppliedValue(schema);
+export function schemaInitialValue(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): unknown {
+  const resolved = resolveSchema(rootSchema, schema);
+  const supplied = suppliedValue(resolved);
   if (supplied !== undefined) return supplied;
-  const type = schemaType(schema);
+  const type = schemaType(resolved);
   if (type === "object") {
-    const properties = schemaProperties(schema);
-    const required = new Set(schemaRequired(schema));
+    const properties = schemaProperties(resolved);
+    const required = new Set(schemaRequired(resolved));
     return Object.fromEntries(Object.entries(properties).flatMap(([name, child]) => {
-      const childSupplied = suppliedValue(child);
-      return required.has(name) || childSupplied !== undefined ? [[name, childSupplied ?? schemaInitialValue(child)]] : [];
+      const resolvedChild = resolveSchema(rootSchema, child);
+      const childSupplied = suppliedValue(resolvedChild);
+      return required.has(name) || childSupplied !== undefined ? [[name, childSupplied ?? schemaInitialValue(resolvedChild, rootSchema)]] : [];
     }));
   }
   if (type === "array") {
-    const items = isObject(schema?.items) ? schema.items as JsonObject : undefined;
-    const minimum = typeof schema?.minItems === "number" ? Math.max(0, Math.floor(schema.minItems)) : 0;
-    return Array.from({ length: minimum }, () => schemaInitialValue(items));
+    const items = isObject(resolved?.items) ? resolved.items as JsonObject : undefined;
+    const minimum = typeof resolved?.minItems === "number" ? Math.max(0, Math.floor(resolved.minItems)) : 0;
+    return Array.from({ length: minimum }, () => schemaInitialValue(items, rootSchema));
   }
   if (type === "boolean") return false;
   if (type === "number" || type === "integer") return 0;
   return "";
 }
 
-export function schemaValueComplete(schema: JsonObject | undefined, value: unknown): boolean {
+export function schemaValueComplete(schema: JsonObject | undefined, value: unknown, rootSchema: JsonObject | undefined = schema): boolean {
+  const resolved = resolveSchema(rootSchema, schema);
   if (value === undefined || value === null) return false;
-  const type = schemaType(schema, value);
+  const type = schemaType(resolved, value);
   if (type === "string") {
     if (typeof value !== "string" || !value.length) return false;
-    if (typeof schema?.minLength === "number" && value.length < schema.minLength) return false;
-    if (typeof schema?.maxLength === "number" && value.length > schema.maxLength) return false;
-    const choices = Array.isArray(schema?.enum) ? schema.enum : undefined;
+    if (typeof resolved?.minLength === "number" && value.length < resolved.minLength) return false;
+    if (typeof resolved?.maxLength === "number" && value.length > resolved.maxLength) return false;
+    const choices = Array.isArray(resolved?.enum) ? resolved.enum : undefined;
     return !choices || choices.includes(value);
   }
   if (type === "number" || type === "integer") return typeof value === "number" && Number.isFinite(value) && (type !== "integer" || Number.isInteger(value));
   if (type === "boolean") return typeof value === "boolean";
   if (type === "array") {
     if (!Array.isArray(value)) return false;
-    if (typeof schema?.minItems === "number" && value.length < schema.minItems) return false;
-    const items = isObject(schema?.items) ? schema.items as JsonObject : undefined;
-    return value.every((item) => schemaValueComplete(items, item));
+    if (typeof resolved?.minItems === "number" && value.length < resolved.minItems) return false;
+    const items = isObject(resolved?.items) ? resolved.items as JsonObject : undefined;
+    return value.every((item) => schemaValueComplete(items, item, rootSchema));
   }
   if (type === "object") {
     if (!isObject(value)) return false;
-    const properties = schemaProperties(schema);
-    return schemaRequired(schema).every((field) => field in value && schemaValueComplete(properties[field], value[field]));
+    const properties = schemaProperties(resolved);
+    return schemaRequired(resolved).every((field) => field in value && schemaValueComplete(properties[field], value[field], rootSchema));
   }
   return true;
 }
 
-export function isStructuredSchema(schema?: JsonObject): boolean {
-  const type = schemaType(schema);
-  return (type === "object" && canEditObject(schema)) || (type === "array" && canEditArray(schema));
+export function isStructuredSchema(schema?: JsonObject, rootSchema: JsonObject | undefined = schema): boolean {
+  const resolved = resolveSchema(rootSchema, schema);
+  const type = schemaType(resolved);
+  return (type === "object" && canEditObject(resolved)) || (type === "array" && canEditArray(resolved));
 }
 
 function schemaType(schema?: JsonObject, value?: unknown): string {
@@ -263,6 +293,72 @@ function suppliedValue(schema?: JsonObject): unknown {
   if ("const" in schema) return structuredClone(schema.const);
   if ("default" in schema) return structuredClone(schema.default);
   return undefined;
+}
+
+function resolveSchema(
+  rootSchema?: JsonObject,
+  schema?: JsonObject,
+  visited: Set<string> = new Set()
+): JsonObject | undefined {
+  if (!schema) return undefined;
+  let resolved = { ...schema };
+  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/") && rootSchema && !visited.has(schema.$ref)) {
+    const target = resolveLocalReference(rootSchema, schema.$ref);
+    if (target) {
+      const nextVisited = new Set(visited);
+      nextVisited.add(schema.$ref);
+      const base = resolveSchema(rootSchema, target, nextVisited) ?? {};
+      resolved = mergeSchemas(base, resolved);
+      delete resolved.$ref;
+    }
+  }
+  const branches = Array.isArray(resolved.allOf)
+    ? resolved.allOf.filter((branch): branch is JsonObject => isObject(branch))
+    : [];
+  for (const branch of branches) {
+    resolved = mergeSchemas(resolved, resolveSchema(rootSchema, branch, visited) ?? {});
+  }
+  return resolved;
+}
+
+function resolveLocalReference(rootSchema: JsonObject, reference: string): JsonObject | undefined {
+  let current: unknown = rootSchema;
+  for (const encoded of reference.slice(2).split("/")) {
+    if (!isObject(current)) return undefined;
+    const segment = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
+    current = current[segment];
+  }
+  return isObject(current) ? current : undefined;
+}
+
+function mergeSchemas(base: JsonObject, overlay: JsonObject): JsonObject {
+  const merged: JsonObject = { ...base, ...overlay };
+  const baseProperties = isObject(base.properties) ? base.properties : {};
+  const overlayProperties = isObject(overlay.properties) ? overlay.properties : {};
+  if (Object.keys(baseProperties).length || Object.keys(overlayProperties).length) {
+    merged.properties = { ...baseProperties, ...overlayProperties };
+  }
+  const required = [
+    ...(Array.isArray(base.required) ? base.required : []),
+    ...(Array.isArray(overlay.required) ? overlay.required : [])
+  ].filter((field): field is string => typeof field === "string");
+  if (required.length) merged.required = [...new Set(required)];
+  return merged;
+}
+
+function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema?: JsonObject): ReactNode {
+  if (hideLabel) return <span className="sr-only">{name}</span>;
+  return <span className="schema-value-label">
+    <span>{humanizeName(name)}{required && <small aria-hidden="true">Required</small>}</span>
+    {typeof schema?.description === "string" && <small>{schema.description}</small>}
+  </span>;
+}
+
+function humanizeName(name: string): string {
+  return name
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/gu, (letter) => letter.toUpperCase());
 }
 
 function formatValue(value: unknown): string {

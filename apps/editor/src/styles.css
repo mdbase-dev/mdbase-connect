@@ -3500,6 +3500,26 @@ label.schema-value {
   text-transform: uppercase;
 }
 
+.schema-value-label {
+  display: grid;
+  gap: 2px;
+}
+
+.schema-value-label > span {
+  color: var(--muted);
+}
+
+.schema-value-label > small:last-child {
+  margin-left: 0;
+  color: var(--faint);
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+
 .schema-constant {
   display: grid;
   gap: 5px;
@@ -3806,6 +3826,12 @@ label.schema-value {
   font-size: 7px;
   font-style: normal;
   text-transform: uppercase;
+}
+
+.schema-remove-value:disabled,
+.schema-add-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
 }
 
 .custom-property-trigger,
@@ -5717,7 +5743,7 @@ label.schema-value {
 .contract-suggestion button,
 .contract-unavailable button,
 .contract-composed-schema button,
-.contract-binding-note button,
+.contract-settings button,
 .contract-global-issues button {
   min-height: 32px;
   padding: 0 9px;
@@ -5734,7 +5760,7 @@ label.schema-value {
 .contract-suggestion button:hover,
 .contract-unavailable button:hover,
 .contract-composed-schema button:hover,
-.contract-binding-note button:hover,
+.contract-settings button:hover,
 .contract-global-issues button:hover {
   border-color: var(--accent);
   background: var(--hover);
@@ -6083,14 +6109,80 @@ label.schema-value {
   font-size: 9px;
 }
 
-.contract-binding-note {
-  margin-top: 11px;
-  border-bottom: 0;
+.contract-settings-body,
+.contract-preview-body {
+  margin-top: 5px;
+  padding: 14px 0 2px;
+  border-top: 1px solid var(--line);
 }
 
-.contract-binding-note code {
+.contract-settings-intro {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.contract-settings-intro strong {
+  display: block;
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.contract-settings-intro p,
+.contract-preview-body > p,
+.contract-settings-empty p {
+  margin: 3px 0 0;
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.contract-settings-intro button,
+.contract-settings-empty button {
+  flex: 0 0 auto;
+  min-height: 28px;
+}
+
+.contract-settings-body > .schema-object {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.contract-settings-body .schema-object {
+  margin-top: 3px;
+}
+
+.contract-settings-body .schema-object-fields,
+.contract-settings-body .schema-array-items {
+  gap: 14px;
+}
+
+.contract-settings-body .schema-object > legend,
+.contract-settings-body .schema-array > legend {
+  font-size: 10px;
+}
+
+.contract-settings-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+}
+
+.contract-preview-body pre {
+  max-height: 260px;
+  margin: 10px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--muted);
   font-family: var(--mono);
   font-size: 9px;
+  line-height: 1.55;
 }
 
 .contract-issue {

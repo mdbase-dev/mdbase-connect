@@ -40,3 +40,6 @@ toolbar clutter, and permanent technical metadata around the document.
 6. Delay creation until a complete path and type-aware initial record are ready.
 7. Keep type definitions inspectable and editable in a dedicated workspace,
    with compatibility risk visible before users save collection-wide changes.
+8. Present data contracts as application compatibility: keep field mappings,
+   schema-driven behavior settings, and the resulting application view visible,
+   with YAML as the precise escape hatch.

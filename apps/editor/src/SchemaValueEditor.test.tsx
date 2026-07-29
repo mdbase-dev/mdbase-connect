@@ -41,7 +41,7 @@ describe("recursive schema values", () => {
     await user.click(within(profile).getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("timezone"), "Australia/Melbourne");
 
-    const contacts = screen.getByRole("group", { name: "contacts" });
+    const contacts = screen.getByRole("group", { name: "Contacts" });
     await user.click(within(contacts).getByRole("button", { name: "Add item" }));
     const kinds = screen.getAllByLabelText("kind");
     const values = screen.getAllByLabelText("value");
@@ -60,6 +60,35 @@ describe("recursive schema values", () => {
       ]
     });
   });
+
+  it("resolves local JSON Schema references into readable controls", async () => {
+    const user = userEvent.setup();
+    expect(schemaInitialValue(bindingSchema)).toEqual({
+      status: {
+        completed_values: [""],
+        default: ""
+      }
+    });
+
+    render(<BindingHarness />);
+    expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByText("Completed Values")).toBeInTheDocument();
+    expect(screen.getByText("Statuses that count as complete.")).toBeInTheDocument();
+
+    const completedValues = screen.getByText("Completed Values").closest<HTMLElement>("fieldset")!;
+    expect(within(completedValues).getByRole("button", { name: "Remove completed_values item 1" })).toBeDisabled();
+    await user.type(screen.getByLabelText("completed_values item 1"), "done");
+    await user.click(within(completedValues).getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("completed_values item 2"), "cancelled");
+    await user.type(screen.getByLabelText("default"), "open");
+
+    expect(JSON.parse(screen.getByTestId("binding-value").textContent ?? "{}")).toEqual({
+      status: {
+        completed_values: ["done", "cancelled"],
+        default: "open"
+      }
+    });
+  });
 });
 
 function ValueHarness() {
@@ -70,6 +99,14 @@ function ValueHarness() {
   return <>
     <SchemaValueEditor name="contact" schema={contactSchema} value={value} required onChange={setValue} />
     <output data-testid="value">{JSON.stringify(value)}</output>
+  </>;
+}
+
+function BindingHarness() {
+  const [value, setValue] = useState<unknown>(() => schemaInitialValue(bindingSchema));
+  return <>
+    <SchemaValueEditor name="settings" schema={bindingSchema} rootSchema={bindingSchema} value={value} required onChange={setValue} />
+    <output data-testid="binding-value">{JSON.stringify(value)}</output>
   </>;
 }
 
@@ -96,6 +133,36 @@ const contactSchema: JsonObject = {
           kind: { type: "string", enum: ["email", "phone"] },
           value: { type: "string", minLength: 1 }
         }
+      }
+    }
+  }
+};
+
+const bindingSchema: JsonObject = {
+  type: "object",
+  required: ["status"],
+  properties: {
+    status: { $ref: "#/$defs/statusPolicy" }
+  },
+  $defs: {
+    nonEmptyString: {
+      type: "string",
+      minLength: 1
+    },
+    stringSet: {
+      type: "array",
+      minItems: 1,
+      items: { $ref: "#/$defs/nonEmptyString" }
+    },
+    statusPolicy: {
+      type: "object",
+      required: ["completed_values", "default"],
+      properties: {
+        completed_values: {
+          ...({ $ref: "#/$defs/stringSet" } as JsonObject),
+          description: "Statuses that count as complete."
+        },
+        default: { $ref: "#/$defs/nonEmptyString" }
       }
     }
   }

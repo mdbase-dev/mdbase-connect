@@ -76,6 +76,13 @@ usable immediately while the remaining index continues in the note list. A
 newly created note is adopted from the create response, so the editor never
 waits for a collection-wide refresh or a redundant read.
 
+Type editing uses the same quiet document grammar. Application compatibility
+appears as a disclosure within the type, not as a separate dashboard. Each
+contract implementation keeps its direct field mapping, JSON Schema-driven
+behavior settings, and normalized application view together. Contract IDs,
+versions, validation details, and YAML remain available without becoming the
+primary language of the task.
+
 ## Signature
 
 The current Markdown path sits quietly above the title. It can be renamed in

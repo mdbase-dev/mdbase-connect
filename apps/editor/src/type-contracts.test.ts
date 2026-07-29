@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import {
   addTypeContractImplementation,
+  contractViewPreview,
   createTypeSourceFromContract,
   readTypeContractImplementations,
   removeTypeContractImplementation,
+  setTypeContractBinding,
   setTypeContractFieldMapping,
   suggestContractsForType,
   typeFieldsForContracts,
@@ -79,6 +81,71 @@ describe("type contract authoring", () => {
 
     expect(readTypeContractImplementations(removed)).toEqual([]);
     expect(removed).not.toContain("implements:");
+  });
+
+  it("edits schema-driven binding settings without disturbing field mappings", () => {
+    const withContract = addTypeContractImplementation(personSource, personContract);
+    const next = setTypeContractBinding(withContract, personContract.id, personContract.version, {
+      status: {
+        completed_values: ["done", "cancelled"]
+      }
+    });
+
+    expect(readTypeContractImplementations(next)[0]).toMatchObject({
+      fields: { name: "name", email: "email" },
+      binding: { status: { completed_values: ["done", "cancelled"] } }
+    });
+  });
+
+  it("validates complete nested binding values against the contract JSON Schema", () => {
+    const configurable: CollectionContractDescriptor = {
+      ...personContract,
+      binding_schema: {
+        type: "object",
+        required: ["status"],
+        properties: {
+          status: {
+            type: "object",
+            required: ["completed_values"],
+            properties: {
+              completed_values: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string", minLength: 1 }
+              }
+            }
+          }
+        }
+      }
+    };
+    const withContract = addTypeContractImplementation(personSource, configurable);
+    expect(validateTypeContractImplementations(withContract, [configurable])).toContainEqual(
+      expect.objectContaining({ message: "Binding setting status is required by example.person." })
+    );
+
+    const empty = setTypeContractBinding(withContract, configurable.id, configurable.version, {
+      status: { completed_values: [] }
+    });
+    expect(validateTypeContractImplementations(empty, [configurable])).toContainEqual(
+      expect.objectContaining({ message: expect.stringContaining("needs at least 1 item") })
+    );
+
+    const valid = setTypeContractBinding(empty, configurable.id, configurable.version, {
+      status: { completed_values: ["done", "cancelled"] }
+    });
+    expect(validateTypeContractImplementations(valid, [configurable])).toEqual([]);
+  });
+
+  it("previews the nested application-facing shape without transforming values", () => {
+    expect(contractViewPreview({
+      fields: {
+        "name.full": "display_name",
+        "/contact/primary_email": "/profile/email"
+      }
+    })).toEqual({
+      name: { full: "← display_name" },
+      contact: { primary_email: "← /profile/email" }
+    });
   });
 
   it("validates a pack-installed type through its resolved referenced schema", () => {

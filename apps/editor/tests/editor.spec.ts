@@ -2,74 +2,86 @@ import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const jscontactSchema = JSON.stringify({
+const contactSchema = JSON.stringify({
   type: "object",
-  required: ["version"],
+  required: ["name"],
   properties: {
-    version: { const: "2.0" },
-    name: {
-      type: "object",
-      properties: {
-        full: { type: "string" }
-      }
-    }
-  }
+    name: { type: "string", minLength: 1 },
+    kind: { type: "string", enum: ["individual", "organisation", "group"] },
+    primary_email: { type: "string", format: "email" },
+    primary_phone: { type: "string", minLength: 1 },
+    organisation: { type: "string", minLength: 1 },
+    birthday: { type: "string", format: "date" }
+  },
+  additionalProperties: false
 }, null, 2);
-const jscontactContract = `---
+const contactContract = `---
 kind: mdbase.contract
 contract_type: record
-id: mdbase.jscontact.card
-version: 2.0.0
+id: mdbase.contact
+version: 1.0.0
+name: Contact
+description: A compact application-facing view of a person or organisation.
 record_schema:
   dialect: json-schema-2020-12
-  ref: ../../schemas/mdbase.jscontact.card/2.0.0.schema.json
+  ref: ../../schemas/mdbase.contact/1.0.0.schema.json
 ---
 `;
-const jscontactType = `---
+const contactType = `---
 kind: mdbase.type
 name: contact
 version: 1
+description: A person or organisation you want to stay in touch with
+match:
+  where:
+    type: contact
 schema:
   dialect: json-schema-2020-12
   value:
     type: object
-    required: [version]
+    required: [type, name]
     properties:
-      version: { const: "2.0" }
-      name:
-        type: object
-        properties:
-          full: { type: string }
-    additionalProperties: false
+      type: { const: contact }
+      name: { type: string, minLength: 1 }
+      kind: { type: string, enum: [individual, organisation, group], default: individual }
+      email: { type: string, format: email }
+      phone: { type: string, minLength: 1 }
+      organisation: { type: string, minLength: 1 }
+      birthday: { type: string, format: date }
+    additionalProperties: true
 implements:
-  - contract: mdbase.jscontact.card
-    version: 2.0.0
+  - contract: mdbase.contact
+    version: 1.0.0
     fields:
-      version: version
       name: name
+      kind: kind
+      primary_email: email
+      primary_phone: phone
+      organisation: organisation
+      birthday: birthday
 ---
 `;
-const jscontactResources = [
-  ["schema", "schemas/mdbase.jscontact.card/2.0.0.schema.json", "schemas/mdbase.jscontact.card/2.0.0.schema.json", jscontactSchema],
-  ["contract", "contracts/mdbase.jscontact.card/2.0.0.md", "_contracts/mdbase.jscontact.card/2.0.0.md", jscontactContract],
-  ["type", "types/contact/1.md", "_types/contact.md", jscontactType]
+const contactResources = [
+  ["schema", "schemas/mdbase.contact/1.0.0.schema.json", "schemas/mdbase.contact/1.0.0.schema.json", contactSchema],
+  ["contract", "contracts/mdbase.contact/1.0.0.md", "_contracts/mdbase.contact/1.0.0.md", contactContract],
+  ["type", "types/contact/2.md", "_types/contact.md", contactType]
 ] as const;
-const jscontactProvision = {
+const contactProvision = {
   manifest: {
     kind: "mdbase.type-pack",
-    id: "mdbase.jscontact",
-    version: "2.0.3",
-    resources: jscontactResources.map(([kind, source, target, document]) => ({
+    id: "mdbase.contact",
+    version: "1.0.0",
+    resources: contactResources.map(([kind, source, target, document]) => ({
       kind,
       source,
       target,
       digest: sha256(document)
     }))
   },
-  resources: jscontactResources.map(([, source, , document]) => ({ source, document })),
-  provides: [{ id: "mdbase.jscontact.card", version: "2.0.0" }]
+  resources: contactResources.map(([, source, , document]) => ({ source, document })),
+  provides: [{ id: "mdbase.contact", version: "1.0.0" }]
 };
-const jscontactProvisionDocument = JSON.stringify(jscontactProvision);
+const contactProvisionDocument = JSON.stringify(contactProvision);
 
 test.beforeEach(async ({ page }) => {
   await page.route("https://mdbase.dev/contracts/catalog.json", async (route) => {
@@ -86,25 +98,25 @@ test.beforeEach(async ({ page }) => {
           url: "https://mdbase.dev/"
         },
         contracts: [{
-          id: "mdbase.jscontact.card",
-          version: "2.0.0",
-          name: "JSContact Card 2.0 core",
-          description: "A strict, portable core profile of an IETF JSContact 2.0 Card.",
+          id: "mdbase.contact",
+          version: "1.0.0",
+          name: "Contact",
+          description: "A compact application-facing view of a person or organisation.",
           contract_type: "record",
           digest: `sha256:${"1".repeat(64)}`,
-          artifact: "./artifacts/contracts/mdbase.jscontact.card/2.0.0.md",
+          artifact: "./artifacts/contracts/mdbase.contact/1.0.0.md",
           standards: []
         }],
         packs: [{
-          id: "mdbase.jscontact",
-          version: "2.0.3",
+          id: "mdbase.contact",
+          version: "1.0.0",
           name: "Contact type pack",
-          description: "The mdbase JSContact Card core contract and a fully expanded, editable Contact type.",
-          digest: sha256(jscontactProvisionDocument),
-          provision: "./packs/mdbase.jscontact/2.0.3.json",
+          description: "A compact contact contract and a friendly, editable Contact type.",
+          digest: sha256(contactProvisionDocument),
+          provision: "./packs/mdbase.contact/1.0.0.json",
           provides: [{
-            id: "mdbase.jscontact.card",
-            version: "2.0.0"
+            id: "mdbase.contact",
+            version: "1.0.0"
           }],
           resource_count: 3,
           display: {
@@ -113,7 +125,7 @@ test.beforeEach(async ({ page }) => {
             category: "people",
             audience: "general",
             icon: "address-book",
-            badges: ["JSContact 2.0"]
+            badges: ["Portable contact semantics"]
           },
           installation: {
             visibility: "default",
@@ -152,10 +164,10 @@ test.beforeEach(async ({ page }) => {
       }
     });
   });
-  await page.route("https://mdbase.dev/contracts/packs/mdbase.jscontact/2.0.3.json", async (route) => {
+  await page.route("https://mdbase.dev/contracts/packs/mdbase.contact/1.0.0.json", async (route) => {
     await route.fulfill({
       contentType: "application/json",
-      body: jscontactProvisionDocument
+      body: contactProvisionDocument
     });
   });
 });
@@ -595,7 +607,7 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await page.getByText("Technical details").click();
   await expect(page.getByRole("link", { name: "View pack JSON" })).toHaveAttribute(
     "href",
-    "https://mdbase.dev/contracts/packs/mdbase.jscontact/2.0.3.json"
+    "https://mdbase.dev/contracts/packs/mdbase.contact/1.0.0.json"
   );
   await page.getByRole("button", { name: "Developer and infrastructure packs" }).click();
   await expect(page.getByText("Runtime standard library")).toBeVisible();
@@ -612,19 +624,18 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await packConfirmation.getByRole("button", { name: "Add Contact" }).click();
   await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "contact" })).toBeVisible();
-  await expect(page.locator(".visual-field-name input").first()).toHaveValue("version");
-  await page.getByRole("button", { name: "Expand name field" }).click();
-  await expect(page.locator(".visual-field-name input").nth(2)).toHaveValue("full");
+  await expect(page.locator(".visual-field-name input").first()).toHaveValue("type");
+  await expect(page.locator(".visual-field-name input").nth(1)).toHaveValue("name");
   await page.getByRole("button", { name: "Add field" }).click();
   const localField = page.locator(".visual-field-name input").last();
   await expect(localField).toHaveValue("field");
   await localField.fill("local_context");
   await localField.press("Tab");
-  await page.getByRole("heading", { name: "Data contracts" }).click();
+  await page.getByRole("heading", { name: "Works with applications" }).click();
   await expect(page.getByText("Mapping ready")).toBeVisible();
   await page.getByRole("button", { name: "YAML" }).click();
   const yaml = page.getByRole("textbox", { name: "contact type YAML" });
-  await expect(yaml).toContainText("contract: mdbase.jscontact.card");
+  await expect(yaml).toContainText("contract: mdbase.contact");
   await expect(yaml).toContainText("local_context:");
   await expect(page.locator(".type-source .cm-lineNumbers")).toBeVisible();
   await expect(page.getByText("Collection-wide change")).toBeVisible();

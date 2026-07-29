@@ -306,6 +306,7 @@ export function renameTypeField(source: string, pathOrName: TypeSchemaPath | str
     document.deleteIn([...SCHEMA_ROOT, ...path]);
     const required = requiredFields(document, parentPath).map((field) => field === from ? name : field);
     setRequiredFields(document, parentPath, required);
+    renameContractFieldReferences(document, schemaValuePath(path), schemaValuePath(nextPath));
   });
 }
 
@@ -631,6 +632,40 @@ function objectParentPath(fieldSchemaPath: TypeSchemaPath): TypeSchemaPath {
   return fieldSchemaPath.slice(0, -2);
 }
 
+function schemaValuePath(schemaPath: TypeSchemaPath): string[] {
+  return schemaPath.flatMap((segment, index) =>
+    schemaPath[index - 1] === "properties" ? [segment] : []);
+}
+
+function renameContractFieldReferences(document: Document, from: string[], to: string[]) {
+  const implementations = array(record(document.toJS()).implements);
+  implementations.forEach((candidate, implementationIndex) => {
+    const fields = record(record(candidate).fields);
+    Object.entries(fields).forEach(([contractReference, typeReference]) => {
+      if (typeof typeReference !== "string") return;
+      const renamed = renameTypeReference(typeReference, from, to);
+      if (renamed !== typeReference) {
+        document.setIn(["implements", implementationIndex, "fields", contractReference], renamed);
+      }
+    });
+  });
+}
+
+function renameTypeReference(reference: string, from: string[], to: string[]): string {
+  const pointer = reference.startsWith("/");
+  const segments = pointer
+    ? reference.slice(1).split("/").filter(Boolean)
+      .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+    : reference.split(".").filter(Boolean);
+  if (segments.length < from.length || !from.every((segment, index) => segments[index] === segment)) {
+    return reference;
+  }
+  const renamed = [...to, ...segments.slice(from.length)];
+  return pointer
+    ? `/${renamed.map((segment) => segment.replaceAll("~", "~0").replaceAll("/", "~1")).join("/")}`
+    : renamed.join(".");
+}
+
 function schemaAtPath(source: string, path: TypeSchemaPath): Record<string, unknown> {
   const { value } = parseTypeSource(source);
   let current: unknown = record(record(value.schema).value);
@@ -690,7 +725,7 @@ function definitionChanges(previousSource: string | undefined, nextSource: strin
   if (previous.value.name !== next.value.name) changes.push("Type name");
   if (previous.value.description !== next.value.description) changes.push("Description");
   if (JSON.stringify(previous.value.match) !== JSON.stringify(next.value.match)) changes.push("Matching rules");
-  if (JSON.stringify(previous.value.implements) !== JSON.stringify(next.value.implements)) changes.push("Data contracts");
+  if (JSON.stringify(previous.value.implements) !== JSON.stringify(next.value.implements)) changes.push("Application compatibility");
   if (JSON.stringify(previous.value.collection) !== JSON.stringify(next.value.collection)) changes.push("Collection behaviour");
   if (JSON.stringify(previous.value.lifecycle) !== JSON.stringify(next.value.lifecycle)) changes.push("Lifecycle");
   if (JSON.stringify(schemaEnvelope(previous.value)) !== JSON.stringify(schemaEnvelope(next.value))) changes.push("Schema settings");

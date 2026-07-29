@@ -1,4 +1,5 @@
 import type { CollectionContractDescriptor, JsonObject } from "@mdbase/connect";
+import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import { isMap, isSeq, parseDocument, type Document } from "yaml";
 import type { TypeFieldKind } from "./type-schema";
 
@@ -206,6 +207,32 @@ export function setTypeContractFieldMapping(
   });
 }
 
+export function setTypeContractBinding(
+  source: string,
+  contractId: string,
+  version: string,
+  binding: JsonObject
+): string {
+  const implementation = readTypeContractImplementations(source).find((candidate) =>
+    candidate.contract === contractId && candidate.version === version);
+  if (!implementation) throw new Error(`${contractId} ${version} is not implemented by this type.`);
+  return mutate(source, (document) => {
+    const bindingPath = ["implements", implementation.sourceIndex, "binding"] as Array<string | number>;
+    if (Object.keys(binding).length) document.setIn(bindingPath, structuredClone(binding));
+    else document.deleteIn(bindingPath);
+  });
+}
+
+export function contractViewPreview(
+  implementation: Pick<TypeContractImplementation, "fields">
+): JsonObject {
+  const preview: JsonObject = {};
+  for (const [contractReference, typeReference] of Object.entries(implementation.fields)) {
+    setPreviewValue(preview, referenceSegments(contractReference), `← ${typeReference}`);
+  }
+  return preview;
+}
+
 export function validateTypeContractImplementations(
   source: string,
   contracts: CollectionContractDescriptor[],
@@ -321,15 +348,14 @@ export function validateTypeContractImplementations(
 
     const binding = record(implementation.binding);
     if (contract.binding_schema) {
-      for (const requiredField of schemaRequiredFields(contract.binding_schema, contract.binding_schema)) {
-        if (!(requiredField in binding)) {
-          issues.push({
-            level: "error",
-            implementationIndex,
-            contract: contractId,
-            message: `Binding setting ${requiredField} is required by ${contractId}.`
-          });
-        }
+      const bindingIssue = validateBinding(contract.binding_schema, binding, contractId);
+      if (bindingIssue) {
+        issues.push({
+          level: "error",
+          implementationIndex,
+          contract: contractId,
+          message: bindingIssue
+        });
       }
     } else if (Object.keys(binding).length) {
       issues.push({
@@ -606,6 +632,48 @@ function schemaAllowedValues(schema: Record<string, unknown>): Set<string> | und
   return undefined;
 }
 
+const bindingValidators = new WeakMap<JsonObject, ValidateFunction>();
+
+function validateBinding(schema: JsonObject, binding: Record<string, unknown>, contractId: string): string | undefined {
+  let validate = bindingValidators.get(schema);
+  try {
+    if (!validate) {
+      validate = new Ajv2020({
+        allErrors: true,
+        strict: false,
+        validateFormats: false
+      }).compile(schema);
+      bindingValidators.set(schema, validate);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "invalid JSON Schema";
+    return `Binding settings for ${contractId} cannot be edited because its schema is invalid: ${detail}`;
+  }
+  if (validate(binding)) return undefined;
+  const errors = validate.errors ?? [];
+  const first = errors[0];
+  if (!first) return `Binding settings do not satisfy ${contractId}.`;
+  const message = bindingErrorMessage(first, contractId);
+  return errors.length > 1 ? `${message} ${errors.length - 1} more ${errors.length === 2 ? "setting needs" : "settings need"} attention.` : message;
+}
+
+function bindingErrorMessage(error: ErrorObject, contractId: string): string {
+  const segments = error.instancePath.slice(1).split("/").filter(Boolean)
+    .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+  if (error.keyword === "required" && typeof error.params.missingProperty === "string") {
+    segments.push(error.params.missingProperty);
+    return `Binding setting ${segments.join(".")} is required by ${contractId}.`;
+  }
+  const field = segments.length ? ` ${segments.join(".")}` : "";
+  if (error.keyword === "minLength" && error.params.limit === 1) {
+    return `Binding setting${field} must not be empty for ${contractId}.`;
+  }
+  if (error.keyword === "minItems" && typeof error.params.limit === "number") {
+    return `Binding setting${field} needs at least ${error.params.limit} ${error.params.limit === 1 ? "item" : "items"} for ${contractId}.`;
+  }
+  return `Binding setting${field} ${error.message ?? "is invalid"} for ${contractId}.`;
+}
+
 function stableValue(value: unknown): string {
   return JSON.stringify(value) ?? "undefined";
 }
@@ -732,6 +800,17 @@ function jsonPointer(segments: string[]): string {
 
 function lastReferenceSegment(reference: string): string {
   return referenceSegments(reference).at(-1) ?? reference;
+}
+
+function setPreviewValue(target: JsonObject, segments: string[], value: string): void {
+  if (!segments.length) return;
+  let parent = target;
+  segments.slice(0, -1).forEach((segment) => {
+    const existing = parent[segment];
+    if (!isRecord(existing)) parent[segment] = {};
+    parent = parent[segment] as JsonObject;
+  });
+  parent[segments.at(-1)!] = value;
 }
 
 function schemaKind(schema: Record<string, unknown>): TypeFieldKind {

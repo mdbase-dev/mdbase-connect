@@ -16,14 +16,14 @@ describe("recursive type builder", () => {
 
     const membership = screen.getByRole("heading", { name: "Type membership" }).closest<HTMLDetailsElement>("details")!;
     const behaviour = screen.getByRole("heading", { name: "Collection behaviour" }).closest<HTMLDetailsElement>("details")!;
-    const contracts = screen.getByRole("heading", { name: "Data contracts" }).closest<HTMLDetailsElement>("details")!;
+    const contracts = screen.getByRole("heading", { name: "Works with applications" }).closest<HTMLDetailsElement>("details")!;
 
     expect(membership).not.toHaveAttribute("open");
     expect(behaviour).not.toHaveAttribute("open");
     expect(contracts).not.toHaveAttribute("open");
     expect(within(membership).getByText("Explicit declarations only")).toBeInTheDocument();
     expect(within(behaviour).getByText(/Display · 1 default · 1 link · 1 unique rule · Path policy/)).toBeInTheDocument();
-    expect(within(contracts).getByText("None implemented")).toBeInTheDocument();
+    expect(within(contracts).getByText("No connections")).toBeInTheDocument();
     expect(membership).not.toContainElement(screen.getByRole("heading", { name: "Fields" }));
 
     await user.click(within(behaviour).getByText("Collection behaviour").closest("summary")!);
@@ -189,11 +189,11 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={contractSource} contracts={[personContract]} />);
 
-    expect(screen.getByText("Possible matches")).toBeInTheDocument();
+    expect(screen.getByText("Possible app compatibility")).toBeInTheDocument();
     expect(screen.getByText("2 of 2 fields match, 1 of 1 required.")).toBeInTheDocument();
     expect(screen.getByTestId("source")).not.toHaveTextContent("implements:");
 
-    await user.click(screen.getByRole("button", { name: "Review mapping" }));
+    await user.click(screen.getAllByRole("button", { name: "Review mapping" })[0]);
 
     expect(screen.getByText("Mapping ready")).toBeInTheDocument();
     const nameMapping = screen.getByRole("combobox", { name: "example.person name type field" });
@@ -216,6 +216,34 @@ describe("recursive type builder", () => {
     expect(screen.getByText("Review recommended")).toBeInTheDocument();
     expect(screen.getByText(/name is optional, so some records may omit this required value/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  });
+
+  it("keeps application mappings aligned when a user renames a field", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={contractSource} contracts={[personContract]} />);
+
+    await user.click(screen.getByRole("button", { name: "Review mapping" }));
+    const nameField = screen.getByDisplayValue("name");
+    await user.clear(nameField);
+    await user.type(nameField, "display_name");
+    await user.tab();
+
+    expect(screen.getByRole("combobox", { name: "example.person name type field" })).toHaveValue("display_name");
+    expect(screen.getByTestId("source")).toHaveTextContent("name: display_name");
+    expect(screen.getByText("Mapping ready")).toBeInTheDocument();
+  });
+
+  it("connects one type to more than one application contract", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={contractSource} contracts={[personContract, directoryContract]} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Review mapping" })[0]);
+    await user.click(screen.getByRole("button", { name: "Connect application contract" }));
+
+    expect(screen.getByText("example.person")).toBeInTheDocument();
+    expect(screen.getByText("example.directory-entry")).toBeInTheDocument();
+    expect(screen.getByText("2 connections configured")).toBeInTheDocument();
+    expect(screen.getByTestId("source").textContent?.match(/contract:/gu)).toHaveLength(2);
   });
 
   it("shows installed linked-schema fields as ready-made rather than empty", () => {
@@ -254,7 +282,7 @@ schema:
     const user = userEvent.setup();
     render(<InspectorHarness source={contractSource} contracts={[legalPersonContract]} />);
 
-    await user.click(screen.getByRole("button", { name: "Implement contract" }));
+    await user.click(screen.getByRole("button", { name: "Connect application contract" }));
 
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     expect(screen.getByText("Map required contract field legal_name.")).toBeInTheDocument();
@@ -262,6 +290,28 @@ schema:
 
     await user.selectOptions(screen.getByRole("combobox", { name: "example.legal-person legal_name type field" }), "name");
     expect(screen.getByText("Mapping ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
+  });
+
+  it("edits contract behavior settings from their JSON Schema and previews the app view", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness source={contractSource} contracts={[workflowContract]} />);
+
+    await user.click(screen.getByRole("button", { name: "Connect application contract" }));
+    expect(screen.getByText("Setup required")).toBeInTheDocument();
+    expect(screen.getByText("Binding setting status is required by example.workflow-person.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Configure settings" }));
+    expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeDisabled();
+    await user.type(screen.getByLabelText("completed_values item 1"), "done");
+    await user.type(screen.getByLabelText("default"), "open");
+
+    await user.click(screen.getByText("Application view").closest("summary")!);
+    expect(screen.getByText(/"name": "← name"/)).toBeInTheDocument();
+    expect(screen.getByTestId("source")).toHaveTextContent("completed_values:");
+    expect(screen.getByTestId("source")).toHaveTextContent("- done");
+    expect(screen.getByTestId("source")).toHaveTextContent("default: open");
     expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled();
   });
 
@@ -577,6 +627,56 @@ const legalPersonContract: CollectionContractDescriptor = {
     required: ["legal_name"],
     properties: {
       legal_name: { type: "string" }
+    }
+  }
+};
+
+const directoryContract: CollectionContractDescriptor = {
+  ...personContract,
+  id: "example.directory-entry",
+  digest: `sha256:${"6".repeat(64)}`
+};
+
+const workflowContract: CollectionContractDescriptor = {
+  ...personContract,
+  id: "example.workflow-person",
+  digest: `sha256:${"5".repeat(64)}`,
+  schema: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      name: { type: "string", description: "Name shown to the application." }
+    }
+  },
+  binding_schema: {
+    type: "object",
+    required: ["status"],
+    properties: {
+      status: { $ref: "#/$defs/statusPolicy" }
+    },
+    $defs: {
+      nonEmptyString: {
+        type: "string",
+        minLength: 1
+      },
+      stringSet: {
+        type: "array",
+        minItems: 1,
+        items: { $ref: "#/$defs/nonEmptyString" }
+      },
+      statusPolicy: {
+        type: "object",
+        required: ["completed_values", "default"],
+        properties: {
+          completed_values: {
+            type: "array",
+            minItems: 1,
+            description: "Statuses that count as complete.",
+            items: { $ref: "#/$defs/nonEmptyString" }
+          },
+          default: { $ref: "#/$defs/nonEmptyString" }
+        }
+      }
     }
   }
 };
