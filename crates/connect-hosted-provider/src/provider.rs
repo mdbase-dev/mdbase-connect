@@ -251,7 +251,7 @@ impl HostedProvider {
                 .connect(database_url)
                 .await
             {
-                Ok(pool) => match sqlx::migrate!("./migrations").run(&pool).await {
+                Ok(pool) => match hosted_migrator().run(&pool).await {
                     Ok(()) => match verify_database_key(&pool, &crypto).await {
                         Ok(()) => {
                             let notifications = notification_config
@@ -5985,10 +5985,21 @@ pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
     Ok(limit)
 }
 
+fn hosted_migrator() -> sqlx::migrate::Migrator {
+    let mut migrator = sqlx::migrate!("./migrations");
+    migrator.set_ignore_missing(true);
+    migrator
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Map;
+
+    #[test]
+    fn rollback_binaries_tolerate_newer_additive_migrations() {
+        assert!(hosted_migrator().ignore_missing);
+    }
 
     #[test]
     fn authority_manifest_matches_the_node_promotion_fixture() {
