@@ -5,7 +5,7 @@ import test from "node:test";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
-test("release workflow signs and verifies the update manifest before publication", async () => {
+test("release workflow signs the permanent channel document and legacy bootstrap", async () => {
   const workflow = await readFile(
     resolve(repositoryRoot, ".github/workflows/desktop-release.yml"),
     "utf8"
@@ -13,7 +13,7 @@ test("release workflow signs and verifies the update manifest before publication
   const generate = workflow.indexOf("scripts/generate-update-manifest.mjs");
   const sign = workflow.indexOf(
     "cosign sign-blob",
-    workflow.indexOf("Create and verify signed update manifest")
+    workflow.indexOf("Create and verify permanent update bootstrap")
   );
   const verify = workflow.indexOf("cosign verify-blob", sign);
   const publish = workflow.indexOf('gh release create "$GITHUB_REF_NAME"');
@@ -21,6 +21,8 @@ test("release workflow signs and verifies the update manifest before publication
   assert.ok(sign > generate);
   assert.ok(verify > sign);
   assert.ok(publish > verify);
+  assert.match(workflow, /mdbase-connect-channel-v1\.json/);
+  assert.match(workflow, /mdbase-connect-update\.json/);
   assert.match(
     workflow,
     /certificate-identity "https:\/\/github\.com\/\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/desktop-release\.yml@\$\{GITHUB_REF\}"/

@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const { findLatestRelease } = require("../dist/main/release-source.js");
 
 const indexUrl =
-  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=20";
+  "https://api.github.com/repos/mdbase-dev/mdbase-connect/releases?per_page=100";
 
 function manifest(version = "0.1.0-beta.9") {
   const tag = `v${version}`;
@@ -48,12 +48,12 @@ function release(version) {
     html_url: `https://github.com/mdbase-dev/mdbase-connect/releases/tag/${tag}`,
     assets: [
       {
-        name: "mdbase-connect-update.json",
+        name: "mdbase-connect-channel-v1.json",
         browser_download_url: `https://downloads.example/${tag}/manifest`,
         size: 1000
       },
       {
-        name: "mdbase-connect-update.json.sigstore.json",
+        name: "mdbase-connect-channel-v1.json.sigstore.json",
         browser_download_url: `https://downloads.example/${tag}/bundle`,
         size: 1000
       }
@@ -134,6 +134,28 @@ test("a manifest is not parsed or trusted when signature verification fails", as
     }),
     /untrusted signer/
   );
+});
+
+test("a malformed release cannot strand the updater when another signed release is valid", async () => {
+  const broken = release("0.1.0-beta.10");
+  const valid = release("0.1.0-beta.9");
+  const result = await findLatestRelease({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap({
+      [indexUrl]: [broken, valid],
+      [broken.assets[0].browser_download_url]: manifest("0.1.0-beta.10"),
+      [broken.assets[1].browser_download_url]: {},
+      [valid.assets[0].browser_download_url]: manifest("0.1.0-beta.9"),
+      [valid.assets[1].browser_download_url]: {}
+    }),
+    async verifyBundle(_bundle, payload) {
+      if (JSON.parse(payload).version === "0.1.0-beta.10") {
+        throw new Error("untrusted signer");
+      }
+    }
+  });
+  assert.equal(result.manifest.version, "0.1.0-beta.9");
 });
 
 test("signed metadata cannot claim a different GitHub release", async () => {

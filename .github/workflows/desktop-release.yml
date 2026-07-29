@@ -425,7 +425,7 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Create and verify signed update manifest
+      - name: Create and verify permanent update bootstrap
         shell: bash
         env:
           UPDATE_ROLLOUT_PERCENTAGE: ${{ vars.UPDATE_ROLLOUT_PERCENTAGE }}
@@ -435,22 +435,32 @@ jobs:
           rollout="${UPDATE_ROLLOUT_PERCENTAGE:-100}"
           node scripts/generate-update-manifest.mjs \
             --directory release-artifacts \
-            --output release-artifacts/mdbase-connect-update.json \
+            --output release-artifacts/mdbase-connect-channel-v1.json \
             --version "$version" \
             --repository "$GITHUB_REPOSITORY" \
             --rollout "$rollout" \
             --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}"
+          cp \
+            release-artifacts/mdbase-connect-channel-v1.json \
+            release-artifacts/mdbase-connect-update.json
           find release-artifacts -maxdepth 1 -type f -name 'update-input-*.json' -delete
-          cosign sign-blob \
-            --yes \
-            --bundle release-artifacts/mdbase-connect-update.json.sigstore.json \
+          for manifest in \
+            release-artifacts/mdbase-connect-channel-v1.json \
             release-artifacts/mdbase-connect-update.json
-          cosign verify-blob \
-            --bundle release-artifacts/mdbase-connect-update.json.sigstore.json \
-            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            release-artifacts/mdbase-connect-update.json
+          do
+            cosign sign-blob \
+              --yes \
+              --bundle "$manifest.sigstore.json" \
+              "$manifest"
+            cosign verify-blob \
+              --bundle "$manifest.sigstore.json" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$manifest"
+          done
           sha256sum \
+            release-artifacts/mdbase-connect-channel-v1.json \
+            release-artifacts/mdbase-connect-channel-v1.json.sigstore.json \
             release-artifacts/mdbase-connect-update.json \
             release-artifacts/mdbase-connect-update.json.sigstore.json \
             > release-artifacts/SHA256SUMS-update

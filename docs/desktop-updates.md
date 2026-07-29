@@ -11,13 +11,19 @@ The desktop checks the GitHub Releases API for its channel:
 - prerelease application versions use the `beta` channel;
 - versions without a prerelease suffix use the `stable` channel.
 
-Every release contains `mdbase-connect-update.json` and
-`mdbase-connect-update.json.sigstore.json`. Before parsing or acting on the
-manifest, the desktop verifies its Sigstore bundle against the public Sigstore
-roots, the GitHub Actions OIDC issuer, the exact release workflow, and the
-exact release tag.
+Every release contains a frozen updater bootstrap for two generations:
 
-The strict, versioned manifest binds each downloadable artifact to its name,
+- `mdbase-connect-channel-v1.json` is the permanent channel document used by
+  current and future desktop clients;
+- `mdbase-connect-update.json` preserves the exact beta.14 bootstrap shape so
+  an installed beta client can always reach a current updater.
+
+Both files contain the same minimal release description and have independent
+Sigstore bundles. Before parsing or acting on a document, the desktop verifies
+its bundle against the public Sigstore roots, the GitHub Actions OIDC issuer,
+the exact release workflow, and the exact release tag.
+
+The frozen, versioned channel document binds each downloadable artifact to its name,
 byte length, SHA-256 digest, Sigstore bundle, platform, architecture, release
 tag, and installation mode. Unknown fields, insecure URLs, mismatched tags,
 unsupported targets, unsafe filenames, and malformed versions fail closed.
@@ -25,7 +31,10 @@ Automatic artifacts are streamed to a private size-limited cache, checked
 against the signed digest, then independently verified against their own
 Sigstore bundle.
 
-The installation records the highest signed release it has observed. A replayed
+Discovery rejects a malformed or unverifiable release candidate without
+preventing another valid signed release from being considered. If no candidate
+can be verified, the check fails visibly. The installation records the highest
+signed release it has observed. A replayed
 older manifest cannot cause a downgrade. A release can name bad installed
 versions in `blocked_versions`; those installations bypass staged rollout so a
 signed recovery release reaches them immediately. A target must never block
@@ -121,5 +130,7 @@ Before enabling a non-zero automatic rollout:
 8. raise rollout gradually while watching privacy-minimal startup and recovery
    telemetry.
 
-Never repair a published manifest, reuse a tag, lower the trusted-version
-floor, or point an automatic target at an unsigned preview.
+Never repair a published manifest, reuse a tag, remove either bootstrap asset,
+change the v1 bootstrap shape, lower the trusted-version floor, or point an
+automatic target at an unsigned preview. Richer update metadata must use a new
+separately versioned asset; it must not alter the permanent bootstrap.

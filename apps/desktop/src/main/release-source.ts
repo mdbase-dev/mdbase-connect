@@ -12,7 +12,10 @@ const REPOSITORY = "mdbase-dev/mdbase-connect";
 const WORKFLOW_IDENTITY_PREFIX =
   "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/";
 const OIDC_ISSUER = "https://token.actions.githubusercontent.com";
-const MANIFEST_NAME = "mdbase-connect-update.json";
+// This versioned channel document is the permanent updater bootstrap. Its
+// schema stays intentionally small and frozen. Richer release metadata belongs
+// in separately versioned assets.
+const MANIFEST_NAME = "mdbase-connect-channel-v1.json";
 const MANIFEST_BUNDLE_NAME = `${MANIFEST_NAME}.sigstore.json`;
 const MAX_RELEASE_INDEX_BYTES = 2 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
@@ -57,7 +60,7 @@ export interface ReleaseSourceOptions {
 
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const indexUrl = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=20`;
+  const indexUrl = `${GITHUB_API}/repos/${REPOSITORY}/releases?per_page=100`;
   const response = await request(fetchImpl, indexUrl);
   const releases = parseReleaseIndex(
     JSON.parse((await readLimited(response, MAX_RELEASE_INDEX_BYTES)).toString("utf8"))
@@ -69,32 +72,57 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
       /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(release.tag_name)
   );
   let best: ReleaseCandidate | null = null;
+  const rejected: Error[] = [];
   for (const release of matching) {
     const manifestAsset = release.assets.find((asset) => asset.name === MANIFEST_NAME);
     const bundleAsset = release.assets.find((asset) => asset.name === MANIFEST_BUNDLE_NAME);
     if (!manifestAsset || !bundleAsset) continue;
-    const [manifestResponse, bundleResponse] = await Promise.all([
-      request(fetchImpl, manifestAsset.browser_download_url),
-      request(fetchImpl, bundleAsset.browser_download_url)
-    ]);
-    const [manifestBytes, bundleBytes] = await Promise.all([
-      readLimited(manifestResponse, MAX_MANIFEST_BYTES),
-      readLimited(bundleResponse, MAX_BUNDLE_BYTES)
-    ]);
-    const identity = `${WORKFLOW_IDENTITY_PREFIX}${release.tag_name}`;
-    const verifyBundle = options.verifyBundle ?? verifyReleaseBundle;
-    await verifyBundle(JSON.parse(bundleBytes.toString("utf8")), manifestBytes, identity, options.trustCacheDirectory);
-    const manifest = parseUpdateManifest(JSON.parse(manifestBytes.toString("utf8")));
-    if (manifest.tag !== release.tag_name) throw new Error("Signed update manifest does not match its release tag.");
-    if (manifest.release_url !== new URL(release.html_url).href) {
-      throw new Error("Signed update manifest does not match its release page.");
+    try {
+      const [manifestResponse, bundleResponse] = await Promise.all([
+        request(fetchImpl, manifestAsset.browser_download_url),
+        request(fetchImpl, bundleAsset.browser_download_url)
+      ]);
+      const [manifestBytes, bundleBytes] = await Promise.all([
+        readLimited(manifestResponse, MAX_MANIFEST_BYTES),
+        readLimited(bundleResponse, MAX_BUNDLE_BYTES)
+      ]);
+      const identity = `${WORKFLOW_IDENTITY_PREFIX}${release.tag_name}`;
+      const verifyBundle = options.verifyBundle ?? verifyReleaseBundle;
+      await verifyBundle(
+        JSON.parse(bundleBytes.toString("utf8")),
+        manifestBytes,
+        identity,
+        options.trustCacheDirectory
+      );
+      const manifest = parseUpdateManifest(JSON.parse(manifestBytes.toString("utf8")));
+      if (manifest.tag !== release.tag_name) {
+        throw new Error("Signed update manifest does not match its release tag.");
+      }
+      if (manifest.release_url !== new URL(release.html_url).href) {
+        throw new Error("Signed update manifest does not match its release page.");
+      }
+      if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
+        throw new Error("Signed update manifest is published on the wrong channel.");
+      }
+      if (!best || compareVersions(manifest.version, best.manifest.version) > 0) {
+        best = { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
+      }
+    } catch (error) {
+      rejected.push(
+        new Error(
+          `Rejected update metadata for ${release.tag_name}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error }
+        )
+      );
     }
-    if (manifest.channel !== options.channel || channelForVersion(manifest.version) !== options.channel) {
-      throw new Error("Signed update manifest is published on the wrong channel.");
-    }
-    if (!best || compareVersions(manifest.version, best.manifest.version) > 0) {
-      best = { manifest, manifestBytes, release: { tag: release.tag_name, url: release.html_url } };
-    }
+  }
+  if (!best && rejected.length > 0) {
+    throw new AggregateError(
+      rejected,
+      `No release had valid signed update metadata. ${rejected[0].message}`
+    );
   }
   return best;
 }
