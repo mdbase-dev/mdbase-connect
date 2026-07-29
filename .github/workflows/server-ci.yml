@@ -237,7 +237,7 @@ jobs:
 
       - name: Seed the persisted beta notification shape
         run: |
-          docker run --rm --network host \
+          docker run --rm --interactive --network host \
             --env PGPASSWORD=previous-provider-upgrade \
             postgres:18-alpine \
             psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
