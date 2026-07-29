@@ -46,6 +46,7 @@ import {
   MemoryGrantKeyStore,
   RelayCryptoError,
   signAuthorityRequest,
+  validateGrantEncryption,
   type GrantKeyStore
 } from "./crypto.js";
 
@@ -1972,8 +1973,36 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization returned an invalid remote authority capability."
       );
     }
+    if (body.authority && body.encryption) {
+      throw new MdbaseConnectError(
+        "invalid_token_response",
+        "Authorization returned conflicting collection transports."
+      );
+    }
+    if (body.encryption) {
+      try {
+        validateGrantEncryption(body.encryption);
+      } catch {
+        throw new MdbaseConnectError(
+          "invalid_token_response",
+          "Authorization returned an invalid encrypted relay binding."
+        );
+      }
+      if (
+        body.encryption.collection_id !== collectionId
+        || typeof body.grant_id !== "string"
+        || body.grant_id.length === 0
+      ) {
+        throw new MdbaseConnectError(
+          "invalid_token_response",
+          "Authorization returned an encrypted relay binding for another grant."
+        );
+      }
+    }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
-    if (previous?.keyHandle && previous.keyHandle !== keyHandle) void this.keyStore.delete(previous.keyHandle);
+    if (previous?.keyHandle && previous.keyHandle !== keyHandle) {
+      void this.keyStore.delete(previous.keyHandle).catch(() => undefined);
+    }
     const token: StoredToken = {
       version: 1,
       accessToken: body.access_token,
@@ -2014,7 +2043,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     reason: MdbaseUnavailableReason = "authorization_lost"
   ): void {
     this.invalidatedConnections.set(collectionId, reason);
-    if (keyHandle) void this.keyStore.delete(keyHandle);
+    if (keyHandle) void this.keyStore.delete(keyHandle).catch(() => undefined);
     this.storage.removeItem(this.tokenKey(collectionId));
     this.storage.removeItem(this.pendingMutationKey(collectionId));
     for (const transport of ["web_push", "fcm"] as const) {
@@ -3263,17 +3292,69 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private currentToken(): StoredToken | null {
     const stored = this.storage.getItem(this.tokenKey());
     const token = parseStored<StoredToken>(stored);
+    const invalidate = (keyHandle?: unknown): null => {
+      this.internals.removeToken(
+        this.collectionId,
+        typeof keyHandle === "string" ? keyHandle : undefined,
+        "invalid_stored_grant"
+      );
+      return null;
+    };
     if (!token) {
-      if (stored) this.internals.removeToken(this.collectionId, undefined, "invalid_stored_grant");
+      if (stored) invalidate();
       return null;
     }
-    if (token.version !== 1) {
-      this.internals.removeToken(this.collectionId, token.keyHandle, "invalid_stored_grant");
-      return null;
-    }
+    if (
+      token.version !== 1
+      || typeof token.accessToken !== "string"
+      || token.accessToken.length === 0
+      || typeof token.clientId !== "string"
+      || token.clientId.length === 0
+      || token.collectionId !== this.collectionId
+      || typeof token.collectionName !== "string"
+      || token.collectionName.length === 0
+      || !Array.isArray(token.operations)
+      || token.operations.some((operation) => typeof operation !== "string")
+      || typeof token.expiresAt !== "number"
+      || !Number.isFinite(token.expiresAt)
+      || (
+        token.refreshToken !== undefined
+        && (
+          typeof token.refreshToken !== "string"
+          || token.refreshToken.length === 0
+        )
+      )
+      || (
+        token.refreshExpiresAt !== undefined
+        && (
+          typeof token.refreshExpiresAt !== "number"
+          || !Number.isFinite(token.refreshExpiresAt)
+        )
+      )
+    ) return invalidate(token.keyHandle);
     if (!parseGrantScope(token.scope)) {
-      this.internals.removeToken(this.collectionId, token.keyHandle, "invalid_stored_grant");
-      return null;
+      return invalidate(token.keyHandle);
+    }
+    if (
+      token.authority
+      && !validStoredAuthority(token.authority, token.collectionId)
+    ) {
+      return invalidate(token.keyHandle);
+    }
+    if (this.internals.relayEncryption === "required") {
+      if (token.authority) {
+        if (!token.keyHandle || !token.authority.proofPublicKey) {
+          return invalidate(token.keyHandle);
+        }
+      } else {
+        if (
+          !token.grantId
+          || !token.keyHandle
+          || !validStoredEncryption(token.encryption, token.collectionId)
+        ) {
+          return invalidate(token.keyHandle);
+        }
+      }
     }
     if (token.expiresAt <= Date.now()
         && (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now())) {
@@ -3772,7 +3853,13 @@ function validAuthorityTokenResponse(value: unknown, collectionId: unknown): boo
     || authority.replica_id.length === 0
     || typeof authority.access_token !== "string"
     || authority.access_token.length === 0
-    || (authority.proof_public_key !== undefined && typeof authority.proof_public_key !== "string")
+    || (
+      authority.proof_public_key !== undefined
+      && (
+        typeof authority.proof_public_key !== "string"
+        || authority.proof_public_key.length === 0
+      )
+    )
   ) return false;
   try {
     const operations = new URL(authority.operations_url);
@@ -3795,6 +3882,35 @@ function validAuthorityTokenResponse(value: unknown, collectionId: unknown): boo
       && operations.origin === sync.origin
       && operations.pathname.split("/")[3] === collectionId
       && sync.pathname.split("/")[3] === collectionId;
+  } catch {
+    return false;
+  }
+}
+
+function validStoredAuthority(
+  authority: StoredToken["authority"],
+  collectionId: string
+): boolean {
+  return validAuthorityTokenResponse({
+    operations_url: authority?.operationsUrl,
+    sync_url: authority?.syncUrl,
+    replica_id: authority?.replicaId,
+    access_token: authority?.accessToken,
+    proof_public_key: authority?.proofPublicKey
+  }, collectionId);
+}
+
+function validStoredEncryption(
+  encryption: StoredToken["encryption"],
+  collectionId: string
+): encryption is GrantEncryption {
+  if (!encryption || typeof encryption !== "object" || Array.isArray(encryption)) {
+    return false;
+  }
+  if (encryption.collection_id !== collectionId) return false;
+  try {
+    validateGrantEncryption(encryption);
+    return true;
   } catch {
     return false;
   }

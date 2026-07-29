@@ -15,6 +15,8 @@ const STORE_NAME = "grant-keys";
 const MAX_U64 = 18_446_744_073_709_551_615n;
 const REQUEST_INFO = "mdbase-connect relay request key v1";
 const RESPONSE_INFO = "mdbase-connect relay response key v1";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface GrantKeyRecord {
   handle: string;
@@ -236,7 +238,7 @@ export async function encryptRelayRequest(
   input: unknown,
   requestId: string = crypto.randomUUID()
 ): Promise<EncryptedRelayOperationRequest> {
-  validateEncryption(binding.encryption);
+  validateGrantEncryption(binding.encryption);
   const record = await requireAgreementKey(
     store,
     handle,
@@ -468,14 +470,27 @@ function sameEnvelopeMetadata(
     && request.counter === response.counter;
 }
 
-function validateEncryption(encryption: GrantEncryption): void {
+export function validateGrantEncryption(encryption: GrantEncryption): void {
   if (encryption.protocol_version !== ENCRYPTED_RELAY_PROTOCOL_VERSION
       || encryption.suite !== RELAY_ENCRYPTION_SUITE
       || !Number.isSafeInteger(encryption.scope_epoch)
       || encryption.scope_epoch <= 0
-      || !encryption.key_id
+      || typeof encryption.key_id !== "string"
+      || encryption.key_id.length === 0
+      || encryption.key_id.length > 200
       || encryption.key_id.includes("|")) {
     throw new RelayCryptoError("unsupported_encryption", "The grant uses an unsupported relay encryption profile.");
+  }
+  if (
+    typeof encryption.connector_id !== "string"
+    || !UUID_PATTERN.test(encryption.connector_id)
+    || typeof encryption.collection_id !== "string"
+    || !UUID_PATTERN.test(encryption.collection_id)
+  ) {
+    throw new RelayCryptoError(
+      "unsupported_encryption",
+      "The grant uses invalid encrypted relay identities."
+    );
   }
   p256PublicKey(encryption.application_agreement_public_key);
   p256PublicKey(encryption.connector_agreement_public_key);

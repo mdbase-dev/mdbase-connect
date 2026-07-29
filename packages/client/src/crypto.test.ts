@@ -107,6 +107,23 @@ describe("encrypted relay client", () => {
     )).rejects.toEqual(expect.objectContaining<Partial<RelayCryptoError>>({ code: "invalid_public_key" }));
   });
 
+  it("rejects relay bindings with non-protocol identities", async () => {
+    const { applicationStore, encryption } = await fixture();
+    await expect(encryptRelayRequest(
+      applicationStore,
+      "grant",
+      {
+        grantId: ids.grant,
+        applicationId: ids.application,
+        encryption: { ...encryption, connector_id: "stale-connector-id" }
+      },
+      "read",
+      {}
+    )).rejects.toEqual(expect.objectContaining<Partial<RelayCryptoError>>({
+      code: "unsupported_encryption"
+    }));
+  });
+
   it("uses an independent non-extractable P-256 key for authority proofs", async () => {
     const store = new MemoryGrantKeyStore();
     const record = await store.create("authority");
