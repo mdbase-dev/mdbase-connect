@@ -89,6 +89,98 @@ jobs:
       - run: docker build --file deploy/docker/Dockerfile.nats --tag mdbase-connect-nats:test .
       - run: MDBASE_CONNECT_E2E_BUILD=0 node scripts/container-e2e.mjs
 
+  previous-release-upgrade:
+    name: Previous release upgrade and OAuth
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: mdbase_connect_upgrade
+          POSTGRES_USER: mdbase
+          POSTGRES_PASSWORD: previous-release-upgrade
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdbase -d mdbase_connect_upgrade"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://mdbase:previous-release-upgrade@127.0.0.1:5432/mdbase_connect_upgrade
+      CANDIDATE_IMAGE: mdbase-connect-server:upgrade-candidate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build candidate server
+        run: >-
+          docker build
+          --file deploy/docker/Dockerfile.server
+          --tag "$CANDIDATE_IMAGE"
+          .
+
+      - name: Create the previous release schema
+        run: |
+          . .github/previous-release.env
+          docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
+          docker run --rm --network host \
+            --env DATABASE_URL \
+            "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" \
+            node services/server/dist/migrate.js
+
+      - name: Upgrade with candidate migrations
+        run: |
+          docker run --rm --network host \
+            --env DATABASE_URL \
+            "$CANDIDATE_IMAGE" \
+            node services/server/dist/migrate.js
+
+      - name: Exercise the upgraded OAuth authorization write path
+        run: |
+          cleanup() {
+            docker logs mdbase-connect-upgrade-candidate || true
+            docker rm --force mdbase-connect-upgrade-candidate >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --name mdbase-connect-upgrade-candidate \
+            --network host \
+            --env DATABASE_URL \
+            --env PUBLIC_URL=http://127.0.0.1:8787 \
+            --env MDBASE_CONNECT_DEV_AUTH=1 \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
+            "$CANDIDATE_IMAGE" >/dev/null
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8787/ready >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo "Candidate server did not become ready." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          application_id=$(curl --fail --silent --show-error \
+            --header 'content-type: application/json' \
+            --data '{"manifest":{"manifest_version":1,"id":"dev.mdbase.release-canary","name":"Release canary","homepage":"http://127.0.0.1:8787","redirect_uris":["http://127.0.0.1:8787/callback"],"requirements":{"contracts":[],"access":"full_collection"}}}' \
+            http://127.0.0.1:8787/v1/apps/register |
+            jq --raw-output '.application.id')
+          test -n "$application_id"
+
+          cookie_jar="$RUNNER_TEMP/oauth-cookie"
+          curl --fail --silent --show-error \
+            --cookie-jar "$cookie_jar" \
+            --header 'content-type: application/json' \
+            --data '{"name":"Release canary","email":"release-canary@example.com"}' \
+            http://127.0.0.1:8787/v1/dev/session >/dev/null
+          location=$(curl --silent --show-error \
+            --cookie "$cookie_jar" \
+            --output /dev/null \
+            --write-out '%{redirect_url}' \
+            "http://127.0.0.1:8787/oauth/authorize?client_id=$application_id&redirect_uri=http%3A%2F%2F127.0.0.1%3A8787%2Fcallback&code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&code_challenge_method=S256&state=release-canary&operations=describe")
+          [[ "$location" == http://127.0.0.1:8787/authorize/* ]]
+
   hosted-provider:
     runs-on: ubuntu-latest
     defaults:

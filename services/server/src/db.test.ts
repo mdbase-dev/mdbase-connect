@@ -7,7 +7,7 @@ import {
   backfillExternalIdentityEmails,
   backfillSessionProviders,
   createDatabase,
-  migrateLegacySchema,
+  bootstrapLegacyBaseline,
   openDatabase,
   revokeLegacyHostedBearerGrants
 } from "./db.js";
@@ -35,7 +35,8 @@ describe("database migrations", () => {
       "0000_legacy_baseline",
       "0001_collaboration_foundations",
       "0001a_authentication_foundations",
-      "0002_instance_administration"
+      "0002_instance_administration",
+      "0003_authorization_request_collection"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -55,7 +56,7 @@ describe("database migrations", () => {
   it("upgrades a beta legacy schema before instance administration runs", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
-    await migrateLegacySchema(db);
+    await bootstrapLegacyBaseline(db);
     const userId = randomUUID();
     const connectorId = randomUUID();
     await db.query(
@@ -188,6 +189,9 @@ describe("database migrations", () => {
         user_id uuid REFERENCES users(id) ON DELETE SET NULL,
         created_at timestamptz NOT NULL DEFAULT now()
       );
+      CREATE TABLE authorization_requests (
+        id uuid PRIMARY KEY
+      );
     `);
     const userId = randomUUID();
     const sessionId = randomUUID();
@@ -284,8 +288,31 @@ describe("database migrations", () => {
       "0000_legacy_baseline",
       "0001_collaboration_foundations",
       "0001a_authentication_foundations",
-      "0002_instance_administration"
+      "0002_instance_administration",
+      "0003_authorization_request_collection"
     ]);
+  });
+
+  it("repairs the beta.13 production authorization schema additively", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    await db.query(
+      "ALTER TABLE authorization_requests DROP COLUMN collection_id"
+    );
+    await db.query(
+      `DELETE FROM schema_migrations
+       WHERE id = '0003_authorization_request_collection'`
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const columns = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'authorization_requests'
+         AND column_name = 'collection_id'`
+    );
+    expect(columns.rows).toEqual([{ column_name: "collection_id" }]);
+    await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
   });
 
   it("fails closed when an application starts before pre-deploy migration", async () => {
@@ -298,7 +325,7 @@ describe("database migrations", () => {
   it("backfills the authorizing user for replicas created before attribution", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
-    await migrateLegacySchema(db);
+    await bootstrapLegacyBaseline(db);
     const userId = randomUUID();
     const collectionId = randomUUID();
     const replicaId = randomUUID();

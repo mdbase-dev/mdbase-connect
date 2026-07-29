@@ -11,9 +11,18 @@ files are immutable: the migration command fails if an existing filename has
 different contents. The runner takes a PostgreSQL advisory lock, so concurrent
 pre-deploy jobs serialize safely.
 
-The pre-versioned schema is recorded once as `0000_legacy_baseline`; new schema
-work must use a new numbered SQL file. Migrations are transactional unless the
-file starts with `-- mdbase:no-transaction`.
+The pre-versioned schema is recorded once as `0000_legacy_baseline`. Its
+bootstrap exists only to create an empty database or import an installation
+from before the ledger, and is frozen. Numbered SQL files are the sole
+authority for every subsequent schema change; do not add columns, tables,
+indexes, constraints, backfills, or type changes to the bootstrap. Migrations
+are transactional unless the file starts with `-- mdbase:no-transaction`.
+
+Server CI first creates a real PostgreSQL database with the exact server image
+from `.github/previous-release.env`, then runs the candidate migrations and
+exercises an authenticated OAuth authorization request against the upgraded
+database. Release preparation must advance that image to the immediately
+preceding release.
 
 Production changes follow expand-and-contract:
 

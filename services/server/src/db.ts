@@ -55,11 +55,13 @@ export async function createDatabase(
 }
 
 /**
- * Idempotent baseline retained while the pre-versioned schema is migrated to
- * discrete SQL files. Production invokes this exactly once through the
- * versioned migration ledger; tests and new databases use the same path.
+ * Frozen bootstrap for an empty database and importer for installations that
+ * predate the migration ledger.
+ *
+ * Do not evolve this function for a new release. Every schema change after the
+ * legacy baseline must be an immutable numbered file in services/server/migrations.
  */
-export async function migrateLegacySchema(db: DatabaseQueryable): Promise<void> {
+export async function bootstrapLegacyBaseline(db: DatabaseQueryable): Promise<void> {
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id uuid PRIMARY KEY,

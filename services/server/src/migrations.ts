@@ -6,7 +6,7 @@ import type {
   DatabasePool,
   DatabaseQueryable
 } from "./db.js";
-import { migrateLegacySchema } from "./db.js";
+import { bootstrapLegacyBaseline } from "./db.js";
 
 const MIGRATION_LOCK_ID = 1_291_842_019;
 const LEGACY_BASELINE_ID = "0000_legacy_baseline";
@@ -109,7 +109,7 @@ async function establishLegacyBaseline(db: DatabaseQueryable): Promise<void> {
      WHERE table_schema = 'public' AND table_name = 'users'`
   );
   if (!existingLegacySchema.rows[0]) {
-    await migrateLegacySchema(db);
+    await bootstrapLegacyBaseline(db);
   }
   await db.query(
     `INSERT INTO schema_migrations (id, checksum)
