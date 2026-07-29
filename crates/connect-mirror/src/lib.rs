@@ -8,7 +8,8 @@ use mdbase_connect_protocol::{
     authority_manifest_digest, AuthoritySnapshotRecord, MirrorConflictSummary, MirrorLocalIssue,
     MirrorResolution, MirrorState as MirrorStatusState, SyncChange, SyncChangesPage,
     SyncCollectionResources, SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
-    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SYNC_PROTOCOL_VERSION,
+    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
+    SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -251,7 +252,7 @@ struct DurableRebuildPlan {
     replica_id: Uuid,
     mode: SyncReplicaMode,
     session: SyncSession,
-    records: Vec<SyncRecord>,
+    records: Vec<SyncSnapshotRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     prior: Option<DurableMirrorState>,
 }
@@ -539,12 +540,19 @@ impl DirectoryMirror {
         let records = state
             .records
             .values()
-            .filter_map(|entry| entry.record.clone())
-            .map(|record| AuthoritySnapshotRecord {
-                record,
-                document: String::new(),
+            .filter_map(|entry| entry.record.clone().map(|record| (entry, record)))
+            .map(|(entry, record)| {
+                Ok(AuthoritySnapshotRecord {
+                    record,
+                    document: self.read_file(&entry.path)?.ok_or_else(|| {
+                        MirrorError::new(
+                            "mirror_diverged",
+                            format!("Authority record {} is missing.", entry.path),
+                        )
+                    })?,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, MirrorError>>()?;
         Ok(AuthorityPromotionManifest {
             cursor: state.cursor,
             digest: authority_manifest_digest(&resource_documents, &records),
@@ -719,7 +727,11 @@ impl DirectoryMirror {
             .documents
             .iter()
             .map(|resource| resource.path.clone())
-            .chain(plan.records.iter().map(|record| record.path.clone()))
+            .chain(
+                plan.records
+                    .iter()
+                    .map(|snapshot| snapshot.record.path.clone()),
+            )
             .collect::<HashSet<_>>();
         let mut state = DurableMirrorState {
             protocol_version: SYNC_PROTOCOL_VERSION,
@@ -746,15 +758,15 @@ impl DirectoryMirror {
                 },
             );
         }
-        for record in &plan.records {
-            let document = record_markdown_document(record)?;
-            self.write_file(&record.path, document.as_bytes())?;
+        for snapshot in &plan.records {
+            let record = &snapshot.record;
+            self.write_file(&record.path, snapshot.document.as_bytes())?;
             state.records.insert(
                 record.record_id,
                 MirrorEntry {
                     path: record.path.clone(),
                     revision: record.revision.clone(),
-                    hash: digest(&document),
+                    hash: digest(&snapshot.document),
                     record: (self.mode == SyncReplicaMode::ReadWrite).then_some(record.clone()),
                 },
             );
@@ -790,20 +802,20 @@ impl DirectoryMirror {
     fn target_paths(
         &self,
         resources: &SyncCollectionResources,
-        records: &[SyncRecord],
+        records: &[SyncSnapshotRecord],
     ) -> HashSet<String> {
         resources
             .documents
             .iter()
             .map(|resource| resource.path.clone())
-            .chain(records.iter().map(|record| record.path.clone()))
+            .chain(records.iter().map(|snapshot| snapshot.record.path.clone()))
             .collect()
     }
 
     fn validate_snapshot_shape(
         &self,
         resources: &SyncCollectionResources,
-        records: &[SyncRecord],
+        records: &[SyncSnapshotRecord],
     ) -> Result<(), MirrorError> {
         let mut paths = HashSet::<String>::new();
         for resource in &resources.documents {
@@ -816,7 +828,8 @@ impl DirectoryMirror {
             }
         }
         let mut record_ids = HashSet::new();
-        for record in records {
+        for snapshot in records {
+            let record = &snapshot.record;
             safe_path(&self.root, &record.path)?;
             if !record_ids.insert(record.record_id) || !paths.insert(record.path.clone()) {
                 return Err(MirrorError::new(
@@ -834,7 +847,7 @@ impl DirectoryMirror {
     fn preflight_rebuild(
         &self,
         resources: &SyncCollectionResources,
-        records: &[SyncRecord],
+        records: &[SyncSnapshotRecord],
         prior: Option<&DurableMirrorState>,
     ) -> Result<(), MirrorError> {
         let prior_paths = self.prior_managed_paths(prior);
@@ -850,8 +863,9 @@ impl DirectoryMirror {
                 collisions.insert(resource.path.clone());
             }
         }
-        for record in records {
-            let document = record_markdown_document(record)?;
+        for snapshot in records {
+            let record = &snapshot.record;
+            let document = &snapshot.document;
             let local = self.read_file(&record.path)?;
             let managed = prior_paths.get(record.path.as_str());
             if local.as_deref().is_some_and(|local| {

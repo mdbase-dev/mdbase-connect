@@ -217,27 +217,31 @@ describe("writable Markdown mirror", () => {
       {
         kind: "resource",
         path: "mdbase.yaml",
+        identity: "",
         document_hash: "ff".repeat(32)
       },
       {
         kind: "record",
         path: "tasks/a.md",
+        identity: "01911111-1111-7111-8111-111111111111",
         document_hash: "00".repeat(32)
       }
-    ])).toBe("c3a6c98f15ed143bf4b9642e32c9f4c775ca8ad4978a42a4dbd69f79f6fc5e0f");
+    ])).toBe("5f4d35b7381929c7a60d2c45ff310899d9b4c0d891a2ada573fb6dc10fc8c51a");
 
     expect(authorityManifestDigest([
       {
         kind: "record",
         path: "zulu.md",
+        identity: "01911111-1111-7111-8111-111111111111",
         document_hash: "aa".repeat(32)
       },
       {
         kind: "record",
         path: "äther.md",
+        identity: "01922222-2222-7222-8222-222222222222",
         document_hash: "bb".repeat(32)
       }
-    ])).toBe("5f1f72e19ba871d569231de5cd71a4e1703fbc28e39d9357081f1a870d1fc7a9");
+    ])).toBe("b0bb3266ca6b5a833700ca04dfb3e918b405293d1b3e4a54f48e596c4c88fdb2");
 
     const hosted = new MemoryAuthority({
       resources: {

@@ -280,12 +280,13 @@ record scope for one named collection.
 
 Downloaded HTML applications use the v1 portable distribution profile described
 in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
-single-use OAuth device code plus PKCE and the existing per-grant P-256 key.
+single-use OAuth device code plus PKCE and independent per-grant P-256
+agreement and signing keys.
 Their browser origin is the exact opaque value `null`, tokens and non-extractable
 keys are memory-only by default. A local connector requires a matching
 encrypted grant for every operation. A hosted provider instead receives a
 short-lived capability bound to the exact grant, collection, operation set,
-record scope, expiry, opaque `null` origin, and application public key. Every
+record scope, expiry, opaque `null` origin, and application signing public key. Every
 hosted request and refresh carries a replay-protected ECDSA proof over its
 method, target, body, credential, timestamp, and nonce. The SDK exposes the same
 connection API for both routes.
@@ -318,7 +319,7 @@ private deployments, and emergency computer revocation.
 ## Direct local transport
 
 Local-authority grants synchronize the application's exact approved origin to
-the connector. The browser SDK can then send the existing protocol-3 envelope
+the connector. The browser SDK can then send the v1 encrypted operation envelope
 to `http://127.0.0.1:28485/v1/operations`. The fixed endpoint reveals only
 generic protocol readiness. It is separate from the Unix socket or Windows
 pipe used for desktop administration and exposes all grantable collection
@@ -327,7 +328,7 @@ operations through the same connector handler as the relay.
 The loopback listener binds only IPv4 and IPv6 loopback, validates the exact
 `Host` and grant origin, returns exact-origin CORS headers, omits ambient
 credentials, requires `application/mdbase-connect+json`, and bounds request
-size, concurrency, execution time, and per-origin rate. Protocol-3 key proof
+size, concurrency, execution time, and per-origin rate. The v1 cryptographic binding
 remains the operation authority; CORS is an additional browser boundary.
 
 Chrome's Local Network Access permission is requested from an explicit app

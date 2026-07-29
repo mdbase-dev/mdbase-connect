@@ -193,7 +193,7 @@ secret: connector scope test
   const verifier = "end-to-end-pkce-verifier-with-forty-three-characters";
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const authorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_public_key=${encodeURIComponent(applicationKey.publicKey)}`,
+    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(applicationKey.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(applicationKey.signingPublicKey)}`,
     { headers: { cookie }, redirect: "manual" }
   );
   if (authorize.status !== 302) throw new Error(`Authorization start returned HTTP ${authorize.status}`);
@@ -228,7 +228,7 @@ secret: connector scope test
     throw new Error(`Authorization did not return contract scope and refresh token: ${JSON.stringify(token.body)}`);
   }
   if (token.body.encryption?.protocol_version !== 1
-      || token.body.encryption?.application_public_key !== applicationKey.publicKey
+      || token.body.encryption?.application_agreement_public_key !== applicationKey.agreementPublicKey
       || !token.body.grant_id) {
     throw new Error(`Authorization did not establish encrypted relay protocol 1: ${JSON.stringify(token.body)}`);
   }
@@ -359,7 +359,11 @@ secret: connector scope test
         authorization: `Bearer ${portalToken.body.access_token}`,
         "content-type": "application/json"
       },
-      body: "{}"
+      body: JSON.stringify({
+        protocol_version: 1,
+        request_id: crypto.randomUUID(),
+        input: {}
+      })
     }
   );
   const portalDescriptionBody = await portalDescription.json();
@@ -468,8 +472,11 @@ secret: connector scope test
     await browserContext.grantPermissions(["local-network-access"], { origin: manifest.browserOrigin });
     const page = await browserContext.newPage();
     await page.goto(`${manifest.browserOrigin}/browser-e2e`);
-    await page.waitForFunction(() => Boolean(globalThis.directHarness?.publicKey));
-    const browserPublicKey = await page.evaluate(() => globalThis.directHarness.publicKey);
+    await page.waitForFunction(() => Boolean(globalThis.directHarness?.agreementPublicKey));
+    const browserKeys = await page.evaluate(() => ({
+      agreementPublicKey: globalThis.directHarness.agreementPublicKey,
+      signingPublicKey: globalThis.directHarness.signingPublicKey
+    }));
     const browserApplication = await request("/v1/apps/register", {
       method: "POST",
       body: { manifest: manifest.browserApplicationManifest }
@@ -482,7 +489,7 @@ secret: connector scope test
       "read_type", "create_type", "update_type", "list_views", "execute_view"
     ];
     const browserAuthorize = await fetch(
-      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=1&application_public_key=${encodeURIComponent(browserPublicKey)}`,
+      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(browserKeys.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(browserKeys.signingPublicKey)}`,
       { headers: { cookie }, redirect: "manual" }
     );
     if (browserAuthorize.status !== 302) {
@@ -1077,7 +1084,8 @@ async function openApplicationServer(name, contracts, access) {
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
-    publicKey: key.publicKey,
+    agreementPublicKey: key.agreementPublicKey,
+    signingPublicKey: key.signingPublicKey,
     async exercise(config) {
       const storagePrefix = \`mdbase-connect:\${config.serverUrl}:bundle:\${config.manifest.id}\`;
       localStorage.setItem(

@@ -7,8 +7,10 @@ import type {
   SyncMutationReceipt,
   SyncRecord,
   SyncSession,
-  SyncSnapshotPage
+  SyncSnapshotPage,
+  SyncSnapshotRecord
 } from "@mdbase/connect-protocol";
+import { stringify } from "yaml";
 
 export type {
   SyncChange,
@@ -19,7 +21,8 @@ export type {
   SyncMutationReceipt,
   SyncRecord,
   SyncSession,
-  SyncSnapshotPage
+  SyncSnapshotPage,
+  SyncSnapshotRecord
 } from "@mdbase/connect-protocol";
 
 export interface SyncTransport<Frontmatter extends JsonObject = JsonObject> {
@@ -83,7 +86,7 @@ interface SnapshotState<Frontmatter extends JsonObject> {
   replicaId: string;
   scopeEpoch: number;
   cursor: number;
-  records: Array<SyncRecord<Frontmatter>>;
+  records: Array<SyncSnapshotRecord<Frontmatter>>;
 }
 
 /** Executable protocol model used by SDK tests and local developer sandboxes. */
@@ -231,7 +234,10 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       records: [...this.records.values()]
         .filter((record) => visible(record, replica))
         .sort((left, right) => left.path.localeCompare(right.path))
-        .map(clone)
+        .map((record) => ({
+          ...clone(record),
+          document: memoryRecordMarkdownDocument(record)
+        }))
     };
     this.snapshots.set(snapshot.id, snapshot);
     return {
@@ -424,6 +430,16 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
     if (replica.revoked) throw new SyncError("replica_revoked", "Replica access was revoked.");
     return replica;
   }
+}
+
+function memoryRecordMarkdownDocument(record: SyncRecord): string {
+  if (Object.keys(record.frontmatter).length === 0) {
+    return record.body;
+  }
+
+  const yaml = stringify(record.frontmatter, { lineWidth: 0 }).trimEnd();
+  const body = record.body ? `\n${record.body.replace(/^\n/, "")}` : "";
+  return `---\n${yaml}\n---\n${body}`;
 }
 
 export interface ReplicaData<Frontmatter extends JsonObject = JsonObject> {

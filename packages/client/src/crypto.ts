@@ -18,9 +18,10 @@ const RESPONSE_INFO = "mdbase-connect relay response key v1";
 
 export interface GrantKeyRecord {
   handle: string;
-  privateKey: CryptoKey;
-  signingKey?: CryptoKey;
-  publicKey: string;
+  agreementPrivateKey: CryptoKey;
+  agreementPublicKey: string;
+  signingPrivateKey: CryptoKey;
+  signingPublicKey: string;
 }
 
 export interface GrantKeyStore {
@@ -52,9 +53,10 @@ export class IndexedDbGrantKeyStore implements GrantKeyStore {
     );
     return value ? {
       handle: value.handle,
-      privateKey: value.privateKey,
-      signingKey: value.signingKey,
-      publicKey: value.publicKey
+      agreementPrivateKey: value.agreementPrivateKey,
+      agreementPublicKey: value.agreementPublicKey,
+      signingPrivateKey: value.signingPrivateKey,
+      signingPublicKey: value.signingPublicKey
     } : null;
   }
 
@@ -134,9 +136,10 @@ export class MemoryGrantKeyStore implements GrantKeyStore {
     const value = this.records.get(handle);
     return value ? {
       handle: value.handle,
-      privateKey: value.privateKey,
-      signingKey: value.signingKey,
-      publicKey: value.publicKey
+      agreementPrivateKey: value.agreementPrivateKey,
+      agreementPublicKey: value.agreementPublicKey,
+      signingPrivateKey: value.signingPrivateKey,
+      signingPublicKey: value.signingPublicKey
     } : null;
   }
 
@@ -184,19 +187,13 @@ export async function signAuthorityRequest(
   expectedPublicKey: string,
   input: AuthorityProofInput
 ): Promise<Record<string, string>> {
-  const record = await requireKey(store, handle, expectedPublicKey);
-  if (!record.signingKey) {
-    throw new RelayCryptoError(
-      "missing_grant_key",
-      "The remote authority grant signing key is unavailable. Reconnect this application."
-    );
-  }
+  const record = await requireSigningKey(store, handle, expectedPublicKey);
   const timestamp = input.timestamp ?? Math.floor(Date.now() / 1_000);
   const nonce = input.nonce ?? crypto.randomUUID();
   const message = await authorityProofMessage({ ...input, timestamp, nonce });
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: "SHA-256" },
-    record.signingKey,
+    record.signingPrivateKey,
     new TextEncoder().encode(message)
   );
   return {
@@ -237,13 +234,17 @@ export async function encryptRelayRequest(
   binding: RelayBinding,
   operation: CollectionOperation,
   input: unknown,
-  requestId = crypto.randomUUID()
+  requestId: string = crypto.randomUUID()
 ): Promise<EncryptedRelayOperationRequest> {
   validateEncryption(binding.encryption);
-  const record = await requireKey(store, handle, binding.encryption.application_public_key);
+  const record = await requireAgreementKey(
+    store,
+    handle,
+    binding.encryption.application_agreement_public_key
+  );
   const counter = await store.nextCounter(handle);
   const metadata = { binding, requestId, operation, counter };
-  const key = await deriveDirectionalKey(record.privateKey, binding, "request");
+  const key = await deriveDirectionalKey(record.agreementPrivateKey, binding, "request");
   const plaintext = new TextEncoder().encode(JSON.stringify(input ?? {}));
   const ciphertext = await crypto.subtle.encrypt({
     name: "AES-GCM",
@@ -268,14 +269,18 @@ export async function decryptRelayResponse<Result>(
   if (!sameEnvelopeMetadata(request, response)) {
     throw new RelayCryptoError("invalid_encrypted_response", "Encrypted response metadata does not match its request.");
   }
-  const record = await requireKey(store, handle, binding.encryption.application_public_key);
+  const record = await requireAgreementKey(
+    store,
+    handle,
+    binding.encryption.application_agreement_public_key
+  );
   const metadata = {
     binding,
     requestId: request.request_id,
     operation: request.operation,
     counter: request.counter
   };
-  const key = await deriveDirectionalKey(record.privateKey, binding, "response");
+  const key = await deriveDirectionalKey(record.agreementPrivateKey, binding, "response");
   try {
     const plaintext = await crypto.subtle.decrypt({
       name: "AES-GCM",
@@ -302,36 +307,70 @@ export class RelayCryptoError extends Error {
 }
 
 async function generateGrantKey(handle: string): Promise<GrantKeyRecord> {
-  const generated = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
+  const agreement = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["sign", "verify"]
+    ["deriveBits"]
   ) as CryptoKeyPair;
-  const publicKey = bytesToBase64Url(new Uint8Array(
-    await crypto.subtle.exportKey("raw", generated.publicKey)
+  const agreementPublicKey = bytesToBase64Url(new Uint8Array(
+    await crypto.subtle.exportKey("raw", agreement.publicKey)
   ));
-  const privatePkcs8 = await crypto.subtle.exportKey("pkcs8", generated.privateKey);
-  const privateKey = await crypto.subtle.importKey(
+  const agreementPkcs8 = await crypto.subtle.exportKey("pkcs8", agreement.privateKey);
+  const agreementPrivateKey = await crypto.subtle.importKey(
     "pkcs8",
-    privatePkcs8,
+    agreementPkcs8,
     { name: "ECDH", namedCurve: "P-256" },
     false,
     ["deriveBits"]
   );
-  const signingKey = await crypto.subtle.importKey(
+  const signing = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"]
+  ) as CryptoKeyPair;
+  const signingPublicKey = bytesToBase64Url(new Uint8Array(
+    await crypto.subtle.exportKey("raw", signing.publicKey)
+  ));
+  const signingPkcs8 = await crypto.subtle.exportKey("pkcs8", signing.privateKey);
+  const signingPrivateKey = await crypto.subtle.importKey(
     "pkcs8",
-    privatePkcs8,
+    signingPkcs8,
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["sign"]
   );
-  return { handle, privateKey, signingKey, publicKey };
+  return {
+    handle,
+    agreementPrivateKey,
+    agreementPublicKey,
+    signingPrivateKey,
+    signingPublicKey
+  };
 }
 
-async function requireKey(store: GrantKeyStore, handle: string, expectedPublicKey: string): Promise<GrantKeyRecord> {
+async function requireAgreementKey(
+  store: GrantKeyStore,
+  handle: string,
+  expectedPublicKey: string
+): Promise<GrantKeyRecord> {
   const record = await store.get(handle);
-  if (!record || record.publicKey !== expectedPublicKey) {
+  if (!record || record.agreementPublicKey !== expectedPublicKey) {
     throw new RelayCryptoError("missing_grant_key", "The encrypted grant key is unavailable or does not match the grant.");
+  }
+  return record;
+}
+
+async function requireSigningKey(
+  store: GrantKeyStore,
+  handle: string,
+  expectedPublicKey: string
+): Promise<GrantKeyRecord> {
+  const record = await store.get(handle);
+  if (!record || record.signingPublicKey !== expectedPublicKey) {
+    throw new RelayCryptoError(
+      "missing_grant_key",
+      "The remote authority signing key is unavailable or does not match the grant."
+    );
   }
   return record;
 }
@@ -346,7 +385,7 @@ async function deriveDirectionalKey(
   try {
     peer = await crypto.subtle.importKey(
       "raw",
-      toArrayBuffer(p256PublicKey(binding.encryption.connector_public_key)),
+      toArrayBuffer(p256PublicKey(binding.encryption.connector_agreement_public_key)),
       { name: "ECDH", namedCurve: "P-256" },
       false,
       []
@@ -438,8 +477,8 @@ function validateEncryption(encryption: GrantEncryption): void {
       || encryption.key_id.includes("|")) {
     throw new RelayCryptoError("unsupported_encryption", "The grant uses an unsupported relay encryption profile.");
   }
-  p256PublicKey(encryption.application_public_key);
-  p256PublicKey(encryption.connector_public_key);
+  p256PublicKey(encryption.application_agreement_public_key);
+  p256PublicKey(encryption.connector_agreement_public_key);
 }
 
 function nonce(counter: string): Uint8Array<ArrayBuffer> {

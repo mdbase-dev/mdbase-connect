@@ -93,6 +93,39 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
+  it("materializes the authority's exact snapshot Markdown bytes", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "exact-record",
+      path: "exact.md",
+      frontmatter: { type: "note", title: "Exact" },
+      body: "Exact body.\n",
+      types: ["note"]
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Exact mirror", mode: "read_only" });
+    const base = hosted.transport(replicaId);
+    const exactDocument = "---\ntitle: Exact\ntype: note\n---\n\nExact body.\n";
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, {
+      ...base,
+      snapshot: async (snapshotId, page) => {
+        const snapshot = await base.snapshot(snapshotId, page);
+        return {
+          ...snapshot,
+          records: snapshot.records.map((record) => ({ ...record, document: exactDocument }))
+        };
+      }
+    }, {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await mirror.sync();
+
+    expect(fileSystem.files.get("exact.md")).toBe(exactDocument);
+  });
+
   it("materializes through injected adapters and keeps receive-only state compact", async () => {
     const hosted = new MemoryAuthority({ snapshotPageSize: 2 });
     hosted.seed(records(5));

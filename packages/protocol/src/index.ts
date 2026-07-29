@@ -4,6 +4,11 @@ export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
+export const RELAY_CAPABILITIES = [
+  "authorization-activation",
+  "encrypted-relay",
+  "policy-ack"
+] as const;
 export const AUTHORITY_PROOF_VERSION = 1 as const;
 export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;
 export const AUTHORITY_PROOF_DOMAIN = "mdbase-authority-request-proof-v1" as const;
@@ -282,6 +287,30 @@ export interface RelayOperationResponse {
   };
 }
 
+export interface MdbaseOperationRequest<Input = unknown> {
+  protocol_version: 1;
+  request_id: string;
+  input: Input;
+}
+
+export type MdbaseOperationResponse<Result = unknown> =
+  | {
+      protocol_version: 1;
+      request_id: string;
+      ok: true;
+      result: Result;
+    }
+  | {
+      protocol_version: 1;
+      request_id: string;
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+        details?: unknown;
+      };
+    };
+
 export interface GrantPolicy {
   id: string;
   application_id: string;
@@ -311,8 +340,8 @@ export interface GrantEncryption {
   scope_epoch: number;
   connector_id: string;
   collection_id: string;
-  application_public_key: string;
-  connector_public_key: string;
+  application_agreement_public_key: string;
+  connector_agreement_public_key: string;
 }
 
 export interface EncryptedRelayEnvelope {
@@ -419,8 +448,13 @@ export interface SyncSnapshotPage<Frontmatter extends JsonObject = JsonObject> {
   snapshot_id: string;
   scope_epoch: number;
   cursor: number;
-  records: Array<SyncRecord<Frontmatter>>;
+  records: Array<SyncSnapshotRecord<Frontmatter>>;
   next_page?: string;
+}
+
+export interface SyncSnapshotRecord<Frontmatter extends JsonObject = JsonObject>
+  extends SyncRecord<Frontmatter> {
+  document: string;
 }
 
 export type SyncChange<Frontmatter extends JsonObject = JsonObject> =
@@ -472,7 +506,44 @@ export type EncryptedRelayOperationResponse = EncryptedRelayEnvelope & {
 export interface RelayPolicySnapshot {
   type: "policy_snapshot";
   protocol_version: 1;
+  request_id: string;
+  revision: string;
   grants: GrantPolicy[];
+}
+
+export interface RelayHello {
+  type: "relay_hello";
+  protocol_version: 1;
+  connector_version: string;
+  capabilities: string[];
+}
+
+export interface RelayWelcome {
+  type: "relay_welcome";
+  protocol_version: 1;
+  session_id: string;
+  capabilities: string[];
+}
+
+export interface RelayIncompatible {
+  type: "relay_incompatible";
+  protocol_version: 1;
+  code: "connector_upgrade_required";
+  message: string;
+  update_url: string;
+}
+
+export interface RelayPolicyApplied {
+  type: "policy_applied";
+  protocol_version: 1;
+  request_id: string;
+  revision: string;
+  ok: boolean;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
 }
 
 export interface AuthorizationCollectionOffer {

@@ -22,6 +22,16 @@ import { pkceChallenge, tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
 
+function p256PublicKey(): string {
+  const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const jwk = keys.publicKey.export({ format: "jwk" });
+  return Buffer.concat([
+    Buffer.from([4]),
+    Buffer.from(jwk.x!, "base64url"),
+    Buffer.from(jwk.y!, "base64url")
+  ]).toString("base64url");
+}
+
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
 });
@@ -407,6 +417,12 @@ describe("mdbase connect server", () => {
     });
     expect(synchronized.statusCode).toBe(200);
     const collectionId = synchronized.json().collections[0].id as string;
+    const authorityRows = await db.query<{ id: string; local_id: string }>(
+      "SELECT id, local_id FROM collections WHERE connector_id = $1",
+      [connector.connector.id]
+    );
+    const authorityId = (localId: string) =>
+      authorityRows.rows.find((collection) => collection.local_id === localId)!.id;
 
     const manifestServer = applicationManifestFixture();
     const discovered = await app.inject({
@@ -421,11 +437,19 @@ describe("mdbase connect server", () => {
     const applicationId = discovered.json().application.id as string;
     const invalidEncryption = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${"a".repeat(43)}&code_challenge_method=S256&relay_protocol=3&application_public_key=${"A".repeat(87)}`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${"a".repeat(43)}&code_challenge_method=S256&relay_protocol=3&application_agreement_public_key=${"A".repeat(87)}`,
       headers: { cookie }
     });
     expect(invalidEncryption.statusCode).toBe(400);
     expect(invalidEncryption.json().error.code).toBe("invalid_encryption_request");
+    const reusedApplicationKey = p256PublicKey();
+    const reusedEncryptionKey = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${"a".repeat(43)}&code_challenge_method=S256&relay_protocol=1&application_agreement_public_key=${reusedApplicationKey}&application_signing_public_key=${reusedApplicationKey}`,
+      headers: { cookie }
+    });
+    expect(reusedEncryptionKey.statusCode).toBe(400);
+    expect(reusedEncryptionKey.json().error.code).toBe("invalid_encryption_request");
     const legacyCompatibleGrantId = "325cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const legacyIncompatibleGrantId = "425cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const user = await db.query<{ id: string }>("SELECT id FROM users WHERE email = $1", [
@@ -439,11 +463,11 @@ describe("mdbase connect server", () => {
         legacyCompatibleGrantId,
         user.rows[0].id,
         applicationId,
-        collectionId,
+        authorityId(localCollectionId),
         JSON.stringify(["read"]),
         JSON.stringify({ contracts: [] }),
         legacyIncompatibleGrantId,
-        synchronized.json().collections[1].id,
+        authorityId(incompatibleLocalCollectionId),
         JSON.stringify({ contracts: [contractDescriptor()] })
       ]
     );
@@ -669,7 +693,11 @@ describe("mdbase connect server", () => {
       method: "POST",
       url: `/v1/authorities/${collectionId}/operations/query`,
       headers: { authorization: `Bearer ${refreshed.json().access_token}` },
-      payload: { types: ["workout"] }
+      payload: {
+        protocol_version: 1,
+        request_id: "01911111-1111-7111-8111-111111111111",
+        input: { types: ["workout"] }
+      }
     });
     expect(operation.statusCode).toBe(503);
     expect(operation.json().error.code).toBe("connector_offline");
@@ -880,13 +908,8 @@ describe("mdbase connect server", () => {
     });
     const applicationId = registration.json().application.id as string;
 
-    const applicationKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-    const applicationJwk = applicationKeys.publicKey.export({ format: "jwk" });
-    const applicationPublicKey = Buffer.concat([
-      Buffer.from([4]),
-      Buffer.from(applicationJwk.x!, "base64url"),
-      Buffer.from(applicationJwk.y!, "base64url")
-    ]).toString("base64url");
+    const applicationAgreementPublicKey = p256PublicKey();
+    const applicationSigningPublicKey = p256PublicKey();
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
     const device = await app.inject({
       method: "POST",
@@ -902,7 +925,8 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: applicationPublicKey
+        application_agreement_public_key: applicationAgreementPublicKey,
+        application_signing_public_key: applicationSigningPublicKey
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -1057,7 +1081,7 @@ describe("mdbase connect server", () => {
         protocol_version: 1,
         connector_id: connector.connector.id,
         collection_id: localCollectionId,
-        application_public_key: applicationPublicKey
+        application_agreement_public_key: applicationAgreementPublicKey
       }
     });
     const policy = await app.inject({
@@ -1100,9 +1124,10 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: deniedKey
+        application_agreement_public_key: deniedKey
           .getPublicKey(undefined, "uncompressed")
-          .toString("base64url")
+          .toString("base64url"),
+        application_signing_public_key: p256PublicKey()
       }).toString()
     });
     const deniedLookup = await app.inject({
@@ -1134,9 +1159,10 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: expiringKey
+        application_agreement_public_key: expiringKey
           .getPublicKey(undefined, "uncompressed")
-          .toString("base64url")
+          .toString("base64url"),
+        application_signing_public_key: p256PublicKey()
       }).toString()
     });
     await db.query(
@@ -1210,12 +1236,17 @@ describe("mdbase connect server", () => {
     });
     expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
     const applicationId = registration.json().application.id as string;
-    const applicationKeys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-    const applicationJwk = applicationKeys.publicKey.export({ format: "jwk" });
-    const applicationPublicKey = Buffer.concat([
+    const applicationAgreementPublicKey = p256PublicKey();
+    const applicationSigningKeys = generateKeyPairSync("ec", {
+      namedCurve: "prime256v1"
+    });
+    const applicationSigningJwk = applicationSigningKeys.publicKey.export({
+      format: "jwk"
+    });
+    const applicationSigningPublicKey = Buffer.concat([
       Buffer.from([4]),
-      Buffer.from(applicationJwk.x!, "base64url"),
-      Buffer.from(applicationJwk.y!, "base64url")
+      Buffer.from(applicationSigningJwk.x!, "base64url"),
+      Buffer.from(applicationSigningJwk.y!, "base64url")
     ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
     const device = await app.inject({
@@ -1232,7 +1263,8 @@ describe("mdbase connect server", () => {
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
         relay_protocol: "1",
-        application_public_key: applicationPublicKey
+        application_agreement_public_key: applicationAgreementPublicKey,
+        application_signing_public_key: applicationSigningPublicKey
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -1270,7 +1302,7 @@ describe("mdbase connect server", () => {
         fullCollection: true,
         allowedOperations: ["describe", "query", "create", "update"],
         allowedOrigin: "null",
-        proofPublicKey: applicationPublicKey
+        proofPublicKey: applicationSigningPublicKey
       })
     );
     const token = await pollDeviceToken(app, {
@@ -1287,7 +1319,7 @@ describe("mdbase connect server", () => {
       authority: {
         operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
         sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
-        proof_public_key: applicationPublicKey
+        proof_public_key: applicationSigningPublicKey
       }
     });
     expect(token.json().authority.replica_id).toMatch(
@@ -1328,7 +1360,7 @@ describe("mdbase connect server", () => {
         timestamp: proofTimestamp,
         nonce: proofNonce
       })),
-      { key: applicationKeys.privateKey, dsaEncoding: "ieee-p1363" }
+      { key: applicationSigningKeys.privateKey, dsaEncoding: "ieee-p1363" }
     ).toString("base64url");
     const refreshed = await app.inject({
       method: "POST",
@@ -1352,7 +1384,7 @@ describe("mdbase connect server", () => {
         operations_url: `https://sync.example/v1/authorities/${collectionId}/operations`,
         sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
         replica_id: token.json().authority.replica_id,
-        proof_public_key: applicationPublicKey
+        proof_public_key: applicationSigningPublicKey
       }
     });
     expect(refreshed.json().authority.access_token).not.toBe(token.json().authority.access_token);
@@ -1367,7 +1399,7 @@ describe("mdbase connect server", () => {
     expect(grant.rows[0]).toEqual({
       application_origin: "null",
       encryption: null,
-      proof_public_key: applicationPublicKey
+      proof_public_key: applicationSigningPublicKey
     });
   });
 
@@ -1614,9 +1646,11 @@ describe("mdbase connect server", () => {
     });
     const applicationId = discovered.json().application.id as string;
     const verifier = "hosted-unrestricted-verifier-that-is-long-enough-0001";
+    const applicationAgreementPublicKey = p256PublicKey();
+    const applicationSigningPublicKey = p256PublicKey();
     const authorization = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update,sync`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update,sync&relay_protocol=1&application_agreement_public_key=${applicationAgreementPublicKey}&application_signing_public_key=${applicationSigningPublicKey}`,
       headers: { cookie }
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
@@ -1812,9 +1846,11 @@ describe("mdbase connect server", () => {
     const applicationId = discovered.json().application.id as string;
     expect(discovered.json().application.provisions.type_packs[0].manifest.id)
       .toBe("example.workouts");
+    const applicationAgreementPublicKey = p256PublicKey();
+    const applicationSigningPublicKey = p256PublicKey();
     const authorization = await app.inject({
       method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("hosted-provision-verifier-that-is-long-enough-0001")}&code_challenge_method=S256&operations=read,query,create`,
+      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("hosted-provision-verifier-that-is-long-enough-0001")}&code_challenge_method=S256&operations=read,query,create&relay_protocol=1&application_agreement_public_key=${applicationAgreementPublicKey}&application_signing_public_key=${applicationSigningPublicKey}`,
       headers: { cookie }
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;

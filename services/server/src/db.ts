@@ -325,7 +325,8 @@ export async function bootstrapLegacyBaseline(db: DatabaseQueryable): Promise<vo
       requested_operations jsonb NOT NULL,
       collection_id uuid,
       relay_protocol integer,
-      application_public_key text,
+      application_agreement_public_key text,
+      application_signing_public_key text,
       device_code_hash text UNIQUE,
       user_code text,
       user_code_hash text UNIQUE,
@@ -777,7 +778,8 @@ export async function bootstrapLegacyBaseline(db: DatabaseQueryable): Promise<vo
   );
   await revokeLegacyHostedBearerGrants(db);
   await ensureColumn(db, "authorization_requests", "relay_protocol", "ALTER TABLE authorization_requests ADD COLUMN relay_protocol integer");
-  await ensureColumn(db, "authorization_requests", "application_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_public_key text");
+  await ensureColumn(db, "authorization_requests", "application_agreement_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_agreement_public_key text");
+  await ensureColumn(db, "authorization_requests", "application_signing_public_key", "ALTER TABLE authorization_requests ADD COLUMN application_signing_public_key text");
   await ensureColumn(db, "authorization_requests", "collection_id", "ALTER TABLE authorization_requests ADD COLUMN collection_id uuid");
   // Retain the unused legacy column until the previous release is outside the
   // production rollback window. Runtime compatibility is not a license for a

@@ -372,11 +372,13 @@ function manifestDigest(state: SerializedMemoryAuthority): string {
     ...(state.resources?.documents ?? []).map((resource) => ({
       kind: "resource" as const,
       path: resource.path,
+      identity: "",
       document_hash: digest(resource.document)
     })),
     ...state.records.map((record) => ({
       kind: "record" as const,
       path: record.path,
+      identity: record.record_id,
       document_hash: record.revision
     }))
   ]);

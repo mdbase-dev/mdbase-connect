@@ -1117,7 +1117,7 @@ impl CollectionRegistry {
                 "open_session" => {
                     let description = self.describe_loaded(&registered, collection)?;
                     let resources = sync_resources(&snapshot, description, &replica.allowed_types);
-                    serde_json::to_value(store.open_session(id, &replica, resources)?)
+                    serde_json::to_value(store.open_session(id, &replica, resources, &snapshot)?)
                         .map_err(Into::into)
                 }
                 "snapshot" => {
@@ -5280,8 +5280,8 @@ views:
                 scope_epoch: 1,
                 connector_id: Uuid::new_v4(),
                 collection_id: Uuid::new_v4(),
-                application_public_key: "application-key".to_string(),
-                connector_public_key: "connector-key".to_string(),
+                application_agreement_public_key: "application-key".to_string(),
+                connector_agreement_public_key: "connector-key".to_string(),
             }),
         };
         registry

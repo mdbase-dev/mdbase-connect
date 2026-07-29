@@ -723,7 +723,7 @@ mod tests {
                 RelayBinding::from_grant(self.grant_id, self.application_id, &self.encryption);
             let keys = self
                 .application
-                .derive(&self.encryption.connector_public_key, &binding)
+                .derive(&self.encryption.connector_agreement_public_key, &binding)
                 .unwrap();
             let counter = counter.to_string();
             let metadata = RelayMetadata {
@@ -780,7 +780,7 @@ mod tests {
                 RelayBinding::from_grant(self.grant_id, self.application_id, &self.encryption);
             let keys = self
                 .application
-                .derive(&self.encryption.connector_public_key, &binding)
+                .derive(&self.encryption.connector_agreement_public_key, &binding)
                 .unwrap();
             let metadata = RelayMetadata {
                 binding: &binding,
@@ -815,8 +815,8 @@ mod tests {
             scope_epoch: 1,
             connector_id: Uuid::new_v4(),
             collection_id: collection.id,
-            application_public_key: application.public_key(),
-            connector_public_key: connector.public_key(),
+            application_agreement_public_key: application.public_key(),
+            connector_agreement_public_key: connector.public_key(),
         };
         registry
             .replace_grants(&[GrantPolicy {

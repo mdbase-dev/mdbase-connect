@@ -29,8 +29,8 @@ async function fixture() {
     scope_epoch: 1,
     connector_id: ids.connector,
     collection_id: ids.collection,
-    application_public_key: application.publicKey,
-    connector_public_key: connector.publicKey
+    application_agreement_public_key: application.agreementPublicKey,
+    connector_agreement_public_key: connector.agreementPublicKey
   };
   return { applicationStore, encryption };
 }
@@ -39,7 +39,7 @@ describe("encrypted relay client", () => {
   it("keeps private keys non-extractable and emits only ciphertext plus bound metadata", async () => {
     const { applicationStore, encryption } = await fixture();
     const key = await applicationStore.get("grant");
-    expect(key?.privateKey.extractable).toBe(false);
+    expect(key?.agreementPrivateKey.extractable).toBe(false);
     const request = await encryptRelayRequest(
       applicationStore,
       "grant",
@@ -100,22 +100,24 @@ describe("encrypted relay client", () => {
       {
         grantId: ids.grant,
         applicationId: ids.application,
-        encryption: { ...encryption, connector_public_key: "not-a-p256-key" }
+        encryption: { ...encryption, connector_agreement_public_key: "not-a-p256-key" }
       },
       "read",
       {}
     )).rejects.toEqual(expect.objectContaining<Partial<RelayCryptoError>>({ code: "invalid_public_key" }));
   });
 
-  it("uses the same non-extractable P-256 key for remote authority proofs", async () => {
+  it("uses an independent non-extractable P-256 key for authority proofs", async () => {
     const store = new MemoryGrantKeyStore();
     const record = await store.create("authority");
-    expect(record.privateKey.algorithm.name).toBe("ECDH");
-    expect(record.signingKey?.algorithm.name).toBe("ECDSA");
-    expect(record.signingKey?.extractable).toBe(false);
+    expect(record.agreementPrivateKey.algorithm.name).toBe("ECDH");
+    expect(record.signingPrivateKey.algorithm.name).toBe("ECDSA");
+    expect(record.agreementPrivateKey.extractable).toBe(false);
+    expect(record.signingPrivateKey.extractable).toBe(false);
+    expect(record.signingPublicKey).not.toBe(record.agreementPublicKey);
     const timestamp = 1_785_000_000;
     const nonce = "01955555-5555-4555-8555-555555555555";
-    const headers = await signAuthorityRequest(store, "authority", record.publicKey, {
+    const headers = await signAuthorityRequest(store, "authority", record.signingPublicKey, {
       method: "POST",
       target: "/v1/authorities/one/operations/create",
       body: "{\"title\":\"proof\"}",
@@ -125,7 +127,7 @@ describe("encrypted relay client", () => {
     });
     const publicKey = await crypto.subtle.importKey(
       "raw",
-      base64UrlBytes(record.publicKey),
+      base64UrlBytes(record.signingPublicKey),
       { name: "ECDSA", namedCurve: "P-256" },
       false,
       ["verify"]

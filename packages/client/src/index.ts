@@ -18,6 +18,7 @@ import type {
   MdbaseAppManifest,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
+  MdbaseOperationRequest,
   QueryRecord,
   RecordDocument,
   ReadViewSourceInput,
@@ -879,7 +880,8 @@ interface StoredAuthorization {
   collectionId?: string;
   returnTo?: string;
   keyHandle?: string;
-  applicationPublicKey?: string;
+  applicationAgreementPublicKey?: string;
+  applicationSigningPublicKey?: string;
 }
 
 interface StoredToken {
@@ -912,17 +914,20 @@ interface StoredConnectionIndex {
   collectionIds: string[];
 }
 
-interface PendingEncryptedMutation {
-  grantId: string;
-  keyId: string;
+interface PendingMutation {
+  collectionId: string;
+  grantId?: string;
+  keyId?: string;
   operation: CollectionOperation;
   inputFingerprint: string;
-  envelope: EncryptedRelayOperationRequest;
+  requestId: string;
+  envelope?: EncryptedRelayOperationRequest;
   createdAt: number;
 }
 
 interface OperationAttempt {
   response: Response;
+  requestId: string;
   encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
   directDeliveryUncertain?: boolean;
   pendingMutation?: boolean;
@@ -1592,7 +1597,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       collectionId: targetCollectionId,
       returnTo: options.returnTo,
       keyHandle,
-      applicationPublicKey: grantKey?.publicKey
+      applicationAgreementPublicKey: grantKey?.agreementPublicKey,
+      applicationSigningPublicKey: grantKey?.signingPublicKey
     };
     this.storage.setItem(this.pendingKey(state), JSON.stringify(pending));
     const authorize = new URL(`${this.serverUrl}/oauth/authorize`);
@@ -1610,7 +1616,14 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     if (grantKey) {
       authorize.searchParams.set("relay_protocol", "1");
-      authorize.searchParams.set("application_public_key", grantKey.publicKey);
+      authorize.searchParams.set(
+        "application_agreement_public_key",
+        grantKey.agreementPublicKey
+      );
+      authorize.searchParams.set(
+        "application_signing_public_key",
+        grantKey.signingPublicKey
+      );
     }
     if (this.navigate) await this.navigate(authorize.href);
     else location.assign(authorize.href);
@@ -1647,7 +1660,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           code_challenge: challenge,
           code_challenge_method: "S256",
           relay_protocol: "1",
-          application_public_key: grantKey.publicKey
+          application_agreement_public_key: grantKey.agreementPublicKey,
+          application_signing_public_key: grantKey.signingPublicKey
         })
       });
       body = await response.json();
@@ -1748,7 +1762,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         const localEncryption = tokenBody.encryption
           && tokenBody.encryption.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
           && tokenBody.encryption.suite === RELAY_ENCRYPTION_SUITE
-          && tokenBody.encryption.application_public_key === grantKey.publicKey;
+          && tokenBody.encryption.application_agreement_public_key
+            === grantKey.agreementPublicKey;
         if (tokenBody.application_origin !== "null") {
           throw new MdbaseConnectError(
             "invalid_token_response",
@@ -1760,7 +1775,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           && (
             !authority
             || tokenBody.encryption != null
-            || tokenBody.authority.proof_public_key !== grantKey.publicKey
+            || tokenBody.authority.proof_public_key !== grantKey.signingPublicKey
           )
         ) {
           throw new MdbaseConnectError(
@@ -1862,7 +1877,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (pending.relayEncryption === "required" && !body.authority && (
       !body.encryption
       || !pending.keyHandle
-      || body.encryption.application_public_key !== pending.applicationPublicKey
+      || body.encryption.application_agreement_public_key
+        !== pending.applicationAgreementPublicKey
     )) {
       if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
       this.storage.removeItem(pendingKey);
@@ -1874,8 +1890,8 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (body.authority?.proof_public_key) {
       if (
         !pending.keyHandle
-        || !pending.applicationPublicKey
-        || body.authority.proof_public_key !== pending.applicationPublicKey
+        || !pending.applicationSigningPublicKey
+        || body.authority.proof_public_key !== pending.applicationSigningPublicKey
       ) {
         if (pending.keyHandle) await this.keyStore.delete(pending.keyHandle);
         this.storage.removeItem(pendingKey);
@@ -2700,11 +2716,12 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 
   pendingMutation(): PendingMutationSummary | null {
-    const pending = parseStored<PendingEncryptedMutation>(this.storage.getItem(this.pendingMutationKey()));
+    const pending = parseStored<PendingMutation>(this.storage.getItem(this.pendingMutationKey()));
     const token = this.currentToken();
-    if (!pending || !token?.grantId || !token.encryption
+    if (!pending || !token
+        || pending.collectionId !== token.collectionId
         || pending.grantId !== token.grantId
-        || pending.keyId !== token.encryption.key_id) return null;
+        || pending.keyId !== token.encryption?.key_id) return null;
     return { operation: pending.operation, createdAt: pending.createdAt, resumable: true };
   }
 
@@ -2817,7 +2834,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     const staleBinding = response.status === 409
       && (await response.clone().json().catch(() => null))?.error?.code === "encryption_binding_stale";
     if ((response.status === 401 || staleBinding) && token.refreshToken) {
-      if (attempt.pendingMutation && (attempt.directDeliveryUncertain || attempt.resumingMutation)) {
+      if (attempt.pendingMutation
+          && (attempt.directDeliveryUncertain
+            || (attempt.encryptedRequest && attempt.resumingMutation))) {
         throw new MdbaseConnectError(
           "direct_outcome_unknown",
           "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change."
@@ -2836,10 +2855,12 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     const body = await response.json();
     if (!response.ok) {
       const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
-      if (attempt.pendingMutation && (attempt.directDeliveryUncertain || attempt.resumingMutation)) {
+      if (attempt.pendingMutation
+          && (attempt.directDeliveryUncertain
+            || (attempt.encryptedRequest && attempt.resumingMutation))) {
         throw uncertainDirectMutation(error);
       }
-      if (attempt.pendingMutation && !attempt.directDeliveryUncertain && !attempt.resumingMutation) {
+      if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
         this.clearPendingMutation();
       }
       if (error.code === "direct_operation_rejected" && error.status === 403) {
@@ -2872,6 +2893,13 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         throw error;
       }
     }
+    if (body?.protocol_version !== 1 || body?.request_id !== attempt.requestId) {
+      throw new MdbaseConnectError(
+        "invalid_operation_response",
+        "The collection authority returned a response for a different protocol request."
+      );
+    }
+    if (attempt.pendingMutation) this.clearPendingMutation();
     return body.result as Result;
   }
 
@@ -2946,46 +2974,64 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     let encryptedRequest: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
     let pendingMutation = false;
     let resumingMutation = false;
+    let requestId: string = crypto.randomUUID();
+    let pending: PendingMutation | null = null;
+    let inputFingerprint: string | undefined;
+    if (isMutation(operation, input)) {
+      inputFingerprint = await operationFingerprint(operation, input);
+      pending = parseStored<PendingMutation>(
+        this.storage.getItem(this.pendingMutationKey())
+      );
+      if (pending) {
+        if (pending.collectionId !== token.collectionId
+            || pending.grantId !== token.grantId
+            || pending.keyId !== token.encryption?.key_id
+            || pending.operation !== operation
+            || pending.inputFingerprint !== inputFingerprint) {
+          throw new MdbaseConnectError(
+            "pending_mutation_unresolved",
+            "A previous write still has an unknown outcome. Retry that exact write before making another change."
+          );
+        }
+        requestId = pending.requestId;
+        resumingMutation = true;
+      }
+      pendingMutation = true;
+    }
     if (token.encryption && !token.authority) {
       if (!token.grantId || !token.keyHandle) {
         throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
       try {
-        if (isMutation(operation, input)) {
-          const inputFingerprint = await operationFingerprint(operation, input);
-          const pending = parseStored<PendingEncryptedMutation>(
-            this.storage.getItem(this.pendingMutationKey())
-          );
+        if (pendingMutation) {
           if (pending) {
-            if (pending.grantId !== token.grantId
-                || pending.keyId !== token.encryption.key_id
-                || pending.operation !== operation
-                || pending.inputFingerprint !== inputFingerprint) {
+            if (!pending.envelope) {
               throw new MdbaseConnectError(
                 "pending_mutation_unresolved",
-                "A previous direct write still has an unknown outcome. Retry that same write before making another change."
+                "The pending write belongs to a different transport. Reconnect before retrying it."
               );
             }
             encryptedRequest = pending.envelope;
-            resumingMutation = true;
           } else {
             encryptedRequest = await encryptRelayRequest(
               this.keyStore,
               token.keyHandle,
               { grantId: token.grantId, applicationId: token.clientId, encryption: token.encryption },
               operation,
-              input
+              input,
+              requestId
             );
             this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
-              grantId: token.grantId,
+              collectionId: token.collectionId,
+              ...(token.grantId ? { grantId: token.grantId } : {}),
               keyId: token.encryption.key_id,
               operation,
-              inputFingerprint,
+              inputFingerprint: inputFingerprint!,
+              requestId,
               envelope: encryptedRequest,
               createdAt: Date.now()
-            } satisfies PendingEncryptedMutation));
+            } satisfies PendingMutation));
           }
-          pendingMutation = true;
         } else {
           encryptedRequest = await encryptRelayRequest(
             this.keyStore,
@@ -3000,6 +3046,23 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         throw error;
       }
       body = encryptedRequest;
+    } else {
+      const request: MdbaseOperationRequest = {
+        protocol_version: 1,
+        request_id: requestId,
+        input: body
+      };
+      body = request;
+      if (pendingMutation && !pending) {
+        this.storage.setItem(this.pendingMutationKey(), JSON.stringify({
+          collectionId: token.collectionId,
+          ...(token.grantId ? { grantId: token.grantId } : {}),
+          operation,
+          inputFingerprint: inputFingerprint!,
+          requestId,
+          createdAt: Date.now()
+        } satisfies PendingMutation));
+      }
     }
     if (tryDirect && encryptedRequest && !token.authority) {
       let directDeliveryUncertain = false;
@@ -3015,7 +3078,13 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
             this.markDirectAvailable();
             this.setRoute("direct");
           }
-          return { response, encryptedRequest, pendingMutation, resumingMutation };
+          return {
+            response,
+            requestId,
+            encryptedRequest,
+            pendingMutation,
+            resumingMutation
+          };
         }
         directDeliveryUncertain = response.status >= 500;
         this.markDirectUnavailable();
@@ -3053,7 +3122,14 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         throw error;
       }
       if (response.ok) this.setRoute("relay");
-      return { response, encryptedRequest, directDeliveryUncertain, pendingMutation, resumingMutation };
+      return {
+        response,
+        requestId,
+        encryptedRequest,
+        directDeliveryUncertain,
+        pendingMutation,
+        resumingMutation
+      };
     }
     const operationUrl = token.authority
       ? `${token.authority.operationsUrl}/${operation}`
@@ -3079,7 +3155,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
         signal: options.signal
       });
     if (response.ok) this.setRoute(token.authority ? "remote" : "relay");
-    return { response, encryptedRequest, pendingMutation, resumingMutation };
+    return { response, requestId, encryptedRequest, pendingMutation, resumingMutation };
   }
 
   private directCapable(token: StoredToken | null): boolean {
@@ -3093,7 +3169,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   private hasResumableMutationTransport(): boolean {
     const token = this.currentToken();
-    return Boolean(token?.encryption && !token.authority && token.grantId && token.keyHandle);
+    return Boolean(token);
   }
 
   private directEligible(token: StoredToken | null): token is StoredToken {
@@ -3629,7 +3705,7 @@ function sortJson(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .filter(([, item]) => item !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
         .map(([key, item]) => [key, sortJson(item)])
     );
   }

@@ -4,7 +4,7 @@ use mdbase_connect_protocol::{
     authority_manifest_digest, AuthoritySnapshot, AuthoritySnapshotRecord, SyncChange,
     SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation, SyncMutationOperation,
     SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncSession, SyncSnapshotPage,
-    CONTROL_PROTOCOL_VERSION,
+    SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -424,16 +424,34 @@ impl LocalSyncStore {
         collection_id: Uuid,
         replica: &LocalReplica,
         resources: SyncCollectionResources,
+        collection_snapshot: &CollectionSnapshot,
     ) -> Result<SyncSession, ConnectError> {
         let mut connection = self.connection()?;
         let transaction =
             connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let replica = upsert_replica(&transaction, collection_id, replica)?;
         let state = required_collection_state(&transaction, collection_id)?;
+        let documents = collection_snapshot
+            .records
+            .iter()
+            .map(|record| (record.path.as_str(), record.document.as_str()))
+            .collect::<HashMap<_, _>>();
         let records = records(&transaction, collection_id)?
             .into_values()
             .filter(|record| visible(record, &replica.allowed_types))
-            .collect::<Vec<_>>();
+            .map(|record| {
+                let document = documents.get(record.path.as_str()).ok_or_else(|| {
+                    ConnectError::CollectionOpen(format!(
+                        "Local sync snapshot is missing exact Markdown for {}.",
+                        record.path
+                    ))
+                })?;
+                Ok(SyncSnapshotRecord {
+                    record,
+                    document: (*document).to_string(),
+                })
+            })
+            .collect::<Result<Vec<_>, ConnectError>>()?;
         let snapshot_id = Uuid::new_v4();
         transaction.execute(
             "DELETE FROM local_sync_snapshots WHERE expires_at <= CURRENT_TIMESTAMP",
@@ -512,7 +530,7 @@ impl LocalSyncStore {
                     "Snapshot expired or belongs to another replica.".to_string(),
                 )
             })?;
-        let records = serde_json::from_str::<Vec<SyncRecord>>(&row.2)?;
+        let records = serde_json::from_str::<Vec<SyncSnapshotRecord>>(&row.2)?;
         if offset > records.len() {
             return Err(ConnectError::AccessDenied(
                 "Snapshot page is outside the result set.".to_string(),

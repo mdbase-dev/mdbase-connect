@@ -1,6 +1,9 @@
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
-use mdbase_connect_protocol::{AgentConnectionState, RelayMessage};
+use mdbase_connect_protocol::{
+    AgentConnectionState, RelayMessage, CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES,
+    RELAY_HANDSHAKE_TIMEOUT_SECONDS,
+};
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +41,42 @@ async fn connect_once(
         "authorization",
         HeaderValue::from_str(&format!("Bearer {connector_token}"))?,
     );
-    let (socket, _) = connect_async(request).await?;
+    let (mut socket, _) = connect_async(request).await?;
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&RelayMessage::RelayHello {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                connector_version: env!("CARGO_PKG_VERSION").to_string(),
+                capabilities: RELAY_CAPABILITIES
+                    .iter()
+                    .map(|capability| (*capability).to_string())
+                    .collect(),
+            })?
+            .into(),
+        ))
+        .await?;
+    let welcome = tokio::time::timeout(
+        Duration::from_secs(RELAY_HANDSHAKE_TIMEOUT_SECONDS),
+        socket.next(),
+    )
+    .await
+    .map_err(|_| "relay handshake timed out")?
+    .ok_or("relay closed during handshake")??;
+    let Message::Text(welcome) = welcome else {
+        return Err("relay returned a non-text handshake response".into());
+    };
+    match serde_json::from_str::<RelayMessage>(welcome.as_ref())? {
+        RelayMessage::RelayWelcome {
+            protocol_version,
+            capabilities,
+            ..
+        } if protocol_version == CONTROL_PROTOCOL_VERSION
+            && RELAY_CAPABILITIES
+                .iter()
+                .all(|required| capabilities.iter().any(|value| value == required)) => {}
+        RelayMessage::RelayIncompatible { message, .. } => return Err(message.into()),
+        _ => return Err("relay returned an incompatible handshake response".into()),
+    }
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
     let operation_slots = Arc::new(tokio::sync::Semaphore::new(16));
@@ -56,7 +94,11 @@ async fn connect_once(
                         if matches!(&relay_message, RelayMessage::PolicySnapshot { .. }) {
                             // Apply policy in receive order so every subsequently
                             // accepted operation sees the latest local grant state.
-                            state.handle_relay_message(relay_message);
+                            if let Some(response) = state.handle_relay_message(relay_message) {
+                                writer.send(Message::Text(
+                                    serde_json::to_string(&response)?.into()
+                                )).await?;
+                            }
                         } else {
                             let state_for_operation = state.clone();
                             let responses = responses.clone();

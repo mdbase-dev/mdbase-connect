@@ -11,10 +11,11 @@ use axum::{
     Json, Router,
 };
 use mdbase_connect_protocol::{
-    AuthorityImportManifest, AuthorityImportRecordPage, GrantSummary, SyncChangesPage,
-    SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
-    AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
-    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER,
+    AuthorityImportManifest, AuthorityImportRecordPage, GrantSummary, OperationRequest,
+    OperationResponse, SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession,
+    SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
+    AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER,
+    AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -691,14 +692,43 @@ async fn operation(
         .provider
         .authorize_request(collection_id, token, origin, proof.as_ref())
         .await?;
-    let input = serde_json::from_slice::<Value>(&body).map_err(|_| {
+    let request = serde_json::from_slice::<OperationRequest>(&body).map_err(|_| {
         ApiError::bad_request("invalid_json", "The hosted operation body is invalid.")
     })?;
+    if request.protocol_version != CONTROL_PROTOCOL_VERSION {
+        return Err(ApiError::bad_request(
+            "unsupported_protocol_version",
+            format!(
+                "Operation protocol {} is unsupported; expected {}.",
+                request.protocol_version, CONTROL_PROTOCOL_VERSION
+            ),
+        ));
+    }
     let result = state
         .provider
-        .operation(collection_id, token, &operation, input, origin)
+        .operation(
+            collection_id,
+            token,
+            &operation,
+            request.request_id,
+            request.input,
+            origin,
+        )
         .await?;
-    Ok(Json(json!({ "ok": true, "result": result })))
+    Ok(Json(
+        serde_json::to_value(OperationResponse {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id: request.request_id,
+            ok: true,
+            result: Some(result),
+            error: None,
+        })
+        .map_err(|error| {
+            ApiError::internal(format!(
+                "Hosted operation response could not serialize: {error}"
+            ))
+        })?,
+    ))
 }
 
 fn request_origin(headers: &HeaderMap) -> Option<&str> {

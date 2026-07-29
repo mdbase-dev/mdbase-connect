@@ -4,9 +4,13 @@
   "title": "mdbase connect protocol 1",
   "description": "Canonical wire shapes shared by applications, the control plane, and connectors.",
   "oneOf": [
+    { "$ref": "#/$defs/relayHello" },
+    { "$ref": "#/$defs/relayWelcome" },
+    { "$ref": "#/$defs/relayIncompatible" },
     { "$ref": "#/$defs/relayOperationRequest" },
     { "$ref": "#/$defs/relayOperationResponse" },
     { "$ref": "#/$defs/relayPolicySnapshot" },
+    { "$ref": "#/$defs/relayPolicyApplied" },
     { "$ref": "#/$defs/authorizationOfferRequest" },
     { "$ref": "#/$defs/authorizationOfferResponse" },
     { "$ref": "#/$defs/authorizationActivationRequest" },
@@ -75,6 +79,48 @@
         "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
       }
     },
+    "relayHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "connector_version", "capabilities"],
+      "properties": {
+        "type": { "const": "relay_hello" },
+        "protocol_version": { "const": 1 },
+        "connector_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        }
+      }
+    },
+    "relayWelcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "session_id", "capabilities"],
+      "properties": {
+        "type": { "const": "relay_welcome" },
+        "protocol_version": { "const": 1 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        }
+      }
+    },
+    "relayIncompatible": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "code", "message", "update_url"],
+      "properties": {
+        "type": { "const": "relay_incompatible" },
+        "protocol_version": { "const": 1 },
+        "code": { "const": "connector_upgrade_required" },
+        "message": { "type": "string", "minLength": 1 },
+        "update_url": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    },
     "relayOperationRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -89,6 +135,50 @@
         "operation": { "$ref": "#/$defs/operation" },
         "input": true
       }
+    },
+    "operationHttpRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "input"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "input": true
+      }
+    },
+    "operationHttpResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "request_id", "ok"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "ok": { "type": "boolean" },
+        "result": true,
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "details": true
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ok": { "const": true } }, "required": ["ok"] },
+          "then": {
+            "required": ["result"],
+            "not": { "properties": { "error": true }, "required": ["error"] }
+          },
+          "else": {
+            "required": ["error"],
+            "not": { "properties": { "result": true }, "required": ["result"] }
+          }
+        }
+      ]
     },
     "relayOperationResponse": {
       "type": "object",
@@ -182,7 +272,8 @@
           "maxItems": 20,
           "items": { "$ref": "#/$defs/contractRequirement" }
         },
-        "access": { "enum": ["contract", "full_collection"] }
+        "access": { "enum": ["contract", "full_collection"] },
+        "collection_kind": { "const": "hosted" }
       }
     },
     "typePackProvision": {
@@ -363,7 +454,7 @@
     "grantEncryption": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol_version", "suite", "key_id", "scope_epoch", "connector_id", "collection_id", "application_public_key", "connector_public_key"],
+      "required": ["protocol_version", "suite", "key_id", "scope_epoch", "connector_id", "collection_id", "application_agreement_public_key", "connector_agreement_public_key"],
       "properties": {
         "protocol_version": { "const": 1 },
         "suite": { "const": "P256-HKDF-SHA256-AES256GCM" },
@@ -371,19 +462,50 @@
         "scope_epoch": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "connector_id": { "$ref": "#/$defs/uuid" },
         "collection_id": { "$ref": "#/$defs/uuid" },
-        "application_public_key": { "type": "string", "minLength": 80, "maxLength": 200, "pattern": "^[A-Za-z0-9_-]+$" },
-        "connector_public_key": { "type": "string", "minLength": 80, "maxLength": 200, "pattern": "^[A-Za-z0-9_-]+$" }
+        "application_agreement_public_key": { "type": "string", "minLength": 80, "maxLength": 200, "pattern": "^[A-Za-z0-9_-]+$" },
+        "connector_agreement_public_key": { "type": "string", "minLength": 80, "maxLength": 200, "pattern": "^[A-Za-z0-9_-]+$" }
       }
     },
     "relayPolicySnapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "grants"],
+      "required": ["type", "protocol_version", "request_id", "revision", "grants"],
       "properties": {
         "type": { "const": "policy_snapshot" },
         "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "revision": { "$ref": "#/$defs/digest" },
         "grants": { "type": "array", "items": { "$ref": "#/$defs/grantPolicy" } }
       }
+    },
+    "relayPolicyApplied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "protocol_version", "request_id", "revision", "ok"],
+      "properties": {
+        "type": { "const": "policy_applied" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "revision": { "$ref": "#/$defs/digest" },
+        "ok": { "type": "boolean" },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string" },
+            "details": true
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ok": { "const": true } }, "required": ["ok"] },
+          "then": { "not": { "properties": { "error": true }, "required": ["error"] } },
+          "else": { "required": ["error"] }
+        }
+      ]
     },
     "collectionDescription": {
       "type": "object",

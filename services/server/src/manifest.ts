@@ -6,6 +6,7 @@ import type {
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import { z } from "zod";
+import { canonicalSha256 } from "./canonical-json.js";
 
 export { isNativeRedirectUri };
 
@@ -172,9 +173,7 @@ export function registerApplicationManifest(
     const parsed = manifestSchema.parse(value);
     validateManifestIdentity(parsed, allowInsecure);
     const manifest: AppManifest = parsed;
-    const digest = createHash("sha256")
-      .update(JSON.stringify(manifest))
-      .digest("hex");
+    const digest = canonicalSha256(manifest).slice("sha256:".length);
     return {
       manifest,
       canonicalIdentity: `bundle:${parsed.id}:sha256:${digest}`,

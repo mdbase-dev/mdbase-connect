@@ -104,9 +104,30 @@ describe("live connector-mediated authorization", () => {
     });
     const relayMessages: Array<Record<string, unknown>> = [];
     let rejectActivation = false;
+    socket.on("open", () => {
+      socket.send(JSON.stringify({
+        type: "relay_hello",
+        protocol_version: 1,
+        connector_version: "0.1.0-test",
+        capabilities: [
+          "authorization-activation",
+          "encrypted-relay",
+          "policy-ack"
+        ]
+      }));
+    });
     socket.on("message", (raw) => {
       const message = JSON.parse(raw.toString()) as Record<string, unknown>;
       relayMessages.push(message);
+      if (message.type === "policy_snapshot") {
+        socket.send(JSON.stringify({
+          type: "policy_applied",
+          protocol_version: 1,
+          request_id: message.request_id,
+          revision: message.revision,
+          ok: true
+        }));
+      }
       if (message.type === "authorization_offer_request") {
         socket.send(JSON.stringify({
           type: "authorization_offer_response",
@@ -250,6 +271,54 @@ describe("live connector-mediated authorization", () => {
       "SELECT COUNT(*) AS count FROM grants WHERE activated_at IS NULL"
     );
     expect(Number(pendingGrants.rows[0].count)).toBe(0);
+  });
+
+  it("rejects a pre-handshake connector with an actionable upgrade response", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test"
+    });
+    resources.push(() => app.close());
+    const session = await app.inject({
+      method: "POST",
+      url: "/v1/dev/session",
+      payload: { name: "Owner", email: "upgrade@example.test" }
+    });
+    const setCookie = session.headers["set-cookie"]!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0] : setCookie).split(";")[0];
+    const connector = (await app.inject({
+      method: "POST",
+      url: "/v1/connectors",
+      headers: { cookie },
+      payload: { name: "Outdated computer" }
+    })).json();
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const socket = new WebSocket(
+      `${address.replace(/^http/, "ws")}/v1/relay`,
+      { headers: { authorization: `Bearer ${connector.token}` } }
+    );
+    await once(socket, "open");
+    const messagePromise = once(socket, "message");
+    const closePromise = once(socket, "close");
+    socket.send(JSON.stringify({
+      type: "policy_applied",
+      protocol_version: 1,
+      request_id: "01911111-1111-7111-8111-111111111111",
+      revision: `sha256:${"0".repeat(64)}`,
+      ok: true
+    }));
+    const [raw] = await messagePromise;
+    expect(JSON.parse(raw.toString())).toMatchObject({
+      type: "relay_incompatible",
+      protocol_version: 1,
+      code: "connector_upgrade_required",
+      update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+    });
+    const [code] = await closePromise;
+    expect(code).toBe(4406);
   });
 });
 

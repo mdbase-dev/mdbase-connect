@@ -10,6 +10,10 @@ import type {
   GrantPolicy,
   GrantScope
 } from "@mdbase/connect-protocol";
+import {
+  CONTROL_PROTOCOL_VERSION,
+  RELAY_CAPABILITIES
+} from "@mdbase/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
   LocalRelayBroker,
@@ -19,6 +23,7 @@ import {
   type RelayBrokerCommand,
   type RelayBrokerReply
 } from "./relay-broker.js";
+import { canonicalSha256 } from "./canonical-json.js";
 import type { WebSocket } from "ws";
 
 const OPERATION_TIMEOUT_MS = 30_000;
@@ -26,6 +31,9 @@ const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
 const OFFER_TIMEOUT_MS = 3_000;
 const BROKER_OFFER_TIMEOUT_MS = OFFER_TIMEOUT_MS + 1_000;
 const POLICY_TIMEOUT_MS = 5_000;
+const HANDSHAKE_TIMEOUT_MS = 5_000;
+const INCOMPATIBLE_CLOSE_CODE = 4406;
+const CONNECTOR_UPDATE_URL = "https://github.com/mdbase-dev/mdbase-connect/releases/latest";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -33,13 +41,24 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
   socket: WebSocket;
   expectedEncrypted?: EncryptedRelayEnvelope;
-  expectedType?: "operation_response" | "authorization_offer_response" | "authorization_activation_response";
+  expectedType?:
+    | "operation_response"
+    | "authorization_offer_response"
+    | "authorization_activation_response"
+    | "policy_applied";
+  expectedPolicyRevision?: string;
 }
 
 interface ConnectorSession {
   generation: string;
   socket: WebSocket;
   binding: RelayBrokerBinding;
+}
+
+interface RelayHello {
+  protocol_version: number;
+  connector_version: string;
+  capabilities: string[];
 }
 
 export class RelayHub {
@@ -51,7 +70,22 @@ export class RelayHub {
     private readonly broker: RelayBroker = new LocalRelayBroker()
   ) {}
 
-  async attach(connectorId: string, socket: WebSocket): Promise<void> {
+  beginHandshake(socket: WebSocket): Promise<RelayHello | null> {
+    return receiveRelayHello(socket);
+  }
+
+  async attach(
+    connectorId: string,
+    socket: WebSocket,
+    handshake: Promise<RelayHello | null> = receiveRelayHello(socket)
+  ): Promise<void> {
+    const hello = await handshake;
+    if (!hello
+        || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
+        || !RELAY_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
+      rejectIncompatibleRelay(socket);
+      return;
+    }
     const updated = await this.db.query<{ relay_generation: string | number }>(
       `UPDATE connectors
        SET last_seen_at = now(), relay_generation = relay_generation + 1
@@ -113,7 +147,12 @@ export class RelayHub {
           paused?: boolean;
           collections?: unknown[];
           contracts?: unknown[];
+          revision?: string;
         };
+        if (message.protocol_version !== CONTROL_PROTOCOL_VERSION) {
+          rejectIncompatibleRelay(socket);
+          return;
+        }
         if (!message.request_id) return;
         const pending = this.pending.get(message.request_id);
         if (!pending || pending.socket !== socket) return;
@@ -182,6 +221,30 @@ export class RelayHub {
           }
           return;
         }
+        if (message.type === "policy_applied") {
+          if (pending.expectedType !== "policy_applied"
+              || message.revision !== pending.expectedPolicyRevision) {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                "invalid_policy_acknowledgement",
+                "The connector acknowledged a different policy revision."
+              )
+            );
+            return;
+          }
+          if (message.ok) this.resolvePending(message.request_id, message);
+          else {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                message.error?.code ?? "policy_apply_failed",
+                message.error?.message ?? "The connector could not apply its policy."
+              )
+            );
+          }
+          return;
+        }
         if (message.type !== "operation_response") return;
         if (pending.expectedType !== "operation_response") {
           this.rejectPending(
@@ -207,6 +270,13 @@ export class RelayHub {
         socket.close(4002, "Invalid relay message");
       }
     });
+
+    socket.send(JSON.stringify({
+      type: "relay_welcome",
+      protocol_version: CONTROL_PROTOCOL_VERSION,
+      session_id: generation,
+      capabilities: [...RELAY_CAPABILITIES]
+    }));
     socket.once("close", () => {
       const current = this.connectors.get(connectorId);
       if (current?.socket === socket && current.generation === generation) {
@@ -266,30 +336,33 @@ export class RelayHub {
     );
     const generation = await this.currentGeneration(connectorId);
     if (!generation) return;
+    const policyGrants = grants.rows.map((grant) => ({
+      id: grant.id,
+      application_id: grant.application_id,
+      collection_id: grant.local_id,
+      operations: grant.operations,
+      scope: grant.scope,
+      application_name: grant.application_name,
+      application_distribution: grant.application_distribution,
+      application_homepage: grant.application_homepage,
+      ...(grant.application_project_url
+        ? { application_project_url: grant.application_project_url }
+        : {}),
+      application_origin: grant.application_origin === "null"
+        ? "null"
+        : new URL(grant.application_origin).origin,
+      application_icon: grant.application_icon,
+      collection_name: grant.collection_name,
+      notification_criteria: grant.notification_criteria,
+      created_at: grant.created_at,
+      ...(grant.encryption ? { encryption: grant.encryption } : {})
+    }));
     const message = {
       type: "policy_snapshot",
-      protocol_version: 1,
-      grants: grants.rows.map((grant) => ({
-        id: grant.id,
-        application_id: grant.application_id,
-        collection_id: grant.local_id,
-        operations: grant.operations,
-        scope: grant.scope,
-        application_name: grant.application_name,
-        application_distribution: grant.application_distribution,
-        application_homepage: grant.application_homepage,
-        ...(grant.application_project_url
-          ? { application_project_url: grant.application_project_url }
-          : {}),
-        application_origin: grant.application_origin === "null"
-          ? "null"
-          : new URL(grant.application_origin).origin,
-        application_icon: grant.application_icon,
-        collection_name: grant.collection_name,
-        notification_criteria: grant.notification_criteria,
-        created_at: grant.created_at,
-        ...(grant.encryption ? { encryption: grant.encryption } : {})
-      }))
+      protocol_version: CONTROL_PROTOCOL_VERSION,
+      request_id: randomUUID(),
+      revision: canonicalSha256(policyGrants),
+      grants: policyGrants
     };
     try {
       await this.broker.request(
@@ -308,17 +381,17 @@ export class RelayHub {
   async route(input: {
     connectorId: string;
     localCollectionId: string;
+    requestId: string;
     grantId: string;
     applicationId: string;
     operation: string;
     operationInput: unknown;
   }): Promise<unknown> {
     const generation = await this.requireCurrentGeneration(input.connectorId);
-    const requestId = randomUUID();
     return this.deliver(input.connectorId, generation, {
       type: "operation_request",
-      protocol_version: 1,
-      request_id: requestId,
+      protocol_version: CONTROL_PROTOCOL_VERSION,
+      request_id: input.requestId,
       grant_id: input.grantId,
       collection_id: input.localCollectionId,
       application_id: input.applicationId,
@@ -353,7 +426,7 @@ export class RelayHub {
     const requestId = randomUUID();
     const response = await this.deliver(connectorId, generation, {
       type: "authorization_offer_request",
-      protocol_version: 1,
+      protocol_version: CONTROL_PROTOCOL_VERSION,
       request_id: requestId,
       authorization_id: authorizationId
     }, BROKER_OFFER_TIMEOUT_MS);
@@ -374,7 +447,7 @@ export class RelayHub {
     const requestId = randomUUID();
     const response = await this.deliver(connectorId, generation, {
       type: "authorization_activation_request",
-      protocol_version: 1,
+      protocol_version: CONTROL_PROTOCOL_VERSION,
       request_id: requestId,
       authorization_id: input.authorizationId,
       collection_id: input.collectionId,
@@ -437,11 +510,29 @@ export class RelayHub {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
     }
     if (command.kind === "policy") {
+      const requestId = requestIdFromMessage(command.message);
+      const revision = policyRevisionFromMessage(command.message);
+      if (!requestId || !revision) {
+        return brokerError("internal", "invalid_policy_snapshot", "The policy snapshot was incomplete.");
+      }
       try {
-        session.socket.send(JSON.stringify(command.message));
-        return { version: 1, ok: true };
-      } catch {
-        return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
+        const value = await this.sendToConnector(
+          session.socket,
+          requestId,
+          command.message,
+          undefined,
+          "policy_applied",
+          revision
+        );
+        return { version: 1, ok: true, value };
+      } catch (error) {
+        if (error instanceof RelayUnavailableError) {
+          return brokerError("unavailable", "connector_offline", error.message);
+        }
+        if (error instanceof ConnectorOperationError) {
+          return brokerError("connector", error.code, error.message);
+        }
+        return brokerError("internal", "policy_delivery_failed", "The connector could not apply its policy.");
       }
     }
     const requestId = requestIdFromMessage(command.message);
@@ -477,7 +568,8 @@ export class RelayHub {
     requestId: string,
     message: unknown,
     expectedEncrypted?: EncryptedRelayEnvelope,
-    expectedType?: PendingRequest["expectedType"]
+    expectedType?: PendingRequest["expectedType"],
+    expectedPolicyRevision?: string
   ): Promise<unknown> {
     if (this.pending.has(requestId)) {
       return Promise.reject(new ConnectorOperationError(
@@ -501,7 +593,8 @@ export class RelayHub {
         timer,
         socket,
         expectedEncrypted,
-        expectedType
+        expectedType,
+        expectedPolicyRevision
       });
       try {
         socket.send(JSON.stringify(message), (error) => {
@@ -556,6 +649,12 @@ function requestIdFromMessage(message: unknown): string | null {
   return typeof requestId === "string" && requestId.length > 0 ? requestId : null;
 }
 
+function policyRevisionFromMessage(message: unknown): string | null {
+  if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
+  const revision = (message as { revision?: unknown }).revision;
+  return typeof revision === "string" && revision.length > 0 ? revision : null;
+}
+
 function encryptedRequestFromMessage(message: unknown): EncryptedRelayEnvelope | undefined {
   if (typeof message !== "object" || message === null || Array.isArray(message)) return undefined;
   return (message as { type?: unknown }).type === "encrypted_operation_request"
@@ -572,10 +671,57 @@ function expectedResponseType(message: unknown): PendingRequest["expectedType"] 
       return "authorization_offer_response";
     case "authorization_activation_request":
       return "authorization_activation_response";
+    case "policy_snapshot":
+      return "policy_applied";
     default:
       return undefined;
   }
 }
+
+async function receiveRelayHello(socket: WebSocket): Promise<RelayHello | null> {
+  return new Promise((resolve) => {
+    const finish = (value: RelayHello | null) => {
+      clearTimeout(timer);
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+      resolve(value);
+    };
+    const onMessage = (raw: WebSocket.RawData) => {
+      try {
+        const value = JSON.parse(raw.toString()) as Record<string, unknown>;
+        finish(value.type === "relay_hello"
+          && typeof value.protocol_version === "number"
+          && typeof value.connector_version === "string"
+          && Array.isArray(value.capabilities)
+          && value.capabilities.every((capability) => typeof capability === "string")
+          ? {
+              protocol_version: value.protocol_version,
+              connector_version: value.connector_version,
+              capabilities: value.capabilities as string[]
+            }
+          : null);
+      } catch {
+        finish(null);
+      }
+    };
+    const onClose = () => finish(null);
+    const timer = setTimeout(() => finish(null), HANDSHAKE_TIMEOUT_MS);
+    socket.once("message", onMessage);
+    socket.once("close", onClose);
+  });
+}
+
+function rejectIncompatibleRelay(socket: WebSocket): void {
+  if (socket.readyState !== 1) return;
+  socket.send(JSON.stringify({
+    type: "relay_incompatible",
+    protocol_version: CONTROL_PROTOCOL_VERSION,
+    code: "connector_upgrade_required",
+    message: "This mdbase Connect version is no longer compatible. Update the desktop app and reconnect.",
+    update_url: CONNECTOR_UPDATE_URL
+  }), () => socket.close(INCOMPATIBLE_CLOSE_CODE, "Connector upgrade required"));
+}
+
 
 function brokerError(
   kind: "unavailable" | "connector" | "internal",

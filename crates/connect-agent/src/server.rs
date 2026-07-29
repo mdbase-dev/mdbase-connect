@@ -268,13 +268,54 @@ impl AgentState {
 
     pub fn handle_relay_message(&self, message: RelayMessage) -> Option<RelayMessage> {
         match message {
-            RelayMessage::PolicySnapshot { grants, .. } => {
-                if let Err(error) = self.registry.replace_grants(&grants) {
-                    tracing::error!(%error, "failed to apply relay policy snapshot");
-                } else {
-                    tracing::debug!(grants = grants.len(), "relay policy snapshot applied");
+            RelayMessage::PolicySnapshot {
+                protocol_version,
+                request_id,
+                revision,
+                grants,
+            } => {
+                if protocol_version != CONTROL_PROTOCOL_VERSION {
+                    return Some(RelayMessage::PolicyApplied {
+                        protocol_version: CONTROL_PROTOCOL_VERSION,
+                        request_id,
+                        revision,
+                        ok: false,
+                        error: Some(ControlError {
+                            code: "unsupported_protocol_version".to_string(),
+                            message: format!(
+                                "Relay protocol {protocol_version} is unsupported; expected {}.",
+                                CONTROL_PROTOCOL_VERSION
+                            ),
+                            details: None,
+                        }),
+                    });
                 }
-                None
+                match self.registry.replace_grants(&grants) {
+                    Ok(()) => {
+                        tracing::debug!(grants = grants.len(), %revision, "relay policy snapshot applied");
+                        Some(RelayMessage::PolicyApplied {
+                            protocol_version: CONTROL_PROTOCOL_VERSION,
+                            request_id,
+                            revision,
+                            ok: true,
+                            error: None,
+                        })
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, %revision, "failed to apply relay policy snapshot");
+                        Some(RelayMessage::PolicyApplied {
+                            protocol_version: CONTROL_PROTOCOL_VERSION,
+                            request_id,
+                            revision,
+                            ok: false,
+                            error: Some(ControlError {
+                                code: error.code().to_string(),
+                                message: error.to_string(),
+                                details: None,
+                            }),
+                        })
+                    }
+                }
             }
             RelayMessage::AuthorizationOfferRequest {
                 request_id,
@@ -526,7 +567,11 @@ impl AgentState {
             RelayMessage::EncryptedOperationRequest { envelope } => {
                 Some(self.handle_encrypted_operation(envelope))
             }
-            RelayMessage::OperationResponse { .. }
+            RelayMessage::RelayHello { .. }
+            | RelayMessage::RelayWelcome { .. }
+            | RelayMessage::RelayIncompatible { .. }
+            | RelayMessage::PolicyApplied { .. }
+            | RelayMessage::OperationResponse { .. }
             | RelayMessage::AuthorizationOfferResponse { .. }
             | RelayMessage::AuthorizationActivationResponse { .. }
             | RelayMessage::EncryptedOperationResponse { .. }
@@ -568,7 +613,7 @@ impl AgentState {
         };
         let Ok(keys) = self
             .relay_identity
-            .derive(&encryption.application_public_key, &binding)
+            .derive(&encryption.application_agreement_public_key, &binding)
         else {
             return rejected();
         };
@@ -1779,6 +1824,7 @@ mod tests {
                 requirements: ApplicationRequirements {
                     contracts: Vec::new(),
                     access: Some(ApplicationAccess::FullCollection),
+                    collection_kind: None,
                 },
                 provisions: ApplicationProvisions::default(),
                 grant: Box::new(grant.clone()),
@@ -1821,8 +1867,8 @@ mod tests {
             scope_epoch: 1,
             connector_id,
             collection_id: collection.id,
-            application_public_key: application_identity.public_key(),
-            connector_public_key: connector_identity.public_key(),
+            application_agreement_public_key: application_identity.public_key(),
+            connector_agreement_public_key: connector_identity.public_key(),
         };
         registry
             .replace_grants(&[GrantPolicy {
@@ -1846,7 +1892,7 @@ mod tests {
         let state = AgentState::with_identity(registry, watcher, None, connector_identity);
         let binding = RelayBinding::from_grant(grant_id, application_id, &encryption);
         let keys = application_identity
-            .derive(&encryption.connector_public_key, &binding)
+            .derive(&encryption.connector_agreement_public_key, &binding)
             .unwrap();
         let metadata = RelayMetadata {
             binding: &binding,

@@ -394,7 +394,14 @@ export class OAuthService {
     authorize.searchParams.set("operations", operationsForScopes(scopes).join(","));
     if (collectionId) authorize.searchParams.set("collection_id", collectionId);
     authorize.searchParams.set("relay_protocol", "1");
-    authorize.searchParams.set("application_public_key", key.publicKey);
+    authorize.searchParams.set(
+      "application_agreement_public_key",
+      key.agreementPublicKey
+    );
+    authorize.searchParams.set(
+      "application_signing_public_key",
+      key.signingPublicKey
+    );
     return authorize.href;
   }
 

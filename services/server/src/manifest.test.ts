@@ -4,6 +4,21 @@ import {
   isNativeRedirectUri,
   registerApplicationManifest
 } from "./manifest.js";
+import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
+
+describe("canonical protocol JSON", () => {
+  it("hashes equivalent objects identically regardless of insertion order", () => {
+    const left = { z: 1, a: { beta: true, alpha: ["x", 2] } };
+    const right = { a: { alpha: ["x", 2], beta: true }, z: 1 };
+    expect(canonicalJson(left)).toBe('{"a":{"alpha":["x",2],"beta":true},"z":1}');
+    expect(canonicalSha256(left)).toBe(canonicalSha256(right));
+  });
+
+  it("rejects values outside the JSON data model", () => {
+    expect(() => canonicalJson(Number.NaN)).toThrow("non-finite");
+    expect(() => canonicalJson(1n)).toThrow("bigint");
+  });
+});
 
 describe("native manifest callbacks", () => {
   it("accepts a reverse-domain private-use application scheme", () => {

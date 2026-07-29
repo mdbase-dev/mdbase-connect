@@ -308,6 +308,28 @@ test("sync wire objects are independently addressable", () => {
   assert.equal(validateSession(session), true, JSON.stringify(validateSession.errors));
   assert.equal(validateWireObject(session), true, JSON.stringify(validateWireObject.errors));
   assert.equal(validateSession({ ...session, resources: { ...session.resources, revision: "" } }), false);
+
+  const validateSnapshot = validator(`${syncSchema.$id}#/$defs/snapshotPage`);
+  const snapshot = {
+    protocol_version: 1,
+    snapshot_id: session.snapshot_id,
+    scope_epoch: 1,
+    cursor: 0,
+    records: [{
+      record_id: "01977777-7777-7777-8777-777777777777",
+      path: "tasks/one.md",
+      revision: "record:1",
+      frontmatter: { type: "task", title: "One" },
+      body: "Do it.\n",
+      types: ["task"],
+      document: "---\ntype: task\ntitle: One\n---\nDo it.\n"
+    }]
+  };
+  assert.equal(validateSnapshot(snapshot), true, JSON.stringify(validateSnapshot.errors));
+  assert.equal(validateSnapshot({
+    ...snapshot,
+    records: snapshot.records.map(({ document: _, ...record }) => record)
+  }), false);
 });
 
 test("encrypted relay envelopes expose routing metadata and reject payload-shaped fields", () => {
@@ -335,6 +357,26 @@ test("encrypted relay envelopes expose routing metadata and reject payload-shape
 
 test("relay request and response discriminators reject malformed wire messages", () => {
   const validate = validator(schema.$id);
+  const hello = {
+    type: "relay_hello",
+    protocol_version: 1,
+    connector_version: "0.1.0-beta.16",
+    capabilities: [
+      "authorization-activation",
+      "encrypted-relay",
+      "policy-ack"
+    ]
+  };
+  assert.equal(validate(hello), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...hello, capabilities: ["policy-ack", "policy-ack"] }), false);
+  const welcome = {
+    type: "relay_welcome",
+    protocol_version: 1,
+    session_id: "42",
+    capabilities: hello.capabilities
+  };
+  assert.equal(validate(welcome), true, JSON.stringify(validate.errors));
+
   const request = {
     type: "operation_request",
     protocol_version: 1,
@@ -389,6 +431,23 @@ test("relay request and response discriminators reject malformed wire messages",
     ...activation,
     ok: false
   }), false);
+
+  const policy = {
+    type: "policy_snapshot",
+    protocol_version: 1,
+    request_id: request.request_id,
+    revision: `sha256:${"0".repeat(64)}`,
+    grants: []
+  };
+  assert.equal(validate(policy), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...policy, revision: "latest" }), false);
+  assert.equal(validate({
+    type: "policy_applied",
+    protocol_version: 1,
+    request_id: request.request_id,
+    revision: policy.revision,
+    ok: true
+  }), true, JSON.stringify(validate.errors));
 });
 
 test("collection descriptions and operation envelopes have addressable schemas", () => {

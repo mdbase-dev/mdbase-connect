@@ -381,11 +381,12 @@ scheme must match the declaration ID. PKCE remains mandatory. Call
 link.
 
 New authorizations require encrypted relay protocol 1 by default. The SDK keeps
-a non-extractable per-authorization P-256 key and atomic message counter in
-IndexedDB, encrypts operation inputs for the connector, and decrypts connector
-results locally. Set `relayEncryption: "disabled"` only for development where
-end-to-end relay encryption is intentionally unavailable; an encrypted grant
-never falls back to plaintext.
+independent non-extractable P-256 ECDH agreement and ECDSA signing keys plus an
+atomic message counter in IndexedDB. It encrypts operation inputs for the
+connector, decrypts connector results locally, and signs hosted authority
+requests with the independent signing key. Set `relayEncryption: "disabled"`
+only for development where end-to-end relay encryption is intentionally
+unavailable; an encrypted grant never falls back to plaintext.
 
 For a hosted collection, the same authorization exchange returns a short-lived,
 grant-bound provider capability. The SDK routes operations directly to the

@@ -110,7 +110,12 @@ describe("mdbase MCP gateway", () => {
     expect(firstUpstream.origin).toBe("https://connect.example");
     expect(firstUpstream.searchParams.get("operations")).toContain("create");
     expect(firstUpstream.searchParams.get("relay_protocol")).toBe("1");
-    upstream.applicationPublicKeys.push(firstUpstream.searchParams.get("application_public_key")!);
+    upstream.applicationAgreementPublicKeys.push(
+      firstUpstream.searchParams.get("application_agreement_public_key")!
+    );
+    upstream.applicationSigningPublicKeys.push(
+      firstUpstream.searchParams.get("application_signing_public_key")!
+    );
 
     const firstCallback = await app.inject({
       method: "GET",
@@ -172,7 +177,12 @@ describe("mdbase MCP gateway", () => {
     const additional = await app.inject({ method: "GET", url: `${new URL(addUrl).pathname}${new URL(addUrl).search}` });
     expect(additional.statusCode).toBe(302);
     const secondUpstream = new URL(additional.headers.location!);
-    upstream.applicationPublicKeys.push(secondUpstream.searchParams.get("application_public_key")!);
+    upstream.applicationAgreementPublicKeys.push(
+      secondUpstream.searchParams.get("application_agreement_public_key")!
+    );
+    upstream.applicationSigningPublicKeys.push(
+      secondUpstream.searchParams.get("application_signing_public_key")!
+    );
     const secondCallback = await app.inject({
       method: "GET",
       url: `/oauth/connect/callback?${new URLSearchParams({
@@ -260,7 +270,8 @@ function testConfig(): McpRuntimeConfig {
 }
 
 async function fakeUpstream(realFetch: typeof fetch) {
-  const applicationPublicKeys: string[] = [];
+  const applicationAgreementPublicKeys: string[] = [];
+  const applicationSigningPublicKeys: string[] = [];
   const operationAuthorizations: string[] = [];
   const operationOrigins: string[] = [];
   const localInputs: unknown[] = [];
@@ -298,14 +309,15 @@ async function fakeUpstream(realFetch: typeof fetch) {
           scope_epoch: 1,
           connector_id: "50000000-0000-4000-8000-000000000001",
           collection_id: firstCollectionId,
-          application_public_key: applicationPublicKeys[0],
-          connector_public_key: connectorPublicKey
+          application_agreement_public_key: applicationAgreementPublicKeys[0],
+          connector_agreement_public_key: connectorPublicKey
         },
         ...(second ? { authority: {
           operations_url: `https://sync.example/v1/authorities/${secondCollectionId}/operations`,
           sync_url: `https://sync.example/v1/authorities/${secondCollectionId}/sync`,
           replica_id: "40000000-0000-4000-8000-000000000002",
-          access_token: "hosted-access-two"
+          access_token: "hosted-access-two",
+          proof_public_key: applicationSigningPublicKeys[1]
         } } : {})
       });
     }
@@ -314,9 +326,13 @@ async function fakeUpstream(realFetch: typeof fetch) {
       operationAuthorizations.push(headers.get("authorization")!);
       operationOrigins.push(headers.get("origin")!);
       const envelope = JSON.parse(String(init?.body));
-      const input = await decryptConnectorRequest(connectorKeys.privateKey, applicationPublicKeys[0], envelope);
+      const input = await decryptConnectorRequest(
+        connectorKeys.privateKey,
+        applicationAgreementPublicKeys[0],
+        envelope
+      );
       localInputs.push(input);
-      const responseEnvelope = await encryptConnectorResponse(connectorKeys.privateKey, applicationPublicKeys[0], envelope, {
+      const responseEnvelope = await encryptConnectorResponse(connectorKeys.privateKey, applicationAgreementPublicKeys[0], envelope, {
         valid: true,
         result: { results: [{ path: "notes/local.md", frontmatter: { title: "Local" }, types: ["note"] }] },
         diagnostics: []
@@ -338,7 +354,14 @@ async function fakeUpstream(realFetch: typeof fetch) {
     if (url.hostname === "127.0.0.1") return realFetch(input, init);
     return Response.json({ error: { code: "unexpected_fetch", message: url.href } }, { status: 500 });
   });
-  return { fetch: fetchMock, applicationPublicKeys, operationAuthorizations, operationOrigins, localInputs };
+  return {
+    fetch: fetchMock,
+    applicationAgreementPublicKeys,
+    applicationSigningPublicKeys,
+    operationAuthorizations,
+    operationOrigins,
+    localInputs
+  };
 }
 
 async function decryptConnectorRequest(privateKey: CryptoKey, applicationPublicKey: string, envelope: any): Promise<unknown> {

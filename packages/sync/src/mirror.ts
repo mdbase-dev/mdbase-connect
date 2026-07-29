@@ -1,7 +1,13 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, stringify } from "yaml";
-import type { JsonObject, SyncMutation, SyncMutationReceipt, SyncRecord } from "@mdbase/connect-protocol";
+import type {
+  JsonObject,
+  SyncMutation,
+  SyncMutationReceipt,
+  SyncRecord,
+  SyncSnapshotRecord
+} from "@mdbase/connect-protocol";
 import type { SyncTransport } from "./index.js";
 import { SyncError } from "./index.js";
 
@@ -314,7 +320,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   /**
    * Prove that this directory is an exact, complete copy of its last applied
-   * authority cursor. The digest contains no paths or record content.
+   * authority cursor. The digest commits to paths, stable record identities,
+   * and exact document hashes without exposing those values to the control plane.
    */
   async authorityPromotionManifest(): Promise<AuthorityPromotionManifest> {
     return this.lease.runExclusive(() => this.authorityPromotionManifestUnlocked());
@@ -361,16 +368,14 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         ...Object.entries(state.resources ?? {}).map(([path, entry]) => ({
           kind: "resource" as const,
           path,
-          document_hash: entry.hash
+          identity: "",
+          document_hash: authorityDocumentHash(entry.hash)
         })),
-        ...Object.values(state.records).map((entry) => ({
+        ...Object.entries(state.records).map(([recordId, entry]) => ({
           kind: "record" as const,
           path: entry.path,
-          // A remote authority may normalize equivalent Markdown when it executes
-          // a mutation. The authority-issued revision is the shared content
-          // identity; assertUndiverged above separately proves the local bytes
-          // still match the exact document materialized for that revision.
-          document_hash: entry.revision
+          identity: recordId,
+          document_hash: authorityDocumentHash(entry.hash)
         }))
       ])
     };
@@ -405,7 +410,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     }
     await this.visitSnapshotPages(session, async (records) => {
       for (const record of records) {
-        await compareDocument(record.path, recordMarkdownDocument(record));
+        await compareDocument(record.path, record.document);
       }
     });
     const localMarkdown = await this.fileSystem.listMarkdown(new Set(resources.map((resource) => resource.path)));
@@ -469,8 +474,8 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     }> = [];
     const remoteRecordIds = prior ? new Set<string>() : null;
     await this.visitSnapshotPages(session, async (pageRecords) => {
-      for (const record of pageRecords) {
-        const document = recordMarkdownDocument(record);
+      for (const snapshotRecord of pageRecords) {
+        const { document, ...record } = snapshotRecord;
         const local = await this.fileSystem.read(record.path);
         const managed = prior?.records[record.record_id];
         if (
@@ -554,7 +559,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   private async visitSnapshotPages(
     session: Awaited<ReturnType<SyncTransport<Frontmatter>["openSession"]>>,
-    visitor: (records: Array<SyncRecord<Frontmatter>>) => Promise<void>
+    visitor: (records: Array<SyncSnapshotRecord<Frontmatter>>) => Promise<void>
   ): Promise<void> {
     let page: string | undefined;
     do {
@@ -1209,6 +1214,7 @@ function frontmatterPatch(before: JsonObject, after: JsonObject): JsonObject {
 export function authorityManifestDigest(entries: Array<{
   kind: "record" | "resource";
   path: string;
+  identity: string;
   document_hash: string;
 }>): string {
   const manifest = sha256.create().update(utf8.encode("mdbase-authority-manifest-v1\n"));
@@ -1220,10 +1226,23 @@ export function authorityManifestDigest(entries: Array<{
     manifest.update(Uint8Array.of(0));
     manifest.update(utf8.encode(entry.path));
     manifest.update(Uint8Array.of(0));
+    manifest.update(utf8.encode(entry.identity));
+    manifest.update(Uint8Array.of(0));
     manifest.update(utf8.encode(entry.document_hash));
     manifest.update(Uint8Array.of(10));
   }
   return bytesToHex(manifest.digest());
+}
+
+function authorityDocumentHash(revision: string): string {
+  const hash = revision.startsWith("sha256:") ? revision.slice("sha256:".length) : revision;
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    throw new SyncError(
+      "invalid_authority_snapshot",
+      "Authority manifests require exact SHA-256 document hashes."
+    );
+  }
+  return hash;
 }
 
 function compareBytes(left: Uint8Array, right: Uint8Array): number {

@@ -690,12 +690,14 @@ export function buildPortableAuthoritySnapshot(
     ...resources.map(({ path, document }) => ({
       kind: "resource" as const,
       path,
+      identity: "",
       document_hash: bytesToHex(sha256(utf8.encode(document)))
     })),
     ...records.map((record) => ({
       kind: "record" as const,
       path: record.path,
-      document_hash: documentRevision(record.document)
+      identity: record.record_id,
+      document_hash: bytesToHex(sha256(utf8.encode(record.document)))
     }))
   ]);
   return {

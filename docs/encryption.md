@@ -110,19 +110,21 @@ private key is stored in the agent state directory with owner-only file
 permissions on Unix; its public key is registered when the connector
 synchronizes. Platform keystore integration remains to be implemented.
 
-Each browser application installation creates P-256 material for an
-authorization. The SDK reimports the private key as non-extractable and stores
-its `CryptoKey` plus an atomic message counter in origin-scoped IndexedDB.
+Each browser application installation creates independent P-256 ECDH agreement
+and P-256 ECDSA signing keypairs for an authorization. The SDK reimports both
+private keys as non-extractable and stores them with an atomic message counter
+in origin-scoped IndexedDB. Reusing one keypair for both purposes is rejected.
 Native application key storage remains to be implemented with platform
 keystores.
 
-The authorization request carries the application's public key. Approval binds
+The authorization request carries both application public keys. Approval binds
 these values together:
 
 - protocol and encryption-suite version;
 - grant and application identity;
 - connector and collection identity;
-- application and connector public keys;
+- application agreement and signing public keys and the connector agreement
+  public key;
 - operations and contract scope;
 - creation time and revocation state.
 
@@ -211,7 +213,7 @@ payloads as an incidental message archive.
 
 ### Direct loopback delivery
 
-The same protocol-3 request and response envelopes are used on the connector's
+The same v1 encrypted request and response envelopes are used on the connector's
 browser-only loopback service. This preserves grant binding, key proof, replay
 handling, and response authentication while avoiding control-plane payload
 delivery for same-computer applications. Exact-origin CORS, loopback `Host`

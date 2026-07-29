@@ -4,6 +4,10 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
+import {
+  CONTROL_PROTOCOL_VERSION,
+  RELAY_CAPABILITIES
+} from "../packages/protocol/dist/index.js";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -175,8 +179,8 @@ try {
     scope_epoch: 1,
     connector_id: fixture.connectorId,
     collection_id: fixture.localCollectionId,
-    application_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url"),
-    connector_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url")
+    application_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url"),
+    connector_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url")
   };
   await database.query("UPDATE grants SET encryption = $2::jsonb WHERE id = $1", [
     fixture.grantId,
@@ -368,8 +372,9 @@ async function seed(db, hash) {
   );
   await db.query(
     `INSERT INTO grants
-       (id, user_id, application_id, collection_id, operations, scope, application_origin)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)`,
+       (id, user_id, application_id, collection_id, operations, scope,
+        application_origin, activated_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, now())`,
     [
       grantId,
       userId,
@@ -401,11 +406,30 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
     headers: { authorization: `Bearer ${token}` }
   });
   const policies = [];
+  const messageTypes = [];
+  let closeDetails;
   let policyWaiter;
+  let welcomeWaiter;
+  socket.on("close", (code, reason) => {
+    closeDetails = { code, reason: reason.toString() };
+  });
   socket.on("message", (raw) => {
     const message = JSON.parse(raw.toString());
+    messageTypes.push(message.type);
+    if (message.type === "relay_welcome") {
+      welcomeWaiter?.();
+      welcomeWaiter = undefined;
+      return;
+    }
     if (message.type === "policy_snapshot") {
       policies.push(message);
+      socket.send(JSON.stringify({
+        type: "policy_applied",
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: message.request_id,
+        revision: message.revision,
+        ok: true
+      }));
       policyWaiter?.();
       policyWaiter = undefined;
       return;
@@ -441,16 +465,39 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
     }));
   });
   await new Promise((resolveOpen, reject) => {
-    socket.once("open", resolveOpen);
+    socket.once("open", () => {
+      socket.send(JSON.stringify({
+        type: "relay_hello",
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        connector_version: "0.1.0-e2e",
+        capabilities: [...RELAY_CAPABILITIES]
+      }));
+      resolveOpen();
+    });
     socket.once("error", reject);
   });
+  if (!messageTypes.includes("relay_welcome")) {
+    await new Promise((resolveWelcome, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Connector ${owner} did not receive relay_welcome`)),
+        10_000
+      );
+      welcomeWaiter = () => {
+        clearTimeout(timer);
+        resolveWelcome();
+      };
+    });
+  }
   return {
     socket,
     policies,
     async waitForPolicy() {
       if (policies.length > 0) return;
       await new Promise((resolvePolicy, reject) => {
-        const timer = setTimeout(() => reject(new Error("Connector did not receive a policy snapshot")), 10_000);
+        const timer = setTimeout(() => reject(new Error(
+          `Connector ${owner} did not receive a policy snapshot: `
+          + JSON.stringify({ messageTypes, closeDetails })
+        )), 10_000);
         policyWaiter = () => {
           clearTimeout(timer);
           resolvePolicy();
@@ -461,15 +508,22 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
 }
 
 async function operation(serverUrl, fixture, operationName, input) {
+  const body = input?.type === "encrypted_operation_request"
+    ? input
+    : {
+        protocol_version: CONTROL_PROTOCOL_VERSION,
+        request_id: randomUUID(),
+        input
+      };
   const response = await fetch(
-    `${serverUrl}/v1/authorities/${fixture.collectionId}/operations/${operationName}`,
+    `${serverUrl}/v1/authorities/${fixture.localCollectionId}/operations/${operationName}`,
     {
       method: "POST",
       headers: {
         authorization: `Bearer ${fixture.accessToken}`,
         "content-type": "application/json"
       },
-      body: JSON.stringify(input)
+      body: JSON.stringify(body)
     }
   );
   return { status: response.status, body: await response.json() };

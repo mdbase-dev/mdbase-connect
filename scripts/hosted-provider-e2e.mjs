@@ -169,7 +169,7 @@ try {
         allowed_types: [],
         contract_scope: [],
         full_collection: true,
-        allowed_operations: ["create"],
+        allowed_operations: ["create", "rename", "delete"],
         grant_id: crypto.randomUUID(),
         token: fullReplicaToken
       }
@@ -196,6 +196,95 @@ try {
     );
     assert.equal(created.status, 200, JSON.stringify(created.body));
   }
+  const exactOnceCreateId = crypto.randomUUID();
+  const exactOnceCreateInput = {
+    path: "retry-target.md",
+    frontmatter: { type: "workout", title: "Exactly once", status: "open" }
+  };
+  const firstCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: exactOnceCreateId,
+      body: exactOnceCreateInput
+    }
+  );
+  const replayedCreate = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: exactOnceCreateId,
+      body: exactOnceCreateInput
+    }
+  );
+  assert.equal(firstCreate.status, 200, JSON.stringify(firstCreate.body));
+  assert.deepEqual(replayedCreate.body, firstCreate.body);
+  const reusedRequest = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/create`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: exactOnceCreateId,
+      body: { ...exactOnceCreateInput, path: "different.md" }
+    }
+  );
+  assert.equal(reusedRequest.status, 409, JSON.stringify(reusedRequest.body));
+  assert.equal(reusedRequest.body.error.code, "operation_request_id_reused");
+
+  const renameRequestId = crypto.randomUUID();
+  const renameInput = { from: "retry-target.md", to: "retry-renamed.md" };
+  const firstRename = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/rename`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: renameRequestId,
+      body: renameInput
+    }
+  );
+  const replayedRename = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/rename`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: renameRequestId,
+      body: renameInput
+    }
+  );
+  assert.equal(firstRename.status, 200, JSON.stringify(firstRename.body));
+  assert.deepEqual(replayedRename.body, firstRename.body);
+
+  const deleteRequestId = crypto.randomUUID();
+  const deleteInput = { path: "retry-renamed.md" };
+  const firstDelete = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/delete`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: deleteRequestId,
+      body: deleteInput
+    }
+  );
+  const replayedDelete = await rawRequest(
+    provider.url,
+    `/v1/authorities/${provisionCollectionId}/operations/delete`,
+    {
+      method: "POST",
+      token: fullReplicaToken,
+      requestId: deleteRequestId,
+      body: deleteInput
+    }
+  );
+  assert.equal(firstDelete.status, 200, JSON.stringify(firstDelete.body));
+  assert.deepEqual(replayedDelete.body, firstDelete.body);
 
   const contractReplicaToken = `contract-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(
@@ -852,46 +941,24 @@ try {
     authoritySyncUrl(provider.url, genericCollectionId)
   );
   assert.equal(storedHostedToken.encryption, undefined);
-  const appToken = storedHostedToken.authority.accessToken;
   const appReplicaId = storedHostedToken.authority.replicaId;
-  const appSync = await rawRequest(provider.url, syncPath(genericCollectionId, "sessions"), {
-    method: "POST",
-    token: appToken,
-    headers: { origin: manifest.origin }
-  });
-  assert.equal(appSync.status, 200);
-  assert.equal(appSync.body.replica_id, appReplicaId);
-  const wrongSyncOrigin = await rawRequest(
-    provider.url,
-    syncPath(genericCollectionId, "sessions"),
-    {
-      method: "POST",
-      token: appToken,
-      headers: { origin: "https://evil.example" }
-    }
-  );
-  assert.equal(wrongSyncOrigin.status, 403);
-  assert.equal(wrongSyncOrigin.body.error.code, "origin_denied");
-  const wrongOrigin = await rawRequest(
-    provider.url,
-    `/v1/authorities/${genericCollectionId}/operations/query`,
-    {
-      method: "POST",
-      token: appToken,
-      headers: { origin: "https://evil.example" },
-      body: {}
-    }
-  );
-  assert.equal(wrongOrigin.status, 403);
-  assert.equal(wrongOrigin.body.error.code, "origin_denied");
   const originalFetch = globalThis.fetch;
+  let providerOrigin = manifest.origin;
   globalThis.fetch = (input, init = {}) => {
     const url = String(input);
     if (!url.startsWith(`${provider.url}/v1/authorities/`)) return originalFetch(input, init);
     const headers = new Headers(init.headers);
-    headers.set("origin", manifest.origin);
+    headers.set("origin", providerOrigin);
     return originalFetch(input, { ...init, headers });
   };
+  const hostedSync = hostedConnection.sync();
+  assert.ok(hostedSync);
+  const appSync = await hostedSync.transport.openSession();
+  assert.equal(appSync.replica_id, appReplicaId);
+  providerOrigin = "https://evil.example";
+  await assert.rejects(() => hostedSync.transport.openSession());
+  await assert.rejects(() => hostedConnection.query());
+  providerOrigin = manifest.origin;
   const description = await hostedConnection.describe();
   assert.equal(description.display_name, "Hosted writing");
   assert.deepEqual(description.contracts, []);
@@ -1065,7 +1132,6 @@ schema:
     .find((record) => record.record_id === offlinePlain.record_id);
   assert.deepEqual(offlinePlainSynced.frontmatter, {});
   assert.equal(offlinePlainSynced.body, "# Offline plain Markdown");
-  globalThis.fetch = originalFetch;
   const dashboardWithApp = await controlRequest(controlUrl, "/v1/me", cookie);
   const hostedGrant = dashboardWithApp.grants.find((grant) => grant.collection_id === genericCollectionId);
   assert.ok(hostedGrant);
@@ -1086,39 +1152,23 @@ schema:
     method: "PATCH",
     body: { operations: ["describe", "read", "query"] }
   });
-  const deniedWrite = await rawRequest(
-    provider.url,
-    `/v1/authorities/${genericCollectionId}/operations/create`,
-    {
-      method: "POST",
-      token: appToken,
-      headers: { origin: manifest.origin },
-      body: {
-        path: "permission-expansion.md",
-        frontmatter: { title: "Must not exist" }
-      }
-    }
+  await assert.rejects(
+    () => hostedConnection.create({
+      path: "permission-expansion.md",
+      frontmatter: { title: "Must not exist" }
+    }),
+    (error) => error?.code === "insufficient_access"
   );
-  assert.equal(deniedWrite.status, 403);
-  assert.equal(deniedWrite.body.error.code, "insufficient_access");
-  const deniedChanges = await rawRequest(
-    provider.url,
-    `${syncPath(genericCollectionId, "changes")}?after=0&limit=10`,
-    {
-      method: "GET",
-      token: appToken,
-      headers: { origin: manifest.origin }
-    }
+  await assert.rejects(
+    () => hostedSync.transport.changes(0, 10),
+    (error) => error?.code === "insufficient_access"
   );
-  assert.equal(deniedChanges.status, 403);
-  assert.equal(deniedChanges.body.error.code, "insufficient_access");
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
-  const revokedApp = await rawRequest(
-    provider.url,
-    `/v1/authorities/${genericCollectionId}/operations/query`,
-    { method: "POST", token: appToken, headers: { origin: manifest.origin }, body: {} }
+  await assert.rejects(
+    () => hostedConnection.query(),
+    (error) => error?.code === "invalid_grant"
   );
-  assert.equal(revokedApp.status, 401);
+  globalThis.fetch = originalFetch;
 
   phase("authorizing a real file URL directly against the hosted data plane");
   await portableHostedFileE2E(controlUrl, cookie, genericCollectionId, portableRoot);
@@ -1611,7 +1661,28 @@ schema:
   assert.equal(fencedMutation.body.error.code, "hosted_collection_not_found");
   await authorityMirror.sync();
   const authorityProof = await authorityMirror.authorityPromotionManifest();
+  const proofSession = await authorityTransport.openSession();
+  const proofRecords = await snapshotAll(authorityTransport, proofSession);
+  const proofEntries = (proofSession.resources.documents ?? []).map((resource) => ({
+    kind: "resource",
+    path: resource.path,
+    identity: "",
+    document_hash: sha256Hex(resource.document)
+  }));
+  for (const record of proofRecords) {
+    proofEntries.push({
+      kind: "record",
+      path: record.path,
+      identity: record.record_id,
+      document_hash: sha256Hex(
+        await readFile(join(authorityMirrorRoot, record.path), "utf8")
+      )
+    });
+  }
+  const snapshotProof = authorityManifestDigest(proofEntries);
   assert.equal(authorityProof.cursor, preparedTransfer.final_head);
+  assert.equal(snapshotProof, preparedTransfer.manifest_digest);
+  assert.equal(authorityProof.digest, snapshotProof);
   assert.equal(authorityProof.digest, preparedTransfer.manifest_digest);
   const mismatchedProof = await rawRequest(
     provider.url,
@@ -2921,12 +2992,14 @@ function localAuthoritySnapshot(collectionId, recordCount) {
     ...resources.map((resource) => ({
       kind: "resource",
       path: resource.path,
+      identity: "",
       document_hash: sha256Hex(resource.document)
     })),
     ...records.map((record) => ({
       kind: "record",
       path: record.path,
-      document_hash: `sha256:${sha256Hex(record.document)}`
+      identity: record.record_id,
+      document_hash: sha256Hex(record.document)
     }))
   ]);
   return {
@@ -3578,7 +3651,14 @@ async function rawRequest(url, path, options = {}) {
     body = options.bodyText;
     headers["content-type"] = "application/json";
   } else if (options.body !== undefined) {
-    body = JSON.stringify(options.body);
+    const value = path.includes("/operations/")
+      ? {
+          protocol_version: 1,
+          request_id: options.requestId ?? crypto.randomUUID(),
+          input: options.body
+        }
+      : options.body;
+    body = JSON.stringify(value);
     headers["content-type"] = "application/json";
   }
   const response = await fetch(`${url}${path}`, {

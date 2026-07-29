@@ -74,6 +74,10 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
       handle text PRIMARY KEY,
       public_key text NOT NULL,
       private_key_ciphertext text NOT NULL,
+      agreement_public_key text,
+      agreement_private_key_ciphertext text,
+      signing_public_key text,
+      signing_private_key_ciphertext text,
       counter numeric(20, 0) NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now()
     );
@@ -145,6 +149,18 @@ export async function migrate(db: DatabaseQueryable): Promise<void> {
   `);
   await db.query(
     "ALTER TABLE mcp_connection_tickets ADD COLUMN IF NOT EXISTS collection_id uuid"
+  );
+  await db.query(
+    "ALTER TABLE mcp_grant_keys ADD COLUMN IF NOT EXISTS agreement_public_key text"
+  );
+  await db.query(
+    "ALTER TABLE mcp_grant_keys ADD COLUMN IF NOT EXISTS agreement_private_key_ciphertext text"
+  );
+  await db.query(
+    "ALTER TABLE mcp_grant_keys ADD COLUMN IF NOT EXISTS signing_public_key text"
+  );
+  await db.query(
+    "ALTER TABLE mcp_grant_keys ADD COLUMN IF NOT EXISTS signing_private_key_ciphertext text"
   );
   // Retain the unused legacy column until the previous release is outside the
   // production rollback window. Runtime compatibility is not a license for a

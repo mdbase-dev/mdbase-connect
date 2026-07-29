@@ -22,8 +22,8 @@ const grantEncryptionSchema = z.object({
   scope_epoch: z.number().int().positive(),
   connector_id: z.uuid(),
   collection_id: z.uuid(),
-  application_public_key: z.string().min(80),
-  connector_public_key: z.string().min(80)
+  application_agreement_public_key: z.string().min(80),
+  connector_agreement_public_key: z.string().min(80)
 }).strict();
 
 const tokenResponseSchema = z.object({
@@ -44,7 +44,8 @@ const tokenResponseSchema = z.object({
     operations_url: z.url(),
     sync_url: z.url(),
     replica_id: z.uuid(),
-    access_token: z.string().min(1)
+    access_token: z.string().min(1),
+    proof_public_key: z.string().min(80).max(200)
   }).optional()
 }).passthrough();
 
@@ -317,12 +318,28 @@ export class ConnectGateway {
     keyHandle: string | null,
     applicationId: string
   ): Promise<void> {
-    if (token.authority) return;
+    if (token.authority) {
+      const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
+      if (
+        !key
+        || token.authority.proof_public_key !== key.signingPublicKey
+      ) {
+        throw new GatewayOperationError(
+          "grant_key_mismatch",
+          "Connect returned a remote authority grant for a different signing key."
+        );
+      }
+      return;
+    }
     if (!token.encryption || !keyHandle) {
       throw new GatewayOperationError("encryption_required", "Connect did not establish encrypted local access.");
     }
     const key = await this.keyStore.get(keyHandle);
-    if (!key || key.publicKey !== token.encryption.application_public_key) {
+    if (
+      !key
+      || key.agreementPublicKey
+        !== token.encryption.application_agreement_public_key
+    ) {
       throw new GatewayOperationError("grant_key_mismatch", "Connect returned a grant for a different encryption key.");
     }
     if (token.encryption.connector_id.length === 0 || applicationId.length === 0) {

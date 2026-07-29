@@ -13,8 +13,9 @@ use mdbase_connect_protocol::{
     CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, GrantSummary,
     SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
     SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
-    SyncResourceDocument, SyncSession, SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
-    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision,
+    AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
+    SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -209,6 +210,18 @@ pub struct AuthorityRequestProof {
 struct PersistedRecord {
     record: SyncRecord,
     document: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PreparedRecordOperation {
+    mutation: SyncMutation,
+    previous_path: Option<String>,
+    include_document: bool,
+}
+
+enum StoredRecordOperation {
+    Prepared(PreparedRecordOperation),
+    Completed(Value),
 }
 
 struct CachedCollection {
@@ -2119,7 +2132,10 @@ impl HostedProvider {
                     row.get("payload_ciphertext"),
                     &record_version_aad(collection_id, row.get("record_id"), sequence),
                 )?;
-                Ok(payload.record)
+                Ok(SyncSnapshotRecord {
+                    record: payload.record,
+                    document: payload.document,
+                })
             })
             .collect::<ApiResult<Vec<_>>>()?;
         if next_page.is_none() {
@@ -2359,6 +2375,13 @@ impl HostedProvider {
                 "Mutation belongs to another replica.",
             ));
         }
+        // Serialize a replica's mutation stream before consulting its receipt
+        // table. A concurrent retry must observe the first transaction's
+        // committed receipt instead of executing the same effect twice.
+        sqlx::query("SELECT id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE")
+            .bind(replica.id)
+            .fetch_one(&mut *transaction)
+            .await?;
         let wrapped_data_key: Vec<u8> = sqlx::query_scalar(
             "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
         )
@@ -2851,6 +2874,7 @@ impl HostedProvider {
         collection_id: Uuid,
         token: &str,
         operation: &str,
+        request_id: Uuid,
         input: Value,
         request_origin: Option<&str>,
     ) -> ApiResult<Value> {
@@ -2918,15 +2942,37 @@ impl HostedProvider {
                 }
             }
             "create" | "update" | "delete" | "rename" => {
-                let (input, selector) = if let Some(scope) = &contract_scope {
+                let request_input = input;
+                let stored = self
+                    .load_record_operation(
+                        collection_id,
+                        &replica,
+                        operation,
+                        request_id,
+                        &request_input,
+                    )
+                    .await?;
+                let prepared = match stored {
+                    Some(StoredRecordOperation::Completed(result)) => return Ok(result),
+                    Some(StoredRecordOperation::Prepared(prepared)) => Some(prepared),
+                    None => None,
+                };
+                let (input, selector) = if prepared.is_some() {
+                    let selector = contract_scope
+                        .as_ref()
+                        .map(|scope| scope.selector(&request_input).map_err(scope_error))
+                        .transpose()?
+                        .flatten();
+                    (request_input.clone(), selector)
+                } else if let Some(scope) = &contract_scope {
                     let (scoped_input, selected) = if matches!(operation, "create" | "update") {
                         let (mapped, selector) = scope
-                            .map_write_input(&input, operation == "create")
+                            .map_write_input(&request_input, operation == "create")
                             .map_err(scope_error)?;
                         (mapped, Some(selector))
                     } else {
                         let (identity, selector) =
-                            scope.identity_input(&input).map_err(scope_error)?;
+                            scope.identity_input(&request_input).map_err(scope_error)?;
                         (identity, selector)
                     };
                     if operation != "create" {
@@ -2957,10 +3003,19 @@ impl HostedProvider {
                     }
                     (scoped_input, selected)
                 } else {
-                    (input, None)
+                    (request_input.clone(), None)
                 };
                 let result = self
-                    .write_operation(collection_id, token, &replica, operation, input)
+                    .write_operation(
+                        collection_id,
+                        token,
+                        &replica,
+                        operation,
+                        request_id,
+                        &request_input,
+                        input,
+                        prepared,
+                    )
                     .await?;
                 if operation == "delete" {
                     return Ok(result);
@@ -3400,22 +3455,142 @@ impl HostedProvider {
         Ok(result)
     }
 
-    async fn write_operation(
+    async fn load_record_operation(
         &self,
         collection_id: Uuid,
-        token: &str,
         replica: &Replica,
         operation: &str,
+        request_id: Uuid,
+        input: &Value,
+    ) -> ApiResult<Option<StoredRecordOperation>> {
+        let Some(row) = sqlx::query(
+            r#"SELECT request.operation, request.request_hash,
+                      request.prepared_mutation_ciphertext,
+                      request.response_ciphertext, collection.wrapped_data_key
+               FROM hosted_provider_operation_requests request
+               JOIN hosted_provider_replicas replica ON replica.id = request.replica_id
+               JOIN hosted_provider_collections collection
+                 ON collection.id = replica.collection_id
+               WHERE request.replica_id = $1 AND request.request_id = $2
+                 AND replica.collection_id = $3"#,
+        )
+        .bind(replica.id)
+        .bind(request_id)
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let submitted_hash = operation_request_hash(operation, input)?;
+        let stored_hash: Vec<u8> = row.get("request_hash");
+        if row.get::<String, _>("operation") != operation
+            || !bool::from(stored_hash.ct_eq(&submitted_hash))
+        {
+            return Err(ApiError::conflict(
+                "operation_request_id_reused",
+                "Operation request ID was already used for a different operation.",
+            ));
+        }
+        let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
+        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        if let Some(ciphertext) = row.get::<Option<Vec<u8>>, _>("response_ciphertext") {
+            let response = self.crypto.decrypt_json(
+                &data_key,
+                &ciphertext,
+                &operation_response_aad(replica.id, request_id),
+            )?;
+            return Ok(Some(StoredRecordOperation::Completed(response)));
+        }
+        let ciphertext = row
+            .get::<Option<Vec<u8>>, _>("prepared_mutation_ciphertext")
+            .ok_or_else(|| {
+                ApiError::internal("The hosted operation request has no prepared mutation.")
+            })?;
+        let prepared = self.crypto.decrypt_json(
+            &data_key,
+            &ciphertext,
+            &operation_prepared_aad(replica.id, request_id),
+        )?;
+        Ok(Some(StoredRecordOperation::Prepared(prepared)))
+    }
+
+    async fn prepare_record_operation(
+        &self,
+        collection_id: Uuid,
+        replica: &Replica,
+        operation: &str,
+        request_id: Uuid,
+        request_input: &Value,
         input: Value,
-    ) -> ApiResult<Value> {
+    ) -> ApiResult<PreparedRecordOperation> {
         let mut operation_input = input.as_object().cloned().ok_or_else(|| {
             ApiError::bad_request(
                 "invalid_operation_input",
                 "Hosted operation input must be an object.",
             )
         })?;
+        let mut transaction = self.pool.begin().await?;
+        let replica_collection: Option<Uuid> = sqlx::query_scalar(
+            "SELECT collection_id FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE",
+        )
+        .bind(replica.id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if replica_collection != Some(collection_id) {
+            return Err(ApiError::forbidden(
+                "replica_scope_denied",
+                "Operation belongs to another hosted collection.",
+            ));
+        }
+        let wrapped_data_key: Vec<u8> = sqlx::query_scalar(
+            "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let request_hash = operation_request_hash(operation, request_input)?;
+        if let Some(row) = sqlx::query(
+            r#"SELECT operation, request_hash, prepared_mutation_ciphertext
+               FROM hosted_provider_operation_requests
+               WHERE replica_id = $1 AND request_id = $2"#,
+        )
+        .bind(replica.id)
+        .bind(request_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        {
+            let stored_hash: Vec<u8> = row.get("request_hash");
+            if row.get::<String, _>("operation") != operation
+                || !bool::from(stored_hash.ct_eq(&request_hash))
+            {
+                return Err(ApiError::conflict(
+                    "operation_request_id_reused",
+                    "Operation request ID was already used for a different operation.",
+                ));
+            }
+            let ciphertext = row
+                .get::<Option<Vec<u8>>, _>("prepared_mutation_ciphertext")
+                .ok_or_else(|| {
+                    ApiError::internal("The hosted operation request has no prepared mutation.")
+                })?;
+            let prepared = self.crypto.decrypt_json(
+                &data_key,
+                &ciphertext,
+                &operation_prepared_aad(replica.id, request_id),
+            )?;
+            transaction.commit().await?;
+            return Ok(prepared);
+        }
         let (mutation_operation, record_id, base_revision, previous_path) = match operation {
-            "create" => (SyncMutationOperation::Create, Uuid::new_v4(), None, None),
+            "create" => (SyncMutationOperation::Create, request_id, None, None),
             "update" | "delete" | "rename" => {
                 let path_key = if operation == "rename" {
                     "from"
@@ -3432,26 +3607,13 @@ impl HostedProvider {
                         )
                     })?
                     .to_string();
-                let wrapped_data_key: Vec<u8> = sqlx::query_scalar(
-                    "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
-                )
-                .bind(collection_id)
-                .fetch_optional(&self.pool)
-                .await?
-                .ok_or_else(|| {
-                    ApiError::not_found(
-                        "hosted_collection_not_found",
-                        "Hosted collection not found.",
-                    )
-                })?;
-                let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
                 let current = sqlx::query(
                     r#"SELECT record_id, revision, types FROM hosted_provider_records
                        WHERE collection_id = $1 AND path_token = $2"#,
                 )
                 .bind(collection_id)
                 .bind(path_token(&data_key, &path))
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *transaction)
                 .await?
                 .ok_or_else(|| {
                     ApiError::not_found("record_not_found", "The hosted record does not exist.")
@@ -3512,32 +3674,153 @@ impl HostedProvider {
             }
             _ => unreachable!(),
         };
-        if operation_input.get("dry_run").and_then(Value::as_bool) == Some(true) {
-            let result = self
-                .execute_read_operation(collection_id, operation, &Value::Object(operation_input))
-                .await?;
-            return serde_json::to_value(result).map_err(|error| {
-                ApiError::internal(format!(
-                    "Hosted operation preflight could not serialize: {error}"
-                ))
-            });
-        }
         let include_document = operation_input
             .get("include_document")
             .and_then(Value::as_bool)
             == Some(true)
             || operation_input.contains_key("document");
-        let mutation = SyncMutation {
-            mutation_id: Uuid::new_v4(),
-            replica_id: replica.id,
-            scope_epoch: replica.scope_epoch,
-            operation: mutation_operation,
-            record_id,
-            base_revision,
-            input: operation_input,
-            created_at: Utc::now().to_rfc3339(),
-            causal_predecessor: None,
+        let prepared = PreparedRecordOperation {
+            mutation: SyncMutation {
+                mutation_id: request_id,
+                replica_id: replica.id,
+                scope_epoch: replica.scope_epoch,
+                operation: mutation_operation,
+                record_id,
+                base_revision,
+                input: operation_input,
+                created_at: Utc::now().to_rfc3339(),
+                causal_predecessor: None,
+            },
+            previous_path,
+            include_document,
         };
+        if prepared
+            .mutation
+            .input
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            != Some(true)
+        {
+            let ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                &prepared,
+                &operation_prepared_aad(replica.id, request_id),
+            )?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_operation_requests
+                     (replica_id, request_id, operation, request_hash,
+                      prepared_mutation_ciphertext)
+                   VALUES ($1, $2, $3, $4, $5)"#,
+            )
+            .bind(replica.id)
+            .bind(request_id)
+            .bind(operation)
+            .bind(request_hash)
+            .bind(ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(prepared)
+    }
+
+    async fn complete_record_operation(
+        &self,
+        collection_id: Uuid,
+        replica_id: Uuid,
+        operation: &str,
+        request_id: Uuid,
+        input: &Value,
+        response: &Value,
+    ) -> ApiResult<()> {
+        let wrapped_data_key: Vec<u8> = sqlx::query_scalar(
+            "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1",
+        )
+        .bind(collection_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let request_hash = operation_request_hash(operation, input)?;
+        let response_ciphertext = self.crypto.encrypt_json(
+            &data_key,
+            response,
+            &operation_response_aad(replica_id, request_id),
+        )?;
+        let updated = sqlx::query(
+            r#"UPDATE hosted_provider_operation_requests
+               SET response_ciphertext = $5, completed_at = now()
+               WHERE replica_id = $1 AND request_id = $2
+                 AND operation = $3 AND request_hash = $4"#,
+        )
+        .bind(replica_id)
+        .bind(request_id)
+        .bind(operation)
+        .bind(request_hash)
+        .bind(response_ciphertext)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if updated != 1 {
+            return Err(ApiError::conflict(
+                "operation_request_id_reused",
+                "Operation request ID was already used for a different operation.",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn write_operation(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+        replica: &Replica,
+        operation: &str,
+        request_id: Uuid,
+        request_input: &Value,
+        input: Value,
+        prepared: Option<PreparedRecordOperation>,
+    ) -> ApiResult<Value> {
+        let prepared = match prepared {
+            Some(prepared) => prepared,
+            None => {
+                let prepared = self
+                    .prepare_record_operation(
+                        collection_id,
+                        replica,
+                        operation,
+                        request_id,
+                        request_input,
+                        input,
+                    )
+                    .await?;
+                if prepared
+                    .mutation
+                    .input
+                    .get("dry_run")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                {
+                    let result = self
+                        .execute_read_operation(
+                            collection_id,
+                            operation,
+                            &Value::Object(prepared.mutation.input),
+                        )
+                        .await?;
+                    return serde_json::to_value(result).map_err(|error| {
+                        ApiError::internal(format!(
+                            "Hosted operation preflight could not serialize: {error}"
+                        ))
+                    });
+                }
+                prepared
+            }
+        };
+        let PreparedRecordOperation {
+            mutation,
+            previous_path,
+            include_document,
+        } = prepared;
         let receipt = self
             .mutate_for(collection_id, token, mutation, ReplicaPurpose::Application)
             .await?;
@@ -3598,9 +3881,19 @@ impl HostedProvider {
                 Some(json!({ "current_revision": conflict.current_revision })),
             ),
         };
-        serde_json::to_value(result).map_err(|error| {
+        let result = serde_json::to_value(result).map_err(|error| {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
-        })
+        })?;
+        self.complete_record_operation(
+            collection_id,
+            replica.id,
+            operation,
+            request_id,
+            request_input,
+            &result,
+        )
+        .await?;
+        Ok(result)
     }
 
     async fn write_type_operation(
@@ -5579,29 +5872,36 @@ fn authority_manifest_digest(
     resources: Vec<(String, String)>,
     records: BTreeMap<Uuid, PersistedRecord>,
 ) -> String {
-    let mut entries = BTreeMap::<(String, String), String>::new();
+    let mut entries = BTreeMap::<(String, String), (String, String)>::new();
     for (path, document) in resources {
         entries.insert(
             ("resource".to_string(), path),
-            sha256_hex(document.as_bytes()),
+            (String::new(), sha256_hex(document.as_bytes())),
         );
     }
     for persisted in records.into_values() {
         entries.insert(
             ("record".to_string(), persisted.record.path),
-            persisted.record.revision,
+            (
+                persisted.record.record_id.to_string(),
+                sha256_hex(persisted.document.as_bytes()),
+            ),
         );
     }
     authority_manifest_digest_from_hashes(entries)
 }
 
-fn authority_manifest_digest_from_hashes(entries: BTreeMap<(String, String), String>) -> String {
+fn authority_manifest_digest_from_hashes(
+    entries: BTreeMap<(String, String), (String, String)>,
+) -> String {
     let mut manifest = Sha256::new();
     manifest.update(b"mdbase-authority-manifest-v1\n");
-    for ((kind, path), document_hash) in entries {
+    for ((kind, path), (identity, document_hash)) in entries {
         manifest.update(kind.as_bytes());
         manifest.update(b"\0");
         manifest.update(path.as_bytes());
+        manifest.update(b"\0");
+        manifest.update(identity.as_bytes());
         manifest.update(b"\0");
         manifest.update(document_hash.as_bytes());
         manifest.update(b"\n");
@@ -5634,10 +5934,31 @@ fn path_token(data_key: &[u8; 32], path: &str) -> Vec<u8> {
 }
 
 fn mutation_hash(mutation: &SyncMutation) -> ApiResult<Vec<u8>> {
-    let bytes = serde_json::to_vec(mutation).map_err(|error| {
+    let bytes = serde_jcs::to_vec(mutation).map_err(|error| {
         ApiError::internal(format!("Hosted mutation could not serialize: {error}"))
     })?;
     Ok(Sha256::digest(bytes).to_vec())
+}
+
+fn operation_request_hash(operation: &str, input: &Value) -> ApiResult<Vec<u8>> {
+    let bytes = serde_jcs::to_vec(&json!({
+        "operation": operation,
+        "input": input,
+    }))
+    .map_err(|error| {
+        ApiError::internal(format!(
+            "Hosted operation request could not serialize: {error}"
+        ))
+    })?;
+    Ok(Sha256::digest(bytes).to_vec())
+}
+
+fn operation_prepared_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
+    format!("hosted-provider/operation-prepared/v1/{replica_id}/{request_id}").into_bytes()
+}
+
+fn operation_response_aad(replica_id: Uuid, request_id: Uuid) -> Vec<u8> {
+    format!("hosted-provider/operation-response/v1/{replica_id}/{request_id}").into_bytes()
 }
 
 fn number(value: i64, name: &'static str) -> ApiResult<u64> {
@@ -5674,16 +5995,19 @@ mod tests {
         let entries = BTreeMap::from([
             (
                 ("record".to_string(), "tasks/a.md".to_string()),
-                "00".repeat(32),
+                (
+                    "01911111-1111-7111-8111-111111111111".to_string(),
+                    "00".repeat(32),
+                ),
             ),
             (
                 ("resource".to_string(), "mdbase.yaml".to_string()),
-                "ff".repeat(32),
+                (String::new(), "ff".repeat(32)),
             ),
         ]);
         assert_eq!(
             authority_manifest_digest_from_hashes(entries),
-            "c3a6c98f15ed143bf4b9642e32c9f4c775ca8ad4978a42a4dbd69f79f6fc5e0f"
+            "5f4d35b7381929c7a60d2c45ff310899d9b4c0d891a2ada573fb6dc10fc8c51a"
         );
     }
 

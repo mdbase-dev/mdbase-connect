@@ -103,6 +103,20 @@
         "types": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
       }
     },
+    "snapshotRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id", "path", "revision", "frontmatter", "body", "types", "document"],
+      "properties": {
+        "record_id": { "$ref": "#/$defs/uuid" },
+        "path": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "frontmatter": { "type": "object" },
+        "body": { "type": "string" },
+        "types": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "document": { "type": "string" }
+      }
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,
@@ -129,7 +143,7 @@
         "snapshot_id": { "$ref": "#/$defs/uuid" },
         "scope_epoch": { "type": "integer", "minimum": 1 },
         "cursor": { "type": "integer", "minimum": 0 },
-        "records": { "type": "array", "items": { "$ref": "#/$defs/record" } },
+        "records": { "type": "array", "items": { "$ref": "#/$defs/snapshotRecord" } },
         "next_page": { "type": "string", "pattern": "^[1-9][0-9]*$" }
       }
     },

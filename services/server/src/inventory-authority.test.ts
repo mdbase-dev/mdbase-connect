@@ -77,7 +77,7 @@ describe("authoritative connector inventory", () => {
       enabled: boolean;
       authority_state: string;
     }>(
-      "SELECT present, enabled, authority_state FROM collections WHERE id = $1",
+      "SELECT present, enabled, authority_state FROM collections WHERE local_id = $1",
       [omittedServerId]
     );
     expect(retired.rows[0]).toEqual({

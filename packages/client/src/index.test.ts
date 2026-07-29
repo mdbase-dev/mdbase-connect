@@ -494,7 +494,7 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     const opened = vi.fn();
     const shown: string[] = [];
-    let applicationPublicKey = "";
+    let applicationAgreementPublicKey = "";
     let polls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
@@ -510,7 +510,7 @@ describe("provider-neutral collection client", () => {
       }
       if (url.endsWith("/oauth/device_authorization")) {
         const form = new URLSearchParams(String(init?.body));
-        applicationPublicKey = form.get("application_public_key")!;
+        applicationAgreementPublicKey = form.get("application_agreement_public_key")!;
         expect(form.get("relay_protocol")).toBe("1");
         expect(form.get("operations")).toBe("describe,query");
         return jsonResponse({
@@ -552,8 +552,8 @@ describe("provider-neutral collection client", () => {
             scope_epoch: 1,
             connector_id: "00000000-0000-0000-0000-000000000004",
             collection_id: TEST_COLLECTION_ID,
-            application_public_key: applicationPublicKey,
-            connector_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
+            application_agreement_public_key: applicationAgreementPublicKey,
+            connector_agreement_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
           }
         });
       }
@@ -588,7 +588,7 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     const deleteKey = vi.spyOn(keyStore, "delete");
     const opened = vi.fn();
-    let applicationPublicKey = "";
+    let applicationSigningPublicKey = "";
     let providerHeaders: Record<string, string> | undefined;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
@@ -602,8 +602,8 @@ describe("provider-neutral collection client", () => {
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_public_key")!;
+        applicationSigningPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_signing_public_key")!;
         return jsonResponse({
           device_code: "hosted-device-secret",
           user_code: "HOST-CODE",
@@ -632,13 +632,16 @@ describe("provider-neutral collection client", () => {
             sync_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/sync",
             replica_id: "00000000-0000-0000-0000-000000000005",
             access_token: "hsa_portable_hosted",
-            proof_public_key: applicationPublicKey
+            proof_public_key: applicationSigningPublicKey
           }
         });
       }
       if (url.includes("/operations/query")) {
         providerHeaders = init?.headers as Record<string, string>;
+        const operation = JSON.parse(String(init?.body));
         return jsonResponse({
+          protocol_version: 1,
+          request_id: operation.request_id,
           ok: true,
           result: { valid: true, result: { results: [] }, diagnostics: [] }
         });
@@ -714,7 +717,7 @@ describe("provider-neutral collection client", () => {
 
   it("rejects a portable token that is not bound to encrypted relay protocol v1", async () => {
     vi.useFakeTimers();
-    let applicationPublicKey = "";
+    let applicationAgreementPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
@@ -728,8 +731,8 @@ describe("provider-neutral collection client", () => {
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_public_key")!;
+        applicationAgreementPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_agreement_public_key")!;
         return jsonResponse({
           device_code: "device-secret",
           user_code: "ABCD-EFGH",
@@ -758,8 +761,8 @@ describe("provider-neutral collection client", () => {
             scope_epoch: 1,
             connector_id: "00000000-0000-0000-0000-000000000004",
             collection_id: TEST_COLLECTION_ID,
-            application_public_key: applicationPublicKey,
-            connector_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
+            application_agreement_public_key: applicationAgreementPublicKey,
+            connector_agreement_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
           }
         });
       }
@@ -786,7 +789,7 @@ describe("provider-neutral collection client", () => {
 
   it("rejects a remote authority capability served over non-loopback HTTP", async () => {
     vi.useFakeTimers();
-    let applicationPublicKey = "";
+    let applicationSigningPublicKey = "";
     const opened = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
@@ -800,8 +803,8 @@ describe("provider-neutral collection client", () => {
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_public_key")!;
+        applicationSigningPublicKey = new URLSearchParams(String(init?.body))
+          .get("application_signing_public_key")!;
         return jsonResponse({
           device_code: "device-secret",
           user_code: "ABCD-EFGH",
@@ -829,7 +832,7 @@ describe("provider-neutral collection client", () => {
             sync_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/sync`,
             replica_id: "00000000-0000-0000-0000-000000000005",
             access_token: "authority_access",
-            proof_public_key: applicationPublicKey
+            proof_public_key: applicationSigningPublicKey
           }
         });
       }
@@ -1951,10 +1954,15 @@ describe("authorization renewal", () => {
         accessToken: "hsa_direct"
       }
     }));
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
-      ok: true,
-      result: { valid: true, result: { results: [] }, diagnostics: [] }
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
+      const operation = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        protocol_version: 1,
+        request_id: operation.request_id,
+        ok: true,
+        result: { valid: true, result: { results: [] }, diagnostics: [] }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
     const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
@@ -2062,10 +2070,15 @@ describe("authorization renewal", () => {
           access: "contract",
         }
       }), { status: 200, headers: { "content-type": "application/json" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ok: true,
-        result: { valid: true, result: { results: [] }, diagnostics: [] }
-      }), { status: 200, headers: { "content-type": "application/json" } }));
+      .mockImplementationOnce(async (_request, init) => {
+        const operation = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({
+          protocol_version: 1,
+          request_id: operation.request_id,
+          ok: true,
+          result: { valid: true, result: { results: [] }, diagnostics: [] }
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      });
 
     const manager = new MdbaseConnect({
       serverUrl,
@@ -2120,10 +2133,15 @@ describe("authorization renewal", () => {
           error: { code: "invalid_grant", message: "Refresh token has already been used." }
         }), { status: 400, headers: { "content-type": "application/json" } });
       })
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ok: true,
-        result: { valid: true, result: { results: [] }, diagnostics: [] }
-      }), { status: 200, headers: { "content-type": "application/json" } }));
+      .mockImplementationOnce(async (_request, init) => {
+        const operation = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({
+          protocol_version: 1,
+          request_id: operation.request_id,
+          ok: true,
+          result: { valid: true, result: { results: [] }, diagnostics: [] }
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      });
 
     const manager = new MdbaseConnect({
       serverUrl,
@@ -2454,8 +2472,8 @@ async function encryptedConnection() {
     scope_epoch: 1,
     connector_id: "01933333-3333-7333-8333-333333333333",
     collection_id: collectionId,
-    application_public_key: application.publicKey,
-    connector_public_key: connector.publicKey
+    application_agreement_public_key: application.agreementPublicKey,
+    connector_agreement_public_key: connector.agreementPublicKey
   };
   const tokenKey = storedTokenKey(serverUrl, manifestUrl, collectionId);
   storage.setItem(tokenKey, JSON.stringify({
@@ -2518,8 +2536,8 @@ function progressConnection() {
       scope_epoch: 1,
       connector_id: "00000000-0000-0000-0000-000000000004",
       collection_id: TEST_COLLECTION_ID,
-      application_public_key: "04".padEnd(130, "1"),
-      connector_public_key: "04".padEnd(130, "2")
+      application_agreement_public_key: "04".padEnd(130, "1"),
+      connector_agreement_public_key: "04".padEnd(130, "2")
     },
     keyHandle: "progress-key",
     savedAt: Date.now()

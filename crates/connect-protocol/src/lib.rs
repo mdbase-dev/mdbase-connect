@@ -12,6 +12,10 @@ pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 1;
 pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_LOOPBACK_PORT: u16 = 28_485;
 pub const SYNC_PROTOCOL_VERSION: u32 = 1;
+pub const RELAY_HANDSHAKE_TIMEOUT_SECONDS: u64 = 5;
+pub const RELAY_INCOMPATIBLE_CLOSE_CODE: u16 = 4406;
+pub const RELAY_CAPABILITIES: &[&str] =
+    &["authorization-activation", "encrypted-relay", "policy-ack"];
 pub const RELAY_ENCRYPTION_SUITE: &str = "P256-HKDF-SHA256-AES256GCM";
 pub const AUTHORITY_PROOF_VERSION: u32 = 1;
 pub const AUTHORITY_PROOF_ALGORITHM: &str = "P256-SHA256";
@@ -432,6 +436,24 @@ pub struct CollectionChangesPage {
     pub reset: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationRequest {
+    pub protocol_version: u32,
+    pub request_id: Uuid,
+    pub input: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationResponse {
+    pub protocol_version: u32,
+    pub request_id: Uuid,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ControlError>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncRecord {
     pub record_id: Uuid,
@@ -510,27 +532,35 @@ pub fn authority_manifest_digest(
     resources: &[SyncResourceDocument],
     records: &[AuthoritySnapshotRecord],
 ) -> String {
-    let mut entries = BTreeMap::<(&str, &str), String>::new();
+    let mut entries = BTreeMap::<(&str, &str), (String, String)>::new();
     for resource in resources {
         entries.insert(
             ("resource", resource.path.as_str()),
-            hex_digest(&Sha256::digest(resource.document.as_bytes())),
+            (
+                String::new(),
+                hex_digest(&Sha256::digest(resource.document.as_bytes())),
+            ),
         );
     }
     for record in records {
         entries.insert(
             ("record", record.record.path.as_str()),
-            record.record.revision.clone(),
+            (
+                record.record.record_id.to_string(),
+                hex_digest(&Sha256::digest(record.document.as_bytes())),
+            ),
         );
     }
     let mut manifest = Sha256::new();
     manifest.update(b"mdbase-authority-manifest-v1\n");
-    for ((kind, path), revision) in entries {
+    for ((kind, path), (identity, document_hash)) in entries {
         manifest.update(kind.as_bytes());
         manifest.update(b"\0");
         manifest.update(path.as_bytes());
         manifest.update(b"\0");
-        manifest.update(revision.as_bytes());
+        manifest.update(identity.as_bytes());
+        manifest.update(b"\0");
+        manifest.update(document_hash.as_bytes());
         manifest.update(b"\n");
     }
     hex_digest(&manifest.finalize())
@@ -625,9 +655,16 @@ pub struct SyncSnapshotPage {
     pub snapshot_id: Uuid,
     pub scope_epoch: u64,
     pub cursor: u64,
-    pub records: Vec<SyncRecord>,
+    pub records: Vec<SyncSnapshotRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_page: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncSnapshotRecord {
+    #[serde(flatten)]
+    pub record: SyncRecord,
+    pub document: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -748,6 +785,8 @@ pub struct ApplicationRequirements {
     pub contracts: Vec<ContractRequirement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access: Option<ApplicationAccess>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_kind: Option<ApplicationCollectionKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -755,6 +794,12 @@ pub struct ApplicationRequirements {
 pub enum ApplicationAccess {
     Contract,
     FullCollection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationCollectionKind {
+    Hosted,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -995,8 +1040,8 @@ pub struct GrantEncryption {
     pub scope_epoch: u64,
     pub connector_id: Uuid,
     pub collection_id: Uuid,
-    pub application_public_key: String,
-    pub connector_public_key: String,
+    pub application_agreement_public_key: String,
+    pub connector_agreement_public_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1034,9 +1079,35 @@ fn default_collection_name() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RelayMessage {
+    RelayHello {
+        protocol_version: u32,
+        connector_version: String,
+        capabilities: Vec<String>,
+    },
+    RelayWelcome {
+        protocol_version: u32,
+        session_id: String,
+        capabilities: Vec<String>,
+    },
+    RelayIncompatible {
+        protocol_version: u32,
+        code: String,
+        message: String,
+        update_url: String,
+    },
     PolicySnapshot {
         protocol_version: u32,
+        request_id: Uuid,
+        revision: String,
         grants: Vec<GrantPolicy>,
+    },
+    PolicyApplied {
+        protocol_version: u32,
+        request_id: Uuid,
+        revision: String,
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<ControlError>,
     },
     AuthorizationOfferRequest {
         protocol_version: u32,
@@ -1224,6 +1295,29 @@ mod tests {
             Uuid::parse_str("01944444-4444-7444-8444-444444444444").unwrap(),
         ];
         for message in [
+            RelayMessage::RelayHello {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                connector_version: "0.1.0-beta.16".to_string(),
+                capabilities: RELAY_CAPABILITIES
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+            },
+            RelayMessage::RelayWelcome {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                session_id: "42".to_string(),
+                capabilities: RELAY_CAPABILITIES
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+            },
+            RelayMessage::RelayIncompatible {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                code: "connector_upgrade_required".to_string(),
+                message: "Update required.".to_string(),
+                update_url: "https://github.com/mdbase-dev/mdbase-connect/releases/latest"
+                    .to_string(),
+            },
             RelayMessage::AuthorizationOfferRequest {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
                 request_id: ids[0],
@@ -1265,6 +1359,8 @@ mod tests {
             },
             RelayMessage::PolicySnapshot {
                 protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: ids[0],
+                revision: format!("sha256:{}", "0".repeat(64)),
                 grants: vec![GrantPolicy {
                     id: ids[1],
                     application_id: ids[3],
@@ -1283,6 +1379,13 @@ mod tests {
                     encryption: None,
                 }],
             },
+            RelayMessage::PolicyApplied {
+                protocol_version: CONTROL_PROTOCOL_VERSION,
+                request_id: ids[0],
+                revision: format!("sha256:{}", "0".repeat(64)),
+                ok: true,
+                error: None,
+            },
         ] {
             assert_schema("", serde_json::to_value(message).unwrap());
         }
@@ -1298,6 +1401,8 @@ mod tests {
         ];
         let message = RelayMessage::PolicySnapshot {
             protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id: ids[3],
+            revision: format!("sha256:{}", "0".repeat(64)),
             grants: vec![GrantPolicy {
                 id: ids[0],
                 application_id: ids[1],
@@ -1320,8 +1425,8 @@ mod tests {
                     scope_epoch: 1,
                     connector_id: ids[3],
                     collection_id: ids[2],
-                    application_public_key: "A".repeat(87),
-                    connector_public_key: "B".repeat(87),
+                    application_agreement_public_key: "A".repeat(87),
+                    connector_agreement_public_key: "B".repeat(87),
                 }),
             }],
         };
@@ -1439,7 +1544,10 @@ mod tests {
                     snapshot_id,
                     scope_epoch: 1,
                     cursor: 1,
-                    records: vec![record.clone()],
+                    records: vec![SyncSnapshotRecord {
+                        record: record.clone(),
+                        document: "---\ntitle: Task\n---\nDo it.\n".to_string(),
+                    }],
                     next_page: None,
                 })
                 .unwrap(),

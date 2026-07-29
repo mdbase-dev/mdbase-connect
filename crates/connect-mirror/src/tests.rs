@@ -173,7 +173,17 @@ impl SyncTransport for FakeAuthority {
             snapshot_id,
             scope_epoch: self.session.scope_epoch,
             cursor: self.session.head,
-            records: self.records.lock().unwrap().values().cloned().collect(),
+            records: self
+                .records
+                .lock()
+                .unwrap()
+                .values()
+                .cloned()
+                .map(|record| mdbase_connect_protocol::SyncSnapshotRecord {
+                    document: record_markdown_document(&record).unwrap(),
+                    record,
+                })
+                .collect(),
             next_page: None,
         })
     }
@@ -285,6 +295,13 @@ fn record(path: &str, title: &str) -> SyncRecord {
         frontmatter: object([("title", Value::String(title.to_string()))]),
         body: format!("# {title}\n"),
         types: Vec::new(),
+    }
+}
+
+fn snapshot_record(record: SyncRecord) -> mdbase_connect_protocol::SyncSnapshotRecord {
+    mdbase_connect_protocol::SyncSnapshotRecord {
+        document: record_markdown_document(&record).unwrap(),
+        record,
     }
 }
 
@@ -493,7 +510,10 @@ async fn interrupted_initial_snapshot_resumes_from_its_durable_plan() {
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
-        records: vec![first.clone(), second.clone()],
+        records: vec![
+            snapshot_record(first.clone()),
+            snapshot_record(second.clone()),
+        ],
         prior: None,
     };
     mirror.write_rebuild_plan(&plan).unwrap();
@@ -542,7 +562,7 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session,
-        records: vec![renamed.clone()],
+        records: vec![snapshot_record(renamed.clone())],
         prior: mirror.read_state().unwrap(),
     };
     mirror.write_rebuild_plan(&plan).unwrap();
@@ -585,7 +605,10 @@ async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
         replica_id: authority.session.replica_id,
         mode: SyncReplicaMode::ReadOnly,
         session,
-        records: vec![swapped_first.clone(), swapped_second.clone()],
+        records: vec![
+            snapshot_record(swapped_first.clone()),
+            snapshot_record(swapped_second.clone()),
+        ],
         prior: mirror.read_state().unwrap(),
     };
     mirror.write_rebuild_plan(&plan).unwrap();

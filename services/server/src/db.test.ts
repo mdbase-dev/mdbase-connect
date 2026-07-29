@@ -36,7 +36,8 @@ describe("database migrations", () => {
       "0001_collaboration_foundations",
       "0001a_authentication_foundations",
       "0002_instance_administration",
-      "0003_authorization_request_collection"
+      "0003_authorization_request_collection",
+      "0004_separate_application_keys"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -289,7 +290,8 @@ describe("database migrations", () => {
       "0001_collaboration_foundations",
       "0001a_authentication_foundations",
       "0002_instance_administration",
-      "0003_authorization_request_collection"
+      "0003_authorization_request_collection",
+      "0004_separate_application_keys"
     ]);
   });
 
