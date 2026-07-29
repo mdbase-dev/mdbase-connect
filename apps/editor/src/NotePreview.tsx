@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
@@ -41,7 +42,8 @@ const previewId = "note-preview-popover";
 
 export function useNotePreview(
   gateway: CollectionGateway,
-  notes: NoteSummary[]
+  notes: NoteSummary[],
+  types: CollectionTypeDescriptor[] = []
 ): NotePreviewController {
   const notesRef = useRef(notes);
   const cache = useRef(new Map<string, NoteDocument>());
@@ -75,7 +77,7 @@ export function useNotePreview(
 
     setPreview({
       path: note.path,
-      title: noteTitle(note),
+      title: noteTitle(note, types),
       body,
       types: note.types,
       frontmatter: note.effective_frontmatter,
@@ -96,7 +98,7 @@ export function useNotePreview(
       ) return;
       setPreview({
         path: document.path,
-        title: noteTitle(document),
+        title: noteTitle(document, types),
         body: document.body ?? "",
         types: document.types,
         frontmatter: document.effective_frontmatter,
@@ -113,7 +115,7 @@ export function useNotePreview(
       ) return;
       setPreview((current) => current ? { ...current, loading: false, unavailable: true } : current);
     });
-  }, [gateway]);
+  }, [gateway, types]);
 
   const request = useCallback((
     path: string,

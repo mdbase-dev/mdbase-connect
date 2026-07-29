@@ -1,17 +1,30 @@
-import type { JsonObject } from "@mdbase/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "@mdbase/connect";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
+import {
+  fieldReferencePath,
+  fieldReferencePatch,
+  readFieldReference,
+  recordDisplayField
+} from "./field-reference";
 
-const preferredTitleFields = ["title", "name", "subject"];
-
-export function editableNote(note: NoteDocument): EditableNote {
-  for (const field of preferredTitleFields) {
-    const value = note.frontmatter[field] ?? note.effective_frontmatter[field];
-    if (typeof value === "string" && value.trim()) {
-      return { title: value.trim(), body: note.body ?? "", source: { kind: "frontmatter", field } };
-    }
+export function editableNote(
+  note: NoteDocument,
+  types: CollectionTypeDescriptor[] = []
+): EditableNote {
+  const field = recordDisplayField(note.types, types, "name_field");
+  const body = note.body ?? "";
+  if (field && fieldReferencePath(field)) {
+    const value = readFieldReference(note.frontmatter, field)
+      ?? readFieldReference(note.effective_frontmatter, field);
+    return {
+      title: typeof value === "string" && value.trim()
+        ? value.trim()
+        : markdownHeading(body) ?? basename(note.path),
+      body,
+      source: { kind: "frontmatter", field }
+    };
   }
 
-  const body = note.body ?? "";
   const heading = body.match(/^#\s+(.+?)(?:\r?\n|$)/);
   if (heading) {
     const content = body.slice(heading[0].length).replace(/^\r?\n/, "");
@@ -28,29 +41,28 @@ export function persistedBody(title: string, body: string, source: TitleSource):
   return cleanBody ? `# ${cleanTitle}\n\n${cleanBody}` : `# ${cleanTitle}\n`;
 }
 
-export function titlePatch(title: string, source: TitleSource): JsonObject {
-  return source.kind === "frontmatter" ? { [source.field]: title.trim() || "Untitled" } : {};
+export function titlePatch(title: string, source: TitleSource, frontmatter: JsonObject = {}): JsonObject {
+  return source.kind === "frontmatter"
+    ? fieldReferencePatch(frontmatter, source.field, title.trim() || "Untitled")
+    : {};
 }
 
 export function noteTitle(
-  note: Pick<NoteDocument, "path" | "effective_frontmatter"> & { body?: string }
+  note: Pick<NoteDocument, "path" | "effective_frontmatter" | "types"> & { body?: string },
+  types: CollectionTypeDescriptor[] = []
 ): string {
-  for (const field of preferredTitleFields) {
-    const value = note.effective_frontmatter[field];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  if (note.body) {
-    const heading = note.body.match(/^#\s+(.+?)(?:\r?\n|$)/);
-    if (heading) return heading[1].trim();
-  }
+  const field = recordDisplayField(note.types, types, "name_field");
+  const value = readFieldReference(note.effective_frontmatter, field);
+  if (typeof value === "string" && value.trim()) return value.trim();
+  const heading = markdownHeading(note.body ?? "");
+  if (heading) return heading;
   return basename(note.path);
 }
 
-export function notePreview(note: NoteSummary): string {
-  const description = ["summary", "description", "status"]
-    .map((field) => note.effective_frontmatter[field])
-    .find((value) => typeof value === "string" && value.trim());
-  if (typeof description === "string") return description.trim();
+export function notePreview(note: NoteSummary, types: CollectionTypeDescriptor[] = []): string {
+  const field = recordDisplayField(note.types, types, "description_field");
+  const description = readFieldReference(note.effective_frontmatter, field);
+  if (typeof description === "string" && description.trim()) return description.trim();
   if (note.types.length) return note.types.join(" · ");
   return folder(note.path) || "Markdown";
 }
@@ -77,6 +89,10 @@ export function folder(path: string): string {
 
 export function basename(path: string): string {
   return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || "Untitled";
+}
+
+function markdownHeading(body: string): string | undefined {
+  return body.match(/^#\s+(.+?)(?:\r?\n|$)/)?.[1].trim() || undefined;
 }
 
 export interface FolderTreeNode {

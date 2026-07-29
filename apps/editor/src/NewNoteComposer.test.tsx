@@ -67,12 +67,11 @@ describe("new note schema fields", () => {
     render(<NewNoteComposer types={[contactType]} onCreate={onCreate} onCancel={() => undefined} />);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
-    await user.type(screen.getByRole("textbox", { name: "Title" }), "Ada Lovelace");
+    await user.type(screen.getByRole("textbox", { name: "Display Name" }), "Ada Lovelace");
     await user.click(screen.getByRole("textbox", { name: "Note body" }));
     await user.paste("Met at the analytical engine meetup.");
     expect(screen.getByRole("button", { name: "Create note" })).toBeDisabled();
 
-    await user.type(screen.getByLabelText("display_name"), "Ada");
     await user.selectOptions(screen.getByLabelText("kind"), "email");
     await user.type(screen.getByLabelText("value"), "ada@example.com");
     await user.click(screen.getByRole("button", { name: "Create note" }));
@@ -83,10 +82,9 @@ describe("new note schema fields", () => {
       body: "Met at the analytical engine meetup.",
       path: "People/Ada Lovelace.md",
       type: "contact",
-      titleField: "title",
+      titleField: "/profile/display_name",
       properties: {
-        title: "Ada Lovelace",
-        profile: { display_name: "Ada" },
+        profile: { display_name: "Ada Lovelace" },
         contacts: [{ kind: "email", value: "ada@example.com" }]
       }
     });
@@ -167,11 +165,64 @@ describe("new note schema fields", () => {
       }
     })));
   });
+
+  it("does not guess that a schema field is the note title", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer types={[unmappedType]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "unmapped");
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "The document heading");
+    await user.type(screen.getByLabelText("name value"), "A separate schema value");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "The document heading",
+      body: "",
+      path: "The document heading.md",
+      type: "unmapped",
+      titleField: undefined,
+      properties: { name: "A separate schema value" }
+    });
+  });
+
+  it("uses the declared contact name and lets people add optional properties", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn(async () => undefined);
+    render(<NewNoteComposer types={[friendlyContactType]} onCreate={onCreate} onCancel={() => undefined} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "contact");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "Ada Lovelace");
+    expect(screen.queryByLabelText("name value")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Properties", { selector: "summary > span" }));
+    expect(screen.getByLabelText("kind value")).toHaveDisplayValue("person");
+    await user.click(screen.getByRole("button", { name: "Add property" }));
+    await user.click(screen.getByRole("button", { name: /email/i }));
+    await user.type(screen.getByLabelText("email value"), "ada@example.com");
+    await user.click(screen.getByRole("button", { name: "Create note" }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "Ada Lovelace",
+      body: "",
+      path: "People/Ada Lovelace.md",
+      type: "contact",
+      titleField: "name",
+      properties: {
+        name: "Ada Lovelace",
+        kind: "person",
+        email: "ada@example.com"
+      }
+    });
+  });
 });
 
 const eventType: CollectionTypeDescriptor = {
   name: "event",
   definition: { match: { path_glob: "Events/**/*.md" } },
+  collection: { display: { name_field: "title" } },
   schema: {
     type: "object",
     required: ["title", "event_date", "starts_at"],
@@ -187,11 +238,11 @@ const eventType: CollectionTypeDescriptor = {
 const contactType: CollectionTypeDescriptor = {
   name: "contact",
   definition: { match: { path_glob: "People/**/*.md" } },
+  collection: { display: { name_field: "/profile/display_name" } },
   schema: {
     type: "object",
-    required: ["title", "profile", "contacts"],
+    required: ["profile", "contacts"],
     properties: {
-      title: { type: "string" },
       profile: {
         type: "object",
         required: ["display_name"],
@@ -219,6 +270,7 @@ const contactType: CollectionTypeDescriptor = {
 
 const optionalType: CollectionTypeDescriptor = {
   name: "note",
+  collection: { display: { name_field: "title" } },
   schema: {
     type: "object",
     required: ["title"],
@@ -230,8 +282,22 @@ const optionalType: CollectionTypeDescriptor = {
   extensions: {}
 };
 
+const unmappedType: CollectionTypeDescriptor = {
+  name: "unmapped",
+  definition: {},
+  schema: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      name: { type: "string", minLength: 1 }
+    }
+  },
+  extensions: {}
+};
+
 const jsContactType: CollectionTypeDescriptor = {
   name: "contact",
+  collection: { display: { name_field: "name" } },
   schema: {
     type: "object",
     required: ["@type", "version", "name"],
@@ -254,6 +320,29 @@ const jsContactType: CollectionTypeDescriptor = {
       }
     },
     additionalProperties: false
+  },
+  extensions: {}
+};
+
+const friendlyContactType: CollectionTypeDescriptor = {
+  name: "contact",
+  definition: { match: { path_glob: "People/**/*.md" } },
+  collection: { display: { name_field: "name" } },
+  schema: {
+    type: "object",
+    allOf: [{ $ref: "#/$defs/contact" }],
+    $defs: {
+      contact: {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: { type: "string", title: "Name", minLength: 1 },
+          kind: { type: "string", enum: ["person", "organization"], default: "person" },
+          email: { type: "string", format: "email" },
+          phone: { type: "string" }
+        }
+      }
+    }
   },
   extensions: {}
 };

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import type { NoteSummary } from "./model";
 import {
   backlinksFor,
@@ -9,6 +10,7 @@ import {
 } from "./links";
 
 describe("collection links", () => {
+  const types = [displayType("note"), displayType("person")];
   const notes = [
     note("Notes/alpha.md", "Alpha", ["Projects/project.md"]),
     note("Projects/project.md", "Launch project"),
@@ -18,7 +20,7 @@ describe("collection links", () => {
   ];
 
   it("builds backlinks from links, simple names, and embeds", () => {
-    expect(backlinksFor("Projects/project.md", notes).map((candidate) => candidate.path)).toEqual([
+    expect(backlinksFor("Projects/project.md", notes, types).map((candidate) => candidate.path)).toEqual([
       "Notes/alpha.md",
       "Projects/brief.md",
       "Notes/embed.md"
@@ -26,11 +28,11 @@ describe("collection links", () => {
   });
 
   it("prefers a simple-name target in the referring note's folder", () => {
-    expect(backlinksFor("Archive/project.md", notes)).toEqual([]);
+    expect(backlinksFor("Archive/project.md", notes, types)).toEqual([]);
   });
 
   it("creates readable, path-stable wikilinks", () => {
-    const suggestions = linkSuggestions(notes);
+    const suggestions = linkSuggestions(notes, [], types);
     expect(wikilinkFor(suggestions.find((item) => item.path === "Projects/project.md")!)).toBe("Projects/project|Launch project");
     expect(wikilinkFor({ path: "Notes/alpha.md", title: "alpha" })).toBe("Notes/alpha");
   });
@@ -45,7 +47,7 @@ describe("collection links", () => {
       },
       { ...note("Notes/ada.md", "Ada notes"), types: ["note"] }
     ];
-    const suggestions = linkSuggestions(people, ["person", "note"]);
+    const suggestions = linkSuggestions(people, ["person", "note"], types);
 
     expect(suggestions[0].types).toEqual(["person"]);
     expect(suggestions[0].aliases).toEqual(["Ada", "Countess of Lovelace"]);
@@ -61,7 +63,7 @@ describe("collection links", () => {
     const suggestions = linkSuggestions([
       note("Notes/project.md", "Project"),
       note("Archive/project.md", "Project")
-    ]);
+    ], [], types);
 
     expect(linkMatches(suggestions, "project", undefined, undefined, {
       currentPath: "Notes/source.md"
@@ -77,7 +79,7 @@ describe("collection links", () => {
     const suggestions = linkSuggestions([
       note("People/ada-lovelace.md", "Ada Lovelace"),
       note("Notes/a-different-list.md", "A different list")
-    ]);
+    ], [], types);
 
     expect(linkMatches(suggestions, "adlv")).toMatchObject([{
       suggestion: { path: "People/ada-lovelace.md" }
@@ -117,7 +119,17 @@ function note(path: string, title: string, links: unknown[] = [], embeds: unknow
     path,
     frontmatter: { title },
     effective_frontmatter: { title },
-    types: [],
+    types: ["note"],
     file: { path, name: path.split("/").at(-1)!, folder: path.split("/").slice(0, -1).join("/"), size: 1, mtime: "", links, embeds }
+  };
+}
+
+function displayType(name: string): CollectionTypeDescriptor {
+  return {
+    name,
+    definition: {},
+    collection: { display: { name_field: "title" } },
+    schema: { type: "object", properties: { title: { type: "string" } } },
+    extensions: {}
   };
 }

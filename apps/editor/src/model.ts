@@ -62,6 +62,7 @@ export interface SaveNoteInput {
   body: string;
   source: TitleSource;
   revision: string;
+  frontmatter: JsonObject;
 }
 
 export interface CreateNoteInput {

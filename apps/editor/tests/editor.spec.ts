@@ -35,6 +35,9 @@ description: A person or organisation you want to stay in touch with
 match:
   where:
     type: contact
+collection:
+  display:
+    name_field: name
 schema:
   dialect: json-schema-2020-12
   value:
@@ -616,6 +619,39 @@ test("creates a folder with its first note", async ({ page }) => {
   await expect(folders.getByRole("button", { name: /^Show notes in Research,/ })).toBeVisible();
 });
 
+test("creates and edits a contact through its declared display field", async ({ page }) => {
+  await page.goto("?demo=4");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("button", { name: "Add a type" }).click();
+  await page.getByRole("button", { name: "Add Contact" }).first().click();
+  const confirmation = page.getByRole("alert").filter({ hasText: "Add Contact?" });
+  await confirmation.getByRole("button", { name: "Add Contact" }).click();
+  await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
+
+  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: "New note" }).click();
+  await page.getByRole("combobox", { name: "Type" }).selectOption("contact");
+  await expect(page.getByRole("textbox", { name: "Name" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Title" })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Name" }).fill("Ada Lovelace");
+  await page.getByText("Properties", { selector: "summary > span" }).click();
+  await expect(page.getByRole("combobox", { name: "kind value" })).toHaveValue('string:"individual"');
+  await page.getByRole("button", { name: "Add property" }).click();
+  await page.getByRole("button", { name: /email/i }).click();
+  await page.getByRole("textbox", { name: "email value" }).fill("ada@example.com");
+  expect((await new AxeBuilder({ page }).include(".new-note-composer").analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Create note" }).click();
+
+  const title = page.getByRole("textbox", { name: "Note title" });
+  await expect(title).toHaveValue("Ada Lovelace");
+  await title.fill("Augusta Ada King");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Note properties" }).click();
+  const panel = page.getByRole("complementary", { name: "Note properties" });
+  await expect(panel.getByRole("textbox", { name: "name value" })).toHaveValue("Augusta Ada King");
+  await expect(panel.getByRole("textbox", { name: "email value" })).toHaveValue("ada@example.com");
+});
+
 test("inspects type definitions and persists editor settings", async ({ page }) => {
   await page.goto("?demo=12");
   await page.getByRole("button", { name: "Types (1)" }).click();
@@ -647,7 +683,10 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.locator(".visual-field-name input").first()).toHaveValue("type");
   await expect(page.locator(".visual-field-name input").nth(1)).toHaveValue("name");
   await page.getByRole("button", { name: "YAML" }).click();
-  await expect(page.getByRole("textbox", { name: "contact type YAML" })).toContainText("contract: mdbase.contact");
+  const installedYaml = page.getByRole("textbox", { name: "contact type YAML" });
+  await installedYaml.click();
+  await page.keyboard.press("Control+End");
+  await expect(installedYaml).toContainText("contract: mdbase.contact");
   await page.getByRole("button", { name: "Design" }).click();
   await page.getByRole("button", { name: "Add field" }).click();
   const localField = page.locator(".visual-field-name input").last();

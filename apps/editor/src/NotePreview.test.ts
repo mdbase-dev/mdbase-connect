@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import { describe, expect, it } from "vitest";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { notePreviewExcerpt, previewProperties, useNotePreview } from "./NotePreview";
@@ -49,7 +50,7 @@ describe("note previews", () => {
       types: ["person"],
       file: { path: "Notes/Ada.md" }
     } as NoteSummary;
-    const { result } = renderHook(() => useNotePreview({} as CollectionGateway, [note]));
+    const { result } = renderHook(() => useNotePreview({} as CollectionGateway, [note], [personType]));
 
     act(() => result.current.request(
       note.path,
@@ -61,3 +62,11 @@ describe("note previews", () => {
     expect(result.current.preview).toBeUndefined();
   });
 });
+
+const personType: CollectionTypeDescriptor = {
+  name: "person",
+  definition: {},
+  collection: { display: { name_field: "title" } },
+  schema: { type: "object", properties: { title: { type: "string" } } },
+  extensions: {}
+};

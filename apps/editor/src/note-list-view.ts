@@ -1,3 +1,4 @@
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
 
@@ -41,13 +42,17 @@ export function noteSortSummary(value: NoteSort): string {
   return noteSortOptions.find((option) => option.value === value)?.summary ?? noteSortOptions[0].summary;
 }
 
-export function sortNotes(notes: NoteSummary[], sort: NoteSort): NoteSummary[] {
+export function sortNotes(
+  notes: NoteSummary[],
+  sort: NoteSort,
+  types: CollectionTypeDescriptor[] = []
+): NoteSummary[] {
   return [...notes].sort((left, right) => {
     if (sort === "modified-desc" || sort === "modified-asc") {
       const modified = compareModified(left, right, sort === "modified-desc" ? -1 : 1);
       if (modified !== 0) return modified;
     } else if (sort === "title-asc") {
-      const title = noteCollator.compare(noteTitle(left), noteTitle(right));
+      const title = noteCollator.compare(noteTitle(left, types), noteTitle(right, types));
       if (title !== 0) return title;
     } else {
       const path = noteCollator.compare(left.path, right.path);

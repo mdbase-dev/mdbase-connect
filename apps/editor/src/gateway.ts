@@ -222,7 +222,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async update(input: SaveNoteInput): Promise<NoteDocument> {
     return unwrapOperation(await this.requireConnection().update({
       path: input.path,
-      patch: titlePatch(input.title, input.source),
+      patch: titlePatch(input.title, input.source, input.frontmatter),
       body: persistedBody(input.title, input.body, input.source),
       if_revision: input.revision,
       include_document: true

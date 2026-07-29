@@ -1,5 +1,6 @@
 import { MagnifyingGlassIcon as Search, XIcon as X } from "./icons";
 import { useEffect, useMemo, useState } from "react";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import { Dialog } from "./Dialog";
 import { noteTitle } from "./note";
 import {
@@ -10,9 +11,10 @@ import {
 } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
 
-export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
+export function QuickOpen({ index, recentPaths, types, onSelect, onClose }: {
   index: NoteSearchEntry[];
   recentPaths: string[];
+  types: CollectionTypeDescriptor[];
   onSelect: (path: string) => void;
   onClose: () => void;
 }) {
@@ -73,7 +75,7 @@ export function QuickOpen({ index, recentPaths, onSelect, onClose }: {
           onMouseEnter={() => setActiveIndex(noteIndex)}
           onClick={() => choose(result)}
         ><span>
-          <strong><SearchMatchText text={noteTitle(result.note)} ranges={searchTextRanges(noteTitle(result.note), query)} /></strong>
+          <strong><SearchMatchText text={noteTitle(result.note, types)} ranges={searchTextRanges(noteTitle(result.note, types), query)} /></strong>
           <small className={`search-result-context ${result.context.kind}`}><SearchMatchText text={result.context.text} ranges={result.context.ranges} /></small>
         </span></button>)}
         {!results.length && <p>No matching notes.</p>}

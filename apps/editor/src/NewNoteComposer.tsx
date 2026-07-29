@@ -5,8 +5,20 @@ import { CodeEditor } from "./CodeEditor";
 import type { CreateNoteInput } from "./model";
 import { safeRenamePath } from "./note";
 import type { EditorPreferences } from "./preferences";
-import { schemaValueComplete } from "./SchemaValueEditor";
+import {
+  humanizeName,
+  resolveSchema,
+  schemaProperties,
+  schemaRequired,
+  schemaValueComplete
+} from "./SchemaValueEditor";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import {
+  collectionDisplayField,
+  fieldReferenceName,
+  fieldReferencePath,
+  writeFieldReference
+} from "./field-reference";
 
 export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType, purpose = "note", preferences, recordPaths = [], leadingActions, onCreate, onCancel, onDraftChange }: {
   types: CollectionTypeDescriptor[];
@@ -35,12 +47,25 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const type = types.find((candidate) => candidate.name === typeName);
-  const schema = schemaShape(type);
-  const titleField = ["title", "name", "subject"].find((field) => isTextTitleField(schema.properties[field]));
-  const required = schema.required.filter((field) => field !== "type" && field !== titleField && !schemaSuppliesValue(schema.properties[field]));
+  const declaredDisplayField = collectionDisplayField(type, "name_field");
+  const displaySchema = schemaAtFieldReference(type?.schema, declaredDisplayField);
+  const displayField = isTextField(displaySchema) ? declaredDisplayField : undefined;
+  const primaryLabel = displayField
+    ? schemaFieldLabel(displayField, displaySchema)
+    : "Title";
+  const formSchema = useMemo(
+    () => creationFormSchema(type?.schema, displayField),
+    [displayField, type?.schema]
+  );
+  const schema = schemaShape(formSchema);
+  const displayPath = fieldReferencePath(displayField);
+  const displayRoot = displayPath?.length === 1
+    ? displayPath[0]
+    : undefined;
+  const required = schema.required.filter((field) => field !== "type" && !schemaSuppliesValue(schema.properties[field]));
   const optional = [...new Set([
-    ...Object.keys(schema.properties).filter((field) => field !== "type" && field !== titleField && !required.includes(field)),
-    ...Object.keys(properties).filter((field) => field !== "type" && field !== titleField && !required.includes(field))
+    ...Object.keys(schema.properties).filter((field) => field !== "type" && !required.includes(field)),
+    ...Object.keys(properties).filter((field) => field !== "type" && field !== displayRoot && !required.includes(field))
   ])];
   const selectedOptional = optional.filter((field) => field in properties).length;
   const resolvedPath = folderCreation
@@ -50,7 +75,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     title.trim()
     && validPath(resolvedPath)
     && (!folderCreation || validFolder(folderName))
-    && required.every((field) => schemaValueComplete(schema.properties[field], properties[field]))
+    && required.every((field) => schemaValueComplete(schema.properties[field], properties[field], formSchema))
     && requiredPropertiesValid
     && optionalPropertiesValid
   );
@@ -86,15 +111,15 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     if (!complete || creating) return;
     setCreating(true);
     setError(undefined);
-    const nextProperties = { ...defaults, ...properties };
-    if (titleField) nextProperties[titleField] = title.trim();
+    let nextProperties = { ...defaults, ...properties };
+    if (displayField) nextProperties = writeFieldReference(nextProperties, displayField, title.trim());
     try {
       await onCreate({
         title: title.trim(),
         body,
         path: safeRenamePath(resolvedPath),
         type: typeName || undefined,
-        titleField,
+        titleField: displayField,
         properties: nextProperties
       });
     } catch (createError) {
@@ -119,7 +144,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
       <p className="eyebrow">{folderCreation ? "Create folder" : "Create note"}</p>
       {folderCreation
         ? <label className="new-note-title"><span className="sr-only">Folder name</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="Folder name" spellCheck="false" /></label>
-        : <label className="new-note-title"><span className="sr-only">Title</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>}
+        : <label className="new-note-title"><span className="sr-only">{primaryLabel}</span><input autoFocus value={title} onChange={(event) => changeTitle(event.target.value)} placeholder={displayField ? primaryLabel : "Untitled"} /></label>}
       {folderCreation && <p className="new-note-intro">A folder appears when its first note is created.</p>}
       <div className="new-note-fields">
         {folderCreation
@@ -195,20 +220,16 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   </main>;
 }
 
-function schemaShape(type?: CollectionTypeDescriptor): { properties: Record<string, JsonObject>; required: string[] } {
-  const rawProperties = type?.schema.properties;
-  const properties: Record<string, JsonObject> = {};
-  if (rawProperties && !Array.isArray(rawProperties) && typeof rawProperties === "object") {
-    for (const [name, schema] of Object.entries(rawProperties)) {
-      if (schema && !Array.isArray(schema) && typeof schema === "object") properties[name] = schema as JsonObject;
-    }
-  }
-  const required = Array.isArray(type?.schema.required) ? type.schema.required.filter((item): item is string => typeof item === "string") : [];
-  return { properties, required };
+function schemaShape(root?: JsonObject): { properties: Record<string, JsonObject>; required: string[] } {
+  const schema = resolveSchema(root, root);
+  return {
+    properties: schemaProperties(schema),
+    required: schemaRequired(schema)
+  };
 }
 
 function schemaDefaults(type?: CollectionTypeDescriptor): JsonObject {
-  const { properties } = schemaShape(type);
+  const { properties } = schemaShape(type?.schema);
   return Object.fromEntries(Object.entries(properties).flatMap(([name, schema]) => {
     if ("default" in schema) return [[name, structuredClone(schema.default)]];
     if ("const" in schema) return [[name, structuredClone(schema.const)]];
@@ -219,7 +240,7 @@ function schemaDefaults(type?: CollectionTypeDescriptor): JsonObject {
 function seededProperties(type?: CollectionTypeDescriptor, tag?: string): JsonObject {
   const properties = schemaDefaults(type);
   if (!tag) return properties;
-  const tagSchema = schemaShape(type).properties.tags;
+  const tagSchema = schemaShape(type?.schema).properties.tags;
   if (tagSchema?.type === "string") {
     properties.tags = tag;
     return properties;
@@ -236,7 +257,55 @@ function schemaSuppliesValue(schema?: JsonObject): boolean {
   return Boolean(schema && ("default" in schema || "const" in schema));
 }
 
-function isTextTitleField(schema?: JsonObject): boolean {
+function schemaAtFieldReference(root: JsonObject | undefined, reference: string | undefined): JsonObject | undefined {
+  const path = fieldReferencePath(reference);
+  if (!root || !path) return undefined;
+  let current = resolveSchema(root, root);
+  for (const token of path) {
+    const properties = schemaProperties(current);
+    const property = properties[token];
+    if (!property) return undefined;
+    current = resolveSchema(root, property);
+  }
+  return current;
+}
+
+function creationFormSchema(root: JsonObject | undefined, displayField: string | undefined): JsonObject {
+  const resolved = structuredClone(resolveSchema(root, root) ?? { type: "object", properties: {} });
+  const hiddenPaths = [
+    ["type"],
+    ...(fieldReferencePath(displayField) ? [fieldReferencePath(displayField)!] : [])
+  ];
+  for (const path of hiddenPaths) removeSchemaPath(resolved, root ?? resolved, path);
+  return resolved;
+}
+
+function removeSchemaPath(schema: JsonObject, root: JsonObject, path: string[]) {
+  const [field, ...rest] = path;
+  if (!field) return;
+  const properties = schemaProperties(schema);
+  const child = properties[field];
+  if (!child) return;
+  if (rest.length) {
+    const resolvedChild = structuredClone(resolveSchema(root, child) ?? child);
+    removeSchemaPath(resolvedChild, root, rest);
+    schema.properties = { ...properties, [field]: resolvedChild };
+    return;
+  }
+  const nextProperties = { ...properties };
+  delete nextProperties[field];
+  schema.properties = nextProperties;
+  const nextRequired = schemaRequired(schema).filter((required) => required !== field);
+  if (nextRequired.length) schema.required = nextRequired;
+  else delete schema.required;
+}
+
+function schemaFieldLabel(reference: string, schema: JsonObject | undefined): string {
+  if (typeof schema?.title === "string" && schema.title.trim()) return schema.title.trim();
+  return humanizeName(fieldReferenceName(reference) ?? reference);
+}
+
+function isTextField(schema?: JsonObject): boolean {
   if (!schema || "const" in schema) return false;
   if (schema.type === "string") return true;
   if (Array.isArray(schema.type)) {

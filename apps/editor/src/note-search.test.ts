@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import {
   buildNoteSearchIndex,
   searchNoteResults,
@@ -11,6 +12,11 @@ const notes: NoteSummary[] = [
   summary("Projects/Release planning.md", { title: "Ship the editor", tags: ["roadmap"] }, ["project"], "Prepare the launch."),
   summary("Reading/Interfaces.md", { title: "Calm interfaces" }, ["note"], "Good tools leave room."),
   summary("Journal/Friday.md", { mood: "quiet" }, [], "A small daily note.")
+];
+
+const types: CollectionTypeDescriptor[] = [
+  displayType("project"),
+  displayType("note")
 ];
 
 function summary(
@@ -36,7 +42,7 @@ function summary(
 }
 
 describe("note search", () => {
-  const index = buildNoteSearchIndex(notes);
+  const index = buildNoteSearchIndex(notes, types);
 
   it("fuzzy-matches titles and paths while ranking titles first", () => {
     expect(searchNotes(index, "shp edt").map((note) => note.path)).toEqual(["Projects/Release planning.md"]);
@@ -77,3 +83,13 @@ describe("note search", () => {
     ]);
   });
 });
+
+function displayType(name: string): CollectionTypeDescriptor {
+  return {
+    name,
+    definition: {},
+    collection: { display: { name_field: "title" } },
+    schema: { type: "object", properties: { title: { type: "string" } } },
+    extensions: {}
+  };
+}

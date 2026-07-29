@@ -278,6 +278,47 @@ describe("ConnectCollectionGateway recovery operations", () => {
     });
   });
 
+  it("updates a nested display field without replacing its sibling properties", async () => {
+    const document: NoteDocument = {
+      path: "People/ada.md",
+      frontmatter: {
+        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
+      },
+      effective_frontmatter: {
+        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
+      },
+      body: "",
+      types: ["contact"],
+      revision: "revision:2",
+      file: { name: "ada.md", folder: "People", size: 0, mtime: "" }
+    };
+    const update = vi.fn(async () => ({ valid: true, diagnostics: [], result: document }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, { update });
+
+    await gateway.update({
+      path: "People/ada.md",
+      title: "Augusta Ada King",
+      body: "",
+      source: { kind: "frontmatter", field: "/profile/display_name" },
+      revision: "revision:1",
+      frontmatter: {
+        profile: { display_name: "Ada Lovelace", timezone: "Europe/London" },
+        kind: "individual"
+      }
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      path: "People/ada.md",
+      patch: {
+        profile: { display_name: "Augusta Ada King", timezone: "Europe/London" }
+      },
+      body: "",
+      if_revision: "revision:1",
+      include_document: true
+    });
+  });
+
   it("installs a complete type pack through one collection operation", async () => {
     const installTypePack = vi.fn(async () => ({
       valid: true,

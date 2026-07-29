@@ -1,3 +1,4 @@
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import type { NoteSummary } from "./model";
 import { basename, folder, noteTitle } from "./note";
 
@@ -47,12 +48,16 @@ interface IndexedSuggestion {
 
 const suggestionIndexes = new WeakMap<LinkSuggestion[], IndexedSuggestion[]>();
 
-export function linkSuggestions(notes: NoteSummary[], declaredTypes: string[] = []): LinkSuggestion[] {
+export function linkSuggestions(
+  notes: NoteSummary[],
+  declaredTypes: string[] = [],
+  types: CollectionTypeDescriptor[] = []
+): LinkSuggestion[] {
   const declared = new Set(declaredTypes);
   return notes
     .map((note) => ({
       path: note.path,
-      title: noteTitle(note),
+      title: noteTitle(note, types),
       aliases: noteAliases(note),
       types: declared.size ? note.types.filter((type) => declared.has(type)) : note.types
     }))
@@ -88,11 +93,15 @@ export function linkMatches(
     .map(({ suggestion, label, rank }) => ({ suggestion, label, rank }));
 }
 
-export function backlinksFor(targetPath: string, notes: NoteSummary[]): NoteSummary[] {
+export function backlinksFor(
+  targetPath: string,
+  notes: NoteSummary[],
+  types: CollectionTypeDescriptor[] = []
+): NoteSummary[] {
   const index = linkIndex(notes);
   return notes
     .filter((note) => referencesFor(note).some((reference) => resolveReference(note.path, reference, index)?.path === targetPath))
-    .sort((left, right) => noteTitle(left).localeCompare(noteTitle(right)) || left.path.localeCompare(right.path));
+    .sort((left, right) => noteTitle(left, types).localeCompare(noteTitle(right, types)) || left.path.localeCompare(right.path));
 }
 
 export function wikilinkFor(suggestion: LinkSuggestion, label = suggestion.title): string {

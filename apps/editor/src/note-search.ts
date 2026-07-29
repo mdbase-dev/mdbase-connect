@@ -1,3 +1,4 @@
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import type { NoteSummary } from "./model";
 import { basename, noteTags, noteTitle } from "./note";
 
@@ -28,14 +29,17 @@ export interface SearchTextRange {
   to: number;
 }
 
-export function buildNoteSearchIndex(notes: NoteSummary[]): NoteSearchEntry[] {
+export function buildNoteSearchIndex(
+  notes: NoteSummary[],
+  types: CollectionTypeDescriptor[] = []
+): NoteSearchEntry[] {
   return notes.map((note) => {
     const metadata: string[] = [...note.types, ...noteTags(note)];
     collectSearchValues(note.effective_frontmatter, metadata);
     const metadataText = readableMetadata(note);
     return {
       note,
-      title: normalize(noteTitle(note)),
+      title: normalize(noteTitle(note, types)),
       filename: normalize(basename(note.path)),
       path: normalize(note.path),
       metadata: normalize(metadata.join("\n")),

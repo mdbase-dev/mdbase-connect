@@ -324,7 +324,11 @@ export function schemaValueComplete(schema: JsonObject | undefined, value: unkno
   if (type === "object") {
     if (!isObject(value)) return false;
     const properties = schemaProperties(resolved);
-    return schemaRequired(resolved).every((field) => field in value && schemaValueComplete(properties[field], value[field], rootSchema));
+    const requiredFields = schemaRequired(resolved);
+    return requiredFields.every((field) => field in value)
+      && Object.entries(properties).every(([field, childSchema]) => (
+        !(field in value) || schemaValueComplete(childSchema, value[field], rootSchema)
+      ));
   }
   return true;
 }
@@ -345,12 +349,12 @@ function schemaType(schema?: JsonObject, value?: unknown): string {
   return "string";
 }
 
-function schemaProperties(schema?: JsonObject): Record<string, JsonObject> {
+export function schemaProperties(schema?: JsonObject): Record<string, JsonObject> {
   if (!isObject(schema?.properties)) return {};
   return Object.fromEntries(Object.entries(schema.properties).filter((entry): entry is [string, JsonObject] => isObject(entry[1])));
 }
 
-function schemaRequired(schema?: JsonObject): string[] {
+export function schemaRequired(schema?: JsonObject): string[] {
   return Array.isArray(schema?.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
 }
 
@@ -373,7 +377,7 @@ function suppliedValue(schema?: JsonObject): unknown {
   return undefined;
 }
 
-function resolveSchema(
+export function resolveSchema(
   rootSchema?: JsonObject,
   schema?: JsonObject,
   visited: Set<string> = new Set()
@@ -396,6 +400,7 @@ function resolveSchema(
   for (const branch of branches) {
     resolved = mergeSchemas(resolved, resolveSchema(rootSchema, branch, visited) ?? {});
   }
+  delete resolved.allOf;
   return resolved;
 }
 
@@ -432,7 +437,7 @@ function schemaLabel(name: string, required: boolean, hideLabel: boolean, schema
   </span>;
 }
 
-function humanizeName(name: string): string {
+export function humanizeName(name: string): string {
   return name
     .replaceAll("_", " ")
     .replaceAll("-", " ")

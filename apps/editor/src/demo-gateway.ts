@@ -207,10 +207,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     const note = this.required(input.path);
     this.assertRevision(note, input.revision);
     note.body = persistedBody(input.title, input.body, input.source);
-    note.frontmatter = { ...note.frontmatter, ...titlePatch(input.title, input.source) };
+    note.frontmatter = { ...note.frontmatter, ...titlePatch(input.title, input.source, input.frontmatter) };
     note.effective_frontmatter = {
       ...note.effective_frontmatter,
-      ...titlePatch(input.title, input.source)
+      ...titlePatch(input.title, input.source, input.frontmatter)
     };
     note.document = composeRecordSource(note.frontmatter, note.body ?? "");
     this.bump(note);
@@ -519,6 +519,7 @@ match:
 collection:
   display:
     icon: notebook
+    name_field: title
 schema:
   dialect: json-schema-2020-12
   value:

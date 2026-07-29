@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import {
   editableNote,
   folderTree,
@@ -11,12 +12,13 @@ import {
   tags,
   types
 } from "./note";
+import { fieldReferencePatch } from "./field-reference";
 import type { NoteDocument, NoteSummary } from "./model";
 
 describe("note editing", () => {
   it("keeps a frontmatter title separate from the Markdown body", () => {
-    const note = document({ title: "Field title" }, "Body only");
-    expect(editableNote(note)).toEqual({
+    const note = document({ title: "Field title" }, "Body only", ["note"]);
+    expect(editableNote(note, [titleType])).toEqual({
       title: "Field title",
       body: "Body only",
       source: { kind: "frontmatter", field: "title" }
@@ -34,16 +36,43 @@ describe("note editing", () => {
     expect(editable.title).toBe("Fallback");
     expect(persistedBody(editable.title, editable.body, editable.source)).toBe("# Fallback\n\nPlain body");
   });
+
+  it("reads and safely patches a nested declared display field", () => {
+    const frontmatter = {
+      profile: { display_name: "Ada Lovelace", timezone: "Europe/London" },
+      category: "person"
+    };
+    const note = document(frontmatter, "Body only", ["contact"]);
+
+    expect(editableNote(note, [contactType])).toEqual({
+      title: "Ada Lovelace",
+      body: "Body only",
+      source: { kind: "frontmatter", field: "/profile/display_name" }
+    });
+    expect(fieldReferencePatch(frontmatter, "/profile/display_name", "Grace Hopper")).toEqual({
+      profile: { display_name: "Grace Hopper", timezone: "Europe/London" }
+    });
+  });
+
+  it("keeps a missing declared display field authoritative", () => {
+    const note = document({}, "# Visible heading\n\nBody only", ["note"]);
+
+    expect(editableNote(note, [titleType])).toEqual({
+      title: "Visible heading",
+      body: "# Visible heading\n\nBody only",
+      source: { kind: "frontmatter", field: "title" }
+    });
+  });
 });
 
 describe("collection helpers", () => {
   it("derives titles and top-level folder counts", () => {
     const notes: NoteSummary[] = [
-      summary("Work/a.md", { title: "A" }),
+      summary("Work/a.md", { title: "A" }, ["note"]),
       summary("Work/Deep/b.md", {}),
       summary("Personal/c.md", {})
     ];
-    expect(noteTitle(notes[0])).toBe("A");
+    expect(noteTitle(notes[0], [titleType])).toBe("A");
     expect(folders(notes)).toEqual([
       { name: "Personal", count: 1 },
       { name: "Work", count: 2 }
@@ -88,17 +117,44 @@ describe("collection helpers", () => {
   });
 });
 
-function document(frontmatter: Record<string, unknown>, body: string): NoteDocument {
+function document(frontmatter: Record<string, unknown>, body: string, noteTypes: string[] = []): NoteDocument {
   return {
     path: "Notes/note.md",
     frontmatter,
     effective_frontmatter: structuredClone(frontmatter),
     body,
-    types: [],
+    types: noteTypes,
     revision: "rev-1",
     file: { name: "note.md", folder: "Notes", size: 0, mtime: "" }
   };
 }
+
+const titleType: CollectionTypeDescriptor = {
+  name: "note",
+  definition: {},
+  collection: { display: { name_field: "title" } },
+  schema: { type: "object", properties: { title: { type: "string" } } },
+  extensions: {}
+};
+
+const contactType: CollectionTypeDescriptor = {
+  name: "contact",
+  definition: {},
+  collection: { display: { name_field: "/profile/display_name" } },
+  schema: {
+    type: "object",
+    properties: {
+      profile: {
+        type: "object",
+        properties: {
+          display_name: { type: "string" },
+          timezone: { type: "string" }
+        }
+      }
+    }
+  },
+  extensions: {}
+};
 
 function summary(path: string, frontmatter: Record<string, unknown>, noteTypes: string[] = [], fileTags: string[] = []): NoteSummary {
   return {

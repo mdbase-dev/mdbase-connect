@@ -113,6 +113,7 @@ const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ def
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
+const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
 
 type AppPhase = "starting" | "disconnected" | "loading" | "ready";
 type SaveState = "saved" | "waiting" | "saving" | "conflict";
@@ -279,6 +280,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const navigationGeneration = useRef(0);
   const typeGeneration = useRef(0);
   const allNotesRef = useRef<NoteSummary[]>([]);
+  const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const currentSession = useRef<NoteSession | undefined>(undefined);
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
@@ -290,7 +292,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mobileHistoryInitialized = useRef(false);
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
-  const notePreviewController = useNotePreview(gateway, allNotes);
+  const typeDescriptors = description?.types ?? emptyTypeDescriptors;
+  const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { saveLayoutPreferences(layout); }, [layout]);
@@ -430,6 +433,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   const refreshDescription = useCallback(async () => {
     const next = await gateway.describe();
+    typeDescriptorsRef.current = next.types;
     setDescription(next);
     setSelectedTypeName((current) => next.types.some((type) => type.name === current) ? current : next.types[0]?.name);
     return next;
@@ -535,7 +539,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, []);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
-    const nextDraft = editableNote(next);
+    const nextDraft = editableNote(next, typeDescriptorsRef.current);
     const session: NoteSession = {
       editorSessionKey: `note-editor-${++noteEditorSession}`,
       document: next,
@@ -548,7 +552,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }, [activateSession]);
 
   const applyRemoteDocument = useCallback((session: NoteSession, next: NoteDocument) => {
-    const nextDraft = editableNote(next);
+    const nextDraft = editableNote(next, typeDescriptorsRef.current);
     session.document = next;
     session.draft = nextDraft;
     session.persistedDraft = structuredClone(nextDraft);
@@ -871,6 +875,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         const input: SaveNoteInput = {
           path: session.document.path,
           revision: session.document.revision,
+          frontmatter: session.document.frontmatter,
           ...snapshot
         };
         session.activity = "saving";
@@ -961,7 +966,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
     const localDraft = session.draft;
     session.document = remote;
-    session.persistedDraft = editableNote(remote);
+    session.persistedDraft = editableNote(remote, typeDescriptors);
     session.remoteDocument = undefined;
     session.draft = localDraft;
     session.error = undefined;
@@ -1026,7 +1031,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [typeCreating, typeDocument, typeSource]);
 
-  const searchIndex = useMemo(() => buildNoteSearchIndex(allNotes), [allNotes]);
+  const searchIndex = useMemo(() => buildNoteSearchIndex(allNotes, typeDescriptors), [allNotes, typeDescriptors]);
   const searchedResults = useMemo(() => {
     return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
   }, [deferredSearch, searchIndex]);
@@ -1044,11 +1049,11 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         : noteFilter.kind === "tag"
           ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
-    return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort);
-  }, [deferredSearch, noteFilter, noteSort, searchedNotes]);
+    return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
+  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
-  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames), [allNotes, linkTypeNames]);
-  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes) : [], [allNotes, document]);
+  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
+  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
 
   const runNoteOperation = useCallback(async <Result,>(
     session: NoteSession,
@@ -1120,6 +1125,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     sessions.current.clear();
     publishNoteHistory({ paths: [], index: -1 });
     linkCreations.current.clear();
+    typeDescriptorsRef.current = emptyTypeDescriptors;
     setDescription(undefined);
     setAllNotes([]);
     setCollectionTotal(undefined);
@@ -1480,7 +1486,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         replaceDocumentFrontmatter(source, next),
         session.document.revision
       ));
-      const persistedDraft = editableNote(updated);
+      const persistedDraft = editableNote(updated, typeDescriptors);
       session.document = updated;
       session.persistedDraft = persistedDraft;
       session.draft = persistedDraft;
@@ -1523,7 +1529,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         source,
         session.document.revision
       ));
-      const persistedDraft = editableNote(updated);
+      const persistedDraft = editableNote(updated, typeDescriptors);
       session.document = updated;
       session.persistedDraft = persistedDraft;
       session.draft = persistedDraft;
@@ -1644,7 +1650,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try {
       if (action.kind === "delete") {
         const restored = await gateway.restore(action.document);
-        const restoredDraft = editableNote(restored);
+        const restoredDraft = editableNote(restored, typeDescriptors);
         sessions.current.set(restored.path, {
           editorSessionKey: `note-editor-${++noteEditorSession}`,
           document: restored,
@@ -1654,7 +1660,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         });
         updateNoteSummary(restored);
         setCollectionTotal((total) => total === undefined ? undefined : total + 1);
-        setNotice(`Restored “${noteTitle(restored)}”.`);
+        setNotice(`Restored “${noteTitle(restored, typeDescriptors)}”.`);
       } else {
         const session = sessions.current.get(action.to);
         if (!session || session.deleted) throw new Error("The renamed note is no longer available to restore.");
@@ -2021,7 +2027,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = currentSession.current?.remoteDocument;
-  const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument) : undefined;
+  const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
   const editorNotice = activeRemoteDocument ? undefined : notice;
   const activePendingRename = pendingRenameRecovery?.plan.session === currentSession.current
     ? pendingRenameRecovery
@@ -2241,7 +2247,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         />
       </Suspense> : noteLoading ? <InspectorPanelLoading label="Note properties" /> : null)}
       {backlinksOpen && (document
-        ? <BacklinksPanel notes={backlinkNotes} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
+        ? <BacklinksPanel notes={backlinkNotes} types={typeDescriptors} loading={foldersLoading} onClose={() => setBacklinksOpen(false)} onOpen={navigateToNote} />
         : noteLoading ? <InspectorPanelLoading label="Backlinks" /> : null)}
     </>}
 
@@ -2351,13 +2357,14 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       />}
     </aside>}
     {recoveryAction && <div className="recovery-bar" role="status">
-      <span>{recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document)}”.` : `Renamed to “${recoveryAction.to}”.`}</span>
+      <span>{recoveryAction.kind === "delete" ? `Deleted “${noteTitle(recoveryAction.document, typeDescriptors)}”.` : `Renamed to “${recoveryAction.to}”.`}</span>
       <button disabled={recoveryBusy} onClick={() => void undoRecovery()}><Undo2 aria-hidden="true" />{recoveryBusy ? "Undoing" : "Undo"}</button>
       <button className="icon-button" aria-label="Dismiss undo" disabled={recoveryBusy} onClick={() => setRecoveryAction(undefined)}><X aria-hidden="true" /></button>
     </div>}
     {quickOpen && <QuickOpen
       index={searchIndex}
       recentPaths={recentPaths}
+      types={typeDescriptors}
       onSelect={(path) => {
         setSearch("");
         setNoteFilter(undefined);
@@ -2889,7 +2896,7 @@ function NoteList({ notes, types, selectedPath, pendingPath, statuses, search, s
           ? { label: "Opening", tone: "busy", busy: true }
           : statuses.get(note.path);
         const searchContext = searchQuery.trim() ? searchContexts.get(note.path) : undefined;
-        const title = noteTitle(note);
+        const title = noteTitle(note, types);
         const typeIcon = note.types.map((type) => typeIcons.get(type)).find(isPhosphorIconName);
         const requestPreview = (target: HTMLButtonElement) => {
           const { left, right, top, bottom } = target.getBoundingClientRect();
@@ -2916,7 +2923,7 @@ function NoteList({ notes, types, selectedPath, pendingPath, statuses, search, s
             ? <span className="note-transition">{status.label}</span>
             : searchContext
               ? <span className={`note-detail note-search-context ${searchContext.kind}`}><SearchMatchText text={searchContext.text} ranges={searchContext.ranges} /></span>
-              : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note)}</span>}</button>;
+              : <span className="note-detail"><time>{noteTimestamp(note)}</time>{notePreview(note, types)}</span>}</button>;
       })}</div> : structureLoading ? <NoteListSkeleton /> : <div className="list-empty"><p>{search ? "No notes found." : "This collection is empty."}</p>{!search && <button onClick={onCreate}>Create the first note</button>}</div>}
     </div>
   </section>;
@@ -2983,8 +2990,9 @@ function SaveIndicator({ state, activity, detail, onCancel }: { state: SaveState
   return <div className="save-indicator"><span className={`save-state ${tone}`} aria-live="polite">{!activity && state === "saved" && <Check aria-hidden="true" />}{label}</span>{onCancel && <button className="cancel-operation" onClick={onCancel}>Cancel</button>}</div>;
 }
 
-function BacklinksPanel({ notes, loading, onClose, onOpen }: {
+function BacklinksPanel({ notes, types, loading, onClose, onOpen }: {
   notes: NoteSummary[];
+  types: CollectionTypeDescriptor[];
   loading: boolean;
   onClose: () => void;
   onOpen: (path: string) => void;
@@ -2997,7 +3005,7 @@ function BacklinksPanel({ notes, loading, onClose, onOpen }: {
     <div className="backlink-list">
       {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
         <Link2 aria-hidden="true" />
-        <span><strong>{noteTitle(note)}</strong><small>{note.path}</small></span>
+        <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
       </button>)}
       {!notes.length && <p className="quiet-empty">{loading ? "Reading collection links…" : "No notes link here yet."}</p>}
     </div>

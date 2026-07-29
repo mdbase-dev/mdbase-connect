@@ -77,14 +77,17 @@ collapsed until needed. Nothing is persisted until the title, path, selected
 type, and any required fields are ready and the user chooses Create note. The
 same controlled property fields used by the note inspector appear during typed
 creation: required fields stay expanded, optional fields live in a Properties
-disclosure, and raw source remains inspector-only. The initial create operation
-includes the drafted body and properties. While an existing note is fetched, a
-stable document skeleton preserves the pane geometry and avoids flashing the
-empty state.
-The collection opens into the same three-pane geometry: the first page becomes
-usable immediately while the remaining index continues in the note list. A
-newly created note is adopted from the create response, so the editor never
-waits for a collection-wide refresh or a redundant read.
+disclosure, and raw source remains inspector-only. When a type declares
+`collection.display.name_field`, that field becomes the prominent name input
+and is not repeated among the remaining properties. Without a declared display
+field, the prominent input names the Markdown document and similarly named
+schema properties remain separate. The initial create operation includes the
+drafted body and properties. While an existing note is fetched, a stable
+document skeleton preserves the pane geometry and avoids flashing the empty
+state. The collection opens into the same three-pane geometry: the first page
+becomes usable immediately while the remaining index continues in the note
+list. A newly created note is adopted from the create response, so the editor
+never waits for a collection-wide refresh or a redundant read.
 
 Type editing uses the same quiet document grammar. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
