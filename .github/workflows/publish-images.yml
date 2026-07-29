@@ -15,11 +15,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  changes:
     if: >-
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.diff.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - id: diff
+        name: Detect managed runtime changes
+        env:
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          parent=$(git rev-parse "$SOURCE_COMMIT^")
+          if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
+            Cargo.toml \
+            apps/portal \
+            crates \
+            deploy/docker/Cargo.lock.hosted-provider \
+            deploy/docker/Dockerfile.hosted-provider \
+            deploy/docker/Dockerfile.mcp \
+            deploy/docker/Dockerfile.server \
+            deploy/docker/mdbase-rs-revision \
+            package.json \
+            packages/client \
+            packages/protocol \
+            packages/sync \
+            packages/ui \
+            pnpm-lock.yaml \
+            pnpm-workspace.yaml \
+            services/mcp \
+            services/server
+          then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: changes
+    if: needs.changes.outputs.publish == 'true'
     name: Publish ${{ matrix.component }}
     runs-on: ubuntu-24.04
     permissions:

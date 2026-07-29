@@ -5,10 +5,10 @@ Rust `mdbase` daemon/CLI. A release is one tested unit; mixing desktop
 and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
-`0.1.0-beta.N`. Beta tags and their matching `releases/v0.1.0-beta.N`
-branches are immutable test releases: increment `N` for every published build,
-including a rebuild made only to correct packaging. Production and managed
-test deployments pin the exact tag commit and never deploy `main`.
+`0.1.0-beta.N`. Beta tags are immutable test releases: increment `N` for every
+published desktop build. Production and managed test deployments promote the
+signed server image digests built from the exact tag commit and never build
+from a tag, release branch, or Render.
 
 ## Local package verification
 
@@ -88,29 +88,24 @@ the GitHub release. Upload it to the matching Partner Center submission. The
 Store replaces its build-time development signature with Microsoft's
 certificate after certification.
 
-Before creating a release tag, run the workflow manually from the commit that
-will be tagged:
+Before creating a release tag, require Server CI and `Publish Server Images` to
+pass for the main commit that will be tagged. That publisher builds each managed
+`linux/amd64` image once, attaches BuildKit SBOM and provenance attestations,
+and adds a keyless signature plus an mdbase release attestation that binds the
+component and source commit. Operations promotes those exact digests to staging
+and production; tag creation never rebuilds them.
+
+The tag must exactly match every package and the Rust workspace version:
 
 ```bash
-gh workflow run desktop-release.yml --ref main
+pnpm version:check v0.1.0-beta.13
+git tag -a v0.1.0-beta.13 -m "mdbase connect 0.1.0-beta.13"
+git push origin v0.1.0-beta.13
 ```
 
-This preflight builds, verifies, signs provenance, and uploads
-all platform artifacts without creating a GitHub release. Require the macOS
-Apple Silicon, macOS Intel, Windows, Linux, and Windows Store smoke-test jobs to
-pass before tagging.
-
-The tag must exactly match every package and the Rust workspace version. Create
-an immutable release branch at the same commit because Git-backed Render
-services require a branch reference; deploy tooling separately verifies and
-deploys the exact tag commit:
-
-```bash
-pnpm version:check v0.1.0-beta.12
-git branch releases/v0.1.0-beta.12
-git tag -a v0.1.0-beta.12 -m "mdbase connect 0.1.0-beta.12"
-git push origin releases/v0.1.0-beta.12 v0.1.0-beta.12
-```
+The tag starts the only full desktop build. The four platform builders do not
+open deployment records; the single publish job enters the `desktop-release`
+environment, verifies every artifact, and creates one GitHub prerelease.
 
 When platform publisher configuration is wholly absent, the workflow publishes
 only explicitly labelled preview artifacts for that platform. Partially
