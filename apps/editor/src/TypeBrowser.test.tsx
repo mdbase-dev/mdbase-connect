@@ -189,7 +189,7 @@ describe("recursive type builder", () => {
     const targetType = screen.getByRole("combobox", { name: "category target type 1" });
     await user.clear(targetType);
     const targetSuggestions = screen.getByRole("listbox", { name: "category target type suggestions" });
-    expect(targetSuggestions).toHaveClass("string-list-suggestions");
+    expect(targetSuggestions).toHaveClass("combobox-popover");
     await user.click(within(targetSuggestions).getByRole("option", { name: "any" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "title uniqueness scope" }), "path_glob");

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const contactSchema = JSON.stringify({
@@ -222,6 +222,23 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+async function expectSharedSelectControls(scope: Locator) {
+  const controls = scope.locator("select");
+  expect(await controls.count()).toBeGreaterThan(0);
+  const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
+    wrapped: select.parentElement?.classList.contains("select-control") ?? false,
+    hasCaret: Boolean(select.parentElement?.querySelector("svg")),
+    appearance: getComputedStyle(select).appearance,
+    height: select.getBoundingClientRect().height
+  })));
+  expect(audit.every((control) =>
+    control.wrapped
+    && control.hasCaret
+    && control.appearance === "none"
+    && control.height === 34
+  )).toBe(true);
+}
+
 test("keeps the application geometry visible while a collection opens", async ({ page }) => {
   await page.goto("?demo=80&delay=450");
   const opening = page.getByRole("main", { name: "Opening collection" });
@@ -231,6 +248,22 @@ test("keeps the application geometry visible while a collection opens", async ({
   expect(await opening.locator(":scope > *").count()).toBe(3);
   await expect(page.getByRole("heading", { name: "Writing" })).toBeVisible();
   await expect(opening).not.toBeAttached();
+});
+
+test("uses one fixed-choice control across settings, note creation, and type editing", async ({ page }) => {
+  await page.goto("?demo=12");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expectSharedSelectControls(page.locator(".settings-view"));
+
+  await page.getByRole("button", { name: /^Notes, / }).click();
+  await page.getByRole("button", { name: "New note" }).click();
+  await expectSharedSelectControls(page.locator(".new-note-composer"));
+  await page.locator(".new-note-actions").getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("option", { name: /note/ }).click();
+  await expectSharedSelectControls(page.locator(".type-inspector"));
 });
 
 test("edits and autosaves a Markdown note", async ({ page }) => {

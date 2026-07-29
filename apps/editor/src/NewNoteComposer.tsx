@@ -12,6 +12,7 @@ import {
   schemaRequired,
   schemaValueComplete
 } from "./SchemaValueEditor";
+import { SelectControl } from "./SelectionControls";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 import {
   collectionDisplayField,
@@ -150,10 +151,10 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
         {folderCreation
           ? <label><span>First note</span><input value={title} onChange={(event) => changeTitle(event.target.value)} placeholder="Untitled" /></label>
           : null}
-        <label><span>Type</span><select value={typeName} onChange={(event) => selectType(event.target.value)}>
+        <label><span>Type</span><SelectControl value={typeName} onChange={(event) => selectType(event.target.value)}>
           <option value="">General note</option>
           {types.map((candidate) => <option key={candidate.name} value={candidate.name}>{candidate.name}</option>)}
-        </select></label>
+        </SelectControl></label>
         {!folderCreation && <details className="new-note-path">
           <summary aria-label="Edit file path"><span>File path</span><output aria-label="Suggested path">{path}</output><ChevronRight aria-hidden="true" /></summary>
           <label><span className="sr-only">File path</span><input aria-label="Path" value={path} onChange={(event) => { setPathEdited(true); setPath(event.target.value); }} spellCheck="false" /><small>Where this Markdown file will live in the collection.</small></label>

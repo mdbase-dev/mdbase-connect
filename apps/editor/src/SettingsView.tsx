@@ -3,6 +3,7 @@ import type { CollectionDescription } from "@mdbase/connect";
 import { useEffect, useState, type ReactNode } from "react";
 import type { ConnectionSummary } from "./model";
 import type { EditorPreferences } from "./preferences";
+import { SelectControl } from "./SelectionControls";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "./theme";
 
 export function SettingsView({ description, connection, noteCount, preferences, directAccessBusy, leadingActions, onChange, onBack, onForget, onRequestDirectAccess }: {
@@ -37,9 +38,9 @@ export function SettingsView({ description, connection, noteCount, preferences, 
           <Toggle checked={preferences.quietMarkdown} label="Quiet Markdown" onChange={(quietMarkdown) => onChange({ ...preferences, quietMarkdown })} />
         </SettingRow>
         <SettingRow title="Text size" description="Change note text without changing the surrounding interface.">
-          <select aria-label="Editor text size" value={preferences.fontSize} onChange={(event) => onChange({ ...preferences, fontSize: Number(event.target.value) as EditorPreferences["fontSize"] })}>
+          <SelectControl aria-label="Editor text size" value={preferences.fontSize} onChange={(event) => onChange({ ...preferences, fontSize: Number(event.target.value) as EditorPreferences["fontSize"] })}>
             <option value="16">Compact</option><option value="17">Comfortable</option><option value="19">Large</option>
-          </select>
+          </SelectControl>
         </SettingRow>
         <SettingRow title="Color theme" description="Follow the system appearance or keep a theme in this browser.">
           <ThemeSelect />
@@ -83,11 +84,11 @@ function ThemeSelect() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [preference]);
-  return <select aria-label="Color theme" value={preference} onChange={(event) => {
+  return <SelectControl aria-label="Color theme" value={preference} onChange={(event) => {
     const next = event.target.value as ThemePreference;
     setPreference(next);
     saveThemePreference(next);
-  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
+  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></SelectControl>;
 }
 
 function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

@@ -227,6 +227,149 @@ select:focus-visible {
   border: 0;
 }
 
+.select-control {
+  position: relative;
+  min-width: 0;
+  display: grid;
+}
+
+.select-control > select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  appearance: none;
+  padding: 0 30px 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  outline: 0;
+  background: var(--white);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.select-control > svg {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  width: 12px;
+  height: 12px;
+  color: var(--faint);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.select-control > select:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.select-control > select:focus {
+  border-color: var(--line-strong);
+  background: var(--white);
+}
+
+.select-control > select:focus-visible {
+  outline-offset: 1px;
+}
+
+.select-control.disabled > select {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.select-control.disabled > svg {
+  opacity: 0.45;
+}
+
+.select-control > select[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger-soft);
+}
+
+.select-control.compact {
+  width: max-content;
+  max-width: 100%;
+}
+
+.select-control.compact > select {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  padding: 0 15px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.select-control.compact > svg {
+  right: 0;
+  width: 9px;
+  height: 9px;
+}
+
+.combobox-control {
+  position: relative;
+  min-width: 0;
+}
+
+.combobox-control > input {
+  width: 100%;
+}
+
+.combobox-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--white);
+  box-shadow: 0 8px 22px var(--color-shadow);
+}
+
+.combobox-popover.drop-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.combobox-popover button {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+.combobox-popover button:hover,
+.combobox-popover button.active {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.combobox-popover button[aria-selected="true"] {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+.combobox-popover p {
+  margin: 0;
+  padding: 7px 9px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
 .wordmark {
   display: flex;
   align-items: center;
@@ -3321,22 +3464,6 @@ kbd {
   text-transform: uppercase;
 }
 
-.property-row-label select {
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.property-row-label select:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
 .property-description {
   margin: -1px 0 8px;
   color: var(--faint);
@@ -3352,15 +3479,9 @@ kbd {
 }
 
 .property-row > input,
-.property-row > select,
 .property-row .schema-value > input,
-.property-row .schema-value > select,
-.property-row .schema-add-value select,
 .add-property-row input,
-.add-property-row select,
-.settings-view select,
-.new-note-fields input,
-.new-note-fields select {
+.new-note-fields input {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -3372,44 +3493,43 @@ kbd {
 }
 
 .property-row > input:focus,
-.property-row > select:focus,
 .property-row .schema-value > input:focus,
-.property-row .schema-value > select:focus,
-.property-row .schema-add-value select:focus,
 .add-property-row input:focus,
-.add-property-row select:focus,
-.new-note-fields input:focus,
-.new-note-fields select:focus {
+.new-note-fields input:focus {
   border-color: var(--line-strong);
   background: var(--white);
 }
 
 .property-row.invalid > input,
-.property-row.invalid > select,
 .property-row.invalid > .schema-value > input,
-.property-row.invalid > .schema-value > select,
 .property-row.invalid > .nested-property,
 .property-row.invalid > .property-string-list input {
   border-color: var(--danger);
 }
 
 .property-row.invalid > input:focus,
-.property-row.invalid > select:focus,
 .property-row.invalid > .schema-value > input:focus,
-.property-row.invalid > .schema-value > select:focus,
 .property-row.invalid > .property-string-list input:focus {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px var(--danger-soft);
 }
 
-.property-row > input:is([type="date"], [type="datetime-local"]),
-.new-note-fields input:is([type="date"], [type="datetime-local"]) {
+.property-row.invalid > .select-control > select,
+.property-row.invalid > .schema-value > .select-control > select {
+  border-color: var(--danger);
+}
+
+.property-row.invalid > .select-control > select:focus,
+.property-row.invalid > .schema-value > .select-control > select:focus {
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+input:is([type="date"], [type="datetime-local"]) {
   color-scheme: inherit;
   font-variant-numeric: tabular-nums;
 }
 
-.property-row > input::-webkit-calendar-picker-indicator,
-.new-note-fields input::-webkit-calendar-picker-indicator {
+input:is([type="date"], [type="datetime-local"])::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.55;
 }
@@ -3680,14 +3800,8 @@ label.schema-value {
   flex: 1;
 }
 
-.schema-add-value select {
+.schema-add-value .select-control {
   width: 100%;
-  min-height: 32px;
-  padding: 5px 7px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--canvas);
-  font-size: 10px;
 }
 
 .schema-add-value button {
@@ -3901,8 +4015,7 @@ label.schema-value {
   font-size: 10px;
 }
 
-.custom-property input,
-.custom-property select {
+.custom-property input {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -4721,11 +4834,8 @@ label.schema-value {
 .field-description input,
 .field-constraint-grid input,
 .collection-behaviour-section input,
-.collection-behaviour-section select,
 .string-list-item input,
-.list-item-heading select,
-.visual-field-row input[type="text"],
-.visual-field-row select {
+.visual-field-row input[type="text"] {
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -5857,20 +5967,6 @@ label.schema-value {
   text-transform: uppercase;
 }
 
-.contract-starter select,
-.contract-add select,
-.contract-mapping-row select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--white);
-  color: var(--ink);
-  font-size: 11px;
-}
-
 .contract-starter button,
 .contract-empty button,
 .contract-add button,
@@ -6149,29 +6245,12 @@ label.schema-value {
   gap: 4px;
 }
 
-.contract-field-source select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--white);
-  color: var(--ink);
-  font-size: 10px;
-}
-
 .contract-field-source > small {
   color: var(--faint);
   font-size: 8px;
 }
 
-.contract-mapping-row.error .contract-field-source select {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 1px var(--danger-soft);
-}
-
-.contract-mapping-row.warning .contract-field-source select {
+.contract-mapping-row.warning .contract-field-source .select-control > select {
   border-color: var(--warning);
 }
 
@@ -6624,60 +6703,6 @@ label.schema-value {
   min-width: 0;
 }
 
-.string-list-input label {
-  display: block;
-}
-
-.string-list-suggestions {
-  position: absolute;
-  z-index: 25;
-  top: calc(100% + 4px);
-  left: 0;
-  width: 100%;
-  max-height: 168px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  background: var(--white);
-  box-shadow: 0 8px 22px var(--color-shadow);
-}
-
-.string-list-suggestions.drop-up {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-
-.string-list-suggestions button {
-  width: 100%;
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  padding: 5px 9px;
-  border-radius: 3px;
-  color: var(--muted);
-  font-size: 11px;
-  text-align: left;
-}
-
-.string-list-suggestions button:hover,
-.string-list-suggestions button.active {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.string-list-suggestions button[aria-selected="true"] {
-  background: var(--selected);
-  color: var(--ink);
-}
-
-.string-list-suggestions p {
-  margin: 0;
-  padding: 7px 9px;
-  color: var(--faint);
-  font-size: 10px;
-}
-
 .string-list-items > p {
   min-height: 34px;
   display: flex;
@@ -6815,10 +6840,8 @@ label.schema-value {
   font-size: 9px !important;
 }
 
-.list-item-heading select {
+.list-item-heading .select-control {
   width: 150px;
-  height: 30px;
-  font-size: 10px;
 }
 
 .visual-type-footnote {
@@ -7076,7 +7099,7 @@ label.schema-value {
   line-height: 1.4;
 }
 
-.setting-row select {
+.setting-row .select-control {
   width: 126px;
 }
 
@@ -7303,7 +7326,7 @@ label.schema-value {
 }
 
 .new-note-fields .schema-value > input,
-.new-note-fields .schema-value > select {
+.new-note-fields .schema-value > .select-control {
   width: 100%;
 }
 

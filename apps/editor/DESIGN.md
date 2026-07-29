@@ -96,6 +96,14 @@ behavior settings, and normalized application view together. Contract IDs,
 versions, validation details, and YAML remain available without becoming the
 primary language of the task.
 
+Fixed-choice fields use the shared `SelectControl`: a native select for reliable
+keyboard, screen-reader, and touch behavior inside one app-owned shell, with a
+consistent caret, height, border, focus ring, disabled state, and error state.
+Searchable suggestions use `ComboboxInput` and the same listbox surface instead
+of browser datalists. Action choices continue to use menu semantics, while
+schema date and date-time fields retain platform pickers with shared input
+styling.
+
 ## Signature
 
 The current Markdown path sits quietly above the title. It can be renamed in

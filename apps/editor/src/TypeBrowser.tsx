@@ -21,6 +21,7 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type R
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
+import { ComboboxInput, SelectControl } from "./SelectionControls";
 import {
   contractCatalogPackStatus,
   type ContractCatalog,
@@ -573,11 +574,11 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
 
     {contracts.length > 0 && creating && implementations.length === 0 && <div className="contract-starter">
       <div><strong>Start with app compatibility</strong><p>Create fields that already match an installed contract. You can rename and remap them later.</p></div>
-      <label><span>Contract</span><select
+      <label><span>Contract</span><SelectControl
         aria-label="Starting contract"
         value={selected ? contractKey(selected) : ""}
         onChange={(event) => setSelectedKey(event.target.value)}
-      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</select></label>
+      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</SelectControl></label>
       <button disabled={!selected} onClick={() => selected && onChange((current) => createTypeSourceFromContract(current, selected, typeNames))}>Use contract</button>
     </div>}
 
@@ -670,8 +671,9 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                     </div>
                     <label className="contract-field-source">
                       <span className="sr-only">{implementation.contract} {field.reference} source field</span>
-                      <select
+                      <SelectControl
                         aria-label={`${implementation.contract} ${field.reference} type field`}
+                        aria-invalid={displayed.level === "error" || undefined}
                         value={mapped}
                         onChange={(event) => onChange((current) => setTypeContractFieldMapping(
                           current,
@@ -686,7 +688,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                         <MappingOptionGroup label="Compatible fields" options={compatible} />
                         <MappingOptionGroup label="Needs review" options={review} />
                         <MappingOptionGroup label="Incompatible fields" options={incompatible} disabled />
-                      </select>
+                      </SelectControl>
                       {mappedField && <small>{kindName(mappedField.kind)} · {mappedField.required ? "always present" : "optional in this type"}</small>}
                     </label>
                     <div className={`contract-mapping-validation ${displayed.level}`} role={displayed.level === "error" ? "alert" : undefined}>
@@ -784,11 +786,11 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
     </div>}
 
     {available.length > 0 && (!creating || implementations.length > 0) && <div className="contract-add">
-      <label><span>Installed contract</span><select
+      <label><span>Installed contract</span><SelectControl
         aria-label="Installed contract"
         value={selected ? contractKey(selected) : ""}
         onChange={(event) => setSelectedKey(event.target.value)}
-      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</select></label>
+      >{available.map((contract) => <option key={contractKey(contract)} value={contractKey(contract)}>{contract.id} · {contract.version}</option>)}</SelectControl></label>
       <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Connect application contract</button>
     </div>}
 
@@ -1123,7 +1125,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               allowEmpty={false}
               onChange={(value) => onChange((source) => renameTypeLinkRule(source, rule.field, value))}
             />
-            <label><span>Format</span><select
+            <label><span>Format</span><SelectControl
               aria-label={`${rule.field} link format`}
               value={rule.format ?? ""}
               onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (event.target.value || undefined) as TypeLinkFormat | undefined))}
@@ -1133,7 +1135,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               <option value="markdown">Markdown link</option>
               <option value="path">Path</option>
               <option value="any">Any</option>
-            </select></label>
+            </SelectControl></label>
             <label className="collection-toggle"><input
               type="checkbox"
               checked={rule.validateExists}
@@ -1175,7 +1177,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             allowEmpty={false}
             onChange={(value) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "field", value))}
           />
-          <label><span>Scope</span><select
+          <label><span>Scope</span><SelectControl
             aria-label={`${rule.field} uniqueness scope`}
             value={rule.scope ?? ""}
             onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "scope", (event.target.value || undefined) as TypeUniqueScope | undefined))}
@@ -1184,7 +1186,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
             <option value="type">This type</option>
             <option value="collection">Entire collection</option>
             <option value="path_glob">Path pattern</option>
-          </select></label>
+          </SelectControl></label>
           {rule.scope === "path_glob" && <label className="collection-unique-path"><span>Path pattern</span><input
             aria-label={`${rule.field} uniqueness path pattern`}
             value={rule.pathGlob ?? ""}
@@ -1525,10 +1527,10 @@ function CollectionFieldSelect({ label, visibleLabel, value, fields, allowEmpty 
   const options = fields.some((field) => field.value === value) || !value
     ? fields
     : [{ value, label: value, node: advancedFieldNode(value) }, ...fields];
-  return <label><span>{visibleLabel ?? label}</span><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+  return <label><span>{visibleLabel ?? label}</span><SelectControl aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
     {allowEmpty && <option value="">Not set</option>}
     {options.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
-  </select></label>;
+  </SelectControl></label>;
 }
 
 function DefaultValueEditor({ field, node, value, onChange }: {
@@ -1538,10 +1540,10 @@ function DefaultValueEditor({ field, node, value, onChange }: {
   onChange: (value: unknown) => void;
 }) {
   if (node?.kind === "boolean" && typeof value === "boolean") {
-    return <label><span>Default value</span><select aria-label={`Default value for ${field}`} value={String(value)} onChange={(event) => onChange(event.target.value === "true")}>
+    return <label><span>Default value</span><SelectControl aria-label={`Default value for ${field}`} value={String(value)} onChange={(event) => onChange(event.target.value === "true")}>
       <option value="true">True</option>
       <option value="false">False</option>
-    </select></label>;
+    </SelectControl></label>;
   }
   if ((node?.kind === "string" || node?.kind === "date" || node?.kind === "datetime") && typeof value === "string") {
     return <label><span>Default value</span><input aria-label={`Default value for ${field}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
@@ -1645,9 +1647,9 @@ function VisualFieldRow({ field, source, depth, activeField, onActivate, onChang
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className="visual-field-name"><span className="sr-only">Field name</span><input defaultValue={field.name} onBlur={(event) => onChange((current) => renameTypeField(current, field.path, event.target.value))} spellCheck="false" /></label>
-      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><select value={field.kind} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
+      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><SelectControl value={field.kind} onChange={(event) => chooseKind(event.target.value as TypeFieldKind)}>
         <KindOptions current={field.kind} />
-      </select></label>
+      </SelectControl></label>
       <label className="visual-field-required"><input type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
       <InlineRemoveButton className="remove-type-field" label={`Remove ${fieldLabel} field`} onClick={() => onChange((current) => removeTypeField(current, field.path))} />
     </div>
@@ -1707,13 +1709,13 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
   return <div className="list-item-editor">
     <div className="list-item-heading">
       <div><strong>List items</strong><span>{itemLabel}</span></div>
-      <label><span className="sr-only">{itemLabel} kind</span><select value={item.kind} onChange={(event) => {
+      <label><span className="sr-only">{itemLabel} kind</span><SelectControl value={item.kind} onChange={(event) => {
         const kind = event.target.value as TypeFieldKind;
         if (kind === "advanced" || kind === item.kind) return;
         const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
         if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);
         else onChange((current) => setTypeListItemKind(current, item.path.slice(0, -1), nextKind));
-      }}><KindOptions current={item.kind} /></select></label>
+      }}><KindOptions current={item.kind} /></SelectControl></label>
     </div>
     {pendingKind && <div className="field-conversion-warning" role="alert">
       <CircleAlert aria-hidden="true" />
@@ -1760,13 +1762,9 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
   suggestions?: string[];
   onChange: (values: string[]) => void;
 }) {
-  const suggestionsId = useId();
   const valuesKey = JSON.stringify(values);
   const [drafts, setDrafts] = useState(values);
   const [dirty, setDirty] = useState(false);
-  const [openSuggestions, setOpenSuggestions] = useState<number>();
-  const [activeSuggestion, setActiveSuggestion] = useState(0);
-  const [suggestionsDropUp, setSuggestionsDropUp] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const skipBlur = useRef(false);
   const focusLast = useRef(false);
@@ -1806,21 +1804,6 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
   }
 
   const suggestedValues = [...new Set(suggestions ?? [])];
-  const matchingSuggestions = (value: string) => {
-    const search = value.trim().toLocaleLowerCase();
-    return suggestedValues.filter((suggestion) => !search || suggestion.toLocaleLowerCase().includes(search));
-  };
-  const chooseSuggestion = (index: number, suggestion: string) => {
-    const next = drafts.map((item, itemIndex) => itemIndex === index ? suggestion : item);
-    setOpenSuggestions(undefined);
-    setActiveSuggestion(0);
-    commit(next);
-  };
-  const openSuggestionList = (index: number, input: HTMLInputElement) => {
-    const bounds = input.getBoundingClientRect();
-    setSuggestionsDropUp(window.innerHeight - bounds.bottom < 180 && bounds.top > 180);
-    setOpenSuggestions(index);
-  };
 
   return <div className="string-list-editor">
     <div className="string-list-heading"><span>{label}</span><button onClick={addItem}><Plus aria-hidden="true" />{addLabel}</button></div>
@@ -1829,32 +1812,21 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
       {drafts.map((value, index) => <div className="string-list-item" key={index}>
         <span aria-hidden="true">{index + 1}</span>
         <div className="string-list-input">
-          <label><span className="sr-only">{itemLabel} {index + 1}</span><input
+          <ComboboxInput
+            label={`${itemLabel} ${index + 1}`}
+            listLabel={`${itemLabel} suggestions`}
             value={value}
-            role={suggestions?.length ? "combobox" : undefined}
-            aria-autocomplete={suggestions?.length ? "list" : undefined}
-            aria-expanded={suggestions?.length ? openSuggestions === index : undefined}
-            aria-controls={suggestions?.length ? `${suggestionsId}-${index}` : undefined}
-            aria-activedescendant={suggestions?.length && openSuggestions === index && matchingSuggestions(value).length
-              ? `${suggestionsId}-${index}-${activeSuggestion}`
-              : undefined}
+            options={suggestedValues}
             placeholder={placeholder}
-            spellCheck="false"
-            autoComplete="off"
-            onFocus={(event) => {
-              if (suggestions?.length) {
-                openSuggestionList(index, event.currentTarget);
-                setActiveSuggestion(0);
-              }
-            }}
-            onChange={(event) => {
-              setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item));
+            spellCheck={false}
+            onValueChange={(next) => {
+              setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? next : item));
               setDirty(true);
-              openSuggestionList(index, event.currentTarget);
-              setActiveSuggestion(0);
             }}
-            onBlur={() => {
-              setOpenSuggestions(undefined);
+            onOptionSelect={(suggestion) => {
+              commit(drafts.map((item, itemIndex) => itemIndex === index ? suggestion : item));
+            }}
+            onInputBlur={() => {
               if (skipBlur.current) {
                 skipBlur.current = false;
                 return;
@@ -1868,55 +1840,13 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
               const pastedItems = pasted.split(/\r?\n/).filter(Boolean);
               commit([...drafts.slice(0, index), ...pastedItems, ...drafts.slice(index + 1)]);
             }}
-            onKeyDown={(event) => {
-              const matches = matchingSuggestions(event.currentTarget.value);
-              if (suggestions?.length && event.key === "ArrowDown") {
-                event.preventDefault();
-                openSuggestionList(index, event.currentTarget);
-                setActiveSuggestion((current) => Math.min(current + 1, Math.max(0, matches.length - 1)));
-                return;
-              }
-              if (suggestions?.length && event.key === "ArrowUp") {
-                event.preventDefault();
-                openSuggestionList(index, event.currentTarget);
-                setActiveSuggestion((current) => Math.max(0, current - 1));
-                return;
-              }
-              if (event.key === "Escape" && openSuggestions === index) {
-                event.preventDefault();
-                setOpenSuggestions(undefined);
-                return;
-              }
-              if (event.key === "Enter" && openSuggestions === index && matches[activeSuggestion]) {
-                event.preventDefault();
-                chooseSuggestion(index, matches[activeSuggestion]);
-                return;
-              }
+            onInputKeyDown={(event) => {
               if (event.key !== "Enter" || !event.currentTarget.value.trim()) return;
               event.preventDefault();
               skipBlur.current = true;
               commit(drafts, true);
             }}
-          /></label>
-          {suggestions?.length && openSuggestions === index && <div
-            className={`string-list-suggestions${suggestionsDropUp ? " drop-up" : ""}`}
-            id={`${suggestionsId}-${index}`}
-            role="listbox"
-            aria-label={`${itemLabel} suggestions`}
-          >
-            {matchingSuggestions(value).map((suggestion, suggestionIndex) => <button
-              id={`${suggestionsId}-${index}-${suggestionIndex}`}
-              type="button"
-              role="option"
-              aria-selected={value === suggestion}
-              className={activeSuggestion === suggestionIndex ? "active" : ""}
-              key={suggestion}
-              onMouseEnter={() => setActiveSuggestion(suggestionIndex)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => chooseSuggestion(index, suggestion)}
-            >{suggestion}</button>)}
-            {!matchingSuggestions(value).length && <p>No matches.</p>}
-          </div>}
+          />
         </div>
         <InlineRemoveButton className="string-list-remove" label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))} />
       </div>)}

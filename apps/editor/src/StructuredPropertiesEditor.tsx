@@ -8,6 +8,7 @@ import type { JsonObject } from "@mdbase/connect";
 import { CodeEditor } from "./CodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
+import { ComboboxInput, SelectControl } from "./SelectionControls";
 
 type PropertyKind = "text" | "number" | "boolean" | "list" | "object";
 type PropertyValue = unknown;
@@ -143,10 +144,10 @@ export function StructuredPropertiesEditor({
         {allowCustom && <button type="button" className="custom-property-trigger" onClick={() => { setNewName(search); setCustomizing(true); }}>Add a custom property…</button>}
       </> : <div className="custom-property">
         <label><span>Name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
-        <label><span>Kind</span><select value={newKind} onChange={(event) => setNewKind(event.target.value as PropertyKind)}>
+        <label><span>Kind</span><SelectControl value={newKind} onChange={(event) => setNewKind(event.target.value as PropertyKind)}>
           <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
           <option value="list">List</option><option value="object">Object</option>
-        </select></label>
+        </SelectControl></label>
         <div><button type="button" onClick={() => setCustomizing(false)}>Back</button><button type="button" className="small-button" disabled={!newName.trim() || newName.trim() in value} onClick={addCustomProperty}>Add</button></div>
       </div>}
       <button type="button" className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> Cancel</button>
@@ -180,11 +181,11 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
       <span><strong>{name}</strong>{required && <small>Required</small>}</span>
       {defined
         ? <span className="property-kind" title="Defined by the mdbase schema">{schemaKind(schema)}</span>
-        : <select aria-label={`${name} property kind`} value={kind} onChange={(event) => onChange(initialValue(event.target.value as PropertyKind))}>
+        : <SelectControl variant="compact" aria-label={`${name} property kind`} value={kind} onChange={(event) => onChange(initialValue(event.target.value as PropertyKind))}>
           {kind === "null" && <option value="null" disabled>Null</option>}
           <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option>
           <option value="list">List</option><option value="object">Object</option>
-        </select>}
+        </SelectControl>}
     </div>
     {description(schema) && <p className="property-description">{description(schema)}</p>}
     <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} />
@@ -213,9 +214,15 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
     />;
   }
   if (isLinkSchema(schema) && typeof value === "string") {
-    const listId = `record-property-paths-${name.replace(/[^a-z0-9_-]+/gi, "-")}`;
-    return <><input aria-label={`${name} value`} list={listId} value={value} onChange={(event) => onChange(event.target.value)} />
-      <datalist id={listId}>{recordPaths.map((path) => <option key={path} value={path} />)}</datalist></>;
+    return <ComboboxInput
+      label={`${name} value`}
+      listLabel={`${name} note suggestions`}
+      value={value}
+      options={recordPaths}
+      emptyMessage="No matching notes."
+      spellCheck={false}
+      onValueChange={onChange}
+    />;
   }
   if (schema) {
     return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} onValidityChange={onValidityChange} />;
@@ -233,17 +240,23 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
 }
 
 function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
-  const listId = `property-${name.replace(/[^a-z0-9_-]+/gi, "-")}-suggestions`;
   return <div className="property-string-list" role="group" aria-label={name}>
     {value.map((item, index) => <div key={index}>
-      <input aria-label={`${name} value item ${index + 1}`} list={suggestions.length ? listId : undefined} value={item} onChange={(event) => onChange(value.map((current, itemIndex) => itemIndex === index ? event.target.value : current))} />
+      <ComboboxInput
+        label={`${name} value item ${index + 1}`}
+        listLabel={`${name} item suggestions`}
+        value={item}
+        options={suggestions}
+        emptyMessage="No matching notes."
+        spellCheck={false}
+        onValueChange={(next) => onChange(value.map((current, itemIndex) => itemIndex === index ? next : current))}
+      />
       <InlineRemoveButton
         className="property-list-remove"
         label={`Remove ${name} item ${index + 1}`}
         onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}
       />
     </div>)}
-    {suggestions.length > 0 && <datalist id={listId}>{suggestions.map((path) => <option key={path} value={path} />)}</datalist>}
     <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> Add {name === "tags" ? "tag" : "item"}</button>
   </div>;
 }
