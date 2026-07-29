@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chromium, _electron as electron } from "playwright-core";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -215,15 +215,22 @@ try {
   assert.match(token.access_token, /^mdb_/);
   assert.ok(token.grant_id);
 
+  const describeRequestId = randomUUID();
   const described = await jsonRequest(
     `/v1/authorities/${collection.id}/operations/describe`,
     {
       method: "POST",
       authorization: `Bearer ${token.access_token}`,
-      body: {}
+      body: {
+        protocol_version: 1,
+        request_id: describeRequestId,
+        input: {}
+      }
     }
   );
   assert.equal(described.response.status, 200);
+  assert.equal(described.body.protocol_version, 1);
+  assert.equal(described.body.request_id, describeRequestId);
   assert.equal(described.body.result.display_name, "Docker fixture");
   await connectedWindow.getByRole("button", { name: /App access/ }).click();
   await connectedWindow
@@ -257,7 +264,11 @@ try {
     {
       method: "POST",
       authorization: `Bearer ${token.access_token}`,
-      body: {}
+      body: {
+        protocol_version: 1,
+        request_id: randomUUID(),
+        input: {}
+      }
     }
   );
   assert.equal(revoked.response.status, 401);
