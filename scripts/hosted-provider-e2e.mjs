@@ -386,6 +386,12 @@ try {
     MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
     MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: "1"
   });
+  const notificationReady = await rawRequest(notificationProvider.url, "/ready");
+  assert.equal(notificationReady.status, 200);
+  assert.equal(notificationReady.body.notifications.configured, true);
+  assert.equal(notificationReady.body.notifications.recovery, "ok");
+  assert.equal(notificationReady.body.notifications.consecutive_failures, 0);
+  assert.match(notificationReady.body.notifications.last_success_at, /^\d{4}-\d{2}-\d{2}T/);
   const notificationCollectionId = crypto.randomUUID();
   const notificationReplicaId = crypto.randomUUID();
   const notificationToken = `notification-${crypto.randomUUID()}-${crypto.randomUUID()}`;
@@ -532,6 +538,40 @@ try {
   assert.equal(JSON.stringify(notificationSignals[2]).includes("private-task"), false);
   assert.equal(JSON.stringify(notificationSignals[2]).includes("timer-state-stays-hosted"), false);
   await stopProvider(notificationProvider);
+  await postgresQuery(`
+    UPDATE hosted_provider_notification_grants
+    SET grant_json = jsonb_set(
+      grant_json,
+      '{notification_criteria,0,event,version}',
+      '1'::jsonb
+    )
+    WHERE grant_id = '${notificationGrantId}';
+    DELETE FROM _sqlx_migrations WHERE version = 15;
+    UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
+  `);
+  const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
+    MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
+    MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
+    MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: "1"
+  });
+  const upgradedReady = await rawRequest(upgradedNotificationProvider.url, "/ready");
+  assert.equal(upgradedReady.status, 200);
+  assert.equal(upgradedReady.body.notifications.configured, true);
+  assert.equal(upgradedReady.body.notifications.recovery, "ok");
+  assert.equal(upgradedReady.body.notifications.consecutive_failures, 0);
+  assert.equal(
+    await postgresQuery(`
+      SELECT grant_json #>> '{notification_criteria,0,event,version}'
+      FROM hosted_provider_notification_grants
+      WHERE grant_id = '${notificationGrantId}'
+    `),
+    "1.0.0"
+  );
+  assert.equal(
+    await postgresQuery("SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE"),
+    "2"
+  );
+  await stopProvider(upgradedNotificationProvider);
   await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   notificationCallbackServer = undefined;
 

@@ -289,8 +289,11 @@ async fn health() -> Json<Value> {
 }
 
 async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    state.provider.ready().await?;
-    Ok(Json(json!({ "status": "ready" })))
+    let notifications = state.provider.ready().await?;
+    Ok(Json(json!({
+        "status": "ready",
+        "notifications": notifications
+    })))
 }
 
 async fn create_collection(

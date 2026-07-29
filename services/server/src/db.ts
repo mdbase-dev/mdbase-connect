@@ -30,6 +30,13 @@ export async function openDatabase(
       returns: DataType.bool,
       implementation: () => true
     });
+    memory.public.registerFunction({
+      name: "replace",
+      args: [DataType.text, DataType.text, DataType.text],
+      returns: DataType.text,
+      implementation: (value: string, from: string, to: string) =>
+        value.split(from).join(to)
+    });
     const adapter = memory.adapters.createPg();
     pool = new adapter.Pool() as unknown as DatabasePool;
   } else {

@@ -37,7 +37,8 @@ describe("database migrations", () => {
       "0001a_authentication_foundations",
       "0002_instance_administration",
       "0003_authorization_request_collection",
-      "0004_separate_application_keys"
+      "0004_separate_application_keys",
+      "0005_notification_contract_versions"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -291,7 +292,8 @@ describe("database migrations", () => {
       "0001a_authentication_foundations",
       "0002_instance_administration",
       "0003_authorization_request_collection",
-      "0004_separate_application_keys"
+      "0004_separate_application_keys",
+      "0005_notification_contract_versions"
     ]);
   });
 
@@ -315,6 +317,62 @@ describe("database migrations", () => {
     );
     expect(columns.rows).toEqual([{ column_name: "collection_id" }]);
     await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
+  });
+
+  it("upgrades persisted notification contract versions before they are read", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = randomUUID();
+    const applicationId = randomUUID();
+    const collectionId = randomUUID();
+    const grantId = randomUUID();
+    const criterion = {
+      id: "task.created",
+      event: { id: "mdbase.record.created", version: 1 },
+      presentation: { title: "Task created" }
+    };
+    await db.query(
+      "INSERT INTO users (id, email, name) VALUES ($1, $2, 'Owner')",
+      [userId, `${userId}@example.com`]
+    );
+    await db.query(
+      `INSERT INTO applications
+         (id, canonical_identity, name, homepage, redirect_uris, notifications)
+       VALUES ($1, $2, 'Tasks', 'https://tasks.example', '[]'::jsonb, $3::jsonb)`,
+      [
+        applicationId,
+        `https://tasks.example/${applicationId}`,
+        JSON.stringify({ criteria: [criterion] })
+      ]
+    );
+    await db.query(
+      `INSERT INTO hosted_collections (id, user_id, display_name, template)
+       VALUES ($1, $2, 'Tasks', 'mdbase')`,
+      [collectionId, userId]
+    );
+    await db.query(
+      `INSERT INTO grants
+         (id, user_id, application_id, hosted_collection_id, operations,
+          notification_criteria)
+       VALUES ($1, $2, $3, $4, '[]'::jsonb, $5::jsonb)`,
+      [grantId, userId, applicationId, collectionId, JSON.stringify([criterion])]
+    );
+    await db.query(
+      "DELETE FROM schema_migrations WHERE id = '0005_notification_contract_versions'"
+    );
+
+    await runControlPlaneMigrations(db);
+
+    const application = await db.query<{
+      notifications: { criteria: Array<{ event: { version: unknown } }> };
+    }>("SELECT notifications FROM applications WHERE id = $1", [applicationId]);
+    const grant = await db.query<{
+      notification_criteria: Array<{ event: { version: unknown } }>;
+    }>("SELECT notification_criteria FROM grants WHERE id = $1", [grantId]);
+    expect(application.rows[0]?.notifications.criteria[0]?.event.version)
+      .toBe("1.0.0");
+    expect(grant.rows[0]?.notification_criteria[0]?.event.version)
+      .toBe("1.0.0");
   });
 
   it("fails closed when an application starts before pre-deploy migration", async () => {

@@ -63,6 +63,47 @@ impl HostedNotificationRuntime {
         })
     }
 
+    pub async fn prepare(&self) -> ApiResult<()> {
+        PostgresRuntimeStore::prepare(&self.pool)
+            .await
+            .map_err(runtime_error)?;
+        let rows = sqlx::query(
+            "SELECT grant_id, collection_id, grant_json
+             FROM hosted_provider_notification_grants
+             ORDER BY collection_id, grant_id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut grants_by_collection = HashMap::<Uuid, Vec<GrantSummary>>::new();
+        for row in rows {
+            let grant_id: Uuid = row.get("grant_id");
+            let collection_id: Uuid = row.get("collection_id");
+            let value: Value = row.get("grant_json");
+            let grant = serde_json::from_value::<GrantSummary>(value).map_err(|error| {
+                ApiError::internal(format!(
+                    "Hosted notification grant {grant_id} is incompatible with this build: {error}"
+                ))
+            })?;
+            if grant.id != grant_id || grant.collection_id != collection_id {
+                return Err(ApiError::internal(format!(
+                    "Hosted notification grant {grant_id} does not match its stored identity."
+                )));
+            }
+            grants_by_collection
+                .entry(collection_id)
+                .or_default()
+                .push(grant);
+        }
+        for (collection_id, grants) in grants_by_collection {
+            compose_catalog(&grants, collection_id).map_err(|error| {
+                ApiError::internal(format!(
+                    "Hosted notification grants for collection {collection_id} are incompatible with this build: {error}"
+                ))
+            })?;
+        }
+        Ok(())
+    }
+
     pub async fn upsert_grant(&self, collection_id: Uuid, grant: GrantSummary) -> ApiResult<()> {
         if grant.collection_id != collection_id {
             return Err(ApiError::bad_request(

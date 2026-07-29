@@ -2,6 +2,13 @@
 
 Status: accepted implementation architecture for the production hosted path
 
+The provider does not report readiness until its SQL migrations, embedded
+runtime migration, persisted grant validation, and an initial notification
+recovery pass all succeed. `/ready` includes the current notification recovery
+state; deployment and external smoke checks treat anything other than `ok` as a
+failed candidate. Serialized grant and runtime JSON therefore follows the same
+version-and-migrate discipline as ordinary SQL columns.
+
 ## Boundaries
 
 The hosted provider is a Rust data-plane service. PostgreSQL is the durable

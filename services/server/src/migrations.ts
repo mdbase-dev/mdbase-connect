@@ -15,6 +15,7 @@ const LEGACY_BASELINE_CHECKSUM = createHash("sha256")
   .digest("hex");
 const NON_TRANSACTIONAL_DIRECTIVE = "-- mdbase:no-transaction";
 const SKIP_IF_TABLE_DIRECTIVE = "-- mdbase:skip-if-table ";
+const SKIP_IF_MISSING_TABLE_DIRECTIVE = "-- mdbase:skip-if-missing-table ";
 
 export interface MigrationOptions {
   lock?: boolean;
@@ -144,6 +145,17 @@ async function applySqlMigrations(
       SKIP_IF_TABLE_DIRECTIVE
     );
     if (skipIfTable && await tableExists(connection, skipIfTable)) {
+      await recordMigration(connection, id, checksum);
+      continue;
+    }
+    const skipIfMissingTable = migrationDirectiveValue(
+      sql,
+      SKIP_IF_MISSING_TABLE_DIRECTIVE
+    );
+    if (
+      skipIfMissingTable
+      && !(await tableExists(connection, skipIfMissingTable))
+    ) {
       await recordMigration(connection, id, checksum);
       continue;
     }
