@@ -3,7 +3,6 @@
   "legacyFileLineBudgets": {
     "apps/desktop/src/main/main.ts": 1022,
     "apps/desktop/src/renderer/main.tsx": 1714,
-    "apps/portal/src/main.tsx": 2251,
-    "services/server/src/legacy-baseline.ts": 1114
+    "apps/portal/src/main.tsx": 2251
   }
 }
