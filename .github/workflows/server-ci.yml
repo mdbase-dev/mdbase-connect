@@ -407,6 +407,9 @@ jobs:
       # by the production provider image. This keeps path-only developer
       # dependencies from making a clean checkout unreproducible.
       - run: cargo test --locked --workspace
+        env:
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
       - run: cargo build --locked --workspace
       # Exercise the local connector/browser request path in normal CI as well
       # as the durable hosted-provider path below.

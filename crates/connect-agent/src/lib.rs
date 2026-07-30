@@ -242,14 +242,21 @@ mod tests {
             loopback_port: Some(0),
             ..DaemonOptions::default()
         };
-        let running = tokio::spawn(run(options.clone()));
-        for _ in 0..200 {
-            if tokio::net::UnixStream::connect(&endpoint).await.is_ok() {
-                break;
+        let mut running = tokio::spawn(run(options.clone()));
+        let listening = async {
+            loop {
+                if tokio::net::UnixStream::connect(&endpoint).await.is_ok() {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert!(endpoint.exists(), "daemon never created its control socket");
+        };
+        tokio::select! {
+            result = &mut running => panic!("daemon exited before creating its control socket: {result:?}"),
+            result = tokio::time::timeout(std::time::Duration::from_secs(10), listening) => {
+                result.expect("daemon never created its control socket");
+            }
+        };
 
         let duplicate = run(options).await.unwrap_err();
         assert!(duplicate
