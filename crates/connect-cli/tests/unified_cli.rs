@@ -107,6 +107,8 @@ fn direct_and_connected_data_commands_share_one_executable_and_result_contract()
             "--loopback-port",
             "0",
         ])
+        .env("MDBASE_CONNECT_ENV", "test")
+        .env("MDBASE_CONNECT_SECRET_BACKEND", "insecure-test-file")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
