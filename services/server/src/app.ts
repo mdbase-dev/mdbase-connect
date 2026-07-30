@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -16,12 +15,10 @@ import type {
   ApplicationNotifications,
   CollectionContractDescriptor,
   CollectionOperation,
-  ContractRequirement,
   EncryptedRelayOperationRequest,
   GrantEncryption,
   GrantPolicy,
   GrantScope,
-  NotificationCriterion,
   TypePackProvision
 } from "@mdbase/connect-protocol";
 import {
@@ -32,10 +29,6 @@ import {
 import { z } from "zod";
 import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
-import {
-  registerApplicationManifest,
-  type RegisteredApplicationManifest
-} from "./manifest.js";
 import { ConnectorOperationError, RelayHub, RelayUnavailableError } from "./relay.js";
 import type { RelayBroker } from "./relay-broker.js";
 import {
@@ -191,12 +184,20 @@ import {
 import {
   registerConnectorRelayRoute
 } from "./features/connectors/relay-route.js";
+import {
+  registerApplicationRoutes
+} from "./features/applications/routes.js";
+import {
+  createOrUpdateGrant,
+  syncHostedNotificationGrant
+} from "./features/grants/service.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import { audit } from "./platform/audit-events.js";
 import {
   authorityImportCapability,
   authorityUrl
 } from "./platform/authority-url.js";
+import { sqlPlaceholders } from "./platform/sql.js";
 import {
   authenticatedUser,
   bearerToken,
@@ -466,6 +467,12 @@ export async function buildApp(options: BuildOptions) {
     hostedReference
   });
   registerConnectorRelayRoute(app, { db: options.db, relay });
+  registerApplicationRoutes(app, {
+    db: options.db,
+    relay,
+    hostedProvider: options.hostedProvider,
+    allowInsecureManifests: options.allowInsecureManifests
+  });
 
   app.get("/v1/me", async (request, reply) => {
     const authenticated = await requireUser(request, reply, options.db, options.tailscaleAuth);
@@ -837,17 +844,6 @@ export async function buildApp(options: BuildOptions) {
     });
     if (!denied) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };
-  });
-
-  app.post("/v1/apps/register", async (request) => {
-    const input = z.object({ manifest: z.unknown() }).strict().parse(request.body);
-    const registered = registerApplicationManifest(
-      input.manifest,
-      options.allowInsecureManifests
-    );
-    const application = await upsertApplication(options.db, registered);
-    await reconcileApplicationGrants(options.db, relay, options.hostedProvider, application);
-    return { application };
   });
 
   app.post("/oauth/device_authorization", {
@@ -1660,380 +1656,6 @@ export async function buildApp(options: BuildOptions) {
   }
 
   return { app, relay };
-}
-
-async function upsertApplication(
-  db: DatabasePool,
-  discovered: RegisteredApplicationManifest
-): Promise<{
-  id: string;
-  distribution: "web" | "portable";
-  name: string;
-  homepage: string;
-  project_url: string | null;
-  icon: string | null;
-  redirect_uris: string[];
-  canonical_identity: string;
-  family_identity: string;
-  requirements: ApplicationRequirements;
-  provisions: ApplicationProvisions;
-  notifications: ApplicationNotifications;
-}> {
-  const application = await db.query<{
-    id: string;
-    distribution: "web" | "portable";
-    name: string;
-    homepage: string;
-    project_url: string | null;
-    icon: string | null;
-    redirect_uris: string[];
-    canonical_identity: string;
-    family_identity: string;
-    requirements: ApplicationRequirements;
-    provisions: ApplicationProvisions;
-    notifications: ApplicationNotifications;
-  }>(
-    `INSERT INTO applications
-       (id, canonical_identity, family_identity, manifest_version, distribution, name, homepage,
-        project_url, icon, redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb,
-             $12::jsonb, $13::jsonb)
-     ON CONFLICT(canonical_identity) DO UPDATE SET
-       family_identity = excluded.family_identity,
-       manifest_version = excluded.manifest_version,
-       distribution = excluded.distribution,
-       name = excluded.name,
-       homepage = excluded.homepage,
-       project_url = excluded.project_url,
-       icon = excluded.icon,
-       redirect_uris = excluded.redirect_uris,
-       requirements = excluded.requirements,
-       provisions = excluded.provisions,
-       notifications = excluded.notifications,
-       updated_at = now()
-     RETURNING id, distribution, name, homepage, project_url, icon, redirect_uris,
-               canonical_identity, family_identity, requirements, provisions, notifications`,
-    [
-      randomUUID(),
-      discovered.canonicalIdentity,
-      discovered.familyIdentity,
-      discovered.manifest.manifest_version,
-      discovered.manifest.distribution === "portable" ? "portable" : "web",
-      discovered.manifest.name,
-      discovered.manifest.distribution === "portable"
-        ? ""
-        : discovered.manifest.homepage,
-      discovered.manifest.distribution === "portable"
-        ? discovered.manifest.project_url ?? null
-        : null,
-      discovered.manifest.icon ?? null,
-      JSON.stringify(
-        discovered.manifest.distribution === "portable"
-          ? []
-          : discovered.manifest.redirect_uris
-      ),
-      JSON.stringify(discovered.manifest.requirements),
-      JSON.stringify(discovered.manifest.provisions),
-      JSON.stringify(discovered.manifest.notifications)
-    ]
-  );
-  return application.rows[0];
-}
-
-async function createOrUpdateGrant(
-  db: DatabasePool,
-  input: {
-    userId: string;
-    applicationId: string;
-    collectionId: string;
-    operations: string[];
-    scope: GrantScope;
-    applicationOrigin: string;
-    notificationCriteria: NotificationCriterion[];
-  }
-): Promise<{ id: string; operations: string[]; scope: GrantScope }> {
-  const operations = [...new Set(input.operations)];
-  const existing = await db.query<{ id: string; encryption: GrantEncryption | null }>(
-    `SELECT id, encryption FROM grants WHERE user_id = $1 AND application_id = $2
-     AND collection_id = $3 AND revoked_at IS NULL AND activated_at IS NOT NULL
-     ORDER BY created_at DESC LIMIT 1`,
-    [input.userId, input.applicationId, input.collectionId]
-  );
-  const grant = existing.rows[0]
-    ? await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `UPDATE grants SET operations = $2::jsonb, scope = $3::jsonb,
-                           application_origin = $4,
-                           notification_criteria = $5::jsonb
-         WHERE id = $1 RETURNING id, operations, scope`,
-        [
-          existing.rows[0].id,
-          JSON.stringify(operations),
-          JSON.stringify(input.scope),
-          input.applicationOrigin,
-          JSON.stringify(input.notificationCriteria)
-        ]
-      )
-    : await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
-        `INSERT INTO grants
-           (id, user_id, application_id, collection_id, operations, scope,
-            application_origin, notification_criteria)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)
-         RETURNING id, operations, scope`,
-        [
-          randomUUID(),
-          input.userId,
-          input.applicationId,
-          input.collectionId,
-          JSON.stringify(operations),
-          JSON.stringify(input.scope),
-          input.applicationOrigin,
-          JSON.stringify(input.notificationCriteria)
-        ]
-      );
-  if (existing.rows[0]?.encryption) await rotateGrantEncryption(db, existing.rows[0].id);
-  return grant.rows[0];
-}
-
-async function syncHostedNotificationGrant(
-  db: DatabaseQueryable,
-  provider: HostedProviderClient,
-  grantId: string
-): Promise<void> {
-  const result = await db.query<{
-    id: string;
-    application_id: string;
-    application_name: string;
-    application_homepage: string;
-    application_origin: string;
-    application_icon: string | null;
-    collection_id: string;
-    collection_name: string;
-    operations: string[];
-    scope: GrantScope;
-    notification_criteria: NotificationCriterion[];
-    created_at: string | Date;
-  }>(
-    `SELECT g.id, g.application_id, a.name AS application_name,
-            a.homepage AS application_homepage,
-            CASE WHEN g.application_origin = '' THEN a.homepage
-                 ELSE g.application_origin END AS application_origin,
-            a.icon AS application_icon,
-            g.hosted_collection_id AS collection_id,
-            hosted.display_name AS collection_name,
-            g.operations, g.scope, g.notification_criteria, g.created_at
-     FROM grants g
-     JOIN applications a ON a.id = g.application_id
-     JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     WHERE g.id = $1 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
-    [grantId]
-  );
-  const row = result.rows[0];
-  if (!row) return;
-  if (row.notification_criteria.length === 0) {
-    await provider.revokeNotificationGrant(row.collection_id, row.id);
-    return;
-  }
-  const grant: GrantPolicy = {
-    id: row.id,
-    application_id: row.application_id,
-    collection_id: row.collection_id,
-    operations: row.operations as GrantPolicy["operations"],
-    scope: row.scope,
-    application_name: row.application_name,
-    application_homepage: row.application_homepage,
-    application_origin: row.application_origin,
-    ...(row.application_icon ? { application_icon: row.application_icon } : {}),
-    collection_name: row.collection_name,
-    notification_criteria: row.notification_criteria,
-    created_at: new Date(row.created_at).toISOString()
-  };
-  await provider.upsertNotificationGrant(row.collection_id, grant);
-}
-
-async function reconcileApplicationGrants(
-  db: DatabasePool,
-  relay: RelayHub,
-  hostedProvider: HostedProviderClient | undefined,
-  application: {
-    id: string;
-    requirements: ApplicationRequirements;
-    notifications: ApplicationNotifications;
-  }
-): Promise<void> {
-  const requiredContracts = requiredContractsForRequirements(application.requirements);
-  const grants = await db.query<{
-    id: string;
-    user_id: string;
-    connector_id: string | null;
-    hosted_collection_id: string | null;
-    hosted_replica_id: string | null;
-    operations: string[];
-    local_contracts: CollectionContractDescriptor[] | null;
-    spec_version: string | null;
-    hosted_contracts: CollectionContractDescriptor[] | null;
-    template: string | null;
-    allowed_types: string[] | null;
-    scope: GrantScope;
-    notification_criteria: NotificationCriterion[];
-  }>(
-    `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
-            g.operations, col.contracts AS local_contracts, col.spec_version,
-            hosted.contracts AS hosted_contracts, hosted.template,
-            replica.allowed_types, g.scope, g.notification_criteria
-     FROM grants g
-     LEFT JOIN collections col ON col.id = g.collection_id
-     LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
-     WHERE g.application_id = $1 AND g.revoked_at IS NULL
-       AND g.activated_at IS NOT NULL`,
-    [application.id]
-  );
-  const changedConnectors = new Set<string>();
-  for (const grant of grants.rows) {
-    const retainedCriteria = grant.notification_criteria.filter((authorized) =>
-      application.notifications.criteria.some((declared) =>
-        isDeepStrictEqual(authorized, declared)
-      )
-    );
-    const notificationsChanged = !isDeepStrictEqual(
-      retainedCriteria,
-      grant.notification_criteria
-    );
-    if (notificationsChanged) {
-      await db.query(
-        "UPDATE grants SET notification_criteria = $2::jsonb WHERE id = $1",
-        [grant.id, JSON.stringify(retainedCriteria)]
-      );
-      grant.notification_criteria = retainedCriteria;
-      await audit(
-        db,
-        grant.user_id,
-        "grant.notifications_narrowed",
-        grant.id,
-        {
-          application_id: application.id,
-          criterion_ids: retainedCriteria.map((criterion) => criterion.id)
-        }
-      );
-      if (grant.connector_id) changedConnectors.add(grant.connector_id);
-    }
-    if (grant.hosted_replica_id) {
-      if (!hostedProvider) {
-        throw new Error("Hosted provider unavailable during notification reconciliation.");
-      }
-      await syncHostedNotificationGrant(db, hostedProvider, grant.id);
-    }
-    const hostedDescriptors = grant.template
-      ? effectiveHostedContractDescriptors(grant.hosted_contracts, grant.template)
-      : [];
-    const availableDescriptors = grant.template
-      ? hostedDescriptors
-      : grant.local_contracts ?? [];
-    const availableContracts = contractRequirements(availableDescriptors);
-    const desiredScope = scopeForRequirements(
-      application.requirements,
-      availableDescriptors
-    );
-    const collectionKindCompatible = !requiresHostedCollection(application.requirements)
-      || grant.template !== null;
-    const collectionCompatible = collectionKindCompatible
-      && contractsSatisfy(availableContracts, requiredContracts)
-      && (grant.template !== null
-        || (grant.spec_version !== null
-          && collectionSupportsOperations(grant.spec_version, grant.operations)))
-      && operationsAllowedByRequirements(grant.operations, application.requirements);
-    const scopeMatches = scopesEqual(grant.scope, desiredScope);
-    const desiredAllowedTypes = grant.template
-      ? allowedTypesForRequirements(hostedDescriptors, application.requirements)
-      : [];
-    const replicaScopeMatches = !grant.hosted_replica_id
-      || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
-    if (scopeMatches && collectionCompatible && replicaScopeMatches) continue;
-    const mayNarrow = desiredScope.contracts.length > 0
-      && (grant.scope.contracts.length === 0
-        || isContractSubset(desiredScope.contracts, grant.scope.contracts));
-    if ((scopeMatches || mayNarrow) && collectionCompatible) {
-      if (grant.hosted_replica_id) {
-        if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
-        const write = grant.operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
-        await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
-          grantId: grant.id,
-          mode: write ? "read_write" : "read_only",
-          allowedTypes: desiredAllowedTypes,
-          contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
-          fullCollection: application.requirements.access === "full_collection",
-          allowedOperations: hostedReplicaCollectionOperations(grant.operations)
-        });
-        await db.query(
-          "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",
-          [
-            grant.hosted_replica_id,
-            JSON.stringify(desiredAllowedTypes),
-            write ? "read_write" : "read_only"
-          ]
-        );
-      }
-      await db.query("UPDATE grants SET scope = $2::jsonb WHERE id = $1", [
-        grant.id,
-        JSON.stringify(desiredScope)
-      ]);
-      await rotateGrantEncryption(db, grant.id);
-      await audit(db, grant.user_id, "grant.scope_reconciled", grant.id, {
-        application_id: application.id,
-        scope: desiredScope
-      });
-    } else {
-      if (grant.hosted_replica_id) {
-        if (!hostedProvider) throw new Error("Hosted provider unavailable during grant reconciliation.");
-        await hostedProvider.revokeReplica(grant.hosted_replica_id);
-        if (grant.hosted_collection_id) {
-          await hostedProvider.revokeNotificationGrant(grant.hosted_collection_id, grant.id);
-        }
-        await db.query("UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1", [
-          grant.hosted_replica_id
-        ]);
-      }
-      await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
-      await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
-      await db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
-      await audit(db, grant.user_id, "grant.revoked_after_manifest_change", grant.id, {
-        application_id: application.id,
-        previous_scope: grant.scope,
-        required_scope: desiredScope
-      });
-    }
-    if (grant.connector_id) changedConnectors.add(grant.connector_id);
-  }
-  for (const connectorId of changedConnectors) await relay.pushPolicy(connectorId);
-}
-
-function scopesEqual(left: GrantScope, right: GrantScope): boolean {
-  return left.access === right.access
-    && isContractSubset(left.contracts, right.contracts)
-    && isContractSubset(right.contracts, left.contracts);
-}
-
-function isContractSubset(
-  subset: ContractRequirement[],
-  superset: ContractRequirement[]
-): boolean {
-  const available = new Set(superset.map((contract) => `${contract.id}@${contract.version}`));
-  return subset.every((contract) => available.has(`${contract.id}@${contract.version}`));
-}
-
-function sameStrings(left: string[], right: string[]): boolean {
-  const leftValues = new Set(left);
-  const rightValues = new Set(right);
-  return leftValues.size === rightValues.size
-    && [...leftValues].every((value) => rightValues.has(value));
-}
-
-function sqlPlaceholders(count: number, offset = 0): string {
-  return Array.from(
-    { length: count },
-    (_, index) => `$${index + offset + 1}`
-  ).join(", ");
 }
 
 interface LiveAuthorizationCollection {
