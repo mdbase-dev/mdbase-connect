@@ -8,8 +8,8 @@ target_path: tasks/Codebase architecture and quality transformation.md
 remote_title: Codebase architecture and quality transformation
 remote_state: in_progress
 remote_url: tasks/Codebase architecture and quality transformation.md
-remote_updated_at: 2026-07-30T13:31:40+10:00
-last_seen_remote_updated_at: 2026-07-30T13:31:40+10:00
+remote_updated_at: 2026-07-30T13:37:28+10:00
+last_seen_remote_updated_at: 2026-07-30T13:37:28+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 sync_state: clean
-last_analyzed_at: 2026-07-30T13:31:40+10:00
+last_analyzed_at: 2026-07-30T13:37:28+10:00
 type: item_state
 ---
 
@@ -60,7 +60,11 @@ green. The local registry is now a 220-line facade over invariant-owned
 modules, its scenario coverage is grouped by capability, and local sync
 persistence is separated from orchestration. Every core production and test
 module is below 1,000 lines, both core legacy size exceptions are removed, and
-all 41 core tests plus strict Clippy and architecture checks pass.
+all 41 core tests plus strict Clippy and architecture checks pass. The hosted
+provider is now a 292-line facade over complete transaction-owning feature
+modules, with every hosted production and test module below 1,000 lines and
+its legacy exception removed. All 24 hosted tests and the 142-test full Rust
+workspace gate pass with strict Clippy.
 
 ## Handoff
 

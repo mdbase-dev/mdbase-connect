@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T13:31:40+10:00
+updated_at: 2026-07-30T13:37:28+10:00
 type: task
 ---
 
@@ -141,3 +141,18 @@ Work is isolated on `agent/exquisite-codebase` in the
 - The core crate passes all 41 tests, formatting, and strict Clippy after the
   extraction. The repository architecture gate now covers 210 production
   files with no source or workspace dependency cycles.
+
+### Hosted provider decomposition
+
+- `crates/connect-hosted-provider/src/provider.rs` has fallen from 6,550 to a
+  292-line facade and no longer needs a legacy size exception.
+- Complete transaction-owning flows now live in collection, authority import,
+  authority transfer, replica, compaction, sync-read, mutation, and
+  operation-specific modules. Encrypted persistence, capability policy,
+  snapshot canonicalization, cryptographic metadata, and provider lifecycle
+  helpers have focused owners.
+- The largest hosted module is the 688-line authority import state machine;
+  all production and test modules are below 1,000 lines.
+- All 24 hosted-provider tests pass. The full Rust workspace phase gate passes
+  142 tests, formatting, and strict Clippy, and the architecture check now
+  covers 229 production files without dependency cycles.
