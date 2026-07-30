@@ -1,4 +1,3 @@
-
 use super::*;
 use mdbase_connect_core::CollectionRegistry;
 use mdbase_connect_protocol::crypto::{RelayDirection, RelayMetadata};
