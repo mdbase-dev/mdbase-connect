@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T12:55:28+10:00
+updated_at: 2026-07-30T13:17:30+10:00
 type: task
 ---
 
@@ -108,3 +108,19 @@ Work is isolated on `agent/exquisite-codebase` in the
   and live-offer boundaries. The `"null"` portable application origin remains
   an explicit protocol invariant covered by the existing end-to-end server
   suite.
+
+### Client SDK decomposition
+
+- `packages/client/src/index.ts` has fallen from 4,168 to a 66-line public
+  facade and no longer needs a legacy size exception.
+- Public collection operations, connection/session types, browser and memory
+  selection, notifications, error classification, OAuth/device authorization,
+  persisted grant state, runtime validation, and encoding now have focused
+  modules.
+- Refresh rotation, encrypted relay, remote authority signing, direct-loopback
+  fallback, mutation recovery, and stored-token validation are owned by one
+  854-line transport component behind a structural connection context.
+- Every client production file is below 1,000 lines. The package passes 74
+  tests, typechecking, declaration/browser builds, and repository cycle and
+  size checks; the complete workspace build, typecheck, and test phase gate
+  also passes.

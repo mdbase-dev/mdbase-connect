@@ -8,8 +8,8 @@ target_path: tasks/Codebase architecture and quality transformation.md
 remote_title: Codebase architecture and quality transformation
 remote_state: in_progress
 remote_url: tasks/Codebase architecture and quality transformation.md
-remote_updated_at: 2026-07-30T12:55:28+10:00
-last_seen_remote_updated_at: 2026-07-30T12:55:28+10:00
+remote_updated_at: 2026-07-30T13:17:30+10:00
+last_seen_remote_updated_at: 2026-07-30T13:17:30+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 sync_state: clean
-last_analyzed_at: 2026-07-30T12:55:28+10:00
+last_analyzed_at: 2026-07-30T13:17:30+10:00
 type: item_state
 ---
 
@@ -50,9 +50,13 @@ The baseline, architectural quality contract, no-growth budgets, cycle checks,
 clean-checkout package prerequisites, strict Rust CI, and control-plane
 decomposition are complete. The control-plane composition root has dropped
 from 8,738 to 351 lines and now only assembles platform plugins, lifecycle
-workers, and feature-owned route modules. Its legacy size exception has been
-removed. The server suite passes 188 tests across 41 files and all
-language-level checks remain green.
+workers, and feature-owned route modules. The client SDK entry point has
+dropped from 4,168 to a 66-line facade, with connection transport,
+authorization, sessions, notifications, persistence, errors, and collection
+operations independently owned. Both legacy size exceptions are removed.
+The server suite passes 188 tests, the client suite passes 74 tests, and the
+complete workspace build, typecheck, and JavaScript/TypeScript test gate is
+green.
 
 ## Handoff
 
