@@ -30,7 +30,8 @@ import {
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import {
   ProviderRevocationWorker,
-  queueHostedGrantRevocation
+  queueHostedGrantRevocation,
+  queueHostedReplicaRevocation
 } from "../../hosted-capability-lifecycle.js";
 import {
   hostedReplicaCollectionOperations
@@ -428,20 +429,31 @@ export async function revokeHostedReplicaForUser(
   }
   if (replica.revoked_at) return true;
   if (options.hostedProvider) {
-    await options.hostedProvider.revokeReplica(replicaId);
+    const queued = await queueHostedReplicaRevocation(
+      options.db,
+      replicaId,
+      replica.collection_id,
+      "user_request"
+    );
+    if (queued) {
+      await new ProviderRevocationWorker(
+        options.db,
+        options.hostedProvider
+      ).drain();
+    }
   } else {
     await hostedReference!.revokeReplica(replica.collection_id, replicaId);
+    await options.db.query(
+      `UPDATE hosted_replicas
+       SET revoked_at = now(), token_hash = NULL
+       WHERE id = $1`,
+      [replicaId]
+    );
+    await options.db.query(
+      "DELETE FROM mirror_pairing_requests WHERE replica_id = $1",
+      [replicaId]
+    );
   }
-  await options.db.query(
-    `UPDATE hosted_replicas
-     SET revoked_at = now(), token_hash = NULL
-     WHERE id = $1`,
-    [replicaId]
-  );
-  await options.db.query(
-    "DELETE FROM mirror_pairing_requests WHERE replica_id = $1",
-    [replicaId]
-  );
   await audit(
     options.db,
     userId,

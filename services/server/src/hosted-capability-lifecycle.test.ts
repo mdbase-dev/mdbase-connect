@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import {
   ProviderRevocationWorker,
-  queueHostedGrantRevocation
+  queueHostedGrantRevocation,
+  queueHostedReplicaRevocation
 } from "./hosted-capability-lifecycle.js";
 
 let database: DatabasePool | undefined;
@@ -76,6 +77,51 @@ describe("hosted capability lifecycle", () => {
     );
     expect(job.rows[0].state).toBe("completed");
     expect(job.rows[0].completed_at).toBeTruthy();
+  });
+
+  it("revokes mirror replicas durably without inventing a notification grant", async () => {
+    const fixture = await capabilityFixture();
+    const replicaId = randomUUID();
+    await fixture.db.query(
+      `INSERT INTO hosted_replicas
+         (id, collection_id, authorized_user_id, name, purpose, mode)
+       VALUES ($1, $2, $3, 'Mirror', 'mirror', 'read_write')`,
+      [replicaId, fixture.collectionId, fixture.userId]
+    );
+    const queued = await queueHostedReplicaRevocation(
+      fixture.db,
+      replicaId,
+      fixture.collectionId,
+      "user_request"
+    );
+    expect(queued).toMatchObject({
+      replicaId,
+      collectionId: fixture.collectionId
+    });
+    const provider = {
+      revokeReplica: vi.fn(async () => undefined),
+      revokeNotificationGrant: vi.fn(async () => undefined)
+    };
+
+    expect(await new ProviderRevocationWorker(
+      fixture.db,
+      provider as never
+    ).drain()).toBe(1);
+    expect(provider.revokeReplica).toHaveBeenCalledWith(replicaId);
+    expect(provider.revokeNotificationGrant).not.toHaveBeenCalled();
+    const replica = await fixture.db.query(
+      "SELECT revoked_at FROM hosted_replicas WHERE id = $1",
+      [replicaId]
+    );
+    const job = await fixture.db.query(
+      "SELECT state, grant_id FROM provider_revocation_jobs WHERE id = $1",
+      [queued!.jobId]
+    );
+    expect(replica.rows[0].revoked_at).toBeTruthy();
+    expect(job.rows[0]).toMatchObject({
+      state: "completed",
+      grant_id: null
+    });
   });
 
   it("cannot revoke another user's grant", async () => {

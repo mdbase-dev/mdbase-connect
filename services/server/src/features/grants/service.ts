@@ -11,6 +11,7 @@ import type {
   NotificationCriterion
 } from "@mdbase/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
+import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
@@ -292,20 +293,28 @@ export async function reconcileApplicationGrants(
       });
     } else {
       if (grant.hosted_replica_id) {
-        if (!hostedProvider) {
-          throw new Error("Hosted provider unavailable during grant reconciliation.");
+        const queued = await queueHostedGrantRevocation(
+          db,
+          grant.user_id,
+          grant.id,
+          "application_manifest_change"
+        );
+        if (!queued) {
+          throw new Error(
+            "Active hosted grant disappeared during manifest reconciliation."
+          );
         }
-        await hostedProvider.revokeReplica(grant.hosted_replica_id);
-        if (grant.hosted_collection_id) {
-          await hostedProvider.revokeNotificationGrant(grant.hosted_collection_id, grant.id);
-        }
-        await db.query("UPDATE hosted_replicas SET revoked_at = now() WHERE id = $1", [
-          grant.hosted_replica_id
-        ]);
+      } else {
+        await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
+        await db.query(
+          "UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1",
+          [grant.id]
+        );
+        await db.query(
+          "UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1",
+          [grant.id]
+        );
       }
-      await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [grant.id]);
-      await db.query("UPDATE access_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
-      await db.query("UPDATE refresh_tokens SET revoked_at = now() WHERE grant_id = $1", [grant.id]);
       await audit(db, grant.user_id, "grant.revoked_after_manifest_change", grant.id, {
         application_id: application.id,
         previous_scope: grant.scope,
