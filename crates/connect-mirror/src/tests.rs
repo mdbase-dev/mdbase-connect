@@ -649,6 +649,37 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
 }
 
 #[tokio::test]
+async fn reset_snapshot_applies_a_same_record_case_only_rename() {
+    let source = record("Notes/Example.md", "Original");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut renamed = source.clone();
+    renamed.path = "notes/example.md".to_string();
+    renamed.body = "# Updated after reset\n".to_string();
+    refresh_revision(&mut renamed);
+    let mut session = authority.session.clone();
+    session.scope_epoch = 2;
+    session.head = 2;
+    session.snapshot_id = Uuid::new_v4();
+    let plan = DurableRebuildPlan {
+        protocol_version: SYNC_PROTOCOL_VERSION,
+        replica_id: authority.session.replica_id,
+        mode: SyncReplicaMode::ReadOnly,
+        session,
+        records: vec![snapshot_record(renamed.clone())],
+        prior: mirror.read_state().unwrap(),
+    };
+
+    mirror.apply_rebuild(plan).unwrap();
+
+    assert!(!mirror.root().join(&source.path).exists());
+    assert_eq!(
+        fs::read_to_string(mirror.root().join(&renamed.path)).unwrap(),
+        record_markdown_document(&renamed).unwrap()
+    );
+}
+
+#[tokio::test]
 async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
     let first = record("first.md", "First");
     let second = record("second.md", "Second");
@@ -755,20 +786,14 @@ async fn snapshot_rejects_cross_platform_path_aliases_before_materialization() {
 }
 
 #[tokio::test]
-async fn incremental_puts_reject_exact_cross_platform_and_case_only_rename_aliases() {
-    for (path, keep_record_id) in [
-        ("Notes/Example.md", false),
-        ("notes/example.md", false),
-        ("notes/example.md", true),
-    ] {
+async fn incremental_puts_reject_aliases_owned_by_another_record() {
+    for path in ["Notes/Example.md", "notes/example.md"] {
         let source = record("Notes/Example.md", "Same");
         let (_temporary, mirror, authority) =
             harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
         mirror.sync().await.unwrap();
         let mut alias = source.clone();
-        if !keep_record_id {
-            alias.record_id = Uuid::new_v4();
-        }
+        alias.record_id = Uuid::new_v4();
         alias.path = path.to_string();
         refresh_revision(&mut alias);
         authority.emit_put(alias);
@@ -779,6 +804,26 @@ async fn incremental_puts_reject_exact_cross_platform_and_case_only_rename_alias
         assert!(mirror.root().join("Notes/Example.md").exists());
         assert!(!mirror.root().join("notes/example.md").exists() || path == "Notes/Example.md");
     }
+}
+
+#[tokio::test]
+async fn incremental_put_applies_a_same_record_case_only_rename() {
+    let source = record("Notes/Example.md", "Original");
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut renamed = source.clone();
+    renamed.path = "notes/example.md".to_string();
+    renamed.body = "# Updated\n".to_string();
+    refresh_revision(&mut renamed);
+    authority.emit_put(renamed.clone());
+
+    mirror.sync().await.unwrap();
+
+    assert!(!mirror.root().join(&source.path).exists());
+    assert_eq!(
+        fs::read_to_string(mirror.root().join(&renamed.path)).unwrap(),
+        record_markdown_document(&renamed).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -793,6 +838,57 @@ async fn incremental_pages_are_preflighted_before_writing_aliased_records() {
     assert_eq!(error.code, "invalid_record_path");
     assert!(!mirror.root().join("Notes/Example.md").exists());
     assert!(!mirror.root().join("notes/example.md").exists());
+}
+
+#[tokio::test]
+async fn incremental_preflight_reserves_paths_for_deferred_records() {
+    for conflict in [true, false] {
+        let source = record("occupied.md", "Managed");
+        let (_temporary, mirror, authority) =
+            harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+        mirror.sync().await.unwrap();
+        let mut state = mirror.read_state().unwrap().unwrap();
+        if conflict {
+            state.conflicts.insert(
+                source.record_id,
+                SyncMutationReceipt::Rejected {
+                    mutation_id: Uuid::new_v4(),
+                    error: SyncMutationError {
+                        code: "blocked".to_string(),
+                        message: "Needs a decision.".to_string(),
+                    },
+                },
+            );
+        } else {
+            state.local_issues.insert(
+                source.path.clone(),
+                StoredLocalIssue {
+                    path: source.path.clone(),
+                    code: "invalid_frontmatter".to_string(),
+                    message: "Fix the local file.".to_string(),
+                    hash: state.records[&source.record_id].hash.clone(),
+                },
+            );
+        }
+        mirror.write_state(&state).unwrap();
+        let mut moved = source.clone();
+        moved.path = "moved.md".to_string();
+        refresh_revision(&mut moved);
+        authority.emit_put(moved);
+        let mut replacement = record("occupied.md", "Replacement");
+        replacement.record_id = Uuid::new_v4();
+        authority.emit_put(replacement);
+
+        let error = mirror.sync().await.unwrap_err();
+
+        assert_eq!(error.code, "invalid_record_path");
+        assert_eq!(
+            fs::read_to_string(mirror.root().join("occupied.md")).unwrap(),
+            record_markdown_document(&source).unwrap()
+        );
+        assert!(!mirror.root().join("moved.md").exists());
+        assert_eq!(mirror.read_state().unwrap().unwrap().cursor, 1);
+    }
 }
 
 #[tokio::test]
@@ -970,7 +1066,7 @@ async fn incremental_record_puts_recheck_the_live_collection_policy() {
     refresh_revision(&mut hostile);
 
     let error = mirror
-        .put(&mut state, hostile, None, false, false)
+        .put(&mut state, hostile, PutOptions::default())
         .unwrap_err();
 
     assert_eq!(error.code, "invalid_record_path");

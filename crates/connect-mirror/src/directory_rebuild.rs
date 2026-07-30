@@ -68,18 +68,26 @@ impl DirectoryMirror {
         self.validate_snapshot_shape(&plan.session.resources, &plan.records)?;
         self.validate_snapshot_documents(&plan.session.resources, &plan.records)?;
         self.preflight_rebuild(&plan.session.resources, &plan.records, plan.prior.as_ref())?;
-        let target_paths = plan
-            .session
-            .resources
-            .documents
-            .iter()
-            .map(|resource| resource.path.clone())
-            .chain(
-                plan.records
-                    .iter()
-                    .map(|snapshot| snapshot.record.path.clone()),
-            )
-            .collect::<HashSet<_>>();
+        let target_paths_by_physical = plan
+            .prior
+            .as_ref()
+            .map(|_| self.target_physical_paths(&plan.session.resources, &plan.records))
+            .transpose()?;
+        if let (Some(prior), Some(target_paths_by_physical)) =
+            (&plan.prior, &target_paths_by_physical)
+        {
+            for entry in prior.records.values().chain(prior.resources.values()) {
+                let physical_path = portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                if target_paths_by_physical
+                    .get(&physical_path)
+                    .is_some_and(|target| target != &entry.path)
+                    && self.read_file(&entry.path)?.is_some()
+                {
+                    self.remove_file(&entry.path)?;
+                }
+            }
+        }
         let mut state = DurableMirrorState {
             protocol_version: SYNC_PROTOCOL_VERSION,
             replica_id: self.replica_id,
@@ -118,14 +126,17 @@ impl DirectoryMirror {
                 },
             );
         }
-        if let Some(prior) = plan.prior {
-            let stale_paths = prior
-                .records
-                .values()
-                .chain(prior.resources.values())
-                .filter(|entry| !target_paths.contains(&entry.path))
-                .map(|entry| entry.path.clone())
-                .collect::<BTreeSet<_>>();
+        if let (Some(prior), Some(target_paths_by_physical)) =
+            (plan.prior, target_paths_by_physical)
+        {
+            let mut stale_paths = BTreeSet::new();
+            for entry in prior.records.values().chain(prior.resources.values()) {
+                let physical_path = portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                if !target_paths_by_physical.contains_key(&physical_path) {
+                    stale_paths.insert(entry.path.clone());
+                }
+            }
             for path in stale_paths {
                 self.remove_file(&path)?;
             }
@@ -138,12 +149,19 @@ impl DirectoryMirror {
     pub(super) fn prior_managed_paths<'a>(
         &self,
         prior: Option<&'a DurableMirrorState>,
-    ) -> HashMap<&'a str, &'a MirrorEntry> {
-        prior
+    ) -> Result<HashMap<String, &'a MirrorEntry>, MirrorError> {
+        let mut paths = HashMap::new();
+        for entry in prior
             .into_iter()
             .flat_map(|state| state.records.values().chain(state.resources.values()))
-            .map(|entry| (entry.path.as_str(), entry))
-            .collect()
+        {
+            paths.insert(
+                portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+                entry,
+            );
+        }
+        Ok(paths)
     }
 
     pub(super) fn target_paths(
@@ -156,6 +174,24 @@ impl DirectoryMirror {
             .iter()
             .map(|resource| resource.path.clone())
             .chain(records.iter().map(|snapshot| snapshot.record.path.clone()))
+            .collect()
+    }
+
+    pub(super) fn target_physical_paths(
+        &self,
+        resources: &SyncCollectionResources,
+        records: &[SyncSnapshotRecord],
+    ) -> Result<HashMap<String, String>, MirrorError> {
+        resources
+            .documents
+            .iter()
+            .map(|resource| &resource.path)
+            .chain(records.iter().map(|snapshot| &snapshot.record.path))
+            .map(|path| {
+                portable_mirror_path_key(path)
+                    .map(|physical| (physical, path.clone()))
+                    .map_err(|error| MirrorError::new("invalid_snapshot", error))
+            })
             .collect()
     }
 
@@ -342,12 +378,18 @@ impl DirectoryMirror {
         records: &[SyncSnapshotRecord],
         prior: Option<&DurableMirrorState>,
     ) -> Result<(), MirrorError> {
-        let prior_paths = self.prior_managed_paths(prior);
+        let prior_paths = self.prior_managed_paths(prior)?;
         let target_paths = self.target_paths(resources, records);
         let mut collisions = BTreeSet::new();
         for resource in &resources.documents {
             let local = self.read_file(&resource.path)?;
-            let managed = prior_paths.get(resource.path.as_str());
+            let managed = if prior.is_some() {
+                let physical_path = portable_mirror_path_key(&resource.path)
+                    .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
+                prior_paths.get(&physical_path)
+            } else {
+                None
+            };
             if local.as_deref().is_some_and(|local| {
                 local != resource.document
                     && managed.is_none_or(|entry| digest(local) != entry.hash)
@@ -359,7 +401,13 @@ impl DirectoryMirror {
             let record = &snapshot.record;
             let document = &snapshot.document;
             let local = self.read_file(&record.path)?;
-            let managed = prior_paths.get(record.path.as_str());
+            let managed = if prior.is_some() {
+                let physical_path = portable_mirror_path_key(&record.path)
+                    .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
+                prior_paths.get(&physical_path)
+            } else {
+                None
+            };
             if local.as_deref().is_some_and(|local| {
                 local != document && managed.is_none_or(|entry| digest(local) != entry.hash)
             }) {

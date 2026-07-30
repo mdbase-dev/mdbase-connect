@@ -67,7 +67,7 @@ impl DirectoryMirror {
             }
         }
         for (existing_id, entry) in &state.records {
-            if (*existing_id != record_id || entry.path != relative)
+            if *existing_id != record_id
                 && portable_mirror_path_key(&entry.path)
                     .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
                     == physical_path
@@ -89,6 +89,19 @@ impl DirectoryMirror {
         state: &DurableMirrorState,
         events: &[SyncChange],
     ) -> Result<(), MirrorError> {
+        let mut deferred_record_ids = state.conflicts.keys().copied().collect::<HashSet<_>>();
+        if !state.local_issues.is_empty() {
+            for (record_id, entry) in &state.records {
+                if state.local_issues.contains_key(&entry.path) {
+                    deferred_record_ids.insert(*record_id);
+                }
+            }
+        }
+        for event in events {
+            if let SyncChange::Put { record, .. } = event {
+                self.validate_record_path(&record.path)?;
+            }
+        }
         let mut physical_paths = HashMap::<String, (String, Option<Uuid>)>::new();
         let mut record_paths = HashMap::<Uuid, String>::new();
         for path in state.resources.keys() {
@@ -107,6 +120,13 @@ impl DirectoryMirror {
             record_paths.insert(*record_id, entry.path.clone());
         }
         for event in events {
+            let record_id = match event {
+                SyncChange::Put { record, .. } => record.record_id,
+                SyncChange::Remove { record_id, .. } => *record_id,
+            };
+            if deferred_record_ids.contains(&record_id) {
+                continue;
+            }
             match event {
                 SyncChange::Remove { record_id, .. } => {
                     if let Some(prior) = record_paths.remove(record_id) {
@@ -116,7 +136,6 @@ impl DirectoryMirror {
                     }
                 }
                 SyncChange::Put { record, .. } => {
-                    self.validate_record_path(&record.path)?;
                     let physical_path =
                         portable_mirror_path_key(&record.path).map_err(|error| {
                             MirrorError::new(
@@ -125,7 +144,7 @@ impl DirectoryMirror {
                             )
                         })?;
                     if let Some((occupied_path, occupied_id)) = physical_paths.get(&physical_path) {
-                        if *occupied_id != Some(record.record_id) || occupied_path != &record.path {
+                        if *occupied_id != Some(record.record_id) {
                             return Err(MirrorError::new(
                                 "invalid_record_path",
                                 format!(

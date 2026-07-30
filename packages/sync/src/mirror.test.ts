@@ -46,6 +46,36 @@ class TestFileSystem implements MirrorFileSystem {
   }
 }
 
+class CaseInsensitiveTestFileSystem extends TestFileSystem {
+  private storedPath(path: string): string | undefined {
+    const key = path.normalize("NFC").toLowerCase();
+    return [...this.files.keys()].find(
+      (candidate) => candidate.normalize("NFC").toLowerCase() === key
+    );
+  }
+
+  override async read(path: string): Promise<string | null> {
+    this.reads += 1;
+    const stored = this.storedPath(path);
+    return stored === undefined ? null : this.files.get(stored)!;
+  }
+
+  override async write(path: string, value: string): Promise<void> {
+    if (this.failAfterWrites !== null && this.writes >= this.failAfterWrites) {
+      throw new Error("injected adapter write failure");
+    }
+    this.writes += 1;
+    const stored = this.storedPath(path);
+    if (stored !== undefined) this.files.delete(stored);
+    this.files.set(path, value);
+  }
+
+  override async remove(path: string): Promise<void> {
+    const stored = this.storedPath(path);
+    if (stored !== undefined) this.files.delete(stored);
+  }
+}
+
 class CountingStateStore extends MemoryMirrorStateStore {
   reads = 0;
   writes = 0;
@@ -454,11 +484,10 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("rejects exact, cross-platform, and case-only rename aliases from incremental puts", async () => {
+  it("rejects exact and cross-platform aliases owned by another record", async () => {
     for (const { path, recordId } of [
       { path: "Notes/Example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "second" },
-      { path: "notes/example.md", recordId: "first" }
+      { path: "notes/example.md", recordId: "second" }
     ]) {
       const hosted = new MemoryAuthority();
       hosted.seed([{
@@ -512,6 +541,124 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
+  it("applies a same-record case-only rename on case-sensitive and insensitive filesystems", async () => {
+    for (const fileSystem of [
+      new TestFileSystem(),
+      new CaseInsensitiveTestFileSystem()
+    ]) {
+      const hosted = new MemoryAuthority();
+      hosted.seed([{
+        record_id: "first",
+        path: "Notes/Example.md",
+        frontmatter: {},
+        body: "Original bytes",
+        types: []
+      }]);
+      const replicaId = hosted.registerReplica({
+        name: "Case rename mirror",
+        mode: "read_only"
+      });
+      const base = hosted.transport(replicaId);
+      let emitRename = false;
+      const mirror = new DirectoryMirror(replicaId, {
+        ...base,
+        changes: async (after, limit) => emitRename
+          ? {
+              protocol_version: 1,
+              scope_epoch: 1,
+              events: [{
+                sequence: 1,
+                type: "put",
+                record: {
+                  record_id: "first",
+                  path: "notes/example.md",
+                  revision: documentRevision("Updated bytes"),
+                  frontmatter: {},
+                  body: "Updated bytes",
+                  types: []
+                }
+              }],
+              cursor: 1,
+              head: 1,
+              has_more: false,
+              reset_required: false
+            }
+          : base.changes(after, limit)
+      }, {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+      await mirror.sync();
+      emitRename = true;
+
+      await mirror.sync();
+
+      expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
+      expect(fileSystem.files.get("notes/example.md")).toBe("Updated bytes");
+    }
+  });
+
+  it("rebuilds a case-only snapshot rename with the authority's exact spelling", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "first",
+      path: "Notes/Example.md",
+      frontmatter: {},
+      body: "Stable bytes",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({
+      name: "Case reset mirror",
+      mode: "read_only"
+    });
+    const writerId = hosted.registerReplica({
+      name: "Case reset writer",
+      mode: "read_write"
+    });
+    const base = hosted.transport(replicaId);
+    let forceReset = false;
+    const fileSystem = new CaseInsensitiveTestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, {
+      ...base,
+      changes: async (after, limit) => forceReset
+        ? {
+            protocol_version: 1,
+            scope_epoch: 1,
+            events: [],
+            cursor: after,
+            head: after + 1,
+            has_more: false,
+            reset_required: true
+          }
+        : base.changes(after, limit)
+    }, {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const writer = hosted.transport(writerId);
+    const session = await writer.openSession();
+    const current = (await writer.snapshot(session.snapshot_id)).records[0]!;
+    await expect(writer.mutate({
+      mutation_id: "case-only-reset",
+      replica_id: writerId,
+      scope_epoch: 1,
+      operation: "rename",
+      record_id: "first",
+      base_revision: current.revision,
+      input: { path: "notes/example.md" },
+      created_at: "2026-07-27T00:00:00.000Z"
+    })).resolves.toMatchObject({ status: "applied" });
+    forceReset = true;
+
+    await mirror.sync();
+
+    expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
+    expect(fileSystem.files.get("notes/example.md")).toBe("Stable bytes");
+  });
+
   it("preflights a complete incremental page before writing aliased records", async () => {
     const hosted = new MemoryAuthority();
     const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
@@ -555,6 +702,103 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.writes).toBe(writesBeforeChanges);
     expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
     expect(fileSystem.files.has("notes/example.md")).toBe(false);
+  });
+
+  it("keeps paths reserved by conflicted and locally blocked records during page preflight", async () => {
+    for (const blocker of ["conflict", "local_issue"] as const) {
+      const runtime = deterministicRuntime();
+      const stateStore = new MemoryMirrorStateStore();
+      const fileSystem = new TestFileSystem();
+      fileSystem.files.set("occupied.md", "Managed bytes");
+      const state: MirrorState = {
+        protocol_version: 1,
+        replica_id: "reader",
+        scope_epoch: 1,
+        cursor: 0,
+        records: {
+          occupied: {
+            path: "occupied.md",
+            revision: documentRevision("Managed bytes"),
+            hash: runtime.digest("Managed bytes")
+          }
+        },
+        resources: {},
+        mode: "read_only",
+        pending: [],
+        conflicts: blocker === "conflict"
+          ? {
+              occupied: {
+                mutation_id: "blocked",
+                status: "rejected",
+                error: { code: "blocked", message: "Needs a decision." }
+              }
+            }
+          : {},
+        local_issues: blocker === "local_issue"
+          ? {
+              "occupied.md": {
+                path: "occupied.md",
+                code: "invalid_frontmatter",
+                message: "Fix the local file.",
+                hash: runtime.digest("Managed bytes")
+              }
+            }
+          : {}
+      };
+      await stateStore.write(state);
+      const transport: SyncTransport = {
+        openSession: async () => { throw new Error("unused"); },
+        snapshot: async () => { throw new Error("unused"); },
+        mutate: async () => { throw new Error("unused"); },
+        changes: async () => ({
+          protocol_version: 1,
+          scope_epoch: 1,
+          events: [
+            {
+              sequence: 1,
+              type: "put",
+              record: {
+                record_id: "occupied",
+                path: "moved.md",
+                revision: documentRevision("Remote occupied"),
+                frontmatter: {},
+                body: "Remote occupied",
+                types: []
+              }
+            },
+            {
+              sequence: 2,
+              type: "put",
+              record: {
+                record_id: "new-record",
+                path: "occupied.md",
+                revision: documentRevision("New record"),
+                frontmatter: {},
+                body: "New record",
+                types: []
+              }
+            }
+          ],
+          cursor: 2,
+          head: 2,
+          has_more: false,
+          reset_required: false
+        })
+      };
+      const mirror = new DirectoryMirror("reader", transport, {
+        fileSystem,
+        stateStore,
+        runtime
+      });
+
+      await expect(mirror.sync(), blocker).rejects.toMatchObject({
+        code: "invalid_record_path"
+      });
+      expect(fileSystem.files, blocker).toEqual(
+        new Map([["occupied.md", "Managed bytes"]])
+      );
+      expect((await stateStore.read())?.cursor, blocker).toBe(0);
+    }
   });
 
   it("rejects local cross-platform aliases before writable capture uploads either file", async () => {
@@ -789,6 +1033,51 @@ describe("platform-neutral directory mirror", () => {
       state: "up_to_date",
       pending: 0,
       local_issues: []
+    });
+  });
+
+  it("preserves accepted bytes for a writable case-only rename on a case-insensitive filesystem", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "case-writer",
+      path: "Notes/Example.md",
+      frontmatter: {},
+      body: "Accepted bytes",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({
+      name: "Case writer",
+      mode: "read_write"
+    });
+    const fileSystem = new CaseInsensitiveTestFileSystem();
+    const mirror = new WritableDirectoryMirror(
+      replicaId,
+      hosted.transport(replicaId),
+      {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      }
+    );
+    await mirror.sync();
+    const accepted = fileSystem.files.get("Notes/Example.md")!;
+    fileSystem.files.delete("Notes/Example.md");
+    fileSystem.files.set("notes/example.md", accepted);
+
+    await mirror.sync();
+
+    expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
+    expect(fileSystem.files.get("notes/example.md")).toBe(accepted);
+    const session = await hosted.transport(replicaId).openSession();
+    await expect(
+      hosted.transport(replicaId).snapshot(session.snapshot_id)
+    ).resolves.toMatchObject({
+      records: [
+        expect.objectContaining({
+          record_id: "case-writer",
+          path: "notes/example.md"
+        })
+      ]
     });
   });
 

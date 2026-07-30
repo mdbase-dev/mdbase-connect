@@ -2,8 +2,6 @@ import type { JsonObject, SyncMutation, SyncRecord } from "@mdbase/connect-proto
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
 import {
-  MirrorDivergenceError,
-  MirrorInitializationConflictError,
   WritableMirrorConflictError,
   WritableMirrorRejectedError
 } from "./mirror-errors.js";
@@ -23,7 +21,6 @@ import {
   refreshMirrorConflict,
   type AuthorityPromotionManifest,
   type DirectoryMirrorOptions,
-  type MirrorEntry,
   type MirrorFileSystem,
   type MirrorInitializationPreview,
   type MirrorLease,
@@ -33,21 +30,25 @@ import {
   type MirrorState,
   type MirrorStateStore,
   type MirrorStatus,
-  type PendingMirrorMutation,
-  type StoredMirrorLocalIssue
+  type PendingMirrorMutation
 } from "./mirror-state.js";
 import {
-  assertNoPhysicalPathAliases,
-  assertRecordPhysicalPathAvailable,
   filterRecordPaths,
-  loadMirrorRecordPathPolicy,
-  preflightChangePhysicalPaths,
   validateRecordPath,
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
+import { assertMirrorUndiverged } from "./mirror-integrity.js";
+import { captureMirrorLocalChanges } from "./mirror-local-changes.js";
+import { MirrorMaterializer } from "./mirror-materializer.js";
 import {
-  MirrorSnapshotValidator, withoutSnapshotDocument, visitSnapshotPages, type ValidatedSnapshotRecord
+  assertNoPhysicalPathAliases,
+  preflightChangePhysicalPaths
+} from "./mirror-physical-path.js";
+import { openMirrorSnapshot, rebuildMirror } from "./mirror-rebuild.js";
+import {
+  MirrorSnapshotValidator,
+  visitSnapshotPages
 } from "./mirror-snapshot-validator.js";
 
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
@@ -55,6 +56,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private readonly fileSystem: MirrorFileSystem;
   private readonly lease: MirrorLease;
   private readonly runtime: MirrorRuntime;
+  private readonly materializer: MirrorMaterializer;
   private readonly onProgress?: (progress: MirrorProgress) => void;
 
   constructor(
@@ -67,6 +69,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     this.fileSystem = options.fileSystem;
     this.lease = options.lease ?? new MemoryMirrorLease();
     this.runtime = options.runtime ?? portableMirrorRuntime;
+    this.materializer = new MirrorMaterializer(
+      this.fileSystem,
+      this.runtime,
+      this.mode
+    );
     this.onProgress = options.onProgress;
   }
 
@@ -89,7 +96,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       await this.captureLocalChanges(state);
       await this.flushPending(state);
     } else {
-      await this.assertUndiverged(state);
+      await assertMirrorUndiverged(
+        state,
+        await this.currentRecordPathPolicy(state),
+        this.fileSystem,
+        this.runtime.digest
+      );
     }
     let appliedDocuments = 0;
     while (true) {
@@ -102,8 +114,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         preflightChangePhysicalPaths(
           page.events,
           await this.currentRecordPathPolicy(state),
-          state.resources ?? {},
-          state.records
+          state
         );
       }
       for (const event of page.events) {
@@ -125,9 +136,15 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         } else if (state.conflicts?.[eventRecordId]) {
           refreshMirrorConflict(state, event);
         } else if (event.type === "put") {
-          await this.put(state, event.record, undefined, undefined, false, undefined, true);
+          await this.materializer.put(state, event.record, {
+            physicalPathPreflighted: true
+          });
         } else {
-          await this.remove(state, event.record_id, event.previous_path);
+          await this.materializer.remove(
+            state,
+            event.record_id,
+            event.previous_path
+          );
         }
         appliedDocuments += 1;
         this.reportProgress({
@@ -240,7 +257,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         "Upload or resolve every local change before moving the source of truth."
       );
     }
-    await this.assertUndiverged(state);
+    await assertMirrorUndiverged(
+      state,
+      await this.currentRecordPathPolicy(state),
+      this.fileSystem,
+      this.runtime.digest
+    );
     const resourcePaths = new Set(Object.keys(state.resources ?? {}));
     const managedPaths = new Set(Object.values(state.records).map((entry) => entry.path));
     const unmanaged = (await this.fileSystem.listMarkdown(resourcePaths))
@@ -281,7 +303,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         local_issues: []
       };
     }
-    const session = await this.openSnapshot();
+    const session = await openMirrorSnapshot(
+      this.replicaId,
+      this.transport,
+      this.mode
+    );
     const resources = session.resources.documents ?? [];
     const pathPolicy = validateSnapshotResources(resources);
     const snapshotValidator = new MirrorSnapshotValidator<Frontmatter>(
@@ -339,212 +365,19 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private async rebuild(prior?: MirrorState): Promise<void> {
-    const session = await this.openSnapshot();
-    const resources = session.resources.documents ?? [];
-    const pathPolicy = validateSnapshotResources(resources);
-    const snapshotValidator = new MirrorSnapshotValidator<Frontmatter>(
-      pathPolicy,
-      resources,
-      this.runtime.digest
+    const state = await rebuildMirror(
+      {
+        replicaId: this.replicaId,
+        transport: this.transport,
+        mode: this.mode,
+        fileSystem: this.fileSystem,
+        runtime: this.runtime,
+        materializer: this.materializer,
+        reportProgress: (progress) => this.reportProgress(progress)
+      },
+      prior
     );
-    const state: MirrorState = {
-      protocol_version: 1,
-      replica_id: this.replicaId,
-      scope_epoch: session.scope_epoch,
-      cursor: session.head,
-      records: {},
-      resources: {},
-      mode: this.mode,
-      pending: [],
-      conflicts: {},
-      local_issues: {}
-    };
-    const collisions: string[] = [];
-    for (const resource of resources) {
-      const local = await this.fileSystem.read(resource.path);
-      const managed = prior?.resources?.[resource.path];
-      if (
-        local !== null
-        && local !== resource.document
-        && (!managed || this.runtime.digest(local) !== managed.hash)
-      ) {
-        collisions.push(resource.path);
-      }
-    }
-    const records: Array<ValidatedSnapshotRecord<Frontmatter>> = [];
-    const remoteRecordIds = prior ? new Set<string>() : null;
-    await visitSnapshotPages(this.transport, session, async (pageRecords) => {
-      for (const snapshotRecord of pageRecords) {
-        const prepared = snapshotValidator.validate(snapshotRecord);
-        const { document, record } = prepared;
-        const local = await this.fileSystem.read(record.path);
-        const managed = prior?.records[record.record_id];
-        if (
-          local !== null
-          && local !== document
-          && (!managed || managed.path !== record.path || this.runtime.digest(local) !== managed.hash)
-        ) {
-          collisions.push(record.path);
-        }
-        remoteRecordIds?.add(record.record_id);
-        records.push(prepared);
-      }
-    });
-    if (prior) {
-      for (const [recordId, entry] of Object.entries(prior.records)) {
-        if (remoteRecordIds!.has(recordId)) continue;
-        const local = await this.fileSystem.read(entry.path);
-        if (local !== null && this.runtime.digest(local) !== entry.hash) collisions.push(entry.path);
-      }
-      const remoteResources = new Set(resources.map((resource) => resource.path));
-      for (const entry of Object.values(prior.resources ?? {})) {
-        if (remoteResources.has(entry.path)) continue;
-        const local = await this.fileSystem.read(entry.path);
-        if (local !== null && this.runtime.digest(local) !== entry.hash) collisions.push(entry.path);
-      }
-    }
-    if (collisions.length) {
-      throw new MirrorInitializationConflictError([...new Set(collisions)].sort());
-    }
-
-    const documentCount = resources.length + records.length;
-    let appliedDocuments = 0;
-    for (const resource of resources) {
-      await this.putResource(state, resource, prior);
-      appliedDocuments += 1;
-      this.reportProgress({
-        phase: "applying",
-        completed: appliedDocuments,
-        total: documentCount,
-        done: appliedDocuments === documentCount
-      });
-    }
-    for (const prepared of records) {
-      await this.put(state, prepared.record, prior, undefined, false, prepared);
-      appliedDocuments += 1;
-      this.reportProgress({
-        phase: "applying",
-        completed: appliedDocuments,
-        total: documentCount,
-        done: appliedDocuments === documentCount
-      });
-    }
-    if (prior) {
-      for (const [recordId, entry] of Object.entries(prior.records)) {
-        if (!state.records[recordId]) await this.remove(prior, recordId, entry.path);
-      }
-      for (const [path, entry] of Object.entries(prior.resources ?? {})) {
-        if (!state.resources?.[path]) await this.removeResource(prior, path, entry);
-      }
-    }
-    state.last_synced_at = this.runtime.now();
     await this.writeState(state);
-  }
-
-  private async openSnapshot(): Promise<
-    Awaited<ReturnType<SyncTransport<Frontmatter>["openSession"]>>
-  > {
-    const session = await this.transport.openSession();
-    if (session.replica_id !== this.replicaId || session.mode !== this.mode) {
-      throw new SyncError(
-        "invalid_mirror_session",
-        `Filesystem mirror requires its own ${this.mode.replace("_", "-")} replica.`
-      );
-    }
-    return session;
-  }
-
-  private async put(
-    state: MirrorState,
-    record: SyncRecord<Frontmatter>,
-    managedState: MirrorState | undefined = state,
-    acceptedHash?: string | null,
-    preserveAcceptedDocument = false,
-    materialized?: { document: string; hash: string },
-    physicalPathPreflighted = false
-  ): Promise<void> {
-    validateRecordPath(record.path, await this.currentRecordPathPolicy(state));
-    if (materialized === undefined && !physicalPathPreflighted)
-      assertRecordPhysicalPathAvailable(
-        record.path,
-        record.record_id,
-        Object.keys(state.resources ?? {}),
-        Object.entries(state.records)
-      );
-    const document = materialized?.document ?? recordMarkdownDocument(record);
-    const existing = await this.fileSystem.read(record.path);
-    const prior = managedState?.records[record.record_id];
-    if (existing !== null && existing !== document) {
-      const existingHash = this.runtime.digest(existing);
-      if (
-        (!prior || prior.path !== record.path || existingHash !== prior.hash)
-        && (acceptedHash === undefined || existingHash !== acceptedHash)
-      ) {
-        throw new MirrorDivergenceError(record.record_id, record.path);
-      }
-    }
-    if (prior && prior.path !== record.path) {
-      await this.remove(managedState!, record.record_id, prior.path);
-    }
-    const acceptedLocalHash = preserveAcceptedDocument
-      && typeof acceptedHash === "string"
-      && existing !== null
-      && this.runtime.digest(existing) === acceptedHash
-      ? acceptedHash
-      : null;
-    if (acceptedLocalHash === null) await this.fileSystem.write(record.path, document);
-    state.records[record.record_id] = {
-      path: record.path,
-      revision: record.revision,
-      hash: acceptedLocalHash ?? materialized?.hash ?? this.runtime.digest(document),
-      ...(this.mode === "read_write"
-        ? { record: withoutSnapshotDocument(record) }
-        : {})
-    };
-  }
-
-  private async remove(state: MirrorState, recordId: string, pathValue: string): Promise<void> {
-    const entry = state.records[recordId];
-    const path = entry?.path ?? pathValue;
-    validateRecordPath(path, await this.currentRecordPathPolicy(state));
-    const existing = await this.fileSystem.read(path);
-    if (existing !== null && entry && this.runtime.digest(existing) !== entry.hash) {
-      throw new MirrorDivergenceError(recordId, entry.path);
-    }
-    if (existing !== null) await this.fileSystem.remove(path);
-    delete state.records[recordId];
-  }
-
-  private async putResource(
-    state: MirrorState,
-    resource: { path: string; revision: string; document: string },
-    managedState?: MirrorState
-  ): Promise<void> {
-    const existing = await this.fileSystem.read(resource.path);
-    const prior = managedState?.resources?.[resource.path];
-    if (
-      existing !== null
-      && existing !== resource.document
-      && (!prior || this.runtime.digest(existing) !== prior.hash)
-    ) {
-      throw new MirrorDivergenceError(`resource:${resource.path}`, resource.path);
-    }
-    await this.fileSystem.write(resource.path, resource.document);
-    state.resources ??= {};
-    state.resources[resource.path] = {
-      path: resource.path,
-      revision: resource.revision,
-      hash: this.runtime.digest(resource.document)
-    };
-  }
-
-  private async removeResource(state: MirrorState, pathValue: string, entry: MirrorEntry): Promise<void> {
-    const existing = await this.fileSystem.read(pathValue);
-    if (existing !== null && this.runtime.digest(existing) !== entry.hash) {
-      throw new MirrorDivergenceError(`resource:${pathValue}`, pathValue);
-    }
-    if (existing !== null) await this.fileSystem.remove(pathValue);
-    if (state.resources) delete state.resources[pathValue];
   }
 
   async resolveConflict(recordId: string, resolution: "local" | "remote"): Promise<void> {
@@ -640,12 +473,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         }
       }
       const existing = await this.fileSystem.read(current.path);
-      await this.put(
-        state,
-        current,
-        state,
-        existing === null ? null : this.runtime.digest(existing)
-      );
+      await this.materializer.put(state, current, {
+        managedState: state,
+        acceptedHash: existing === null ? null : this.runtime.digest(existing)
+      });
       return;
     }
     const entry = state.records[recordId];
@@ -733,144 +564,16 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private async captureLocalChanges(state: MirrorState): Promise<void> {
-    const pathPolicy = await this.currentRecordPathPolicy(state);
-    const resourcePaths = new Set(Object.keys(state.resources ?? {}));
-    for (const [path, entry] of Object.entries(state.resources ?? {})) {
-      const value = await this.fileSystem.read(path);
-      if (value === null || this.runtime.digest(value) !== entry.hash) {
-        throw new MirrorDivergenceError(`resource:${path}`, path);
-      }
-    }
-    const files = filterRecordPaths(
-      await this.fileSystem.listMarkdown(resourcePaths),
-      pathPolicy
-    );
-    assertNoPhysicalPathAliases([...resourcePaths, ...files]);
-    const managedPaths = new Map(
-      Object.entries(state.records).map(([recordId, entry]) => [entry.path, recordId])
-    );
-    const local = new Map<string, { document?: string; hash: string }>();
-    for (const path of files) {
-      const document = await this.fileSystem.read(path);
-      if (document === null) continue;
-      const hash = this.runtime.digest(document);
-      const managed = managedPaths.get(path);
-      const unchanged = managed !== undefined && state.records[managed]?.hash === hash;
-      local.set(path, unchanged ? { hash } : { document, hash });
-    }
-    const untracked = new Set([...local.keys()].filter((path) => !managedPaths.has(path)));
-    const missing = new Set(
-      Object.entries(state.records)
-        .filter(([, entry]) => !local.has(entry.path))
-        .map(([recordId]) => recordId)
-    );
-    const queued: PendingMirrorMutation[] = [];
-    const localIssues: Record<string, StoredMirrorLocalIssue> = {};
-    const parseLocal = (
-      document: string,
-      path: string,
-      hash: string
-    ): { frontmatter: JsonObject; body: string } | null => {
-      try {
-        return parseMarkdown(document, path);
-      } catch (error) {
-        const issue = mirrorLocalIssue(error, path);
-        if (!issue) throw error;
-        localIssues[path] = { ...issue, hash };
-        return null;
-      }
-    };
-    const predecessors = new Map<string, string>();
-    const queue = (
-      mutation: Omit<SyncMutation, "mutation_id" | "replica_id" | "scope_epoch" | "created_at">,
-      localPath: string,
-      localHash: string | null
-    ) => {
-      const mutationId = this.runtime.randomId();
-      const predecessor = predecessors.get(mutation.record_id);
-      queued.push({
-        mutation: {
-          ...mutation,
-          mutation_id: mutationId,
-          replica_id: this.replicaId,
-          scope_epoch: state.scope_epoch,
-          created_at: this.runtime.now(),
-          ...(predecessor ? { causal_predecessor: predecessor } : {})
-        },
-        local_path: localPath,
-        local_hash: localHash
-      });
-      predecessors.set(mutation.record_id, mutationId);
-    };
-
-    for (const recordId of [...missing]) {
-      if (state.conflicts?.[recordId]) {
-        missing.delete(recordId);
-        continue;
-      }
-      const entry = state.records[recordId]!;
-      const candidates = [...untracked].filter((path) => local.get(path)?.hash === entry.hash);
-      if (candidates.length !== 1) continue;
-      const target = candidates[0]!;
-      queue({
-        operation: "rename",
-        record_id: recordId,
-        base_revision: entry.revision,
-        input: { path: target }
-      }, target, local.get(target)!.hash);
-      missing.delete(recordId);
-      untracked.delete(target);
-    }
-
-    for (const [recordId, entry] of Object.entries(state.records)) {
-      if (state.conflicts?.[recordId]) continue;
-      if (missing.has(recordId)) continue;
-      const value = local.get(entry.path);
-      if (!value || value.hash === entry.hash) continue;
-      const record = entry.record;
-      if (!record) {
-        throw new SyncError(
-          "mirror_state_upgrade_required",
-          "Run a receive sync before editing this older writable mirror."
-        );
-      }
-      const parsed = parseLocal(value.document!, entry.path, value.hash);
-      if (!parsed) continue;
-      queue({
-        operation: "update",
-        record_id: recordId,
-        base_revision: entry.revision,
-        input: {
-          patch: frontmatterPatch(record.frontmatter, parsed.frontmatter),
-          body: parsed.body
-        }
-      }, entry.path, value.hash);
-    }
-
-    for (const recordId of missing) {
-      if (state.conflicts?.[recordId]) continue;
-      const entry = state.records[recordId]!;
-      queue({
-        operation: "delete",
-        record_id: recordId,
-        base_revision: entry.revision,
-        input: {}
-      }, entry.path, null);
-    }
-
-    for (const path of untracked) {
-      const value = local.get(path)!;
-      const parsed = parseLocal(value.document!, path, value.hash);
-      if (!parsed) continue;
-      queue({
-        operation: "create",
-        record_id: this.runtime.randomId(),
-        input: { path, frontmatter: parsed.frontmatter, body: parsed.body }
-      }, path, value.hash);
-    }
+    const { pending, localIssues } = await captureMirrorLocalChanges({
+      replicaId: this.replicaId,
+      state,
+      pathPolicy: await this.currentRecordPathPolicy(state),
+      fileSystem: this.fileSystem,
+      runtime: this.runtime
+    });
     state.local_issues = localIssues;
-    if (queued.length) {
-      state.pending!.push(...queued);
+    if (pending.length) {
+      state.pending!.push(...pending);
       await this.writeState(state);
     }
   }
@@ -907,13 +610,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       });
       if (receipt.status === "applied" || receipt.status === "previously_applied") {
         if (receipt.record) {
-          await this.put(
-            state,
-            receipt.record,
-            state,
-            pending.local_hash,
-            true
-          );
+          await this.materializer.put(state, receipt.record, {
+            managedState: state,
+            acceptedHash: pending.local_hash,
+            preserveAcceptedDocument: true
+          });
         } else {
           delete state.records[pending.mutation.record_id];
         }
@@ -975,26 +676,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     this.onProgress?.(progress);
   }
 
-  private async assertUndiverged(state: MirrorState): Promise<void> {
-    const pathPolicy = await this.currentRecordPathPolicy(state);
-    for (const [recordId, entry] of Object.entries(state.records)) {
-      validateRecordPath(entry.path, pathPolicy);
-      const value = await this.fileSystem.read(entry.path);
-      if (value === null || this.runtime.digest(value) !== entry.hash) {
-        throw new MirrorDivergenceError(recordId, entry.path);
-      }
-    }
-    for (const [path, entry] of Object.entries(state.resources ?? {})) {
-      const value = await this.fileSystem.read(entry.path);
-      if (value === null || this.runtime.digest(value) !== entry.hash) {
-        throw new MirrorDivergenceError(`resource:${path}`, entry.path);
-      }
-    }
-  }
   private async currentRecordPathPolicy(state: MirrorState): Promise<MirrorRecordPathPolicy> {
-    return loadMirrorRecordPathPolicy(
-      Object.keys(state.resources ?? {}),
-      () => this.fileSystem.read("mdbase.yaml")
-    );
+    return this.materializer.recordPathPolicy(state);
   }
 }

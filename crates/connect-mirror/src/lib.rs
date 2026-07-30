@@ -114,6 +114,13 @@ struct DurableMirrorState {
     last_synced_at: Option<String>,
 }
 
+#[derive(Default)]
+struct PutOptions<'a> {
+    accepted_hash: Option<&'a str>,
+    preserve_accepted_document: bool,
+    physical_path_preflighted: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DurableRebuildPlan {
     protocol_version: u32,

@@ -57,7 +57,14 @@ impl DirectoryMirror {
                 } else {
                     match event {
                         SyncChange::Put { record, .. } => {
-                            self.put(&mut state, record, None, false, true)?;
+                            self.put(
+                                &mut state,
+                                record,
+                                PutOptions {
+                                    physical_path_preflighted: true,
+                                    ..PutOptions::default()
+                                },
+                            )?;
                         }
                         SyncChange::Remove {
                             record_id,

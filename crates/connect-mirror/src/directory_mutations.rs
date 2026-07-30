@@ -5,24 +5,39 @@ impl DirectoryMirror {
         &self,
         state: &mut DurableMirrorState,
         record: SyncRecord,
-        accepted_hash: Option<&str>,
-        preserve_accepted_document: bool,
-        physical_path_preflighted: bool,
+        options: PutOptions<'_>,
     ) -> Result<(), MirrorError> {
         self.validate_record_path(&record.path)?;
-        if !physical_path_preflighted {
+        if !options.physical_path_preflighted {
             self.validate_record_physical_path(state, record.record_id, &record.path)?;
         }
         let document = record_markdown_document(&record)?;
         let existing = self.read_file(&record.path)?;
         let prior = state.records.get(&record.record_id).cloned();
+        let record_physical_path = portable_mirror_path_key(&record.path).map_err(|error| {
+            MirrorError::new(
+                "invalid_record_path",
+                format!("Mirror record path '{}' is unsafe: {error}", record.path),
+            )
+        })?;
+        let prior_physical_path = prior
+            .as_ref()
+            .map(|entry| {
+                portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))
+            })
+            .transpose()?;
         if let Some(existing) = &existing {
             if existing != &document {
                 let existing_hash = digest(existing);
-                let unmanaged = prior
-                    .as_ref()
-                    .is_none_or(|entry| entry.path != record.path || existing_hash != entry.hash);
-                let not_accepted = accepted_hash.is_none_or(|hash| existing_hash != hash);
+                let destination_belongs_to_record = prior.as_ref().is_some_and(|entry| {
+                    prior_physical_path.as_ref() == Some(&record_physical_path)
+                        && existing_hash == entry.hash
+                });
+                let unmanaged = !destination_belongs_to_record;
+                let not_accepted = options
+                    .accepted_hash
+                    .is_none_or(|hash| existing_hash != hash);
                 if unmanaged && not_accepted {
                     return Err(MirrorError::new(
                         "mirror_diverged",
@@ -34,15 +49,19 @@ impl DirectoryMirror {
                 }
             }
         }
+        let renames_physical_alias = prior.as_ref().is_some_and(|entry| {
+            entry.path != record.path && prior_physical_path.as_ref() == Some(&record_physical_path)
+        });
         if let Some(prior) = &prior {
             if prior.path != record.path {
                 self.remove(state, record.record_id, &prior.path)?;
             }
         }
-        let accepted_local_hash = if preserve_accepted_document {
+        let accepted_local_hash = if options.preserve_accepted_document {
             existing.as_ref().and_then(|existing| {
                 let existing_hash = digest(existing);
-                accepted_hash
+                options
+                    .accepted_hash
                     .filter(|accepted| existing_hash == *accepted)
                     .map(|_| existing_hash)
             })
@@ -51,6 +70,11 @@ impl DirectoryMirror {
         };
         if accepted_local_hash.is_none() {
             self.write_file(&record.path, document.as_bytes())?;
+        } else if let (true, Some(existing)) = (renames_physical_alias, existing.as_deref()) {
+            // Removing the old spelling also removes the destination on a
+            // case-insensitive filesystem. Restore the accepted local bytes
+            // under the authority's exact spelling.
+            self.write_file(&record.path, existing.as_bytes())?;
         }
         state.records.insert(
             record.record_id,
@@ -336,9 +360,11 @@ impl DirectoryMirror {
                         self.put(
                             state,
                             record.clone(),
-                            pending.local_hash.as_deref(),
-                            true,
-                            false,
+                            PutOptions {
+                                accepted_hash: pending.local_hash.as_deref(),
+                                preserve_accepted_document: true,
+                                ..PutOptions::default()
+                            },
                         )?;
                         for later in &mut state.pending {
                             if later.mutation.record_id == pending.mutation.record_id
@@ -389,7 +415,14 @@ impl DirectoryMirror {
                 }
             }
             let accepted = self.read_file(&current.path)?.as_deref().map(digest);
-            self.put(state, current, accepted.as_deref(), false, false)
+            self.put(
+                state,
+                current,
+                PutOptions {
+                    accepted_hash: accepted.as_deref(),
+                    ..PutOptions::default()
+                },
+            )
         } else {
             if let Some(entry) = state.records.get(&record_id) {
                 paths.insert(entry.path.clone());
