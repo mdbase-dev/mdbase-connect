@@ -38,6 +38,10 @@ use crate::{
     workspace::{StoredDocument, WorkingSet},
 };
 
+mod operation_context;
+
+use operation_context::RecordOperationContext;
+
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 type WorkingSetSlot = Arc<Mutex<Option<CachedCollection>>>;
@@ -3058,12 +3062,14 @@ impl HostedProvider {
                 };
                 let result = self
                     .write_operation(
-                        collection_id,
-                        token,
-                        &replica,
-                        operation,
-                        request_id,
-                        &request_input,
+                        RecordOperationContext {
+                            collection_id,
+                            token,
+                            replica: &replica,
+                            operation,
+                            request_id,
+                            request_input: &request_input,
+                        },
                         input,
                         prepared,
                     )
@@ -3822,12 +3828,7 @@ impl HostedProvider {
 
     async fn write_operation(
         &self,
-        collection_id: Uuid,
-        token: &str,
-        replica: &Replica,
-        operation: &str,
-        request_id: Uuid,
-        request_input: &Value,
+        context: RecordOperationContext<'_>,
         input: Value,
         prepared: Option<PreparedRecordOperation>,
     ) -> ApiResult<Value> {
@@ -3836,11 +3837,11 @@ impl HostedProvider {
             None => {
                 let prepared = self
                     .prepare_record_operation(
-                        collection_id,
-                        replica,
-                        operation,
-                        request_id,
-                        request_input,
+                        context.collection_id,
+                        context.replica,
+                        context.operation,
+                        context.request_id,
+                        context.request_input,
                         input,
                     )
                     .await?;
@@ -3853,8 +3854,8 @@ impl HostedProvider {
                 {
                     let result = self
                         .execute_read_operation(
-                            collection_id,
-                            operation,
+                            context.collection_id,
+                            context.operation,
                             &Value::Object(prepared.mutation.input),
                         )
                         .await?;
@@ -3873,12 +3874,17 @@ impl HostedProvider {
             include_document,
         } = prepared;
         let receipt = self
-            .mutate_for(collection_id, token, mutation, ReplicaPurpose::Application)
+            .mutate_for(
+                context.collection_id,
+                context.token,
+                mutation,
+                ReplicaPurpose::Application,
+            )
             .await?;
         let result = match receipt {
             SyncMutationReceipt::Applied { record, .. }
             | SyncMutationReceipt::PreviouslyApplied { record, .. } => {
-                if operation == "delete" {
+                if context.operation == "delete" {
                     OperationResult {
                         valid: true,
                         result: json!({
@@ -3895,7 +3901,7 @@ impl HostedProvider {
                     })?;
                     let mut document = self
                         .execute_read_operation(
-                            collection_id,
+                            context.collection_id,
                             "read",
                             &json!({
                                 "path": record.path.clone(),
@@ -3908,7 +3914,7 @@ impl HostedProvider {
                             "The hosted mutation succeeded but its record document could not be read.",
                         ));
                     }
-                    if operation == "rename" {
+                    if context.operation == "rename" {
                         let value = document.result.as_object_mut().ok_or_else(|| {
                             ApiError::internal("mdbase-rs returned a non-object record document.")
                         })?;
@@ -3936,11 +3942,11 @@ impl HostedProvider {
             ApiError::internal(format!("Hosted operation could not serialize: {error}"))
         })?;
         self.complete_record_operation(
-            collection_id,
-            replica.id,
-            operation,
-            request_id,
-            request_input,
+            context.collection_id,
+            context.replica.id,
+            context.operation,
+            context.request_id,
+            context.request_input,
             &result,
         )
         .await?;

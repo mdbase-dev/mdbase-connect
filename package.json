@@ -5,6 +5,8 @@
   "packageManager": "pnpm@11.15.1",
   "scripts": {
     "build": "pnpm -r build",
+    "build:packages": "pnpm --filter './packages/**' -r --if-present build",
+    "check:architecture": "node scripts/check-architecture.mjs",
     "sync:runtime-contracts": "node scripts/sync-runtime-contracts.mjs",
     "dev:environment:up": "node scripts/dev-environment.mjs up",
     "dev:environment:down": "node scripts/dev-environment.mjs down",
@@ -32,7 +34,9 @@
     "profile:connect": "cargo run --release -p mdbase-cli -- profile connect",
     "profile:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario queries",
     "profile:views:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario views",
+    "pretest": "pnpm build:packages",
     "test": "node --test scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
+    "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r typecheck",
     "version:check": "node scripts/check-release-version.mjs"
   },

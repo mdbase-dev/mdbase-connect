@@ -8,8 +8,8 @@ target_path: tasks/Codebase architecture and quality transformation.md
 remote_title: Codebase architecture and quality transformation
 remote_state: in_progress
 remote_url: tasks/Codebase architecture and quality transformation.md
-remote_updated_at: 2026-07-30T11:31:26+10:00
-last_seen_remote_updated_at: 2026-07-30T11:31:26+10:00
+remote_updated_at: 2026-07-30T11:44:23+10:00
+last_seen_remote_updated_at: 2026-07-30T11:44:23+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 sync_state: clean
-last_analyzed_at: 2026-07-30T11:31:26+10:00
+last_analyzed_at: 2026-07-30T11:44:23+10:00
 type: item_state
 ---
 
@@ -45,6 +45,10 @@ cohesive extraction independently.
 The original checkout contains unrelated uncommitted desktop changes and is
 intentionally left untouched. This work runs from a clean `origin/main`
 worktree.
+
+The baseline, architectural quality contract, no-growth budgets, cycle checks,
+clean-checkout package prerequisites, strict Rust CI, and first database
+boundary extraction are complete. Language-level checks are green.
 
 ## Handoff
 

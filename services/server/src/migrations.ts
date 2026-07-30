@@ -5,8 +5,8 @@ import type {
   DatabaseConnection,
   DatabasePool,
   DatabaseQueryable
-} from "./db.js";
-import { bootstrapLegacyBaseline } from "./db.js";
+} from "./database-types.js";
+import { bootstrapLegacyBaseline } from "./legacy-baseline.js";
 
 const MIGRATION_LOCK_ID = 1_291_842_019;
 const LEGACY_BASELINE_ID = "0000_legacy_baseline";

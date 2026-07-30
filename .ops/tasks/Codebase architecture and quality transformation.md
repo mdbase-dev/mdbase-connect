@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T11:31:26+10:00
+updated_at: 2026-07-30T11:44:23+10:00
 type: task
 ---
 
@@ -62,3 +62,22 @@ Turn the repository into a feature-oriented modular system with:
 
 Work is isolated on `agent/exquisite-codebase` in the
 `mdbase-connect-quality` worktree, based on `v0.1.0-beta.20`.
+
+### Baseline and first guardrails
+
+- The build-first baseline passes 142 Rust tests and 447 JavaScript/TypeScript
+  tests.
+- A clean install initially could not run `pnpm typecheck` or `pnpm test`
+  without a separate build because workspace declarations resolve from
+  generated `dist` directories. Root lifecycle scripts now build package
+  prerequisites explicitly.
+- Strict Clippy exposed one nine-argument hosted-provider mutation function.
+  It now takes a typed operation context without suppressing the lint.
+- The architecture check covers 138 production source files, 173 relative
+  imports, and 11 workspace packages. Its own four tests bring the
+  JavaScript/TypeScript total to 451.
+- The first graph run found a real `db.ts` and `migrations.ts` dependency
+  cycle. Database interfaces, connection composition, and the immutable legacy
+  baseline are now separate modules and the cycle is removed.
+- Existing production files above 1,000 lines are explicit debt entries.
+  Newly extracted modules must stay below the default budget.

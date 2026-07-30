@@ -376,3 +376,7 @@ The mdbase spec version, Connect protocol version, app manifest version, and
 data-contract versions evolve independently. The unreleased wire contracts
 all begin at v1. Future incompatible formats will use new declared versions and
 ship as coordinated agent, server, and SDK releases.
+
+Internal module ownership, dependency direction, quality budgets, and the
+definition of done are specified in
+[Code quality and internal architecture](./code-quality.md).
