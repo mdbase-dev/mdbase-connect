@@ -29,7 +29,7 @@ import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
 } from "@mdbase/connect-protocol";
-import { z, ZodError } from "zod";
+import { z } from "zod";
 import { SyncError } from "@mdbase/connect-sync";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import {
@@ -37,7 +37,6 @@ import {
   type AuthRateLimitRule
 } from "./auth-rate-limit.js";
 import {
-  ApplicationManifestError,
   registerApplicationManifest,
   type RegisteredApplicationManifest
 } from "./manifest.js";
@@ -62,8 +61,7 @@ import {
 } from "./hosted.js";
 import {
   HostedProviderClient,
-  HostedProviderResponseError,
-  HostedProviderUnavailableError
+  HostedProviderResponseError
 } from "./hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import {
@@ -75,21 +73,14 @@ import {
   GitHubIdentityError,
   type GitHubAuthConfig
 } from "./github-auth.js";
-import {
-  AccountUnavailableError,
-  createExternalSession
-} from "./external-auth.js";
+import { createExternalSession } from "./external-auth.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import {
-  InvalidInvitationError,
-  InvitationTargetConflictError,
   PasswordAccountService,
   PasswordAuthenticationUnavailableError,
-  PasswordLoginRejectedError,
   AuthenticationPolicyIncompleteError
 } from "./password-auth.js";
 import {
-  InvalidPasswordResetError,
   PasswordRecoveryService,
   PasswordRecoveryUnavailableError
 } from "./password-recovery.js";
@@ -97,14 +88,8 @@ import {
   AccountSessionService,
   sessionClientName
 } from "./account-sessions.js";
-import {
-  PASSWORD_MAX_UTF8_BYTES,
-  PasswordPolicyError
-} from "./password.js";
-import {
-  InvalidEmailAddressError,
-  normalizeEmailAddress
-} from "./email-identity.js";
+import { PASSWORD_MAX_UTF8_BYTES } from "./password.js";
+import { normalizeEmailAddress } from "./email-identity.js";
 import {
   GoogleIdentityError,
   verifyGoogleCredential,
@@ -126,7 +111,6 @@ import {
 import { sendPasswordResetEmail } from "./password-reset-email.js";
 import {
   accessView,
-  CollectionAccessDeniedError,
   COLLECTION_OPERATIONS,
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -139,14 +123,19 @@ import {
   listHostedCollectionsVisibleToUser,
   resolveHostedCollection
 } from "./collection-catalog.js";
-import {
-  GrantPlanningError,
-  planCollectionGrant
-} from "./grant-planner.js";
+import { planCollectionGrant } from "./grant-planner.js";
 import {
   ProviderRevocationWorker,
   queueHostedGrantRevocation
 } from "./hosted-capability-lifecycle.js";
+import { registerErrorHandler } from "./platform/error-handler.js";
+import {
+  apiError,
+  oauthError,
+  OriginDeniedError,
+  RequestValidationError
+} from "./platform/http-errors.js";
+import { registerSystemRoutes } from "./features/system/routes.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -374,7 +363,6 @@ export async function buildApp(options: BuildOptions) {
     requestTimeout: 35_000
   });
   const publicUrl = options.publicUrl ?? "http://127.0.0.1:8787";
-  const revision = options.revision?.trim() || undefined;
   const authenticationPolicy = new AuthenticationPolicyStore(
     options.db,
     options.registration ?? "closed"
@@ -498,155 +486,13 @@ export async function buildApp(options: BuildOptions) {
     }
   });
 
-  app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ApplicationManifestError) {
-      return reply.code(400).send(apiError("invalid_application_manifest", error.message));
-    }
-    if (error instanceof ZodError) {
-      return reply.code(400).send(apiError("invalid_request", error.issues[0]?.message ?? "Invalid request."));
-    }
-    if (error instanceof RequestValidationError) {
-      return reply.code(400).send(apiError("invalid_request", error.message));
-    }
-    if (error instanceof GrantPlanningError) {
-      return reply.code(400).send(apiError("invalid_grant", error.message));
-    }
-    if (error instanceof CollectionAccessDeniedError) {
-      return reply.code(403).send(apiError("collection_access_denied", error.message));
-    }
-    if (error instanceof OriginDeniedError) {
-      return reply.code(403).send(apiError(
-        "origin_denied",
-        "The request origin is not allowed."
-      ));
-    }
-    if (error instanceof RelayUnavailableError) {
-      return reply.code(409).send(apiError("connector_offline", error.message));
-    }
-    if (error instanceof ConnectorOperationError) {
-      return reply.code(409).send(apiError(error.code, error.message));
-    }
-    if (error instanceof SyncError) {
-      const denied = error.code === "replica_revoked" || error.code === "scope_denied" || error.code === "read_only_replica";
-      return reply.code(denied ? 403 : 400).send(apiError(error.code, error.message));
-    }
-    if (error instanceof HostedProviderResponseError) {
-      if ([400, 404, 409, 429].includes(error.status)) {
-        return reply.code(error.status).send(apiError(error.code, error.message));
-      }
-      request.log.error({ provider_status: error.status, provider_code: error.code }, "Hosted provider rejected control request");
-      return reply.code(502).send(apiError(
-        "hosted_provider_error",
-        "The hosted storage provider could not complete the request."
-      ));
-    }
-    if (error instanceof HostedProviderUnavailableError) {
-      request.log.error({ error: error.cause }, "Hosted provider is unavailable");
-      return reply.code(503).send(apiError("hosted_provider_unavailable", error.message));
-    }
-    if (error instanceof GitHubIdentityError) {
-      request.log.warn({ error: error.message }, "GitHub authentication failed");
-      return reply.code(502).send(apiError(
-        "identity_provider_error",
-        "GitHub sign-in could not be completed. Please try again."
-      ));
-    }
-    if (error instanceof GoogleIdentityError) {
-      request.log.warn({ error: error.message }, "Google authentication failed");
-      return reply.code(502).send(apiError(
-        "identity_provider_error",
-        "Google sign-in could not be completed. Please try again."
-      ));
-    }
-    if (error instanceof AccountUnavailableError) {
-      return reply.code(403).send(apiError(
-        "account_not_allowed",
-        "This account does not have access."
-      ));
-    }
-    if (error instanceof PasswordLoginRejectedError) {
-      return reply.code(401).send(apiError(
-        "invalid_credentials",
-        "Email or password is incorrect."
-      ));
-    }
-    if (
-      error instanceof InvalidInvitationError
-      || error instanceof InvitationTargetConflictError
-    ) {
-      return reply.code(400).send(apiError(
-        "invalid_invitation",
-        "This invitation is invalid, expired, or can no longer be used."
-      ));
-    }
-    if (error instanceof InvalidPasswordResetError) {
-      return reply.code(400).send(apiError(
-        "invalid_password_reset",
-        "This password reset link is invalid, expired, or has already been used."
-      ));
-    }
-    if (error instanceof PasswordPolicyError) {
-      return reply.code(400).send(apiError("invalid_password", error.message));
-    }
-    if (error instanceof InvalidEmailAddressError) {
-      return reply.code(400).send(apiError(
-        "invalid_request",
-        "Email address is invalid."
-      ));
-    }
-    if (error instanceof PasswordAuthenticationUnavailableError) {
-      return reply.code(503).send(apiError(
-        "authentication_unavailable",
-        "Password authentication is temporarily unavailable."
-      ));
-    }
-    if (error instanceof PasswordRecoveryUnavailableError) {
-      return reply.code(503).send(apiError(
-        "password_recovery_unavailable",
-        "Password recovery is temporarily unavailable."
-      ));
-    }
-    if (error instanceof AuthenticationPolicyIncompleteError) {
-      request.log.error("Password authentication policy is incomplete");
-      return reply.code(503).send(apiError(
-        "authentication_unavailable",
-        "Password authentication is temporarily unavailable."
-      ));
-    }
-    const statusCode = httpErrorStatus(error);
-    if (statusCode === 413) {
-      return reply.code(413).send(apiError(
-        "payload_too_large",
-        "The request body exceeds the allowed size."
-      ));
-    }
-    if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
-      return reply.code(statusCode).send(apiError(
-        "invalid_request",
-        "The request body is invalid."
-      ));
-    }
-    request.log.error(error);
-    return reply.code(500).send(apiError("internal_error", "The request could not be completed."));
-  });
-
-  app.get("/health", async () => ({
-    ok: true,
-    service: "mdbase-connect",
-    protocol_version: 1,
-    ...(revision ? { revision } : {})
-  }));
-  app.get("/ready", async (_request, reply) => {
-    try {
-      await options.db.query("SELECT 1");
-      await relay.ready();
-      if (options.hostedCollections && options.hostedProvider) {
-        await options.hostedProvider.ready();
-      }
-      return { ok: true, service: "mdbase-connect" };
-    } catch {
-      return reply.code(503).send({ ok: false, service: "mdbase-connect" });
-    }
+  registerErrorHandler(app);
+  registerSystemRoutes(app, {
+    db: options.db,
+    relay,
+    hostedCollections: options.hostedCollections === true,
+    hostedProvider: options.hostedProvider,
+    revision: options.revision
   });
 
   app.get("/v1/auth/config", async (_request, reply) => {
@@ -7529,9 +7375,6 @@ function requiredTypePackProvisions(
   );
 }
 
-class RequestValidationError extends Error {}
-class OriginDeniedError extends Error {}
-
 async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
   return (await sessionContext(request, db))?.user ?? null;
 }
@@ -8719,20 +8562,4 @@ async function audit(
      VALUES ($1, $2, $3, $4, $5::jsonb)`,
     [randomUUID(), userId, eventType, subjectId, JSON.stringify(metadata)]
   );
-}
-
-function apiError(code: string, message: string) {
-  return { error: { code, message } };
-}
-
-function httpErrorStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || error === null || !("statusCode" in error)) {
-    return undefined;
-  }
-  const statusCode = (error as { statusCode?: unknown }).statusCode;
-  return typeof statusCode === "number" ? statusCode : undefined;
-}
-
-function oauthError(error: string, errorDescription: string) {
-  return { error, error_description: errorDescription };
 }
