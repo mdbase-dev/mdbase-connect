@@ -1,0 +1,7 @@
+spec_version: "0.2.0"
+settings:
+  types_folder: "_types"
+  default_validation: "error"
+  default_strict: true
+  include_subfolders: true
+  rename_update_refs: true
