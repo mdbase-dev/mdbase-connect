@@ -30,6 +30,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/build-browser.mjs",
     "test": "vitest run",
+    "test:browser-storage": "pnpm build && node scripts/browser-storage.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

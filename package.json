@@ -36,6 +36,7 @@
     "profile:views:rs": "cargo run --release -p mdbase-cli -- profile engine --scenario views",
     "pretest": "pnpm build:packages",
     "test": "node --test scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
+    "test:browser-storage": "pnpm --filter @mdbase/connect test:browser-storage",
     "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r typecheck",
     "version:check": "node scripts/check-release-version.mjs"
