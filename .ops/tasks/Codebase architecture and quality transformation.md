@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T11:44:23+10:00
+updated_at: 2026-07-30T12:11:30+10:00
 type: task
 ---
 
@@ -81,3 +81,20 @@ Work is isolated on `agent/exquisite-codebase` in the
   baseline are now separate modules and the cycle is removed.
 - Existing production files above 1,000 lines are explicit debt entries.
   Newly extracted modules must stay below the default budget.
+
+### Control-plane decomposition
+
+- System health/readiness, password authentication, external authentication,
+  account sessions, connector pairing, hosted mirror pairing, connector
+  management, and inventory synchronization now have feature-owned route
+  modules.
+- Shared HTTP errors, error translation, request-origin enforcement, session
+  cookies, authenticated principals, audit recording, authority URL
+  construction, contract schemas, and key validation now have explicit
+  platform or protocol owners.
+- `services/server/src/app.ts` has fallen from 8,738 to 6,840 lines without
+  changing the public route surface. Its no-growth budget was ratcheted after
+  each extraction.
+- The server suite now passes 188 tests across 41 files; the architecture
+  check covers 154 production files, 257 relative imports, and 11 workspace
+  packages with no source or workspace dependency cycles.
