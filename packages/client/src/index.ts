@@ -50,6 +50,10 @@ import {
   type GrantKeyStore
 } from "./crypto.js";
 import { abortableDelay } from "./async.js";
+import {
+  authorizationReturnToFromError,
+  isAuthorizationCallbackUrl
+} from "./authorization-url.js";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
   MdbaseConnectError,
@@ -86,6 +90,16 @@ import type {
   UpdateTypeInput,
   WatchOptions
 } from "./operation-types.js";
+import type {
+  MdbaseNativeNotificationRegistration,
+  MdbaseNativeNotificationRegistrationOptions,
+  MdbaseNotificationRegistration,
+  MdbaseNotificationRegistrationOptions
+} from "./notifications.js";
+import type {
+  MdbaseSelectionHistory,
+  MdbaseSessionSelection
+} from "./selection.js";
 
 export {
   decryptRelayResponse,
@@ -99,7 +113,9 @@ export {
 } from "./crypto.js";
 export * from "./collection-client.js";
 export * from "./errors.js";
+export * from "./notifications.js";
 export * from "./operation-types.js";
+export * from "./selection.js";
 
 export type {
   ApplicationProvisions,
@@ -253,124 +269,6 @@ export interface MdbaseSyncConnection<Frontmatter extends JsonObject = JsonObjec
   transport: MdbaseSyncTransport<Frontmatter>;
 }
 
-export interface MdbaseNotificationRegistrationOptions {
-  serviceWorker: ServiceWorkerRegistration;
-  /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
-  criteria?: string[];
-  /** Stable per-installation ID. The SDK persists one when omitted. */
-  installationId?: string;
-}
-
-export interface MdbaseNotificationRegistration {
-  channelId: string;
-  installationId: string;
-  criteria: string[];
-}
-
-export interface MdbaseNativeNotificationRegistrationOptions {
-  /** Current FCM registration token. Refresh by calling this method again. */
-  token: string;
-  /** Manifest criterion IDs to enable. Omit to enable every declared criterion. */
-  criteria?: string[];
-  /** Stable per-installation ID. The SDK persists one when omitted. */
-  installationId?: string;
-}
-
-export interface MdbaseNativeNotificationRegistration
-  extends MdbaseNotificationRegistration {
-  transport: "fcm";
-}
-
-export interface MdbaseNativeNotificationData {
-  type: "mdbase.notification";
-  version: 1;
-  signal_id: string;
-  criterion_id: string;
-  cursor: string;
-}
-
-export interface MdbasePushPayload {
-  type: "mdbase.notification";
-  version: 1;
-  signal_id: string;
-  criterion_id: string;
-  cursor: string;
-  presentation: {
-    title: string;
-    body?: string;
-    tag?: string;
-  };
-}
-
-export function parseMdbasePushPayload(value: unknown): MdbasePushPayload {
-  if (!value || typeof value !== "object") {
-    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an object.");
-  }
-  const payload = value as Partial<MdbasePushPayload>;
-  if (
-    payload.type !== "mdbase.notification"
-    || payload.version !== 1
-    || typeof payload.signal_id !== "string"
-    || typeof payload.criterion_id !== "string"
-    || typeof payload.cursor !== "string"
-    || !payload.presentation
-    || typeof payload.presentation.title !== "string"
-  ) {
-    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an mdbase notification.");
-  }
-  return payload as MdbasePushPayload;
-}
-
-/** Parse the string-valued data attached to an APNs/FCM notification. */
-export function parseMdbaseNativeNotificationData(
-  value: unknown
-): MdbaseNativeNotificationData {
-  if (!value || typeof value !== "object") {
-    throw new MdbaseConnectError(
-      "invalid_push_payload",
-      "The native notification data is not an object."
-    );
-  }
-  const data = value as Record<string, unknown>;
-  if (
-    data.type !== "mdbase.notification"
-    || (data.version !== 1 && data.version !== "1")
-    || typeof data.signal_id !== "string"
-    || typeof data.criterion_id !== "string"
-    || typeof data.cursor !== "string"
-  ) {
-    throw new MdbaseConnectError(
-      "invalid_push_payload",
-      "The native notification data is not an mdbase notification."
-    );
-  }
-  return {
-    type: "mdbase.notification",
-    version: 1,
-    signal_id: data.signal_id,
-    criterion_id: data.criterion_id,
-    cursor: data.cursor
-  };
-}
-
-/** Display a validated mdbase push from a service worker `push` handler. */
-export function showMdbasePushNotification(
-  registration: Pick<ServiceWorkerRegistration, "showNotification">,
-  value: unknown
-): Promise<void> {
-  const payload = parseMdbasePushPayload(value);
-  return registration.showNotification(payload.presentation.title, {
-    ...(payload.presentation.body ? { body: payload.presentation.body } : {}),
-    ...(payload.presentation.tag ? { tag: payload.presentation.tag } : {}),
-    data: {
-      type: payload.type,
-      signal_id: payload.signal_id,
-      criterion_id: payload.criterion_id,
-      cursor: payload.cursor
-    }
-  });
-}
-
 interface Application {
   id: string;
   name: string;
@@ -497,156 +395,6 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     for (const connection of this.connections()) {
       this.connection(connection.collectionId)?.forget();
     }
-  }
-}
-
-export type MdbaseSelectionHistory = "push" | "replace";
-
-export interface MdbaseSessionSelection {
-  selectedCollectionId(): string | null;
-  select(collectionId: string | null, options?: { history?: MdbaseSelectionHistory }): void;
-  authorizationReturnTo(): string | undefined;
-  authorizationCallback(): string | null;
-  finishAuthorization(returnTo: string | undefined, collectionId: string): void;
-  clearAuthorizationCallback(returnTo?: string): void;
-  subscribe(listener: () => void): () => void;
-}
-
-export interface MdbaseBrowserSelectionOptions {
-  collectionParameter?: string;
-  fallbackPath?: string;
-}
-
-/** URL-backed collection selection for browser and browser-shell applications. */
-export class MdbaseBrowserSelection implements MdbaseSessionSelection {
-  private readonly collectionParameter: string;
-  private readonly fallbackPath: string;
-  private readonly listeners = new Set<() => void>();
-  private readonly handlePopState = () => this.emit();
-
-  constructor(options: MdbaseBrowserSelectionOptions = {}) {
-    this.collectionParameter = options.collectionParameter ?? "collection";
-    this.fallbackPath = options.fallbackPath ?? "/";
-  }
-
-  selectedCollectionId(): string | null {
-    return this.currentUrl().searchParams.get(this.collectionParameter);
-  }
-
-  select(
-    collectionId: string | null,
-    options: { history?: MdbaseSelectionHistory } = {}
-  ): void {
-    const url = cleanAuthorizationParameters(this.currentUrl());
-    if (collectionId) url.searchParams.set(this.collectionParameter, collectionId);
-    else url.searchParams.delete(this.collectionParameter);
-    const browserHistory = this.browserHistory();
-    browserHistory[options.history === "push" ? "pushState" : "replaceState"](
-      browserHistory.state,
-      "",
-      url
-    );
-    this.emit();
-  }
-
-  authorizationReturnTo(): string {
-    const url = cleanAuthorizationParameters(this.currentUrl());
-    return `${url.pathname}${url.search}${url.hash}`;
-  }
-
-  authorizationCallback(): string | null {
-    const value = this.currentUrl().href;
-    return isAuthorizationCallbackUrl(value) ? value : null;
-  }
-
-  finishAuthorization(returnTo: string | undefined, collectionId: string): void {
-    const url = this.safeAppUrl(returnTo ?? this.fallbackPath);
-    cleanAuthorizationParameters(url);
-    url.searchParams.set(this.collectionParameter, collectionId);
-    const browserHistory = this.browserHistory();
-    browserHistory.replaceState(null, "", url);
-    this.emit();
-  }
-
-  clearAuthorizationCallback(returnTo?: string): void {
-    const url = returnTo ? this.safeAppUrl(returnTo) : this.currentUrl();
-    const browserHistory = this.browserHistory();
-    browserHistory.replaceState(browserHistory.state, "", cleanAuthorizationParameters(url));
-    this.emit();
-  }
-
-  subscribe(listener: () => void): () => void {
-    const first = this.listeners.size === 0;
-    this.listeners.add(listener);
-    if (first && typeof window !== "undefined") {
-      window.addEventListener("popstate", this.handlePopState);
-    }
-    return () => {
-      this.listeners.delete(listener);
-      if (this.listeners.size === 0 && typeof window !== "undefined") {
-        window.removeEventListener("popstate", this.handlePopState);
-      }
-    };
-  }
-
-  private emit(): void {
-    for (const listener of this.listeners) listener();
-  }
-
-  private safeAppUrl(value: string): URL {
-    const current = this.currentUrl();
-    const candidate = new URL(value, current.origin);
-    return candidate.origin === current.origin
-      ? candidate
-      : new URL(this.fallbackPath, current.origin);
-  }
-
-  private currentUrl(): URL {
-    if (typeof location === "undefined") {
-      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
-    }
-    return new URL(location.href);
-  }
-
-  private browserHistory(): History {
-    if (typeof history === "undefined") {
-      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
-    }
-    return history;
-  }
-}
-
-export class MdbaseMemorySelection implements MdbaseSessionSelection {
-  private collectionId: string | null = null;
-  private readonly listeners = new Set<() => void>();
-
-  selectedCollectionId(): string | null {
-    return this.collectionId;
-  }
-
-  select(collectionId: string | null): void {
-    if (collectionId === this.collectionId) return;
-    this.collectionId = collectionId;
-    for (const listener of this.listeners) listener();
-  }
-
-  authorizationReturnTo(): undefined {
-    return undefined;
-  }
-
-  authorizationCallback(): null {
-    return null;
-  }
-
-  finishAuthorization(_returnTo: string | undefined, collectionId: string): void {
-    this.select(collectionId);
-  }
-
-  clearAuthorizationCallback(): void {}
-
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
   }
 }
 
@@ -3375,33 +3123,6 @@ function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
 function parseStored<T>(value: string | null): T | null {
   if (!value) return null;
   try { return JSON.parse(value) as T; } catch { return null; }
-}
-
-function cleanAuthorizationParameters(url: URL): URL {
-  for (const parameter of ["code", "state", "error", "error_description"]) {
-    url.searchParams.delete(parameter);
-  }
-  return url;
-}
-
-function isAuthorizationCallbackUrl(value: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  return url.searchParams.has("state")
-    && (url.searchParams.has("code") || url.searchParams.has("error"));
-}
-
-function authorizationReturnToFromError(error: unknown): string | undefined {
-  if (!(error instanceof MdbaseConnectError)
-      || !error.details
-      || typeof error.details !== "object"
-      || Array.isArray(error.details)) return undefined;
-  const returnTo = (error.details as { returnTo?: unknown }).returnTo;
-  return typeof returnTo === "string" ? returnTo : undefined;
 }
 
 function sessionSnapshotKey<Frontmatter extends JsonObject>(
