@@ -389,7 +389,11 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
-      - run: rustup toolchain install 1.94.0 --profile minimal
+      - run: >-
+          rustup toolchain install 1.94.0
+          --profile minimal
+          --component rustfmt
+          --component clippy
       - run: rustup override set 1.94.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
