@@ -522,7 +522,7 @@ async fn execute(args: Args) -> Result<i32, CliError> {
                         return Ok(result.exit_code);
                     }
                 };
-                let (_, endpoint) = connect_paths(args.state_dir, args.endpoint)?;
+                let endpoint = connect_paths(args.state_dir, args.endpoint)?.endpoint;
                 let value = successful_result(
                     send(
                         &endpoint,
@@ -644,10 +644,51 @@ fn render_data_result(value: &Value, pretty: bool, diagnostic: bool) -> Result<(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DaemonTarget {
+    InstalledService,
+    IsolatedProfile,
+}
+
+impl DaemonTarget {
+    const fn from_overrides(state_dir: bool, endpoint: bool) -> Self {
+        if state_dir || endpoint {
+            Self::IsolatedProfile
+        } else {
+            Self::InstalledService
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::InstalledService => "installed_service",
+            Self::IsolatedProfile => "isolated_profile",
+        }
+    }
+
+    fn require_installed_service(self, operation: &str) -> Result<(), CliError> {
+        if self == Self::InstalledService {
+            Ok(())
+        } else {
+            Err(CliError::usage(format!(
+                "`mdbase connect daemon {operation}` targets only the default installed service; \
+                 remove --state-dir and --endpoint, or use `daemon run` for an isolated profile."
+            )))
+        }
+    }
+}
+
+struct ConnectPaths {
+    state_dir: PathBuf,
+    endpoint: String,
+    target: DaemonTarget,
+}
+
 fn connect_paths(
     state_dir: Option<PathBuf>,
     endpoint: Option<String>,
-) -> Result<(PathBuf, String), CliError> {
+) -> Result<ConnectPaths, CliError> {
+    let target = DaemonTarget::from_overrides(state_dir.is_some(), endpoint.is_some());
     let state_dir = state_dir
         .map(Ok)
         .unwrap_or_else(default_state_dir)
@@ -659,7 +700,11 @@ fn connect_paths(
         .map(resolve_control_endpoint)
         .transpose()?
         .unwrap_or_else(|| default_control_endpoint(&state_dir));
-    Ok((state_dir, endpoint))
+    Ok(ConnectPaths {
+        state_dir,
+        endpoint,
+        target,
+    })
 }
 
 async fn execute_connect(
@@ -668,7 +713,11 @@ async fn execute_connect(
     endpoint: Option<String>,
     json: bool,
 ) -> Result<(), CliError> {
-    let (state_dir, endpoint) = connect_paths(state_dir, endpoint)?;
+    let ConnectPaths {
+        state_dir,
+        endpoint,
+        target,
+    } = connect_paths(state_dir, endpoint)?;
 
     match command {
         ConnectCommand::Paths => {
@@ -677,7 +726,8 @@ async fn execute_connect(
                 OutputKind::Generic,
                 &serde_json::json!({
                     "state_dir": state_dir,
-                    "endpoint": endpoint
+                    "endpoint": endpoint,
+                    "target": target.label()
                 }),
             )?;
             Ok(())
@@ -697,7 +747,7 @@ async fn execute_connect(
         .await
         .map_err(|error| CliError::internal(error.to_string())),
         ConnectCommand::Daemon(command) => {
-            let value = execute_daemon_command(command, &state_dir, &endpoint).await?;
+            let value = execute_daemon_command(command, &state_dir, &endpoint, target).await?;
             print_result(json, OutputKind::Daemon, &value)?;
             Ok(())
         }
@@ -706,7 +756,15 @@ async fn execute_connect(
             name,
             no_open,
         } => {
-            let value = login(&state_dir, &endpoint, &server, name.as_deref(), no_open).await?;
+            let value = login(
+                &state_dir,
+                &endpoint,
+                target,
+                &server,
+                name.as_deref(),
+                no_open,
+            )
+            .await?;
             print_result(json, OutputKind::Account, &value)?;
             Ok(())
         }
@@ -716,7 +774,7 @@ async fn execute_connect(
                 disconnect_cloud(&state_dir)
                     .map_err(|error| CliError::internal(error.to_string()))?;
             }
-            restart_daemon(&state_dir, &endpoint).await?;
+            restart_daemon(&state_dir, &endpoint, target).await?;
             print_result(
                 json,
                 OutputKind::Account,
@@ -757,7 +815,7 @@ async fn execute_connect(
             Ok(())
         }
         ConnectCommand::Doctor => {
-            let value = doctor(&state_dir, &endpoint).await;
+            let value = doctor(&state_dir, &endpoint, target).await;
             print_result(json, OutputKind::Doctor, &value)?;
             if value["healthy"] == Value::Bool(true) {
                 Ok(())
@@ -1025,12 +1083,14 @@ async fn execute_daemon_command(
     command: DaemonCommand,
     state_dir: &Path,
     endpoint: &str,
+    target: DaemonTarget,
 ) -> Result<Value, CliError> {
     let executable = std::env::current_exe().map_err(|error| {
         CliError::internal(format!("Could not locate this executable: {error}"))
     })?;
     match command {
         DaemonCommand::Install => {
+            target.require_installed_service("install")?;
             let installed = service::installed();
             let running = send(endpoint, ControlRequest::new(ControlCommand::Ping))
                 .await
@@ -1062,9 +1122,12 @@ async fn execute_daemon_command(
                 .map_err(CliError::internal)
                 .map(|_| serde_json::json!({"installed": true}))
         }
-        DaemonCommand::Uninstall => service::uninstall()
-            .map_err(CliError::internal)
-            .map(|_| serde_json::json!({"installed": false})),
+        DaemonCommand::Uninstall => {
+            target.require_installed_service("uninstall")?;
+            service::uninstall()
+                .map_err(CliError::internal)
+                .map(|_| serde_json::json!({"installed": false}))
+        }
         DaemonCommand::Start => {
             if send(endpoint, ControlRequest::new(ControlCommand::Ping))
                 .await
@@ -1075,7 +1138,7 @@ async fn execute_daemon_command(
                     "already_running": true
                 }));
             }
-            if service::installed() {
+            if target == DaemonTarget::InstalledService && service::installed() {
                 service::start().map_err(CliError::internal)?;
             } else {
                 service::spawn_detached(&executable, state_dir, endpoint)
@@ -1085,7 +1148,7 @@ async fn execute_daemon_command(
             Ok(serde_json::json!({"started": true}))
         }
         DaemonCommand::Stop => {
-            if service::installed() {
+            if target == DaemonTarget::InstalledService && service::installed() {
                 service::stop().map_err(CliError::internal)?;
             } else {
                 let response = send(
@@ -1106,25 +1169,28 @@ async fn execute_daemon_command(
             Ok(serde_json::json!({"stopped": true}))
         }
         DaemonCommand::Restart => {
-            restart_daemon(state_dir, endpoint).await?;
+            restart_daemon(state_dir, endpoint, target).await?;
             Ok(serde_json::json!({"restarted": true}))
         }
         DaemonCommand::Status => {
-            let installed = service::installed();
+            let installed = target == DaemonTarget::InstalledService && service::installed();
             let response = send(endpoint, ControlRequest::new(ControlCommand::Status)).await;
             Ok(match response {
                 Ok(response) if response.ok => serde_json::json!({
+                    "target": target.label(),
                     "installed": installed,
                     "running": true,
                     "status": response.result
                 }),
                 _ => serde_json::json!({
+                    "target": target.label(),
                     "installed": installed,
                     "running": false
                 }),
             })
         }
         DaemonCommand::Logs { lines, follow } => {
+            target.require_installed_service("logs")?;
             service::logs(state_dir, lines, follow).map_err(CliError::internal)?;
             Ok(serde_json::json!({"shown": true}))
         }
@@ -1132,7 +1198,7 @@ async fn execute_daemon_command(
     }
 }
 
-async fn doctor(state_dir: &Path, endpoint: &str) -> Value {
+async fn doctor(state_dir: &Path, endpoint: &str, target: DaemonTarget) -> Value {
     let existed = state_dir.exists();
     let state_directory = match create_private_state_dir(state_dir) {
         Ok(()) if existed => "available",
@@ -1151,11 +1217,13 @@ async fn doctor(state_dir: &Path, endpoint: &str) -> Value {
             "state": state_directory
         },
         "daemon": {
+            "target": target.label(),
             "endpoint": endpoint,
             "state": daemon,
             "status": status
         },
-        "service_installed": service::installed()
+        "service_installed":
+            target == DaemonTarget::InstalledService && service::installed()
     })
 }
 
@@ -1423,6 +1491,7 @@ struct PairingError {
 async fn login(
     state_dir: &Path,
     endpoint: &str,
+    target: DaemonTarget,
     server: &str,
     requested_name: Option<&str>,
     no_open: bool,
@@ -1557,7 +1626,7 @@ async fn login(
                     configure_cloud(state_dir, &configuration, &token)
                         .map_err(|error| CliError::internal(error.to_string()))?;
                 }
-                restart_daemon(state_dir, endpoint).await?;
+                restart_daemon(state_dir, endpoint, target).await?;
                 return Ok(serde_json::json!({
                     "configured": true,
                     "server_url": configuration.server_url,
@@ -1570,8 +1639,12 @@ async fn login(
     }
 }
 
-async fn restart_daemon(state_dir: &Path, endpoint: &str) -> Result<(), CliError> {
-    if service::installed() {
+async fn restart_daemon(
+    state_dir: &Path,
+    endpoint: &str,
+    target: DaemonTarget,
+) -> Result<(), CliError> {
+    if target == DaemonTarget::InstalledService && service::installed() {
         service::restart().map_err(CliError::internal)?;
     } else {
         let _ = send(
@@ -1771,6 +1844,27 @@ mod tests {
         ])
         .unwrap_err();
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn daemon_targeting_separates_installed_and_isolated_processes() {
+        assert_eq!(
+            DaemonTarget::from_overrides(false, false),
+            DaemonTarget::InstalledService
+        );
+        assert_eq!(
+            DaemonTarget::from_overrides(true, false),
+            DaemonTarget::IsolatedProfile
+        );
+        assert_eq!(
+            DaemonTarget::from_overrides(false, true),
+            DaemonTarget::IsolatedProfile
+        );
+        let error = DaemonTarget::IsolatedProfile
+            .require_installed_service("install")
+            .unwrap_err();
+        assert_eq!(error.code, "invalid_input");
+        assert!(error.message.contains("default installed service"));
     }
 
     #[test]

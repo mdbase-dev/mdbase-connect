@@ -93,6 +93,16 @@ copies the invoking binary atomically into the private
 never points into a versioned Electron bundle, package extraction directory, or
 developer checkout.
 
+The CLI models daemon targeting explicitly. With no state or endpoint override,
+daemon lifecycle commands target the default installed per-user service. Any
+`--state-dir`, `--endpoint`, `MDBASE_CONNECT_HOME`, or
+`MDBASE_CONNECT_SOCKET` override selects an isolated profile process instead.
+Starting, stopping, or restarting that profile communicates only with its
+resolved endpoint and never controls an installed default service. Installing,
+uninstalling, and reading service-manager logs reject isolated targets; use
+`daemon run` or `daemon start` for those profiles. JSON path, status, and doctor
+results identify the target as `installed_service` or `isolated_profile`.
+
 ## State and secrets
 
 The daemon state directory contains:
