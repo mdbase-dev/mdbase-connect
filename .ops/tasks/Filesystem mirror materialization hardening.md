@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [security, sync, filesystem, portability, testing, performance]
 created_at: 2026-07-30T19:03:42+10:00
-updated_at: 2026-07-30T21:28:08+10:00
+updated_at: 2026-07-30T22:04:28+10:00
 type: task
 ---
 
@@ -40,8 +40,16 @@ architecture, mobile, and performance budgets.
 - The same physical-path invariant is enforced against durable state,
   complete incremental change pages before their first write, individual
   receipt/conflict writes, and writable local capture before its first upload.
-  Exact duplicate paths and case-only or Unicode-equivalent renames fail
+  Exact duplicates and portable aliases owned by different records fail
   closed.
+- Incremental preflight now models the transitions the apply loop will actually
+  perform. Records deferred by a conflict or malformed local document retain
+  their physical paths for the complete page, so a later event cannot reuse a
+  path that was only hypothetically freed.
+- Case-only and Unicode-equivalent renames are supported when the physical path
+  remains owned by the same record. Incremental writes and reset rebuilds
+  preserve the authority's exact spelling on both case-sensitive and
+  case-insensitive filesystems, including writable accepted-byte replay.
 - Rust and TypeScript execute the same portable-path fixture corpus, including
   Windows device aliases, control characters, case collisions, and canonically
   equivalent Unicode.
@@ -54,34 +62,42 @@ architecture, mobile, and performance budgets.
   metadata fast path and native digest injection preserve the 10,000-record
   performance gate; the narrowly added receive-only heap allowance is explicit
   and separately reported.
+- The TypeScript mirror orchestrator is 682 lines rather than more than 1,000.
+  Integrity checks, local-change capture, physical-path transitions,
+  materialization, and rebuild planning now live in focused modules. Rust and
+  TypeScript materialization use named options instead of positional boolean
+  arguments.
 - The container build is pinned to engine commit
-  `8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2`, and the prerelease sync-v1
-  revision tightening now documents the required server-first rollout.
+  `8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2`. That commit is published on the
+  engine remote, and the hosted-provider release lock matches the workspace
+  lock. The prerelease sync-v1 revision tightening documents the required
+  server-first rollout.
 
 ## Evidence
 
-- Implementation: `bd10d21 fix(sync): close mirror materialization gaps` and
-  `0864373 fix(sync): enforce physical path invariants incrementally`.
+- Implementation: `bd10d21`, `0864373`, `b256ded`, and `4843fda`.
 - Rust formatting, strict workspace Clippy, and the complete workspace test
-  suite pass.
-- Node 24 workspace typechecking and all 480 JavaScript/TypeScript tests pass.
-- The architecture gate passes with 284 production files, 598 relative imports,
+  suite pass, including 35 mirror tests and 164 Rust tests overall.
+- Node 24 workspace typechecking and all 484 JavaScript/TypeScript tests pass,
+  including 109 sync tests.
+- The architecture gate passes with 289 production files, 630 relative imports,
   11 workspace packages, no dependency cycles, and no production file above
   1,000 lines.
-- The mobile mirror bundle passes at 131,091 raw bytes and 41,718 gzip bytes.
+- The mobile mirror bundle passes at 132,691 raw bytes and 42,172 gzip bytes.
 - The 10,000-record Node/portable mirror performance matrix passes its
   wall-time, heap, filesystem-I/O, and checkpoint gates with target-indexed
   incremental preflight bounded by change-page size.
 - Direct product E2E, hosted sync E2E, an isolated writable-vault run over 26
   repository documents, and the disposable PostgreSQL 18 hosted-provider E2E
   all pass.
+- A clean hosted-provider Docker build cloned the published engine pin and
+  completed its locked release build.
 
 ## Handoff
 
 The reviewed snapshot and incremental materialization risks are closed on
-`agent/exquisite-codebase`. Before container CI or deployment can resolve the
-new engine pin, engine commit
-`8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2` must be pushed to the configured
-engine remote. No push was performed as part of this task. The broader
-prerelease risks already recorded in the release-readiness registry remain
-unchanged and are outside this task.
+`agent/exquisite-codebase`. Engine commit
+`8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2` is reachable from the engine
+remote's `agent/exquisite-codebase` branch, and the pinned container build
+passes. The broader prerelease risks already recorded in the release-readiness
+registry remain unchanged and are outside this task.
