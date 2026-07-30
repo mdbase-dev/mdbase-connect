@@ -160,6 +160,12 @@ server resistance are possible:
 3. **User verification.** A short authentication string or QR flow confirms a
    first connection through a path outside the relay.
 
+The SDK now enforces connector key continuity within a grant: refresh and
+policy rotation may change the scope epoch and key ID, but a different
+connector identity, agreement key, application key, or grant ID fails closed
+and requires explicit reauthorization. This detects substitution after the
+first approved binding; it does not authenticate first contact.
+
 The first public release should choose and document one of these levels after a
 focused threat-model review. It must not describe server-mediated first contact
 as protection against an actively malicious server.

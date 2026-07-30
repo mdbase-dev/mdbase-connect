@@ -699,6 +699,26 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       }
     }
     const previous = parseStored<StoredToken>(this.storage.getItem(this.tokenKey(collectionId)));
+    if (
+      previous?.encryption
+      && body.encryption
+      && previous.keyHandle
+      && previous.keyHandle === keyHandle
+      && (
+        previous.grantId !== body.grant_id
+        || previous.encryption.connector_id !== body.encryption.connector_id
+        || previous.encryption.connector_agreement_public_key
+          !== body.encryption.connector_agreement_public_key
+        || previous.encryption.application_agreement_public_key
+          !== body.encryption.application_agreement_public_key
+      )
+    ) {
+      throw new MdbaseConnectError(
+        "connector_identity_changed",
+        "The connector identity changed during authorization renewal. Reauthorize before sending collection data.",
+        { requiresAuthorization: true, recovery: "reauthorize" }
+      );
+    }
     if (previous?.keyHandle && previous.keyHandle !== keyHandle) {
       void this.keyStore.delete(previous.keyHandle).catch(() => undefined);
     }
