@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "gates": [
+    {
+      "id": "independent-cryptography-review",
+      "title": "Independent cryptography review",
+      "owner": "Security owner",
+      "status": "required",
+      "evidence": [],
+      "notes": "Review the browser-to-connector protocol, key continuity, counter persistence, envelope construction, and hosted key hierarchy."
+    },
+    {
+      "id": "first-contact-trust-decision",
+      "title": "First-contact connector trust decision",
+      "owner": "Product and security owners",
+      "status": "required",
+      "evidence": [],
+      "notes": "Ship an explicit user-verifiable trust decision or equivalent transparency mechanism for a connector first seen by an application."
+    },
+    {
+      "id": "managed-key-service-and-rotation-drill",
+      "title": "Managed key service and rotation drill",
+      "owner": "Service operations owner",
+      "status": "required",
+      "evidence": [],
+      "notes": "Move the hosted provider master key into a managed key service, document rotation, and retain evidence from a successful non-production rotation drill."
+    },
+    {
+      "id": "backup-encryption-and-restore-drill",
+      "title": "Encrypted backup and restore drill",
+      "owner": "Service operations owner",
+      "status": "required",
+      "evidence": [],
+      "notes": "Verify encrypted database and volume backups, restoration, key recovery, recovery objectives, and deletion behavior in the managed environment."
+    },
+    {
+      "id": "platform-signing-and-notarization",
+      "title": "Platform signing and notarization",
+      "owner": "Release owner",
+      "status": "required",
+      "evidence": [],
+      "notes": "Configure and verify canonical trust-channel signing for every supported desktop platform."
+    }
+  ]
+}

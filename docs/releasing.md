@@ -17,13 +17,21 @@ From the repository root:
 ```bash
 pnpm install --frozen-lockfile
 pnpm version:check
+pnpm check:release-readiness
+pnpm audit:dependencies
+pnpm check:architecture
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 pnpm build
 pnpm typecheck
 pnpm test
+pnpm package:audit
+pnpm test:browser-storage
+pnpm test:accessibility
 pnpm e2e
+pnpm e2e:container
+pnpm e2e:desktop:container
 pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider
@@ -36,6 +44,14 @@ executable are both present.
 Run the packaged application once with a fresh user-data directory and complete
 pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.
+
+Beta builds may proceed with the external risks recorded as `required` in
+`config/release-readiness.json`. They remain visible in every CI run. A stable
+release is different: the Desktop Release workflow automatically invokes
+`pnpm check:release-readiness -- --stable`, which fails until every gate is
+`complete` and includes a durable evidence reference. The required review,
+operational drill, or publisher control must actually have happened; changing
+the status without evidence is itself rejected.
 
 ## Signing and publication
 

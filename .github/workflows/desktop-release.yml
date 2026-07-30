@@ -198,6 +198,14 @@ jobs:
           "WINDOWS_STORE_MODE=store" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - run: pnpm install --frozen-lockfile
+      - name: Enforce release-readiness gates
+        shell: bash
+        run: |
+          if [[ "${{ steps.version.outputs.value }}" == *-* ]]; then
+            pnpm check:release-readiness
+          else
+            pnpm check:release-readiness -- --stable
+          fi
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test

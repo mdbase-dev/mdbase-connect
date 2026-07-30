@@ -127,7 +127,10 @@ payloads or operation results.
 
 For the detailed trust model, see
 [Architecture](docs/architecture.md), [Encryption](docs/encryption.md), and
-[Hosted collections](docs/hosted-provider.md).
+[Hosted collections](docs/hosted-provider.md). Security assumptions, abuse
+cases, and prerelease residual risks are collected in the
+[Threat model](docs/threat-model.md). Please use the private reporting process
+in the [Security policy](SECURITY.md) for suspected vulnerabilities.
 
 ## Command line
 
@@ -196,8 +199,9 @@ pnpm dev:environment:up
 pnpm dev:desktop:fresh
 ```
 
-See [Testing](docs/testing-environment.md), [Releasing](docs/releasing.md), and
-[Production self-hosting](docs/self-hosting.md) for the complete workflows.
+See [Testing](docs/testing-environment.md), [Maintainability](docs/maintainability.md),
+[Releasing](docs/releasing.md), and [Production self-hosting](docs/self-hosting.md)
+for the complete workflows.
 
 ## License
 

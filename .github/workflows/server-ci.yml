@@ -70,6 +70,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm version:check
+      - run: pnpm check:release-readiness
+      - run: pnpm audit:dependencies
       - run: pnpm check:architecture
       # Workspace packages publish their declarations from dist, so build the
       # dependency graph before checking downstream consumers.
@@ -392,6 +394,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
+      - run: pnpm test:browser-storage
+      - run: pnpm test:accessibility
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
