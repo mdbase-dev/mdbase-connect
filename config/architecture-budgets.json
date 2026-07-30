@@ -5,7 +5,6 @@
     "apps/desktop/src/renderer/main.tsx": 1714,
     "apps/portal/src/main.tsx": 2251,
     "crates/connect-agent/src/mirrors.rs": 1594,
-    "crates/connect-agent/src/server.rs": 1967,
     "services/server/src/legacy-baseline.ts": 1114
   }
 }
