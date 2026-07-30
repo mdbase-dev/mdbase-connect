@@ -13,11 +13,6 @@ import {
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
 
-export function samePhysicalMirrorPath(left: string, right: string): boolean {
-  return portableMirrorPathKeyForValidatedPath(left)
-    === portableMirrorPathKeyForValidatedPath(right);
-}
-
 export function physicalMirrorPathKey(path: string): string {
   return portableMirrorPathKeyForValidatedPath(path);
 }
@@ -39,7 +34,7 @@ export function assertRecordPhysicalPathAvailable(
   }
   for (const [existingId, entry] of records) {
     if (
-      existingId !== recordId
+      (existingId !== recordId || entry.path !== path)
       && physicalMirrorPathKey(entry.path) === physicalPath
     ) {
       throw new SyncError(
@@ -148,7 +143,10 @@ export function preflightChangePhysicalPaths<
 
     const physicalPath = portableMirrorPathKey(event.record.path);
     const occupied = occupiedTargets.get(physicalPath);
-    if (occupied !== undefined && occupied.recordId !== recordId) {
+    if (
+      occupied !== undefined
+      && (occupied.recordId !== recordId || occupied.path !== event.record.path)
+    ) {
       throw new SyncError(
         "invalid_record_path",
         `Mirror paths ${occupied.path} and ${event.record.path} alias on a supported filesystem.`

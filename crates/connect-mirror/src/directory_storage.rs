@@ -67,7 +67,7 @@ impl DirectoryMirror {
             }
         }
         for (existing_id, entry) in &state.records {
-            if *existing_id != record_id
+            if (*existing_id != record_id || entry.path != relative)
                 && portable_mirror_path_key(&entry.path)
                     .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
                     == physical_path
@@ -144,7 +144,7 @@ impl DirectoryMirror {
                             )
                         })?;
                     if let Some((occupied_path, occupied_id)) = physical_paths.get(&physical_path) {
-                        if *occupied_id != Some(record.record_id) {
+                        if *occupied_id != Some(record.record_id) || occupied_path != &record.path {
                             return Err(MirrorError::new(
                                 "invalid_record_path",
                                 format!(

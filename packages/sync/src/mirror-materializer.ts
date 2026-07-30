@@ -6,10 +6,7 @@ import {
   validateRecordPath,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import {
-  assertRecordPhysicalPathAvailable,
-  samePhysicalMirrorPath
-} from "./mirror-physical-path.js";
+import { assertRecordPhysicalPathAvailable } from "./mirror-physical-path.js";
 import {
   type MirrorEntry,
   type MirrorFileSystem,
@@ -67,7 +64,7 @@ export class MirrorMaterializer {
     if (existing !== null && existing !== document) {
       const existingHash = this.runtime.digest(existing);
       const destinationBelongsToRecord = prior !== undefined
-        && samePhysicalMirrorPath(prior.path, record.path)
+        && prior.path === record.path
         && existingHash === prior.hash;
       if (
         !destinationBelongsToRecord
@@ -76,9 +73,6 @@ export class MirrorMaterializer {
         throw new MirrorDivergenceError(record.record_id, record.path);
       }
     }
-    const renamesPhysicalAlias = prior !== undefined
-      && prior.path !== record.path
-      && samePhysicalMirrorPath(prior.path, record.path);
     if (prior && prior.path !== record.path) {
       await this.remove(managedState!, record.record_id, prior.path);
     }
@@ -90,11 +84,6 @@ export class MirrorMaterializer {
       : null;
     if (acceptedLocalHash === null) {
       await this.fileSystem.write(record.path, document);
-    } else if (renamesPhysicalAlias && existing !== null) {
-      // Removing the old spelling also removes the destination on a
-      // case-insensitive filesystem. Restore the accepted local bytes under
-      // the authority's exact spelling.
-      await this.fileSystem.write(record.path, existing);
     }
     state.records[record.record_id] = {
       path: record.path,

@@ -68,26 +68,7 @@ impl DirectoryMirror {
         self.validate_snapshot_shape(&plan.session.resources, &plan.records)?;
         self.validate_snapshot_documents(&plan.session.resources, &plan.records)?;
         self.preflight_rebuild(&plan.session.resources, &plan.records, plan.prior.as_ref())?;
-        let target_paths_by_physical = plan
-            .prior
-            .as_ref()
-            .map(|_| self.target_physical_paths(&plan.session.resources, &plan.records))
-            .transpose()?;
-        if let (Some(prior), Some(target_paths_by_physical)) =
-            (&plan.prior, &target_paths_by_physical)
-        {
-            for entry in prior.records.values().chain(prior.resources.values()) {
-                let physical_path = portable_mirror_path_key(&entry.path)
-                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                if target_paths_by_physical
-                    .get(&physical_path)
-                    .is_some_and(|target| target != &entry.path)
-                    && self.read_file(&entry.path)?.is_some()
-                {
-                    self.remove_file(&entry.path)?;
-                }
-            }
-        }
+        let target_paths = self.target_paths(&plan.session.resources, &plan.records);
         let mut state = DurableMirrorState {
             protocol_version: SYNC_PROTOCOL_VERSION,
             replica_id: self.replica_id,
@@ -126,14 +107,10 @@ impl DirectoryMirror {
                 },
             );
         }
-        if let (Some(prior), Some(target_paths_by_physical)) =
-            (plan.prior, target_paths_by_physical)
-        {
+        if let Some(prior) = plan.prior {
             let mut stale_paths = BTreeSet::new();
             for entry in prior.records.values().chain(prior.resources.values()) {
-                let physical_path = portable_mirror_path_key(&entry.path)
-                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                if !target_paths_by_physical.contains_key(&physical_path) {
+                if !target_paths.contains(&entry.path) {
                     stale_paths.insert(entry.path.clone());
                 }
             }
@@ -174,24 +151,6 @@ impl DirectoryMirror {
             .iter()
             .map(|resource| resource.path.clone())
             .chain(records.iter().map(|snapshot| snapshot.record.path.clone()))
-            .collect()
-    }
-
-    pub(super) fn target_physical_paths(
-        &self,
-        resources: &SyncCollectionResources,
-        records: &[SyncSnapshotRecord],
-    ) -> Result<HashMap<String, String>, MirrorError> {
-        resources
-            .documents
-            .iter()
-            .map(|resource| &resource.path)
-            .chain(records.iter().map(|snapshot| &snapshot.record.path))
-            .map(|path| {
-                portable_mirror_path_key(path)
-                    .map(|physical| (physical, path.clone()))
-                    .map_err(|error| MirrorError::new("invalid_snapshot", error))
-            })
             .collect()
     }
 
@@ -390,6 +349,16 @@ impl DirectoryMirror {
             } else {
                 None
             };
+            if managed.is_some_and(|entry| entry.path != resource.path) {
+                return Err(MirrorError::new(
+                    "invalid_record_path",
+                    format!(
+                        "Mirror paths {} and {} alias on a supported filesystem.",
+                        managed.unwrap().path,
+                        resource.path
+                    ),
+                ));
+            }
             if local.as_deref().is_some_and(|local| {
                 local != resource.document
                     && managed.is_none_or(|entry| digest(local) != entry.hash)
@@ -408,6 +377,16 @@ impl DirectoryMirror {
             } else {
                 None
             };
+            if managed.is_some_and(|entry| entry.path != record.path) {
+                return Err(MirrorError::new(
+                    "invalid_record_path",
+                    format!(
+                        "Mirror paths {} and {} alias on a supported filesystem.",
+                        managed.unwrap().path,
+                        record.path
+                    ),
+                ));
+            }
             if local.as_deref().is_some_and(|local| {
                 local != document && managed.is_none_or(|entry| digest(local) != entry.hash)
             }) {

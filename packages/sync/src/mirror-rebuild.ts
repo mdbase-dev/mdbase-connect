@@ -91,6 +91,12 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     const managed = prior
       ? priorManagedByPhysicalPath.get(physicalMirrorPathKey(resource.path))
       : undefined;
+    if (managed && managed.path !== resource.path) {
+      throw new SyncError(
+        "invalid_record_path",
+        `Mirror paths ${managed.path} and ${resource.path} alias on a supported filesystem.`
+      );
+    }
     if (
       local !== null
       && local !== resource.document
@@ -109,6 +115,12 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
       const managed = prior
         ? priorManagedByPhysicalPath.get(physicalMirrorPathKey(record.path))
         : undefined;
+      if (managed && managed.path !== record.path) {
+        throw new SyncError(
+          "invalid_record_path",
+          `Mirror paths ${managed.path} and ${record.path} alias on a supported filesystem.`
+        );
+      }
       if (
         local !== null
         && local !== document
@@ -143,39 +155,6 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     );
   }
 
-  const targetPathsByPhysicalPath = prior
-    ? new Map<string, string>()
-    : null;
-  if (prior && targetPathsByPhysicalPath) {
-    for (const resource of resources) {
-      targetPathsByPhysicalPath.set(
-        physicalMirrorPathKey(resource.path),
-        resource.path
-      );
-    }
-    for (const prepared of records) {
-      targetPathsByPhysicalPath.set(
-        physicalMirrorPathKey(prepared.record.path),
-        prepared.record.path
-      );
-    }
-    for (const entry of [
-      ...Object.values(prior.resources ?? {}),
-      ...Object.values(prior.records)
-    ]) {
-      const targetPath = targetPathsByPhysicalPath.get(
-        physicalMirrorPathKey(entry.path)
-      );
-      if (
-        targetPath !== undefined
-        && targetPath !== entry.path
-        && await fileSystem.read(entry.path) !== null
-      ) {
-        await fileSystem.remove(entry.path);
-      }
-    }
-  }
-
   const documentCount = resources.length + records.length;
   let appliedDocuments = 0;
   const applied = (): void => {
@@ -198,20 +177,14 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     });
     applied();
   }
-  if (prior && targetPathsByPhysicalPath) {
+  if (prior) {
     for (const [recordId, entry] of Object.entries(prior.records)) {
-      if (
-        !state.records[recordId]
-        && !targetPathsByPhysicalPath.has(physicalMirrorPathKey(entry.path))
-      ) {
+      if (!state.records[recordId]) {
         await materializer.remove(prior, recordId, entry.path);
       }
     }
     for (const [path, entry] of Object.entries(prior.resources ?? {})) {
-      if (
-        !state.resources?.[path]
-        && !targetPathsByPhysicalPath.has(physicalMirrorPathKey(entry.path))
-      ) {
+      if (!state.resources?.[path]) {
         await materializer.removeResource(prior, path, entry);
       }
     }

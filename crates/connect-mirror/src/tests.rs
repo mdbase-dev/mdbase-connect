@@ -649,7 +649,7 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
 }
 
 #[tokio::test]
-async fn reset_snapshot_applies_a_same_record_case_only_rename() {
+async fn reset_snapshot_rejects_a_same_record_case_only_rename() {
     let source = record("Notes/Example.md", "Original");
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
     mirror.sync().await.unwrap();
@@ -670,13 +670,11 @@ async fn reset_snapshot_applies_a_same_record_case_only_rename() {
         prior: mirror.read_state().unwrap(),
     };
 
-    mirror.apply_rebuild(plan).unwrap();
+    let error = mirror.apply_rebuild(plan).unwrap_err();
 
-    assert!(!mirror.root().join(&source.path).exists());
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&renamed.path)).unwrap(),
-        record_markdown_document(&renamed).unwrap()
-    );
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(mirror.root().join(&source.path).exists());
+    assert!(!mirror.root().join(&renamed.path).exists());
 }
 
 #[tokio::test]
@@ -807,7 +805,7 @@ async fn incremental_puts_reject_aliases_owned_by_another_record() {
 }
 
 #[tokio::test]
-async fn incremental_put_applies_a_same_record_case_only_rename() {
+async fn incremental_put_rejects_a_same_record_case_only_rename() {
     let source = record("Notes/Example.md", "Original");
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
     mirror.sync().await.unwrap();
@@ -817,13 +815,11 @@ async fn incremental_put_applies_a_same_record_case_only_rename() {
     refresh_revision(&mut renamed);
     authority.emit_put(renamed.clone());
 
-    mirror.sync().await.unwrap();
+    let error = mirror.sync().await.unwrap_err();
 
-    assert!(!mirror.root().join(&source.path).exists());
-    assert_eq!(
-        fs::read_to_string(mirror.root().join(&renamed.path)).unwrap(),
-        record_markdown_document(&renamed).unwrap()
-    );
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(mirror.root().join(&source.path).exists());
+    assert!(!mirror.root().join(&renamed.path).exists());
 }
 
 #[tokio::test]
