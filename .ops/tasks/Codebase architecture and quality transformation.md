@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T13:37:28+10:00
+updated_at: 2026-07-30T13:56:13+10:00
 type: task
 ---
 
@@ -156,3 +156,24 @@ Work is isolated on `agent/exquisite-codebase` in the
 - All 24 hosted-provider tests pass. The full Rust workspace phase gate passes
   142 tests, formatting, and strict Clippy, and the architecture check now
   covers 229 production files without dependency cycles.
+
+### Lifecycle and protocol hardening
+
+- The Rust/TypeScript wire contract is split into focused compatibility,
+  control, encryption, grants, hosted, notifications, and sync modules behind
+  a 39-line protocol facade. Existing public exports remain compatible.
+- Hosted authority imports, transfers, and collection states use closed Rust
+  enums that reject unknown database values and retain stable wire values.
+- CLI daemon commands now distinguish the default installed service from an
+  explicitly isolated state-directory or endpoint profile. Isolated commands
+  cannot accidentally install, stop, restart, inspect, or remove the default
+  service.
+- The CLI entry point has fallen from 1,815 to 732 lines. Command mapping,
+  daemon control, login, output, and tests have focused modules; every CLI
+  production module is below 1,000 lines and its size exception is removed.
+- Hosted grant and mirror-replica revocation now commits local denial and a
+  durable provider cleanup job in one transaction before network cleanup.
+  Provider failure delays cleanup without leaving the local capability active.
+- The server passes 189 tests, CLI behavior passes 18 focused and integration
+  tests, strict Clippy passes, and the architecture check covers 239 production
+  files without dependency cycles.

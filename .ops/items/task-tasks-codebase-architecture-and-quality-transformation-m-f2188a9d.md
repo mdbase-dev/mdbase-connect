@@ -8,8 +8,8 @@ target_path: tasks/Codebase architecture and quality transformation.md
 remote_title: Codebase architecture and quality transformation
 remote_state: in_progress
 remote_url: tasks/Codebase architecture and quality transformation.md
-remote_updated_at: 2026-07-30T13:37:28+10:00
-last_seen_remote_updated_at: 2026-07-30T13:37:28+10:00
+remote_updated_at: 2026-07-30T13:56:13+10:00
+last_seen_remote_updated_at: 2026-07-30T13:56:13+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 sync_state: clean
-last_analyzed_at: 2026-07-30T13:37:28+10:00
+last_analyzed_at: 2026-07-30T13:56:13+10:00
 type: item_state
 ---
 
@@ -65,6 +65,15 @@ provider is now a 292-line facade over complete transaction-owning feature
 modules, with every hosted production and test module below 1,000 lines and
 its legacy exception removed. All 24 hosted tests and the 142-test full Rust
 workspace gate pass with strict Clippy.
+
+Protocol domains now sit behind a 39-line facade, hosted authority lifecycle
+states are closed enums, and CLI daemon targeting explicitly separates the
+installed service from isolated profiles. The CLI facade is 732 lines with
+focused command, daemon, login, output, and test modules, so its legacy size
+exception is removed. Hosted grant and mirror-replica revocation now denies
+local authority and queues provider cleanup atomically before any network
+attempt. The server passes 189 tests and the architecture gate covers 239
+production files without dependency cycles.
 
 ## Handoff
 
