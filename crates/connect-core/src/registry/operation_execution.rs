@@ -1,0 +1,352 @@
+use super::*;
+pub(super) fn error_message(value: &Value, fallback: &str) -> String {
+    value
+        .pointer("/error/message")
+        .or_else(|| value.pointer("/diagnostics/0/message"))
+        .or_else(|| value.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+pub(super) fn has_contract(
+    available: &[CollectionContractDescriptor],
+    required: &ContractRequirement,
+) -> bool {
+    available
+        .iter()
+        .any(|contract| contract.id == required.id && contract.version == required.version)
+}
+
+pub(super) fn execute_loaded(
+    collection: &Collection,
+    operation: &str,
+    input: &Value,
+) -> Result<Value, ConnectError> {
+    if collection.spec_profile() == SpecProfile::V03 {
+        if operation == "install_type_pack" {
+            let provision =
+                serde_json::from_value::<TypePackProvision>(input.clone()).map_err(|error| {
+                    ConnectError::InvalidInput(format!(
+                        "The type-pack provision is invalid: {error}"
+                    ))
+                })?;
+            let manifest = serde_json::to_value(&provision.manifest)?;
+            let resources = provision
+                .resources
+                .iter()
+                .map(|resource| mdbase::v03::TypePackResource {
+                    source: resource.source.clone(),
+                    document: resource.document.clone(),
+                })
+                .collect::<Vec<_>>();
+            return serde_json::to_value(
+                collection.install_type_pack(&manifest, &resources, false),
+            )
+            .map_err(ConnectError::from);
+        }
+        let operations = collection
+            .v03_operations()
+            .map_err(|diagnostic| ConnectError::CollectionOpen(diagnostic.message.clone()))?;
+        let result = match operation {
+            "read" => operations.read(input),
+            "query" => operations.query(input),
+            "list_views" => operations.list_views(input),
+            "execute_view" => operations.execute_view(input),
+            "read_view_source" => operations.read_view_source(input),
+            "create_view_source" => operations.create_view_source(input),
+            "update_view_source" => operations.update_view_source(input),
+            "delete_view_source" => operations.delete_view_source(input),
+            "validate" => operations.validate(input),
+            "batch" => operations.batch(input),
+            "create" => operations.create(input),
+            "update" => operations.update(input),
+            "delete" => operations.delete(input),
+            "rename" => operations.rename(input),
+            "list_types" => operations.list_types(input),
+            "read_type" => operations.read_type(input),
+            "create_type" => operations.create_type(input),
+            "update_type" => operations.update_type(input),
+            other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
+        };
+        return serde_json::to_value(result).map_err(ConnectError::from);
+    }
+
+    let result = match operation {
+        "read" => {
+            let request = serde_json::from_value::<mdbase::api::ReadRequest>(input.clone())
+                .map_err(|error| mdbase::api::MdbaseError::InvalidRequest {
+                    message: error.to_string(),
+                });
+            typed_result(collection, request, |typed, request| typed.read(request))
+        }
+        "query" => {
+            let request = parse_v02_query(input);
+            typed_result(collection, request, |typed, request| typed.query(request))
+        }
+        "validate" => collection.validate_op(input),
+        "create" | "update" | "delete" | "rename" => migration_required_result(operation),
+        other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
+    };
+    Ok(result)
+}
+
+pub(super) fn typed_result<Request, Output>(
+    collection: &Collection,
+    request: Result<Request, mdbase::api::MdbaseError>,
+    execute: impl FnOnce(
+        mdbase::api::TypedCollection<'_>,
+        Request,
+    ) -> mdbase::api::MdbaseResult<mdbase::api::OperationOutcome<Output>>,
+) -> Value
+where
+    Output: serde::Serialize,
+{
+    let result =
+        request.and_then(|request| collection.typed().and_then(|typed| execute(typed, request)));
+    match result {
+        Ok(outcome) => json!({
+            "valid": true,
+            "result": outcome.value,
+            "diagnostics": outcome.diagnostics,
+        }),
+        Err(error) => typed_error_result(error),
+    }
+}
+
+pub(super) fn typed_error_result(error: mdbase::api::MdbaseError) -> Value {
+    use mdbase::api::MdbaseError;
+
+    let (code, message, diagnostics) = match error {
+        MdbaseError::InvalidPath(error) => ("invalid_path", error.to_string(), Vec::<Value>::new()),
+        MdbaseError::UnsupportedProfile => (
+            "migration_required",
+            "This operation requires migrating the collection to v0.3.".to_string(),
+            Vec::new(),
+        ),
+        MdbaseError::MigrationRequired { operation } => (
+            "migration_required",
+            format!("Operation '{operation}' requires migrating this v0.2 collection to v0.3."),
+            Vec::new(),
+        ),
+        MdbaseError::LossyMigration { diagnostics } => (
+            "migration_lossy",
+            "The v0.2 migration requires explicit approval for lossy translations.".to_string(),
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| json!(diagnostic))
+                .collect(),
+        ),
+        MdbaseError::InvalidRequest { message } => ("invalid_request", message, Vec::new()),
+        MdbaseError::Operation { diagnostics } => (
+            "operation_failed",
+            "The mdbase operation failed.".to_string(),
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| json!(diagnostic))
+                .collect(),
+        ),
+        MdbaseError::InvalidResult { message } => ("invalid_result", message, Vec::new()),
+    };
+    let diagnostics = if diagnostics.is_empty() {
+        vec![json!({
+            "severity": "error",
+            "code": code,
+            "message": message,
+        })]
+    } else {
+        diagnostics
+    };
+    json!({
+        "valid": false,
+        "result": {},
+        "diagnostics": diagnostics,
+    })
+}
+
+pub(super) fn migration_required_result(operation: &str) -> Value {
+    json!({
+        "valid": false,
+        "result": {},
+        "diagnostics": [{
+            "severity": "error",
+            "code": "migration_required",
+            "message": format!(
+                "Operation '{operation}' requires migrating this v0.2 collection to v0.3."
+            ),
+        }],
+    })
+}
+
+pub(super) fn parse_v02_query(
+    input: &Value,
+) -> mdbase::api::MdbaseResult<mdbase::api::QueryRequest> {
+    use mdbase::api::MdbaseError;
+
+    let input = input.get("query").unwrap_or(input);
+    let source = input
+        .as_object()
+        .ok_or_else(|| MdbaseError::InvalidRequest {
+            message: "query input must be an object".to_string(),
+        })?;
+    const SUPPORTED: &[&str] = &[
+        "types",
+        "context",
+        "projections",
+        "where",
+        "select",
+        "order_by",
+        "group_by",
+        "groupBy",
+        "limit",
+        "offset",
+        "snapshot",
+        "include_body",
+        "frontmatter",
+    ];
+    if let Some(field) = source
+        .keys()
+        .find(|field| !SUPPORTED.contains(&field.as_str()))
+    {
+        return Err(MdbaseError::InvalidRequest {
+            message: format!("v0.2 compatibility queries do not support the '{field}' constraint"),
+        });
+    }
+
+    let mut typed = source.clone();
+    if let Some(context) = typed.get("context").cloned() {
+        let path = context
+            .as_str()
+            .or_else(|| context.pointer("/this/path").and_then(Value::as_str))
+            .ok_or_else(|| MdbaseError::InvalidRequest {
+                message: "query context must identify this.path".to_string(),
+            })?;
+        typed.insert("context".to_string(), Value::String(path.to_string()));
+    }
+    if let Some(projections) = typed.get("projections").and_then(Value::as_object) {
+        let projections = projections
+            .iter()
+            .map(|(name, value)| {
+                value
+                    .as_str()
+                    .or_else(|| value.get("expr").and_then(Value::as_str))
+                    .map(|expression| (name.clone(), Value::String(expression.to_string())))
+                    .ok_or_else(|| MdbaseError::InvalidRequest {
+                        message: format!("query projection '{name}' must contain an expression"),
+                    })
+            })
+            .collect::<Result<serde_json::Map<_, _>, _>>()?;
+        typed.insert("projections".to_string(), Value::Object(projections));
+    }
+    if !typed.contains_key("group_by") {
+        if let Some(group_by) = typed.remove("groupBy") {
+            typed.insert("group_by".to_string(), group_by);
+        }
+    } else {
+        typed.remove("groupBy");
+    }
+
+    serde_json::from_value(Value::Object(typed)).map_err(|error| MdbaseError::InvalidRequest {
+        message: error.to_string(),
+    })
+}
+
+pub(super) fn is_collection_mutation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "batch"
+            | "create"
+            | "update"
+            | "delete"
+            | "rename"
+            | "create_type"
+            | "update_type"
+            | "install_type_pack"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source"
+    )
+}
+
+pub(super) fn operation_invalidation(
+    operation: &str,
+    input: &Value,
+    output: &Value,
+) -> CollectionInvalidation {
+    if input.get("dry_run").and_then(Value::as_bool) == Some(true)
+        || !is_collection_mutation(operation)
+        || output.get("valid").and_then(Value::as_bool) == Some(false)
+        || output.get("error").is_some()
+    {
+        return CollectionInvalidation::None;
+    }
+    if matches!(
+        operation,
+        "create_type"
+            | "update_type"
+            | "install_type_pack"
+            | "create_view_source"
+            | "update_view_source"
+            | "delete_view_source"
+    ) {
+        return CollectionInvalidation::All;
+    }
+
+    let Ok(kind) = operation.parse::<mdbase::runtime::OperationKind>() else {
+        return CollectionInvalidation::All;
+    };
+    let Ok(result) = serde_json::from_value::<mdbase::v03::OperationResult>(output.clone()) else {
+        // Legacy profiles do not expose the portable operation envelope. The
+        // operation is still valid, but a full reload is the only safe hint.
+        return CollectionInvalidation::All;
+    };
+    let paths = mdbase::runtime::OperationRequest::new(kind, input.clone()).affected_paths(&result);
+    if paths.is_empty() {
+        CollectionInvalidation::All
+    } else {
+        CollectionInvalidation::Records(paths)
+    }
+}
+
+pub(super) fn supported_operations(profile: SpecProfile) -> &'static [&'static str] {
+    if profile != SpecProfile::V03 {
+        return &[
+            "describe",
+            "changes",
+            "read",
+            "query",
+            "validate",
+            "list_timers",
+            "put_timer",
+            "cancel_timer",
+            "reconcile_timers",
+            "sync",
+        ];
+    }
+    &[
+        "describe",
+        "changes",
+        "read",
+        "query",
+        "list_views",
+        "execute_view",
+        "read_view_source",
+        "create_view_source",
+        "update_view_source",
+        "delete_view_source",
+        "validate",
+        "create",
+        "update",
+        "delete",
+        "rename",
+        "read_type",
+        "create_type",
+        "update_type",
+        "install_type_pack",
+        "list_timers",
+        "put_timer",
+        "cancel_timer",
+        "reconcile_timers",
+        "sync",
+    ]
+}

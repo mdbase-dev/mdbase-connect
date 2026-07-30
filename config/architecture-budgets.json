@@ -8,7 +8,6 @@
     "crates/connect-agent/src/server.rs": 1967,
     "crates/connect-cli/src/lib.rs": 1815,
     "crates/connect-core/src/local_sync.rs": 1209,
-    "crates/connect-core/src/registry.rs": 5324,
     "crates/connect-hosted-provider/src/provider.rs": 6550,
     "crates/connect-mirror/src/lib.rs": 1915,
     "crates/connect-protocol/src/lib.rs": 1589,
