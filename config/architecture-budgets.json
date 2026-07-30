@@ -1,7 +1,6 @@
 {
   "productionFileMaxLines": 1000,
   "legacyFileLineBudgets": {
-    "apps/desktop/src/renderer/main.tsx": 1714,
     "apps/portal/src/main.tsx": 2251
   }
 }
