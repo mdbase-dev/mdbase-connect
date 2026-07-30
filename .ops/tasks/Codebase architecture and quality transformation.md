@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T13:17:30+10:00
+updated_at: 2026-07-30T13:31:40+10:00
 type: task
 ---
 
@@ -124,3 +124,20 @@ Work is isolated on `agent/exquisite-codebase` in the
   tests, typechecking, declaration/browser builds, and repository cycle and
   size checks; the complete workspace build, typecheck, and test phase gate
   also passes.
+
+### Local core decomposition
+
+- `crates/connect-core/src/registry.rs` has fallen from 5,324 to a 220-line
+  facade. Database migration, collection registration, authority transfer,
+  operation execution, contract scoping, descriptions and changes, grants,
+  encrypted replay protection, filesystem identity, and agent state now have
+  focused owners.
+- The 2,063-line registry scenario suite is grouped into authority,
+  collections, operations, scope, and security-state modules; every production
+  and test module is below 1,000 lines.
+- `crates/connect-core/src/local_sync.rs` has fallen from 1,209 to 830 lines,
+  with its SQLite projection helpers isolated in a 314-line persistence
+  module. Both core legacy size exceptions are removed.
+- The core crate passes all 41 tests, formatting, and strict Clippy after the
+  extraction. The repository architecture gate now covers 210 production
+  files with no source or workspace dependency cycles.
