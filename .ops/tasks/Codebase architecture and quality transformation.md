@@ -1,11 +1,11 @@
 ---
 title: Codebase architecture and quality transformation
-status: in_progress
+status: done
 priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T13:56:13+10:00
+updated_at: 2026-07-30T14:56:47+10:00
 type: task
 ---
 
@@ -177,3 +177,53 @@ Work is isolated on `agent/exquisite-codebase` in the
 - The server passes 189 tests, CLI behavior passes 18 focused and integration
   tests, strict Clippy passes, and the architecture check covers 239 production
   files without dependency cycles.
+
+### Complete production decomposition
+
+- Server bootstrap and legacy migration helpers, the desktop main process and
+  tray image construction, the desktop renderer, and the account portal are
+  now split by feature. The portal's former 2,251-line root is a 44-line
+  composition root; the desktop renderer is 913 lines and its main process is
+  985 lines.
+- The architecture gate now covers 281 production files, 585 relative imports,
+  and 11 workspace packages. There are no relative-source or workspace-package
+  cycles, every production module is below 1,000 lines, and the legacy budget
+  map is empty.
+- Connector identity private material now lives in the operating-system secret
+  store with verified legacy migration and fail-closed corruption handling.
+  SDK refresh enforces connector, application-key, and grant continuity while
+  still allowing intentional scope and key-ID rotation.
+
+### Test, governance, and release completion
+
+- Provider-outage fault injection proves durable revocation recovery. A real
+  persistent Chromium profile proves non-extractable browser keys and atomic
+  cross-tab counters across restart. Browser accessibility gates exercise
+  portal and desktop landmarks, names, headings, keyboard access, and reduced
+  motion.
+- CODEOWNERS, automated dependency updates, a private-reporting security
+  policy, a threat model, and a maintainability handbook make ownership and
+  review expectations explicit. The dependency audit has no known
+  vulnerabilities.
+- Five beta risks that require independent review, managed infrastructure, or
+  publisher accounts are explicit in `config/release-readiness.json`. Beta CI
+  reports them; stable desktop publication fails closed until each contains
+  durable evidence.
+- The Node 24 mirror performance baseline is tied to the exact
+  pre-transformation commit and capture environment. The candidate passes its
+  wall-time, heap, I/O, checkpoint, portable-adapter, and mobile bundle gates.
+
+### Final validation
+
+- Node 24.13.0: frozen install, version/readiness/dependency/architecture
+  checks, build, typecheck, package audit, 465 JavaScript/TypeScript tests,
+  persistent-browser storage, and browser accessibility all pass.
+- Rust 1.94.0: formatting, strict workspace Clippy, and all 148 workspace tests
+  pass.
+- Live paths pass for local direct and relayed operation, multi-instance NATS,
+  hosted sync, the PostgreSQL hosted provider (including restart, revocation,
+  logical backup restore, browser, CLI, mirror, and authority transfer), the
+  packaged Docker control plane, and the real Electron client against that
+  Docker environment.
+- The original dirty checkout was not modified. The complete work is on
+  `agent/exquisite-codebase` as a sequence of cohesive, verified commits.

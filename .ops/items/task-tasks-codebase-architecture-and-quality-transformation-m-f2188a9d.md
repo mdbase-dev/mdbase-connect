@@ -6,18 +6,18 @@ key: tasks/Codebase architecture and quality transformation.md
 external_ref: tasks/Codebase architecture and quality transformation.md
 target_path: tasks/Codebase architecture and quality transformation.md
 remote_title: Codebase architecture and quality transformation
-remote_state: in_progress
+remote_state: done
 remote_url: tasks/Codebase architecture and quality transformation.md
-remote_updated_at: 2026-07-30T13:56:13+10:00
-last_seen_remote_updated_at: 2026-07-30T13:56:13+10:00
-local_status: in_progress
+remote_updated_at: 2026-07-30T14:56:47+10:00
+last_seen_remote_updated_at: 2026-07-30T14:56:47+10:00
+local_status: done
 priority: critical
 difficulty: complex
 risk: high
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 sync_state: clean
-last_analyzed_at: 2026-07-30T13:56:13+10:00
+last_analyzed_at: 2026-07-30T14:56:47+10:00
 type: item_state
 ---
 
@@ -77,5 +77,10 @@ production files without dependency cycles.
 
 ## Handoff
 
-Resume from the earliest incomplete phase in the task record. Before changing
-behavior, inspect the most recent commit, status, task notes, and test results.
+The transformation is complete on `agent/exquisite-codebase`. Every production
+module is below 1,000 lines with no legacy size exceptions or import cycles.
+The full Node 24, Rust 1.94, real-browser, performance, local, relay, sync,
+PostgreSQL provider, Docker control-plane, and Docker-backed Electron matrices
+pass. The five explicitly accepted beta risks remain stable-release blockers
+until their independent or operational evidence exists; do not mark them
+complete merely to publish.
