@@ -161,6 +161,62 @@ describe("hosted capability lifecycle", () => {
     expect(job.rows[0]).toMatchObject({ state: "completed", attempts: 1 });
   });
 
+  it("keeps local revocation effective while provider cleanup retries after an outage", async () => {
+    const fixture = await capabilityFixture();
+    await queueHostedGrantRevocation(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId,
+      "provider_outage"
+    );
+    const provider = {
+      revokeReplica: vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("provider unavailable"))
+        .mockResolvedValue(undefined),
+      revokeNotificationGrant: vi.fn(async () => undefined)
+    };
+    const errors: unknown[] = [];
+    const worker = new ProviderRevocationWorker(
+      fixture.db,
+      provider as never,
+      (error) => errors.push(error)
+    );
+
+    expect(await worker.drain()).toBe(0);
+    const failedAttempt = await fixture.db.query(
+      `SELECT job.state, job.attempts, job.last_error,
+              grant_row.revoked_at AS grant_revoked_at,
+              replica.revoked_at AS replica_revoked_at
+       FROM provider_revocation_jobs job
+       JOIN grants grant_row ON grant_row.id = job.grant_id
+       JOIN hosted_replicas replica ON replica.id = job.replica_id`
+    );
+    expect(failedAttempt.rows[0]).toMatchObject({
+      state: "pending",
+      attempts: 1,
+      last_error: "provider unavailable"
+    });
+    expect(failedAttempt.rows[0].grant_revoked_at).toBeTruthy();
+    expect(failedAttempt.rows[0].replica_revoked_at).toBeTruthy();
+    expect(errors).toHaveLength(1);
+
+    await fixture.db.query(
+      "UPDATE provider_revocation_jobs SET available_at = now() - interval '1 second'"
+    );
+    expect(await worker.drain()).toBe(1);
+    expect(provider.revokeReplica).toHaveBeenCalledTimes(2);
+    expect(provider.revokeNotificationGrant).toHaveBeenCalledTimes(1);
+    const completed = await fixture.db.query(
+      "SELECT state, attempts, last_error FROM provider_revocation_jobs"
+    );
+    expect(completed.rows[0]).toMatchObject({
+      state: "completed",
+      attempts: 2,
+      last_error: null
+    });
+  });
+
   it("serializes overlapping drains without delivering a job twice", async () => {
     const fixture = await capabilityFixture();
     await queueHostedGrantRevocation(

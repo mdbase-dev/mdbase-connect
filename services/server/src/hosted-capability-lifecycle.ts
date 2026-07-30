@@ -273,15 +273,16 @@ async function rescheduleRevocationJob(
   error: unknown
 ): Promise<void> {
   const delaySeconds = Math.min(300, 2 ** Math.min(job.attempts + 1, 8));
+  const availableAt = new Date(Date.now() + delaySeconds * 1_000);
   await db.query(
     `UPDATE provider_revocation_jobs
      SET state = 'pending',
-         available_at = now() + ($2 * interval '1 second'),
+         available_at = $2,
          last_error = $3
      WHERE id = $1`,
     [
       job.id,
-      delaySeconds,
+      availableAt,
       error instanceof Error ? error.message.slice(0, 2_000) : String(error)
     ]
   );
