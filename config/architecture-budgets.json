@@ -16,7 +16,7 @@
     "packages/sync/src/adoption.ts": 1127,
     "packages/sync/src/index.ts": 1116,
     "packages/sync/src/mirror.ts": 1255,
-    "services/server/src/app.ts": 7462,
+    "services/server/src/app.ts": 7105,
     "services/server/src/legacy-baseline.ts": 1114
   }
 }
