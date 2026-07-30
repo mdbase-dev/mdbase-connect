@@ -51,7 +51,7 @@ impl HostedProvider {
             transaction.commit().await?;
             return Ok(result);
         }
-        if collection.get::<String, _>("state") != "active" {
+        if hosted_collection_state(&collection, "state")? != HostedCollectionState::Active {
             return Err(ApiError::conflict(
                 "authority_transfer_unavailable",
                 "The hosted collection is not available for authority transfer.",
@@ -137,7 +137,7 @@ impl HostedProvider {
             final_head: head,
             authority_epoch: next_epoch,
             manifest_digest,
-            state: "prepared".to_string(),
+            state: ProviderAuthorityTransferState::Prepared,
             expires_at,
         })
     }
@@ -172,11 +172,11 @@ impl HostedProvider {
             )
         })?;
         let transfer = provider_authority_transfer(&row)?;
-        if transfer.state == "completed" {
+        if transfer.state == ProviderAuthorityTransferState::Completed {
             transaction.commit().await?;
             return Ok(transfer);
         }
-        if transfer.state != "prepared" {
+        if transfer.state != ProviderAuthorityTransferState::Prepared {
             return Err(ApiError::conflict(
                 "authority_transfer_inactive",
                 "Authority transfer is no longer active.",
@@ -201,7 +201,8 @@ impl HostedProvider {
                 "Authority transfer expired and hosted writes were restored.",
             ));
         }
-        if row.get::<String, _>("collection_state") != "transferring" {
+        if hosted_collection_state(&row, "collection_state")? != HostedCollectionState::Transferring
+        {
             return Err(ApiError::conflict(
                 "authority_transfer_inactive",
                 "The hosted collection is no longer fenced for this transfer.",
@@ -256,7 +257,7 @@ impl HostedProvider {
             .await
             .remove(&transfer.collection_id);
         Ok(ProviderAuthorityTransfer {
-            state: "completed".to_string(),
+            state: ProviderAuthorityTransferState::Completed,
             ..transfer
         })
     }
@@ -283,13 +284,13 @@ impl HostedProvider {
             )
         })?;
         let transfer = provider_authority_transfer(&row)?;
-        if transfer.state == "completed" {
+        if transfer.state == ProviderAuthorityTransferState::Completed {
             return Err(ApiError::conflict(
                 "authority_transfer_completed",
                 "Completed authority transfer cannot be cancelled.",
             ));
         }
-        if transfer.state == "prepared" {
+        if transfer.state == ProviderAuthorityTransferState::Prepared {
             sqlx::query(
                 "UPDATE hosted_provider_authority_transfers SET state = 'aborted', aborted_at = now() WHERE id = $1",
             )
@@ -305,7 +306,7 @@ impl HostedProvider {
         }
         transaction.commit().await?;
         Ok(ProviderAuthorityTransfer {
-            state: "aborted".to_string(),
+            state: ProviderAuthorityTransferState::Aborted,
             ..transfer
         })
     }

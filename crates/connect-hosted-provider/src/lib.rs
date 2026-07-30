@@ -12,5 +12,6 @@ pub use http::{app, AppState};
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::{
     HostedProvider, NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
-    ProviderAuthorityImport, ProviderAuthorityTransfer, ProviderLimits, RegisterReplica,
+    ProviderAuthorityImport, ProviderAuthorityImportState, ProviderAuthorityTransfer,
+    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
 };

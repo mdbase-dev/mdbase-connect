@@ -46,6 +46,7 @@ mod collections;
 mod compaction;
 mod crypto_state;
 mod lifecycle;
+mod lifecycle_states;
 mod mutations;
 mod operation_context;
 mod operation_dispatch;
@@ -62,6 +63,11 @@ mod sync_reads;
 use authority_snapshots::*;
 use capabilities::*;
 use crypto_state::*;
+use lifecycle_states::{
+    authority_import_state, authority_transfer_state, hosted_collection_state,
+    HostedCollectionState,
+};
+pub use lifecycle_states::{ProviderAuthorityImportState, ProviderAuthorityTransferState};
 use operation_context::RecordOperationContext;
 use persistence::*;
 use policy::*;
@@ -189,7 +195,7 @@ pub struct ProviderAuthorityTransfer {
     pub final_head: u64,
     pub authority_epoch: u64,
     pub manifest_digest: String,
-    pub state: String,
+    pub state: ProviderAuthorityTransferState,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -209,7 +215,7 @@ pub struct ProviderAuthorityImport {
     pub id: Uuid,
     pub collection_id: Uuid,
     pub authority_epoch: u64,
-    pub state: String,
+    pub state: ProviderAuthorityImportState,
     pub manifest_digest: Option<String>,
     pub source_revision: Option<String>,
     pub source_head: Option<u64>,

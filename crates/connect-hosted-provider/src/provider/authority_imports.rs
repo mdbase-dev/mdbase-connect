@@ -51,10 +51,7 @@ impl HostedProvider {
             let exact = existing.get::<Uuid, _>("collection_id") == input.collection_id
                 && existing.get::<i64, _>("next_authority_epoch")
                     == to_i64(input.authority_epoch, "authority epoch")?
-                && matches!(
-                    existing.get::<String, _>("state").as_str(),
-                    "receiving" | "uploaded"
-                );
+                && authority_import_state(&existing, "state")?.accepts_upload();
             if !exact {
                 return Err(ApiError::conflict(
                     "authority_import_conflict",
@@ -197,10 +194,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        if !matches!(
-            row.get::<String, _>("import_state").as_str(),
-            "receiving" | "uploaded"
-        ) {
+        if !authority_import_state(&row, "import_state")?.accepts_upload() {
             return Err(ApiError::conflict(
                 "authority_import_inactive",
                 "An inactive authority import cannot accept another manifest.",
@@ -295,7 +289,8 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        if row.get::<String, _>("import_state") != "receiving" {
+        if authority_import_state(&row, "import_state")? != ProviderAuthorityImportState::Receiving
+        {
             return Err(ApiError::conflict(
                 "authority_import_finalized",
                 "A finalized authority import cannot accept more record pages.",
@@ -365,7 +360,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        if row.get::<String, _>("import_state") == "uploaded" {
+        if authority_import_state(&row, "import_state")? == ProviderAuthorityImportState::Uploaded {
             let mut result = provider_authority_import(&row)?;
             result.contracts = authority_import_contracts(self, &row)?;
             transaction.commit().await?;
@@ -624,14 +619,15 @@ impl HostedProvider {
     ) -> ApiResult<ProviderAuthorityImport> {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
-        if row.get::<String, _>("import_state") == "completed" {
+        if authority_import_state(&row, "import_state")? == ProviderAuthorityImportState::Completed
+        {
             return Err(ApiError::conflict(
                 "authority_import_completed",
                 "Completed authority import cannot be cancelled.",
             ));
         }
         let result = ProviderAuthorityImport {
-            state: "aborted".to_string(),
+            state: ProviderAuthorityImportState::Aborted,
             ..provider_authority_import(&row)?
         };
         let collection_id = row.get::<Uuid, _>("collection_id");

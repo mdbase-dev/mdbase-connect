@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn protocol_schema() -> Value {

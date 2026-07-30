@@ -29,10 +29,10 @@ pub(super) async fn authority_import_row(
 }
 
 pub(super) fn authorize_authority_import(row: &PgRow, token: &str) -> ApiResult<()> {
-    let state: String = row.get("import_state");
-    if !matches!(state.as_str(), "receiving" | "uploaded")
+    let state = authority_import_state(row, "import_state")?;
+    if !state.accepts_upload()
         || row.get::<DateTime<Utc>, _>("expires_at") <= Utc::now()
-        || row.get::<String, _>("collection_state") != "importing"
+        || hosted_collection_state(row, "collection_state")? != HostedCollectionState::Importing
     {
         return Err(ApiError::conflict(
             "authority_import_inactive",
@@ -58,7 +58,7 @@ pub(super) fn provider_authority_import(row: &PgRow) -> ApiResult<ProviderAuthor
         id: row.get("id"),
         collection_id: row.get("collection_id"),
         authority_epoch: number(row.get::<i64, _>("next_authority_epoch"), "authority epoch")?,
-        state,
+        state: ProviderAuthorityImportState::try_from(state.as_str())?,
         manifest_digest: row.try_get("manifest_digest").unwrap_or(None),
         source_revision: row.try_get("source_revision").unwrap_or(None),
         source_head: row
@@ -228,7 +228,7 @@ pub(super) fn provider_authority_transfer(row: &PgRow) -> ApiResult<ProviderAuth
         final_head: number(row.get::<i64, _>("final_head"), "collection head")?,
         authority_epoch: number(row.get::<i64, _>("next_authority_epoch"), "authority epoch")?,
         manifest_digest: row.get("manifest_digest"),
-        state: row.get("state"),
+        state: authority_transfer_state(row)?,
         expires_at: row.get("expires_at"),
     })
 }
