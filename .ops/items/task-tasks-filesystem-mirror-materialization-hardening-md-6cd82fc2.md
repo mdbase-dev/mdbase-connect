@@ -8,8 +8,8 @@ target_path: tasks/Filesystem mirror materialization hardening.md
 remote_title: Filesystem mirror materialization hardening
 remote_state: done
 remote_url: tasks/Filesystem mirror materialization hardening.md
-remote_updated_at: 2026-07-30T19:03:42+10:00
-last_seen_remote_updated_at: 2026-07-30T19:03:42+10:00
+remote_updated_at: 2026-07-30T21:28:08+10:00
+last_seen_remote_updated_at: 2026-07-30T21:28:08+10:00
 local_status: done
 priority: critical
 difficulty: hard
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [security, sync, filesystem, portability, testing, performance]
 sync_state: clean
-last_analyzed_at: 2026-07-30T19:03:42+10:00
+last_analyzed_at: 2026-07-30T21:28:08+10:00
 type: item_state
 ---
 
@@ -52,8 +52,16 @@ configuration bytes. The TypeScript reference authority and Rust hosted
 provider now derive the resource revision from the document, and the same E2E
 passes.
 
+A follow-up review found that physical-path aliases were still snapshot-only
+and that the container engine pin had not advanced. Incremental change pages
+now preflight atomically, individual materialization and writable capture
+recheck the invariant, durable state rejects aliases, and the engine pin and
+server-first prerelease rollout documentation are current.
+
 ## Handoff
 
-Completed in `bd10d21`. All listed validation gates pass. No reviewed
-materialization blocker remains; unrelated prerelease release-readiness risks
-retain their existing status.
+Completed in `bd10d21` and `0864373`. All listed validation gates pass. The
+pinned engine commit
+`8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2` is local and must be pushed before
+container CI or deployment can fetch it; this task did not push it. Unrelated
+prerelease release-readiness risks retain their existing status.
