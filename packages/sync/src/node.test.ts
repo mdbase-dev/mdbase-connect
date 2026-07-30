@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority } from "./index.js";
+import { documentRevision } from "./mirror-format.js";
 import {
   authorityManifestDigest,
   DirectoryMirror,
@@ -88,7 +89,7 @@ describe("receive-only Markdown mirror", () => {
           documents: [{
             path: "mdbase.yaml",
             kind: "configuration",
-            revision: "config:1",
+            revision: documentRevision("spec_version: 0.3.0\n"),
             document: "spec_version: 0.3.0\n"
           }]
         }
@@ -252,7 +253,7 @@ describe("writable Markdown mirror", () => {
         documents: [{
           path: "mdbase.yaml",
           kind: "configuration",
-          revision: "config:1",
+          revision: documentRevision("spec_version: 0.3.0\n"),
           document: "spec_version: 0.3.0\n"
         }]
       }
@@ -759,7 +760,7 @@ describe("writable Markdown mirror", () => {
           documents: [{
             path: "mdbase.yaml",
             kind: "configuration",
-            revision: "config:1",
+            revision: documentRevision("spec_version: 0.3.0\n"),
             document: "spec_version: 0.3.0\n"
           }]
         }

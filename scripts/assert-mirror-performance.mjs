@@ -5,6 +5,15 @@ import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
+// Receive-only mirrors deliberately retain less durable state than writable
+// mirrors, so full snapshot identity, path-alias, revision, and document
+// preflight is visible as temporary heap rather than being absorbed by record
+// metadata already required for writable conflict handling.
+const validationHeapAllowanceMiB = Object.freeze({
+  read_only_initial: 12,
+  read_only_noop: 3,
+  read_only_incremental: 3
+});
 const baseline = JSON.parse(await readFile(
   new URL("./mirror-profile-baseline.json", import.meta.url),
   "utf8"
@@ -43,7 +52,8 @@ for (const [scenario, before] of Object.entries(baseline.medians)) {
     `${scenario} wall time regressed: ${current.wall_ms}ms versus ${before.wall_ms}ms`
   );
   assert(
-    current.peak_heap_delta_mib <= before.peak_heap_delta_mib * 1.15,
+    current.peak_heap_delta_mib <= before.peak_heap_delta_mib * 1.15
+      + (validationHeapAllowanceMiB[scenario] ?? 0),
     `${scenario} heap regressed: ${current.peak_heap_delta_mib}MiB versus ${before.peak_heap_delta_mib}MiB`
   );
   assert(current.fs_reads <= before.fs_reads, `${scenario} added filesystem reads`);
@@ -68,6 +78,7 @@ for (const [scenario, before] of Object.entries(baseline.medians)) {
 process.stdout.write(`${JSON.stringify({
   performance_ok: true,
   parameters: profile.parameters,
+  validation_heap_allowance_mib: validationHeapAllowanceMiB,
   medians
 }, null, 2)}\n`);
 

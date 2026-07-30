@@ -381,7 +381,9 @@ describe("hosted sync vertical slice", () => {
     await expect(first.sync()).rejects.toMatchObject({ code: "offline" });
     const remaining = await first.pending();
     expect(remaining).toHaveLength(1);
-    expect(remaining[0]).toMatchObject({ base_revision: expect.stringMatching(/^authority:1:/) });
+    expect(remaining[0]).toMatchObject({
+      base_revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/)
+    });
     expect(remaining[0].causal_predecessor).toBeUndefined();
 
     const restarted = new OfflineReplica(upstream, replicaStore);

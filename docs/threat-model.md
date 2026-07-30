@@ -67,6 +67,10 @@ path with a configured record extension. Configuration, type, contract,
 migration, cache, hidden, excluded, symlinked, non-regular, and platform-unsafe
 paths are outside that namespace. Full-document writes are parsed and validated
 in a shadow collection before a crash-recoverable commit changes live files.
+Remote filesystem mirrors impose a narrower, non-negotiable `.md` record
+profile. Authority-owned configuration can describe other local record formats,
+but it cannot grant itself permission to materialize scripts or processor-specific
+files on a mirror device.
 
 Structural resources use kind-specific namespaces. Type and contract documents
 must have the corresponding frontmatter kind and configured folder; schemas
@@ -74,8 +78,11 @@ must be JSON objects below a `schemas` or `_schemas` directory; saved views must
 use configured, portable, non-hidden paths. A filesystem mirror stages and
 canonicalizes a complete resource snapshot before writing any part of it, then
 applies the same record policy to initial and incremental changes. The portable
-mirror enforces the same conservative boundary before it calls an injected
-filesystem adapter.
+mirror additionally checks snapshot-wide record identity and physical-path
+uniqueness, content-derived revisions, and document/metadata agreement before
+it calls an injected filesystem adapter. Rust and TypeScript run one shared
+cross-platform path corpus, including Windows device names and case/Unicode
+aliases.
 
 Binary attachments are not ordinary records or structural resources. A future
 binary-transfer feature must use a separately granted attachment capability, a

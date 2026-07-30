@@ -1,0 +1,36 @@
+{
+  "accepted": [
+    "notes/Example.md",
+    "notes/COM10.md",
+    "café/naïve.md",
+    "schemas/task.json"
+  ],
+  "rejected": [
+    "",
+    "/notes/example.md",
+    "C:\\notes\\example.md",
+    "notes\\example.md",
+    "notes/../example.md",
+    "notes/./example.md",
+    "notes//example.md",
+    "CON.md",
+    "notes/aux.txt",
+    "COM1.md",
+    "COM¹.md",
+    "lpt².md",
+    "notes/file.md.",
+    "notes/file.md ",
+    "notes/file.md:payload",
+    "notes/\u0085.md"
+  ],
+  "aliases": [
+    {
+      "left": "Notes/Example.md",
+      "right": "notes/example.md"
+    },
+    {
+      "left": "notes/Café.md",
+      "right": "notes/Café.md"
+    }
+  ]
+}

@@ -367,13 +367,12 @@ function referenceTransfer(row: ReferenceTransferRow): ReferenceAuthorityTransfe
 }
 
 function manifestDigest(state: SerializedMemoryAuthority): string {
-  const digest = (document: string) => createHash("sha256").update(document).digest("hex");
   return authorityManifestDigest([
     ...(state.resources?.documents ?? []).map((resource) => ({
       kind: "resource" as const,
       path: resource.path,
       identity: "",
-      document_hash: digest(resource.document)
+      document_hash: documentHash(resource.document)
     })),
     ...state.records.map((record) => ({
       kind: "record" as const,
@@ -430,6 +429,8 @@ export function typesForContracts(
 }
 
 export function mdbaseResources(): SyncCollectionResources {
+  const configuration =
+    "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n";
   return {
     revision: "mdbase-template:1",
     spec_version: "0.3.0",
@@ -438,8 +439,12 @@ export function mdbaseResources(): SyncCollectionResources {
     documents: [{
       path: "mdbase.yaml",
       kind: "configuration",
-      revision: "mdbase-config:1",
-      document: "spec_version: 0.3.0\nsettings:\n  types_folder: _types\n  default_validation: error\n"
+      revision: `sha256:${documentHash(configuration)}`,
+      document: configuration
     }]
   };
+}
+
+function documentHash(document: string): string {
+  return createHash("sha256").update(document).digest("hex");
 }

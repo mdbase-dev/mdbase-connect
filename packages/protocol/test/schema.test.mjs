@@ -318,7 +318,7 @@ test("sync wire objects are independently addressable", () => {
     records: [{
       record_id: "01977777-7777-7777-8777-777777777777",
       path: "tasks/one.md",
-      revision: "record:1",
+      revision: `sha256:${"2".repeat(64)}`,
       frontmatter: { type: "task", title: "One" },
       body: "Do it.\n",
       types: ["task"],
@@ -326,6 +326,10 @@ test("sync wire objects are independently addressable", () => {
     }]
   };
   assert.equal(validateSnapshot(snapshot), true, JSON.stringify(validateSnapshot.errors));
+  assert.equal(validateSnapshot({
+    ...snapshot,
+    records: snapshot.records.map((record) => ({ ...record, revision: "record:1" }))
+  }), false);
   assert.equal(validateSnapshot({
     ...snapshot,
     records: snapshot.records.map(({ document: _, ...record }) => record)

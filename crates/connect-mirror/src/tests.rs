@@ -3,6 +3,19 @@ use mdbase_connect_protocol::{SyncConflict, SyncMutationError, SyncResourceDocum
 use std::sync::Mutex;
 use tempfile::TempDir;
 
+#[derive(Deserialize)]
+struct PortablePathFixtures {
+    accepted: Vec<String>,
+    rejected: Vec<String>,
+    aliases: Vec<PortablePathAlias>,
+}
+
+#[derive(Deserialize)]
+struct PortablePathAlias {
+    left: String,
+    right: String,
+}
+
 struct FakeAuthority {
     session: SyncSession,
     records: Mutex<BTreeMap<Uuid, SyncRecord>>,
@@ -672,6 +685,49 @@ async fn duplicate_snapshot_paths_fail_before_materialization() {
     assert!(!mirror.rebuild_plan_file().exists());
 }
 
+#[test]
+fn portable_path_policy_matches_the_shared_cross_platform_fixtures() {
+    let fixtures: PortablePathFixtures = serde_json::from_str(include_str!(
+        "../../../test-fixtures/portable-mirror-paths.json"
+    ))
+    .unwrap();
+    for path in fixtures.accepted {
+        assert!(
+            validate_portable_mirror_path(&path).is_ok(),
+            "{path} should be portable"
+        );
+    }
+    for path in fixtures.rejected {
+        assert!(
+            validate_portable_mirror_path(&path).is_err(),
+            "{path:?} should be rejected"
+        );
+    }
+    for alias in fixtures.aliases {
+        assert_eq!(
+            portable_mirror_path_key(&alias.left).unwrap(),
+            portable_mirror_path_key(&alias.right).unwrap(),
+            "{} and {} should share one physical path key",
+            alias.left,
+            alias.right
+        );
+    }
+}
+
+#[tokio::test]
+async fn snapshot_rejects_cross_platform_path_aliases_before_materialization() {
+    let first = record("Notes/Example.md", "One");
+    let second = record("notes/example.md", "Two");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![first, second]);
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_snapshot");
+    assert!(!mirror.root().join("mdbase.yaml").exists());
+    assert!(!mirror.root().join("Notes/Example.md").exists());
+    assert!(!mirror.root().join("notes/example.md").exists());
+}
+
 #[tokio::test]
 async fn snapshot_records_cannot_materialize_executables_or_hidden_hooks() {
     for path in ["payload.bat", ".git/hooks/post-checkout.md"] {
@@ -689,6 +745,73 @@ async fn snapshot_records_cannot_materialize_executables_or_hidden_hooks() {
         assert!(!mirror.root().join(path).exists());
         assert!(!mirror.root().join("mdbase.yaml").exists());
     }
+}
+
+#[tokio::test]
+async fn authority_configuration_cannot_enable_executable_record_extensions() {
+    let replica_id = Uuid::new_v4();
+    let mut authority = FakeAuthority::new(
+        replica_id,
+        SyncReplicaMode::ReadOnly,
+        vec![record("payload.bat", "Hostile")],
+    );
+    let configuration = "spec_version: 0.3.0\nsettings:\n  record_extensions: [bat]\n";
+    authority.session.resources.documents[0].document = configuration.to_string();
+    authority.session.resources.documents[0].revision = format!("sha256:{}", digest(configuration));
+    let (_temporary, mirror, _authority) = custom_harness(authority);
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(!mirror.root().join("payload.bat").exists());
+    assert!(!mirror.root().join("mdbase.yaml").exists());
+}
+
+#[test]
+fn snapshot_rejects_inconsistent_record_documents_before_materialization() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let (_temporary, mirror, authority) = custom_harness(authority);
+    let source = record("notes/example.md", "Declared");
+    let hostile_document = "# Different\n";
+    let mut hostile = snapshot_record(source);
+    hostile.document = hostile_document.to_string();
+    hostile.record.revision = format!("sha256:{}", digest(hostile_document));
+    let plan = DurableRebuildPlan {
+        protocol_version: SYNC_PROTOCOL_VERSION,
+        replica_id,
+        mode: SyncReplicaMode::ReadOnly,
+        session: authority.session.clone(),
+        records: vec![hostile],
+        prior: None,
+    };
+
+    let error = mirror.apply_rebuild(plan).unwrap_err();
+
+    assert_eq!(error.code, "invalid_snapshot");
+    assert!(!mirror.root().join("mdbase.yaml").exists());
+    assert!(!mirror.root().join("notes/example.md").exists());
+}
+
+#[test]
+fn snapshot_rejects_inconsistent_resource_revisions_before_materialization() {
+    let replica_id = Uuid::new_v4();
+    let mut authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    authority.session.resources.documents[0].revision = format!("sha256:{}", "0".repeat(64));
+    let (_temporary, mirror, authority) = custom_harness(authority);
+    let plan = DurableRebuildPlan {
+        protocol_version: SYNC_PROTOCOL_VERSION,
+        replica_id,
+        mode: SyncReplicaMode::ReadOnly,
+        session: authority.session.clone(),
+        records: Vec::new(),
+        prior: None,
+    };
+
+    let error = mirror.apply_rebuild(plan).unwrap_err();
+
+    assert_eq!(error.code, "invalid_snapshot");
+    assert!(!mirror.root().join("mdbase.yaml").exists());
 }
 
 #[tokio::test]

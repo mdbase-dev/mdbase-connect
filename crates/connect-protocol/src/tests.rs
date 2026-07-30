@@ -321,7 +321,7 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
     let record = SyncRecord {
         record_id,
         path: "tasks/example.md".to_string(),
-        revision: "sha256:record".to_string(),
+        revision: format!("sha256:{}", "2".repeat(64)),
         frontmatter: serde_json::Map::from_iter([
             ("type".to_string(), Value::String("task".to_string())),
             ("title".to_string(), Value::String("Example".to_string())),

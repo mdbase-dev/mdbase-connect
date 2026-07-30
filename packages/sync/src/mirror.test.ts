@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryAuthority, type SyncTransport } from "./index.js";
+import { documentRevision } from "./mirror-format.js";
 import {
   DirectoryMirror,
   MemoryMirrorLease,
@@ -112,7 +113,11 @@ describe("platform-neutral directory mirror", () => {
         const snapshot = await base.snapshot(snapshotId, page);
         return {
           ...snapshot,
-          records: snapshot.records.map((record) => ({ ...record, document: exactDocument }))
+          records: snapshot.records.map((record) => ({
+            ...record,
+            revision: documentRevision(exactDocument),
+            document: exactDocument
+          }))
         };
       }
     }, {
@@ -149,6 +154,25 @@ describe("platform-neutral directory mirror", () => {
     for (const entry of Object.values(state!.records)) {
       expect(entry).not.toHaveProperty("record");
     }
+  });
+
+  it("does not persist snapshot-only document bytes in writable mirror state", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed(records(1));
+    const replicaId = hosted.registerReplica({ name: "Writer", mode: "read_write" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(),
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+
+    await mirror.sync();
+
+    const state = await stateStore.read();
+    const entry = Object.values(state!.records)[0]!;
+    expect(entry.record).toBeDefined();
+    expect(entry.record).not.toHaveProperty("document");
   });
 
   it("does a complete collision preflight before writing any hosted document", async () => {
@@ -242,7 +266,197 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
+  it("does not let authority configuration enable executable record extensions", async () => {
+    const configuration =
+      "spec_version: 0.3.0\nsettings:\n  record_extensions: [bat]\n";
+    const hosted = new MemoryAuthority({
+      resources: {
+        revision: "resources:hostile-extension",
+        spec_version: "0.3.0",
+        types: [],
+        contracts: [],
+        documents: [{
+          path: "mdbase.yaml",
+          kind: "configuration",
+          revision: documentRevision(configuration),
+          document: configuration
+        }]
+      }
+    });
+    hosted.seed([{
+      record_id: "hostile-extension",
+      path: "payload.bat",
+      frontmatter: {},
+      body: "malware",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+    expect(fileSystem.writes).toBe(0);
+    expect(fileSystem.files.has("payload.bat")).toBe(false);
+  });
+
+  it("rejects snapshot documents that disagree with their record metadata", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "inconsistent-document",
+      path: "notes/example.md",
+      frontmatter: { title: "Declared" },
+      body: "Declared body",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+    const base = hosted.transport(replicaId);
+    const hostileDocument = "# Different\n";
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, {
+      ...base,
+      snapshot: async (snapshotId, page) => {
+        const snapshot = await base.snapshot(snapshotId, page);
+        return {
+          ...snapshot,
+          records: snapshot.records.map((record) => ({
+            ...record,
+            revision: documentRevision(hostileDocument),
+            document: hostileDocument
+          }))
+        };
+      }
+    }, {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_snapshot" });
+    expect(fileSystem.writes).toBe(0);
+  });
+
+  it("rejects snapshot documents that disagree with record or resource revisions", async () => {
+    const configuration = "spec_version: 0.3.0\n";
+    const hosted = new MemoryAuthority({
+      resources: {
+        revision: "resources:invalid-revision",
+        spec_version: "0.3.0",
+        types: [],
+        contracts: [],
+        documents: [{
+          path: "mdbase.yaml",
+          kind: "configuration",
+          revision: documentRevision(configuration),
+          document: configuration
+        }]
+      }
+    });
+    hosted.seed([{
+      record_id: "invalid-revision",
+      path: "notes/example.md",
+      frontmatter: {},
+      body: "Body",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+    const base = hosted.transport(replicaId);
+    for (const target of ["record", "resource"] as const) {
+      const fileSystem = new TestFileSystem();
+      const mirror = new DirectoryMirror(replicaId, {
+        ...base,
+        openSession: async () => {
+          const session = await base.openSession();
+          return target === "resource"
+            ? {
+                ...session,
+                resources: {
+                  ...session.resources,
+                  documents: session.resources.documents?.map((resource) => ({
+                    ...resource,
+                    revision: `sha256:${"0".repeat(64)}`
+                  }))
+                }
+              }
+            : session;
+        },
+        snapshot: async (snapshotId, page) => {
+          const snapshot = await base.snapshot(snapshotId, page);
+          return target === "record"
+            ? {
+                ...snapshot,
+                records: snapshot.records.map((record) => ({
+                  ...record,
+                  revision: `sha256:${"0".repeat(64)}`
+                }))
+              }
+            : snapshot;
+        }
+      }, {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+
+      await expect(mirror.sync(), target).rejects.toMatchObject({ code: "invalid_snapshot" });
+      expect(fileSystem.writes, target).toBe(0);
+    }
+  });
+
+  it("rejects duplicate identities and cross-platform path aliases across snapshot pages", async () => {
+    for (const target of ["identity", "path"] as const) {
+      const hosted = new MemoryAuthority({ snapshotPageSize: 1 });
+      hosted.seed([
+        {
+          record_id: "first",
+          path: "Notes/Example.md",
+          frontmatter: {},
+          body: "First",
+          types: []
+        },
+        {
+          record_id: "second",
+          path: target === "path" ? "notes/example.md" : "notes/second.md",
+          frontmatter: {},
+          body: "Second",
+          types: []
+        }
+      ]);
+      const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+      const base = hosted.transport(replicaId);
+      const fileSystem = new TestFileSystem();
+      let firstRecordId: string | undefined;
+      const mirror = new DirectoryMirror(replicaId, {
+        ...base,
+        snapshot: async (snapshotId, page) => {
+          const snapshot = await base.snapshot(snapshotId, page);
+          return target === "identity"
+            ? {
+                ...snapshot,
+                records: snapshot.records.map((record) => ({
+                  ...record,
+                  record_id: firstRecordId ??= record.record_id
+                }))
+              }
+            : snapshot;
+        }
+      }, {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+
+      await expect(mirror.sync(), target).rejects.toMatchObject({ code: "invalid_snapshot" });
+      expect(fileSystem.writes, target).toBe(0);
+    }
+  });
+
   it("binds hosted resource kinds to safe filesystem namespaces", async () => {
+    const configuration = "spec_version: 0.3.0\n";
+    const packageDocument = "{\"scripts\":{\"postinstall\":\"malware\"}}\n";
     const hosted = new MemoryAuthority({
       resources: {
         revision: "resources:hostile",
@@ -253,14 +467,14 @@ describe("platform-neutral directory mirror", () => {
           {
             path: "mdbase.yaml",
             kind: "configuration",
-            revision: "config:1",
-            document: "spec_version: 0.3.0\n"
+            revision: documentRevision(configuration),
+            document: configuration
           },
           {
             path: "package.json",
             kind: "schema",
-            revision: "schema:1",
-            document: "{\"scripts\":{\"postinstall\":\"malware\"}}\n"
+            revision: documentRevision(packageDocument),
+            document: packageDocument
           }
         ]
       }
@@ -304,6 +518,28 @@ describe("platform-neutral directory mirror", () => {
       frontmatter: { type: "note", title: "Local" },
       body: "Mobile body"
     });
+  });
+
+  it("uses the record policy consistently in writable initialization preview and capture", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Mobile writer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    fileSystem.files.set("valid.md", "# Valid");
+    fileSystem.files.set(".private/ignored.md", "# Ignored");
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await expect(mirror.previewInitialization()).resolves.toMatchObject({
+      upload_documents: 1,
+      local_issues: []
+    });
+    await mirror.sync();
+    const session = await hosted.transport(replicaId).openSession();
+    const snapshot = await hosted.transport(replicaId).snapshot(session.snapshot_id);
+    expect(snapshot.records.map((record) => record.path)).toEqual(["valid.md"]);
   });
 
   it("syncs body-only, empty, and frontmatter-looking Markdown through mobile-safe adapters", async () => {
@@ -415,7 +651,7 @@ describe("platform-neutral directory mirror", () => {
     const record = {
       record_id: "stable-revision",
       path: "new.md",
-      revision: "sha256:content",
+      revision: documentRevision("# Same content"),
       frontmatter: {},
       body: "# Same content",
       types: []
@@ -524,7 +760,6 @@ describe("platform-neutral directory mirror", () => {
     hosted.seed([{
       record_id: "managed",
       path: "managed.md",
-      revision: "seed:managed",
       frontmatter: { title: "Original" },
       body: "Original body",
       types: []
@@ -538,6 +773,9 @@ describe("platform-neutral directory mirror", () => {
       runtime: deterministicRuntime()
     });
     await mirror.sync();
+    const seededRevision = (await hosted.transport(remoteId)
+      .snapshot((await hosted.transport(remoteId).openSession()).snapshot_id))
+      .records[0]!.revision;
 
     const malformed = "---\ntitle: [\n---\nDo not overwrite these bytes";
     fileSystem.files.set("managed.md", malformed);
@@ -547,7 +785,7 @@ describe("platform-neutral directory mirror", () => {
       scope_epoch: 1,
       operation: "update",
       record_id: "managed",
-      base_revision: "seed:managed",
+      base_revision: seededRevision,
       input: { patch: { title: "Remote" }, body: "Remote body" },
       created_at: "2026-07-27T00:00:00.000Z"
     });

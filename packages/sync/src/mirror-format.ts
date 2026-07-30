@@ -6,6 +6,15 @@ import { SyncError } from "./sync-error.js";
 import type { MirrorLocalIssue } from "./mirror-state.js";
 
 const utf8 = new TextEncoder();
+const YAML_AMBIGUOUS_WORDS = new Set(["null", "true", "false"]);
+
+export function documentHash(document: string): string {
+  return bytesToHex(sha256(utf8.encode(document)));
+}
+
+export function documentRevision(document: string): string {
+  return `sha256:${documentHash(document)}`;
+}
 
 export function recordMarkdownDocument(record: SyncRecord): string {
   if (Object.keys(record.frontmatter).length === 0) {
@@ -15,6 +24,65 @@ export function recordMarkdownDocument(record: SyncRecord): string {
   const yaml = stringify(record.frontmatter, { lineWidth: 0 }).trimEnd();
   const body = record.body ? `\n${record.body.replace(/^\n/, "")}` : "";
   return `---\n${yaml}\n---\n${body}`;
+}
+
+/** Compare the common scalar/flat-array subset without allocating a document. */
+export function fastRecordDocumentMatches(document: string, record: SyncRecord): boolean | null {
+  let offset = 0;
+  let hasFrontmatter = false;
+  for (const key in record.frontmatter) {
+    if (!Object.prototype.hasOwnProperty.call(record.frontmatter, key)) continue;
+    if (!hasFrontmatter) {
+      hasFrontmatter = true;
+      offset = consumeAt(document, "---\n", offset);
+      if (offset < 0) return false;
+    }
+    const value: unknown = record.frontmatter[key];
+    if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(key)) return null;
+    const scalar = fastYamlScalar(value);
+    if (scalar !== null) {
+      offset = consumeAt(document, key, offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, ": ", offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, scalar, offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, "\n", offset);
+      if (offset < 0) return false;
+      continue;
+    }
+    if (!Array.isArray(value)) return null;
+    if (value.length === 0) {
+      offset = consumeAt(document, key, offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, ": []\n", offset);
+      if (offset < 0) return false;
+      continue;
+    }
+    offset = consumeAt(document, key, offset);
+    if (offset < 0) return false;
+    offset = consumeAt(document, ":\n", offset);
+    if (offset < 0) return false;
+    for (const item of value) {
+      const rendered = fastYamlScalar(item);
+      if (rendered === null) return null;
+      offset = consumeAt(document, "  - ", offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, rendered, offset);
+      if (offset < 0) return false;
+      offset = consumeAt(document, "\n", offset);
+      if (offset < 0) return false;
+    }
+  }
+  if (!hasFrontmatter) return document === record.body;
+  offset = consumeAt(document, "---\n", offset);
+  if (offset < 0) return false;
+  if (!record.body) return offset === document.length;
+  const body = record.body.startsWith("\n") ? record.body.slice(1) : record.body;
+  offset = consumeAt(document, "\n", offset);
+  return offset >= 0
+    && document.startsWith(body, offset)
+    && offset + body.length === document.length;
 }
 
 export function parseMarkdown(document: string, path: string): { frontmatter: JsonObject; body: string } {
@@ -35,6 +103,20 @@ export function parseMarkdown(document: string, path: string): { frontmatter: Js
     throw new SyncError("invalid_frontmatter", `Writable mirror file ${path} requires object frontmatter.`);
   }
   return { frontmatter: frontmatter as JsonObject, body: match[2] ?? "" };
+}
+
+function fastYamlScalar(value: unknown): string | null {
+  if (typeof value === "boolean" || value === null) return String(value);
+  if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
+  if (typeof value !== "string" || !/^[A-Za-z][A-Za-z0-9 _.-]*$/u.test(value)) {
+    return null;
+  }
+  if (value.length <= 5 && YAML_AMBIGUOUS_WORDS.has(value.toLowerCase())) return null;
+  return value;
+}
+
+function consumeAt(document: string, value: string, offset: number): number {
+  return document.startsWith(value, offset) ? offset + value.length : -1;
 }
 
 export function mirrorLocalIssue(error: unknown, path: string): MirrorLocalIssue | null {

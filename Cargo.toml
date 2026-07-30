@@ -53,6 +53,7 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower-http = { version = "0.7.0", features = ["cors", "limit", "request-id", "trace"] }
+unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 url = "2"
 

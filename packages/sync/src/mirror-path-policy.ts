@@ -1,11 +1,13 @@
 import type { SyncResourceDocument } from "@mdbase/connect-protocol";
 import { parse } from "yaml";
 import { SyncError } from "./sync-error.js";
-import { parseMarkdown } from "./mirror-format.js";
-import { validatePortableMirrorPath } from "./portable-path.js";
+import { documentRevision, parseMarkdown } from "./mirror-format.js";
+import {
+  portableMirrorPathKey,
+  validatePortableMirrorPath
+} from "./portable-path.js";
 
 interface CollectionSettings {
-  record_extensions?: unknown;
   types_folder?: unknown;
   contracts_folder?: unknown;
   migrations_folder?: unknown;
@@ -18,7 +20,6 @@ interface CollectionConfiguration {
 }
 
 export interface MirrorRecordPathPolicy {
-  extensions: ReadonlySet<string>;
   reservedFolders: ReadonlySet<string>;
   resourcePaths: ReadonlySet<string>;
 }
@@ -28,10 +29,25 @@ export function validateSnapshotResources(
 ): MirrorRecordPathPolicy {
   if (resources.length === 0) return defaultRecordPathPolicy(new Set());
   const paths = new Set<string>();
+  const physicalPaths = new Map<string, string>();
   for (const resource of resources) {
-    validatePortableMirrorPath(resource.path);
+    const physicalPath = portableMirrorPathKey(resource.path);
+    const existing = physicalPaths.get(physicalPath);
+    if (existing !== undefined) {
+      throw new SyncError(
+        "invalid_snapshot",
+        `Hosted resource paths ${existing} and ${resource.path} alias on a supported filesystem.`
+      );
+    }
+    physicalPaths.set(physicalPath, resource.path);
     if (paths.has(resource.path)) {
       throw new SyncError("invalid_snapshot", `Hosted snapshot repeats ${resource.path}.`);
+    }
+    if (resource.revision !== documentRevision(resource.document)) {
+      throw new SyncError(
+        "invalid_snapshot",
+        `Hosted resource ${resource.path} does not match its declared revision.`
+      );
     }
     paths.add(resource.path);
   }
@@ -87,7 +103,6 @@ export function defaultRecordPathPolicy(
   resourcePaths: ReadonlySet<string>
 ): MirrorRecordPathPolicy {
   return {
-    extensions: new Set(["md"]),
     reservedFolders: new Set(["_types", "_contracts", "_types/_migrations", ".mdbase"]),
     resourcePaths
   };
@@ -99,36 +114,55 @@ export function recordPathPolicy(
 ): MirrorRecordPathPolicy {
   const settings = parseConfiguration(configurationDocument).settings ?? {};
   const typesFolder = configuredFolder(settings.types_folder, "_types");
-  const extensions = new Set([
-    "md",
-    ...(Array.isArray(settings.record_extensions)
-      ? settings.record_extensions.filter((value): value is string => typeof value === "string")
-      : [])
-  ]);
   const reservedFolders = new Set([
     typesFolder,
     configuredFolder(settings.contracts_folder, "_contracts"),
     configuredFolder(settings.migrations_folder, `${typesFolder}/_migrations`),
     configuredFolder(settings.cache_folder, ".mdbase", true)
   ]);
-  return { extensions, reservedFolders, resourcePaths };
+  // Collection configuration is authority-owned. It may describe additional
+  // local record formats, but it cannot grant a remote mirror permission to
+  // materialize executable or processor-specific extensions.
+  return {
+    reservedFolders,
+    resourcePaths
+  };
 }
 
 export function validateRecordPath(path: string, policy: MirrorRecordPathPolicy): void {
   validatePortableMirrorPath(path);
-  const components = path.split("/");
-  const extension = components.at(-1)!.split(".").at(-1) ?? "";
   if (
-    components.some((component) => component.startsWith("."))
+    /(?:^|\/)\./u.test(path)
     || policy.resourcePaths.has(path)
-    || [...policy.reservedFolders].some((folder) => isBelow(path, folder))
-    || !policy.extensions.has(extension)
+    || isInReservedFolder(path, policy.reservedFolders)
+    || !path.endsWith(".md")
   ) {
     throw new SyncError(
       "invalid_record_path",
       `Mirror record path ${path} is outside the configured record namespace.`
     );
   }
+}
+
+function isInReservedFolder(path: string, folders: ReadonlySet<string>): boolean {
+  for (const folder of folders) {
+    if (isBelow(path, folder)) return true;
+  }
+  return false;
+}
+
+export function filterRecordPaths(
+  paths: readonly string[],
+  policy: MirrorRecordPathPolicy
+): string[] {
+  return paths.filter((path) => {
+    try {
+      validateRecordPath(path, policy);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 function parseConfiguration(document: string): CollectionConfiguration {

@@ -2032,6 +2032,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "unicode-normalization",
  "url",
  "uuid",
  "walkdir",

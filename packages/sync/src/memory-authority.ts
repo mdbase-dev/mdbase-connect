@@ -11,6 +11,7 @@ import type {
   SyncSnapshotRecord
 } from "@mdbase/connect-protocol";
 import { stringify } from "yaml";
+import { documentRevision } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 import {
@@ -165,7 +166,15 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       if (this.records.has(value.record_id) || this.paths.has(value.path)) {
         throw new SyncError("record_conflict", "Seed records must have unique IDs and paths.");
       }
-      const record = clone({ ...value, revision: value.revision ?? `memory:0:${value.record_id}` }) as SyncRecord<Frontmatter>;
+      const record = clone({ ...value, revision: "" }) as SyncRecord<Frontmatter>;
+      const revision = memoryRecordRevision(record);
+      if (value.revision !== undefined && value.revision !== revision) {
+        throw new SyncError(
+          "invalid_revision",
+          `Seed record ${value.path} does not match its declared revision.`
+        );
+      }
+      record.revision = revision;
       this.validateRecord(record);
       this.records.set(record.record_id, record);
       this.paths.set(record.path, record.record_id);
@@ -341,11 +350,12 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       const record = {
         record_id: mutation.record_id,
         path,
-        revision: this.nextRevision(mutation.record_id),
+        revision: "",
         frontmatter: object(mutation.input.frontmatter ?? {}) as Frontmatter,
         body: optionalText(mutation.input.body, "body") ?? "",
         types: stringList(mutation.input.types ?? explicitTypes(object(mutation.input.frontmatter ?? {})))
       } satisfies SyncRecord<Frontmatter>;
+      record.revision = memoryRecordRevision(record);
       if (!visible(record, replica)) throw new SyncError("scope_denied", "The new record is outside this replica's scope.");
       this.validateRecord(record);
       this.commit(undefined, record);
@@ -378,7 +388,7 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
       if (mutation.input.body !== undefined) next.body = requiredText(mutation.input.body, "body");
       if (mutation.input.types !== undefined) next.types = stringList(mutation.input.types);
     }
-    next.revision = this.nextRevision(next.record_id);
+    next.revision = memoryRecordRevision(next);
     if (!visible(next, replica)) throw new SyncError("scope_denied", "The mutation would move the record outside this replica's scope.");
     this.validateRecord(next);
     this.commit(current, next);
@@ -395,10 +405,6 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
         ...(current ? { current: clone(current), current_revision: current.revision } : {})
       }
     };
-  }
-
-  private nextRevision(recordId: string): string {
-    return `authority:${this.head + 1}:${recordId}`;
   }
 
   private commit(before?: SyncRecord<Frontmatter>, after?: SyncRecord<Frontmatter>): void {
@@ -435,6 +441,10 @@ function memoryRecordMarkdownDocument(record: SyncRecord): string {
   const yaml = stringify(record.frontmatter, { lineWidth: 0 }).trimEnd();
   const body = record.body ? `\n${record.body.replace(/^\n/, "")}` : "";
   return `---\n${yaml}\n---\n${body}`;
+}
+
+function memoryRecordRevision(record: SyncRecord): string {
+  return documentRevision(memoryRecordMarkdownDocument(record));
 }
 
 function project<Frontmatter extends JsonObject>(

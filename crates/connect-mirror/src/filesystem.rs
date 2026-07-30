@@ -1,4 +1,7 @@
 use super::*;
+use unicode_normalization::UnicodeNormalization;
+
+const REMOTE_MIRROR_RECORD_EXTENSION: &str = "md";
 
 pub(super) struct MirrorLease {
     file: File,
@@ -158,6 +161,31 @@ pub(super) fn safe_path(root: &Path, relative: &str) -> Result<PathBuf, MirrorEr
         }
     }
     Ok(current)
+}
+
+pub(super) fn validate_portable_mirror_path(relative: &str) -> Result<(), String> {
+    let path = mdbase::api::CollectionPath::new(relative).map_err(|error| error.to_string())?;
+    if path.as_str() != relative {
+        return Err("path is not in canonical forward-slash form".to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn portable_mirror_path_key(relative: &str) -> Result<String, String> {
+    validate_portable_mirror_path(relative)?;
+    let normalized = relative.nfc().collect::<String>();
+    Ok(normalized
+        .chars()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .nfc()
+        .collect())
+}
+
+pub(super) fn is_remote_mirror_record_path(relative: &str) -> bool {
+    relative
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension == REMOTE_MIRROR_RECORD_EXTENSION)
 }
 
 pub(super) fn atomic_write(path: &Path, value: &[u8]) -> Result<(), MirrorError> {

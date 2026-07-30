@@ -36,8 +36,9 @@ pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
 pub use transport::{HttpSyncTransport, SyncTransport};
 
 use filesystem::{
-    atomic_write, digest, frontmatter_patch, now, object, parse_markdown, queue_mutation,
-    record_markdown_document, refresh_conflict, safe_path, MirrorLease,
+    atomic_write, digest, frontmatter_patch, is_remote_mirror_record_path, now, object,
+    parse_markdown, portable_mirror_path_key, queue_mutation, record_markdown_document,
+    refresh_conflict, safe_path, validate_portable_mirror_path, MirrorLease,
 };
 
 #[derive(Debug, thiserror::Error)]

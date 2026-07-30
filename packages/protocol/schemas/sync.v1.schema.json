@@ -86,7 +86,7 @@
       "properties": {
         "path": { "type": "string", "minLength": 1 },
         "kind": { "enum": ["configuration", "type", "contract", "schema", "view"] },
-        "revision": { "type": "string", "minLength": 1 },
+        "revision": { "$ref": "#/$defs/digest" },
         "document": { "type": "string" }
       }
     },
@@ -110,7 +110,7 @@
       "properties": {
         "record_id": { "$ref": "#/$defs/uuid" },
         "path": { "type": "string", "minLength": 1 },
-        "revision": { "type": "string", "minLength": 1 },
+        "revision": { "$ref": "#/$defs/digest" },
         "frontmatter": { "type": "object" },
         "body": { "type": "string" },
         "types": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },

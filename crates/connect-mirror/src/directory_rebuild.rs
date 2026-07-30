@@ -165,18 +165,28 @@ impl DirectoryMirror {
         records: &[SyncSnapshotRecord],
     ) -> Result<(), MirrorError> {
         let mut paths = HashSet::<String>::new();
+        let mut physical_paths = HashMap::<String, String>::new();
         for resource in &resources.documents {
             safe_path(&self.root, &resource.path)?;
-            let portable = mdbase::api::CollectionPath::new(&resource.path).map_err(|error| {
+            validate_portable_mirror_path(&resource.path).map_err(|error| {
                 MirrorError::new(
                     "invalid_snapshot",
                     format!("Hosted resource path {} is unsafe: {error}", resource.path),
                 )
             })?;
-            if portable.as_str() != resource.path {
+            let physical_path = portable_mirror_path_key(&resource.path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted resource path {} is unsafe: {error}", resource.path),
+                )
+            })?;
+            if let Some(existing) = physical_paths.insert(physical_path, resource.path.clone()) {
                 return Err(MirrorError::new(
                     "invalid_snapshot",
-                    format!("Hosted resource path {} is not canonical.", resource.path),
+                    format!(
+                        "Hosted snapshot paths {existing} and {} alias on a supported filesystem.",
+                        resource.path
+                    ),
                 ));
             }
             if !paths.insert(resource.path.clone()) {
@@ -190,6 +200,27 @@ impl DirectoryMirror {
         for snapshot in records {
             let record = &snapshot.record;
             safe_path(&self.root, &record.path)?;
+            validate_portable_mirror_path(&record.path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted record path {} is unsafe: {error}", record.path),
+                )
+            })?;
+            let physical_path = portable_mirror_path_key(&record.path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted record path {} is unsafe: {error}", record.path),
+                )
+            })?;
+            if let Some(existing) = physical_paths.insert(physical_path, record.path.clone()) {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!(
+                        "Hosted snapshot paths {existing} and {} alias on a supported filesystem.",
+                        record.path
+                    ),
+                ));
+            }
             if !record_ids.insert(record.record_id) || !paths.insert(record.path.clone()) {
                 return Err(MirrorError::new(
                     "invalid_snapshot",
@@ -260,6 +291,8 @@ impl DirectoryMirror {
             };
             let mismatch = if candidate.kind != resource_kind(resource.kind) {
                 "kind"
+            } else if candidate.revision != resource.revision {
+                "revision"
             } else if candidate.document != resource.document {
                 "document"
             } else {

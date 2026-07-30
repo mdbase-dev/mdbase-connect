@@ -1,8 +1,7 @@
 import type {
   JsonObject,
   SyncMutation,
-  SyncRecord,
-  SyncSnapshotRecord
+  SyncRecord
 } from "@mdbase/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
@@ -43,11 +42,18 @@ import {
 } from "./mirror-state.js";
 import {
   defaultRecordPathPolicy,
+  filterRecordPaths,
   recordPathPolicy,
   validateRecordPath,
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
+import {
+  MirrorSnapshotValidator,
+  withoutSnapshotDocument,
+  visitSnapshotPages,
+  type ValidatedSnapshotRecord
+} from "./mirror-snapshot-validator.js";
 
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   private readonly stateStore: MirrorStateStore;
@@ -275,6 +281,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     const session = await this.openSnapshot();
     const resources = session.resources.documents ?? [];
     const pathPolicy = validateSnapshotResources(resources);
+    const snapshotValidator = new MirrorSnapshotValidator<Frontmatter>(
+      pathPolicy,
+      resources,
+      this.runtime.digest
+    );
     const remotePaths = new Set<string>();
     let downloadDocuments = 0;
     let unchangedDocuments = 0;
@@ -289,17 +300,18 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     for (const resource of resources) {
       await compareDocument(resource.path, resource.document);
     }
-    await this.visitSnapshotPages(session, async (records) => {
-      for (const record of records) {
-        validateRecordPath(record.path, pathPolicy);
-        await compareDocument(record.path, record.document);
+    await visitSnapshotPages(this.transport, session, async (pageRecords) => {
+      for (const snapshotRecord of pageRecords) {
+        const record = snapshotValidator.validate(snapshotRecord);
+        await compareDocument(record.record.path, record.document);
       }
     });
     const localMarkdown = await this.fileSystem.listMarkdown(new Set(resources.map((resource) => resource.path)));
     const localIssues: MirrorLocalIssue[] = [];
     let uploadDocuments = 0;
     if (this.mode === "read_write") {
-      for (const path of localMarkdown.filter((candidate) => !remotePaths.has(candidate))) {
+      const localRecords = filterRecordPaths(localMarkdown, pathPolicy);
+      for (const path of localRecords.filter((candidate) => !remotePaths.has(candidate))) {
         const document = await this.fileSystem.read(path);
         if (document === null) continue;
         try {
@@ -326,6 +338,11 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     const session = await this.openSnapshot();
     const resources = session.resources.documents ?? [];
     const pathPolicy = validateSnapshotResources(resources);
+    const snapshotValidator = new MirrorSnapshotValidator<Frontmatter>(
+      pathPolicy,
+      resources,
+      this.runtime.digest
+    );
     const state: MirrorState = {
       protocol_version: 1,
       replica_id: this.replicaId,
@@ -350,16 +367,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         collisions.push(resource.path);
       }
     }
-    const records: Array<{
-      record: SyncRecord<Frontmatter>;
-      document: string;
-      hash: string;
-    }> = [];
+    const records: Array<ValidatedSnapshotRecord<Frontmatter>> = [];
     const remoteRecordIds = prior ? new Set<string>() : null;
-    await this.visitSnapshotPages(session, async (pageRecords) => {
+    await visitSnapshotPages(this.transport, session, async (pageRecords) => {
       for (const snapshotRecord of pageRecords) {
-        const { document, ...record } = snapshotRecord;
-        validateRecordPath(record.path, pathPolicy);
+        const prepared = snapshotValidator.validate(snapshotRecord);
+        const { document, record } = prepared;
         const local = await this.fileSystem.read(record.path);
         const managed = prior?.records[record.record_id];
         if (
@@ -370,11 +383,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           collisions.push(record.path);
         }
         remoteRecordIds?.add(record.record_id);
-        records.push({
-          record,
-          document,
-          hash: this.runtime.digest(document)
-        });
+        records.push(prepared);
       }
     });
     if (prior) {
@@ -441,21 +450,6 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     return session;
   }
 
-  private async visitSnapshotPages(
-    session: Awaited<ReturnType<SyncTransport<Frontmatter>["openSession"]>>,
-    visitor: (records: Array<SyncSnapshotRecord<Frontmatter>>) => Promise<void>
-  ): Promise<void> {
-    let page: string | undefined;
-    do {
-      const snapshot = await this.transport.snapshot(session.snapshot_id, page);
-      if (snapshot.scope_epoch !== session.scope_epoch || snapshot.cursor !== session.head) {
-        throw new SyncError("invalid_snapshot", "Authority snapshot boundary changed during download.");
-      }
-      await visitor(snapshot.records);
-      page = snapshot.next_page;
-    } while (page);
-  }
-
   private async put(
     state: MirrorState,
     record: SyncRecord<Frontmatter>,
@@ -491,7 +485,9 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       path: record.path,
       revision: record.revision,
       hash: acceptedLocalHash ?? materialized?.hash ?? this.runtime.digest(document),
-      ...(this.mode === "read_write" ? { record } : {})
+      ...(this.mode === "read_write"
+        ? { record: withoutSnapshotDocument(record) }
+        : {})
     };
   }
 
@@ -733,14 +729,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         throw new MirrorDivergenceError(`resource:${path}`, path);
       }
     }
-    const files = (await this.fileSystem.listMarkdown(resourcePaths)).filter((path) => {
-      try {
-        validateRecordPath(path, pathPolicy);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    const files = filterRecordPaths(
+      await this.fileSystem.listMarkdown(resourcePaths),
+      pathPolicy
+    );
     const managedPaths = new Map(
       Object.entries(state.records).map(([recordId, entry]) => [entry.path, recordId])
     );

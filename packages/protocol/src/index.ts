@@ -379,6 +379,7 @@ export interface SyncCollectionResources {
 export interface SyncResourceDocument {
   path: string;
   kind: "configuration" | "type" | "contract" | "schema" | "view";
+  /** SHA-256 revision of the exact UTF-8 document (`sha256:<lowercase hex>`). */
   revision: string;
   document: string;
 }
@@ -454,6 +455,7 @@ export interface SyncSnapshotPage<Frontmatter extends JsonObject = JsonObject> {
 
 export interface SyncSnapshotRecord<Frontmatter extends JsonObject = JsonObject>
   extends SyncRecord<Frontmatter> {
+  /** Exact bytes whose SHA-256 revision and parsed metadata match this record. */
   document: string;
 }
 

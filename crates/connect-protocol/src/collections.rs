@@ -128,6 +128,7 @@ pub struct SyncCollectionResources {
 pub struct SyncResourceDocument {
     pub path: String,
     pub kind: String,
+    /// SHA-256 revision of the exact UTF-8 document.
     pub revision: String,
     pub document: String,
 }

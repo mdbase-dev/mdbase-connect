@@ -93,6 +93,7 @@ pub struct SyncSnapshotPage {
 pub struct SyncSnapshotRecord {
     #[serde(flatten)]
     pub record: SyncRecord,
+    /// Exact document whose SHA-256 revision and parsed metadata match `record`.
     pub document: String,
 }
 

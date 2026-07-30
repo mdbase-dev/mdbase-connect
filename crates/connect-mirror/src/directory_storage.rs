@@ -29,6 +29,14 @@ impl DirectoryMirror {
                 format!("Mirror record path '{relative}' is not canonical."),
             ));
         }
+        if !is_remote_mirror_record_path(relative) {
+            return Err(MirrorError::new(
+                "invalid_record_path",
+                format!(
+                    "Mirror record path '{relative}' is not safe for remote materialization; mirrors accept only .md records."
+                ),
+            ));
+        }
         Ok(())
     }
 
