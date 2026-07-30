@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [security, sync, filesystem, portability, testing, performance]
 created_at: 2026-07-30T19:03:42+10:00
-updated_at: 2026-07-30T22:04:28+10:00
+updated_at: 2026-07-30T22:20:17+10:00
 type: task
 ---
 
@@ -46,10 +46,10 @@ architecture, mobile, and performance budgets.
   perform. Records deferred by a conflict or malformed local document retain
   their physical paths for the complete page, so a later event cannot reuse a
   path that was only hypothetically freed.
-- Case-only and Unicode-equivalent renames are supported when the physical path
-  remains owned by the same record. Incremental writes and reset rebuilds
-  preserve the authority's exact spelling on both case-sensitive and
-  case-insensitive filesystems, including writable accepted-byte replay.
+- Case-only and Unicode-equivalent renames are deliberately rejected even for
+  the same record. Supporting them safely requires a separately designed,
+  recoverable cross-platform rename transaction; ordinary exact-path renames
+  remain supported.
 - Rust and TypeScript execute the same portable-path fixture corpus, including
   Windows device aliases, control characters, case collisions, and canonically
   equivalent Unicode.
@@ -75,15 +75,15 @@ architecture, mobile, and performance budgets.
 
 ## Evidence
 
-- Implementation: `bd10d21`, `0864373`, `b256ded`, and `4843fda`.
+- Implementation: `bd10d21`, `0864373`, `b256ded`, `4843fda`, and `7b99485`.
 - Rust formatting, strict workspace Clippy, and the complete workspace test
   suite pass, including 35 mirror tests and 164 Rust tests overall.
-- Node 24 workspace typechecking and all 484 JavaScript/TypeScript tests pass,
-  including 109 sync tests.
+- Node 24 workspace typechecking and all 482 JavaScript/TypeScript tests pass,
+  including 107 sync tests.
 - The architecture gate passes with 289 production files, 630 relative imports,
   11 workspace packages, no dependency cycles, and no production file above
   1,000 lines.
-- The mobile mirror bundle passes at 132,691 raw bytes and 42,172 gzip bytes.
+- The mobile mirror bundle passes at 132,502 raw bytes and 42,111 gzip bytes.
 - The 10,000-record Node/portable mirror performance matrix passes its
   wall-time, heap, filesystem-I/O, and checkpoint gates with target-indexed
   incremental preflight bounded by change-page size.

@@ -8,8 +8,8 @@ target_path: tasks/Filesystem mirror materialization hardening.md
 remote_title: Filesystem mirror materialization hardening
 remote_state: done
 remote_url: tasks/Filesystem mirror materialization hardening.md
-remote_updated_at: 2026-07-30T22:04:28+10:00
-last_seen_remote_updated_at: 2026-07-30T22:04:28+10:00
+remote_updated_at: 2026-07-30T22:20:17+10:00
+last_seen_remote_updated_at: 2026-07-30T22:20:17+10:00
 local_status: done
 priority: critical
 difficulty: hard
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [security, sync, filesystem, portability, testing, performance]
 sync_state: clean
-last_analyzed_at: 2026-07-30T22:04:28+10:00
+last_analyzed_at: 2026-07-30T22:20:17+10:00
 type: item_state
 ---
 
@@ -60,9 +60,9 @@ server-first prerelease rollout documentation are current.
 
 The refined preflight initially simulated transitions that the apply loop can
 defer for conflicts or malformed local files. It now preserves those records'
-occupied paths for the whole page. Same-record case-only renames are supported
-through incremental, reset, and writable accepted-byte paths, while aliases
-owned by another record still fail before any write.
+occupied paths for the whole page. Same-record case-only and Unicode-equivalent
+renames are deferred until a recoverable cross-platform rename transaction is
+designed; they fail before any write just like aliases owned by another record.
 
 The TypeScript mirror orchestrator was reduced from more than 1,000 lines to
 682 by extracting integrity, local capture, physical-path, materialization, and
@@ -72,7 +72,7 @@ pinned locked Docker build all pass.
 
 ## Handoff
 
-Completed through `b256ded` and `4843fda`. All listed validation gates pass.
+Completed through `7b99485`. All listed validation gates pass.
 The pinned engine commit
 `8f72aeb75ec98ca8ff2ae9849bd1fc107f2504f2` is published on
 `origin/agent/exquisite-codebase`, and a clean container build resolved and
