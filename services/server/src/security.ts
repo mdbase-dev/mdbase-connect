@@ -1,4 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  ECDH,
+  randomBytes,
+  timingSafeEqual
+} from "node:crypto";
 
 export function randomToken(prefix: string): string {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
@@ -30,4 +35,16 @@ export function safeEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+export function isP256PublicKey(value: string): boolean {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return false;
+  try {
+    const bytes = Buffer.from(value, "base64url");
+    if (bytes.length !== 65 || bytes[0] !== 4) return false;
+    ECDH.convertKey(bytes, "prime256v1", undefined, undefined, "uncompressed");
+    return true;
+  } catch {
+    return false;
+  }
 }
