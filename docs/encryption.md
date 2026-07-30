@@ -40,9 +40,11 @@ binding without falling back to plaintext.
 
 The TypeScript/Rust end-to-end suite crosses both cryptographic
 implementations and exercises tampering, replay, scope, pause, revocation, and
-downgrade behavior. Connector identity material currently lives in a mode-0600
-agent state file. Moving it into platform-protected storage, verifying first
-contact, and auditing logs remain public-release gates.
+downgrade behavior. Connector identity material lives in the operating-system
+credential store. Existing owner-only `relay-identity.key` installations are
+migrated into that store, read back for identity verification, and only then
+have the legacy file removed. Verifying first contact and auditing logs remain
+public-release gates.
 
 The hosted provider encrypts canonical records, retained versions, change
 payloads, mutation receipts, and collection resources with AES-256-GCM under a
@@ -106,14 +108,16 @@ authorized application does after decryption.
 ### Grant-bound keys
 
 Each connector installation has long-lived P-256 key-agreement material. Its
-private key is stored in the agent state directory with owner-only file
-permissions on Unix; its public key is registered when the connector
-synchronizes. Platform keystore integration remains to be implemented.
+private key is stored through the daemon's platform credential-store boundary;
+its public key is registered when the connector synchronizes. Production never
+falls back to a plaintext file when the platform store is unavailable.
 
 Each browser application installation creates independent P-256 ECDH agreement
 and P-256 ECDSA signing keypairs for an authorization. The SDK reimports both
 private keys as non-extractable and stores them with an atomic message counter
-in origin-scoped IndexedDB. Reusing one keypair for both purposes is rejected.
+in origin-scoped IndexedDB. A real-Chromium integration test verifies
+non-extractability, multi-tab counter serialization, and persistence across a
+browser restart. Reusing one keypair for both purposes is rejected.
 Native application key storage remains to be implemented with platform
 keystores.
 
@@ -397,9 +401,8 @@ and decrypted recovery material never enter audit events.
 
 ### Next: release security and key operations
 
-- platform-protected connector identity and native application key storage;
+- native application key storage for a future non-browser SDK;
 - first-contact connector identity verification or key transparency;
-- browser restart and multi-tab integration tests using real IndexedDB;
 - independent protocol review and systematic log, trace, and crash-path audit;
 - move hosted key wrapping to a versioned managed-key boundary;
 - implement and exercise rotation, restore, deletion, and key-service outage

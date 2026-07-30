@@ -1,4 +1,5 @@
 use crate::ConnectError;
+use mdbase_connect_protocol::crypto::RelayIdentity;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -7,6 +8,8 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 const SERVICE: &str = "dev.mdbase.connect";
+const RELAY_IDENTITY_SECRET: &str = "relay-identity";
+const LEGACY_RELAY_IDENTITY_FILE: &str = "relay-identity.key";
 
 #[derive(Debug, Clone)]
 pub struct SystemSecretStore {
@@ -111,6 +114,46 @@ impl SystemSecretStore {
         self.delete(&format!("mirror:{replica_id}"))
     }
 
+    pub fn load_or_create_relay_identity(
+        &self,
+        state_dir: &Path,
+    ) -> Result<RelayIdentity, ConnectError> {
+        if let Some(identity) = self.relay_identity()? {
+            return Ok(identity);
+        }
+
+        let legacy_path = state_dir.join(LEGACY_RELAY_IDENTITY_FILE);
+        let (identity, migrated_legacy_file) = match std::fs::read_to_string(&legacy_path) {
+            Ok(value) => (decode_relay_identity(&value)?, true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (RelayIdentity::generate(), false)
+            }
+            Err(error) => return Err(ConnectError::Io(error)),
+        };
+        self.set(RELAY_IDENTITY_SECRET, &identity.storage_value())?;
+
+        let restored = self.relay_identity()?.ok_or_else(|| {
+            ConnectError::CredentialStore(
+                "The connector identity could not be verified after storage.".to_string(),
+            )
+        })?;
+        if restored.public_key() != identity.public_key() {
+            return Err(ConnectError::CredentialStore(
+                "The connector identity changed while it was being stored.".to_string(),
+            ));
+        }
+        if migrated_legacy_file {
+            std::fs::remove_file(legacy_path)?;
+        }
+        Ok(restored)
+    }
+
+    fn relay_identity(&self) -> Result<Option<RelayIdentity>, ConnectError> {
+        self.get(RELAY_IDENTITY_SECRET)?
+            .map(|value| decode_relay_identity(&value))
+            .transpose()
+    }
+
     fn entry(&self, name: &str) -> Result<keyring::Entry, ConnectError> {
         keyring::Entry::new(SERVICE, &format!("{}:{name}", self.profile))
             .map_err(|error| secret_error("open", error))
@@ -187,6 +230,15 @@ fn valid_secret(secret: &str, prefix: &str) -> bool {
     secret.starts_with(prefix) && secret.len() >= 24 && !secret.chars().any(char::is_whitespace)
 }
 
+fn decode_relay_identity(value: &str) -> Result<RelayIdentity, ConnectError> {
+    RelayIdentity::from_storage_value(value).map_err(|_| {
+        ConnectError::CredentialStore(
+            "The connector identity in the operating-system credential store is invalid."
+                .to_string(),
+        )
+    })
+}
+
 fn secret_error(action: &str, error: keyring::Error) -> ConnectError {
     ConnectError::CredentialStore(format!(
         "Could not {action} the Connect credential in the operating-system credential store: {error}"
@@ -218,5 +270,58 @@ mod tests {
         assert!(
             SystemSecretStore::validate_connector_token("con_12345678901234567890 bad").is_err()
         );
+    }
+
+    #[test]
+    fn relay_identity_is_stable_in_the_secret_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = SystemSecretStore::insecure_test(directory.path());
+        let first = store
+            .load_or_create_relay_identity(directory.path())
+            .unwrap();
+        let second = store
+            .load_or_create_relay_identity(directory.path())
+            .unwrap();
+        assert_eq!(first.public_key(), second.public_key());
+        assert!(!directory.path().join(LEGACY_RELAY_IDENTITY_FILE).exists());
+    }
+
+    #[test]
+    fn legacy_relay_identity_is_migrated_before_its_file_is_removed() {
+        let directory = tempfile::tempdir().unwrap();
+        let expected = RelayIdentity::generate();
+        let legacy_path = directory.path().join(LEGACY_RELAY_IDENTITY_FILE);
+        std::fs::write(&legacy_path, format!("{}\n", expected.storage_value())).unwrap();
+        let store = SystemSecretStore::insecure_test(directory.path());
+
+        let migrated = store
+            .load_or_create_relay_identity(directory.path())
+            .unwrap();
+
+        assert_eq!(migrated.public_key(), expected.public_key());
+        assert!(!legacy_path.exists());
+        assert_eq!(
+            store
+                .load_or_create_relay_identity(directory.path())
+                .unwrap()
+                .public_key(),
+            expected.public_key()
+        );
+    }
+
+    #[test]
+    fn invalid_legacy_identity_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy_path = directory.path().join(LEGACY_RELAY_IDENTITY_FILE);
+        std::fs::write(&legacy_path, "invalid").unwrap();
+        let store = SystemSecretStore::insecure_test(directory.path());
+
+        let error = match store.load_or_create_relay_identity(directory.path()) {
+            Ok(_) => panic!("invalid identity was accepted"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code(), "credential_store_unavailable");
+        assert!(legacy_path.exists());
     }
 }

@@ -12,7 +12,6 @@ use mdbase_connect_core::{
     default_control_endpoint, default_state_dir, load_cloud_configuration,
     recover_staged_cloud_configuration, CloudConfiguration, CollectionRegistry, SystemSecretStore,
 };
-use mdbase_connect_protocol::crypto::RelayIdentity;
 use mdbase_connect_protocol::DEFAULT_LOOPBACK_PORT;
 use server::AgentState;
 use std::path::PathBuf;
@@ -58,7 +57,8 @@ pub async fn run(options: DaemonOptions) -> Result<(), Box<dyn std::error::Error
         .endpoint
         .unwrap_or_else(|| default_control_endpoint(&state_dir));
     let registry = CollectionRegistry::open(&state_dir)?;
-    let relay_identity = RelayIdentity::load_or_create(&state_dir)?;
+    let relay_identity =
+        SystemSecretStore::new(&state_dir).load_or_create_relay_identity(&state_dir)?;
     let cloud = match (server_url.clone(), connector_token.clone()) {
         (Some(server_url), Some(connector_token)) => {
             Some(CloudControlClient::new(server_url, connector_token))

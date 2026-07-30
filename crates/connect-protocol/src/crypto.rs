@@ -13,13 +13,9 @@ use p256::{PublicKey, SecretKey};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
 
-const IDENTITY_FILE: &str = "relay-identity.key";
 const REQUEST_INFO: &[u8] = b"mdbase-connect relay request key v1";
 const RESPONSE_INFO: &[u8] = b"mdbase-connect relay response key v1";
 
@@ -37,8 +33,6 @@ pub enum RelayCryptoError {
     AuthenticationFailed,
     #[error("encrypted relay payload is invalid JSON")]
     InvalidPayload(#[from] serde_json::Error),
-    #[error("could not persist relay identity: {0}")]
-    IdentityIo(#[from] std::io::Error),
 }
 
 #[derive(Clone)]
@@ -58,31 +52,15 @@ impl RelayIdentity {
         Ok(Self { secret })
     }
 
-    pub fn load_or_create(state_dir: &Path) -> Result<Self, RelayCryptoError> {
-        fs::create_dir_all(state_dir)?;
-        let path = state_dir.join(IDENTITY_FILE);
-        match fs::read(&path) {
-            Ok(bytes) => Self::decode_identity(&bytes),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let identity = Self::generate();
-                match write_identity_file(&path, &identity.secret.to_bytes()) {
-                    Ok(()) => Ok(identity),
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                        Self::decode_identity(&fs::read(path)?)
-                    }
-                    Err(error) => Err(error.into()),
-                }
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    fn decode_identity(bytes: &[u8]) -> Result<Self, RelayCryptoError> {
-        let encoded = std::str::from_utf8(bytes).map_err(|_| RelayCryptoError::InvalidIdentity)?;
+    pub fn from_storage_value(encoded: &str) -> Result<Self, RelayCryptoError> {
         let raw = URL_SAFE_NO_PAD
             .decode(encoded.trim())
             .map_err(|_| RelayCryptoError::InvalidIdentity)?;
         Self::from_bytes(&raw)
+    }
+
+    pub fn storage_value(&self) -> String {
+        URL_SAFE_NO_PAD.encode(self.secret.to_bytes())
     }
 
     pub fn public_key(&self) -> String {
@@ -354,24 +332,9 @@ fn nonce(counter: u64) -> [u8; 12] {
     nonce
 }
 
-fn write_identity_file(path: &PathBuf, secret: &[u8]) -> std::io::Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(URL_SAFE_NO_PAD.encode(secret).as_bytes())?;
-    file.write_all(b"\n")?;
-    file.sync_all()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     fn binding() -> RelayBinding {
         RelayBinding {
@@ -452,21 +415,11 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_stable_and_private_on_disk() {
-        let directory = tempdir().unwrap();
-        let first = RelayIdentity::load_or_create(directory.path()).unwrap();
-        let second = RelayIdentity::load_or_create(directory.path()).unwrap();
+    fn identity_storage_round_trip_is_stable() {
+        let first = RelayIdentity::generate();
+        let second = RelayIdentity::from_storage_value(&first.storage_value()).unwrap();
         assert_eq!(first.secret_bytes(), second.secret_bytes());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(directory.path().join(IDENTITY_FILE))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777;
-            assert_eq!(mode, 0o600);
-        }
+        assert!(RelayIdentity::from_storage_value("not an identity").is_err());
     }
 
     #[test]
