@@ -122,7 +122,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
     for message in [
         RelayMessage::RelayHello {
             protocol_version: CONTROL_PROTOCOL_VERSION,
-            connector_version: "0.1.0-beta.20".to_string(),
+            connector_version: "0.1.0-beta.21".to_string(),
             capabilities: RELAY_CAPABILITIES
                 .iter()
                 .map(|value| (*value).to_string())
