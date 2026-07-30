@@ -104,6 +104,7 @@ class RemoteAuthorityHarness {
   readonly operations: string[] = [];
   controlPlaneOperations = 0;
   private sequence = 1;
+  private proofPublicKey: string | null = null;
   private readonly records = new Map<string, AuthorityRecord>();
 
   constructor(private readonly page: Page) {
@@ -139,6 +140,10 @@ class RemoteAuthorityHarness {
       });
     }
     if (url.pathname === "/oauth/authorize") {
+      this.proofPublicKey = url.searchParams.get(
+        "application_signing_public_key",
+      );
+      expect(this.proofPublicKey).toEqual(expect.any(String));
       return route.fulfill({
         contentType: "text/html; charset=utf-8",
         body: authorizationPage(url)
@@ -162,7 +167,8 @@ class RemoteAuthorityHarness {
           operations_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/operations`,
           sync_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/sync`,
           replica_id: selectedSecondCollection ? secondReplicaId : replicaId,
-          access_token: selectedSecondCollection ? "remote-authority-access-second" : "remote-authority-access"
+          access_token: selectedSecondCollection ? "remote-authority-access-second" : "remote-authority-access",
+          proof_public_key: this.proofPublicKey
         }
       });
     }
@@ -178,10 +184,18 @@ class RemoteAuthorityHarness {
       "Bearer remote-authority-access-second"
     ]).toContain(request.headers().authorization);
     const operation = new URL(request.url()).pathname.split("/").at(-1)!;
-    const input = request.postDataJSON() as Record<string, unknown>;
+    const operationRequest = request.postDataJSON() as {
+      protocol_version?: unknown;
+      request_id?: unknown;
+      input?: unknown;
+    };
+    expect(operationRequest.protocol_version).toBe(1);
+    expect(operationRequest.request_id).toEqual(expect.any(String));
+    const requestId = String(operationRequest.request_id);
+    const input = object(operationRequest.input);
     this.operations.push(operation);
 
-    if (operation === "describe") return providerResult(route, {
+    if (operation === "describe") return providerResult(route, requestId, {
       protocol_version: 1,
       collection_id: selectedSecondCollection ? secondCollectionId : collectionId,
       display_name: selectedSecondCollection ? "Research" : "Hosted writing",
@@ -195,7 +209,7 @@ class RemoteAuthorityHarness {
         settings: { types_folder: "_types", validation: "error" }
       }
     });
-    if (operation === "changes") return providerResult(route, {
+    if (operation === "changes") return providerResult(route, requestId, {
       cursor: this.sequence,
       events: [],
       has_more: false
@@ -203,13 +217,17 @@ class RemoteAuthorityHarness {
     if (operation === "query") {
       const includeBody = input.include_body === true;
       const records = [...this.records.values()].map((record) => summary(record, includeBody));
-      return providerResult(route, envelope({
+      return providerResult(route, requestId, envelope({
         results: records,
         meta: { total_count: records.length, has_more: false }
       }));
     }
     if (operation === "read") {
-      return providerResult(route, envelope(this.record(String(input.path))));
+      return providerResult(
+        route,
+        requestId,
+        envelope(this.record(String(input.path))),
+      );
     }
     if (operation === "create") {
       const record = this.document(
@@ -218,7 +236,7 @@ class RemoteAuthorityHarness {
         object(input.frontmatter)
       );
       this.records.set(record.path, record);
-      return providerResult(route, envelope(record));
+      return providerResult(route, requestId, envelope(record));
     }
     if (operation === "update") {
       const current = this.record(String(input.path));
@@ -228,13 +246,13 @@ class RemoteAuthorityHarness {
         { ...current.frontmatter, ...object(input.patch ?? input.fields) }
       );
       this.records.set(record.path, record);
-      return providerResult(route, envelope(record));
+      return providerResult(route, requestId, envelope(record));
     }
     if (operation === "rename") {
       const from = String(input.from);
       const current = this.record(from);
       if (input.dry_run === true) {
-        return providerResult(route, envelope({
+        return providerResult(route, requestId, envelope({
           from,
           to: String(input.to),
           dry_run: true,
@@ -245,13 +263,13 @@ class RemoteAuthorityHarness {
       const record = this.document(String(input.to), current.body, current.frontmatter);
       this.records.delete(from);
       this.records.set(record.path, record);
-      return providerResult(route, envelope({ ...record, from }));
+      return providerResult(route, requestId, envelope({ ...record, from }));
     }
     if (operation === "delete") {
       const path = String(input.path);
       this.record(path);
       if (input.dry_run === true) {
-        return providerResult(route, envelope({
+        return providerResult(route, requestId, envelope({
           path,
           deleted: false,
           dry_run: true,
@@ -260,9 +278,19 @@ class RemoteAuthorityHarness {
         }));
       }
       this.records.delete(path);
-      return providerResult(route, envelope({ path, deleted: true, broken_links: [] }));
+      return providerResult(
+        route,
+        requestId,
+        envelope({ path, deleted: true, broken_links: [] }),
+      );
     }
-    if (operation === "validate") return providerResult(route, envelope({ path: input.path }));
+    if (operation === "validate") {
+      return providerResult(
+        route,
+        requestId,
+        envelope({ path: input.path }),
+      );
+    }
     return json(route, { error: { code: "unsupported_operation", message: operation } }, 400);
   }
 
@@ -341,8 +369,13 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function providerResult(route: Route, result: unknown) {
-  return json(route, { ok: true, result });
+function providerResult(route: Route, requestId: string, result: unknown) {
+  return json(route, {
+    protocol_version: 1,
+    request_id: requestId,
+    ok: true,
+    result,
+  });
 }
 
 function json(route: Route, body: unknown, status = 200) {

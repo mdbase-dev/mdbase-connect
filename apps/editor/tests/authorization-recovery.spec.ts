@@ -50,19 +50,39 @@ test("recovers from a stale local grant without bypassing the connector", async 
   await page.addInitScript(async ({ configuredServerUrl, configuredManifestPath }) => {
     const manifestUrl = new URL(configuredManifestPath, location.href).href;
     const grantHandle = "grant:stale-editor";
-    const applicationKey = await crypto.subtle.generateKey(
+    const applicationAgreementKey = await crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
       true,
       ["deriveBits"]
     ) as CryptoKeyPair;
-    const privateKey = await crypto.subtle.importKey(
+    const agreementPrivateKey = await crypto.subtle.importKey(
       "pkcs8",
-      await crypto.subtle.exportKey("pkcs8", applicationKey.privateKey),
+      await crypto.subtle.exportKey(
+        "pkcs8",
+        applicationAgreementKey.privateKey,
+      ),
       { name: "ECDH", namedCurve: "P-256" },
       false,
       ["deriveBits"]
     );
-    const applicationPublicKey = base64Url(await crypto.subtle.exportKey("raw", applicationKey.publicKey));
+    const agreementPublicKey = base64Url(
+      await crypto.subtle.exportKey("raw", applicationAgreementKey.publicKey),
+    );
+    const applicationSigningKey = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    ) as CryptoKeyPair;
+    const signingPrivateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      await crypto.subtle.exportKey("pkcs8", applicationSigningKey.privateKey),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+    const signingPublicKey = base64Url(
+      await crypto.subtle.exportKey("raw", applicationSigningKey.publicKey),
+    );
     const connectorKey = await crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
       true,
@@ -81,8 +101,10 @@ test("recovers from a stale local grant without bypassing the connector", async 
       const transaction = database.transaction("grant-keys", "readwrite");
       transaction.objectStore("grant-keys").add({
         handle: grantHandle,
-        privateKey,
-        publicKey: applicationPublicKey,
+        agreementPrivateKey,
+        agreementPublicKey,
+        signingPrivateKey,
+        signingPublicKey,
         counter: "0"
       });
       transaction.onerror = () => reject(transaction.error);
@@ -120,8 +142,8 @@ test("recovers from a stale local grant without bypassing the connector", async 
           scope_epoch: 1,
           connector_id: "50000000-0000-4000-8000-000000000005",
           collection_id: collectionId,
-          application_public_key: applicationPublicKey,
-          connector_public_key: connectorPublicKey
+          application_agreement_public_key: agreementPublicKey,
+          connector_agreement_public_key: connectorPublicKey
         },
         applicationOrigin: location.origin,
         keyHandle: grantHandle,
