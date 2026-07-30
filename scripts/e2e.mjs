@@ -888,6 +888,7 @@ function startAgent(extraArgs, connectorToken) {
     env: {
       ...process.env,
       MDBASE_CONNECT_ENV: "test",
+      MDBASE_CONNECT_SECRET_BACKEND: "insecure-test-file",
       ...(connectorToken
         ? { MDBASE_CONNECT_CONNECTOR_TOKEN: connectorToken }
         : {})
