@@ -397,9 +397,15 @@ impl DirectoryMirror {
         state: &DurableMirrorState,
     ) -> Result<(), MirrorError> {
         let mut paths = HashSet::new();
+        let mut physical_paths = HashMap::<String, String>::new();
         for (record_id, entry) in &state.records {
             safe_path(&self.root, &entry.path)?;
-            if !paths.insert(entry.path.as_str())
+            let physical_path = portable_mirror_path_key(&entry.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+            if physical_paths
+                .insert(physical_path, entry.path.clone())
+                .is_some()
+                || !paths.insert(entry.path.as_str())
                 || entry.record.as_ref().is_some_and(|record| {
                     record.record_id != *record_id || record.path != entry.path
                 })
@@ -412,7 +418,14 @@ impl DirectoryMirror {
         }
         for (path, entry) in &state.resources {
             safe_path(&self.root, &entry.path)?;
-            if path != &entry.path || !paths.insert(entry.path.as_str()) {
+            let physical_path = portable_mirror_path_key(&entry.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+            if path != &entry.path
+                || physical_paths
+                    .insert(physical_path, entry.path.clone())
+                    .is_some()
+                || !paths.insert(entry.path.as_str())
+            {
                 return Err(MirrorError::new(
                     "invalid_mirror_state",
                     "Mirror state contains inconsistent or overlapping resource paths.",

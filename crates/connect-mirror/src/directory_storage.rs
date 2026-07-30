@@ -40,6 +40,115 @@ impl DirectoryMirror {
         Ok(())
     }
 
+    pub(super) fn validate_record_physical_path(
+        &self,
+        state: &DurableMirrorState,
+        record_id: Uuid,
+        relative: &str,
+    ) -> Result<(), MirrorError> {
+        let physical_path = portable_mirror_path_key(relative).map_err(|error| {
+            MirrorError::new(
+                "invalid_record_path",
+                format!("Mirror record path '{relative}' is unsafe: {error}"),
+            )
+        })?;
+        for entry in state.resources.values() {
+            if portable_mirror_path_key(&entry.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
+                == physical_path
+            {
+                return Err(MirrorError::new(
+                    "invalid_record_path",
+                    format!(
+                        "Mirror record path {relative} aliases authority resource {} on a supported filesystem.",
+                        entry.path
+                    ),
+                ));
+            }
+        }
+        for (existing_id, entry) in &state.records {
+            if (*existing_id != record_id || entry.path != relative)
+                && portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
+                    == physical_path
+            {
+                return Err(MirrorError::new(
+                    "invalid_record_path",
+                    format!(
+                        "Mirror record paths {} and {relative} alias on a supported filesystem.",
+                        entry.path
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn preflight_change_physical_paths(
+        &self,
+        state: &DurableMirrorState,
+        events: &[SyncChange],
+    ) -> Result<(), MirrorError> {
+        let mut physical_paths = HashMap::<String, (String, Option<Uuid>)>::new();
+        let mut record_paths = HashMap::<Uuid, String>::new();
+        for path in state.resources.keys() {
+            physical_paths.insert(
+                portable_mirror_path_key(path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+                (path.clone(), None),
+            );
+        }
+        for (record_id, entry) in &state.records {
+            physical_paths.insert(
+                portable_mirror_path_key(&entry.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+                (entry.path.clone(), Some(*record_id)),
+            );
+            record_paths.insert(*record_id, entry.path.clone());
+        }
+        for event in events {
+            match event {
+                SyncChange::Remove { record_id, .. } => {
+                    if let Some(prior) = record_paths.remove(record_id) {
+                        let physical_path = portable_mirror_path_key(&prior)
+                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        physical_paths.remove(&physical_path);
+                    }
+                }
+                SyncChange::Put { record, .. } => {
+                    self.validate_record_path(&record.path)?;
+                    let physical_path =
+                        portable_mirror_path_key(&record.path).map_err(|error| {
+                            MirrorError::new(
+                                "invalid_record_path",
+                                format!("Mirror record path '{}' is unsafe: {error}", record.path),
+                            )
+                        })?;
+                    if let Some((occupied_path, occupied_id)) = physical_paths.get(&physical_path) {
+                        if *occupied_id != Some(record.record_id) || occupied_path != &record.path {
+                            return Err(MirrorError::new(
+                                "invalid_record_path",
+                                format!(
+                                    "Mirror paths {occupied_path} and {} alias on a supported filesystem.",
+                                    record.path
+                                ),
+                            ));
+                        }
+                    }
+                    if let Some(prior) = record_paths.get(&record.record_id) {
+                        let prior_physical = portable_mirror_path_key(prior)
+                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        physical_paths.remove(&prior_physical);
+                    }
+                    physical_paths
+                        .insert(physical_path, (record.path.clone(), Some(record.record_id)));
+                    record_paths.insert(record.record_id, record.path.clone());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn read_state(&self) -> Result<Option<DurableMirrorState>, MirrorError> {
         let value = match fs::read(&self.state_file) {
             Ok(value) => value,

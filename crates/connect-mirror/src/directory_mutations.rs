@@ -7,8 +7,12 @@ impl DirectoryMirror {
         record: SyncRecord,
         accepted_hash: Option<&str>,
         preserve_accepted_document: bool,
+        physical_path_preflighted: bool,
     ) -> Result<(), MirrorError> {
         self.validate_record_path(&record.path)?;
+        if !physical_path_preflighted {
+            self.validate_record_physical_path(state, record.record_id, &record.path)?;
+        }
         let document = record_markdown_document(&record)?;
         let existing = self.read_file(&record.path)?;
         let prior = state.records.get(&record.record_id).cloned();
@@ -103,6 +107,25 @@ impl DirectoryMirror {
             }
         }
         let files = self.list_markdown(&resource_paths)?;
+        let mut physical_paths = HashMap::<String, String>::new();
+        for path in resource_paths.iter().chain(files.iter()) {
+            let physical_path = portable_mirror_path_key(path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_record_path",
+                    format!("Mirror path '{path}' is unsafe: {error}"),
+                )
+            })?;
+            if let Some(existing) = physical_paths.insert(physical_path, path.clone()) {
+                if existing != path.as_str() {
+                    return Err(MirrorError::new(
+                        "invalid_record_path",
+                        format!(
+                            "Mirror paths {existing} and {path} alias on a supported filesystem."
+                        ),
+                    ));
+                }
+            }
+        }
         let managed_paths = state
             .records
             .iter()
@@ -310,7 +333,13 @@ impl DirectoryMirror {
                 SyncMutationReceipt::Applied { record, .. }
                 | SyncMutationReceipt::PreviouslyApplied { record, .. } => {
                     if let Some(record) = record.clone() {
-                        self.put(state, record.clone(), pending.local_hash.as_deref(), true)?;
+                        self.put(
+                            state,
+                            record.clone(),
+                            pending.local_hash.as_deref(),
+                            true,
+                            false,
+                        )?;
                         for later in &mut state.pending {
                             if later.mutation.record_id == pending.mutation.record_id
                                 && later.mutation.causal_predecessor
@@ -360,7 +389,7 @@ impl DirectoryMirror {
                 }
             }
             let accepted = self.read_file(&current.path)?.as_deref().map(digest);
-            self.put(state, current, accepted.as_deref(), false)
+            self.put(state, current, accepted.as_deref(), false, false)
         } else {
             if let Some(entry) = state.records.get(&record_id) {
                 paths.insert(entry.path.clone());

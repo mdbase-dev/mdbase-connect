@@ -69,6 +69,13 @@ Portable snapshots also reject duplicate identities, case- or
 Unicode-normalization path aliases, revision/document mismatches, and
 document/metadata disagreement before their first write.
 
+The exact SHA-256 revision requirement tightens the prerelease sync-v1 wire
+contract. Deploy an authority that emits content-derived revisions before
+releasing clients that require them; do not run the stricter client against an
+older authority that still emits opaque revision labels. Any incompatible
+change after the v1 contract is released requires a new declared protocol
+version.
+
 The network end-to-end test creates a hosted collection, queues a record
 offline, synchronizes two clients, materializes Markdown, returns a stale-write
 conflict, recovers an expired cursor without losing pending work, and enforces

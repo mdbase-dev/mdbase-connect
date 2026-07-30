@@ -19,6 +19,7 @@ struct PortablePathAlias {
 struct FakeAuthority {
     session: SyncSession,
     records: Mutex<BTreeMap<Uuid, SyncRecord>>,
+    changes: Mutex<Vec<SyncChange>>,
     mutations: Mutex<Vec<SyncMutation>>,
     receipts: Mutex<HashMap<Uuid, SyncMutationReceipt>>,
     next_receipt: Mutex<Option<SyncMutationReceipt>>,
@@ -58,6 +59,7 @@ impl FakeAuthority {
                     .map(|record| (record.record_id, record))
                     .collect(),
             ),
+            changes: Mutex::new(Vec::new()),
             mutations: Mutex::new(Vec::new()),
             receipts: Mutex::new(HashMap::new()),
             next_receipt: Mutex::new(None),
@@ -109,6 +111,12 @@ impl FakeAuthority {
 
     fn lose_next_response(&self) {
         *self.lose_next_response.lock().unwrap() = true;
+    }
+
+    fn emit_put(&self, record: SyncRecord) {
+        let mut changes = self.changes.lock().unwrap();
+        let sequence = changes.len() as u64 + 2;
+        changes.push(SyncChange::Put { sequence, record });
     }
 }
 
@@ -203,12 +211,30 @@ impl SyncTransport for FakeAuthority {
     }
 
     async fn changes(&self, after: u64, _limit: usize) -> Result<SyncChangesPage, MirrorError> {
+        let events = self
+            .changes
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| match event {
+                SyncChange::Put { sequence, .. } | SyncChange::Remove { sequence, .. } => {
+                    *sequence > after
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let cursor = events
+            .last()
+            .map(|event| match event {
+                SyncChange::Put { sequence, .. } | SyncChange::Remove { sequence, .. } => *sequence,
+            })
+            .unwrap_or(after);
         Ok(SyncChangesPage {
             protocol_version: SYNC_PROTOCOL_VERSION,
             scope_epoch: self.session.scope_epoch,
-            events: Vec::new(),
-            cursor: after,
-            head: after,
+            events,
+            cursor,
+            head: cursor,
             has_more: false,
             reset_required: false,
         })
@@ -729,6 +755,77 @@ async fn snapshot_rejects_cross_platform_path_aliases_before_materialization() {
 }
 
 #[tokio::test]
+async fn incremental_puts_reject_exact_cross_platform_and_case_only_rename_aliases() {
+    for (path, keep_record_id) in [
+        ("Notes/Example.md", false),
+        ("notes/example.md", false),
+        ("notes/example.md", true),
+    ] {
+        let source = record("Notes/Example.md", "Same");
+        let (_temporary, mirror, authority) =
+            harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+        mirror.sync().await.unwrap();
+        let mut alias = source.clone();
+        if !keep_record_id {
+            alias.record_id = Uuid::new_v4();
+        }
+        alias.path = path.to_string();
+        refresh_revision(&mut alias);
+        authority.emit_put(alias);
+
+        let error = mirror.sync().await.unwrap_err();
+
+        assert_eq!(error.code, "invalid_record_path");
+        assert!(mirror.root().join("Notes/Example.md").exists());
+        assert!(!mirror.root().join("notes/example.md").exists() || path == "Notes/Example.md");
+    }
+}
+
+#[tokio::test]
+async fn incremental_pages_are_preflighted_before_writing_aliased_records() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
+    mirror.sync().await.unwrap();
+    authority.emit_put(record("Notes/Example.md", "One"));
+    authority.emit_put(record("notes/example.md", "Two"));
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(!mirror.root().join("Notes/Example.md").exists());
+    assert!(!mirror.root().join("notes/example.md").exists());
+}
+
+#[tokio::test]
+async fn writable_capture_rejects_local_cross_platform_aliases_before_upload() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
+    fs::create_dir_all(mirror.root().join("Notes")).unwrap();
+    fs::create_dir_all(mirror.root().join("notes")).unwrap();
+    fs::write(mirror.root().join("Notes/Example.md"), "One").unwrap();
+    fs::write(mirror.root().join("notes/example.md"), "Two").unwrap();
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(authority.mutations().is_empty());
+}
+
+#[tokio::test]
+async fn persisted_state_rejects_cross_platform_path_aliases() {
+    let source = record("Notes/Example.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut state = mirror.read_state().unwrap().unwrap();
+    let mut alias = state.records[&source.record_id].clone();
+    alias.path = "notes/example.md".to_string();
+    state.records.insert(Uuid::new_v4(), alias);
+    mirror.write_state(&state).unwrap();
+
+    let error = mirror.status().unwrap_err();
+
+    assert_eq!(error.code, "invalid_mirror_state");
+}
+
+#[tokio::test]
 async fn snapshot_records_cannot_materialize_executables_or_hidden_hooks() {
     for path in ["payload.bat", ".git/hooks/post-checkout.md"] {
         let replica_id = Uuid::new_v4();
@@ -872,7 +969,9 @@ async fn incremental_record_puts_recheck_the_live_collection_policy() {
     hostile.body = "malware".to_string();
     refresh_revision(&mut hostile);
 
-    let error = mirror.put(&mut state, hostile, None, false).unwrap_err();
+    let error = mirror
+        .put(&mut state, hostile, None, false, false)
+        .unwrap_err();
 
     assert_eq!(error.code, "invalid_record_path");
     assert!(!mirror.root().join("payload.exe").exists());

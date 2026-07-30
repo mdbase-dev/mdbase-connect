@@ -454,6 +454,152 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
+  it("rejects exact, cross-platform, and case-only rename aliases from incremental puts", async () => {
+    for (const { path, recordId } of [
+      { path: "Notes/Example.md", recordId: "second" },
+      { path: "notes/example.md", recordId: "second" },
+      { path: "notes/example.md", recordId: "first" }
+    ]) {
+      const hosted = new MemoryAuthority();
+      hosted.seed([{
+        record_id: "first",
+        path: "Notes/Example.md",
+        frontmatter: {},
+        body: "Same bytes",
+        types: []
+      }]);
+      const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+      const base = hosted.transport(replicaId);
+      let emitAlias = false;
+      const fileSystem = new TestFileSystem();
+      const mirror = new DirectoryMirror(replicaId, {
+        ...base,
+        changes: async (after, limit) => emitAlias
+          ? {
+              protocol_version: 1,
+              scope_epoch: 1,
+              events: [{
+                sequence: 1,
+                type: "put",
+                record: {
+                  record_id: recordId,
+                  path,
+                  revision: documentRevision("Same bytes"),
+                  frontmatter: {},
+                  body: "Same bytes",
+                  types: []
+                }
+              }],
+              cursor: 1,
+              head: 1,
+              has_more: false,
+              reset_required: false
+            }
+          : base.changes(after, limit)
+      }, {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+      await mirror.sync();
+      emitAlias = true;
+
+      await expect(mirror.sync(), path).rejects.toMatchObject({
+        code: "invalid_record_path"
+      });
+      expect(fileSystem.files.get("Notes/Example.md")).toBe("Same bytes");
+      expect(fileSystem.files.has("notes/example.md")).toBe(false);
+    }
+  });
+
+  it("preflights a complete incremental page before writing aliased records", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+    const base = hosted.transport(replicaId);
+    let emitAliases = false;
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, {
+      ...base,
+      changes: async (after, limit) => emitAliases
+        ? {
+            protocol_version: 1,
+            scope_epoch: 1,
+            events: ["Notes/Example.md", "notes/example.md"].map((path, index) => ({
+              sequence: index + 1,
+              type: "put" as const,
+              record: {
+                record_id: `record-${index}`,
+                path,
+                revision: documentRevision(`Body ${index}`),
+                frontmatter: {},
+                body: `Body ${index}`,
+                types: []
+              }
+            })),
+            cursor: 2,
+            head: 2,
+            has_more: false,
+            reset_required: false
+          }
+        : base.changes(after, limit)
+    }, {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const writesBeforeChanges = fileSystem.writes;
+    emitAliases = true;
+
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+    expect(fileSystem.writes).toBe(writesBeforeChanges);
+    expect(fileSystem.files.has("Notes/Example.md")).toBe(false);
+    expect(fileSystem.files.has("notes/example.md")).toBe(false);
+  });
+
+  it("rejects local cross-platform aliases before writable capture uploads either file", async () => {
+    const hosted = new MemoryAuthority();
+    const replicaId = hosted.registerReplica({ name: "Guarded writer", mode: "read_write" });
+    const fileSystem = new TestFileSystem();
+    fileSystem.files.set("Notes/Example.md", "One");
+    fileSystem.files.set("notes/example.md", "Two");
+    const mirror = new WritableDirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+    expect(hosted.serialize().records).toEqual([]);
+  });
+
+  it("rejects persisted state containing physical path aliases", async () => {
+    const hosted = new MemoryAuthority();
+    hosted.seed([{
+      record_id: "first",
+      path: "Notes/Example.md",
+      frontmatter: {},
+      body: "One",
+      types: []
+    }]);
+    const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+    const stateStore = new MemoryMirrorStateStore();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem: new TestFileSystem(),
+      stateStore,
+      runtime: deterministicRuntime()
+    });
+    await mirror.sync();
+    const state = (await stateStore.read())!;
+    state.records.second = {
+      ...state.records.first!,
+      path: "notes/example.md"
+    };
+    await stateStore.write(state);
+
+    await expect(mirror.status()).rejects.toMatchObject({ code: "invalid_mirror_state" });
+  });
+
   it("binds hosted resource kinds to safe filesystem namespaces", async () => {
     const configuration = "spec_version: 0.3.0\n";
     const packageDocument = "{\"scripts\":{\"postinstall\":\"malware\"}}\n";

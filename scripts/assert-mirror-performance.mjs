@@ -5,14 +5,18 @@ import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-// Receive-only mirrors deliberately retain less durable state than writable
-// mirrors, so full snapshot identity, path-alias, revision, and document
-// preflight is visible as temporary heap rather than being absorbed by record
-// metadata already required for writable conflict handling.
+// Security preflight adds bounded temporary state that the pre-transformation
+// baseline did not retain: snapshot identity and document checks, complete
+// durable path-alias validation, and target-indexed incremental-page checks.
 const validationHeapAllowanceMiB = Object.freeze({
   read_only_initial: 12,
-  read_only_noop: 3,
-  read_only_incremental: 3
+  // No-op reads revalidate the complete durable physical-path set so a
+  // tampered checkpoint cannot reintroduce case or Unicode aliases.
+  read_only_noop: 5,
+  // Incremental pages preflight every target against durable paths before
+  // applying their first event, with temporary state bounded by page size.
+  read_only_incremental: 6,
+  read_write_noop: 5
 });
 const baseline = JSON.parse(await readFile(
   new URL("./mirror-profile-baseline.json", import.meta.url),

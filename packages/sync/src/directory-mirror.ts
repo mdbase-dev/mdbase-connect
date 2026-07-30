@@ -1,8 +1,4 @@
-import type {
-  JsonObject,
-  SyncMutation,
-  SyncRecord
-} from "@mdbase/connect-protocol";
+import type { JsonObject, SyncMutation, SyncRecord } from "@mdbase/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
 import {
@@ -41,18 +37,17 @@ import {
   type StoredMirrorLocalIssue
 } from "./mirror-state.js";
 import {
-  defaultRecordPathPolicy,
+  assertNoPhysicalPathAliases,
+  assertRecordPhysicalPathAvailable,
   filterRecordPaths,
-  recordPathPolicy,
+  loadMirrorRecordPathPolicy,
+  preflightChangePhysicalPaths,
   validateRecordPath,
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
 import {
-  MirrorSnapshotValidator,
-  withoutSnapshotDocument,
-  visitSnapshotPages,
-  type ValidatedSnapshotRecord
+  MirrorSnapshotValidator, withoutSnapshotDocument, visitSnapshotPages, type ValidatedSnapshotRecord
 } from "./mirror-snapshot-validator.js";
 
 export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
@@ -103,6 +98,14 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         await this.rebuild(state);
         return;
       }
+      if (page.events.some((event) => event.type === "put")) {
+        preflightChangePhysicalPaths(
+          page.events,
+          await this.currentRecordPathPolicy(state),
+          state.resources ?? {},
+          state.records
+        );
+      }
       for (const event of page.events) {
         const eventRecordId = event.type === "put" ? event.record.record_id : event.record_id;
         const localEntry = state.records[eventRecordId];
@@ -122,7 +125,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         } else if (state.conflicts?.[eventRecordId]) {
           refreshMirrorConflict(state, event);
         } else if (event.type === "put") {
-          await this.put(state, event.record);
+          await this.put(state, event.record, undefined, undefined, false, undefined, true);
         } else {
           await this.remove(state, event.record_id, event.previous_path);
         }
@@ -311,6 +314,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     let uploadDocuments = 0;
     if (this.mode === "read_write") {
       const localRecords = filterRecordPaths(localMarkdown, pathPolicy);
+      assertNoPhysicalPathAliases([...remotePaths, ...localRecords]);
       for (const path of localRecords.filter((candidate) => !remotePaths.has(candidate))) {
         const document = await this.fileSystem.read(path);
         if (document === null) continue;
@@ -456,9 +460,17 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     managedState: MirrorState | undefined = state,
     acceptedHash?: string | null,
     preserveAcceptedDocument = false,
-    materialized?: { document: string; hash: string }
+    materialized?: { document: string; hash: string },
+    physicalPathPreflighted = false
   ): Promise<void> {
     validateRecordPath(record.path, await this.currentRecordPathPolicy(state));
+    if (materialized === undefined && !physicalPathPreflighted)
+      assertRecordPhysicalPathAvailable(
+        record.path,
+        record.record_id,
+        Object.keys(state.resources ?? {}),
+        Object.entries(state.records)
+      );
     const document = materialized?.document ?? recordMarkdownDocument(record);
     const existing = await this.fileSystem.read(record.path);
     const prior = managedState?.records[record.record_id];
@@ -733,6 +745,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       await this.fileSystem.listMarkdown(resourcePaths),
       pathPolicy
     );
+    assertNoPhysicalPathAliases([...resourcePaths, ...files]);
     const managedPaths = new Map(
       Object.entries(state.records).map(([recordId, entry]) => [entry.path, recordId])
     );
@@ -979,13 +992,9 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     }
   }
   private async currentRecordPathPolicy(state: MirrorState): Promise<MirrorRecordPathPolicy> {
-    if (Object.keys(state.resources ?? {}).length === 0) {
-      return defaultRecordPathPolicy(new Set());
-    }
-    const configuration = await this.fileSystem.read("mdbase.yaml");
-    if (configuration === null) throw new SyncError(
-      "invalid_mirror_state", "Mirror collection configuration is missing."
+    return loadMirrorRecordPathPolicy(
+      Object.keys(state.resources ?? {}),
+      () => this.fileSystem.read("mdbase.yaml")
     );
-    return recordPathPolicy(configuration, new Set(Object.keys(state.resources ?? {})));
   }
 }

@@ -29,6 +29,7 @@ impl DirectoryMirror {
             if page.scope_epoch != state.scope_epoch || page.reset_required {
                 return self.rebuild(Some(state)).await;
             }
+            self.preflight_change_physical_paths(&state, &page.events)?;
             for event in page.events {
                 let record_id = match &event {
                     SyncChange::Put { record, .. } => record.record_id,
@@ -56,7 +57,7 @@ impl DirectoryMirror {
                 } else {
                     match event {
                         SyncChange::Put { record, .. } => {
-                            self.put(&mut state, record, None, false)?;
+                            self.put(&mut state, record, None, false, true)?;
                         }
                         SyncChange::Remove {
                             record_id,

@@ -7,7 +7,10 @@ import type {
   SyncChange
 } from "@mdbase/connect-protocol";
 import { SyncError } from "./sync-error.js";
-import { validatePortableMirrorPath } from "./portable-path.js";
+import {
+  portableMirrorPathKey,
+  validatePortableMirrorPath
+} from "./portable-path.js";
 
 export interface MirrorEntry {
   path: string;
@@ -182,16 +185,26 @@ export function normalizeMirrorState(
       `Mirror metadata belongs to a ${state.mode.replace("_", "-")} replica.`
     );
   }
+  const physicalPaths: string[] = [];
   for (const [recordId, entry] of Object.entries(state.records)) {
-    validatePortableMirrorPath(entry.path);
+    physicalPaths.push(portableMirrorPathKey(entry.path));
     if (entry.record && (entry.record.record_id !== recordId || entry.record.path !== entry.path)) {
       throw new Error();
     }
   }
   for (const [path, entry] of Object.entries(state.resources)) {
     validatePortableMirrorPath(path);
-    validatePortableMirrorPath(entry.path);
     if (path !== entry.path) throw new Error();
+    physicalPaths.push(portableMirrorPathKey(entry.path));
+  }
+  physicalPaths.sort();
+  for (let index = 1; index < physicalPaths.length; index += 1) {
+    if (physicalPaths[index - 1] === physicalPaths[index]) {
+      throw new SyncError(
+        "invalid_mirror_state",
+        "Mirror metadata contains paths that alias on a supported filesystem."
+      );
+    }
   }
   for (const pending of state.pending) validatePortableMirrorPath(pending.local_path);
   for (const [path, issue] of Object.entries(state.local_issues ?? {})) {
