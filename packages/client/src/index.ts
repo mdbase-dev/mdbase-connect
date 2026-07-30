@@ -49,6 +49,43 @@ import {
   validateGrantEncryption,
   type GrantKeyStore
 } from "./crypto.js";
+import { abortableDelay } from "./async.js";
+import { MdbaseCollectionClient } from "./collection-client.js";
+import {
+  MdbaseConnectError,
+  unwrapOperation
+} from "./errors.js";
+import type {
+  ChangesInput,
+  CreateInput,
+  CreateTypeInput,
+  DeleteInput,
+  DeletePreflightResult,
+  DeleteProgressOptions,
+  DeleteResult,
+  MdbaseCollectionTransport,
+  MdbaseDesiredTimer,
+  MdbaseTimer,
+  MdbaseTimerList,
+  MdbaseTimerReconciliation,
+  MutationEstimate,
+  MutationProgressState,
+  OperationRequestOptions,
+  PendingMutationSummary,
+  QueryInput,
+  QueryPage,
+  QueryPagesOptions,
+  QueryResult,
+  ReadInput,
+  ReadTypeInput,
+  RenameInput,
+  RenamePreflightResult,
+  RenameProgressOptions,
+  RenameResult,
+  UpdateInput,
+  UpdateTypeInput,
+  WatchOptions
+} from "./operation-types.js";
 
 export {
   decryptRelayResponse,
@@ -60,6 +97,9 @@ export {
   type GrantKeyRecord,
   type GrantKeyStore
 } from "./crypto.js";
+export * from "./collection-client.js";
+export * from "./errors.js";
+export * from "./operation-types.js";
 
 export type {
   ApplicationProvisions,
@@ -191,33 +231,6 @@ export interface MdbaseAuthorizationResult<Frontmatter extends JsonObject = Json
 export type MdbaseAuthorizationOutcome<Frontmatter extends JsonObject = JsonObject> =
   | { kind: "redirecting" }
   | ({ kind: "connected" } & MdbaseAuthorizationResult<Frontmatter>);
-
-export interface MdbaseDesiredTimer {
-  /** Stable within the timer namespace. */
-  id: string;
-  /** RFC 3339 instant at which the authority should fire the timer. */
-  fire_at: string;
-  /** Private application data retained by the collection authority. */
-  data?: unknown;
-}
-
-export interface MdbaseTimer extends MdbaseDesiredTimer {
-  criterion_id: string;
-  generation: number;
-  status: "scheduled" | "firing" | "fired" | "cancelled";
-  created_at: string;
-  updated_at: string;
-  fired_at: string | null;
-}
-
-export interface MdbaseTimerList {
-  namespace: string;
-  timers: MdbaseTimer[];
-}
-
-export interface MdbaseTimerReconciliation extends MdbaseTimerList {
-  cancelled_ids: string[];
-}
 
 export interface MdbaseAuthorizationCapabilities {
   authorized: boolean;
@@ -356,510 +369,6 @@ export function showMdbasePushNotification(
       cursor: payload.cursor
     }
   });
-}
-
-export interface ReadInput {
-  path: string;
-  /** Select an exact approved contract view when more than one is possible. */
-  contract?: DataContractSelector;
-  /** Include the exact UTF-8 Markdown source; requires full-collection access. */
-  include_document?: boolean;
-}
-
-export interface DataContractSelector {
-  id: string;
-  version: string;
-  /** Required when several approved types implement the selected contract. */
-  type?: string;
-}
-
-export interface QueryInput {
-  /**
-   * Contract-scoped queries accept only `types`, pagination,
-   * `frontmatter_mode`, and `contract`; filter normalized fields in the app.
-   */
-  types?: string[];
-  where?: unknown;
-  order_by?: unknown;
-  limit?: number;
-  offset?: number;
-  /** Opaque token returned by the first metadata page for consistent, fast pagination. */
-  snapshot?: string;
-  include_body?: boolean;
-  frontmatter_mode?: "effective" | "persisted" | "both";
-  /** Narrow a contract-scoped query to one exact contract/provider view. */
-  contract?: DataContractSelector;
-  [key: string]: unknown;
-}
-
-export interface QueryResult<Record extends JsonObject = JsonObject> {
-  results: Array<QueryRecord<Record> & JsonObject>;
-  meta?: {
-    total_count: number;
-    has_more: boolean;
-    snapshot?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-export interface QueryPagesOptions<Record extends JsonObject = JsonObject> {
-  firstPageSize?: number;
-  pageSize?: number;
-  signal?: AbortSignal;
-  onProgress?: (page: QueryPage<Record>) => void;
-}
-
-export interface QueryPage<Record extends JsonObject = JsonObject> {
-  results: QueryResult<Record>["results"];
-  meta?: QueryResult<Record>["meta"];
-  page: number;
-  offset: number;
-  loaded: number;
-  complete: boolean;
-  snapshot?: string;
-}
-
-export interface OperationRequestOptions {
-  signal?: AbortSignal;
-}
-
-export interface MutationEstimate {
-  /** Records whose links may be affected, excluding the record being mutated. */
-  affectedRecords: number;
-  /** Estimated atomic changes: the mutation itself plus known reference updates. */
-  totalUnits: number;
-  warnings: number;
-}
-
-export type MutationProgressState = "preflighting" | "ready" | "applying" | "completed" | "cancelled";
-
-export interface MutationProgress {
-  operation: "rename" | "delete";
-  state: MutationProgressState;
-  elapsedMs: number;
-  cancellable: boolean;
-  resumed: boolean;
-  completedUnits: number;
-  estimate?: MutationEstimate;
-}
-
-export interface MutationProgressOptions {
-  signal?: AbortSignal;
-  onProgress?: (progress: MutationProgress) => void;
-}
-
-export interface RenameProgressOptions extends MutationProgressOptions {
-  /** Reuse an authoritative preview already shown to the user. */
-  preflight?: RenamePreflightResult;
-}
-
-export interface DeleteProgressOptions extends MutationProgressOptions {
-  /** Reuse an authoritative preview already shown to the user. */
-  preflight?: DeletePreflightResult;
-}
-
-export interface PendingMutationSummary {
-  operation: CollectionOperation;
-  createdAt: number;
-  resumable: true;
-}
-
-export interface CreateInput<Frontmatter extends JsonObject = JsonObject> {
-  path?: string;
-  type?: string;
-  contract?: DataContractSelector;
-  frontmatter?: Partial<Frontmatter> & JsonObject;
-  /** Requires full-collection access; contract creates are frontmatter-only. */
-  body?: string;
-  if_revision?: string;
-  /** Include the resulting exact Markdown source in `result.document`. */
-  include_document?: boolean;
-}
-
-interface UpdateInputBase {
-  path: string;
-  contract?: DataContractSelector;
-  if_revision?: string;
-  /** Include the resulting exact Markdown source; requires full-collection access. */
-  include_document?: boolean;
-}
-
-export type UpdateInput<Frontmatter extends JsonObject = JsonObject> = UpdateInputBase & (
-  | {
-    patch: Partial<Frontmatter> & JsonObject;
-    body?: string;
-    document?: never;
-  }
-  | {
-    /**
-     * Replace the complete Markdown source. This is mutually exclusive with
-     * `patch` and `body`, and implies `include_document`.
-     */
-    document: string;
-    patch?: never;
-    body?: never;
-  }
-);
-
-export interface DeleteInput {
-  path: string;
-  contract?: DataContractSelector;
-  check_backlinks?: boolean;
-  if_revision?: string;
-}
-
-export interface DeleteResult {
-  path: string;
-  deleted: boolean;
-  broken_links?: Array<{ path: string }>;
-}
-
-export interface DeletePreflightResult {
-  path: string;
-  deleted: false;
-  dry_run: true;
-  would_delete: true;
-  broken_links?: Array<{ path: string }>;
-}
-
-export interface RenameInput {
-  from: string;
-  to: string;
-  contract?: DataContractSelector;
-  update_refs?: boolean;
-  if_revision?: string;
-  /** Include the resulting exact Markdown source in `result.document`. */
-  include_document?: boolean;
-}
-
-export interface RenameResult extends RecordDocument {
-  from: string;
-  to: string;
-  references_updated?: JsonObject[];
-}
-
-export interface RenamePreflightResult {
-  from: string;
-  to: string;
-  dry_run: true;
-  would_rename: true;
-  references_affected?: Array<{ path: string; field?: string; location?: string }>;
-  warnings?: Array<{ path: string; message: string }>;
-}
-
-export interface ReadTypeInput {
-  name?: string;
-  path?: string;
-}
-
-export interface CreateTypeInput {
-  document: string;
-  path?: string;
-}
-
-export interface UpdateTypeInput extends ReadTypeInput {
-  document: string;
-  if_revision: string;
-}
-
-export interface ChangesInput {
-  after?: number;
-  limit?: number;
-}
-
-export interface WatchOptions {
-  cursor?: number;
-  pollIntervalMs?: number;
-  signal?: AbortSignal;
-  /** Set to false to surface transient transport failures immediately. */
-  retry?: false | WatchRetryOptions;
-  onStatus?: (status: WatchStatus) => void;
-}
-
-export interface WatchRetryOptions {
-  initialDelayMs?: number;
-  maxDelayMs?: number;
-  multiplier?: number;
-  /** Number of consecutive transient failures. Omit to keep reconnecting. */
-  maxAttempts?: number;
-}
-
-export type WatchStatus =
-  | { state: "connecting"; cursor?: number }
-  | { state: "connected"; cursor: number; recovered: boolean }
-  | { state: "reconnecting"; cursor?: number; attempt: number; retryInMs: number; error: unknown }
-  | { state: "reset_required"; cursor: number; error: MdbaseConnectError };
-
-/** Provider-neutral operation transport used by the typed collection client. */
-export interface MdbaseCollectionTransport {
-  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result>;
-}
-
-/**
- * Typed collection operations independent of OAuth, HTTP, or storage.
- *
- * Application code can use this surface against Connect, the developer
- * sandbox, or another provider without changing its record logic.
- */
-export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject> {
-  constructor(private readonly transport: MdbaseCollectionTransport) {}
-
-  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result> {
-    return this.transport.operation(operation, input, options);
-  }
-
-  describe(): Promise<CollectionDescription> {
-    return this.operation("describe", {});
-  }
-
-  changes(input: ChangesInput = {}, options?: OperationRequestOptions): Promise<CollectionChangesPage> {
-    return this.operation("changes", input, options);
-  }
-
-  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("read", input);
-  }
-
-  query(input: QueryInput = {}, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
-    return this.operation("query", input, options);
-  }
-
-  async *queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
-    const {
-      offset: requestedOffset,
-      limit: requestedLimit,
-      snapshot: requestedSnapshot,
-      ...criteria
-    } = input;
-    let offset = nonNegativeInteger(requestedOffset, 0);
-    const firstPageSize = positiveInteger(options.firstPageSize ?? requestedLimit, 200);
-    const pageSize = positiveInteger(options.pageSize ?? requestedLimit, 1_000);
-    let snapshot = requestedSnapshot;
-    let loaded = 0;
-    let pageNumber = 0;
-
-    while (!options.signal?.aborted) {
-      const result = unwrapOperation(await this.query({
-        ...criteria,
-        offset,
-        limit: pageNumber === 0 ? firstPageSize : pageSize,
-        ...(snapshot ? { snapshot } : {})
-      }, { signal: options.signal }));
-      const returnedSnapshot = result.meta?.snapshot;
-      if (snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
-        throw new MdbaseConnectError(
-          "query_snapshot_changed",
-          "The collection query snapshot changed while paging. Refresh the query before continuing.",
-          { recovery: "refresh" }
-        );
-      }
-      if (!snapshot && returnedSnapshot) snapshot = returnedSnapshot;
-      loaded += result.results.length;
-      const complete = !result.meta?.has_more || result.results.length === 0;
-      const page: QueryPage<Frontmatter> = {
-        results: result.results,
-        ...(result.meta ? { meta: result.meta } : {}),
-        page: pageNumber,
-        offset,
-        loaded,
-        complete,
-        ...(snapshot ? { snapshot } : {})
-      };
-      options.onProgress?.(page);
-      yield page;
-      if (complete) return;
-      offset += result.results.length;
-      pageNumber += 1;
-    }
-  }
-
-  async queryAll(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): Promise<QueryResult<Frontmatter>> {
-    const results: QueryResult<Frontmatter>["results"] = [];
-    let finalPage: QueryPage<Frontmatter> | undefined;
-    for await (const page of this.queryPages(input, options)) {
-      results.push(...page.results);
-      finalPage = page;
-    }
-    return {
-      results,
-      meta: {
-        ...(finalPage?.meta ?? {}),
-        total_count: finalPage?.meta?.total_count ?? results.length,
-        has_more: finalPage ? !finalPage.complete : false,
-        ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
-      }
-    };
-  }
-
-  listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {
-    return this.operation("list_views", {});
-  }
-
-  executeView(input: ExecuteViewInput): Promise<MdbaseOperationEnvelope<SavedViewExecution<Frontmatter>>> {
-    return this.operation("execute_view", input);
-  }
-
-  readViewSource(input: ReadViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("read_view_source", input);
-  }
-
-  createViewSource(input: CreateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("create_view_source", input);
-  }
-
-  updateViewSource(input: UpdateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("update_view_source", input);
-  }
-
-  deleteViewSource(input: DeleteViewSourceInput): Promise<MdbaseOperationEnvelope<DeleteViewSourceResult>> {
-    return this.operation("delete_view_source", input);
-  }
-
-  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("create", input);
-  }
-
-  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("update", input);
-  }
-
-  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeleteResult>> {
-    return this.operation("delete", input, options);
-  }
-
-  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
-    return this.operation("delete", { ...input, check_backlinks: true, dry_run: true }, options);
-  }
-
-  rename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenameResult>> {
-    return this.operation("rename", input, options);
-  }
-
-  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
-    return this.operation("rename", { ...input, dry_run: true }, options);
-  }
-
-  validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
-    return this.operation("validate", input);
-  }
-
-  readType(input: ReadTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("read_type", input);
-  }
-
-  createType(input: CreateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("create_type", input);
-  }
-
-  updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("update_type", input);
-  }
-
-  installTypePack(input: TypePackProvision): Promise<MdbaseOperationEnvelope<TypePackInstallResult>> {
-    return this.operation("install_type_pack", input);
-  }
-
-  listTimers(namespace: string): Promise<MdbaseTimerList> {
-    return this.operation("list_timers", { namespace });
-  }
-
-  putTimer(input: {
-    namespace: string;
-    criterion_id: string;
-    timer: MdbaseDesiredTimer;
-  }): Promise<MdbaseTimer> {
-    return this.operation("put_timer", input);
-  }
-
-  cancelTimer(input: {
-    namespace: string;
-    id: string;
-    generation?: number;
-  }): Promise<{ namespace: string; id: string; cancelled: boolean }> {
-    return this.operation("cancel_timer", input);
-  }
-
-  reconcileTimers(input: {
-    namespace: string;
-    criterion_id: string;
-    timers: MdbaseDesiredTimer[];
-  }): Promise<MdbaseTimerReconciliation> {
-    return this.operation("reconcile_timers", input);
-  }
-
-  async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
-    let cursor = options.cursor;
-    const pollInterval = Math.max(100, options.pollIntervalMs ?? 1_000);
-    const retry = watchRetryPolicy(options.retry);
-    let failures = 0;
-    let connected = false;
-    options.onStatus?.({ state: "connecting", ...(cursor === undefined ? {} : { cursor }) });
-    while (!options.signal?.aborted) {
-      try {
-        if (cursor === undefined) cursor = (await this.changes({}, { signal: options.signal })).cursor;
-        const page = await this.changes({ after: cursor, limit: 200 }, { signal: options.signal });
-        if (page.reset) {
-          const error = new MdbaseConnectError(
-            "change_cursor_reset",
-            "The collection change cursor expired. Refresh collection state before subscribing again."
-          );
-          options.onStatus?.({ state: "reset_required", cursor, error });
-          throw error;
-        }
-        const recovered = failures > 0;
-        failures = 0;
-        if (!connected || recovered) options.onStatus?.({ state: "connected", cursor, recovered });
-        connected = true;
-        for (const event of page.events) yield event;
-        cursor = page.cursor;
-        if (!page.has_more) await abortableDelay(pollInterval, options.signal);
-      } catch (error) {
-        if (options.signal?.aborted) return;
-        if (!retry || !isRetryableConnectError(error)) throw error;
-        connected = false;
-        failures += 1;
-        if (retry.maxAttempts !== undefined && failures > retry.maxAttempts) throw error;
-        const retryInMs = Math.min(
-          retry.maxDelayMs,
-          Math.round(retry.initialDelayMs * retry.multiplier ** (failures - 1))
-        );
-        options.onStatus?.({
-          state: "reconnecting",
-          ...(cursor === undefined ? {} : { cursor }),
-          attempt: failures,
-          retryInMs,
-          error
-        });
-        await abortableDelay(retryInMs, options.signal);
-      }
-    }
-  }
-}
-
-interface ResolvedWatchRetryOptions {
-  initialDelayMs: number;
-  maxDelayMs: number;
-  multiplier: number;
-  maxAttempts?: number;
-}
-
-function watchRetryPolicy(options: WatchOptions["retry"]): ResolvedWatchRetryOptions | undefined {
-  if (options === false) return undefined;
-  return {
-    initialDelayMs: Math.max(0, options?.initialDelayMs ?? 500),
-    maxDelayMs: Math.max(0, options?.maxDelayMs ?? 15_000),
-    multiplier: Math.max(1, options?.multiplier ?? 2),
-    ...(options?.maxAttempts === undefined ? {} : { maxAttempts: Math.max(0, options.maxAttempts) })
-  };
-}
-
-function nonNegativeInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
-}
-
-function positiveInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
 interface Application {
@@ -3531,105 +3040,6 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 }
 
-export type MdbaseRecoveryAction = "retry" | "reauthorize" | "refresh" | "resolve_outcome" | "fix_request" | "none";
-
-export interface MdbaseConnectErrorOptions {
-  status?: number;
-  retryable?: boolean;
-  requiresAuthorization?: boolean;
-  outcomeUnknown?: boolean;
-  recovery?: MdbaseRecoveryAction;
-  details?: unknown;
-  cause?: unknown;
-}
-
-export class MdbaseConnectError extends Error {
-  readonly status?: number;
-  readonly retryable: boolean;
-  readonly requiresAuthorization: boolean;
-  readonly outcomeUnknown: boolean;
-  readonly recovery: MdbaseRecoveryAction;
-  readonly details?: unknown;
-
-  constructor(public readonly code: string, message: string, options: MdbaseConnectErrorOptions = {}) {
-    super(message);
-    this.name = "MdbaseConnectError";
-    const classification = classifyConnectError(code, options.status);
-    this.status = options.status;
-    this.retryable = options.retryable ?? classification.retryable;
-    this.requiresAuthorization = options.requiresAuthorization ?? classification.requiresAuthorization;
-    this.outcomeUnknown = options.outcomeUnknown ?? classification.outcomeUnknown;
-    this.recovery = options.recovery ?? classification.recovery;
-    this.details = options.details;
-    if (options.cause !== undefined) Object.defineProperty(this, "cause", { value: options.cause, configurable: true });
-  }
-}
-
-export class MdbaseOperationValidationError<Result = unknown> extends Error {
-  readonly code = "operation_invalid";
-
-  constructor(
-    public readonly diagnostics: MdbaseDiagnostic[],
-    public readonly result: Result
-  ) {
-    super(diagnostics.filter((item) => item.severity === "error").map((item) => item.message).join(" ")
-      || diagnostics.map((item) => item.message).join(" ")
-      || "The collection rejected this operation.");
-    this.name = "MdbaseOperationValidationError";
-  }
-}
-
-/** Return a valid operation result or throw while preserving every diagnostic. */
-export function unwrapOperation<Result>(envelope: MdbaseOperationEnvelope<Result>): Result {
-  if (!envelope.valid) throw new MdbaseOperationValidationError(envelope.diagnostics, envelope.result);
-  return envelope.result;
-}
-
-/** True only when repeating a read/poll is safe without asking the user. */
-export function isRetryableConnectError(error: unknown): boolean {
-  if (error instanceof MdbaseConnectError) return error.retryable && !error.outcomeUnknown;
-  return error instanceof TypeError;
-}
-
-function classifyConnectError(code: string, status?: number): Required<Pick<
-  MdbaseConnectErrorOptions,
-  "retryable" | "requiresAuthorization" | "outcomeUnknown" | "recovery"
->> {
-  const authorizationCodes = new Set([
-    "authorization_expired",
-    "direct_operation_rejected",
-    "encryption_required",
-    "insufficient_access",
-    "missing_grant_key",
-    "not_authorized",
-    "relay_authorization_expired"
-  ]);
-  const outcomeUnknown = code === "direct_outcome_unknown" || code === "pending_mutation_unresolved";
-  const requiresAuthorization = authorizationCodes.has(code) || status === 401;
-  const retryableCodes = new Set([
-    "connector_offline",
-    "discovery_failed",
-    "relay_unavailable",
-    "sync_failed",
-    "temporarily_unavailable",
-    "timeout"
-  ]);
-  const retryableStatus = status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500);
-  const retryable = !outcomeUnknown && !requiresAuthorization && (retryableCodes.has(code) || retryableStatus);
-  const recovery: MdbaseRecoveryAction = outcomeUnknown
-    ? "resolve_outcome"
-    : requiresAuthorization
-      ? "reauthorize"
-      : code === "change_cursor_reset"
-        ? "refresh"
-        : retryable
-          ? "retry"
-          : status !== undefined && status >= 400 && status < 500
-            ? "fix_request"
-            : "none";
-  return { retryable, requiresAuthorization, outcomeUnknown, recovery };
-}
-
 type LoopbackRequestInit = RequestInit & {
   targetAddressSpace?: "loopback";
 };
@@ -4152,17 +3562,4 @@ function manifestStorageFingerprint(manifest: MdbaseAppManifest): string {
     second = Math.imul(second ^ code, 0x85ebca6b);
   }
   return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}`;
-}
-
-function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timeout = setTimeout(done, milliseconds);
-    signal?.addEventListener("abort", done, { once: true });
-    function done() {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", done);
-      resolve();
-    }
-  });
 }

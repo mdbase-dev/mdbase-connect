@@ -12,7 +12,7 @@
     "crates/connect-hosted-provider/src/provider.rs": 6550,
     "crates/connect-mirror/src/lib.rs": 1915,
     "crates/connect-protocol/src/lib.rs": 1589,
-    "packages/client/src/index.ts": 4168,
+    "packages/client/src/index.ts": 3565,
     "packages/sync/src/adoption.ts": 1127,
     "packages/sync/src/index.ts": 1116,
     "packages/sync/src/mirror.ts": 1255,
