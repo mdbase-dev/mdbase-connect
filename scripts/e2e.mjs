@@ -1051,11 +1051,6 @@ async function openApplicationServer(name, contracts, access) {
   const server = createServer(async (request, response) => {
     const address = server.address();
     const origin = `http://localhost:${address.port}`;
-    if (request.url === "/client/index.js" || request.url === "/client/crypto.js") {
-      response.setHeader("content-type", "text/javascript");
-      response.end(await readFile(join(repoRoot, "packages", "client", "dist", request.url.split("/").at(-1))));
-      return;
-    }
     if (request.url === "/client/browser.js") {
       response.setHeader("content-type", "text/javascript");
       response.setHeader("access-control-allow-origin", "*");
@@ -1067,6 +1062,14 @@ async function openApplicationServer(name, contracts, access) {
         "browser",
         "mdbase-connect.min.js"
       )));
+      return;
+    }
+    const clientModule = request.url?.match(/^\/client\/([a-z0-9-]+\.js)$/)?.[1];
+    if (clientModule) {
+      response.setHeader("content-type", "text/javascript");
+      response.end(await readFile(
+        join(repoRoot, "packages", "client", "dist", clientModule)
+      ));
       return;
     }
     if (request.url === "/protocol/index.js") {
