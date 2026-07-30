@@ -14,6 +14,7 @@ struct FakeAuthority {
 
 impl FakeAuthority {
     fn new(replica_id: Uuid, mode: SyncReplicaMode, records: Vec<SyncRecord>) -> Self {
+        let configuration = "spec_version: 0.3.0\n";
         Self {
             session: SyncSession {
                 protocol_version: SYNC_PROTOCOL_VERSION,
@@ -27,14 +28,14 @@ impl FakeAuthority {
                 snapshot_id: Uuid::new_v4(),
                 resources: SyncCollectionResources {
                     revision: "resources-1".to_string(),
-                    spec_version: "0.3".to_string(),
+                    spec_version: "0.3.0".to_string(),
                     types: Vec::new(),
                     contracts: Vec::new(),
                     documents: vec![SyncResourceDocument {
                         path: "mdbase.yaml".to_string(),
                         kind: "configuration".to_string(),
-                        revision: "config-1".to_string(),
-                        document: "version: 0.3\n".to_string(),
+                        revision: format!("sha256:{}", digest(configuration)),
+                        document: configuration.to_string(),
                     }],
                 },
             },
@@ -288,14 +289,19 @@ impl SyncTransport for FakeAuthority {
 }
 
 fn record(path: &str, title: &str) -> SyncRecord {
-    SyncRecord {
+    let mut record = SyncRecord {
         record_id: Uuid::new_v4(),
         path: path.to_string(),
-        revision: "r-1".to_string(),
+        revision: String::new(),
         frontmatter: object([("title", Value::String(title.to_string()))]),
         body: format!("# {title}\n"),
         types: Vec::new(),
-    }
+    };
+    record.revision = format!(
+        "sha256:{}",
+        digest(&record_markdown_document(&record).unwrap())
+    );
+    record
 }
 
 fn snapshot_record(record: SyncRecord) -> mdbase_connect_protocol::SyncSnapshotRecord {
@@ -305,6 +311,13 @@ fn snapshot_record(record: SyncRecord) -> mdbase_connect_protocol::SyncSnapshotR
     }
 }
 
+fn refresh_revision(record: &mut SyncRecord) {
+    record.revision = format!(
+        "sha256:{}",
+        digest(&record_markdown_document(record).unwrap())
+    );
+}
+
 fn harness(
     mode: SyncReplicaMode,
     records: Vec<SyncRecord>,
@@ -312,6 +325,23 @@ fn harness(
     let temporary = tempfile::tempdir().unwrap();
     let replica_id = Uuid::new_v4();
     let authority = Arc::new(FakeAuthority::new(replica_id, mode, records));
+    let mirror = DirectoryMirror::new(
+        temporary.path().join("mirror"),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        replica_id,
+        mode,
+        authority.clone(),
+    )
+    .unwrap();
+    (temporary, mirror, authority)
+}
+
+fn custom_harness(authority: FakeAuthority) -> (TempDir, DirectoryMirror, Arc<FakeAuthority>) {
+    let temporary = tempfile::tempdir().unwrap();
+    let replica_id = authority.session.replica_id;
+    let mode = authority.session.mode;
+    let authority = Arc::new(authority);
     let mirror = DirectoryMirror::new(
         temporary.path().join("mirror"),
         temporary.path().join("state/state.json"),
@@ -551,8 +581,8 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
     mirror.sync().await.unwrap();
     let mut renamed = first.clone();
     renamed.path = "archive/one.md".to_string();
-    renamed.revision = "r-2".to_string();
     renamed.body = "# Renamed\n".to_string();
+    refresh_revision(&mut renamed);
     let mut session = authority.session.clone();
     session.scope_epoch = 2;
     session.head = 2;
@@ -590,12 +620,12 @@ async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
     mirror.sync().await.unwrap();
     let mut swapped_first = first.clone();
     swapped_first.path = second.path.clone();
-    swapped_first.revision = "r-2".to_string();
     swapped_first.body = "# First after swap\n".to_string();
+    refresh_revision(&mut swapped_first);
     let mut swapped_second = second.clone();
     swapped_second.path = first.path.clone();
-    swapped_second.revision = "r-2".to_string();
     swapped_second.body = "# Second after swap\n".to_string();
+    refresh_revision(&mut swapped_second);
     let mut session = authority.session.clone();
     session.scope_epoch = 2;
     session.head = 2;
@@ -640,6 +670,90 @@ async fn duplicate_snapshot_paths_fail_before_materialization() {
     assert!(!mirror.root().join("mdbase.yaml").exists());
     assert!(!mirror.root().join("tasks/same.md").exists());
     assert!(!mirror.rebuild_plan_file().exists());
+}
+
+#[tokio::test]
+async fn snapshot_records_cannot_materialize_executables_or_hidden_hooks() {
+    for path in ["payload.bat", ".git/hooks/post-checkout.md"] {
+        let replica_id = Uuid::new_v4();
+        let authority = FakeAuthority::new(
+            replica_id,
+            SyncReplicaMode::ReadOnly,
+            vec![record(path, "Hostile")],
+        );
+        let (_temporary, mirror, _authority) = custom_harness(authority);
+
+        let error = mirror.sync().await.unwrap_err();
+
+        assert_eq!(error.code, "invalid_record_path");
+        assert!(!mirror.root().join(path).exists());
+        assert!(!mirror.root().join("mdbase.yaml").exists());
+    }
+}
+
+#[tokio::test]
+async fn snapshot_resource_kinds_cannot_write_arbitrary_json_files() {
+    let replica_id = Uuid::new_v4();
+    let mut authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let document = "{\"scripts\":{\"postinstall\":\"malware\"}}\n";
+    authority
+        .session
+        .resources
+        .documents
+        .push(SyncResourceDocument {
+            path: "package.json".to_string(),
+            kind: "schema".to_string(),
+            revision: format!("sha256:{}", digest(document)),
+            document: document.to_string(),
+        });
+    let (_temporary, mirror, _authority) = custom_harness(authority);
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_snapshot");
+    assert!(!mirror.root().join("package.json").exists());
+    assert!(!mirror.root().join("mdbase.yaml").exists());
+}
+
+#[tokio::test]
+async fn snapshot_resources_reject_platform_aliased_paths() {
+    let replica_id = Uuid::new_v4();
+    let mut authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let document = "{\"type\":\"object\"}\n";
+    authority
+        .session
+        .resources
+        .documents
+        .push(SyncResourceDocument {
+            path: "schemas/CON.json".to_string(),
+            kind: "schema".to_string(),
+            revision: format!("sha256:{}", digest(document)),
+            document: document.to_string(),
+        });
+    let (_temporary, mirror, _authority) = custom_harness(authority);
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "invalid_snapshot");
+    assert!(!mirror.root().join("schemas/CON.json").exists());
+}
+
+#[tokio::test]
+async fn incremental_record_puts_recheck_the_live_collection_policy() {
+    let source = record("notes/one.md", "One");
+    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadOnly, vec![source.clone()]);
+    mirror.sync().await.unwrap();
+    let mut state = mirror.read_state().unwrap().unwrap();
+    let mut hostile = source;
+    hostile.path = "payload.exe".to_string();
+    hostile.body = "malware".to_string();
+    refresh_revision(&mut hostile);
+
+    let error = mirror.put(&mut state, hostile, None, false).unwrap_err();
+
+    assert_eq!(error.code, "invalid_record_path");
+    assert!(!mirror.root().join("payload.exe").exists());
+    assert!(mirror.root().join("notes/one.md").exists());
 }
 
 #[cfg(unix)]

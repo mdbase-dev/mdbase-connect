@@ -218,6 +218,66 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.writes).toBe(0);
   });
 
+  it("rejects executable and hidden record paths before materialization", async () => {
+    for (const path of ["payload.bat", ".git/hooks/post-checkout.md"]) {
+      const hosted = new MemoryAuthority();
+      hosted.seed([{
+        record_id: `hostile-${path}`,
+        path,
+        frontmatter: {},
+        body: "malware",
+        types: []
+      }]);
+      const replicaId = hosted.registerReplica({ name: "Guarded mirror", mode: "read_only" });
+      const fileSystem = new TestFileSystem();
+      const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+        fileSystem,
+        stateStore: new MemoryMirrorStateStore(),
+        runtime: deterministicRuntime()
+      });
+
+      await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_record_path" });
+      expect(fileSystem.writes).toBe(0);
+      expect(fileSystem.files.has(path)).toBe(false);
+    }
+  });
+
+  it("binds hosted resource kinds to safe filesystem namespaces", async () => {
+    const hosted = new MemoryAuthority({
+      resources: {
+        revision: "resources:hostile",
+        spec_version: "0.3.0",
+        types: [],
+        contracts: [],
+        documents: [
+          {
+            path: "mdbase.yaml",
+            kind: "configuration",
+            revision: "config:1",
+            document: "spec_version: 0.3.0\n"
+          },
+          {
+            path: "package.json",
+            kind: "schema",
+            revision: "schema:1",
+            document: "{\"scripts\":{\"postinstall\":\"malware\"}}\n"
+          }
+        ]
+      }
+    });
+    const replicaId = hosted.registerReplica({ name: "Guarded resources", mode: "read_only" });
+    const fileSystem = new TestFileSystem();
+    const mirror = new DirectoryMirror(replicaId, hosted.transport(replicaId), {
+      fileSystem,
+      stateStore: new MemoryMirrorStateStore(),
+      runtime: deterministicRuntime()
+    });
+
+    await expect(mirror.sync()).rejects.toMatchObject({ code: "invalid_snapshot" });
+    expect(fileSystem.writes).toBe(0);
+    expect(fileSystem.files.has("package.json")).toBe(false);
+  });
+
   it("uploads an existing mobile-vault document through the writable core", async () => {
     const hosted = new MemoryAuthority();
     const replicaId = hosted.registerReplica({

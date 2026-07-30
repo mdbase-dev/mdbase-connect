@@ -8,6 +8,7 @@ impl DirectoryMirror {
         accepted_hash: Option<&str>,
         preserve_accepted_document: bool,
     ) -> Result<(), MirrorError> {
+        self.validate_record_path(&record.path)?;
         let document = record_markdown_document(&record)?;
         let existing = self.read_file(&record.path)?;
         let prior = state.records.get(&record.record_id).cloned();
@@ -70,6 +71,7 @@ impl DirectoryMirror {
             .as_ref()
             .map(|entry| entry.path.as_str())
             .unwrap_or(previous_path);
+        self.validate_record_path(path)?;
         if let Some(existing) = self.read_file(path)? {
             if entry
                 .as_ref()

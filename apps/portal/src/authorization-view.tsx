@@ -195,6 +195,9 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
         <small>{request.distribution === "portable"
           ? `Downloaded HTML file${request.project_url ? ` · ${host(request.project_url)}` : ""}`
           : host(request.homepage)} · expires {relativeTime(request.expires_at)}</small>
+        {request.distribution !== "portable" && (
+          <small>Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>
+        )}
         {request.requirements.access === "full_collection" ? (
           <small>Requests access to all record types in the selected collection.</small>
         ) : request.requirements.contracts.length > 0 && (
@@ -592,4 +595,3 @@ function NotificationAccess({ notifications }: {
     </details>
   );
 }
-

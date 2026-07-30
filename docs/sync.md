@@ -56,6 +56,15 @@ reference path through a real HTTP server:
   durable-state, lease, hashing, clock, and identity adapters; the Node entry
   point is now a compatibility adapter around that same core.
 
+Before a filesystem mirror materializes a snapshot, it stages the declared
+resources in a temporary collection and compares their paths, kinds, and exact
+documents with `mdbase-rs` canonical output. Record paths must pass the
+collection's configured record policy, and record revisions and parsed documents
+must match the snapshot declaration. Incremental puts and removals recheck that
+policy against the live collection. The portable and Node mirror apply the same
+conservative path, extension, hidden-namespace, and resource-kind boundary
+before invoking their filesystem adapters.
+
 The network end-to-end test creates a hosted collection, queues a record
 offline, synchronizes two clients, materializes Markdown, returns a stale-write
 conflict, recovers an expired cursor without losing pending work, and enforces
@@ -141,7 +150,9 @@ The initial hosted store can keep canonical Markdown documents as PostgreSQL
 text alongside indexed metadata. This gives record mutation and change-log
 publication one database transaction. Object storage becomes useful for large
 attachments and old versions later; it is unnecessary for ordinary Markdown in
-the first service.
+the first service. Attachments, when introduced, remain a separate replication
+object and capability. They are not represented by widening the record
+extension allowlist or by accepting arbitrary resource paths.
 
 The provider, rather than the control plane, stores:
 

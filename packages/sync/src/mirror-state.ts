@@ -3,9 +3,11 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type {
   SyncMutation,
   SyncMutationReceipt,
-  SyncRecord
+  SyncRecord,
+  SyncChange
 } from "@mdbase/connect-protocol";
 import { SyncError } from "./sync-error.js";
+import { validatePortableMirrorPath } from "./portable-path.js";
 
 export interface MirrorEntry {
   path: string;
@@ -162,6 +164,57 @@ export class MemoryMirrorLease implements MirrorLease {
       this.held = false;
     }
   }
+}
+
+export function normalizeMirrorState(
+  state: MirrorState,
+  replicaId: string,
+  mode: "read_only" | "read_write"
+): MirrorState {
+  if (state.protocol_version !== 1 || state.replica_id !== replicaId) throw new Error();
+  state.resources ??= {};
+  state.pending ??= [];
+  state.conflicts ??= {};
+  state.mode ??= "read_only";
+  if (state.mode !== mode) {
+    throw new SyncError(
+      "mirror_mode_mismatch",
+      `Mirror metadata belongs to a ${state.mode.replace("_", "-")} replica.`
+    );
+  }
+  for (const [recordId, entry] of Object.entries(state.records)) {
+    validatePortableMirrorPath(entry.path);
+    if (entry.record && (entry.record.record_id !== recordId || entry.record.path !== entry.path)) {
+      throw new Error();
+    }
+  }
+  for (const [path, entry] of Object.entries(state.resources)) {
+    validatePortableMirrorPath(path);
+    validatePortableMirrorPath(entry.path);
+    if (path !== entry.path) throw new Error();
+  }
+  for (const pending of state.pending) validatePortableMirrorPath(pending.local_path);
+  for (const [path, issue] of Object.entries(state.local_issues ?? {})) {
+    validatePortableMirrorPath(path);
+    validatePortableMirrorPath(issue.path);
+    if (path !== issue.path) throw new Error();
+  }
+  return state;
+}
+
+export function refreshMirrorConflict(state: MirrorState, event: SyncChange): void {
+  const recordId = event.type === "put" ? event.record.record_id : event.record_id;
+  const receipt = state.conflicts?.[recordId];
+  if (!receipt || receipt.status !== "conflicted") return;
+  state.conflicts![recordId] = {
+    ...receipt,
+    conflict: {
+      ...receipt.conflict,
+      ...(event.type === "put"
+        ? { current: event.record, current_revision: event.record.revision }
+        : { current: undefined, current_revision: event.revision })
+    }
+  };
 }
 
 /** Receive-only materialization of a sync replica into ordinary Markdown files. */

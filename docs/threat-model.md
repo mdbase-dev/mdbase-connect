@@ -54,6 +54,35 @@ set, and an exact contract or full-collection scope. The current grant is
 rechecked immediately before the authority opens or mutates data. Application
 discovery or manifest updates cannot silently broaden an existing grant.
 
+Granting access is still a trust decision. Exact-origin binding prevents a
+different site from using a capability; it does not make the approved site's
+code benign. Approval surfaces therefore show the exact site and warn users to
+continue only when they recognize it. Portable files receive a stronger
+unverified-origin warning and proof-of-possession flow.
+
+### Filesystem materialization
+
+An ordinary record operation can address only a canonical collection-relative
+path with a configured record extension. Configuration, type, contract,
+migration, cache, hidden, excluded, symlinked, non-regular, and platform-unsafe
+paths are outside that namespace. Full-document writes are parsed and validated
+in a shadow collection before a crash-recoverable commit changes live files.
+
+Structural resources use kind-specific namespaces. Type and contract documents
+must have the corresponding frontmatter kind and configured folder; schemas
+must be JSON objects below a `schemas` or `_schemas` directory; saved views must
+use configured, portable, non-hidden paths. A filesystem mirror stages and
+canonicalizes a complete resource snapshot before writing any part of it, then
+applies the same record policy to initial and incremental changes. The portable
+mirror enforces the same conservative boundary before it calls an injected
+filesystem adapter.
+
+Binary attachments are not ordinary records or structural resources. A future
+binary-transfer feature must use a separately granted attachment capability, a
+dedicated attachment root, bounded size and quota controls, opaque content
+handling, and non-executable delivery semantics. Adding a binary extension to
+the record allowlist is not an attachment design.
+
 ### Local privacy
 
 Absolute collection paths, record contents, operation arguments, results, and
@@ -109,6 +138,8 @@ explicitly labelled as unsigned beta previews otherwise.
 | Provider database is copied | Per-collection envelope encryption; master key held separately |
 | Malicious dependency or artifact | Frozen lockfiles, automated dependency review, audit gate, pinned Actions, provenance, signatures, checksums |
 | UI hides or confuses a security decision | Concrete permission review, semantic browser checks, keyboard navigation, and reduced-motion coverage |
+| Authorized application targets scripts or control files | Canonical record namespace, extension allowlist, resource-kind binding, shadow validation, symlink and regular-file checks |
+| Hosted snapshot disguises an arbitrary file as a resource | Staged canonical resource comparison before live mirror materialization |
 
 ## Logging and data minimization
 

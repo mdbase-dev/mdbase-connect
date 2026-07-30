@@ -50,6 +50,7 @@ impl DirectoryMirror {
         }
         self.validate_snapshot_shape(&session.resources, &records)?;
         self.preflight_rebuild(&session.resources, &records, prior.as_ref())?;
+        self.validate_snapshot_documents(&session.resources, &records)?;
         let plan = DurableRebuildPlan {
             protocol_version: SYNC_PROTOCOL_VERSION,
             replica_id: self.replica_id,
@@ -65,6 +66,7 @@ impl DirectoryMirror {
     pub(super) fn apply_rebuild(&self, plan: DurableRebuildPlan) -> Result<(), MirrorError> {
         self.validate_rebuild_plan(&plan)?;
         self.validate_snapshot_shape(&plan.session.resources, &plan.records)?;
+        self.validate_snapshot_documents(&plan.session.resources, &plan.records)?;
         self.preflight_rebuild(&plan.session.resources, &plan.records, plan.prior.as_ref())?;
         let target_paths = plan
             .session
@@ -165,6 +167,18 @@ impl DirectoryMirror {
         let mut paths = HashSet::<String>::new();
         for resource in &resources.documents {
             safe_path(&self.root, &resource.path)?;
+            let portable = mdbase::api::CollectionPath::new(&resource.path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted resource path {} is unsafe: {error}", resource.path),
+                )
+            })?;
+            if portable.as_str() != resource.path {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted resource path {} is not canonical.", resource.path),
+                ));
+            }
             if !paths.insert(resource.path.clone()) {
                 return Err(MirrorError::new(
                     "invalid_snapshot",
@@ -181,6 +195,106 @@ impl DirectoryMirror {
                     "invalid_snapshot",
                     format!(
                         "Hosted snapshot repeats record identity or path {}.",
+                        record.path
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_snapshot_documents(
+        &self,
+        resources: &SyncCollectionResources,
+        records: &[SyncSnapshotRecord],
+    ) -> Result<(), MirrorError> {
+        let staging = tempfile::tempdir().map_err(|error| {
+            MirrorError::new(
+                "invalid_snapshot",
+                format!("Could not stage hosted collection resources: {error}"),
+            )
+        })?;
+        for resource in &resources.documents {
+            let path = safe_path(staging.path(), &resource.path)?;
+            atomic_write(&path, resource.document.as_bytes())?;
+        }
+        let collection = mdbase::Collection::open(staging.path()).map_err(|error| {
+            MirrorError::new(
+                "invalid_snapshot",
+                format!("Hosted resources do not form a valid collection: {error}"),
+            )
+        })?;
+        let canonical = collection.snapshot().map_err(|error| {
+            MirrorError::new(
+                "invalid_snapshot",
+                format!("Hosted resources could not be canonicalized: {error}"),
+            )
+        })?;
+        if canonical.spec_version != resources.spec_version {
+            return Err(MirrorError::new(
+                "invalid_snapshot",
+                "Hosted resources do not match their declared specification version.",
+            ));
+        }
+        let declared = resources
+            .documents
+            .iter()
+            .map(|resource| (resource.path.as_str(), resource))
+            .collect::<BTreeMap<_, _>>();
+        if declared.len() != canonical.resources.len() {
+            return Err(MirrorError::new(
+                "invalid_snapshot",
+                format!(
+                    "Hosted snapshot declares {} resources, but canonicalization found {}.",
+                    declared.len(),
+                    canonical.resources.len()
+                ),
+            ));
+        }
+        for resource in &canonical.resources {
+            let Some(candidate) = declared.get(resource.path.as_str()) else {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted resource {} is not canonical.", resource.path),
+                ));
+            };
+            let mismatch = if candidate.kind != resource_kind(resource.kind) {
+                "kind"
+            } else if candidate.document != resource.document {
+                "document"
+            } else {
+                continue;
+            };
+            return Err(MirrorError::new(
+                "invalid_snapshot",
+                format!(
+                    "Hosted resource {} has a noncanonical {mismatch}.",
+                    resource.path
+                ),
+            ));
+        }
+
+        for snapshot in records {
+            let record = &snapshot.record;
+            self.validate_record_path_with(&collection, &record.path)?;
+            if format!("sha256:{}", digest(&snapshot.document)) != record.revision {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!(
+                        "Hosted record {} does not match its declared revision.",
+                        record.path
+                    ),
+                ));
+            }
+            let (frontmatter, body) = parse_markdown(&snapshot.document, &record.path)?;
+            let body_matches = body == record.body
+                || body.strip_prefix('\n') == Some(record.body.as_str())
+                || record.body.strip_prefix('\n') == Some(body.as_str());
+            if frontmatter != record.frontmatter || !body_matches {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!(
+                        "Hosted record {} does not match its declared document.",
                         record.path
                     ),
                 ));
@@ -293,5 +407,15 @@ impl DirectoryMirror {
             }
         }
         Ok(())
+    }
+}
+
+fn resource_kind(kind: mdbase::runtime::CollectionSnapshotResourceKind) -> &'static str {
+    match kind {
+        mdbase::runtime::CollectionSnapshotResourceKind::Configuration => "configuration",
+        mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract",
+        mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
+        mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",
+        mdbase::runtime::CollectionSnapshotResourceKind::View => "view",
     }
 }

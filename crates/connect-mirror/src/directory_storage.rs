@@ -1,6 +1,37 @@
 use super::*;
 
 impl DirectoryMirror {
+    pub(super) fn validate_record_path(&self, relative: &str) -> Result<(), MirrorError> {
+        safe_path(&self.root, relative)?;
+        let collection = mdbase::Collection::open(&self.root).map_err(|error| {
+            MirrorError::new(
+                "invalid_record_path",
+                format!("Mirror collection could not be opened safely: {error}"),
+            )
+        })?;
+        self.validate_record_path_with(&collection, relative)
+    }
+
+    pub(super) fn validate_record_path_with(
+        &self,
+        collection: &mdbase::Collection,
+        relative: &str,
+    ) -> Result<(), MirrorError> {
+        let path = collection.validate_record_path(relative).map_err(|error| {
+            MirrorError::new(
+                "invalid_record_path",
+                format!("Mirror record path '{relative}' is not allowed: {error}"),
+            )
+        })?;
+        if path.as_str() != relative {
+            return Err(MirrorError::new(
+                "invalid_record_path",
+                format!("Mirror record path '{relative}' is not canonical."),
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn read_state(&self) -> Result<Option<DurableMirrorState>, MirrorError> {
         let value = match fs::read(&self.state_file) {
             Ok(value) => value,
@@ -141,6 +172,12 @@ impl DirectoryMirror {
         &self,
         excluded: &HashSet<String>,
     ) -> Result<Vec<String>, MirrorError> {
+        let collection = mdbase::Collection::open(&self.root).map_err(|error| {
+            MirrorError::new(
+                "invalid_mirror_collection",
+                format!("Mirror collection could not be opened safely: {error}"),
+            )
+        })?;
         let mut paths = Vec::new();
         for entry in WalkDir::new(&self.root)
             .follow_links(false)
@@ -164,9 +201,7 @@ impl DirectoryMirror {
                     format!("Could not scan mirror: {error}"),
                 )
             })?;
-            if !entry.file_type().is_file()
-                || entry.path().extension().and_then(|value| value.to_str()) != Some("md")
-            {
+            if !entry.file_type().is_file() {
                 continue;
             }
             let relative = entry
@@ -180,7 +215,11 @@ impl DirectoryMirror {
                 })?
                 .to_string_lossy()
                 .replace('\\', "/");
-            if !excluded.contains(&relative) {
+            if !excluded.contains(&relative)
+                && self
+                    .validate_record_path_with(&collection, &relative)
+                    .is_ok()
+            {
                 paths.push(relative);
             }
         }
