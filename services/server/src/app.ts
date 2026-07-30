@@ -110,11 +110,24 @@ import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerPasswordAuthRoutes } from "./features/auth/password-routes.js";
 import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import {
+  registerConnectorPairingRoutes
+} from "./features/connectors/pairing-routes.js";
+import {
   clearSessionCookies,
   sessionToken,
   setSessionCookie
 } from "./platform/session-cookies.js";
 import { requireSameOrigin } from "./platform/request-security.js";
+import { audit } from "./platform/audit-events.js";
+import {
+  authenticatedUser,
+  bearerToken,
+  connectorFromRequest,
+  requireConnector,
+  requireSessionContext,
+  requireUser,
+  type User
+} from "./platform/request-authentication.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -200,24 +213,6 @@ interface BuildOptions {
     transports: NotificationTransports;
     pollIntervalMs?: number;
   };
-}
-
-interface User {
-  id: string;
-  email: string | null;
-  name: string;
-  login: string | null;
-  authentication_provider?: "github" | "google" | "password" | "session" | "tailscale";
-}
-
-interface SessionContext {
-  user: User;
-  sessionId: string;
-}
-
-interface ConnectorIdentity {
-  id: string;
-  user_id: string;
 }
 
 interface AuthorityTransferRow {
@@ -435,185 +430,10 @@ export async function buildApp(options: BuildOptions) {
     githubAuth: options.githubAuth,
     googleAuth: options.googleAuth
   });
-
-  app.post("/v1/pairing-requests", async (request, reply) => {
-    const input = z.object({
-      connector_name: z.string().trim().min(1).max(100)
-    }).parse(request.body);
-    const id = randomUUID();
-    const secret = randomToken("pair");
-    await options.db.query(
-      `INSERT INTO pairing_requests (id, secret_hash, connector_name, expires_at)
-       VALUES ($1, $2, $3, now() + interval '10 minutes')`,
-      [id, tokenHash(secret), input.connector_name]
-    );
-    return reply.code(201).send({
-      pairing_id: id,
-      pairing_secret: secret,
-      verification_uri: `${publicUrl}/pair/${id}`,
-      expires_in: 600
-    });
-  });
-
-  app.get("/v1/pairing-requests/:pairingId", async (request, reply) => {
-    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
-    if (!user) return;
-    const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
-    const pairing = await options.db.query<{
-      id: string;
-      connector_name: string;
-      approved_at: string | null;
-      consumed_at: string | null;
-      expires_at: string;
-    }>(
-      `SELECT id, connector_name, approved_at, consumed_at, expires_at
-       FROM pairing_requests
-       WHERE id = $1 AND revoked_at IS NULL AND expires_at > now()`,
-      [pairingId]
-    );
-    if (!pairing.rows[0]) {
-      return reply.code(404).send(apiError("pairing_not_found", "Pairing request expired or was not found."));
-    }
-    return { pairing: pairing.rows[0] };
-  });
-
-  app.post("/v1/pairing-requests/:pairingId/approve", async (request, reply) => {
-    const user = await requireUser(request, reply, options.db, options.tailscaleAuth);
-    if (!user) return;
-    const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
-    const approved = await options.db.query(
-      `UPDATE pairing_requests SET user_id = $2, approved_at = now()
-       WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-         AND revoked_at IS NULL AND expires_at > now()
-       RETURNING id, connector_name`,
-      [pairingId, user.id]
-    );
-    if (!approved.rows[0]) {
-      return reply.code(404).send(apiError("pairing_not_found", "Pairing request expired or was already used."));
-    }
-    await audit(options.db, user.id, "connector.pairing_approved", pairingId, {
-      name: approved.rows[0].connector_name
-    });
-    return {
-      ok: true,
-      deep_link: `mdbase-connect://paired?server=${encodeURIComponent(publicUrl)}&pairing_id=${pairingId}`
-    };
-  });
-
-  app.post("/v1/pairing-requests/:pairingId/exchange", async (request, reply) => {
-    const { pairingId } = z.object({ pairingId: z.uuid() }).parse(request.params);
-    const secret = bearerToken(request);
-    if (!secret) return reply.code(401).send(apiError("invalid_pairing", "Pairing secret required."));
-    const connection = await options.db.connect();
-    try {
-      await connection.query("BEGIN");
-      const pairing = await connection.query<{
-        id: string;
-        connector_name: string;
-        user_id: string | null;
-        approved_at: string | null;
-        consumed_at: string | null;
-      }>(
-        `SELECT id, connector_name, user_id, approved_at, consumed_at
-         FROM pairing_requests
-         WHERE id = $1 AND secret_hash = $2
-           AND revoked_at IS NULL AND expires_at > now()`,
-        [pairingId, tokenHash(secret)]
-      );
-      const pending = pairing.rows[0];
-      if (!pending) {
-        await connection.query("ROLLBACK");
-        return reply.code(404).send(apiError(
-          "pairing_not_found",
-          "Pairing request expired or was not found."
-        ));
-      }
-      if (pending.consumed_at) {
-        await connection.query("ROLLBACK");
-        return reply.code(409).send(apiError(
-          "pairing_used",
-          "Pairing request has already been used."
-        ));
-      }
-      if (!pending.approved_at || !pending.user_id) {
-        await connection.query("COMMIT");
-        return reply.code(202).send({ status: "pending" });
-      }
-      const activeAccount = await connection.query(
-        `SELECT id FROM users
-         WHERE id = $1 AND suspended_at IS NULL
-         FOR UPDATE`,
-        [pending.user_id]
-      );
-      if (!activeAccount.rows[0]) {
-        await connection.query("ROLLBACK");
-        return reply.code(404).send(apiError(
-          "pairing_not_found",
-          "Pairing request expired or was not found."
-        ));
-      }
-      const locked = await connection.query<{
-        connector_name: string;
-        consumed_at: string | null;
-      }>(
-        `SELECT connector_name, consumed_at
-         FROM pairing_requests
-         WHERE id = $1 AND secret_hash = $2 AND user_id = $3
-           AND approved_at IS NOT NULL
-           AND revoked_at IS NULL AND expires_at > now()
-         FOR UPDATE`,
-        [pairingId, tokenHash(secret), pending.user_id]
-      );
-      if (!locked.rows[0]) {
-        await connection.query("ROLLBACK");
-        return reply.code(404).send(apiError(
-          "pairing_not_found",
-          "Pairing request expired or was not found."
-        ));
-      }
-      if (locked.rows[0].consumed_at) {
-        await connection.query("ROLLBACK");
-        return reply.code(409).send(apiError(
-          "pairing_used",
-          "Pairing request has already been used."
-        ));
-      }
-      const consumed = await connection.query(
-        `UPDATE pairing_requests SET consumed_at = now()
-         WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL
-         RETURNING id`,
-        [pairingId]
-      );
-      if (!consumed.rows[0]) {
-        await connection.query("ROLLBACK");
-        return reply.code(409).send(apiError(
-          "pairing_used",
-          "Pairing request has already been used."
-        ));
-      }
-      const token = randomToken("con");
-      const connector = await connection.query<{ id: string; name: string }>(
-        `INSERT INTO connectors (id, user_id, name, token_hash)
-         VALUES ($1, $2, $3, $4) RETURNING id, name`,
-        [
-          randomUUID(),
-          pending.user_id,
-          locked.rows[0].connector_name,
-          tokenHash(token)
-        ]
-      );
-      await audit(connection, pending.user_id, "connector.created", connector.rows[0].id, {
-        name: locked.rows[0].connector_name,
-        pairing_id: pairingId
-      });
-      await connection.query("COMMIT");
-      return { status: "paired", connector: connector.rows[0], token };
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
-    }
+  registerConnectorPairingRoutes(app, {
+    db: options.db,
+    publicUrl,
+    tailscaleAuth: options.tailscaleAuth
   });
 
   app.post("/v1/mirror-pairing-requests", async (request, reply) => {
@@ -6792,82 +6612,6 @@ function requiredTypePackProvisions(
   );
 }
 
-async function sessionUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
-  return (await sessionContext(request, db))?.user ?? null;
-}
-
-async function sessionContext(
-  request: FastifyRequest,
-  db: DatabasePool
-): Promise<SessionContext | null> {
-  const token = sessionToken(request);
-  if (!token) return null;
-  const result = await db.query<User & {
-    session_id: string;
-    last_seen_at: Date | string;
-  }>(
-    `SELECT u.id, s.id AS session_id, s.last_seen_at,
-            COALESCE(i.email, e.email, u.email) AS email,
-            u.name, i.login, s.provider AS authentication_provider
-     FROM sessions s
-     JOIN users u ON u.id = s.user_id
-     LEFT JOIN external_identities i ON i.user_id = u.id AND i.provider = s.provider
-     LEFT JOIN email_identities e ON e.user_id = u.id
-       AND e.is_primary = true AND e.retired_at IS NULL
-     WHERE s.token_hash = $1
-       AND s.expires_at > now()
-       AND s.revoked_at IS NULL
-       AND u.suspended_at IS NULL
-       AND s.account_session_epoch = u.session_epoch`,
-    [tokenHash(token)]
-  );
-  const row = result.rows[0];
-  if (!row) return null;
-  if (Date.now() - new Date(row.last_seen_at).getTime() >= 5 * 60 * 1_000) {
-    await db.query(
-      `UPDATE sessions SET last_seen_at = now()
-       WHERE id = $1
-         AND revoked_at IS NULL
-         AND expires_at > now()
-         AND last_seen_at < now() - interval '5 minutes'`,
-      [row.session_id]
-    );
-  }
-  const {
-    session_id: sessionId,
-    last_seen_at: _lastSeenAt,
-    ...user
-  } = row;
-  return { user, sessionId };
-}
-
-async function tailscaleUser(request: FastifyRequest, db: DatabasePool): Promise<User | null> {
-  const loginHeader = request.headers["tailscale-user-login"];
-  const nameHeader = request.headers["tailscale-user-name"];
-  const login = (Array.isArray(loginHeader) ? loginHeader[0] : loginHeader)?.trim().toLowerCase();
-  if (!login || login.length > 320) return null;
-  const suppliedName = (Array.isArray(nameHeader) ? nameHeader[0] : nameHeader)?.trim();
-  const fallbackName = login.split("@")[0] || login;
-  const name = suppliedName && suppliedName.length <= 100 ? suppliedName : fallbackName.slice(0, 100);
-  const user = await db.query<User & { suspended_at: string | null }>(
-    `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
-     ON CONFLICT(email) DO UPDATE SET name = excluded.name
-     RETURNING id, email, name, suspended_at`,
-    [randomUUID(), login, name]
-  );
-  if (!user.rows[0] || user.rows[0].suspended_at) return null;
-  const { suspended_at: _suspendedAt, ...activeUser } = user.rows[0];
-  return { ...activeUser, login: null, authentication_provider: "tailscale" };
-}
-
-async function authenticatedUser(
-  request: FastifyRequest,
-  db: DatabasePool,
-  tailscaleAuth = false
-): Promise<User | null> {
-  return tailscaleAuth ? tailscaleUser(request, db) : sessionUser(request, db);
-}
-
 async function authorityPairing(
   db: DatabasePool,
   pairingId: string,
@@ -7814,58 +7558,6 @@ async function requireHostedReplica(
   return result.rows[0];
 }
 
-async function requireUser(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  db: DatabasePool,
-  tailscaleAuth = false
-): Promise<User | null> {
-  const user = await authenticatedUser(request, db, tailscaleAuth);
-  if (!user) reply.code(401).send(apiError("not_authenticated", "Sign in to continue."));
-  return user;
-}
-
-async function requireSessionContext(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  db: DatabasePool
-): Promise<SessionContext | null> {
-  const authenticated = await sessionContext(request, db);
-  if (!authenticated) {
-    reply.code(401).send(apiError("not_authenticated", "Sign in to continue."));
-  }
-  return authenticated;
-}
-
-async function connectorFromRequest(request: FastifyRequest, db: DatabasePool): Promise<ConnectorIdentity | null> {
-  const token = bearerToken(request);
-  if (!token) return null;
-  const connector = await db.query<ConnectorIdentity>(
-    `SELECT c.id, c.user_id
-     FROM connectors c
-     JOIN users u ON u.id = c.user_id
-     WHERE c.token_hash = $1 AND c.revoked_at IS NULL
-       AND u.suspended_at IS NULL`,
-    [tokenHash(token)]
-  );
-  return connector.rows[0] ?? null;
-}
-
-async function requireConnector(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  db: DatabasePool
-): Promise<ConnectorIdentity | null> {
-  const connector = await connectorFromRequest(request, db);
-  if (!connector) reply.code(401).send(apiError("invalid_connector", "Connector credential is invalid."));
-  return connector;
-}
-
-function bearerToken(request: FastifyRequest): string | null {
-  const authorization = request.headers.authorization;
-  return authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
-}
-
 function authorityUrl(
   baseUrl: string,
   collectionId: string,
@@ -7876,18 +7568,4 @@ function authorityUrl(
   base.search = "";
   base.hash = "";
   return base.href.replace(/\/$/, "");
-}
-
-async function audit(
-  db: DatabaseQueryable,
-  userId: string | null,
-  eventType: string,
-  subjectId: string | null,
-  metadata: unknown
-): Promise<void> {
-  await db.query(
-    `INSERT INTO audit_events (id, user_id, event_type, subject_id, metadata)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [randomUUID(), userId, eventType, subjectId, JSON.stringify(metadata)]
-  );
 }
