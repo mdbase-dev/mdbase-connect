@@ -4,6 +4,19 @@ The local loop has two complementary profilers. Both run optimized binaries
 and avoid including collection paths, query inputs, frontmatter, or bodies in
 their reports.
 
+## Hosted mirror regression gate
+
+`pnpm profile:mirror:check` exercises initial, no-op, and incremental
+read-only sync plus initial and no-op writable sync over 10,000 in-memory
+records. It compares wall time, peak heap, filesystem operations, and durable
+checkpoints against `scripts/mirror-profile-baseline.json`.
+
+The baseline records the exact source commit, Node runtime, platform, and
+capture-round count. V8 heap accounting changes between Node major versions,
+so recapture it from the recorded source commit with the repository's current
+Node 24 runtime before comparing an implementation change. Never update the
+numbers from the candidate implementation merely to make a regression pass.
+
 ## Fast query feedback
 
 Run the deterministic mdbase-rs workload from this repository:

@@ -9,6 +9,16 @@ const baseline = JSON.parse(await readFile(
   new URL("./mirror-profile-baseline.json", import.meta.url),
   "utf8"
 ));
+const baselineNodeMajor = baseline.runtime.node.match(/^v(\d+)\./)?.[1];
+const currentNodeMajor = process.versions.node.split(".")[0];
+assert(
+  baselineNodeMajor === currentNodeMajor,
+  `mirror baseline requires Node ${baselineNodeMajor}; running Node ${currentNodeMajor}`
+);
+assert(
+  baseline.runtime.platform === `${process.platform}-${process.arch}`,
+  `mirror baseline requires ${baseline.runtime.platform}; running ${process.platform}-${process.arch}`
+);
 const { records, changes, rounds, snapshot_page_size: pageSize } = baseline.parameters;
 const { stdout } = await run(process.execPath, [
   "--expose-gc",

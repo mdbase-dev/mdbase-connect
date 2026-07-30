@@ -109,8 +109,9 @@ policy, secret storage, and translation from its vault API to
 
 ### Performance and adversarial profiling
 
-The repository keeps the pre-extraction 10,000-record baseline and checks both
-the Node and portable adapters against it:
+The repository keeps a source-commit- and runtime-identified
+pre-quality-transformation 10,000-record baseline and checks both the Node and
+portable adapters against it:
 
 ```bash
 pnpm profile:mirror:check
