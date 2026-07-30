@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [architecture, maintainability, security, testing, ci, documentation]
 created_at: 2026-07-30T11:31:26+10:00
-updated_at: 2026-07-30T12:11:30+10:00
+updated_at: 2026-07-30T12:55:28+10:00
 type: task
 ---
 
@@ -92,9 +92,19 @@ Work is isolated on `agent/exquisite-codebase` in the
   cookies, authenticated principals, audit recording, authority URL
   construction, contract schemas, and key validation now have explicit
   platform or protocol owners.
-- `services/server/src/app.ts` has fallen from 8,738 to 6,840 lines without
-  changing the public route surface. Its no-growth budget was ratcheted after
-  each extraction.
+- `services/server/src/app.ts` has fallen from 8,738 to 351 lines without
+  changing the public route surface. It is now a composition root below the
+  repository-wide 1,000-line production-file limit and no longer needs a
+  legacy exception.
 - The server suite now passes 188 tests across 41 files; the architecture
-  check covers 154 production files, 257 relative imports, and 11 workspace
+  check covers 180 production files, 441 relative imports, and 11 workspace
   packages with no source or workspace dependency cycles.
+- Feature modules now own connector control, authority adoption and transfer,
+  notifications, local operations, hosted account and connector management,
+  reference sync, relay transport, account overview, application manifests,
+  grant policy and reconciliation, and the complete authorization state
+  machine.
+- Authorization now has explicit route, approval, redirect, token-issuance,
+  and live-offer boundaries. The `"null"` portable application origin remains
+  an explicit protocol invariant covered by the existing end-to-end server
+  suite.
