@@ -185,6 +185,12 @@ import {
 import {
   registerHostedAccountRoutes
 } from "./features/hosted/account-routes.js";
+import {
+  registerReferenceSyncRoutes
+} from "./features/hosted/reference-sync-routes.js";
+import {
+  registerConnectorRelayRoute
+} from "./features/connectors/relay-route.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import { audit } from "./platform/audit-events.js";
 import {
@@ -204,18 +210,6 @@ const operationSchema = z.enum(COLLECTION_OPERATIONS);
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DEVICE_AUTHORIZATION_SECONDS = 600;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
-const syncMutationSchema = z.object({
-  mutation_id: z.uuid(),
-  replica_id: z.uuid(),
-  scope_epoch: z.number().int().positive(),
-  operation: z.enum(["create", "update", "rename", "delete"]),
-  record_id: z.uuid(),
-  base_revision: z.string().min(1).optional(),
-  input: z.record(z.string(), z.unknown()),
-  created_at: z.iso.datetime(),
-  causal_predecessor: z.uuid().optional()
-}).strict();
-
 interface BuildOptions {
   db: DatabasePool;
   revision?: string;
@@ -467,6 +461,11 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider,
     hostedReference
   });
+  registerReferenceSyncRoutes(app, {
+    db: options.db,
+    hostedReference
+  });
+  registerConnectorRelayRoute(app, { db: options.db, relay });
 
   app.get("/v1/me", async (request, reply) => {
     const authenticated = await requireUser(request, reply, options.db, options.tailscaleAuth);
@@ -838,56 +837,6 @@ export async function buildApp(options: BuildOptions) {
     });
     if (!denied) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };
-  });
-
-  app.post("/v1/authorities/:collectionId/sync/sessions", async (request, reply) => {
-    const replica = await requireHostedReplica(request, reply, options.db);
-    if (!replica) return;
-    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
-    if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hostedReference!.transport(collectionId, replica.id)).openSession();
-  });
-
-  app.get("/v1/authorities/:collectionId/sync/snapshot", async (request, reply) => {
-    const replica = await requireHostedReplica(request, reply, options.db);
-    if (!replica) return;
-    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
-    const query = z.object({ snapshot_id: z.uuid(), page: z.string().regex(/^[1-9][0-9]*$/).optional() }).parse(request.query);
-    if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hostedReference!.transport(collectionId, replica.id)).snapshot(query.snapshot_id, query.page);
-  });
-
-  app.get("/v1/authorities/:collectionId/sync/changes", async (request, reply) => {
-    const replica = await requireHostedReplica(request, reply, options.db);
-    if (!replica) return;
-    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
-    const query = z.object({
-      after: z.coerce.number().int().nonnegative(),
-      limit: z.coerce.number().int().positive().max(500).default(200)
-    }).parse(request.query);
-    if (collectionId !== replica.collection_id) return reply.code(403).send(apiError("replica_scope_denied", "Replica belongs to another collection."));
-    return (await hostedReference!.transport(collectionId, replica.id)).changes(query.after, query.limit);
-  });
-
-  app.post("/v1/authorities/:collectionId/sync/mutations", async (request, reply) => {
-    const replica = await requireHostedReplica(request, reply, options.db);
-    if (!replica) return;
-    const { collectionId } = z.object({ collectionId: z.uuid() }).parse(request.params);
-    const mutation = syncMutationSchema.parse(request.body);
-    if (collectionId !== replica.collection_id || mutation.replica_id !== replica.id) {
-      return reply.code(403).send(apiError("replica_scope_denied", "Mutation belongs to another replica."));
-    }
-    return (await hostedReference!.transport(collectionId, replica.id)).mutate(asSyncMutation(mutation));
-  });
-
-  app.get("/v1/relay", { websocket: true }, async (socket, request) => {
-    const handshake = relay.beginHandshake(socket);
-    const connector = await connectorFromRequest(request, options.db);
-    if (!connector) {
-      socket.close(4003, "Invalid connector credential");
-      return;
-    }
-    await relay.attach(connector.id, socket, handshake);
   });
 
   app.post("/v1/apps/register", async (request) => {
