@@ -100,6 +100,58 @@ import type {
   MdbaseSelectionHistory,
   MdbaseSessionSelection
 } from "./selection.js";
+import { DEFAULT_OPERATIONS } from "./internal-types.js";
+import type {
+  Application,
+  OperationAttempt,
+  PendingMutation,
+  StoredAuthorization,
+  StoredConnectionIndex,
+  StoredToken
+} from "./internal-types.js";
+import {
+  assertDeletePreview,
+  assertRenamePreview,
+  canonicalJson,
+  deleteEstimate,
+  directFallbackStatus,
+  isCancellation,
+  isMutation,
+  localNetworkPermission,
+  loopbackRequest,
+  operationFingerprint,
+  operationTransportError,
+  renameEstimate,
+  sameAuthorization,
+  throwIfCancelled,
+  uncertainDirectMutation,
+  uniqueOperations
+} from "./operation-helpers.js";
+import {
+  MemoryStorage,
+  apiError,
+  canonicalLoopbackUrl,
+  createPkce,
+  defaultCallbackUrl,
+  defaultManifestSource,
+  defaultRedirectUri,
+  defaultStorage,
+  isOpaquePortableManifest,
+  manifestStorageFingerprint,
+  oauthErrorCode,
+  parseDeviceAuthorization,
+  parseGrantScope,
+  parseStored,
+  stripTrailingSlash,
+  validAuthorityTokenResponse,
+  validStoredAuthority,
+  validStoredEncryption
+} from "./runtime-utils.js";
+import {
+  base64UrlBytes,
+  randomBase64Url
+} from "./base64.js";
+import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 
 export {
   decryptRelayResponse,
@@ -112,10 +164,12 @@ export {
   type GrantKeyStore
 } from "./crypto.js";
 export * from "./collection-client.js";
+export * from "./authorization-types.js";
 export * from "./errors.js";
 export * from "./notifications.js";
 export * from "./operation-types.js";
 export * from "./selection.js";
+export { createPkce } from "./runtime-utils.js";
 
 export type {
   ApplicationProvisions,
@@ -225,14 +279,6 @@ export interface MdbaseConnectionAuthorizeOptions {
   signal?: AbortSignal;
 }
 
-export interface MdbaseDeviceAuthorization {
-  userCode: string;
-  verificationUri: string;
-  verificationUriComplete: string;
-  expiresAt: number;
-  intervalSeconds: number;
-}
-
 export interface MdbaseConnectEnvironment {
   distribution: "web" | "portable";
   applicationOrigin: string;
@@ -268,81 +314,6 @@ export interface MdbaseSyncConnection<Frontmatter extends JsonObject = JsonObjec
   replicaId: string;
   transport: MdbaseSyncTransport<Frontmatter>;
 }
-
-interface Application {
-  id: string;
-  name: string;
-  distribution?: "web" | "portable";
-  homepage?: string;
-  project_url?: string;
-  notifications?: ApplicationNotifications;
-}
-
-interface StoredAuthorization {
-  version: 1;
-  verifier: string;
-  state: string;
-  clientId: string;
-  redirectUri: string;
-  relayEncryption: "required" | "disabled";
-  collectionId?: string;
-  returnTo?: string;
-  keyHandle?: string;
-  applicationAgreementPublicKey?: string;
-  applicationSigningPublicKey?: string;
-}
-
-interface StoredToken {
-  version: 1;
-  accessToken: string;
-  refreshToken?: string;
-  clientId: string;
-  collectionId: string;
-  collectionName: string;
-  operations: CollectionOperation[];
-  scope: GrantScope;
-  expiresAt: number;
-  refreshExpiresAt?: number;
-  grantId?: string;
-  encryption?: GrantEncryption;
-  applicationOrigin?: string;
-  keyHandle?: string;
-  savedAt: number;
-  authority?: {
-    operationsUrl: string;
-    syncUrl: string;
-    replicaId: string;
-    accessToken: string;
-    proofPublicKey?: string;
-  };
-}
-
-interface StoredConnectionIndex {
-  version: 1;
-  collectionIds: string[];
-}
-
-interface PendingMutation {
-  collectionId: string;
-  grantId?: string;
-  keyId?: string;
-  operation: CollectionOperation;
-  inputFingerprint: string;
-  requestId: string;
-  envelope?: EncryptedRelayOperationRequest;
-  createdAt: number;
-}
-
-interface OperationAttempt {
-  response: Response;
-  requestId: string;
-  encryptedRequest?: Awaited<ReturnType<typeof encryptRelayRequest>>;
-  directDeliveryUncertain?: boolean;
-  pendingMutation?: boolean;
-  resumingMutation?: boolean;
-}
-
-const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
 
 export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   private readonly internals: MdbaseConnectInternals<Frontmatter>;
@@ -2788,343 +2759,6 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   }
 }
 
-type LoopbackRequestInit = RequestInit & {
-  targetAddressSpace?: "loopback";
-};
-
-function loopbackRequest(init: RequestInit): LoopbackRequestInit {
-  return { ...init, credentials: "omit", targetAddressSpace: "loopback" };
-}
-
-async function localNetworkPermission(): Promise<PermissionState | null> {
-  if (typeof navigator === "undefined" || !navigator.permissions?.query) return null;
-  try {
-    const status = await navigator.permissions.query({
-      name: "local-network-access" as PermissionName
-    });
-    return status.state;
-  } catch {
-    return null;
-  }
-}
-
-function directFallbackStatus(status: number): boolean {
-  return status === 404 || status === 405 || status === 426 || status >= 500;
-}
-
-function isMutation(operation: CollectionOperation, input?: unknown): boolean {
-  if (input && typeof input === "object" && !Array.isArray(input)
-      && (input as Record<string, unknown>).dry_run === true) return false;
-  return (operation === "sync"
-      && input !== null
-      && typeof input === "object"
-      && !Array.isArray(input)
-      && (input as Record<string, unknown>).action === "mutate")
-    || operation === "create"
-    || operation === "update"
-    || operation === "delete"
-    || operation === "rename"
-    || operation === "create_type"
-    || operation === "update_type"
-    || operation === "install_type_pack"
-    || operation === "put_timer"
-    || operation === "cancel_timer"
-    || operation === "reconcile_timers";
-}
-
-function uniqueOperations(operations: CollectionOperation[]): CollectionOperation[] {
-  return [...new Set(operations)];
-}
-
-function sameAuthorization(left: StoredToken, right: StoredToken): boolean {
-  if (left.grantId || right.grantId) {
-    return left.grantId === right.grantId
-      && left.keyHandle === right.keyHandle
-      && left.encryption?.key_id === right.encryption?.key_id;
-  }
-  return left.accessToken === right.accessToken;
-}
-
-function throwIfCancelled(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  throw new MdbaseConnectError(
-    "operation_cancelled",
-    "The operation was cancelled before it changed the collection.",
-    { recovery: "none", cause: signal.reason }
-  );
-}
-
-function operationTransportError(
-  error: unknown,
-  signal: AbortSignal | undefined,
-  outcomeUnknown: boolean
-): Error {
-  if (signal?.aborted) {
-    return new MdbaseConnectError(
-      "operation_cancelled",
-      outcomeUnknown
-        ? "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result."
-        : "The operation was cancelled before it changed the collection.",
-      {
-        outcomeUnknown,
-        recovery: outcomeUnknown ? "resolve_outcome" : "none",
-        cause: error
-      }
-    );
-  }
-  if (outcomeUnknown) {
-    if (error instanceof MdbaseConnectError && error.outcomeUnknown) return error;
-    return uncertainDirectMutation(error);
-  }
-  return error instanceof Error ? error : new Error(String(error));
-}
-
-function isCancellation(error: unknown, signal?: AbortSignal): boolean {
-  return signal?.aborted === true
-    || (error instanceof MdbaseConnectError && error.code === "operation_cancelled");
-}
-
-function assertRenamePreview(input: RenameInput, preview: RenamePreflightResult): void {
-  if (preview.dry_run !== true || preview.would_rename !== true
-      || preview.from !== input.from || preview.to !== input.to) {
-    throw new MdbaseConnectError(
-      "invalid_preflight",
-      "The rename preview does not match this mutation. Run the preview again.",
-      { recovery: "fix_request" }
-    );
-  }
-}
-
-function assertDeletePreview(input: DeleteInput, preview: DeletePreflightResult): void {
-  if (preview.dry_run !== true || preview.would_delete !== true || preview.path !== input.path) {
-    throw new MdbaseConnectError(
-      "invalid_preflight",
-      "The delete preview does not match this mutation. Run the preview again.",
-      { recovery: "fix_request" }
-    );
-  }
-}
-
-function renameEstimate(input: RenameInput, preview: RenamePreflightResult): MutationEstimate {
-  if (input.update_refs === false) {
-    return { affectedRecords: 0, totalUnits: 1, warnings: 0 };
-  }
-  const references = preview.references_affected ?? [];
-  return {
-    affectedRecords: new Set(references.map((reference) => reference.path)).size,
-    totalUnits: 1 + references.length,
-    warnings: preview.warnings?.length ?? 0
-  };
-}
-
-function deleteEstimate(preview: DeletePreflightResult): MutationEstimate {
-  return {
-    affectedRecords: new Set((preview.broken_links ?? []).map((reference) => reference.path)).size,
-    totalUnits: 1,
-    warnings: 0
-  };
-}
-
-async function operationFingerprint(
-  operation: CollectionOperation,
-  input: unknown
-): Promise<string> {
-  const encoded = new TextEncoder().encode(`${operation}\0${canonicalJson(input ?? {})}`);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return bytesToBase64Url(new Uint8Array(digest));
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => sortJson(item));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, item]) => item !== undefined)
-        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-        .map(([key, item]) => [key, sortJson(item)])
-    );
-  }
-  return value;
-}
-
-function uncertainDirectMutation(cause: unknown): MdbaseConnectError {
-  return new MdbaseConnectError(
-    "direct_outcome_unknown",
-    "The direct write may have completed, and mdbase could not recover its receipt through the relay. Retry the exact same write to recover safely.",
-    { cause }
-  );
-}
-
-function canonicalLoopbackUrl(value: string): string {
-  const url = new URL(value);
-  if (url.protocol !== "http:"
-      || !["127.0.0.1", "[::1]"].includes(url.hostname)
-      || url.username
-      || url.password
-      || url.pathname !== "/"
-      || url.search
-      || url.hash) {
-    throw new MdbaseConnectError(
-      "invalid_loopback_url",
-      "loopbackUrl must be an HTTP origin on 127.0.0.1 or ::1."
-    );
-  }
-  return url.origin;
-}
-
-export async function createPkce(): Promise<{ verifier: string; challenge: string }> {
-  const verifier = randomBase64Url(32);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return { verifier, challenge: bytesToBase64Url(new Uint8Array(digest)) };
-}
-
-function apiError(body: any, fallbackCode: string, fallbackMessage: string, status?: number): MdbaseConnectError {
-  return new MdbaseConnectError(
-    oauthErrorCode(body) ?? body?.error?.code ?? fallbackCode,
-    body?.error_description ?? body?.error?.message ?? fallbackMessage,
-    { status, details: body?.error?.details }
-  );
-}
-
-function oauthErrorCode(body: any): string | undefined {
-  return typeof body?.error === "string" ? body.error : undefined;
-}
-
-function validAuthorityTokenResponse(value: unknown, collectionId: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (typeof collectionId !== "string") return false;
-  const authority = value as {
-    operations_url?: unknown;
-    sync_url?: unknown;
-    replica_id?: unknown;
-    access_token?: unknown;
-    proof_public_key?: unknown;
-  };
-  if (
-    typeof authority.operations_url !== "string"
-    || typeof authority.sync_url !== "string"
-    || typeof authority.replica_id !== "string"
-    || authority.replica_id.length === 0
-    || typeof authority.access_token !== "string"
-    || authority.access_token.length === 0
-    || (
-      authority.proof_public_key !== undefined
-      && (
-        typeof authority.proof_public_key !== "string"
-        || authority.proof_public_key.length === 0
-      )
-    )
-  ) return false;
-  try {
-    const operations = new URL(authority.operations_url);
-    const sync = new URL(authority.sync_url);
-    return [operations, sync].every((url) =>
-      (
-        url.protocol === "https:"
-        || (
-          url.protocol === "http:"
-          && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)
-        )
-      )
-      && !url.username
-      && !url.password
-      && !url.search
-      && !url.hash
-    )
-      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/operations$/i.test(operations.pathname)
-      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/sync$/i.test(sync.pathname)
-      && operations.origin === sync.origin
-      && operations.pathname.split("/")[3] === collectionId
-      && sync.pathname.split("/")[3] === collectionId;
-  } catch {
-    return false;
-  }
-}
-
-function validStoredAuthority(
-  authority: StoredToken["authority"],
-  collectionId: string
-): boolean {
-  return validAuthorityTokenResponse({
-    operations_url: authority?.operationsUrl,
-    sync_url: authority?.syncUrl,
-    replica_id: authority?.replicaId,
-    access_token: authority?.accessToken,
-    proof_public_key: authority?.proofPublicKey
-  }, collectionId);
-}
-
-function validStoredEncryption(
-  encryption: StoredToken["encryption"],
-  collectionId: string
-): encryption is GrantEncryption {
-  if (!encryption || typeof encryption !== "object" || Array.isArray(encryption)) {
-    return false;
-  }
-  if (encryption.collection_id !== collectionId) return false;
-  try {
-    validateGrantEncryption(encryption);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function parseDeviceAuthorization(body: any): MdbaseDeviceAuthorization {
-  if (
-    typeof body?.device_code !== "string"
-    || typeof body?.user_code !== "string"
-    || typeof body?.verification_uri !== "string"
-    || typeof body?.verification_uri_complete !== "string"
-    || !Number.isFinite(body?.expires_in)
-    || !Number.isFinite(body?.interval)
-  ) {
-    throw new MdbaseConnectError(
-      "invalid_device_authorization_response",
-      "Connect returned an invalid downloaded application authorization response."
-    );
-  }
-  return {
-    userCode: body.user_code,
-    verificationUri: body.verification_uri,
-    verificationUriComplete: body.verification_uri_complete,
-    expiresAt: Date.now() + Math.max(1, body.expires_in) * 1_000,
-    intervalSeconds: Math.max(1, body.interval)
-  };
-}
-
-function randomBase64Url(size: number): string {
-  const bytes = new Uint8Array(size);
-  crypto.getRandomValues(bytes);
-  return bytesToBase64Url(bytes);
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
-function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
-  const padded = value.replaceAll("-", "+").replaceAll("_", "/")
-    .padEnd(Math.ceil(value.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function parseStored<T>(value: string | null): T | null {
-  if (!value) return null;
-  try { return JSON.parse(value) as T; } catch { return null; }
-}
-
 function sessionSnapshotKey<Frontmatter extends JsonObject>(
   snapshot: MdbaseSessionSnapshot<Frontmatter>
 ): string {
@@ -3146,141 +2780,4 @@ function sessionSnapshotKey<Frontmatter extends JsonObject>(
     access: snapshot.access,
     connections: snapshot.connections
   });
-}
-
-function parseGrantScope(value: unknown): GrantScope | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const scope = value as Partial<GrantScope>;
-  if (scope.access !== "contract" && scope.access !== "full_collection") return null;
-  if (!Array.isArray(scope.contracts)) return null;
-  if (scope.contracts.some((contract) =>
-    !contract
-    || typeof contract !== "object"
-    || contract.contract_type !== "record"
-    || typeof contract.id !== "string"
-    || typeof contract.version !== "string"
-    || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(contract.version)
-    || !/^sha256:[0-9a-f]{64}$/.test(contract.digest)
-    || !contract.schema
-    || typeof contract.schema !== "object"
-    || Array.isArray(contract.schema)
-    || !Array.isArray(contract.implementations)
-    || contract.implementations.some((implementation) =>
-      !implementation
-      || typeof implementation !== "object"
-      || typeof implementation.type_name !== "string"
-      || !Number.isInteger(implementation.type_version)
-      || !/^sha256:[0-9a-f]{64}$/.test(implementation.digest)
-      || !implementation.fields
-      || typeof implementation.fields !== "object"
-      || Array.isArray(implementation.fields)
-      || Object.values(implementation.fields).some((field) => typeof field !== "string")
-    )
-  )) return null;
-  return scope as GrantScope;
-}
-
-function stripTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value.slice(0, -1) : value;
-}
-
-function defaultManifestSource(): string {
-  if (typeof location === "undefined") {
-    throw new MdbaseConnectError(
-      "manifest_required",
-      "manifest is required outside a browser environment."
-    );
-  }
-  if (location.origin === "null") {
-    throw new MdbaseConnectError(
-      "manifest_required",
-      "Downloaded applications must provide their v1 portable manifest inline."
-    );
-  }
-  return new URL("/.well-known/mdbase-app.json", location.origin).href;
-}
-
-function defaultRedirectUri(): string {
-  if (typeof location === "undefined") {
-    throw new MdbaseConnectError(
-      "redirect_uri_required",
-      "redirectUri is required outside a browser environment."
-    );
-  }
-  return location.href.split(/[?#]/)[0];
-}
-
-function defaultCallbackUrl(): string {
-  if (typeof location === "undefined") {
-    throw new MdbaseConnectError(
-      "callback_url_required",
-      "callbackUrl is required outside a browser environment."
-    );
-  }
-  return location.href;
-}
-
-function defaultStorage(memoryOnly: boolean): Storage {
-  if (memoryOnly) return new MemoryStorage();
-  if (typeof localStorage === "undefined") {
-    throw new MdbaseConnectError(
-      "storage_required",
-      "storage is required outside a browser environment."
-    );
-  }
-  try {
-    const probe = `mdbase-connect:probe:${randomBase64Url(8)}`;
-    localStorage.setItem(probe, "1");
-    localStorage.removeItem(probe);
-    return localStorage;
-  } catch {
-    return new MemoryStorage();
-  }
-}
-
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
-  }
-
-  clear(): void {
-    this.values.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  key(index: number): string | null {
-    return [...this.values.keys()][index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(String(key), String(value));
-  }
-}
-
-function isOpaquePortableManifest(manifest: MdbaseAppManifest | string): boolean {
-  if (typeof manifest === "string" || manifest.distribution !== "portable") return false;
-  return typeof location === "undefined"
-    || location.origin === "null"
-    || !["http:", "https:"].includes(location.protocol);
-}
-
-function manifestStorageFingerprint(manifest: MdbaseAppManifest): string {
-  const canonical = canonicalJson(manifest);
-  let first = 0x811c9dc5;
-  let second = 0x9e3779b9;
-  for (let index = 0; index < canonical.length; index += 1) {
-    const code = canonical.charCodeAt(index);
-    first = Math.imul(first ^ code, 0x01000193);
-    second = Math.imul(second ^ code, 0x85ebca6b);
-  }
-  return `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}`;
 }
