@@ -66,10 +66,6 @@ import {
 } from "./authority-proof.js";
 import type { GitHubAuthConfig } from "./github-auth.js";
 import { AuthenticationPolicyStore } from "./authentication-policy.js";
-import {
-  AccountSessionService,
-  sessionClientName
-} from "./account-sessions.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import type {
   AuthenticationLegalDocuments,
@@ -112,19 +108,14 @@ import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import {
   registerConnectorPairingRoutes
 } from "./features/connectors/pairing-routes.js";
-import {
-  clearSessionCookies,
-  sessionToken,
-  setSessionCookie
-} from "./platform/session-cookies.js";
-import { requireSameOrigin } from "./platform/request-security.js";
+import { registerAccountSessionRoutes } from "./features/account/session-routes.js";
+import { sessionToken } from "./platform/session-cookies.js";
 import { audit } from "./platform/audit-events.js";
 import {
   authenticatedUser,
   bearerToken,
   connectorFromRequest,
   requireConnector,
-  requireSessionContext,
   requireUser,
   type User
 } from "./platform/request-authentication.js";
@@ -293,7 +284,6 @@ export async function buildApp(options: BuildOptions) {
     options.db,
     options.registration ?? "closed"
   );
-  const accountSessions = new AccountSessionService(options.db);
   const relay = new RelayHub(options.db, options.relayBroker);
   const notifications = options.notifications
     ? new NotificationService(
@@ -434,6 +424,11 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth
+  });
+  registerAccountSessionRoutes(app, {
+    db: options.db,
+    publicUrl,
+    developmentAuth: options.devAuth
   });
 
   app.post("/v1/mirror-pairing-requests", async (request, reply) => {
@@ -1680,110 +1675,6 @@ export async function buildApp(options: BuildOptions) {
     } finally {
       connection.release();
     }
-  });
-
-  app.post("/v1/dev/session", async (request, reply) => {
-    if (!options.devAuth) return reply.code(404).send({ error: { code: "not_found", message: "Not found." } });
-    const input = z.object({ email: z.email(), name: z.string().trim().min(1).max(100) }).parse(request.body);
-    const id = randomUUID();
-    const user = await options.db.query<User>(
-      `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
-       ON CONFLICT(email) DO UPDATE SET name = excluded.name
-       RETURNING id, email, name`,
-      [id, input.email.toLowerCase(), input.name]
-    );
-    const token = randomToken("ses");
-    await options.db.query(
-      `INSERT INTO sessions
-         (id, user_id, token_hash, account_session_epoch,
-          expires_at, client_name)
-       SELECT $1, id, $3, session_epoch,
-              now() + interval '30 days', $4
-       FROM users WHERE id = $2 AND suspended_at IS NULL`,
-      [
-        randomUUID(),
-        user.rows[0].id,
-        tokenHash(token),
-        sessionClientName(request.headers["user-agent"])
-      ]
-    );
-    setSessionCookie(reply, token, publicUrl);
-    return { user: user.rows[0] };
-  });
-
-  app.post("/v1/logout", async (request, reply) => {
-    const token = sessionToken(request);
-    if (token) await options.db.query("DELETE FROM sessions WHERE token_hash = $1", [tokenHash(token)]);
-    clearSessionCookies(reply);
-    return { ok: true };
-  });
-
-  app.get("/v1/account/sessions", async (request, reply) => {
-    reply.header("cache-control", "no-store");
-    const authenticated = await requireSessionContext(
-      request,
-      reply,
-      options.db
-    );
-    if (!authenticated) return;
-    const sessions = await accountSessions.list(
-      authenticated.user.id,
-      authenticated.sessionId
-    );
-    return {
-      sessions: sessions.map((session) => ({
-        id: session.id,
-        provider: session.provider,
-        client_name: session.clientName,
-        created_at: session.createdAt.toISOString(),
-        last_seen_at: session.lastSeenAt.toISOString(),
-        expires_at: session.expiresAt.toISOString(),
-        current: session.current
-      }))
-    };
-  });
-
-  app.delete("/v1/account/sessions/:sessionId", async (request, reply) => {
-    requireSameOrigin(request, publicUrl);
-    const authenticated = await requireSessionContext(
-      request,
-      reply,
-      options.db
-    );
-    if (!authenticated) return;
-    const params = z.object({ sessionId: z.uuid() }).parse(request.params);
-    const revoked = await accountSessions.revoke(
-      authenticated.user.id,
-      params.sessionId
-    );
-    if (!revoked) {
-      return reply.code(404).send(apiError(
-        "session_not_found",
-        "That browser session is no longer active."
-      ));
-    }
-    if (params.sessionId === authenticated.sessionId) {
-      clearSessionCookies(reply);
-    }
-    return {
-      ok: true,
-      current_session_revoked: params.sessionId === authenticated.sessionId
-    };
-  });
-
-  app.post("/v1/account/sessions/revoke-others", async (request, reply) => {
-    requireSameOrigin(request, publicUrl);
-    const authenticated = await requireSessionContext(
-      request,
-      reply,
-      options.db
-    );
-    if (!authenticated) return;
-    const revokedCount = await accountSessions.revokeOthers(
-      authenticated.user.id,
-      authenticated.sessionId
-    );
-    return { ok: true, revoked_count: revokedCount };
   });
 
   app.get("/v1/me", async (request, reply) => {
