@@ -1,0 +1,201 @@
+{
+  "problem_version": 1,
+  "categories": [
+    "authorization",
+    "availability",
+    "cancellation",
+    "compatibility",
+    "conflict",
+    "integrity",
+    "internal",
+    "selection",
+    "validation"
+  ],
+  "recovery_actions": [
+    "choose_collection",
+    "contact_support",
+    "fix_request",
+    "none",
+    "reauthorize",
+    "refresh",
+    "repair_collection",
+    "resolve_conflict",
+    "resolve_outcome",
+    "retry",
+    "upgrade_application",
+    "upgrade_collection",
+    "upgrade_connector"
+  ],
+  "codes": {
+    "approval_window_blocked": { "category": "authorization", "recovery": "reauthorize" },
+    "authority_authorization_changed": { "category": "authorization", "recovery": "reauthorize" },
+    "authorization_cancelled": { "category": "cancellation", "recovery": "none" },
+    "authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
+    "browser_required": { "category": "compatibility", "recovery": "none" },
+    "callback_url_required": { "category": "validation", "recovery": "fix_request" },
+    "change_cursor_reset": { "category": "conflict", "recovery": "refresh" },
+    "collection_access_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "collection_configuration_invalid": {
+      "category": "validation",
+      "recovery": "repair_collection",
+      "details": {
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    },
+    "collection_contracts_missing": {
+      "category": "compatibility",
+      "recovery": "choose_collection",
+      "details": {
+        "required": ["contracts"],
+        "properties": {
+          "contracts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "version"],
+              "properties": {
+                "id": { "type": "string" },
+                "version": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "collection_incompatible": { "category": "compatibility", "recovery": "choose_collection" },
+    "collection_invalid": {
+      "category": "validation",
+      "recovery": "repair_collection",
+      "details": {
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    },
+    "collection_kind_unsupported": { "category": "compatibility", "recovery": "choose_collection" },
+    "collection_mismatch": { "category": "selection", "recovery": "choose_collection" },
+    "collection_not_found": { "category": "selection", "recovery": "choose_collection" },
+    "collection_not_ready": { "category": "selection", "recovery": "choose_collection" },
+    "collection_not_selected": { "category": "selection", "recovery": "choose_collection" },
+    "collection_type_registry_invalid": {
+      "category": "validation",
+      "recovery": "repair_collection",
+      "details": {
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    },
+    "collection_version_unsupported": {
+      "category": "compatibility",
+      "recovery": "upgrade_collection",
+      "details": {
+        "required": ["current_version", "required_version"],
+        "properties": {
+          "current_version": { "type": "string" },
+          "required_version": { "type": "string" }
+        }
+      }
+    },
+    "concurrent_modification": { "category": "conflict", "recovery": "refresh" },
+    "connector_identity_changed": { "category": "integrity", "recovery": "reauthorize" },
+    "connector_offline": {
+      "category": "availability",
+      "recovery": "retry",
+      "details": {
+        "required": [],
+        "properties": {
+          "connector_name": { "type": "string" }
+        }
+      }
+    },
+    "connector_upgrade_required": { "category": "compatibility", "recovery": "upgrade_connector" },
+    "device_authorization_failed": { "category": "authorization", "recovery": "reauthorize" },
+    "direct_operation_rejected": { "category": "authorization", "recovery": "reauthorize" },
+    "direct_outcome_unknown": { "category": "conflict", "recovery": "resolve_outcome" },
+    "discovery_failed": { "category": "availability", "recovery": "retry" },
+    "encryption_required": { "category": "authorization", "recovery": "reauthorize" },
+    "expired_token": { "category": "authorization", "recovery": "reauthorize" },
+    "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },
+    "insufficient_access": {
+      "category": "authorization",
+      "recovery": "reauthorize",
+      "details": {
+        "required": ["required_operations", "granted_operations", "missing_operations"],
+        "properties": {
+          "required_operations": { "type": "array", "items": { "type": "string" } },
+          "granted_operations": { "type": "array", "items": { "type": "string" } },
+          "missing_operations": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "invalid_application_manifest": { "category": "validation", "recovery": "fix_request" },
+    "invalid_callback": { "category": "validation", "recovery": "fix_request" },
+    "invalid_device_authorization_response": { "category": "integrity", "recovery": "contact_support" },
+    "invalid_encrypted_response": { "category": "integrity", "recovery": "contact_support" },
+    "invalid_loopback_url": { "category": "validation", "recovery": "fix_request" },
+    "invalid_operation_response": { "category": "integrity", "recovery": "contact_support" },
+    "invalid_path": { "category": "validation", "recovery": "fix_request" },
+    "invalid_preflight": { "category": "conflict", "recovery": "refresh" },
+    "invalid_push_payload": { "category": "validation", "recovery": "fix_request" },
+    "invalid_push_subscription": { "category": "validation", "recovery": "fix_request" },
+    "invalid_request": { "category": "validation", "recovery": "fix_request" },
+    "invalid_token_response": { "category": "integrity", "recovery": "contact_support" },
+    "managed_fcm_not_declared": { "category": "compatibility", "recovery": "fix_request" },
+    "manifest_load_failed": { "category": "availability", "recovery": "retry" },
+    "manifest_required": { "category": "validation", "recovery": "fix_request" },
+    "missing_grant_key": { "category": "authorization", "recovery": "reauthorize" },
+    "no_pending_mutation": { "category": "conflict", "recovery": "refresh" },
+    "not_authorized": { "category": "authorization", "recovery": "reauthorize" },
+    "not_remote_authority": { "category": "compatibility", "recovery": "choose_collection" },
+    "notification_criterion_not_declared": { "category": "validation", "recovery": "fix_request" },
+    "notification_reauthorization_required": { "category": "authorization", "recovery": "reauthorize" },
+    "notification_registration_failed": { "category": "availability", "recovery": "retry" },
+    "notification_unregistration_failed": { "category": "availability", "recovery": "retry" },
+    "notifications_not_declared": { "category": "compatibility", "recovery": "fix_request" },
+    "notifications_unavailable": { "category": "availability", "recovery": "retry" },
+    "operation_cancelled": { "category": "cancellation", "recovery": "none" },
+    "operation_failed": { "category": "internal", "recovery": "contact_support" },
+    "operation_invalid": {
+      "category": "validation",
+      "recovery": "fix_request",
+      "details": {
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": { "type": "array", "items": { "type": "object" } },
+          "partial_result": {}
+        }
+      }
+    },
+    "pending_mutation_unresolved": { "category": "conflict", "recovery": "resolve_outcome" },
+    "query_snapshot_changed": { "category": "conflict", "recovery": "refresh" },
+    "rate_limited": {
+      "category": "availability",
+      "recovery": "retry",
+      "details": {
+        "required": [],
+        "properties": {
+          "retry_after_ms": { "type": "integer" }
+        }
+      }
+    },
+    "relay_authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
+    "relay_unavailable": { "category": "availability", "recovery": "retry" },
+    "sandbox_unsupported": { "category": "compatibility", "recovery": "fix_request" },
+    "scope_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "storage_required": { "category": "compatibility", "recovery": "none" },
+    "sync_failed": { "category": "availability", "recovery": "retry" },
+    "temporarily_unavailable": { "category": "availability", "recovery": "retry" },
+    "timeout": { "category": "availability", "recovery": "retry" },
+    "token_exchange_failed": { "category": "availability", "recovery": "retry" },
+    "type_pack_provision_failed": { "category": "validation", "recovery": "repair_collection" },
+    "unknown_collection": { "category": "selection", "recovery": "choose_collection" },
+    "unsupported_encryption": { "category": "compatibility", "recovery": "upgrade_application" },
+    "unsupported_operation": { "category": "compatibility", "recovery": "fix_request" }
+  }
+}

@@ -11,6 +11,8 @@
     "build:packages": "pnpm --filter './packages/**' -r --if-present build",
     "check:architecture": "node scripts/check-architecture.mjs",
     "check:release-readiness": "node scripts/check-release-readiness.mjs",
+    "generate:problems": "node scripts/generate-connect-problems.mjs",
+    "check:problems": "node scripts/generate-connect-problems.mjs --check",
     "audit:dependencies": "pnpm audit --audit-level high",
     "sync:runtime-contracts": "node scripts/sync-runtime-contracts.mjs",
     "dev:environment:up": "node scripts/dev-environment.mjs up",

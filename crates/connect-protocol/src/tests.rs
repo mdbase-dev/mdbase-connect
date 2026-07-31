@@ -49,6 +49,44 @@ fn assert_encrypted_schema(value: Value) {
     );
 }
 
+#[test]
+fn generated_connect_problem_metadata_matches_the_wire_schema() {
+    let definition = connect_problem_definition("collection_version_unsupported").unwrap();
+    assert_eq!(definition.category, ConnectProblemCategory::Compatibility);
+    assert_eq!(definition.recovery, ConnectRecoveryAction::UpgradeCollection);
+    assert!(connect_problem_definition("future_problem").is_none());
+
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/connect-problem.v1.schema.json"
+    ))
+    .unwrap();
+    let validator = jsonschema::JSONSchema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .compile(&schema)
+        .unwrap();
+    let problem = ConnectProblem {
+        problem_version: CONNECT_PROBLEM_VERSION,
+        code: "collection_version_unsupported".to_string(),
+        category: definition.category,
+        recovery: definition.recovery,
+        message: "This collection must be upgraded.".to_string(),
+        details: Some(serde_json::json!({
+            "current_version": "0.2.0",
+            "required_version": "0.3.0"
+        })),
+        operation_outcome: Some(ConnectOperationOutcome::NotSent),
+        trace_id: None,
+        server_code: None,
+    };
+    let value = serde_json::to_value(problem).unwrap();
+    let errors = validator
+        .validate(&value)
+        .err()
+        .map(|errors| errors.map(|error| error.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert!(errors.is_empty(), "schema errors: {errors:#?}");
+}
+
 fn assert_sync_schema(reference: &str, value: Value) {
     let mut schema: Value = serde_json::from_str(include_str!(
         "../../../packages/protocol/schemas/sync.v1.schema.json"

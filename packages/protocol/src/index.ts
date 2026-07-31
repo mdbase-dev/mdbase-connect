@@ -1,3 +1,5 @@
+export * from "./connect-problems.generated.js";
+
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 1 as const;
 export const LOOPBACK_PROTOCOL_VERSION = 1 as const;

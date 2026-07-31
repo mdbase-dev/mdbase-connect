@@ -14,6 +14,7 @@ const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/data-co
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v1.schema.json"), "utf8"));
 const interopSchema = JSON.parse(readFileSync(resolve(here, "../schemas/interop/v0.1/profile.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
+const problemSchema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-problem.v1.schema.json"), "utf8"));
 // JSON Schema permits `required` to name properties declared by an enclosing
 // schema. Keep every other strict check, but do not reject that standard
 // composition pattern.
@@ -26,6 +27,7 @@ ajv.addSchema(contractSchema);
 ajv.addSchema(encryptedRelaySchema);
 ajv.addSchema(interopSchema);
 ajv.addSchema(syncSchema);
+ajv.addSchema(problemSchema);
 
 function validator(reference) {
   const validate = ajv.getSchema(reference);
@@ -41,6 +43,36 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(encryptedRelaySchema.$id));
   assert.ok(validator(interopSchema.$id));
   assert.ok(validator(syncSchema.$id));
+  assert.ok(validator(problemSchema.$id));
+});
+
+test("connect problems bind stable codes to exact categories, recovery, and details", () => {
+  const validate = validator(problemSchema.$id);
+  const unsupported = {
+    problem_version: 1,
+    code: "collection_version_unsupported",
+    category: "compatibility",
+    recovery: "upgrade_collection",
+    message: "This collection must be upgraded.",
+    details: {
+      current_version: "0.2.0",
+      required_version: "0.3.0"
+    },
+    operation_outcome: "not_sent"
+  };
+  assert.equal(validate(unsupported), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...unsupported, recovery: "retry" }), false);
+  assert.equal(validate({ ...unsupported, details: { current_version: "0.2.0" } }), false);
+
+  const future = {
+    problem_version: 1,
+    code: "unknown",
+    server_code: "future_problem",
+    category: "unknown",
+    recovery: "none",
+    message: "A newer Connect component reported an unfamiliar problem."
+  };
+  assert.equal(validate(future), true, JSON.stringify(validate.errors));
 });
 
 test("v1 application manifests carry a stable reverse-domain id", () => {

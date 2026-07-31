@@ -5,6 +5,8 @@
     "data_contract": "./data-contract.schema.json",
     "event_action_interop": "./interop/v0.1/profile.schema.json",
     "connect_protocol": "./connect-protocol.v1.schema.json",
+    "connect_problem": "./connect-problem.v1.schema.json",
+    "connect_problem_catalog": "./connect-problems.v1.catalog.json",
     "encrypted_relay": "./encrypted-relay.v1.schema.json",
     "notification_webhook": "./notification-webhook.v1.schema.json",
     "sync": "./sync.v1.schema.json"
