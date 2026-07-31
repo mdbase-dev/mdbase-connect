@@ -2305,13 +2305,13 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     await expect(page.getByRole("heading", { name: "Your connections." })).toBeVisible();
 
     await page.getByRole("button", { name: "Create hosted collection" }).click();
-    await expect(page.getByText(/Starts as a clean mdbase 0\.3 collection/)).toBeVisible();
+    await expect(page.getByText(/Starts as a clean mdbase collection/)).toBeVisible();
     await expect(page.getByText(/application-specific template/i)).toHaveCount(0);
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create collection" }).click();
     const row = page.locator("article.hosted-row").filter({ hasText: "Browser E2E collection" });
     await expect(row).toBeVisible();
-    await expect(row).toContainText("mdbase · authoritative on mdbase");
+    await expect(row).toContainText("Main copy hosted by mdbase");
 
     const dashboard = await page.evaluate(async () => {
       const response = await fetch("/v1/me");
@@ -2325,7 +2325,7 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
         "href",
         `https://editor.mdbase.dev/?collection=${collectionId}`
       );
-    await row.getByRole("button", { name: "Mirror" }).click();
+    await row.getByRole("button", { name: "Sync a folder" }).click();
     await expect(row.getByRole("link", { name: "Open mdbase connect" }))
       .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
     await expect(row).toContainText("Choose the folder in mdbase connect");
@@ -2382,9 +2382,9 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     const connectedRow = page.locator("article.hosted-row").filter({
       hasText: "Browser E2E collection"
     });
-    await connectedRow.getByText("Manage mirrors").click();
+    await connectedRow.getByText("Manage synced folders").click();
     await expect(connectedRow).toContainText("Browser writable mirror");
-    await expect(connectedRow).toContainText("Two-way · up to date");
+    await expect(connectedRow).toContainText("Edits sync both ways · up to date");
     page.once("dialog", (dialog) => dialog.accept());
     await connectedRow.getByRole("button", { name: "Revoke" }).click();
     await expect(connectedRow).not.toContainText(
@@ -2499,12 +2499,12 @@ async function authorityPromotionCliE2E(
     const page = await context.newPage();
     await page.goto(transferUri);
     await expect(page.getByRole("heading", {
-      name: /authoritative\?/
+      name: "Use the folder on Promotion mirror as the main copy?"
     })).toBeVisible();
     await expect(page.getByText(
       "Existing access is revoked. Connect applications again to use the local collection."
     )).toBeVisible();
-    await page.getByRole("button", { name: "Move authority" }).click();
+    await page.getByRole("button", { name: "Move main copy" }).click();
     const promotionExit = await waitForExit(promotion, 30_000);
     assert.equal(
       promotionExit,
