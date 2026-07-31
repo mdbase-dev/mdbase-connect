@@ -158,10 +158,10 @@ allowlist of fields instead of serializing request or database objects.
 
 ## Residual risks before stable
 
-The beta deliberately accepts several risks that require people, production
-infrastructure, or publisher accounts rather than another local refactor:
+The beta deliberately accepts several risks that require production
+infrastructure, publisher accounts, or an explicit product decision rather
+than another local refactor. The following remain stable-release gates:
 
-- independent review of the custom cryptographic protocol and implementation;
 - an explicit first-contact connector trust or transparency decision;
 - a managed key service plus rehearsed key rotation;
 - verified encrypted backup, restoration, and deletion behavior; and
@@ -172,6 +172,10 @@ These are machine-readable gates in
 `pnpm check:release-readiness` validates and reports them during beta;
 `pnpm check:release-readiness -- --stable` fails until every gate is marked
 complete with durable evidence.
+
+An independent security audit, including the custom cryptographic protocol and
+implementation, remains planned separately. It is not a stable-release gate;
+release notes and security claims must state whether that audit has occurred.
 
 ## Verification map
 

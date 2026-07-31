@@ -2,14 +2,6 @@
   "schemaVersion": 1,
   "gates": [
     {
-      "id": "independent-cryptography-review",
-      "title": "Independent cryptography review",
-      "owner": "Security owner",
-      "status": "required",
-      "evidence": [],
-      "notes": "Review the browser-to-connector protocol, key continuity, counter persistence, envelope construction, and hosted key hierarchy."
-    },
-    {
       "id": "first-contact-trust-decision",
       "title": "First-contact connector trust decision",
       "owner": "Product and security owners",

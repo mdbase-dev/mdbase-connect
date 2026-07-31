@@ -49,7 +49,7 @@ Beta builds may proceed with the external risks recorded as `required` in
 `config/release-readiness.json`. They remain visible in every CI run. A stable
 release is different: the Desktop Release workflow automatically invokes
 `pnpm check:release-readiness -- --stable`, which fails until every gate is
-`complete` and includes a durable evidence reference. The required review,
+`complete` and includes a durable evidence reference. The required decision,
 operational drill, or publisher control must actually have happened; changing
 the status without evidence is itself rejected.
 

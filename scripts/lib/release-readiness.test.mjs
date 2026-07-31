@@ -8,12 +8,12 @@ function manifest(gates) {
 
 function gate(overrides = {}) {
   return {
-    id: "independent-review",
-    title: "Independent review",
+    id: "rotation-drill",
+    title: "Key rotation drill",
     owner: "Security owner",
     status: "required",
     evidence: [],
-    notes: "Review the security boundary.",
+    notes: "Exercise the key rotation procedure.",
     ...overrides
   };
 }
@@ -22,14 +22,14 @@ test("accepts a documented open gate for a beta release", () => {
   const result = evaluateReleaseReadiness(manifest([gate()]));
 
   assert.deepEqual(result.failures, []);
-  assert.deepEqual(result.incomplete.map((item) => item.id), ["independent-review"]);
+  assert.deepEqual(result.incomplete.map((item) => item.id), ["rotation-drill"]);
 });
 
 test("blocks a stable release while any gate is open", () => {
   const result = evaluateReleaseReadiness(manifest([gate()]), { stable: true });
 
   assert.deepEqual(result.failures, [
-    "Stable release is blocked by 1 incomplete readiness gate(s): independent-review"
+    "Stable release is blocked by 1 incomplete readiness gate(s): rotation-drill"
   ]);
 });
 

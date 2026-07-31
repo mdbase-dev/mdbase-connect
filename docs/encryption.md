@@ -197,8 +197,9 @@ Protocol 1 fixes the interoperable profile to P-256 ECDH, HKDF-SHA-256, and
 AES-256-GCM. A 96-bit nonce contains a zero 32-bit prefix and the grant's
 monotonic unsigned 64-bit counter. Canonical context strings and envelope
 schemas are shared across Rust and TypeScript and covered by cross-runtime
-tests. An external cryptographic review is still required before a public
-security claim.
+tests. An independent security audit, including external cryptographic review,
+remains planned but is not a stable-release gate. Public security claims must
+state whether that audit has occurred.
 
 ### Downgrade behavior
 
@@ -405,7 +406,7 @@ and decrypted recovery material never enter audit events.
 - keyed record-path lookup without plaintext record paths in PostgreSQL; and
 - ciphertext tamper, wrong-key, two-provider race, sync, and operation tests.
 
-### Next: release security and key operations
+### Next: security review and key operations
 
 - native application key storage for a future non-browser SDK;
 - first-contact connector identity verification or key transparency;
