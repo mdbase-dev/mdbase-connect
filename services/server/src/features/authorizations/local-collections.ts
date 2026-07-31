@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { CollectionContractDescriptor } from "@mdbase/connect-protocol";
+import type {
+  ApplicationProvisions,
+  ApplicationRequirements,
+  CollectionContractDescriptor,
+  CollectionTypeDescriptor
+} from "@mdbase/connect-protocol";
 import { accessView, resolveLocalCollectionAccess } from "../../collection-access.js";
 import { listLocalCollectionsVisibleToUser } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
@@ -14,6 +19,7 @@ export interface LiveAuthorizationCollection {
   display_name: string;
   spec_version: string;
   contracts: CollectionContractDescriptor[];
+  types: CollectionTypeDescriptor[];
   access: ReturnType<typeof accessView>;
 }
 
@@ -30,6 +36,20 @@ export async function liveAuthorizationCollections(
     reason: "offline" | "paused";
   }>;
 }> {
+  const authorization = await db.query<{
+    requirements: ApplicationRequirements;
+    provisions: ApplicationProvisions;
+  }>(
+    `SELECT a.requirements, a.provisions
+     FROM authorization_requests ar
+     JOIN applications a ON a.id = ar.application_id
+     WHERE ar.id = $1 AND ar.user_id = $2
+       AND ar.completed_at IS NULL AND ar.denied_at IS NULL
+       AND ar.expires_at > now()`,
+    [authorizationId, userId]
+  );
+  const pending = authorization.rows[0];
+  if (!pending) return { collections: [], unavailable_connectors: [] };
   await db.query(
     `DELETE FROM authorization_collection_offers
      WHERE authorization_id = $1 AND expires_at <= now()`,
@@ -77,7 +97,12 @@ export async function liveAuthorizationCollections(
   };
   const settled = await Promise.allSettled(connectors.rows.map(async (connector) => ({
     connector,
-    response: await relay.authorizationOffers(connector.id, authorizationId)
+    response: await relay.authorizationOffers(
+      connector.id,
+      authorizationId,
+      pending.requirements,
+      pending.provisions
+    )
   })));
   const collections: LiveAuthorizationCollection[] = [];
   const unavailableConnectors: Array<{
@@ -159,6 +184,7 @@ export async function liveAuthorizationCollections(
         display_name: offered.display_name,
         spec_version: offered.spec_version,
         contracts: offered.contracts,
+        types: offered.types,
         access: accessView(access)
       });
     }

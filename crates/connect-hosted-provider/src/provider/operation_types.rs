@@ -216,10 +216,11 @@ impl HostedProvider {
         })
     }
 
-    pub(super) async fn write_type_pack_operation(
+    pub(super) async fn write_contract_setup_operation(
         &self,
         collection_id: Uuid,
-        provision: &TypePackProvision,
+        provisions: &[TypePackProvision],
+        contract_setups: &[ContractSetupChoice],
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -241,9 +242,9 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "maximum document size",
         )?;
-        if provision
-            .resources
+        if provisions
             .iter()
+            .flat_map(|provision| provision.resources.iter())
             .any(|resource| resource.document.len() as u64 > max_document_bytes)
         {
             return Err(ApiError::bad_request(
@@ -282,31 +283,37 @@ impl HostedProvider {
         let cached = cached
             .as_mut()
             .expect("hosted working set was initialized above");
-        let already_installed = provision
-            .manifest
-            .resources
-            .iter()
-            .all(|manifest_resource| {
-                let Some(source) = provision
-                    .resources
-                    .iter()
-                    .find(|source| source.source == manifest_resource.source)
-                else {
-                    return false;
-                };
-                cached
-                    .workspace
-                    .resource_document(&manifest_resource.target)
-                    .is_ok_and(|current| current == source.document)
-            });
-        let envelope = cached.workspace.install_type_pack(provision)?;
+        let envelope = cached
+            .workspace
+            .install_type_packs_with_contract_setups(provisions, contract_setups)?;
         if !envelope.valid {
             transaction.commit().await?;
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
             });
         }
-        if already_installed {
+        let changed_resources = envelope
+            .result
+            .get("resources")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?
+            .iter()
+            .filter(|resource| resource.get("action").and_then(Value::as_str) != Some("unchanged"))
+            .collect::<Vec<_>>();
+        if changed_resources.iter().any(|resource| {
+            resource
+                .get("target")
+                .and_then(Value::as_str)
+                .and_then(|target| cached.workspace.resource_document(target).ok())
+                .is_some_and(|document| document.len() as u64 > max_document_bytes)
+        }) {
+            cached.head = None;
+            return Err(ApiError::bad_request(
+                "document_quota_exceeded",
+                "A contract setup resource exceeds the hosted document size limit.",
+            ));
+        }
+        if changed_resources.is_empty() {
             transaction.commit().await?;
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
@@ -327,16 +334,26 @@ impl HostedProvider {
             .collect::<Vec<_>>();
         let classifications = cached.workspace.classify_records(&record_inputs)?;
 
-        for resource in &provision.manifest.resources {
+        for resource in changed_resources {
+            let target = resource
+                .get("target")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid target."))?;
+            let kind = resource
+                .get("kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ApiError::internal("Contract setup returned an invalid resource kind.")
+                })?;
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
             })?;
-            let document = cached.workspace.resource_document(&resource.target)?;
+            let document = cached.workspace.resource_document(target)?;
             let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
             let ciphertext = self.crypto.encrypt_bytes(
                 &data_key,
                 document.as_bytes(),
-                &resource_document_aad(collection_id, &resource.target),
+                &resource_document_aad(collection_id, target),
             )?;
             sqlx::query(
                 r#"INSERT INTO hosted_provider_resources
@@ -349,15 +366,14 @@ impl HostedProvider {
                      updated_at = now()"#,
             )
             .bind(collection_id)
-            .bind(&resource.target)
-            .bind(&resource.kind)
+            .bind(target)
+            .bind(kind)
             .bind(&revision)
             .bind(ciphertext)
             .execute(&mut *transaction)
             .await?;
-            let type_name = if resource.kind == "type" {
-                resource
-                    .target
+            let type_name = if kind == "type" {
+                target
                     .rsplit('/')
                     .next()
                     .and_then(|file| file.strip_suffix(".md"))
@@ -371,9 +387,9 @@ impl HostedProvider {
             )
             .bind(collection_id)
             .bind(to_i64(head, "resource change sequence")?)
-            .bind(&resource.kind)
+            .bind(kind)
             .bind(type_name)
-            .bind(&resource.target)
+            .bind(target)
             .bind(&revision)
             .execute(&mut *transaction)
             .await?;

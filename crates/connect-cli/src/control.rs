@@ -165,6 +165,7 @@ pub(super) fn control_command(
                 request_id,
                 collection_id,
                 operations,
+                contract_setups: Vec::new(),
             }),
             OutputKind::Generic,
         ),

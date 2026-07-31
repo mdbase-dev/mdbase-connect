@@ -104,6 +104,15 @@ describe("live connector-mediated authorization", () => {
     });
     const relayMessages: Array<Record<string, unknown>> = [];
     let rejectActivation = false;
+    let holdActivation = true;
+    let releaseActivation!: () => void;
+    let activationReceived!: () => void;
+    const activationGate = new Promise<void>((resolve) => {
+      releaseActivation = resolve;
+    });
+    const activationStarted = new Promise<void>((resolve) => {
+      activationReceived = resolve;
+    });
     socket.on("open", () => {
       socket.send(JSON.stringify({
         type: "relay_hello",
@@ -116,7 +125,7 @@ describe("live connector-mediated authorization", () => {
         ]
       }));
     });
-    socket.on("message", (raw) => {
+    socket.on("message", async (raw) => {
       const message = JSON.parse(raw.toString()) as Record<string, unknown>;
       relayMessages.push(message);
       if (message.type === "policy_snapshot") {
@@ -143,6 +152,8 @@ describe("live connector-mediated authorization", () => {
         }));
       }
       if (message.type === "authorization_activation_request") {
+        activationReceived();
+        if (holdActivation) await activationGate;
         socket.send(JSON.stringify(rejectActivation
           ? {
               type: "authorization_activation_response",
@@ -150,6 +161,7 @@ describe("live connector-mediated authorization", () => {
               request_id: message.request_id,
               ok: false,
               contracts: [],
+              contract_setups: [],
               error: {
                 code: "access_paused",
                 message: "Remote access was paused before activation."
@@ -160,7 +172,8 @@ describe("live connector-mediated authorization", () => {
               protocol_version: 1,
               request_id: message.request_id,
               ok: true,
-              contracts: []
+              contracts: [],
+              contract_setups: message.contract_setups
             }));
       }
     });
@@ -193,7 +206,7 @@ describe("live connector-mediated authorization", () => {
       }
     ]);
     const offer = offered.json().collections[0];
-    const approved = await app.inject({
+    const approval = app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${firstRequestId}/approve`,
       headers: { cookie },
@@ -203,6 +216,28 @@ describe("live connector-mediated authorization", () => {
         operations: ["describe"]
       }
     });
+    await activationStarted;
+    const consented = await db.query<{
+      grant_id: string | null;
+      activated_at: string | null;
+      completed_at: string | null;
+    }>(
+      `SELECT ar.grant_id, ar.completed_at, g.activated_at
+       FROM authorization_requests ar JOIN grants g ON g.id = ar.grant_id
+       WHERE ar.id = $1`,
+      [firstRequestId]
+    );
+    expect(consented.rows[0].grant_id).not.toBeNull();
+    expect(consented.rows[0].activated_at).toBeNull();
+    expect(consented.rows[0].completed_at).toBeNull();
+    const settingUp = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${firstRequestId}/status`,
+      headers: { cookie }
+    });
+    expect(settingUp.json()).toEqual({ status: "setting_up" });
+    releaseActivation();
+    const approved = await approval;
     expect(approved.statusCode).toBe(200);
     const activation = relayMessages.find((message) =>
       message.type === "authorization_activation_request"
@@ -229,6 +264,7 @@ describe("live connector-mediated authorization", () => {
     expect(active.rows[0].completed_at).not.toBeNull();
 
     rejectActivation = true;
+    holdActivation = false;
     const rejectedRequestId = await createAuthorizationRequest(
       app,
       applicationId,

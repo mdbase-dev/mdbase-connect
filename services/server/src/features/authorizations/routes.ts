@@ -3,6 +3,7 @@ import type {
   ApplicationNotifications,
   ApplicationRequirements,
   CollectionContractDescriptor,
+  CollectionTypeDescriptor,
   GrantEncryption,
   GrantScope
 } from "@mdbase/connect-protocol";
@@ -43,7 +44,10 @@ import {
   safeEqual,
   tokenHash
 } from "../../security.js";
-import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
+import {
+  collectionContractDescriptorSchema,
+  contractSetupChoiceSchema
+} from "../../protocol-schemas.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, oauthError } from "../../platform/http-errors.js";
@@ -57,6 +61,7 @@ import {
   assertOperationsAllowedByRequirements,
   contractsSatisfy,
   requiredContractsForRequirements,
+  requiredTypePackProvisions,
   requiresHostedCollection,
   rotateGrantEncryption
 } from "../grants/policy.js";
@@ -596,6 +601,21 @@ export function registerAuthorizationRoutes(
         ),
         "application.authorize"
       );
+      const contracts = effectiveHostedContractDescriptors(
+        collection.contracts,
+        collection.template
+      );
+      const provisions = requiredTypePackProvisions(
+        authorization.rows[0].requirements,
+        authorization.rows[0].provisions,
+        contractRequirements(contracts)
+      );
+      const types = options.hostedProvider && provisions?.length
+        ? await hostedTypeCandidates(
+            options.hostedProvider,
+            collection.locator.collectionId
+          )
+        : [];
       return {
         id: collection.locator.collectionId,
         display_name: collection.locator.displayName,
@@ -603,10 +623,8 @@ export function registerAuthorizationRoutes(
         kind: "hosted" as const,
         connector_name: "Hosted by mdbase",
         spec_version: "0.3.0",
-        contracts: contractRequirements(effectiveHostedContractDescriptors(
-          collection.contracts,
-          collection.template
-        )),
+        contracts: contractRequirements(contracts),
+        types,
         access: accessView(access)
       };
     }));
@@ -635,11 +653,13 @@ export function registerAuthorizationRoutes(
       flow: "authorization_code" | "device_code";
       application_id: string;
       grant_id: string | null;
+      activation_started_at: string | null;
       redirect_uri: string | null;
       state: string | null;
       code_challenge: string | null;
     }>(
       `SELECT completed_at, denied_at, expires_at, application_id, grant_id,
+              activation_started_at,
               flow, redirect_uri, state, code_challenge
        FROM authorization_requests
        WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
@@ -668,6 +688,9 @@ export function registerAuthorizationRoutes(
         })
       };
     }
+    if (value.grant_id && value.activation_started_at) {
+      return { status: "setting_up" };
+    }
     return { status: "pending" };
   });
 
@@ -678,7 +701,8 @@ export function registerAuthorizationRoutes(
     const input = z.object({
       collection_id: z.uuid(),
       offer_id: z.uuid().optional(),
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema).min(1),
+      contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;
     if (input.offer_id) {
@@ -687,7 +711,8 @@ export function registerAuthorizationRoutes(
         userId: user.id,
         offerId: input.offer_id,
         collectionId: input.collection_id,
-        operations: input.operations
+        operations: input.operations,
+        contractSetups: input.contract_setups
       });
     } else {
       const access = await resolveHostedCollectionAccess(
@@ -708,6 +733,9 @@ export function registerAuthorizationRoutes(
         return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
       }
       requireCollectionAction(access, "application.authorize");
+      if (input.contract_setups.length > 0) {
+        requireCollectionAction(access, "schema.manage");
+      }
       approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
         requestId,
         userId: user.id,
@@ -717,6 +745,7 @@ export function registerAuthorizationRoutes(
           hosted.contracts,
           hosted.template
         ),
+        contractSetups: input.contract_setups,
         access
       });
     }
@@ -943,4 +972,15 @@ export function registerAuthorizationRoutes(
     }
     return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
   });
+}
+
+async function hostedTypeCandidates(
+  provider: HostedProviderClient,
+  collectionId: string
+): Promise<CollectionTypeDescriptor[]> {
+  try {
+    return await provider.collectionTypeCandidates(collectionId);
+  } catch {
+    return [];
+  }
 }

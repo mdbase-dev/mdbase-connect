@@ -320,6 +320,7 @@ impl CloudControlClient {
                 "collection_id": params.collection_id,
                 "operations": params.operations,
                 "contracts": contracts,
+                "contract_setups": params.contract_setups,
             })),
         )
         .await

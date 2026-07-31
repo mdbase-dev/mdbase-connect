@@ -169,7 +169,8 @@ impl AgentState {
             }
             RelayMessage::AuthorizationOfferRequest {
                 request_id,
-                authorization_id: _,
+                requirements,
+                provisions,
                 ..
             } => {
                 let paused = self.registry.paused().unwrap_or(true);
@@ -182,12 +183,26 @@ impl AgentState {
                         .into_iter()
                         .filter(|collection| collection.enabled)
                         .filter_map(|collection| {
-                            let description = self.registry.describe(collection.id).ok()?;
+                            let mut description = self.registry.describe(collection.id).ok()?;
+                            let types = if requirements_can_be_provisioned(
+                                &requirements,
+                                &provisions,
+                                &description.contracts,
+                            ) {
+                                description
+                                    .types
+                                    .drain(..)
+                                    .filter_map(approval_type_candidate)
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
                             Some(AuthorizationCollectionOffer {
                                 collection_id: collection.id,
                                 display_name: description.display_name,
                                 spec_version: description.spec_version,
                                 contracts: description.contracts,
+                                types,
                             })
                         })
                         .collect()
@@ -204,6 +219,7 @@ impl AgentState {
                 collection_id,
                 requirements,
                 provisions,
+                contract_setups,
                 mut grant,
                 ..
             } => {
@@ -247,6 +263,7 @@ impl AgentState {
                         collection_id,
                         &requirements,
                         &provisions.type_packs,
+                        &contract_setups,
                     )?;
                     grant.scope.contracts =
                         if grant.scope.access == ApplicationAccess::FullCollection {
@@ -273,6 +290,7 @@ impl AgentState {
                         request_id,
                         ok: true,
                         contracts,
+                        contract_setups: contract_setups.clone(),
                         error: None,
                     },
                     Err(error) => RelayMessage::AuthorizationActivationResponse {
@@ -280,6 +298,7 @@ impl AgentState {
                         request_id,
                         ok: false,
                         contracts: Vec::new(),
+                        contract_setups: Vec::new(),
                         error: Some(ControlError {
                             code: error.code().to_string(),
                             message: error.to_string(),

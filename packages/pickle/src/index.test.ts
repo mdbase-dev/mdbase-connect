@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
   PICKLE_REQUEST_CONTRACT,
+  PICKLE_TYPE_PACK_PROVISION,
   PickleCollection,
   PickleContractError,
   resolvePickleContract,
@@ -78,6 +79,29 @@ const contract = {
 };
 
 describe("Pickle contract adapter", () => {
+  it("pins every type-pack resource to its exact embedded document", async () => {
+    const documents = new Map(
+      PICKLE_TYPE_PACK_PROVISION.resources.map((resource) => [
+        resource.source,
+        resource.document
+      ])
+    );
+
+    for (const resource of PICKLE_TYPE_PACK_PROVISION.manifest.resources) {
+      const document = documents.get(resource.source);
+      expect(document).toBeDefined();
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(document)
+      );
+      expect(resource.digest).toBe(
+        `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join("")}`
+      );
+    }
+  });
+
   it("derives lifecycle from response links and writes a typed response", async () => {
     const sandbox = createSandbox<PickleFrontmatter>({
       description: {

@@ -894,6 +894,11 @@ h1 {
 }
 
 .collection-choice-list input {
+  width: 0.9rem;
+  height: 0.9rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
   accent-color: var(--accent);
 }
 
@@ -926,6 +931,172 @@ h1 {
   white-space: nowrap;
 }
 
+.contract-setup-list {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.contract-setup-editor {
+  min-width: 0;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.contract-setup-editor:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.contract-setup-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.contract-setup-heading > div,
+.contract-setup-mode span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.contract-setup-heading strong {
+  font-size: 0.82rem;
+}
+
+.contract-setup-heading small,
+.contract-setup-mode small,
+.contract-field-list label > span small,
+.contract-binding label > small {
+  color: var(--ink-muted);
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
+.contract-setup-heading code {
+  color: var(--ink-muted);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.contract-setup-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.contract-setup-mode > label {
+  display: grid;
+  grid-template-columns: 0.9rem minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.contract-setup-mode > label.selected {
+  border-color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.contract-setup-mode input {
+  width: 0.9rem;
+  height: 0.9rem;
+  min-height: 0;
+  margin: 0.08rem 0 0;
+  padding: 0;
+  accent-color: var(--accent-dark);
+}
+
+.contract-setup-mode strong {
+  font-size: 0.75rem;
+}
+
+.contract-mapping {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.85rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.contract-type-choice,
+.contract-field-list > label,
+.contract-binding > label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.contract-type-choice > span,
+.contract-binding label > span {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.contract-field-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.contract-field-list > label {
+  grid-template-columns: minmax(9rem, 0.85fr) minmax(10rem, 1fr);
+  align-items: center;
+  column-gap: 0.8rem;
+}
+
+.contract-field-list label > span {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.contract-field-list label > span strong {
+  font-size: 0.73rem;
+}
+
+.mapping-assessment {
+  grid-column: 2;
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+.mapping-assessment.error {
+  color: var(--danger);
+}
+
+.mapping-assessment.warning {
+  color: var(--warning);
+}
+
+.contract-binding {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0.9rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.contract-binding legend {
+  grid-column: 1 / -1;
+  padding: 0 0 0.5rem;
+  color: var(--ink);
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.contract-binding input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent-dark);
+}
+
 .collection-field > span,
 .auth-panel label span {
   color: var(--ink-muted);
@@ -933,7 +1104,7 @@ h1 {
   font-weight: 700;
 }
 
-input:not([type="checkbox"]),
+input:not([type="checkbox"]):not([type="radio"]),
 select {
   width: 100%;
   min-height: 2.4rem;
@@ -1652,6 +1823,22 @@ select {
   .approval-section {
     grid-template-columns: 1fr;
     gap: 0.65rem;
+  }
+
+  .contract-setup-mode {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-setup-heading {
+    display: grid;
+  }
+
+  .contract-field-list > label {
+    grid-template-columns: 1fr;
+  }
+
+  .mapping-assessment {
+    grid-column: 1;
   }
 
   .approval-footer {

@@ -1,9 +1,22 @@
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
+import {
+  assessMapping,
+  contractFields,
+  guidedBindingSupported,
+  propertyFields,
+  provisionedContract,
+  setupLabel,
+  suggestTypes,
+  typeFields,
+  type SetupContract,
+  type SetupType
+} from "@mdbase/connect-ui/contract-setup";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
   type AvailableCollection,
+  type ContractSetupChoice as ContractSetupRequestChoice,
   type HostedCollection,
   type PendingAuthorization,
   type UnavailableConnector
@@ -98,7 +111,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     hosted_collections_available?: boolean;
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
-  const [status, setStatus] = useState<"pending" | "approved" | "denied">("pending");
+  const [status, setStatus] = useState<"pending" | "setting_up" | "approved" | "denied">("pending");
   const [error, setError] = useState("");
   const returning = useRef(false);
   useSystemTheme();
@@ -138,7 +151,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     async function checkStatus() {
       try {
         const value = await api<{
-          status: "pending" | "approved" | "denied";
+          status: "pending" | "setting_up" | "approved" | "denied";
           redirect_uri?: string;
         }>(`/v1/authorization-requests/${requestId}/status`);
         if (returning.current) return;
@@ -179,7 +192,7 @@ export function Authorization({ requestId }: { requestId: string }) {
                 : [...current.collections, collection]
             } : current)}
           />
-        </> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
+        </> : status === "setting_up" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Finishing collection setup…</h2><p>Your choices are being validated by the collection’s live authority. The application does not have access yet.</p></> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
       </section>
     </main>
   );
@@ -209,6 +222,147 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
       </div>
     </div>
   );
+}
+
+interface ContractSetupChoice {
+  mode: "starter" | "existing";
+  typeName: string;
+  fields: Record<string, string>;
+  binding: Record<string, unknown>;
+}
+
+function initialContractSetupChoice(
+  contract: SetupContract,
+  types: SetupType[]
+): ContractSetupChoice {
+  const suggestion = suggestTypes(contract, types)[0];
+  return {
+    mode: "starter",
+    typeName: suggestion?.type.name ?? "",
+    fields: suggestion?.fields ?? {},
+    binding: initialSchemaValue(contract.binding_schema)
+  };
+}
+
+function ContractSetupEditor({
+  applicationName,
+  contract,
+  types,
+  value,
+  disabled,
+  onChange
+}: {
+  applicationName: string;
+  contract: SetupContract;
+  types: SetupType[];
+  value: ContractSetupChoice;
+  disabled: boolean;
+  onChange(value: ContractSetupChoice): void;
+}) {
+  const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]);
+  const canGuideExistingType = guidedBindingSupported(contract);
+  const selectedType = types.find((type) => type.name === value.typeName);
+  const availableFields = selectedType ? typeFields(selectedType) : [];
+  const fields = contractFields(contract);
+  const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : [];
+  const requiredBinding = new Set(
+    Array.isArray(contract.binding_schema?.required)
+      ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
+      : []
+  );
+
+  function selectType(typeName: string) {
+    const suggestion = suggestions.find((candidate) => candidate.type.name === typeName);
+    onChange({ ...value, typeName, fields: suggestion?.fields ?? {} });
+  }
+
+  return (
+    <div className="contract-setup-editor">
+      <div className="contract-setup-heading">
+        <div>
+          <strong>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</strong>
+          <small>{contract.description ?? "Choose whether to add the application’s starter type or use one of your existing types."}</small>
+        </div>
+        <code>{contract.id} · {contract.version}</code>
+      </div>
+      <div className="contract-setup-mode" role="radiogroup" aria-label={`Setup for ${setupLabel(contract)}`}>
+        <label className={value.mode === "starter" ? "selected" : undefined}>
+          <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} />
+          <span><strong>Add {applicationName}’s starter type</strong><small>Create a separate type supplied by the application.</small></span>
+        </label>
+        {suggestions.length > 0 && canGuideExistingType && <label className={value.mode === "existing" ? "selected" : undefined}>
+          <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} />
+          <span><strong>Use an existing type</strong><small>Keep your current records and explain which fields mean the same thing.</small></span>
+        </label>}
+      </div>
+      {!canGuideExistingType && suggestions.length > 0 && <p className="field-note">This contract has advanced behavior settings. Add its starter type here, or connect an existing type later in mdbase editor.</p>}
+      {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping">
+        <label className="contract-type-choice">
+          <span>Existing type</span>
+          <select value={value.typeName} disabled={disabled} onChange={(event) => selectType(event.target.value)}>
+            {suggestions.map((suggestion, index) => <option value={suggestion.type.name} key={suggestion.type.name}>{suggestion.type.name}{index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? " · suggested" : ""}</option>)}
+          </select>
+        </label>
+        <div className="contract-field-list">{fields.map((field) => {
+          const mapped = value.fields[field.reference] ?? "";
+          const typeField = availableFields.find((candidate) => candidate.reference === mapped);
+          const assessment = assessMapping(field, typeField);
+          return <label key={field.reference}>
+            <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? `The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span>
+            <select value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} onChange={(event) => {
+              const next = { ...value.fields };
+              if (event.target.value) next[field.reference] = event.target.value;
+              else delete next[field.reference];
+              onChange({ ...value, fields: next });
+            }}>
+              <option value="">{field.required ? "Choose a field" : "Do not share"}</option>
+              {availableFields.map((candidate) => <option key={candidate.reference} value={candidate.reference}>{candidate.label}</option>)}
+            </select>
+            <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small>
+          </label>;
+        })}</div>
+        {bindingFields.length > 0 && <fieldset className="contract-binding">
+          <legend>How this type behaves in {applicationName}</legend>
+          {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)}
+        </fieldset>}
+        <p className="field-note">Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</p>
+      </div>}
+    </div>
+  );
+}
+
+function SchemaInput({ field, required, value, disabled, onChange }: {
+  field: ReturnType<typeof propertyFields>[number];
+  required: boolean;
+  value: unknown;
+  disabled: boolean;
+  onChange(value: unknown): void;
+}) {
+  const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined;
+  return <label>
+    <span>{field.label}{required ? " *" : ""}</span>
+    {options ? <select value={value === undefined ? "" : String(value)} disabled={disabled} onChange={(event) => onChange(options.find((option) => String(option) === event.target.value))}>
+      <option value="">Choose</option>
+      {options.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}
+    </select> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input
+      type={field.kind === "number" || field.kind === "integer" ? "number" : "text"}
+      value={typeof value === "string" || typeof value === "number" ? value : ""}
+      disabled={disabled}
+      onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)}
+    />}
+    {field.description && <small>{field.description}</small>}
+  </label>;
+}
+
+function initialSchemaValue(schema?: Record<string, unknown>): Record<string, unknown> {
+  if (!schema || !schema.properties || typeof schema.properties !== "object") return {};
+  return Object.fromEntries(Object.entries(schema.properties as Record<string, unknown>).flatMap(
+    ([key, candidate]) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+      const value = candidate as Record<string, unknown>;
+      return "default" in value ? [[key, structuredClone(value.default)]] : [];
+    }
+  ));
 }
 
 export function ApprovalForm({
@@ -267,6 +421,24 @@ export function ApprovalForm({
   const [error, setError] = useState("");
   const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection;
   const setup = selected ? neededProvisions(request, selected) : [];
+  const setupContracts = useMemo(() => selected
+    ? request.requirements.contracts.flatMap((required) => {
+        if (selected.contracts.some((contract) =>
+          contract.id === required.id && contract.version === required.version)) return [];
+        const contract = provisionedContract(required, request.provisions.type_packs);
+        return contract ? [contract] : [];
+      })
+    : [], [request.provisions.type_packs, request.requirements.contracts, selected]);
+  const setupTypes = useMemo<SetupType[]>(
+    () => selected?.types ?? [],
+    [selected]
+  );
+  const setupIdentity = [
+    collectionId,
+    ...setupContracts.map((contract) => `${contract.id}@${contract.version}`),
+    ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
+  ].join("|");
+  const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
   const permissionGroups = useMemo(
     () => groupAuthorizationOperations(request.requested_operations),
     [request.requested_operations]
@@ -287,6 +459,53 @@ export function ApprovalForm({
     }
   }, [collectionId, compatible]);
 
+  useEffect(() => {
+    setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
+      `${contract.id}@${contract.version}`,
+      initialContractSetupChoice(contract, setupTypes)
+    ])));
+  }, [setupIdentity]);
+
+  const setupReady = setupContracts.every((contract) => {
+    const choice = setupChoices[`${contract.id}@${contract.version}`];
+    if (!choice) return false;
+    if (choice.mode === "starter") return true;
+    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
+    if (!type?.revision) return false;
+    const available = typeFields(type);
+    if (contractFields(contract).some((field) => {
+      const mapped = choice.fields[field.reference];
+      const candidate = available.find((value) => value.reference === mapped);
+      return assessMapping(field, candidate).level === "error";
+    })) return false;
+    const requiredBinding = Array.isArray(contract.binding_schema?.required)
+      ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
+      : [];
+    return requiredBinding.every((field) => {
+      const value = choice.binding[field];
+      return value !== undefined && value !== null && value !== "";
+    });
+  });
+
+  const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => {
+    const choice = setupChoices[`${contract.id}@${contract.version}`];
+    if (!choice) return [];
+    if (choice.mode === "starter") return [{
+      contract: { id: contract.id, version: contract.version },
+      mode: "starter" as const
+    }];
+    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
+    if (!type?.revision) return [];
+    return [{
+      contract: { id: contract.id, version: contract.version },
+      mode: "existing" as const,
+      type_name: type.name,
+      type_revision: type.revision,
+      fields: choice.fields,
+      ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {})
+    }];
+  });
+
   function toggleOperation(operation: string) {
     setOperations((current) => {
       const next = new Set(current);
@@ -306,7 +525,8 @@ export function ApprovalForm({
           body: JSON.stringify({
             collection_id: collectionId,
             ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}),
-            operations: [...operations]
+            operations: [...operations],
+            contract_setups: contractSetups
           })
         } : {})
       });
@@ -337,6 +557,7 @@ export function ApprovalForm({
         connector_name: "Hosted by mdbase",
         spec_version: created.collection.spec_version ?? "0.3.0",
         contracts: [],
+        types: [],
         kind: "hosted"
       };
       setCreatedCollections((current) => [...current, collection]);
@@ -461,9 +682,32 @@ export function ApprovalForm({
                 : "No compatible collection is ready."}
             </p>
           )}
-          {setup.length > 0 && <p className="field-note">Setup needed: allowing access will add {provisionNames(setup)} to this collection through its live authority.</p>}
+          {setup.length > 0 && <p className="field-note">{setupTypes.length > 0
+            ? `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type below, or use an existing type.`
+            : `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type.`}</p>}
         </div>
       </section>
+      {setupContracts.length > 0 && <section className="approval-section contract-setup-section">
+        <div className="approval-section-intro">
+          <strong>Choose type setup</strong>
+          <small>Add a starter type, or match meanings in one you already use. Nothing changes until you approve and the collection validates.</small>
+        </div>
+        <div className="approval-section-content contract-setup-list">
+          {setupContracts.map((contract) => {
+            const key = `${contract.id}@${contract.version}`;
+            const choice = setupChoices[key];
+            return choice && <ContractSetupEditor
+              key={key}
+              applicationName={request.application_name}
+              contract={contract}
+              types={setupTypes}
+              value={choice}
+              disabled={submitting !== null}
+              onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))}
+            />;
+          })}
+        </div>
+      </section>}
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Permissions</strong>
@@ -484,7 +728,7 @@ export function ApprovalForm({
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || selectedPermissionCount === 0} onClick={() => void decide("approved")}>{submitting === "approved" ? "Approving…" : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || selectedPermissionCount === 0 || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (setup.length > 0 ? "Setting up and allowing…" : "Approving…") : setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
         </div>
       </footer>
     </div>

@@ -165,6 +165,8 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id: offer_request_id,
             authorization_id,
+            requirements: ApplicationRequirements::default(),
+            provisions: ApplicationProvisions::default(),
         })
         .unwrap();
     let RelayMessage::AuthorizationOfferResponse {
@@ -210,6 +212,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
                 collection_kind: None,
             },
             provisions: ApplicationProvisions::default(),
+            contract_setups: Vec::new(),
             grant: Box::new(grant.clone()),
         })
         .unwrap();

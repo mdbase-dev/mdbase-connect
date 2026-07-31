@@ -21,6 +21,35 @@ pub struct ContractRequirement {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ContractSetupMode {
+    #[default]
+    Starter,
+    Existing {
+        type_name: String,
+        type_revision: String,
+        #[serde(default)]
+        fields: std::collections::BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<Value>,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractSetupChoice {
+    pub contract: ContractRequirement,
+    #[serde(flatten)]
+    pub mode: ContractSetupMode,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuthorizationCollectionTypes {
+    pub collection_id: Uuid,
+    #[serde(default)]
+    pub types: Vec<CollectionTypeDescriptor>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
@@ -190,6 +219,9 @@ pub struct PendingAuthorization {
     pub compatible_collection_ids: Vec<Uuid>,
     #[serde(default)]
     pub provisionable_collection_ids: Vec<Uuid>,
+    /// Minimal type metadata offered locally for guided contract setup.
+    #[serde(default)]
+    pub collection_types: Vec<AuthorizationCollectionTypes>,
     pub expires_at: String,
 }
 
@@ -271,6 +303,8 @@ pub struct AuthorizationCollectionOffer {
     pub spec_version: String,
     #[serde(default)]
     pub contracts: Vec<CollectionContractDescriptor>,
+    #[serde(default)]
+    pub types: Vec<CollectionTypeDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

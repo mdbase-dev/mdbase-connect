@@ -218,7 +218,7 @@ export const PICKLE_TYPE_PACK_PROVISION = {
         kind: "contract",
         source: "contracts/pickle.request.md",
         target: "_contracts/pickle.request.md",
-        digest: "sha256:6ec14bdc2bb23d9889f0d6d72a6175a74b45713891fd87e9e05e3be9075e45b1"
+        digest: "sha256:caf9ee290e98ef51f871a1237b38531168aa1b74640241ce6edece4c2bff66f1"
       },
       {
         kind: "type",

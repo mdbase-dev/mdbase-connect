@@ -265,6 +265,7 @@ impl AgentState {
                 params.collection_id,
                 &pending.requirements,
                 &pending.provisions,
+                &params.contract_setups,
             )
             .await?;
         cloud.approve_authorization(params, &contracts).await
@@ -281,6 +282,7 @@ impl AgentState {
                 params.collection_id,
                 &application.requirements,
                 &application.provisions,
+                &[],
             )
             .await?;
         cloud.create_grant(params, &contracts).await
@@ -291,6 +293,7 @@ impl AgentState {
         collection_id: uuid::Uuid,
         requirements: &mdbase_connect_protocol::ApplicationRequirements,
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
+        contract_setups: &[ContractSetupChoice],
     ) -> Result<Vec<mdbase_connect_protocol::CollectionContractDescriptor>, ConnectError> {
         let registered = self.registry.get(collection_id)?;
         if !registered.enabled {
@@ -302,6 +305,7 @@ impl AgentState {
             collection_id,
             requirements,
             &provisions.type_packs,
+            contract_setups,
         )?;
         self.watcher.rescan(collection_id);
         let mut collection = self.registry.get(collection_id)?;
@@ -391,6 +395,21 @@ impl AgentState {
                     )
                 })
                 .map(|collection| collection.id)
+                .collect();
+            pending.collection_types = pending
+                .provisionable_collection_ids
+                .iter()
+                .filter_map(|collection_id| {
+                    let description = self.registry.describe(*collection_id).ok()?;
+                    Some(AuthorizationCollectionTypes {
+                        collection_id: *collection_id,
+                        types: description
+                            .types
+                            .into_iter()
+                            .filter_map(approval_type_candidate)
+                            .collect(),
+                    })
+                })
                 .collect();
         }
         serde_json::to_value(snapshot).map_err(ConnectError::from)

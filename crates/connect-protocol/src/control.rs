@@ -207,6 +207,8 @@ pub struct AuthorizationApproveParams {
     pub request_id: Uuid,
     pub collection_id: Uuid,
     pub operations: Vec<String>,
+    #[serde(default)]
+    pub contract_setups: Vec<ContractSetupChoice>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

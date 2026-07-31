@@ -15,6 +15,8 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
+import { ensureAgentReady, type AgentPing } from "./agent-startup";
+import { contractSetupInput } from "./contract-setup-input";
 import { AgentControlError, requestAgent } from "./control-client";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
@@ -93,26 +95,6 @@ async function requestReadyAgent<T>(
   return requestAgent<T>(controlEndpoint(), method, params, timeoutMs);
 }
 
-interface AgentPing {
-  pong: boolean;
-  ready?: boolean;
-}
-
-async function waitForAgentReady(): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const ping = await requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, 500);
-      if (ping.ready !== false) return;
-    } catch (error) {
-      if (incompatibleDaemon(error)) throw error;
-      // The process may still be binding its local endpoint.
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
-  }
-  throw new Error("The local connector did not finish starting in time.");
-}
-
 function endpointIsUnavailable(error: unknown): boolean {
   if (!error || typeof error !== "object" || !("code" in error)) return false;
   const code = (error as { code?: unknown }).code;
@@ -124,40 +106,36 @@ function incompatibleDaemon(error: unknown): boolean {
 }
 
 async function startAgent(): Promise<void> {
-  let running = false;
-  try {
-    const ping = await requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, 400);
-    running = true;
-    if (ping.ready !== false) return;
-  } catch (error) {
-    if (incompatibleDaemon(error)) throw error;
-    if (!endpointIsUnavailable(error)) return waitForAgentReady();
-  }
-  if (running) return waitForAgentReady();
-
-  const binary = connectBinary();
-  if (!existsSync(binary)) {
-    throw new Error(`Connector runtime is missing: ${binary}`);
-  }
-  await mkdir(stateDirectory(), { recursive: true });
-  await execFile(
-    binary,
-    [
-      "--state-dir",
-      stateDirectory(),
-      "--endpoint",
-      controlEndpoint(),
-      "connect",
-      "daemon",
-      "start"
-    ],
-    {
-      env: process.env,
-      timeout: 30_000,
-      windowsHide: true
+  await ensureAgentReady({
+    ping: (timeoutMs) =>
+      requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
+    endpointIsUnavailable,
+    incompatibleDaemon,
+    launch: async () => {
+      const binary = connectBinary();
+      if (!existsSync(binary)) {
+        throw new Error(`Connector runtime is missing: ${binary}`);
+      }
+      await mkdir(stateDirectory(), { recursive: true });
+      await execFile(
+        binary,
+        [
+          "--state-dir",
+          stateDirectory(),
+          "--endpoint",
+          controlEndpoint(),
+          "connect",
+          "daemon",
+          "start"
+        ],
+        {
+          env: process.env,
+          timeout: 30_000,
+          windowsHide: true
+        }
+      );
     }
-  );
-  await waitForAgentReady();
+  });
 }
 
 function trustedIpc(event: Electron.IpcMainInvokeEvent): void {
@@ -506,9 +484,15 @@ function registerIpc(): void {
       throw new Error("Choose a collection for this request.");
     }
     const operations = stringArray(value.operations, "Choose at least one operation.");
+    const contractSetups = contractSetupInput(value.contractSetups);
     return requestReadyAgent(
       "authorizations.approve",
-      { request_id: value.requestId, collection_id: value.collectionId, operations },
+      {
+        request_id: value.requestId,
+        collection_id: value.collectionId,
+        operations,
+        contract_setups: contractSetups
+      },
       10_000
     );
   });
@@ -569,12 +553,14 @@ function registerIpc(): void {
     if (typeof value.requestId !== "string" || typeof value.collectionId !== "string") {
       throw new Error("Choose a hosted collection for this request.");
     }
+    const contractSetups = contractSetupInput(value.contractSetups);
     return requestReadyAgent(
       "hosted.authorizations.approve",
       {
         request_id: value.requestId,
         collection_id: value.collectionId,
-        operations: stringArray(value.operations, "Choose at least one operation.")
+        operations: stringArray(value.operations, "Choose at least one operation."),
+        contract_setups: contractSetups
       },
       30_000
     );

@@ -27,3 +27,19 @@ export const collectionContractDescriptorSchema = z.object({
   binding_schema: z.record(z.string(), z.unknown()).optional(),
   implementations: z.array(collectionContractImplementationSchema).min(1).max(100)
 }).strict();
+
+export const contractSetupChoiceSchema = z.discriminatedUnion("mode", [
+  z.object({
+    contract: contractRequirementSchema,
+    mode: z.literal("starter")
+  }).strict(),
+  z.object({
+    contract: contractRequirementSchema,
+    mode: z.literal("existing"),
+    type_name: z.string().trim().min(1).max(100),
+    type_revision: digestSchema,
+    fields: z.record(z.string().min(1).max(500), z.string().min(1).max(500))
+      .refine((fields) => Object.keys(fields).length <= 100, "Too many field mappings."),
+    binding: z.record(z.string(), z.unknown()).optional()
+  }).strict()
+]);

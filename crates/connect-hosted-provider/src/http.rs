@@ -11,9 +11,9 @@ use axum::{
     Json, Router,
 };
 use mdbase_connect_protocol::{
-    AuthorityImportManifest, AuthorityImportRecordPage, GrantSummary, OperationRequest,
-    OperationResponse, SyncChangesPage, SyncMutation, SyncMutationReceipt, SyncSession,
-    SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
+    AuthorityImportManifest, AuthorityImportRecordPage, ContractSetupChoice, GrantSummary,
+    OperationRequest, OperationResponse, SyncChangesPage, SyncMutation, SyncMutationReceipt,
+    SyncSession, SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
     AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER,
     AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
 };
@@ -104,6 +104,15 @@ struct CompactRequest {
 #[derive(Debug, Deserialize)]
 struct ProvisionTypePacksRequest {
     type_packs: Vec<TypePackProvision>,
+    #[serde(flatten)]
+    extensions: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContractSetupRequest {
+    type_packs: Vec<TypePackProvision>,
+    #[serde(default)]
+    contract_setups: Vec<ContractSetupChoice>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +171,14 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/internal/v1/collections/{collection_id}/type-packs/provision",
             post(provision_type_packs),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/contract-setup",
+            post(setup_contracts),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/types",
+            get(collection_type_candidates),
         )
         .route(
             "/internal/v1/collections/{collection_id}/authority-transfers",
@@ -674,11 +691,55 @@ async fn provision_type_packs(
             "An application may provision at most 20 type packs.",
         ));
     }
-    let contracts = state
+    if !input.extensions.is_empty() {
+        return Err(ApiError::bad_request(
+            "contract_setup_upgrade_required",
+            "This contract setup request requires the dedicated contract-setup endpoint.",
+        ));
+    }
+    let (contracts, _) = state
         .provider
-        .provision_type_packs(collection_id, input.type_packs)
+        .provision_type_packs(collection_id, input.type_packs, Vec::new())
         .await?;
     Ok(Json(json!({ "contracts": contracts })))
+}
+
+async fn setup_contracts(
+    State(state): State<AppState>,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<ContractSetupRequest>,
+) -> ApiResult<Json<Value>> {
+    if input.type_packs.len() > 20 {
+        return Err(ApiError::bad_request(
+            "too_many_type_pack_provisions",
+            "An application may provision at most 20 type packs.",
+        ));
+    }
+    if input.contract_setups.len() > 20 {
+        return Err(ApiError::bad_request(
+            "too_many_contract_setups",
+            "An application may configure at most 20 contracts.",
+        ));
+    }
+    let (contracts, contract_setups) = state
+        .provider
+        .provision_type_packs(collection_id, input.type_packs, input.contract_setups)
+        .await?;
+    Ok(Json(json!({
+        "contracts": contracts,
+        "contract_setups": contract_setups,
+    })))
+}
+
+async fn collection_type_candidates(
+    State(state): State<AppState>,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let types = state
+        .provider
+        .collection_type_candidates(collection_id)
+        .await?;
+    Ok(Json(json!({ "types": types })))
 }
 
 async fn operation(

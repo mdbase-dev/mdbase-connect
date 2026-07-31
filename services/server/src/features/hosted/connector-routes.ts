@@ -1,6 +1,7 @@
 import type {
   CollectionContractDescriptor,
-  CollectionOperation
+  CollectionOperation,
+  ContractSetupChoice
 } from "@mdbase/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import { effectiveHostedContractDescriptors } from "../../hosted.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireConnector } from "../../platform/request-authentication.js";
+import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
 import {
   createHostedCollectionForUser,
   deleteHostedCollectionForUser,
@@ -36,6 +38,7 @@ interface ConnectorHostedRoutesOptions extends HostedServiceOptions {
     collectionId: string;
     operations: CollectionOperation[];
     contracts: CollectionContractDescriptor[];
+    contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }): Promise<unknown | null>;
 }
@@ -207,7 +210,8 @@ export function registerConnectorHostedRoutes(
       }).parse(request.params);
       const input = z.object({
         collection_id: z.uuid(),
-        operations: z.array(operationSchema).min(1)
+        operations: z.array(operationSchema).min(1),
+        contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
       }).strict().parse(request.body);
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError(
@@ -235,6 +239,9 @@ export function registerConnectorHostedRoutes(
         ));
       }
       requireCollectionAction(access, "application.authorize");
+      if (input.contract_setups.length > 0) {
+        requireCollectionAction(access, "schema.manage");
+      }
       const approved = await options.approveAuthorization({
         requestId,
         userId: connector.user_id,
@@ -244,6 +251,7 @@ export function registerConnectorHostedRoutes(
           collection.contracts,
           collection.template
         ),
+        contractSetups: input.contract_setups,
         access
       });
       if (!approved) {

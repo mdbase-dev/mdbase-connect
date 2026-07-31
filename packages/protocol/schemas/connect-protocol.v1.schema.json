@@ -259,6 +259,11 @@
           "type": "array",
           "maxItems": 100,
           "items": { "$ref": "#/$defs/collectionContract" }
+        },
+        "types": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/authorizationTypeCandidate" }
         }
       }
     },
@@ -353,7 +358,9 @@
         "type": { "const": "authorization_offer_request" },
         "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
-        "authorization_id": { "$ref": "#/$defs/uuid" }
+        "authorization_id": { "$ref": "#/$defs/uuid" },
+        "requirements": { "$ref": "#/$defs/applicationRequirements" },
+        "provisions": { "$ref": "#/$defs/applicationProvisions" }
       }
     },
     "authorizationOfferResponse": {
@@ -375,7 +382,7 @@
     "authorizationActivationRequest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "request_id", "authorization_id", "collection_id", "requirements", "provisions", "grant"],
+      "required": ["type", "protocol_version", "request_id", "authorization_id", "collection_id", "requirements", "provisions", "contract_setups", "grant"],
       "properties": {
         "type": { "const": "authorization_activation_request" },
         "protocol_version": { "const": 1 },
@@ -384,13 +391,18 @@
         "collection_id": { "$ref": "#/$defs/uuid" },
         "requirements": { "$ref": "#/$defs/applicationRequirements" },
         "provisions": { "$ref": "#/$defs/applicationProvisions" },
+        "contract_setups": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/contractSetupChoice" }
+        },
         "grant": { "$ref": "#/$defs/grantPolicy" }
       }
     },
     "authorizationActivationResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "request_id", "ok", "contracts"],
+      "required": ["type", "protocol_version", "request_id", "ok", "contracts", "contract_setups"],
       "properties": {
         "type": { "const": "authorization_activation_response" },
         "protocol_version": { "const": 1 },
@@ -400,6 +412,11 @@
           "type": "array",
           "maxItems": 100,
           "items": { "$ref": "#/$defs/collectionContract" }
+        },
+        "contract_setups": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/contractSetupChoice" }
         },
         "error": {
           "type": "object",
@@ -531,12 +548,26 @@
         "name": { "type": "string", "minLength": 1 },
         "version": { "type": "integer", "minimum": 1 },
         "description": { "type": "string" },
+        "revision": { "$ref": "#/$defs/digest" },
         "path": { "type": "string", "minLength": 1, "description": "Collection-relative source path." },
         "definition": { "type": "object", "description": "Complete portable type frontmatter, including extension declarations." },
         "schema": { "type": "object" },
         "collection": { "type": "object" },
         "lifecycle": { "type": "object" },
         "extensions": { "type": "object" }
+      }
+    },
+    "authorizationTypeCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision", "schema", "extensions"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "revision": { "$ref": "#/$defs/digest" },
+        "schema": { "type": "object" },
+        "extensions": { "type": "object", "maxProperties": 0 }
       }
     },
     "collectionContract": {
@@ -572,6 +603,36 @@
         },
         "binding": { "type": "object" }
       }
+    },
+    "contractSetupChoice": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contract", "mode"],
+          "properties": {
+            "contract": { "$ref": "#/$defs/contractRequirement" },
+            "mode": { "const": "starter" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contract", "mode", "type_name", "type_revision", "fields"],
+          "properties": {
+            "contract": { "$ref": "#/$defs/contractRequirement" },
+            "mode": { "const": "existing" },
+            "type_name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "type_revision": { "$ref": "#/$defs/digest" },
+            "fields": {
+              "type": "object",
+              "maxProperties": 100,
+              "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 500 }
+            },
+            "binding": { "type": "object" }
+          }
+        }
+      ]
     },
     "changesPage": {
       "type": "object",

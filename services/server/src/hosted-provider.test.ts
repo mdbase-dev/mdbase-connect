@@ -200,7 +200,10 @@ describe("hosted provider control client", () => {
       resources: [{ source: "workout.md", document }],
       provides: [{ id: "workout.record", version: "1.0.0" }]
     };
-    await expect(provider.provisionTypePacks("collection", [provision])).resolves.toEqual([contract]);
+    await expect(provider.provisionTypePacks("collection", [provision])).resolves.toEqual({
+      contracts: [contract],
+      contractSetups: []
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://provider.example/internal/v1/collections/collection/type-packs/provision",
       expect.objectContaining({
@@ -208,5 +211,58 @@ describe("hosted provider control client", () => {
         body: JSON.stringify({ type_packs: [provision] })
       })
     );
+  });
+
+  it("reads private hosted type candidates and forwards reviewed contract mappings", async () => {
+    const candidate = {
+      name: "task",
+      revision: `sha256:${"2".repeat(64)}`,
+      schema: { type: "object", properties: { title: { type: "string" } } },
+      extensions: {}
+    };
+    const setup = {
+      contract: { id: "example.task", version: "1.0.0" },
+      mode: "existing" as const,
+      type_name: "task",
+      type_revision: candidate.revision,
+      fields: { title: "title" }
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ types: [candidate] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        contracts: [],
+        contract_setups: [setup]
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    await expect(provider.collectionTypeCandidates("collection")).resolves.toEqual([candidate]);
+    await expect(provider.provisionTypePacks("collection", [], [setup])).resolves.toEqual({
+      contracts: [],
+      contractSetups: [setup]
+    });
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
+      [
+        "https://provider.example/internal/v1/collections/collection/types",
+        "GET",
+        undefined
+      ],
+      [
+        "https://provider.example/internal/v1/collections/collection/contract-setup",
+        "POST",
+        JSON.stringify({
+          type_packs: [],
+          contract_setups: [setup]
+        })
+      ]
+    ]);
   });
 });

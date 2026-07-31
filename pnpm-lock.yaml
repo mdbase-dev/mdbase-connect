@@ -224,7 +224,11 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.3)(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
 
-  packages/ui: {}
+  packages/ui:
+    dependencies:
+      yaml:
+        specifier: ^2.8.1
+        version: 2.9.0
 
   packages/webhooks:
     dependencies:

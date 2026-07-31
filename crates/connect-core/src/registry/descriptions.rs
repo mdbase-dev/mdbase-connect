@@ -46,6 +46,9 @@ impl CollectionRegistry {
                     name: type_file.name,
                     version: type_file.version,
                     description,
+                    revision: fs::read(Path::new(&registered.path).join(&type_file.path))
+                        .ok()
+                        .map(|bytes| format!("sha256:{:x}", Sha256::digest(&bytes))),
                     path: Some(type_file.path),
                     definition: type_file
                         .frontmatter

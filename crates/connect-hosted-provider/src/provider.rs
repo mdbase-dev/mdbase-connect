@@ -10,8 +10,9 @@ use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
     authority_manifest_digest as snapshot_manifest_digest, AuthorityImportManifest,
     AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, GrantSummary,
-    SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
+    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
+    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
+    GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
     SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
     SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision,
     AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
@@ -286,6 +287,22 @@ pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
         ));
     }
     Ok(limit)
+}
+
+fn validate_contract_setup_targets(
+    setup_contracts: &BTreeSet<(String, String)>,
+    missing_contracts: &BTreeSet<(String, String)>,
+) -> ApiResult<()> {
+    if setup_contracts
+        .iter()
+        .any(|contract| !missing_contracts.contains(contract))
+    {
+        return Err(ApiError::bad_request(
+            "invalid_contract_setup",
+            "Contract setup may only configure missing contracts.",
+        ));
+    }
+    Ok(())
 }
 
 fn hosted_migrator() -> sqlx::migrate::Migrator {

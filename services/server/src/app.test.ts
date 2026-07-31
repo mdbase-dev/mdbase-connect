@@ -1779,14 +1779,34 @@ describe("mdbase connect server", () => {
   it("provisions required types before creating a full-collection grant", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
-    const contract = contractDescriptor();
+    const contract = contractDescriptor("workout.record", "task");
+    const existingContract = contractDescriptor("athlete.profile", "profile");
+    const typeCandidate = {
+      name: "task",
+      version: 1,
+      revision: `sha256:${"2".repeat(64)}`,
+      schema: {
+        type: "object",
+        properties: { title: { type: "string" } }
+      },
+      extensions: {}
+    };
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
-      provisionTypePacks: vi.fn().mockResolvedValue([contract]),
+      collectionTypeCandidates: vi.fn().mockResolvedValue([typeCandidate]),
+      provisionTypePacks: vi.fn()
+        .mockResolvedValueOnce({
+          contracts: [existingContract, contract],
+          contractSetups: []
+        })
+        .mockImplementation(async (_collectionId, _packs, setups = []) => ({
+          contracts: [existingContract, contract],
+          contractSetups: setups
+        })),
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
       revokeReplica: vi.fn(),
@@ -1818,6 +1838,10 @@ describe("mdbase connect server", () => {
       payload: { display_name: "Training", template: "mdbase" }
     });
     const collectionId = collection.json().collection.id as string;
+    await db.query(
+      "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1",
+      [collectionId, JSON.stringify([existingContract])]
+    );
     const contractDocument = "---\nkind: mdbase.contract\ncontract_type: record\nid: workout.record\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
     const typeDocument = "---\nkind: mdbase.type\nname: workout\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\nimplements:\n  - contract: workout.record\n    version: 1.0.0\n    fields: {}\n---\n";
     const auxiliaryDocument = "---\nkind: mdbase.type\nname: workout_note\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
@@ -1832,7 +1856,10 @@ describe("mdbase connect server", () => {
     );
     const manifestServer = applicationManifestFixture(
       {
-        contracts: [{ id: "workout.record", version: "1.0.0" }],
+        contracts: [
+          { id: "athlete.profile", version: "1.0.0" },
+          { id: "workout.record", version: "1.0.0" }
+        ],
         access: "full_collection"
       },
       "Workout Tracker",
@@ -1862,16 +1889,62 @@ describe("mdbase connect server", () => {
     expect(pending.json().authorization.provisions.type_packs[0].provides).toEqual([
       { id: "workout.record", version: "1.0.0" }
     ]);
+    expect(pending.json().collections[0].types).toEqual([typeCandidate]);
+    const setup = {
+      contract: { id: "workout.record", version: "1.0.0" },
+      mode: "existing",
+      type_name: "task",
+      type_revision: typeCandidate.revision,
+      fields: {}
+    };
+    const unnecessarySetup = {
+      contract: { id: "athlete.profile", version: "1.0.0" },
+      mode: "starter"
+    };
+    const overbroad = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["read", "query", "create"],
+        contract_setups: [setup, unnecessarySetup]
+      }
+    });
+    expect(overbroad.statusCode).toBe(400);
+    expect(overbroad.json().error.message).toContain(
+      "each missing contract only"
+    );
+    expect(hostedProvider.provisionTypePacks).not.toHaveBeenCalled();
+    const unacknowledged = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${requestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: collectionId,
+        operations: ["read", "query", "create"],
+        contract_setups: [setup]
+      }
+    });
+    expect(unacknowledged.statusCode).toBe(400);
+    expect(unacknowledged.json().error.message).toContain(
+      "did not acknowledge the exact contract setup"
+    );
     const approved = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${requestId}/approve`,
       headers: { cookie },
-      payload: { collection_id: collectionId, operations: ["read", "query", "create"] }
+      payload: {
+        collection_id: collectionId,
+        operations: ["read", "query", "create"],
+        contract_setups: [setup]
+      }
     });
     expect(approved.statusCode).toBe(200);
     expect(hostedProvider.provisionTypePacks).toHaveBeenCalledWith(
       collectionId,
-      [pack]
+      [pack],
+      [setup]
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
@@ -1887,7 +1960,7 @@ describe("mdbase connect server", () => {
       "SELECT contracts FROM hosted_collections WHERE id = $1",
       [collectionId]
     );
-    expect(stored.rows[0].contracts).toEqual([contract]);
+    expect(stored.rows[0].contracts).toEqual([existingContract, contract]);
   });
 
   it("uses a trusted Tailscale identity instead of a development session", async () => {

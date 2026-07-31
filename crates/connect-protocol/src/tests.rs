@@ -92,6 +92,47 @@ fn control_request_has_stable_wire_shape() {
 }
 
 #[test]
+fn contract_setup_choices_have_an_explicit_discriminated_wire_shape() {
+    let contract = ContractRequirement {
+        id: "example.task".to_string(),
+        version: "1.0.0".to_string(),
+    };
+    let choices = [
+        ContractSetupChoice {
+            contract: contract.clone(),
+            mode: ContractSetupMode::Starter,
+        },
+        ContractSetupChoice {
+            contract,
+            mode: ContractSetupMode::Existing {
+                type_name: "task".to_string(),
+                type_revision: format!("sha256:{}", "1".repeat(64)),
+                fields: [("title".to_string(), "heading".to_string())]
+                    .into_iter()
+                    .collect(),
+                binding: None,
+            },
+        },
+    ];
+    assert_eq!(
+        serde_json::to_value(choices).unwrap(),
+        serde_json::json!([
+            {
+                "contract": { "id": "example.task", "version": "1.0.0" },
+                "mode": "starter"
+            },
+            {
+                "contract": { "id": "example.task", "version": "1.0.0" },
+                "mode": "existing",
+                "type_name": "task",
+                "type_revision": format!("sha256:{}", "1".repeat(64)),
+                "fields": { "title": "heading" }
+            }
+        ])
+    );
+}
+
+#[test]
 fn copied_collection_registration_has_an_explicit_wire_command() {
     let request = ControlRequest {
         id: Uuid::nil(),
@@ -146,6 +187,8 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             request_id: ids[0],
             authorization_id: ids[1],
+            requirements: ApplicationRequirements::default(),
+            provisions: ApplicationProvisions::default(),
         },
         RelayMessage::AuthorizationOfferResponse {
             protocol_version: CONTROL_PROTOCOL_VERSION,
@@ -156,6 +199,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
                 display_name: "My tasks".to_string(),
                 spec_version: "0.3.0".to_string(),
                 contracts: Vec::new(),
+                types: Vec::new(),
             }],
         },
         RelayMessage::AuthorizationActivationResponse {
@@ -163,6 +207,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             request_id: ids[0],
             ok: true,
             contracts: Vec::new(),
+            contract_setups: Vec::new(),
             error: None,
         },
         RelayMessage::OperationRequest {

@@ -184,7 +184,22 @@ impl HostedProvider {
                             format!("The type-pack provision is invalid: {error}"),
                         )
                     })?;
-                self.write_type_pack_operation(collection_id, &provision)
+                let setups = provision
+                    .provides
+                    .iter()
+                    .cloned()
+                    .map(|contract| ContractSetupChoice {
+                        contract,
+                        mode: ContractSetupMode::Starter,
+                    })
+                    .collect::<Vec<_>>();
+                if setups.is_empty() {
+                    return Err(ApiError::bad_request(
+                        "invalid_type_pack",
+                        "Hosted type-pack installation requires declared provided contracts.",
+                    ));
+                }
+                self.write_contract_setup_operation(collection_id, &[provision], &setups)
                     .await
             }
             "create_view_source" | "update_view_source" | "delete_view_source" => {
@@ -247,11 +262,58 @@ impl HostedProvider {
         &self,
         collection_id: Uuid,
         provisions: Vec<TypePackProvision>,
-    ) -> ApiResult<Vec<CollectionContractDescriptor>> {
-        let mut resources = self.collection_resources(collection_id).await?;
-        for provision in provisions {
+        contract_setups: Vec<ContractSetupChoice>,
+    ) -> ApiResult<(Vec<CollectionContractDescriptor>, Vec<ContractSetupChoice>)> {
+        let resources = self.collection_resources(collection_id).await?;
+        let provided_contracts = provisions
+            .iter()
+            .flat_map(|provision| provision.provides.iter())
+            .map(|contract| (contract.id.clone(), contract.version.clone()))
+            .collect::<BTreeSet<_>>();
+        let setup_contracts = contract_setups
+            .iter()
+            .map(|setup| (setup.contract.id.clone(), setup.contract.version.clone()))
+            .collect::<BTreeSet<_>>();
+        if setup_contracts.len() != contract_setups.len() {
+            return Err(ApiError::bad_request(
+                "invalid_contract_setup",
+                "Each required contract must have exactly one setup choice.",
+            ));
+        }
+        if setup_contracts
+            .iter()
+            .any(|contract| !provided_contracts.contains(contract))
+        {
+            return Err(ApiError::bad_request(
+                "invalid_contract_setup",
+                "Contract setup may only configure a contract provided by this application.",
+            ));
+        }
+        let missing_contracts = provided_contracts
+            .iter()
+            .filter(|(id, version)| {
+                !resources
+                    .contracts
+                    .iter()
+                    .any(|contract| &contract.id == id && &contract.version == version)
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        validate_contract_setup_targets(&setup_contracts, &missing_contracts)?;
+        let effective_setups = if contract_setups.is_empty() {
+            missing_contracts
+                .into_iter()
+                .map(|(id, version)| ContractSetupChoice {
+                    contract: ContractRequirement { id, version },
+                    mode: ContractSetupMode::Starter,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            contract_setups
+        };
+        if !effective_setups.is_empty() {
             let result = self
-                .write_type_pack_operation(collection_id, &provision)
+                .write_contract_setup_operation(collection_id, &provisions, &effective_setups)
                 .await?;
             if result.get("valid").and_then(Value::as_bool) != Some(true) {
                 let detail = result
@@ -260,36 +322,38 @@ impl HostedProvider {
                     .unwrap_or("the type pack was rejected");
                 return Err(ApiError::bad_request(
                     "type_pack_provision_failed",
-                    format!(
-                        "The {} type pack could not be installed: {detail}",
-                        provision
-                            .manifest
-                            .name
-                            .as_deref()
-                            .unwrap_or(&provision.manifest.id)
-                    ),
-                ));
-            }
-            resources = self.collection_resources(collection_id).await?;
-            if provision.provides.iter().any(|provided| {
-                !resources.contracts.iter().any(|available| {
-                    available.id == provided.id && available.version == provided.version
-                })
-            }) {
-                return Err(ApiError::bad_request(
-                    "type_pack_provision_failed",
-                    format!(
-                        "The {} type pack did not provide every contract declared by the application.",
-                        provision
-                            .manifest
-                            .name
-                            .as_deref()
-                            .unwrap_or(&provision.manifest.id)
-                    ),
+                    format!("The contract setup could not be installed: {detail}"),
                 ));
             }
         }
-        Ok(resources.contracts)
+        let resources = self.collection_resources(collection_id).await?;
+        if effective_setups.iter().any(|setup| {
+            !resources.contracts.iter().any(|available| {
+                available.id == setup.contract.id && available.version == setup.contract.version
+            })
+        }) {
+            return Err(ApiError::bad_request(
+                "type_pack_provision_failed",
+                "Contract setup did not provide every selected contract.",
+            ));
+        }
+        Ok((resources.contracts, effective_setups))
+    }
+
+    pub async fn collection_type_candidates(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<Vec<CollectionTypeDescriptor>> {
+        let mut types = self.collection_resources(collection_id).await?.types;
+        for candidate in &mut types {
+            candidate.path = None;
+            candidate.definition = None;
+            candidate.collection = None;
+            candidate.lifecycle = None;
+            candidate.extensions.clear();
+        }
+        types.retain(|candidate| candidate.revision.is_some());
+        Ok(types)
     }
 
     pub(super) async fn collection_resources(

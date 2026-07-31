@@ -36,6 +36,10 @@ pub enum RelayMessage {
         protocol_version: u32,
         request_id: Uuid,
         authorization_id: Uuid,
+        #[serde(default)]
+        requirements: ApplicationRequirements,
+        #[serde(default)]
+        provisions: ApplicationProvisions,
     },
     AuthorizationOfferResponse {
         protocol_version: u32,
@@ -50,6 +54,8 @@ pub enum RelayMessage {
         collection_id: Uuid,
         requirements: ApplicationRequirements,
         provisions: ApplicationProvisions,
+        #[serde(default)]
+        contract_setups: Vec<ContractSetupChoice>,
         grant: Box<GrantPolicy>,
     },
     AuthorizationActivationResponse {
@@ -58,6 +64,9 @@ pub enum RelayMessage {
         ok: bool,
         #[serde(default)]
         contracts: Vec<CollectionContractDescriptor>,
+        /// Exact acknowledgement of every setup choice applied by the authority.
+        #[serde(default)]
+        contract_setups: Vec<ContractSetupChoice>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<ControlError>,
     },

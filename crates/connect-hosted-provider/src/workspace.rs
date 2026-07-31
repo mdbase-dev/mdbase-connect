@@ -5,31 +5,24 @@ use std::{
 };
 
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
-use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
+use mdbase_connect_protocol::{
+    ContractSetupChoice, ContractSetupMode, SyncMutation, SyncMutationOperation, SyncRecord,
+    TypePackProvision,
+};
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
 
-#[derive(Debug, Clone)]
-pub struct StoredDocument {
-    pub record_id: Uuid,
-    pub path: String,
-    pub document: String,
-}
+mod types;
+pub use types::{Execution, StoredDocument};
 
 pub struct WorkingSet {
     directory: TempDir,
     records_by_path: BTreeMap<String, Uuid>,
-}
-
-#[derive(Debug)]
-pub struct Execution {
-    pub envelope: OperationResult,
-    pub primary_record_id: Uuid,
-    pub changed: Vec<(Uuid, Option<SyncRecord>, Option<String>)>,
 }
 
 impl WorkingSet {
@@ -276,29 +269,22 @@ impl WorkingSet {
         }
     }
 
-    pub fn install_type_pack(
+    pub fn install_type_packs_with_contract_setups(
         &self,
-        provision: &mdbase_connect_protocol::TypePackProvision,
+        provisions: &[TypePackProvision],
+        setups: &[ContractSetupChoice],
     ) -> ApiResult<OperationResult> {
         let collection = Collection::open(self.directory.path()).map_err(|error| {
             ApiError::internal(format!(
                 "The hosted collection working set is invalid: {error:?}"
             ))
         })?;
-        let manifest = serde_json::to_value(&provision.manifest).map_err(|error| {
-            ApiError::internal(format!(
-                "The type pack manifest could not serialize: {error}"
-            ))
-        })?;
-        let resources = provision
-            .resources
+        let packs = provisions
             .iter()
-            .map(|resource| mdbase::v03::TypePackResource {
-                source: resource.source.clone(),
-                document: resource.document.clone(),
-            })
-            .collect::<Vec<_>>();
-        Ok(collection.install_type_pack(&manifest, &resources, false))
+            .map(engine_type_pack)
+            .collect::<ApiResult<Vec<_>>>()?;
+        let setups = setups.iter().map(engine_contract_setup).collect::<Vec<_>>();
+        Ok(collection.install_type_packs_with_contract_setups(&packs, &setups))
     }
 
     pub fn resource_document(&self, path: &str) -> ApiResult<String> {
@@ -342,6 +328,9 @@ impl WorkingSet {
                 name: type_file.name,
                 version: type_file.version,
                 description,
+                revision: std::fs::read(self.directory.path().join(&type_file.path))
+                    .ok()
+                    .map(|bytes| format!("sha256:{:x}", Sha256::digest(&bytes))),
                 path: Some(type_file.path),
                 definition: type_file
                     .frontmatter
@@ -418,6 +407,57 @@ impl WorkingSet {
             })
             .collect())
     }
+}
+
+fn engine_type_pack(provision: &TypePackProvision) -> ApiResult<mdbase::v03::TypePackInstall> {
+    let manifest = serde_json::to_value(&provision.manifest).map_err(|error| {
+        ApiError::internal(format!(
+            "The type pack manifest could not serialize: {error}"
+        ))
+    })?;
+    Ok(mdbase::v03::TypePackInstall {
+        manifest,
+        resources: provision
+            .resources
+            .iter()
+            .map(|resource| mdbase::v03::TypePackResource {
+                source: resource.source.clone(),
+                document: resource.document.clone(),
+            })
+            .collect(),
+        provides: provision
+            .provides
+            .iter()
+            .map(|contract| mdbase::v03::ContractIdentity {
+                id: contract.id.clone(),
+                version: contract.version.clone(),
+            })
+            .collect(),
+    })
+}
+
+fn engine_contract_setup(setup: &ContractSetupChoice) -> mdbase::v03::ContractSetupChoice {
+    let contract = mdbase::v03::ContractIdentity {
+        id: setup.contract.id.clone(),
+        version: setup.contract.version.clone(),
+    };
+    let mode = match &setup.mode {
+        ContractSetupMode::Starter => mdbase::v03::ContractSetupMode::Starter,
+        ContractSetupMode::Existing {
+            type_name,
+            type_revision,
+            fields,
+            binding,
+        } => {
+            mdbase::v03::ContractSetupMode::Existing(mdbase::v03::ExistingContractImplementation {
+                type_name: type_name.clone(),
+                type_revision: type_revision.clone(),
+                fields: fields.clone(),
+                binding: binding.clone(),
+            })
+        }
+    };
+    mdbase::v03::ContractSetupChoice { contract, mode }
 }
 
 fn operation_input(
@@ -534,11 +574,14 @@ fn safe_relative(relative: &str) -> ApiResult<()> {
 }
 
 #[cfg(test)]
+mod contract_setup_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    fn resources() -> Vec<(String, String)> {
+    pub(super) fn resources() -> Vec<(String, String)> {
         let mut resources: Vec<(String, String)> = crate::template::resources("mdbase")
             .unwrap()
             .1

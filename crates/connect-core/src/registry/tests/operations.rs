@@ -383,7 +383,7 @@ schema:
     let provisions = [provision];
 
     let contracts = registry
-        .provision_type_packs(collection.id, &requirements, &provisions)
+        .provision_type_packs(collection.id, &requirements, &provisions, &[])
         .unwrap();
     assert!(contracts.iter().any(|contract| {
         contract.id == requirements.contracts[0].id
@@ -393,8 +393,122 @@ schema:
     assert!(root.join("_types/workout.md").is_file());
     assert!(root.join("_types/workout_note.md").is_file());
     registry
-        .provision_type_packs(collection.id, &requirements, &provisions)
+        .provision_type_packs(collection.id, &requirements, &provisions, &[])
         .unwrap();
+}
+
+#[test]
+fn provision_maps_a_contract_to_an_existing_type_without_installing_the_starter() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("notes");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let original = r#"---
+# Keep this comment and the existing layout.
+kind: mdbase.type
+name: note
+version: 3
+description: Existing notes
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [heading]
+    additionalProperties: true
+    properties:
+      heading: { type: string }
+      state: { type: string }
+---
+This body is documentation and must remain byte-for-byte intact.
+"#;
+    fs::create_dir_all(root.join("_types")).unwrap();
+    fs::write(root.join("_types/note.md"), original).unwrap();
+    let description = registry.describe(collection.id).unwrap();
+    let note = description
+        .types
+        .iter()
+        .find(|candidate| candidate.name == "note")
+        .unwrap();
+    let (requirements, provision) = work_item_provision();
+    let setup = ContractSetupChoice {
+        contract: requirements.contracts[0].clone(),
+        mode: ContractSetupMode::Existing {
+            type_name: "note".to_string(),
+            type_revision: note.revision.clone().unwrap(),
+            fields: [
+                ("title".to_string(), "heading".to_string()),
+                ("status".to_string(), "state".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            binding: None,
+        },
+    };
+
+    let contracts = registry
+        .provision_type_packs(collection.id, &requirements, &[provision], &[setup])
+        .unwrap();
+
+    assert!(!root.join("_types/work_item.md").exists());
+    let document = fs::read_to_string(root.join("_types/note.md")).unwrap();
+    assert!(document.contains("# Keep this comment and the existing layout."));
+    assert!(document
+        .ends_with("---\nThis body is documentation and must remain byte-for-byte intact.\n"));
+    assert!(document.contains("contract: example.work-item"));
+    assert!(document.contains("title: heading"));
+    assert_eq!(contracts.len(), 1);
+    assert_eq!(contracts[0].implementations.len(), 1);
+    assert_eq!(contracts[0].implementations[0].type_name, "note");
+    assert_eq!(contracts[0].implementations[0].type_version, 3);
+}
+
+#[test]
+fn stale_existing_type_setup_leaves_contract_and_type_unchanged() {
+    let state = tempdir().unwrap();
+    let parent = tempdir().unwrap();
+    let root = parent.path().join("notes");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Notes")).unwrap();
+    let original = r#"---
+kind: mdbase.type
+name: note
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    properties:
+      heading: { type: string }
+---
+"#;
+    fs::create_dir_all(root.join("_types")).unwrap();
+    fs::write(root.join("_types/note.md"), original).unwrap();
+    let (requirements, provision) = work_item_provision();
+    let setup = ContractSetupChoice {
+        contract: requirements.contracts[0].clone(),
+        mode: ContractSetupMode::Existing {
+            type_name: "note".to_string(),
+            type_revision: format!("sha256:{}", "0".repeat(64)),
+            fields: [("title".to_string(), "heading".to_string())]
+                .into_iter()
+                .collect(),
+            binding: None,
+        },
+    };
+
+    let error = registry
+        .provision_type_packs(collection.id, &requirements, &[provision], &[setup])
+        .unwrap_err();
+
+    assert_eq!(error.code(), "access_denied");
+    assert!(error.to_string().contains("changed after it was reviewed"));
+    assert_eq!(
+        fs::read_to_string(root.join("_types/note.md")).unwrap(),
+        original
+    );
+    assert!(!root.join("_contracts/example.work-item.md").exists());
+    assert!(!root.join("_types/work_item.md").exists());
 }
 
 #[test]

@@ -1,6 +1,17 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 
+type ContractSetupChoice =
+  | { contract: { id: string; version: string }; mode: "starter" }
+  | {
+      contract: { id: string; version: string };
+      mode: "existing";
+      type_name: string;
+      type_revision: string;
+      fields: Record<string, string>;
+      binding?: Record<string, unknown>;
+    };
+
 contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
@@ -49,7 +60,12 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   updateGrant: (input: { grantId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:update", input),
   revokeGrant: (grantId: string) => ipcRenderer.invoke("connect:grants:revoke", grantId),
-  approveAuthorization: (input: { requestId: string; collectionId: string; operations: string[] }) =>
+  approveAuthorization: (input: {
+    requestId: string;
+    collectionId: string;
+    operations: string[];
+    contractSetups?: ContractSetupChoice[];
+  }) =>
     ipcRenderer.invoke("connect:authorizations:approve", input),
   denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
   listActivity: (limit = 100) => ipcRenderer.invoke("connect:activity:list", limit),
@@ -63,6 +79,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     requestId: string;
     collectionId: string;
     operations: string[];
+    contractSetups?: ContractSetupChoice[];
   }) => ipcRenderer.invoke("connect:hosted:authorization-approve", input),
   updateHostedGrant: (input: { grantId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:hosted:grant-update", input),

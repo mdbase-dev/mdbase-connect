@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
+  CollectionTypeDescriptor,
   GrantScope
 } from "@mdbase/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -107,6 +108,7 @@ export async function hostedControlSnapshot(
     display_name: string;
     template: HostedTemplate;
     contracts: CollectionContractDescriptor[];
+    types: CollectionTypeDescriptor[];
     provider_url: string | null;
     authority_state: "active" | "transferring" | "transferred";
     authority_epoch: string | number;
@@ -119,6 +121,13 @@ export async function hostedControlSnapshot(
       display_name: collection.locator.displayName,
       template: collection.template,
       contracts: collection.contracts,
+      types: options.hostedProvider
+        && collection.locator.authorityState === "active"
+        ? await hostedTypeCandidates(
+            options.hostedProvider,
+            collection.locator.collectionId
+          )
+        : [],
       provider_url: collection.locator.providerUrl ?? null,
       authority_state: collection.locator.authorityState as
         | "active"
@@ -239,6 +248,17 @@ export async function hostedControlSnapshot(
       provisionable_collection_ids: []
     }))
   };
+}
+
+async function hostedTypeCandidates(
+  provider: HostedProviderClient,
+  collectionId: string
+): Promise<CollectionTypeDescriptor[]> {
+  try {
+    return await provider.collectionTypeCandidates(collectionId);
+  } catch {
+    return [];
+  }
 }
 
 export async function createHostedCollectionForUser(

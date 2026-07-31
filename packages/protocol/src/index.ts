@@ -4,10 +4,15 @@ export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
-export const RELAY_CAPABILITIES = [
+export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
+export const RELAY_REQUIRED_CAPABILITIES = [
   "authorization-activation",
   "encrypted-relay",
   "policy-ack"
+] as const;
+export const RELAY_CAPABILITIES = [
+  ...RELAY_REQUIRED_CAPABILITIES,
+  CONTRACT_SETUP_CAPABILITY
 ] as const;
 export const AUTHORITY_PROOF_VERSION = 1 as const;
 export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;
@@ -239,6 +244,7 @@ export interface TypePackProvision {
 
 export interface TypePackResourceDiff {
   target: string;
+  kind: "contract" | "type" | "schema";
   action: "create" | "replace" | "unchanged";
   digest: string;
 }
@@ -253,6 +259,21 @@ export interface TypePackInstallResult {
 export interface ApplicationProvisions {
   type_packs: TypePackProvision[];
 }
+
+export type ContractSetupChoice =
+  | {
+      contract: ContractRequirement;
+      mode: "starter";
+    }
+  | {
+      contract: ContractRequirement;
+      mode: "existing";
+      type_name: string;
+      /** Exact type source revision shown during approval. */
+      type_revision: string;
+      fields: Record<string, string>;
+      binding?: JsonObject;
+    };
 
 export interface GrantScope {
   /**
@@ -553,6 +574,8 @@ export interface AuthorizationCollectionOffer {
   display_name: string;
   spec_version: string;
   contracts: CollectionContractDescriptor[];
+  /** Minimal schema metadata; type source and collection paths never leave the authority. */
+  types: CollectionTypeDescriptor[];
 }
 
 export interface AuthorizationOfferResponse {
@@ -569,6 +592,8 @@ export interface AuthorizationActivationResponse {
   request_id: string;
   ok: boolean;
   contracts: CollectionContractDescriptor[];
+  /** Exact setup plan applied by the authority. */
+  contract_setups: ContractSetupChoice[];
   error?: {
     code: string;
     message: string;
@@ -769,6 +794,8 @@ export interface CollectionTypeDescriptor {
   name: string;
   version?: number;
   description?: string;
+  /** Digest of the exact type source used as a setup precondition. */
+  revision?: string;
   /** Collection-relative source path. */
   path?: string;
   /** Complete portable type frontmatter, including extension declarations. */

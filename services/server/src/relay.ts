@@ -4,6 +4,7 @@ import type {
   ApplicationRequirements,
   AuthorizationActivationResponse,
   AuthorizationOfferResponse,
+  ContractSetupChoice,
   EncryptedRelayEnvelope,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
@@ -12,7 +13,9 @@ import type {
 } from "@mdbase/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
-  RELAY_CAPABILITIES
+  CONTRACT_SETUP_CAPABILITY,
+  RELAY_CAPABILITIES,
+  RELAY_REQUIRED_CAPABILITIES
 } from "@mdbase/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
@@ -53,6 +56,7 @@ interface ConnectorSession {
   generation: string;
   socket: WebSocket;
   binding: RelayBrokerBinding;
+  capabilities: string[];
 }
 
 interface RelayHello {
@@ -82,7 +86,7 @@ export class RelayHub {
     const hello = await handshake;
     if (!hello
         || hello.protocol_version !== CONTROL_PROTOCOL_VERSION
-        || !RELAY_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
+        || !RELAY_REQUIRED_CAPABILITIES.every((capability) => hello.capabilities.includes(capability))) {
       rejectIncompatibleRelay(socket);
       return;
     }
@@ -116,7 +120,7 @@ export class RelayHub {
       socket.close(4001, "Replaced by a newer connector session");
       return;
     }
-    session = { generation, socket, binding };
+    session = { generation, socket, binding, capabilities: [...hello.capabilities] };
 
     const previous = this.connectors.get(connectorId);
     this.connectors.set(connectorId, session);
@@ -420,7 +424,9 @@ export class RelayHub {
 
   async authorizationOffers(
     connectorId: string,
-    authorizationId: string
+    authorizationId: string,
+    requirements: ApplicationRequirements,
+    provisions: ApplicationProvisions
   ): Promise<AuthorizationOfferResponse> {
     const generation = await this.requireCurrentGeneration(connectorId);
     const requestId = randomUUID();
@@ -428,7 +434,9 @@ export class RelayHub {
       type: "authorization_offer_request",
       protocol_version: CONTROL_PROTOCOL_VERSION,
       request_id: requestId,
-      authorization_id: authorizationId
+      authorization_id: authorizationId,
+      requirements,
+      provisions
     }, BROKER_OFFER_TIMEOUT_MS);
     return response as AuthorizationOfferResponse;
   }
@@ -440,6 +448,7 @@ export class RelayHub {
       collectionId: string;
       requirements: ApplicationRequirements;
       provisions: ApplicationProvisions;
+      contractSetups: ContractSetupChoice[];
       grant: GrantPolicy;
     }
   ): Promise<AuthorizationActivationResponse> {
@@ -453,6 +462,7 @@ export class RelayHub {
       collection_id: input.collectionId,
       requirements: input.requirements,
       provisions: input.provisions,
+      contract_setups: input.contractSetups,
       grant: input.grant
     });
     return response as AuthorizationActivationResponse;
@@ -508,6 +518,14 @@ export class RelayHub {
         || session.socket.readyState !== 1
         || await this.currentGeneration(connectorId) !== generation) {
       return brokerError("unavailable", "connector_offline", "The computer hosting this collection is offline.");
+    }
+    if (isContractSetupCommand(command.message)
+        && !session.capabilities.includes(CONTRACT_SETUP_CAPABILITY)) {
+      return brokerError(
+        "connector",
+        "connector_upgrade_required",
+        "Update mdbase connect on the collection computer before approving contract setup."
+      );
     }
     if (command.kind === "policy") {
       const requestId = requestIdFromMessage(command.message);
@@ -647,6 +665,14 @@ function requestIdFromMessage(message: unknown): string | null {
   if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
   const requestId = (message as { request_id?: unknown }).request_id;
   return typeof requestId === "string" && requestId.length > 0 ? requestId : null;
+}
+
+function isContractSetupCommand(message: unknown): boolean {
+  if (typeof message !== "object" || message === null || Array.isArray(message)) return false;
+  const candidate = message as { type?: unknown; contract_setups?: unknown };
+  return candidate.type === "authorization_activation_request"
+    && Array.isArray(candidate.contract_setups)
+    && candidate.contract_setups.length > 0;
 }
 
 function policyRevisionFromMessage(message: unknown): string | null {

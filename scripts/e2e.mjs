@@ -375,6 +375,243 @@ secret: connector scope test
   }
   await cliJson(["access", "revoke", portalToken.body.grant_id]);
 
+  const setupContractDocument = `---
+kind: mdbase.contract
+contract_type: record
+id: planning.item
+version: 1.0.0
+name: Planning item
+description: A titled item with a workflow state.
+record_schema:
+  dialect: json-schema-2020-12
+  value:
+    title: Planning item
+    type: object
+    required: [title, status]
+    additionalProperties: false
+    properties:
+      title:
+        title: Title
+        description: The name people use for this item.
+        type: string
+      status:
+        title: Workflow state
+        description: Where this item is in the workflow.
+        enum: [open, done]
+---
+`;
+  const setupStarterDocument = `---
+kind: mdbase.type
+name: planning_item
+version: 1
+schema:
+  dialect: json-schema-2020-12
+  value:
+    type: object
+    required: [title, status]
+    additionalProperties: true
+    properties:
+      title: { type: string }
+      status: { enum: [open, done] }
+implements:
+  - contract: planning.item
+    version: 1.0.0
+    fields:
+      title: title
+      status: status
+---
+`;
+  const setupResources = [
+    {
+      kind: "contract",
+      source: "planning.contract.md",
+      target: "_contracts/planning.item.md",
+      document: setupContractDocument
+    },
+    {
+      kind: "type",
+      source: "planning.type.md",
+      target: "_types/planning_item.md",
+      document: setupStarterDocument
+    }
+  ];
+  const setupApplication = await request("/v1/apps/register", {
+    method: "POST",
+    body: {
+      manifest: {
+        manifest_version: 1,
+        id: "dev.mdbase.contract-setup-e2e",
+        name: "Planning E2E",
+        homepage: manifest.origin,
+        redirect_uris: [manifest.redirectUri],
+        requirements: {
+          access: "contract",
+          contracts: [{ id: "planning.item", version: "1.0.0" }]
+        },
+        provisions: {
+          type_packs: [{
+            manifest: {
+              kind: "mdbase.type-pack",
+              id: "dev.mdbase.planning",
+              version: "1.0.0",
+              name: "Planning",
+              resources: setupResources.map(({ document, ...resource }) => ({
+                ...resource,
+                digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+              }))
+            },
+            resources: setupResources.map(({ source, document }) => ({ source, document })),
+            provides: [{ id: "planning.item", version: "1.0.0" }]
+          }]
+        },
+        notifications: { criteria: [] }
+      }
+    }
+  });
+  const setupVerifier = "contract-setup-e2e-verifier-with-forty-three-characters";
+  const setupChallenge = createHash("sha256").update(setupVerifier).digest("base64url");
+  const setupAuthorize = await fetch(
+    `${serverUrl}/oauth/authorize?client_id=${setupApplication.body.application.id}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${setupChallenge}&code_challenge_method=S256&state=setup-e2e&operations=describe,query`,
+    { headers: { cookie }, redirect: "manual" }
+  );
+  const setupAuthorizationId = setupAuthorize.headers.get("location")?.split("/").at(-1);
+  if (setupAuthorize.status !== 302 || !setupAuthorizationId) {
+    throw new Error(`Contract-setup authorization did not start: HTTP ${setupAuthorize.status}`);
+  }
+  const setupRequest = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${setupAuthorizationId}`,
+      { cookie }
+    );
+    return current.body.collections?.some((candidate) => candidate.id === collection.id)
+      ? current
+      : null;
+  }, "contract-setup collection offer did not reach the portal");
+  const setupOffer = setupRequest.body.collections.find(
+    (candidate) => candidate.id === collection.id
+  );
+  const workoutCandidate = setupOffer?.types?.find((candidate) => candidate.name === "workout");
+  if (!setupOffer?.offer_id
+      || !workoutCandidate?.revision
+      || workoutCandidate.path
+      || workoutCandidate.definition
+      || workoutCandidate.schema?.properties?.title?.type !== "string") {
+    throw new Error(
+      `The live setup offer was missing privacy-safe type metadata: ${JSON.stringify(setupOffer)}`
+    );
+  }
+  const setupBrowser = await chromium.launch({ headless: true });
+  try {
+    const setupContext = await setupBrowser.newContext();
+    const cookieSeparator = cookie.indexOf("=");
+    await setupContext.addCookies([{
+      name: cookie.slice(0, cookieSeparator),
+      value: cookie.slice(cookieSeparator + 1),
+      url: serverUrl
+    }]);
+    const setupPage = await setupContext.newPage();
+    await setupPage.goto(`${serverUrl}/authorize/${setupAuthorizationId}`);
+    await setupPage.locator(
+      `.collection-choice-list input[value="${collection.id}"]`
+    ).click();
+    const editor = setupPage.locator(".contract-setup-editor");
+    await editor.getByText("Help Planning E2E understand planning item").waitFor();
+    const setupOptions = await editor.locator(".contract-setup-mode > label").allTextContents();
+    if (!setupOptions[0]?.includes("Add Planning E2E’s starter type")) {
+      throw new Error(`The default starter setup was not presented first: ${setupOptions}`);
+    }
+    if (!await editor.getByLabel("Add Planning E2E’s starter type").isChecked()) {
+      throw new Error("The approval UI did not default to the application-provided starter type.");
+    }
+    await editor.getByLabel("Use an existing type").check();
+    const mappings = await editor.locator(".contract-field-list select").evaluateAll(
+      (selects) => selects.map((select) => select.value)
+    );
+    if (mappings.join(",") !== "title,status") {
+      throw new Error(`The approval UI did not suggest exact field mappings: ${mappings}`);
+    }
+    await setupPage.getByRole("button", {
+      name: "Set up and allow Planning E2E"
+    }).waitFor();
+    await setupContext.close();
+  } finally {
+    await setupBrowser.close();
+  }
+  await request(`/v1/authorization-requests/${setupAuthorizationId}/approve`, {
+    method: "POST",
+    cookie,
+    body: {
+      collection_id: setupOffer.id,
+      offer_id: setupOffer.offer_id,
+      operations: ["describe", "query"],
+      contract_setups: [{
+        contract: { id: "planning.item", version: "1.0.0" },
+        mode: "existing",
+        type_name: "workout",
+        type_revision: workoutCandidate.revision,
+        fields: { title: "title", status: "status" }
+      }]
+    }
+  });
+  const setupCompleted = await poll(async () => {
+    const current = await request(
+      `/v1/authorization-requests/${setupAuthorizationId}/status`,
+      { cookie }
+    );
+    return current.body.redirect_uri ? current : null;
+  }, "contract setup did not activate its grant");
+  const setupCallback = new URL(setupCompleted.body.redirect_uri);
+  const setupToken = await request("/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: setupCallback.searchParams.get("code"),
+      client_id: setupApplication.body.application.id,
+      redirect_uri: manifest.redirectUri,
+      code_verifier: setupVerifier
+    }
+  });
+  const updatedWorkoutType = await readFile(
+    join(collectionPath, "_types", "workout.md"),
+    "utf8"
+  );
+  if (!updatedWorkoutType.includes("contract: planning.item")
+      || !updatedWorkoutType.includes("contract: workout.record")
+      || await fileExists(join(collectionPath, "_types", "planning_item.md"))
+      || !await fileExists(join(collectionPath, "_contracts", "planning.item.md"))
+      || setupToken.body.scope?.contracts?.[0]?.id !== "planning.item"
+      || setupToken.body.scope?.contracts?.[0]?.implementations?.[0]?.type_name !== "workout") {
+    throw new Error(`Existing-type setup did not produce the exact active scope: ${JSON.stringify({
+      scope: setupToken.body.scope,
+      updatedWorkoutType
+    })}`);
+  }
+  const setupQuery = await fetch(
+    `${serverUrl}/v1/authorities/${collection.id}/operations/query`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${setupToken.body.access_token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        protocol_version: 1,
+        request_id: crypto.randomUUID(),
+        input: { limit: 1 }
+      })
+    }
+  );
+  const setupQueryBody = await setupQuery.json();
+  const setupResult = setupQueryBody.result?.result?.results?.[0];
+  if (setupQuery.status !== 200
+      || setupResult?.contract?.id !== "planning.item"
+      || setupResult?.frontmatter?.title === undefined) {
+    throw new Error(
+      `The activated mapped contract could not query existing records: ${JSON.stringify(setupQueryBody)}`
+    );
+  }
+  await cliJson(["access", "revoke", setupToken.body.grant_id]);
+
   relayContext = {
     store: applicationKeyStore,
     handle: "e2e-grant",
@@ -1002,6 +1239,16 @@ function sameEnvelope(left, right) {
   const keys = Object.keys(left ?? {});
   return keys.length === Object.keys(right ?? {}).length
     && keys.every((key) => left[key] === right[key]);
+}
+
+async function fileExists(path) {
+  try {
+    await readFile(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 async function poll(action, failureMessage) {

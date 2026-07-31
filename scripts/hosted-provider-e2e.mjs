@@ -3317,8 +3317,13 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
     });
     await expect(collection).toBeVisible();
     await expect(collection).toBeChecked();
-    await expect(page.getByText("allowing access will add Workout")).toBeVisible();
-    await page.getByRole("button", { name: "Allow Workout Inline E2E" }).click();
+    await expect(page.getByText(
+      "Setup is required before access can become active. Add Workout’s starter type."
+    )).toBeVisible();
+    await expect(page.getByRole("radio", {
+      name: /Add Workout Inline E2E’s starter type/
+    })).toBeChecked();
+    await page.getByRole("button", { name: "Set up and allow Workout Inline E2E" }).click();
     await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
     return page.url();
   } finally {

@@ -11,9 +11,9 @@ use mdbase_connect_protocol::crypto::{
 };
 use mdbase_connect_protocol::{
     AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
-    AuthorizationCollectionOffer, ControlCommand, ControlError, ControlRequest, ControlResponse,
-    RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION,
-    LOCAL_CONTROL_PROTOCOL_VERSION,
+    AuthorizationCollectionOffer, AuthorizationCollectionTypes, ContractSetupChoice,
+    ControlCommand, ControlError, ControlRequest, ControlResponse, RelayMessage, SyncReplicaMode,
+    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -170,6 +170,18 @@ fn requirements_can_be_provisioned(
                 .iter()
                 .any(|provision| provision.provides.contains(required))
     })
+}
+
+fn approval_type_candidate(
+    mut descriptor: mdbase_connect_protocol::CollectionTypeDescriptor,
+) -> Option<mdbase_connect_protocol::CollectionTypeDescriptor> {
+    descriptor.revision.as_ref()?;
+    descriptor.path = None;
+    descriptor.definition = None;
+    descriptor.collection = None;
+    descriptor.lifecycle = None;
+    descriptor.extensions.clear();
+    Some(descriptor)
 }
 
 fn validated_hosted_name(value: &str) -> Result<String, ConnectError> {

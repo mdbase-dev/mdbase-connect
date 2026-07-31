@@ -414,7 +414,17 @@ test("relay request and response discriminators reject malformed wire messages",
       collection_id: request.collection_id,
       display_name: "Tasks",
       spec_version: "0.3.0",
-      contracts: []
+      contracts: [],
+      types: [{
+        name: "task",
+        version: 1,
+        revision: `sha256:${"1".repeat(64)}`,
+        schema: {
+          type: "object",
+          properties: { title: { type: "string" } }
+        },
+        extensions: {}
+      }]
     }]
   };
   assert.equal(validate(offer), true, JSON.stringify(validate.errors));
@@ -422,13 +432,21 @@ test("relay request and response discriminators reject malformed wire messages",
     ...offer,
     collections: [{ ...offer.collections[0], path: "/private/vault" }]
   }), false);
+  assert.equal(validate({
+    ...offer,
+    collections: [{
+      ...offer.collections[0],
+      types: [{ ...offer.collections[0].types[0], path: "/private/vault" }]
+    }]
+  }), false);
 
   const activation = {
     type: "authorization_activation_response",
     protocol_version: 1,
     request_id: request.request_id,
     ok: true,
-    contracts: []
+    contracts: [],
+    contract_setups: []
   };
   assert.equal(validate(activation), true, JSON.stringify(validate.errors));
   assert.equal(validate({
@@ -452,6 +470,21 @@ test("relay request and response discriminators reject malformed wire messages",
     revision: policy.revision,
     ok: true
   }), true, JSON.stringify(validate.errors));
+});
+
+test("contract setup choices explicitly distinguish starter and existing modes", () => {
+  const validate = validator(`${schema.$id}#/$defs/contractSetupChoice`);
+  const contract = { id: "example.task", version: "1.0.0" };
+  assert.equal(validate({ contract, mode: "starter" }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    contract,
+    mode: "existing",
+    type_name: "task",
+    type_revision: `sha256:${"1".repeat(64)}`,
+    fields: { title: "title" }
+  }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ contract, mode: "existing" }), false);
+  assert.equal(validate({ contract, mode: "starter", type_name: "task" }), false);
 });
 
 test("collection descriptions and operation envelopes have addressable schemas", () => {

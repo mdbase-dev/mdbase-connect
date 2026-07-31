@@ -9,9 +9,10 @@ export interface AuthorizationCollection {
   contracts: ContractRequirement[];
   kind: "local" | "hosted";
   provisionable: boolean;
+  types: CollectionTypeDescriptor[];
 }
 
-export const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
+export const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "install_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
 
 export function neededProvisions(
   requirements: ApplicationRequirements,
@@ -30,7 +31,8 @@ const MDBASE_03_OPERATIONS = new Set([
   "execute_view",
   "read_type",
   "create_type",
-  "update_type"
+  "update_type",
+  "install_type_pack"
 ]);
 
 export function hostedCollectionCompatible(
@@ -204,5 +206,4 @@ export function relativeTime(value: string) {
   if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
   return formatter.format(Math.round(hours / 24), "day");
 }
-
 

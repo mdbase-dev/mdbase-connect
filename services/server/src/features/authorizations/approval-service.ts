@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionOperation,
+  ContractRequirement,
+  ContractSetupChoice,
   GrantEncryption,
   GrantPolicy,
   GrantScope
@@ -52,6 +55,7 @@ export async function approvePortalAuthorization(
     offerId: string;
     collectionId: string;
     operations: CollectionOperation[];
+    contractSetups: ContractSetupChoice[];
   }
 ): Promise<boolean> {
   const connection = await db.connect();
@@ -191,6 +195,14 @@ export async function approvePortalAuthorization(
       ),
       "application.authorize"
     );
+    if (input.contractSetups.length > 0) {
+      requireCollectionAction(grantAccess, "schema.manage");
+    }
+    validateContractSetupChoices(
+      input.contractSetups,
+      requiredContractsForRequirements(pending.requirements),
+      selected.contracts
+    );
     const plan = planCollectionGrant({
       requestedOperations: input.operations,
       applicationOperationCeiling:
@@ -289,8 +301,14 @@ export async function approvePortalAuthorization(
       collectionId: localCollectionId,
       requirements: requirements!,
       provisions: provisions!,
+      contractSetups: input.contractSetups,
       grant: grant!
     });
+    verifyContractSetupAcknowledgement(
+      input.contractSetups,
+      activation.contract_setups,
+      activation.contracts
+    );
   } catch (error) {
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
     await relay.pushPolicy(connectorId);
@@ -381,6 +399,73 @@ async function abandonPendingAuthorizationGrant(
     throw error;
   } finally {
     connection.release();
+  }
+}
+
+function verifyContractSetupAcknowledgement(
+  requested: ContractSetupChoice[],
+  acknowledged: ContractSetupChoice[] | undefined,
+  contracts: CollectionContractDescriptor[]
+): void {
+  if (requested.length === 0) return;
+  if (!acknowledged || !isDeepStrictEqual(acknowledged, requested)) {
+    throw new RequestValidationError(
+      "The collection authority did not acknowledge the exact contract setup that was approved."
+    );
+  }
+  for (const setup of requested) {
+    const contract = contracts.find((candidate) =>
+      candidate.id === setup.contract.id
+      && candidate.version === setup.contract.version
+    );
+    if (!contract) {
+      throw new RequestValidationError(
+        `Contract setup did not provide ${setup.contract.id} ${setup.contract.version}.`
+      );
+    }
+    if (setup.mode === "starter") continue;
+    const implementation = contract.implementations.find((candidate) =>
+      candidate.type_name === setup.type_name
+      && isDeepStrictEqual(candidate.fields, setup.fields)
+      && isDeepStrictEqual(candidate.binding, setup.binding)
+    );
+    if (!implementation) {
+      throw new RequestValidationError(
+        `Contract setup did not apply the approved mapping to type '${setup.type_name}'.`
+      );
+    }
+  }
+}
+
+function validateContractSetupChoices(
+  setups: ContractSetupChoice[],
+  required: ContractRequirement[],
+  available: CollectionContractDescriptor[]
+): void {
+  const keys = new Set(setups.map(
+    (setup) => `${setup.contract.id}@${setup.contract.version}`
+  ));
+  if (
+    keys.size !== setups.length
+    || setups.some((setup) => !required.some((contract) =>
+      contract.id === setup.contract.id && contract.version === setup.contract.version
+    ))
+  ) {
+    throw new RequestValidationError(
+      "Contract setup may configure each contract required by this application only once."
+    );
+  }
+  if (setups.length === 0) return;
+  const missing = required.filter((contract) => !available.some((candidate) =>
+    candidate.id === contract.id && candidate.version === contract.version
+  ));
+  if (
+    keys.size !== missing.length
+    || missing.some((contract) => !keys.has(`${contract.id}@${contract.version}`))
+  ) {
+    throw new RequestValidationError(
+      "Choose starter or existing-type setup for each missing contract only."
+    );
   }
 }
 
@@ -564,6 +649,7 @@ export async function approveHostedAuthorization(
     collectionId: string;
     operations: CollectionOperation[];
     contracts: CollectionContractDescriptor[];
+    contractSetups: ContractSetupChoice[];
     access: CollectionAccessContext;
   }
 ): Promise<boolean> {
@@ -641,6 +727,11 @@ export async function approveHostedAuthorization(
     }
     const requiredContracts = requiredContractsForRequirements(pending.requirements);
     let availableDescriptors = input.contracts;
+    validateContractSetupChoices(
+      input.contractSetups,
+      requiredContracts,
+      availableDescriptors
+    );
     let availableContracts = contractRequirements(availableDescriptors);
     const provisions = requiredTypePackProvisions(
       pending.requirements,
@@ -654,14 +745,30 @@ export async function approveHostedAuthorization(
     }
     if (provisions.length > 0) {
       requireCollectionAction(input.access, "schema.manage");
-      availableDescriptors = await provider.provisionTypePacks(
-        input.collectionId,
-        provisions
-      );
+      const setupResult = input.contractSetups.length
+        ? await provider.provisionTypePacks(
+            input.collectionId,
+            provisions,
+            input.contractSetups
+          )
+        : await provider.provisionTypePacks(input.collectionId, provisions);
+      if (input.contractSetups.length > 0) {
+        verifyContractSetupAcknowledgement(
+          input.contractSetups,
+          setupResult.contractSetups,
+          setupResult.contracts
+        );
+      }
+      availableDescriptors = setupResult.contracts;
       availableContracts = contractRequirements(availableDescriptors);
       await connection.query(
         "UPDATE hosted_collections SET contracts = $2::jsonb WHERE id = $1",
         [input.collectionId, JSON.stringify(availableDescriptors)]
+      );
+    }
+    if (provisions.length === 0 && input.contractSetups.length > 0) {
+      throw new RequestValidationError(
+        "Contract setup may only implement a missing contract installed by this application."
       );
     }
     if (!contractsSatisfy(availableContracts, requiredContracts)) {

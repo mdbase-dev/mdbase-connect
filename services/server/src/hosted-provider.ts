@@ -1,5 +1,7 @@
 import type {
   CollectionContractDescriptor,
+  CollectionTypeDescriptor,
+  ContractSetupChoice,
   GrantPolicy,
   TypePackProvision
 } from "@mdbase/connect-protocol";
@@ -45,6 +47,11 @@ export interface HostedAuthorityTransfer {
   manifest_digest: string;
   state: "prepared" | "completed" | "aborted";
   expires_at: string;
+}
+
+export interface HostedContractSetupResult {
+  contracts: CollectionContractDescriptor[];
+  contractSetups: ContractSetupChoice[];
 }
 
 export interface AuthorityImport {
@@ -100,14 +107,37 @@ export class HostedProviderClient {
 
   async provisionTypePacks(
     collectionId: string,
-    provisions: TypePackProvision[]
-  ): Promise<CollectionContractDescriptor[]> {
+    provisions: TypePackProvision[],
+    contractSetups: ContractSetupChoice[] = []
+  ): Promise<HostedContractSetupResult> {
+    const setupRequest = contractSetups.length > 0;
     const result = await this.request(
       "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/type-packs/provision`,
-      { type_packs: provisions }
-    ) as { contracts?: CollectionContractDescriptor[] } | undefined;
-    return result?.contracts ?? [];
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/${setupRequest
+        ? "contract-setup"
+        : "type-packs/provision"}`,
+      {
+        type_packs: provisions,
+        ...(setupRequest
+          ? { contract_setups: contractSetups }
+          : {})
+      }
+    ) as {
+      contracts?: CollectionContractDescriptor[];
+      contract_setups?: ContractSetupChoice[];
+    } | undefined;
+    return {
+      contracts: result?.contracts ?? [],
+      contractSetups: result?.contract_setups ?? []
+    };
+  }
+
+  async collectionTypeCandidates(collectionId: string): Promise<CollectionTypeDescriptor[]> {
+    const result = await this.request(
+      "GET",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/types`
+    ) as { types?: CollectionTypeDescriptor[] } | undefined;
+    return result?.types ?? [];
   }
 
   async registerReplica(collectionId: string, replica: HostedReplicaEnrollment): Promise<void> {

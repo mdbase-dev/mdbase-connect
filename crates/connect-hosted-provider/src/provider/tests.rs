@@ -7,6 +7,20 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 }
 
 #[test]
+fn contract_setup_targets_missing_contracts_only() {
+    let missing = BTreeSet::from([("example.missing".to_string(), "1.0.0".to_string())]);
+    let requested = BTreeSet::from([
+        ("example.present".to_string(), "1.0.0".to_string()),
+        ("example.missing".to_string(), "1.0.0".to_string()),
+    ]);
+
+    let error = validate_contract_setup_targets(&requested, &missing).unwrap_err();
+
+    assert_eq!(error.code, "invalid_contract_setup");
+    assert!(error.message.contains("missing contracts"));
+}
+
+#[test]
 fn authority_manifest_matches_the_node_promotion_fixture() {
     let entries = BTreeMap::from([
         (
@@ -170,6 +184,7 @@ fn scopes_resources_and_records_consistently() {
             name: "task".to_string(),
             version: Some(1),
             description: Some("A generic work item.".to_string()),
+            revision: Some(format!("sha256:{}", "2".repeat(64))),
             path: Some("_types/task.md".to_string()),
             definition: None,
             schema: json!({ "type": "object" }),

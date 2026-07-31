@@ -182,6 +182,31 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .request-section > div:first-child > strong { font-size: var(--type-body); }
 .request-section > div:first-child > small, .request-section-content > small, .request-permission-review summary small, .notification-request summary small { color: var(--muted); font-size: var(--type-supporting); line-height: 1.45; }
 .request-section-content { display: grid; gap: 7px; min-width: 0; }
+.contract-setup-list { display: grid; gap: 16px; }
+.contract-setup-editor { min-width: 0; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.contract-setup-editor:last-child { padding-bottom: 0; border-bottom: 0; }
+.contract-setup-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.contract-setup-heading > div, .contract-setup-mode span { display: grid; gap: 3px; }
+.contract-setup-heading strong { font-size: var(--type-body); }
+.contract-setup-heading small, .contract-setup-mode small, .contract-field-list label > span small, .contract-binding label > small, .contract-mapping > small { color: var(--muted); font-size: var(--type-action); line-height: 1.4; }
+.contract-setup-heading code { color: var(--muted); font-size: var(--type-metadata); white-space: nowrap; }
+.contract-setup-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.contract-setup-mode > label { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: flex-start; gap: 7px; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+.contract-setup-mode > label.selected { border-color: var(--ink); background: var(--hover); }
+.contract-setup-mode input { width: 13px; min-height: 13px; flex: 0 0 auto; margin: 2px 0 0; padding: 0; accent-color: var(--ink); }
+.contract-setup-mode strong { font-size: var(--type-supporting); }
+.contract-mapping { display: grid; gap: 11px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line); }
+.contract-type-choice, .contract-field-list > label, .contract-binding > label { display: grid; gap: 4px; }
+.contract-field-list { display: grid; gap: 10px; }
+.contract-field-list > label { grid-template-columns: minmax(115px, 0.8fr) minmax(140px, 1fr); align-items: center; column-gap: 10px; }
+.contract-field-list label > span { display: grid; gap: 2px; }
+.contract-field-list label > span strong { font-size: var(--type-supporting); }
+.mapping-assessment { grid-column: 2; color: var(--muted); font-size: var(--type-metadata); line-height: 1.35; }
+.mapping-assessment.error { color: var(--danger); }
+.mapping-assessment.warning { color: var(--warning); }
+.contract-binding { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 9px; padding-top: 11px; border-top: 1px solid var(--line); }
+.contract-binding legend { grid-column: 1 / -1; color: var(--ink); font-size: var(--type-supporting); font-weight: 700; }
+.contract-binding input[type="checkbox"] { width: 14px; min-height: 14px; padding: 0; accent-color: var(--ink); }
 .request-collection-action { display: flex; justify-content: flex-start; }
 .request-collection-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
 .request-collection-create > label { grid-column: 1; grid-row: 1; display: grid; gap: 5px; min-width: 0; }
@@ -288,6 +313,10 @@ fieldset legend { margin-bottom: 6px; }
   .request-collection-create > div { justify-content: flex-end; }
   .request-panel, .grant-review { gap: 16px; }
   .request-section { gap: 8px; }
+  .contract-setup-mode { grid-template-columns: 1fr; }
+  .contract-setup-heading { display: grid; }
+  .contract-field-list > label { grid-template-columns: 1fr; }
+  .mapping-assessment { grid-column: 1; }
   .collection-editor-section { gap: 10px; }
   .collection-fields { grid-template-columns: 1fr; }
   .hosted-editor .collection-fields, .mirror-setup { grid-template-columns: 1fr; }

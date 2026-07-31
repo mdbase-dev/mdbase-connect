@@ -142,7 +142,27 @@ export interface AvailableCollection {
   display_name: string;
   spec_version: string;
   contracts: CollectionContractDescriptor[];
+  types?: CollectionTypeDescriptor[];
 }
+
+export interface CollectionTypeDescriptor {
+  name: string;
+  version?: number;
+  description?: string;
+  revision?: string;
+  schema: Record<string, unknown>;
+}
+
+export type ContractSetupChoice =
+  | { contract: ContractRequirement; mode: "starter" }
+  | {
+      contract: ContractRequirement;
+      mode: "existing";
+      type_name: string;
+      type_revision: string;
+      fields: Record<string, string>;
+      binding?: Record<string, unknown>;
+    };
 
 export interface UnavailableConnector {
   connector_id: string;

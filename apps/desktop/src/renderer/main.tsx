@@ -8,12 +8,25 @@ import {
   groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
+import {
+  assessMapping,
+  contractFields,
+  provisionedContract,
+  typeFields,
+  type SetupType
+} from "@mdbase/connect-ui/contract-setup";
 import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
 import { presentConnection } from "./connection-state.mjs";
+import { NotificationAccess, RequestPermissionChoices } from "./authorization-components";
+import {
+  ContractSetupEditor,
+  initialContractSetupChoice,
+  type ContractSetupChoice
+} from "./contract-setup-editor";
 import {
   Brand,
   Empty,
@@ -497,7 +510,9 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
       .map((collection) => ({
         ...collection,
         kind: "local" as const,
-        provisionable: request.provisionable_collection_ids.includes(collection.id)
+        provisionable: request.provisionable_collection_ids.includes(collection.id),
+        types: (request.collection_types ?? [])
+          .find((candidate) => candidate.collection_id === collection.id)?.types ?? []
       })),
     ...authorizationHostedCollections
       .filter((collection) =>
@@ -510,6 +525,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
         spec_version: collection.spec_version,
         contracts: collection.contracts,
         kind: "hosted" as const,
+        types: collection.types ?? [],
         provisionable: request.requirements.contracts.some(
           (requirement) => !hasContract(collection.contracts, requirement)
         )
@@ -518,6 +534,7 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
     collections,
     authorizationHostedCollections,
     request.compatible_collection_ids,
+    request.collection_types,
     request.provisionable_collection_ids,
     request.requirements,
     request.provisions,
@@ -535,6 +552,20 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
   const setup = selected?.provisionable
     ? neededProvisions(request.requirements, request.provisions, selected)
     : [];
+  const setupContracts = useMemo(() => selected
+    ? request.requirements.contracts.flatMap((required) => {
+        if (selected.contracts.some((contract) => hasContract([contract], required))) return [];
+        const contract = provisionedContract(required, request.provisions.type_packs);
+        return contract ? [contract] : [];
+      })
+    : [], [request.provisions.type_packs, request.requirements.contracts, selected]);
+  const setupTypes = useMemo<SetupType[]>(() => selected?.types ?? [], [selected]);
+  const setupIdentity = [
+    collectionId,
+    ...setupContracts.map((contract) => `${contract.id}@${contract.version}`),
+    ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
+  ].join("|");
+  const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
   const permissionGroups = useMemo(
     () => groupAuthorizationOperations(request.requested_operations),
     [request.requested_operations]
@@ -553,6 +584,52 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
       setCollectionId(selectable[0]?.id ?? "");
     }
   }, [collectionId, selectable]);
+  useEffect(() => {
+    setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
+      `${contract.id}@${contract.version}`,
+      initialContractSetupChoice(contract, setupTypes)
+    ])));
+  }, [setupIdentity]);
+  const setupReady = setupContracts.every((contract) => {
+    const choice = setupChoices[`${contract.id}@${contract.version}`];
+    if (!choice) return false;
+    if (choice.mode === "starter") return true;
+    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
+    if (!type?.revision) return false;
+    const availableFields = typeFields(type);
+    if (contractFields(contract).some((field) => {
+      const mapped = choice.fields[field.reference];
+      return assessMapping(
+        field,
+        availableFields.find((candidate) => candidate.reference === mapped)
+      ).level === "error";
+    })) return false;
+    const requiredBinding = Array.isArray(contract.binding_schema?.required)
+      ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
+      : [];
+    return requiredBinding.every((field) => {
+      const value = choice.binding[field];
+      return value !== undefined && value !== null && value !== "";
+    });
+  });
+  const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => {
+    const choice = setupChoices[`${contract.id}@${contract.version}`];
+    if (!choice) return [];
+    if (choice.mode === "starter") return [{
+      contract: { id: contract.id, version: contract.version },
+      mode: "starter" as const
+    }];
+    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
+    if (!type?.revision) return [];
+    return [{
+      contract: { id: contract.id, version: contract.version },
+      mode: "existing" as const,
+      type_name: type.name,
+      type_revision: type.revision,
+      fields: choice.fields,
+      ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {})
+    }];
+  });
   async function createHostedCollection(event: React.FormEvent) {
     event.preventDefault();
     const displayName = hostedName.trim();
@@ -615,9 +692,29 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
                 >Create hosted collection</button>
               </div>
             ))}
-            {setup.length > 0 && <small>Setup needed: allowing access will add {provisionNames(setup)} to this collection.</small>}
+            {setup.length > 0 && <small>{setupTypes.length > 0
+              ? `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type below, or use an existing type.`
+              : `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type.`}</small>}
           </div>
         </section>
+        {setupContracts.length > 0 && <section className="request-section contract-setup-section">
+          <div><strong>Choose type setup</strong><small>Add a starter type, or match meanings in one you already use. Nothing changes until you approve and the collection validates.</small></div>
+          <div className="request-section-content contract-setup-list">
+            {setupContracts.map((contract) => {
+              const key = `${contract.id}@${contract.version}`;
+              const choice = setupChoices[key];
+              return choice && <ContractSetupEditor
+                key={key}
+                applicationName={request.application_name}
+                contract={contract}
+                types={setupTypes}
+                value={choice}
+                disabled={busy}
+                onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))}
+              />;
+            })}
+          </div>
+        </section>}
         <section className="request-section">
           <div><strong>Permissions</strong><small>{permissionCount} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small></div>
           <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
@@ -629,74 +726,28 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
             : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
           <div className="decision-actions">
             <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
-            <button className="button primary" disabled={busy || !selected || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
+            <button className="button primary" disabled={busy || !selected || selectedPermissionCount === 0 || !setupReady} onClick={() => void onAct(async () => {
               if (selected?.kind === "hosted") {
-                await window.mdbaseConnect.approveHostedAuthorization({ requestId: request.id, collectionId, operations });
+                await window.mdbaseConnect.approveHostedAuthorization({
+                  requestId: request.id,
+                  collectionId,
+                  operations,
+                  contractSetups
+                });
               } else {
-                await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations });
+                await window.mdbaseConnect.approveAuthorization({
+                  requestId: request.id,
+                  collectionId,
+                  operations,
+                  contractSetups
+                });
               }
               onNotice(`${request.application_name} can now use the selected operations.`);
-            })}>Allow {request.application_name}</button>
+            })}>{setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
           </div>
         </footer>
       </div>
     </article>
-  );
-}
-
-function RequestPermissionChoices({
-  groups,
-  selected,
-  onChange
-}: {
-  groups: ReturnType<typeof groupAuthorizationOperations>;
-  selected: string[];
-  onChange(value: string[]): void;
-}) {
-  const selectedSet = new Set(selected);
-  const total = groups.reduce((count, group) => count + group.operations.length, 0);
-  const selectedTotal = groups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => selectedSet.has(operation.id)).length,
-    0
-  );
-  function toggle(operation: string, checked: boolean) {
-    onChange(checked
-      ? [...selected, operation]
-      : selected.filter((value) => value !== operation));
-  }
-  return (
-    <details className="request-permission-review">
-      <summary><span><strong>{selectedTotal} of {total} selected</strong><small>Review or narrow individual actions</small></span><b>Review</b></summary>
-      <div className="request-permission-groups">{groups.map((group) => (
-        <fieldset key={group.id}>
-          <legend>{group.label}</legend>
-          <p>{group.description}</p>
-          <div>{group.operations.map((operation) => (
-            <label key={operation.id}>
-              <input type="checkbox" checked={selectedSet.has(operation.id)} onChange={(event) => toggle(operation.id, event.target.checked)} />
-              <span>{operation.label}</span>
-            </label>
-          ))}</div>
-        </fieldset>
-      ))}</div>
-    </details>
-  );
-}
-
-function NotificationAccess({ notifications }: { notifications: ApplicationNotifications }) {
-  if (notifications.criteria.length === 0) return null;
-  return (
-    <details className="notification-request">
-      <summary><span><strong>Change notifications</strong><small>{notifications.criteria.length} optional {plural(notifications.criteria.length, "rule", "rules")}; pushes contain no record content.</small></span><b>Details</b></summary>
-      <ul>{notifications.criteria.map((criterion) => (
-        <li key={criterion.id}>
-          <span>{criterion.presentation.title}</span>
-          <code>{criterion.event.id} v{criterion.event.version}</code>
-        </li>
-      ))}</ul>
-      <p>If you enable these in the application, the rules run inside the collection.</p>
-    </details>
   );
 }
 

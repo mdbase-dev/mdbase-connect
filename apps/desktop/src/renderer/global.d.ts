@@ -37,6 +37,25 @@ interface CollectionContractDescriptor extends ContractRequirement {
   }>;
 }
 
+interface CollectionTypeDescriptor {
+  name: string;
+  version?: number;
+  description?: string;
+  revision?: string;
+  schema: Record<string, unknown>;
+}
+
+type ContractSetupRequestChoice =
+  | { contract: ContractRequirement; mode: "starter" }
+  | {
+      contract: ContractRequirement;
+      mode: "existing";
+      type_name: string;
+      type_revision: string;
+      fields: Record<string, string>;
+      binding?: Record<string, unknown>;
+    };
+
 interface ApplicationRequirements {
   contracts: ContractRequirement[];
   access?: "contract" | "full_collection";
@@ -162,6 +181,10 @@ interface PendingAuthorization {
   notifications: ApplicationNotifications;
   compatible_collection_ids: string[];
   provisionable_collection_ids: string[];
+  collection_types: Array<{
+    collection_id: string;
+    types: CollectionTypeDescriptor[];
+  }>;
   expires_at: string;
 }
 
@@ -196,6 +219,7 @@ interface HostedCollectionSummary {
   sync_url: string;
   spec_version: string;
   contracts: CollectionContractDescriptor[];
+  types?: CollectionTypeDescriptor[];
   authority_state: "active" | "transferring" | "transferred";
   authority_epoch: number;
   transferred_collection_id: string | null;
@@ -316,14 +340,24 @@ interface Window {
     createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
     revokeGrant(grantId: string): Promise<unknown>;
-    approveAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<unknown>;
+    approveAuthorization(input: {
+      requestId: string;
+      collectionId: string;
+      operations: string[];
+      contractSetups?: ContractSetupRequestChoice[];
+    }): Promise<unknown>;
     denyAuthorization(requestId: string): Promise<unknown>;
     listActivity(limit?: number): Promise<ActivityEntry[]>;
     hostedSnapshot(): Promise<HostedControlSnapshot>;
     createHostedCollection(name: string): Promise<{ collection: HostedCollectionSummary }>;
     renameHostedCollection(input: { collectionId: string; name: string }): Promise<{ collection: { id: string; display_name: string } }>;
     deleteHostedCollection(collectionId: string): Promise<{ ok: true }>;
-    approveHostedAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<{ ok: true }>;
+    approveHostedAuthorization(input: {
+      requestId: string;
+      collectionId: string;
+      operations: string[];
+      contractSetups?: ContractSetupRequestChoice[];
+    }): Promise<{ ok: true }>;
     updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
     revokeHostedGrant(grantId: string): Promise<unknown>;
     revokeHostedReplica(replicaId: string): Promise<{ ok: true }>;

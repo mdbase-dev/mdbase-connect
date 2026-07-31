@@ -4,9 +4,10 @@ use mdbase::{Collection, SpecProfile};
 use mdbase_connect_protocol::{
     ActivityEntry, ApplicationRequirements, AuthoritySnapshot, CollectionChange,
     CollectionChangesPage, CollectionContractDescriptor, CollectionDescription, CollectionSummary,
-    CollectionTypeDescriptor, ContractRequirement, EncryptedRelayEnvelope, GrantPolicy, GrantScope,
-    GrantSummary, SyncCollectionResources, SyncMutation, SyncMutationReceipt, SyncResourceDocument,
-    TypePackProvision, CONTROL_PROTOCOL_VERSION,
+    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
+    EncryptedRelayEnvelope, GrantPolicy, GrantScope, GrantSummary, SyncCollectionResources,
+    SyncMutation, SyncMutationReceipt, SyncResourceDocument, TypePackProvision,
+    CONTROL_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractScopeError};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};

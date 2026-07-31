@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test access.test.ts brand.test.ts theme.test.ts"
+    "test": "node --test access.test.ts brand.test.ts contract-setup.test.ts theme.test.ts"
   },
   "exports": {
     "./access": "./access.ts",
     "./brand": "./brand.ts",
+    "./contract-setup": "./contract-setup.ts",
     "./theme": "./theme.ts",
     "./styles.css": "./styles.css"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
   }
 }
