@@ -1,0 +1,19 @@
+{
+  "name": "baseline retry, compaction and restart recovery",
+  "seed": "baseline-retry-compaction",
+  "profile": "quick",
+  "transport": "memory",
+  "steps": 40,
+  "clients": 3,
+  "initialRecords": 5,
+  "faultRate": 0.08,
+  "checkpointEvery": 10,
+  "mirrorEvery": 20,
+  "expected": {
+    "memory": {
+      "recordDigest": "7f1b5ed05eded337085009db73828d0fc303dcc32940645ac1cbc82f5a6ac039",
+      "actionDigest": "e6b3dab841646fef82f9640c1bb02ec4c54e59263bdee96a885840f9ebb334bb"
+    }
+  }
+}
+
