@@ -109,6 +109,63 @@ describe("authentication operator command", () => {
     expect(JSON.stringify(stored.rows)).not.toContain(result.invitation.token);
   });
 
+  it("lists beta requests and marks a matching request when invited", async () => {
+    const context = await fixture();
+    await context.db.query(
+      `INSERT INTO beta_access_requests
+         (id, email, normalized_email, email_normalization_version)
+       VALUES ('10000000-0000-4000-8000-000000000071',
+         'Person@Example.com', 'person@example.com', 1)`
+    );
+    expect(await runAuthAdminCommand([
+      "beta",
+      "list",
+      "--status",
+      "pending"
+    ], context)).toEqual({
+      requests: [expect.objectContaining({
+        email: "Person@Example.com",
+        status: "pending"
+      })],
+      next_cursor: null
+    });
+
+    await configurePolicy(context);
+    const created = await runAuthAdminCommand([
+      "invite",
+      "create",
+      "--email",
+      "person@example.com",
+      "--actor",
+      "operator:test",
+      "--reason",
+      "Invite the next beta participant"
+    ], context) as { invitation: { id: string } };
+    expect(await runAuthAdminCommand([
+      "beta",
+      "list",
+      "--status",
+      "pending"
+    ], context)).toEqual({ requests: [], next_cursor: null });
+    const invited = await runAuthAdminCommand([
+      "beta",
+      "list",
+      "--status",
+      "invited"
+    ], context) as {
+      requests: Array<{
+        status: string;
+        invitation_id: string;
+        invited_at: string;
+      }>;
+    };
+    expect(invited.requests[0]).toMatchObject({
+      status: "invited",
+      invitation_id: created.invitation.id,
+      invited_at: expect.any(String)
+    });
+  });
+
   it("rejects ambiguous or unsafe command input", async () => {
     const context = await fixture();
     await expect(runAuthAdminCommand([

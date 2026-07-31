@@ -26,6 +26,7 @@ export interface RuntimeConfig {
   googleAuth: GoogleAuthConfig | null;
   registration: RegistrationMode;
   authRateLimitSecret: string | null;
+  betaAccessOrigin: string | null;
   authenticationLegalDocuments: AuthenticationLegalDocuments | null;
   transactionalEmail: TransactionalEmailConfig | null;
   hostedCollections: boolean;
@@ -92,6 +93,17 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   ) {
     throw new Error(
       "Authentication rate-limit digest secret must contain at least 32 bytes."
+    );
+  }
+  const betaAccessOrigin = config.betaAccessOrigin
+    ? validatePublicOrigin(
+        config.betaAccessOrigin,
+        "MDBASE_CONNECT_BETA_ACCESS_ORIGIN"
+      )
+    : null;
+  if (betaAccessOrigin && config.authRateLimitSecret === null) {
+    throw new Error(
+      "Beta access requests require MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET."
     );
   }
   if (config.authenticationLegalDocuments) {
@@ -174,7 +186,12 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       keyIds.add(key.kid);
     }
   }
-  return { ...config, publicUrl: publicUrl.origin, hostedProvider };
+  return {
+    ...config,
+    publicUrl: publicUrl.origin,
+    betaAccessOrigin,
+    hostedProvider
+  };
 }
 
 export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -193,6 +210,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const registration = registrationMode(env.MDBASE_CONNECT_REGISTRATION);
   const authRateLimitSecret =
     env.MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET?.trim() || null;
+  const betaAccessOrigin =
+    env.MDBASE_CONNECT_BETA_ACCESS_ORIGIN?.trim() || null;
   const termsUrl = env.MDBASE_CONNECT_TERMS_URL?.trim() ?? "";
   const privacyUrl = env.MDBASE_CONNECT_PRIVACY_URL?.trim() ?? "";
   if (Boolean(termsUrl) !== Boolean(privacyUrl)) {
@@ -267,6 +286,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       : null,
     registration,
     authRateLimitSecret,
+    betaAccessOrigin,
     authenticationLegalDocuments,
     transactionalEmail,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
@@ -448,6 +468,29 @@ function validatePublicDocumentUrl(value: string, name: string): void {
   ) {
     throw new Error(`${name} must use HTTPS outside loopback development.`);
   }
+}
+
+function validatePublicOrigin(value: string, name: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be an absolute origin.`);
+  }
+  if (
+    url.username
+    || url.password
+    || url.pathname !== "/"
+    || url.search
+    || url.hash
+    || (
+      url.protocol !== "https:"
+      && !(url.protocol === "http:" && isLoopback(url.hostname))
+    )
+  ) {
+    throw new Error(`${name} must be an HTTPS origin outside loopback development.`);
+  }
+  return url.origin;
 }
 
 function validateRelayBrokerServer(server: string): void {

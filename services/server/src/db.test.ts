@@ -39,7 +39,8 @@ describe("database migrations", () => {
       "0003_authorization_request_collection",
       "0004_separate_application_keys",
       "0005_notification_contract_versions",
-      "0006_notification_event_ids"
+      "0006_notification_event_ids",
+      "0007_beta_access_requests"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -295,7 +296,8 @@ describe("database migrations", () => {
       "0003_authorization_request_collection",
       "0004_separate_application_keys",
       "0005_notification_contract_versions",
-      "0006_notification_event_ids"
+      "0006_notification_event_ids",
+      "0007_beta_access_requests"
     ]);
   });
 

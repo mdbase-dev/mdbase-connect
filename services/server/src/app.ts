@@ -34,6 +34,7 @@ import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/r
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
+import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
 import { registerConnectorControlRoutes } from "./features/connectors/control-routes.js";
 import { registerConnectorInventoryRoutes } from "./features/connectors/inventory-routes.js";
 import { registerConnectorManagementRoutes } from "./features/connectors/management-routes.js";
@@ -61,6 +62,7 @@ interface BuildOptions {
   googleAuth?: GoogleAuthConfig;
   registration?: RegistrationMode;
   authRateLimitSecret?: string;
+  betaAccessOrigin?: string;
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
   hostedCollections?: boolean;
@@ -208,6 +210,16 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider,
     revision: options.revision
   });
+  if (options.betaAccessOrigin) {
+    if (!options.authRateLimitSecret) {
+      throw new Error("Beta access requests require a rate-limit secret.");
+    }
+    registerBetaAccessRoutes(app, {
+      db: options.db,
+      allowedOrigin: options.betaAccessOrigin,
+      rateLimitSecret: options.authRateLimitSecret
+    });
+  }
   registerPasswordAuthRoutes(app, {
     db: options.db,
     publicUrl,

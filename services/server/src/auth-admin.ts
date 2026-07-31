@@ -4,6 +4,7 @@ import {
   type AuthenticationSettings
 } from "./authentication-policy.js";
 import { PasswordAccountService } from "./password-auth.js";
+import { normalizeEmailAddress } from "./email-identity.js";
 import type { RegistrationMode } from "./runtime-config.js";
 import {
   EmailDeliveryError,
@@ -70,6 +71,9 @@ async function runCommand(
   }
   if (area === "invite" && action === "resend") {
     return resendInvitation(rest, context);
+  }
+  if (area === "beta" && action === "list") {
+    return listBetaAccessRequests(rest, context);
   }
   if (area === "users" && action === "list") {
     return listUsers(rest, context);
@@ -277,6 +281,12 @@ async function createAndDeliverInvitation(
         }
       : {})
   });
+  await context.db.query(
+    `UPDATE beta_access_requests
+     SET invitation_id = $2, invited_at = now()
+     WHERE normalized_email = $1`,
+    [normalizeEmailAddress(invitation.email), invitation.id]
+  );
   const invitationPath =
     `/signup#invitation=${encodeURIComponent(invitation.token)}`;
   const showToken = !flags.has("token-output")
@@ -375,6 +385,22 @@ async function listInvitations(
       : {}),
     ...(flags.has("status")
       ? { status: invitationStatus(requiredFlag(flags, "status")) }
+      : {})
+  });
+}
+
+async function listBetaAccessRequests(
+  argv: string[],
+  context: AuthAdminContext
+): Promise<unknown> {
+  const flags = parseFlags(argv, new Set(["limit", "cursor", "status"]));
+  return instanceAdmin(context).listBetaAccessRequests({
+    limit: pageLimit(flags),
+    ...(flags.has("cursor")
+      ? { cursor: requiredFlag(flags, "cursor") }
+      : {}),
+    ...(flags.has("status")
+      ? { status: betaAccessStatus(requiredFlag(flags, "status")) }
       : {})
   });
 }
@@ -639,6 +665,13 @@ function invitationStatus(
   );
 }
 
+function betaAccessStatus(value: string): "pending" | "invited" {
+  if (value === "pending" || value === "invited") return value;
+  throw new AuthAdminUsageError(
+    "--status must be pending or invited."
+  );
+}
+
 function userStatus(value: string): "active" | "suspended" {
   if (value === "active" || value === "suspended") return value;
   throw new AuthAdminUsageError(
@@ -721,6 +754,7 @@ export function usage(): string {
     "  auth-admin invite show --id <uuid>",
     "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--expires-in <seconds>]",
+    "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",
     "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",

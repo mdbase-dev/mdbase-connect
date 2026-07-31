@@ -34,6 +34,12 @@ export interface InvitationPageInput {
   status?: "active" | "accepted" | "revoked" | "expired";
 }
 
+export interface BetaAccessRequestPageInput {
+  limit?: number;
+  cursor?: string;
+  status?: "pending" | "invited";
+}
+
 export interface AuditPageInput {
   limit?: number;
   cursor?: string;
@@ -61,6 +67,14 @@ interface InvitationRow {
   send_count: number | string;
   last_sent_at: Date | string | null;
   created_at: Date | string;
+}
+
+interface BetaAccessRequestRow {
+  id: string;
+  email: string;
+  invitation_id: string | null;
+  invited_at: Date | string | null;
+  requested_at: Date | string;
 }
 
 interface AuditRow {
@@ -319,6 +333,48 @@ export class InstanceAdminService {
       throw new InstanceAdminNotFoundError("Invitation was not found.");
     }
     return { invitation: invitationSummary(result.rows[0]) };
+  }
+
+  async listBetaAccessRequests(input: BetaAccessRequestPageInput = {}) {
+    const limit = pageSize(input.limit);
+    const cursor = input.cursor ? decodeCursor(input.cursor) : null;
+    const values: unknown[] = [];
+    const conditions: string[] = [];
+    if (input.status === "pending") conditions.push("invited_at IS NULL");
+    if (input.status === "invited") conditions.push("invited_at IS NOT NULL");
+    if (cursor) {
+      values.push(cursor.createdAt, cursor.id);
+      conditions.push(
+        `(requested_at < $${values.length - 1}
+          OR (requested_at = $${values.length - 1} AND id < $${values.length}))`
+      );
+    }
+    values.push(limit + 1);
+    const result = await this.db.query<BetaAccessRequestRow>(
+      `SELECT id, email, invitation_id, invited_at, requested_at
+       FROM beta_access_requests
+       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+       ORDER BY requested_at DESC, id DESC
+       LIMIT $${values.length}`,
+      values
+    );
+    const rows = result.rows.slice(0, limit);
+    return {
+      requests: rows.map((row) => ({
+        id: row.id,
+        email: row.email,
+        status: row.invited_at ? "invited" as const : "pending" as const,
+        requested_at: iso(row.requested_at),
+        invited_at: nullableIso(row.invited_at),
+        invitation_id: row.invitation_id
+      })),
+      next_cursor: result.rows.length > limit && rows.length
+        ? encodeCursor(
+            rows[rows.length - 1]!.requested_at,
+            rows[rows.length - 1]!.id
+          )
+        : null
+    };
   }
 
   async revokeInvitation(invitationId: string, mutation: OperatorMutation) {

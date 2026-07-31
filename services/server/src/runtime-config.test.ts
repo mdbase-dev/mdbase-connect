@@ -16,6 +16,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     googleAuth: null,
     registration: "closed" as const,
     authRateLimitSecret: null,
+    betaAccessOrigin: null,
     authenticationLegalDocuments: null,
     transactionalEmail: null,
     hostedCollections: false,
@@ -153,6 +154,25 @@ describe("public runtime configuration", () => {
       MDBASE_CONNECT_DEV_AUTH: "1",
       MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "too-short"
     })).toThrow(/at least 32 bytes/);
+  });
+
+  it("enables beta requests only for a canonical origin with shared rate limiting", () => {
+    const value = runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
+      MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/"
+    });
+    expect(value.betaAccessOrigin).toBe("https://mdbase.dev");
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev"
+    })).toThrow(/RATE_LIMIT_SECRET/);
+    expect(() => runtimeConfigFromEnv({
+      PUBLIC_URL: "https://connect.example",
+      MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: "x".repeat(32),
+      MDBASE_CONNECT_BETA_ACCESS_ORIGIN: "https://mdbase.dev/beta/"
+    })).toThrow(/origin/);
   });
 
   it("supports password-only authentication infrastructure and validates legal document URLs", () => {
