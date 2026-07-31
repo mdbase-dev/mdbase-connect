@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 mod applications;
 mod collections;
+mod connect_problems_generated;
 mod control;
 pub mod crypto;
 mod relay;
@@ -13,6 +14,7 @@ mod sync;
 
 pub use applications::*;
 pub use collections::*;
+pub use connect_problems_generated::*;
 pub use control::*;
 pub use relay::*;
 pub use sync::*;
