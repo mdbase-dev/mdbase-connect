@@ -39,28 +39,8 @@ body,
   min-height: 100vh;
 }
 
-.account-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.portal-editor-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  min-height: 2rem;
-  padding: 0 0.45rem;
-  border-radius: 3px;
-  color: var(--ink-soft);
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.portal-editor-link:hover {
-  color: var(--ink);
-  background: var(--paper-hover);
+.portal-canvas {
+  min-height: 100vh;
 }
 
 .account-main {
@@ -110,6 +90,10 @@ h1 {
   scroll-margin-top: 1.5rem;
 }
 
+.account-main > header {
+  scroll-margin-top: 1.5rem;
+}
+
 .account-main .requests-clear {
   margin-top: 1.8rem;
 }
@@ -150,6 +134,63 @@ h1 {
   color: var(--ink-muted);
   font-family: var(--mono);
   font-size: 0.66rem;
+}
+
+.portal-overview-list {
+  border-top: 1px solid var(--line);
+}
+
+.portal-overview-row {
+  min-height: 4.35rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 3.5rem;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.65rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.portal-overview-row:hover {
+  background: var(--paper-hover);
+}
+
+.portal-overview-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.portal-overview-row strong {
+  font-size: 0.82rem;
+}
+
+.portal-overview-row small {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-overview-row > span,
+.portal-overview-row > b {
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  text-align: right;
+}
+
+.portal-overview-row > span.attention {
+  color: var(--action);
+  font-weight: 700;
+}
+
+.portal-overview-row > b {
+  color: var(--ink-soft);
 }
 
 .computer-list,
@@ -689,6 +730,179 @@ h1 {
 .session-loading {
   padding: 1rem 0;
   border-bottom: 1px solid var(--line);
+}
+
+.account-management-main {
+  max-width: 62rem;
+}
+
+.account-loading {
+  margin-top: 2rem;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+}
+
+.account-setting-list {
+  border-top: 1px solid var(--line);
+}
+
+.account-setting-row {
+  min-height: 4.35rem;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-setting-row > div:first-child,
+.account-setting-row-main > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.account-setting-row strong {
+  font-size: 0.82rem;
+}
+
+.account-setting-row small {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.account-setting-value {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.account-setting-actions,
+.inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.account-setting-row-stack {
+  display: block;
+  padding: 0;
+}
+
+.account-setting-row-main {
+  min-height: 4.35rem;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.65rem 0;
+}
+
+.inline-account-form,
+.account-deletion-form {
+  max-width: 36rem;
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.4rem 0 1.25rem;
+}
+
+.inline-account-form label,
+.account-deletion-form label,
+.account-reauthentication label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.inline-account-form label > span,
+.account-deletion-form label > span,
+.account-reauthentication label > span {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.storage-collection-row {
+  grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 12rem);
+}
+
+.storage-progress {
+  height: 3px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.storage-progress span {
+  height: 100%;
+  display: block;
+  min-width: 1px;
+  background: var(--accent);
+}
+
+.account-sign-out {
+  margin-top: 1rem;
+}
+
+.danger-section {
+  padding-top: 0.25rem;
+}
+
+.danger-section .section-heading {
+  border-bottom-color: color-mix(in oklch, var(--danger) 35%, var(--line));
+}
+
+.button.danger {
+  border-color: color-mix(in oklch, var(--danger) 42%, var(--line));
+  color: var(--danger);
+}
+
+.button.quiet {
+  min-height: 2rem;
+  padding-inline: 0.55rem;
+  border-color: transparent;
+  color: var(--ink-muted);
+}
+
+.button.compact {
+  min-height: 2rem;
+  padding-inline: 0.65rem;
+}
+
+.deletion-effects {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.deletion-effects p,
+.deletion-effects li,
+.account-reauthentication > p {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.deletion-effects p {
+  margin-bottom: 0.55rem;
+}
+
+.deletion-effects ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 0 0.75rem;
+  padding-left: 1.1rem;
+}
+
+.account-reauthentication {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.85rem 0;
+}
+
+.account-reauthentication > strong {
+  font-size: 0.78rem;
 }
 
 .attention-section .section-heading {
@@ -1463,6 +1677,11 @@ select {
   border-color: color-mix(in oklch, var(--danger) 35%, var(--line));
 }
 
+.message.success {
+  color: var(--connected);
+  border-color: color-mix(in oklch, var(--connected) 35%, var(--line));
+}
+
 .center-page {
   display: grid;
   align-content: center;
@@ -1774,16 +1993,21 @@ select {
 }
 
 @media (max-width: 760px) {
-  .portal-editor-link-label {
-    display: none;
-  }
-
-  .account-header .product-header-meta-copy {
-    display: none;
-  }
-
   .account-main {
     padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .account-main section,
+  .account-main > header {
+    scroll-margin-top: 4.5rem;
+  }
+
+  .portal-overview-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .portal-overview-row > b {
+    display: none;
   }
 
   h1,
@@ -1809,6 +2033,23 @@ select {
   .session-row > div:last-child {
     grid-column: 2;
     grid-row: 1 / span 2;
+  }
+
+  .account-setting-row,
+  .account-setting-row-main,
+  .storage-collection-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.65rem;
+    padding: 0.85rem 0;
+  }
+
+  .account-setting-actions,
+  .inline-actions {
+    justify-content: flex-start;
+  }
+
+  .account-setting-value {
+    text-align: left;
   }
 
   .hosted-summary {
@@ -1932,13 +2173,6 @@ select {
 
   .page-brand-row {
     margin-bottom: 2.3rem;
-  }
-}
-
-@media (max-width: 420px) {
-  .page-brand-row {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }
 

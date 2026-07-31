@@ -349,6 +349,18 @@ function registerIpc(): void {
       serverUrl: configuration.server_url
     };
   });
+  ipcMain.handle("connect:account:open", async (event) => {
+    trustedIpc(event);
+    const configuration = await requestReadyAgent<{
+      configured: boolean;
+      server_url: string | null;
+    }>("account.configuration");
+    if (!configuration.configured || !configuration.server_url) {
+      throw new Error("Connect this computer to a portal first.");
+    }
+    const accountUrl = new URL("/account", validateServerUrl(configuration.server_url));
+    await shell.openExternal(accountUrl.href);
+  });
   ipcMain.handle("connect:cloud:set", async (event, input: unknown) => {
     trustedIpc(event);
     if (!input || typeof input !== "object") throw new Error("Invalid cloud connection input.");

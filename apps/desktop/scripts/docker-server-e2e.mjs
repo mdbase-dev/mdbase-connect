@@ -247,6 +247,13 @@ try {
   await portalPage
     .getByRole("heading", { name: "Your connections." })
     .waitFor();
+  await portalPage
+    .getByRole("navigation", { name: "mdbase connect navigation" })
+    .getByRole("link", { name: /^App access/ })
+    .click();
+  await portalPage
+    .getByRole("heading", { name: "Decide what apps can do." })
+    .waitFor();
   const portalApplication = portalPage
     .locator("details.portal-application-access")
     .filter({ hasText: "Docker fixture consumer" });

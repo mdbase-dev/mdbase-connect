@@ -161,6 +161,10 @@ pub fn app(state: AppState) -> Router {
             patch(rename_collection).delete(delete_collection),
         )
         .route(
+            "/internal/v1/collections/{collection_id}/usage",
+            get(collection_usage),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/replicas",
             get(list_replicas).post(register_replica),
         )
@@ -341,6 +345,16 @@ async fn rename_collection(
         .rename_collection(collection_id, &input.display_name)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn collection_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let usage = state.provider.collection_usage(collection_id).await?;
+    Ok(Json(json!({ "usage": usage })))
 }
 
 async fn upsert_notification_grant(

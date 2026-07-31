@@ -56,6 +56,13 @@ export interface PasswordLoginInput {
   clientName?: string;
 }
 
+export interface ChangePasswordInput {
+  userId: string;
+  sessionId: string;
+  currentPassword: string;
+  newPassword: string;
+}
+
 export type InvitationDeliveryOutcome =
   | {
       status: "sent";
@@ -135,6 +142,13 @@ export class PasswordLoginRejectedError extends Error {
   constructor() {
     super("Email or password is incorrect.");
     this.name = "PasswordLoginRejectedError";
+  }
+}
+
+export class PasswordCredentialUnavailableError extends Error {
+  constructor() {
+    super("This account does not have a password sign-in method.");
+    this.name = "PasswordCredentialUnavailableError";
   }
 }
 
@@ -483,6 +497,80 @@ export class PasswordAccountService {
           name: active.name
         }
       };
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async verifyAccountPassword(userId: string, candidate: string): Promise<boolean> {
+    const credential = await this.db.query<{ password_hash: string }>(
+      "SELECT password_hash FROM password_credentials WHERE user_id = $1",
+      [userId]
+    );
+    return verifyPassword(
+      credential.rows[0]?.password_hash ?? await DUMMY_PASSWORD_HASH,
+      candidate
+    );
+  }
+
+  async changePassword(input: ChangePasswordInput): Promise<void> {
+    const preliminary = await this.db.query<{ password_hash: string }>(
+      "SELECT password_hash FROM password_credentials WHERE user_id = $1",
+      [input.userId]
+    );
+    const currentHash = preliminary.rows[0]?.password_hash;
+    const matches = await verifyPassword(
+      currentHash ?? await DUMMY_PASSWORD_HASH,
+      input.currentPassword
+    );
+    if (!currentHash) throw new PasswordCredentialUnavailableError();
+    if (!matches) throw new PasswordLoginRejectedError();
+    const newHash = await hashPassword(input.newPassword);
+    const connection = await this.db.connect();
+    try {
+      await connection.query("BEGIN");
+      const credential = await connection.query<{ password_hash: string }>(
+        `SELECT password_hash FROM password_credentials
+         WHERE user_id = $1 FOR UPDATE`,
+        [input.userId]
+      );
+      if (credential.rows[0]?.password_hash !== currentHash) {
+        throw new PasswordLoginRejectedError();
+      }
+      await connection.query(
+        `UPDATE password_credentials SET
+           password_hash = $2,
+           credential_version = credential_version + 1,
+           updated_at = now()
+         WHERE user_id = $1`,
+        [input.userId, newHash]
+      );
+      const epoch = await connection.query<{ session_epoch: string | number }>(
+        `UPDATE users SET session_epoch = session_epoch + 1
+         WHERE id = $1 AND suspended_at IS NULL
+         RETURNING session_epoch`,
+        [input.userId]
+      );
+      if (!epoch.rows[0]) throw new PasswordLoginRejectedError();
+      await connection.query(
+        `UPDATE sessions SET revoked_at = COALESCE(revoked_at, now())
+         WHERE user_id = $1 AND id <> $2`,
+        [input.userId, input.sessionId]
+      );
+      const preserved = await connection.query(
+        `UPDATE sessions SET account_session_epoch = $3
+         WHERE id = $2 AND user_id = $1 AND revoked_at IS NULL
+         RETURNING id`,
+        [input.userId, input.sessionId, epoch.rows[0].session_epoch]
+      );
+      if (!preserved.rows[0]) throw new PasswordLoginRejectedError();
+      await audit(connection, input.userId, "password.changed", input.userId, {
+        other_sessions_signed_out: true
+      });
+      await connection.query("COMMIT");
     } catch (error) {
       await connection.query("ROLLBACK");
       throw error;

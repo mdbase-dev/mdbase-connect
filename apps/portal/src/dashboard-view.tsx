@@ -4,6 +4,7 @@ import {
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
 import React, { useEffect, useState } from "react";
+import { AccountView } from "./account-view";
 import {
   api,
   ApiError,
@@ -13,30 +14,59 @@ import {
 import { ApprovalForm, RequestIdentity } from "./authorization-view";
 import {
   allOperations,
-  authenticationLabel,
   editorUrl,
   host,
   identityLabel,
-  initials,
   message,
   pluralLabel,
-  registrationLabel,
   relativeTime,
   scopeDescription
 } from "./portal-model";
 import {
-  AccountRow,
-  Brand,
   Empty,
   Loading,
-  SectionHeading,
-  ThemeSelect
+  MobileProductBar,
+  ProductSidebar,
+  SectionHeading
 } from "./portal-ui";
-import { SessionManager } from "./session-manager";
 
-export function Dashboard() {
+export type PortalView = "overview" | "requests" | "hosted" | "permissions" | "computers" | "account";
+
+const routeCopy: Record<Exclude<PortalView, "account">, { eyebrow: string; title: string; lede: string }> = {
+  overview: {
+    eyebrow: "Your account",
+    title: "Your connections.",
+    lede: "Hosted data, application access, and connected computers in one place."
+  },
+  requests: {
+    eyebrow: "Application requests",
+    title: "Review access requests.",
+    lede: "Approve the collection and exact actions an application can use."
+  },
+  hosted: {
+    eyebrow: "Hosted authority",
+    title: "Collections hosted by mdbase.",
+    lede: "Manage always-available Markdown collections and their local mirrors."
+  },
+  permissions: {
+    eyebrow: "Application access",
+    title: "Decide what apps can do.",
+    lede: "Review, narrow, or revoke access without changing the underlying collection."
+  },
+  computers: {
+    eyebrow: "Remote connection",
+    title: "Your connected computers.",
+    lede: "See which computers are available and revoke connections you no longer use."
+  }
+};
+
+export function Dashboard({ view = "overview", onNavigate }: {
+  view?: PortalView;
+  onNavigate(path: string): void;
+}) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   async function refresh() {
     try {
@@ -54,107 +84,148 @@ export function Dashboard() {
     const timer = window.setInterval(() => void refresh(), 5_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [navigationOpen]);
+
+  useEffect(() => {
+    const label = view === "account" ? "Account" : routeCopy[view].title.replace(/\.$/, "");
+    document.title = `${label} · mdbase connect`;
+  }, [view]);
+
   if (!data) return <Loading error={error} />;
   const activeGrants = data.grants.filter((grant) => !grant.revoked_at);
   const applicationAccess = groupApplicationAccess(activeGrants);
+  const sidebarItems = [
+    { id: "overview", label: "Overview", href: "/" },
+    { id: "requests", label: "Requests", href: "/requests", count: data.pending_authorizations.length, attention: data.pending_authorizations.length > 0 },
+    { id: "hosted", label: "Hosted collections", href: "/hosted-collections", count: data.hosted_collections.length },
+    { id: "permissions", label: "App access", href: "/app-access", count: applicationAccess.length },
+    { id: "computers", label: "Computers", href: "/computers", count: data.connectors.length }
+  ];
+  const navigate = (_id: string, href: string) => {
+    setNavigationOpen(false);
+    onNavigate(href);
+  };
+  const copy = view === "account" ? null : routeCopy[view];
 
   return (
-    <div className="account-shell">
-      <header className="product-header account-header">
-        <div className="product-header-inner">
-          <Brand productLabel />
-          <div className="product-header-meta">
-            <a
-              className="portal-editor-link"
-              href={editorUrl()}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open mdbase editor in a new tab"
-            >
-              <span className="portal-editor-link-label">Editor</span>
-              <span aria-hidden="true">↗</span>
-            </a>
-            <ThemeSelect />
-            <div className="product-header-meta-copy"><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></div>
-            <span className="product-avatar" aria-hidden="true">{initials(data.user.name)}</span>
-          </div>
-        </div>
-      </header>
-      <main className="account-main">
-        <header><p className="eyebrow">Your account</p><h1>Your connections.</h1><p>Approve application requests and manage the computers connected to your account.</p></header>
-        {error && <div className="message error">{error}</div>}
-        <section id="requests" aria-label="Access requests" className={data.pending_authorizations.length ? "attention-section" : "requests-clear"}>
-          {data.pending_authorizations.length === 0 ? <div className="quiet-status" role="status"><span className="status-dot connected" aria-hidden="true" /><span>No access requests waiting</span></div> : <>
-          <SectionHeading title="Access requests" note="A request expires automatically if you do nothing." count={data.pending_authorizations.length} />
-            <div className="request-list">{data.pending_authorizations.map((request) => (
-              <article className="request-row" key={request.id}>
-                <RequestIdentity request={request} />
-                <ApprovalForm
-                  request={request}
-                  canCreateHosted={data.hosted_collections_available !== false}
-                  collections={[
-                    ...(request.available_collections ?? []),
-                    ...data.hosted_collections
-                      .filter((collection) => collection.authority_state === "active")
-                      .map((collection) => ({
-                      ...collection,
-                      kind: "hosted" as const,
-                      connector_name: "Hosted by mdbase"
-                    }))
-                  ]}
-                  unavailableConnectors={request.unavailable_connectors}
-                  onDecision={refresh}
-                  onCollectionCreated={() => void refresh()}
-                />
-              </article>
-            ))}</div></>}
-        </section>
-        <section id="hosted">
-          <HostedCollections
-            collections={data.hosted_collections}
-            canCreate={data.hosted_collections_available !== false}
-            onChanged={refresh}
-            onError={setError}
-          />
-        </section>
-        <section id="permissions">
-          <SectionHeading title="Application access" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
-          {applicationAccess.length === 0 ? (
-            <Empty title="No applications connected" text="Approved website and downloaded application connections will appear here." />
-          ) : (
-            <div className="portal-application-list">{applicationAccess.map((group) => (
-              <PortalApplicationAccess
-                key={group.applicationId}
-                group={group}
-                collections={data.collections}
-                onChanged={refresh}
-                onError={setError}
-              />
-            ))}</div>
-          )}
-        </section>
-        <section id="computers">
-          <SectionHeading title="Connected computers" note="Revoking a computer immediately invalidates all of its application access." count={data.connectors.length} />
-          {data.connectors.length === 0 ? <Empty title="No computers connected" text="Open mdbase connect on a computer and choose Connect this computer." /> : (
-            <div className="computer-list">{data.connectors.map((connector) => {
-              const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
-              const online = connector.last_seen_at !== null
-                && Date.now() - new Date(connector.last_seen_at).getTime() < 45_000;
-              return <ComputerRow key={connector.id} connector={connector} collectionCount={collections.length} availableCount={online ? collections.filter((collection) => collection.enabled).length : 0} onChanged={refresh} onError={setError} />;
-            })}</div>
-          )}
-        </section>
-        <section id="account">
-          <SectionHeading title="Account" note="Authentication and service details." />
-          <div className="account-rows"><AccountRow label="Authentication" value={authenticationLabel(data.authentication.provider)} detail={data.authentication.provider === "tailscale" ? "Controlled by your tailnet" : undefined} /><AccountRow label="Registration" value={registrationLabel(data.authentication.registration)} detail={data.authentication.registration === "open" ? "New identities may create an account" : data.authentication.registration === "invite" ? "New accounts require an invitation" : "New account creation is paused"} /></div>
-          {data.authentication.provider !== "tailscale" && <>
-            <SessionManager onError={setError} />
-            <button className="button secondary" onClick={() => void api("/v1/logout", { method: "POST" }).then(() => { location.href = "/login"; })}>Sign out</button>
-          </>}
-        </section>
-      </main>
+    <div className={`account-shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
+      <ProductSidebar
+        items={sidebarItems}
+        active={view}
+        account={data.user.name}
+        identity={identityLabel(data.user)}
+        editorHref={editorUrl()}
+        onNavigate={navigate}
+      />
+      <button className="product-sidebar-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />
+      <div className="product-canvas portal-canvas">
+        <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
+        {view === "account" ? <AccountView dashboard={data} /> : <main className="account-main portal-route-main">
+          <header><p className="eyebrow">{copy!.eyebrow}</p><h1>{copy!.title}</h1><p>{copy!.lede}</p></header>
+          {error && <div className="message error" role="alert">{error}</div>}
+          {view === "overview" && <OverviewPage data={data} applicationCount={applicationAccess.length} onNavigate={onNavigate} />}
+          {view === "requests" && <RequestsPage data={data} onChanged={refresh} />}
+          {view === "hosted" && <section><HostedCollections collections={data.hosted_collections} canCreate={data.hosted_collections_available !== false} onChanged={refresh} onError={setError} /></section>}
+          {view === "permissions" && <ApplicationAccessPage data={data} groups={applicationAccess} onChanged={refresh} onError={setError} />}
+          {view === "computers" && <ComputersPage data={data} onChanged={refresh} onError={setError} />}
+        </main>}
+      </div>
     </div>
   );
+}
+
+function OverviewPage({ data, applicationCount, onNavigate }: {
+  data: DashboardData;
+  applicationCount: number;
+  onNavigate(path: string): void;
+}) {
+  const onlineComputers = data.connectors.filter((connector) => connector.last_seen_at !== null
+    && Date.now() - new Date(connector.last_seen_at).getTime() < 45_000).length;
+  return <section>
+    <SectionHeading title="At a glance" note="Open a page to manage its details." />
+    <div className="portal-overview-list">
+      <OverviewRow href="/requests" label="Requests" value={String(data.pending_authorizations.length)} detail={data.pending_authorizations.length ? pluralLabel(data.pending_authorizations.length, "request waiting", "requests waiting") : "No requests waiting"} attention={data.pending_authorizations.length > 0} onNavigate={onNavigate} />
+      <OverviewRow href="/hosted-collections" label="Hosted collections" value={String(data.hosted_collections.length)} detail={data.hosted_collections.length ? "Authoritative on mdbase" : "No hosted collections"} onNavigate={onNavigate} />
+      <OverviewRow href="/app-access" label="App access" value={String(applicationCount)} detail={pluralLabel(applicationCount, "connected application", "connected applications")} onNavigate={onNavigate} />
+      <OverviewRow href="/computers" label="Computers" value={String(data.connectors.length)} detail={`${onlineComputers} online`} onNavigate={onNavigate} />
+    </div>
+  </section>;
+}
+
+function OverviewRow({ href, label, value, detail, attention = false, onNavigate }: {
+  href: string;
+  label: string;
+  value: string;
+  detail: string;
+  attention?: boolean;
+  onNavigate(path: string): void;
+}) {
+  return <a className="portal-overview-row" href={href} onClick={(event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onNavigate(href);
+  }}><div><strong>{label}</strong><small>{detail}</small></div><span className={attention ? "attention" : ""}>{value}</span><b>Open</b></a>;
+}
+
+function RequestsPage({ data, onChanged }: { data: DashboardData; onChanged(): Promise<void> }) {
+  return <section aria-label="Access requests" className={data.pending_authorizations.length ? "attention-section" : ""}>
+    <SectionHeading title="Waiting for approval" note="Requests expire automatically if you do nothing." count={data.pending_authorizations.length} />
+    {data.pending_authorizations.length === 0 ? <Empty title="No access requests" text="New application requests will appear here for an explicit decision." /> : <div className="request-list">{data.pending_authorizations.map((request) => (
+      <article className="request-row" key={request.id}>
+        <RequestIdentity request={request} />
+        <ApprovalForm
+          request={request}
+          canCreateHosted={data.hosted_collections_available !== false}
+          collections={[
+            ...(request.available_collections ?? []),
+            ...data.hosted_collections
+              .filter((collection) => collection.authority_state === "active")
+              .map((collection) => ({ ...collection, kind: "hosted" as const, connector_name: "Hosted by mdbase" }))
+          ]}
+          unavailableConnectors={request.unavailable_connectors}
+          onDecision={onChanged}
+          onCollectionCreated={() => void onChanged()}
+        />
+      </article>
+    ))}</div>}
+  </section>;
+}
+
+function ApplicationAccessPage({ data, groups, onChanged, onError }: {
+  data: DashboardData;
+  groups: ApplicationAccessGroup<DashboardData["grants"][number]>[];
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  return <section>
+    <SectionHeading title="Connected applications" note="Expand an application to review its collection access." count={groups.length} />
+    {groups.length === 0 ? <Empty title="No applications connected" text="Approved website and downloaded application connections will appear here." /> : <div className="portal-application-list">{groups.map((group) => (
+      <PortalApplicationAccess key={group.applicationId} group={group} collections={data.collections} onChanged={onChanged} onError={onError} />
+    ))}</div>}
+  </section>;
+}
+
+function ComputersPage({ data, onChanged, onError }: {
+  data: DashboardData;
+  onChanged(): Promise<void>;
+  onError(value: string): void;
+}) {
+  return <section>
+    <SectionHeading title="Computers" note="Revoking a computer immediately invalidates all of its application access." count={data.connectors.length} />
+    {data.connectors.length === 0 ? <Empty title="No computers connected" text="Open mdbase connect on a computer and choose Connect this computer." /> : <div className="computer-list">{data.connectors.map((connector) => {
+      const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
+      const online = connector.last_seen_at !== null && Date.now() - new Date(connector.last_seen_at).getTime() < 45_000;
+      return <ComputerRow key={connector.id} connector={connector} collectionCount={collections.length} availableCount={online ? collections.filter((collection) => collection.enabled).length : 0} onChanged={onChanged} onError={onError} />;
+    })}</div>}
+  </section>;
 }
 
 function HostedCollections({ collections, canCreate, onChanged, onError }: {

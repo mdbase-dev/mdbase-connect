@@ -41,6 +41,11 @@ try {
   const portal = await fetch(`${environment.serverUrl}/`);
   assert.equal(portal.status, 200);
   assert.match(await portal.text(), /mdbase/i);
+  const portalRoute = await fetch(`${environment.serverUrl}/app-access`, {
+    headers: { accept: "text/html" }
+  });
+  assert.equal(portalRoute.status, 200);
+  assert.match(await portalRoute.text(), /mdbase/i);
 
   phase("creating an isolated identity and completing real connector pairing");
   const session = await request("/v1/dev/session", {

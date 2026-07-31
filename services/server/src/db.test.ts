@@ -40,7 +40,9 @@ describe("database migrations", () => {
       "0004_separate_application_keys",
       "0005_notification_contract_versions",
       "0006_notification_event_ids",
-      "0007_beta_access_requests"
+      "0007_beta_access_requests",
+      "0007_oauth_login_state_foundation",
+      "0008_account_management"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -267,6 +269,8 @@ describe("database migrations", () => {
          'auth_rate_limit_buckets',
          'authentication_settings',
          'authentication_settings_history',
+         'oauth_login_states',
+         'account_action_tokens',
          'authority_adoption_requests',
          'operator_operations'
        )`
@@ -281,6 +285,8 @@ describe("database migrations", () => {
         "auth_rate_limit_buckets",
         "authentication_settings",
         "authentication_settings_history",
+        "oauth_login_states",
+        "account_action_tokens",
         "authority_adoption_requests",
         "operator_operations"
       ])
@@ -297,7 +303,9 @@ describe("database migrations", () => {
       "0004_separate_application_keys",
       "0005_notification_contract_versions",
       "0006_notification_event_ids",
-      "0007_beta_access_requests"
+      "0007_beta_access_requests",
+      "0007_oauth_login_state_foundation",
+      "0008_account_management"
     ]);
   });
 

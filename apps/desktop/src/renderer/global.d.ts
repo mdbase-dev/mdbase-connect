@@ -326,6 +326,7 @@ interface Window {
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;
+    openAccount(): Promise<void>;
     setCloudConfig(input: { serverUrl: string; connectorToken: string }): Promise<CloudSetting>;
     clearCloudConfig(): Promise<CloudSetting>;
     beginPairing(input: { serverUrl: string; connectorName: string }): Promise<{

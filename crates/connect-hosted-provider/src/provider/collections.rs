@@ -1,6 +1,35 @@
 use super::*;
 
 impl HostedProvider {
+    pub async fn collection_usage(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<ProviderCollectionUsage> {
+        let row = sqlx::query(
+            r#"SELECT record_count, content_bytes, max_records,
+                      max_content_bytes, max_document_bytes
+               FROM hosted_provider_collections
+               WHERE id = $1 AND state <> 'deleting'"#,
+        )
+        .bind(collection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "hosted_collection_not_found",
+                "Hosted collection not found.",
+            )
+        })?;
+        Ok(ProviderCollectionUsage {
+            collection_id,
+            record_count: number(row.get::<i64, _>("record_count"), "record count")?,
+            content_bytes: number(row.get::<i64, _>("content_bytes"), "content size")?,
+            max_records: number(row.get::<i64, _>("max_records"), "record quota")?,
+            max_content_bytes: number(row.get::<i64, _>("max_content_bytes"), "content quota")?,
+            max_document_bytes: number(row.get::<i64, _>("max_document_bytes"), "document quota")?,
+        })
+    }
+
     pub async fn create_collection(
         &self,
         collection_id: Uuid,

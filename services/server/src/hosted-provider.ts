@@ -38,6 +38,15 @@ export interface HostedReplicaStatus {
   token_expires_at: string;
 }
 
+export interface HostedCollectionUsage {
+  collection_id: string;
+  record_count: number;
+  content_bytes: number;
+  max_records: number;
+  max_content_bytes: number;
+  max_document_bytes: number;
+}
+
 export interface HostedAuthorityTransfer {
   id: string;
   collection_id: string;
@@ -170,6 +179,21 @@ export class HostedProviderClient {
       `/internal/v1/collections/${encodeURIComponent(collectionId)}/replicas`
     ) as { replicas?: HostedReplicaStatus[] } | undefined;
     return result?.replicas ?? [];
+  }
+
+  async collectionUsage(collectionId: string): Promise<HostedCollectionUsage> {
+    const result = await this.request(
+      "GET",
+      `/internal/v1/collections/${encodeURIComponent(collectionId)}/usage`
+    ) as { usage?: HostedCollectionUsage } | undefined;
+    if (!result?.usage) {
+      throw new HostedProviderResponseError(
+        502,
+        "invalid_provider_response",
+        "Hosted storage usage was missing from the provider response."
+      );
+    }
+    return result.usage;
   }
 
   async rotateReplicaToken(replicaId: string, token: string, tokenTtlSeconds?: number): Promise<void> {

@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),
+  openAccount: () => ipcRenderer.invoke("connect:account:open"),
   setCloudConfig: (input: { serverUrl: string; connectorToken: string }) =>
     ipcRenderer.invoke("connect:cloud:set", input),
   clearCloudConfig: () => ipcRenderer.invoke("connect:cloud:clear"),

@@ -15,7 +15,6 @@ import {
   typeFields,
   type SetupType
 } from "@mdbase/connect-ui/contract-setup";
-import { applyThemePreference, loadThemePreference, saveThemePreference, type ThemePreference } from "@mdbase/connect-ui/theme";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -30,13 +29,14 @@ import {
 import { ConnectionProgress, Overview } from "./overview-view";
 import {
   AccessControl,
-  Brand,
   Empty,
-  NavButton,
+  MobileProductBar,
   PairingPanel,
+  ProductSidebar,
   SectionHeading,
   SettingSwitch,
-  StatusDot
+  StatusDot,
+  ThemeMenu
 } from "./ui-components";
 import {
   allOperations,
@@ -109,6 +109,7 @@ function App() {
   const [newPath, setNewPath] = useState("");
   const [newAuthority, setNewAuthority] = useState<"local" | "hosted">("local");
   const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   const refresh = useCallback(async (quiet = false) => {
     try {
@@ -166,6 +167,15 @@ function App() {
       localStorage.removeItem(RESUME_AUTHORIZATION_KEY);
     }
   }, [authorizationTarget, cloud?.configured, route]);
+
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [navigationOpen]);
 
   async function act(action: () => Promise<void>) {
     setBusy(true);
@@ -245,30 +255,25 @@ function App() {
     };
   }, [access, hosted]);
   const collectionCount = collections.length + hosted.hosted_collections.length;
+  const selectRoute = (next: Route) => {
+    setRoute(next);
+    setNavigationOpen(false);
+  };
 
   return (
-    <div className="shell">
-      <header className="product-header desktop-header">
-        <div className="product-header-inner">
-          <Brand />
-          <div className="product-header-meta" role="status" aria-live="polite">
-            <StatusDot state={connection.dot} />
-            <div className="product-header-meta-copy"><strong>{connection.label}</strong><small>{access.account?.connector_name ?? "This computer"} · {collectionCount} {plural(collectionCount, "collection", "collections")}</small></div>
-          </div>
-        </div>
-      </header>
-
-      <nav className="view-tabs" aria-label="mdbase connect views">
-        <div className="view-tabs-inner">
-          <NavButton route="overview" current={route} label="Overview" onSelect={setRoute} />
-          <NavButton route="collections" current={route} label="Collections" count={collectionCount} onSelect={setRoute} />
-          <NavButton route="access" current={route} label="App access" attention={combinedAccess.pending_authorizations.length} onSelect={setRoute} />
-          <NavButton route="activity" current={route} label="Activity" onSelect={setRoute} />
-          <NavButton route="settings" current={route} label="Settings" onSelect={setRoute} />
-        </div>
-      </nav>
-
-      <main className="content">
+    <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
+      <ProductSidebar
+        route={route}
+        collectionCount={collectionCount}
+        pendingCount={combinedAccess.pending_authorizations.length}
+        connection={connection}
+        computerName={`${access.account?.connector_name ?? "This computer"} · ${collectionCount} ${plural(collectionCount, "collection", "collections")}`}
+        onSelect={selectRoute}
+      />
+      <button className="product-sidebar-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />
+      <div className="product-canvas desktop-canvas">
+        <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
+        <main className="content">
         <header className="topbar">
           <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
         </header>
@@ -344,11 +349,11 @@ function App() {
             onNotice={setNotice}
           />
         )}
-      </main>
+        </main>
 
-      {createOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && setCreateOpen(false)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()}>
+        {createOpen && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={() => !busy && setCreateOpen(false)}>
+            <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()}>
             <p className="eyebrow">New collection</p>
             <h2 id="create-title">Create an mdbase collection</h2>
             <p>Choose where the main copy should live. A collection hosted by mdbase can also keep a synced folder on this computer.</p>
@@ -369,9 +374,10 @@ function App() {
               <button className="button secondary" disabled={busy} onClick={() => setCreateOpen(false)}>Cancel</button>
               <button className="button primary" disabled={busy || !newName.trim() || (newAuthority === "local" && !newPath)} onClick={() => void createCollection()}>Create collection</button>
             </div>
-          </section>
-        </div>
-      )}
+            </section>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -841,7 +847,10 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
             <SettingRow label="Connection" value={connection.settingsLabel} detail="Keeps approved apps on other devices connected to this computer" />
             <SettingRow label="Apps on this computer" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps here can connect without sending records over the internet" />
           </div>
-          <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from your account? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
+          <div className="portal-connection-actions">
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage account in portal</button>
+            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from your account? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
+          </div>
         </section>
       )}
       <section>
@@ -917,7 +926,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           <div className="setting-row">
             <span>Theme</span>
             <div><strong>Color theme</strong><small>System follows your operating system appearance</small></div>
-            <ThemeSelect />
+            <ThemeMenu placement="up" />
           </div>
         </div>
       </section>
@@ -948,23 +957,6 @@ function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
 
 function SettingRow({ label, value, detail, mono = false }: { label: string; value: string; detail: string; mono?: boolean }) {
   return <div className="setting-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong><small>{detail}</small></div></div>;
-}
-
-function ThemeSelect() {
-  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
-  useEffect(() => {
-    applyThemePreference(preference);
-    if (preference !== "system") return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => applyThemePreference("system");
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [preference]);
-  return <select className="theme-select" aria-label="Color theme" value={preference} onChange={(event) => {
-    const next = event.target.value as ThemePreference;
-    setPreference(next);
-    saveThemePreference(next);
-  }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

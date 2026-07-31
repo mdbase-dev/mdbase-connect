@@ -6,11 +6,10 @@ mdbase connect is a desktop utility used at a personal computer while the user
 is making a consequential access decision. The theme is minimal and precise in
 both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
-Portal and desktop share a compact product header, visual tokens, and core
-controls. Desktop views sit in a quiet horizontal tab row below that header;
-the compact portal overview needs no section navigation. Content remains an
-uninterrupted canvas. Hierarchy comes from typography, spacing, and alignment
-rather than tinted boxes or decoration.
+Portal and desktop share a single compact left sidebar, visual tokens, and core
+controls. Each navigation item opens one focused page in an uninterrupted
+canvas. Hierarchy comes from typography, spacing, and alignment rather than
+tinted boxes or decoration.
 
 ## Color
 
@@ -83,13 +82,13 @@ and interaction guidance in
 
 ## Layout
 
-- Portal and desktop share a full-width product header with identity or
-  connection state aligned opposite the wordmark.
-- Desktop primary navigation uses a single horizontal tab row. Counts appear
-  only when they clarify local collection state or pending action.
-- The portal keeps requests, active application grants, computers, and service
-  details in one centered overview. It does not add navigation when the complete
-  page is already visible.
+- Portal and desktop use the same fixed left-sidebar shell, with identity or
+  connection state in its footer and a focused page canvas beside it.
+- Counts appear only when they clarify collection state, connected resources,
+  or pending action. The current destination uses ordinary page navigation.
+- The portal gives requests, hosted collections, application access, computers,
+  and account management stable routes. Its overview summarizes those pages
+  without duplicating their management controls.
 - Collection metadata editing expands inline beneath the collection row. Name
   and description remain visibly tied to `mdbase.yaml`; availability is a
   separate immediate control.

@@ -24,6 +24,7 @@ import type {
   RegistrationMode
 } from "./runtime-config.js";
 import { registerAccountOverviewRoute } from "./features/account/me-routes.js";
+import { registerAccountManagementRoutes } from "./features/account/management-routes.js";
 import { registerAccountSessionRoutes } from "./features/account/session-routes.js";
 import { registerApplicationRoutes } from "./features/applications/routes.js";
 import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
@@ -250,6 +251,18 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     publicUrl,
     developmentAuth: options.devAuth
+  });
+  registerAccountManagementRoutes(app, {
+    db: options.db,
+    publicUrl,
+    authenticationPolicy,
+    tailscaleAuth: options.tailscaleAuth,
+    developmentAuth: options.devAuth,
+    passwordAuthenticationAvailable: Boolean(options.authRateLimitSecret),
+    githubAvailable: options.githubAuth !== undefined,
+    googleAvailable: options.googleAuth !== undefined,
+    hostedProvider: options.hostedProvider,
+    hostedReference
   });
   registerMirrorPairingRoutes(app, {
     db: options.db,

@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { SyncError } from "@mdbase/connect-sync";
 import { ZodError } from "zod";
+import {
+  AccountDeletionAuthorizationError,
+  ExternalIdentityConflictError,
+  IdentityRemovalForbiddenError
+} from "../account-management.js";
 import { AccountUnavailableError } from "../external-auth.js";
 import { GitHubIdentityError } from "../github-auth.js";
 import { GoogleIdentityError } from "../google-auth.js";
@@ -14,6 +19,7 @@ import {
   InvalidInvitationError,
   InvitationTargetConflictError,
   PasswordAuthenticationUnavailableError,
+  PasswordCredentialUnavailableError,
   PasswordLoginRejectedError
 } from "../password-auth.js";
 import {
@@ -114,10 +120,31 @@ export function registerErrorHandler(app: FastifyInstance): void {
         "This account does not have access."
       ));
     }
+    if (error instanceof ExternalIdentityConflictError) {
+      return reply.code(409).send(apiError(
+        "identity_already_connected",
+        error.message
+      ));
+    }
+    if (error instanceof IdentityRemovalForbiddenError) {
+      return reply.code(409).send(apiError(error.code, error.message));
+    }
+    if (error instanceof AccountDeletionAuthorizationError) {
+      return reply.code(403).send(apiError(
+        "account_reauthentication_required",
+        error.message
+      ));
+    }
     if (error instanceof PasswordLoginRejectedError) {
       return reply.code(401).send(apiError(
         "invalid_credentials",
         "Email or password is incorrect."
+      ));
+    }
+    if (error instanceof PasswordCredentialUnavailableError) {
+      return reply.code(409).send(apiError(
+        "password_not_configured",
+        error.message
       ));
     }
     if (

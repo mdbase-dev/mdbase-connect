@@ -77,6 +77,55 @@ describe("hosted provider control client", () => {
     );
   });
 
+  it("reads authoritative collection storage usage from the provider", async () => {
+    const usage = {
+      collection_id: "collection",
+      record_count: 42,
+      content_bytes: 12_345,
+      max_records: 100_000,
+      max_content_bytes: 1_073_741_824,
+      max_document_bytes: 2_097_152
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ usage }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    await expect(provider.collectionUsage("collection")).resolves.toEqual(usage);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://provider.example/internal/v1/collections/collection/usage",
+      expect.objectContaining({
+        method: "GET",
+        headers: { authorization: "Bearer internal-secret" }
+      })
+    );
+  });
+
+  it("rejects a successful provider response that omits storage usage", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    await expect(provider.collectionUsage("collection")).rejects.toEqual(
+      new HostedProviderResponseError(
+        502,
+        "invalid_provider_response",
+        "Hosted storage usage was missing from the provider response."
+      )
+    );
+  });
+
   it("preserves safe provider errors and normalizes network failures", async () => {
     const provider = new HostedProviderClient({
       url: "https://provider.example",

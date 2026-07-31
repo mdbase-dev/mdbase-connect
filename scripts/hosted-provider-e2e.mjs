@@ -879,7 +879,7 @@ try {
   await stopConnectDaemon(desktopProfile, desktopDaemon);
 
   phase("exercising hosted lifecycle and writable enrollment in a real browser");
-  await portalLifecycleE2E(controlUrl, browserMirrorRoot);
+  await portalLifecycleE2E(controlUrl, provider.url, browserMirrorRoot);
 
   phase("moving hosted authority through the CLI and browser confirmation flow");
   await authorityPromotionCliE2E(
@@ -1256,6 +1256,15 @@ schema:
   await writerClient.sync();
   await readerClient.pull();
   assert.equal(findRecord(await readerClient.records(), recordId).frontmatter.title, "Created offline");
+  const storageUsage = await internalRequest(
+    provider.url,
+    `/internal/v1/collections/${collectionId}/usage`
+  );
+  assert.equal(storageUsage.usage.collection_id, collectionId);
+  assert.ok(storageUsage.usage.record_count >= 1);
+  assert.ok(storageUsage.usage.content_bytes > 0);
+  assert.equal(storageUsage.usage.max_records, 100_000);
+  assert.equal(storageUsage.usage.max_content_bytes, 1024 * 1024 * 1024);
   const forbiddenPlaintextColumns = await postgresQuery(
     `SELECT table_name || '.' || column_name
      FROM information_schema.columns
@@ -2295,7 +2304,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
   }
 }
 
-async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
+async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirectory) {
   const browser = await chromium.launch({ headless: true });
   let connector;
   try {
@@ -2303,6 +2312,11 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     await page.goto(`${controlUrl}/login`);
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Your connections." })).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "mdbase connect navigation" })
+      .getByRole("link", { name: /^Hosted collections/ })
+      .click();
+    await expect(page.getByRole("heading", { name: "Collections hosted by mdbase." })).toBeVisible();
 
     await page.getByRole("button", { name: "Create hosted collection" }).click();
     await expect(page.getByText(/Starts as a clean mdbase collection/)).toBeVisible();
@@ -2378,7 +2392,7 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     );
     assert.equal(browserStatus.state, "up_to_date");
 
-    await page.goto(controlUrl);
+    await page.goto(`${controlUrl}/hosted-collections`);
     const connectedRow = page.locator("article.hosted-row").filter({
       hasText: "Browser E2E collection"
     });
@@ -2400,6 +2414,60 @@ async function portalLifecycleE2E(controlUrl, browserMirrorDirectory) {
     page.once("dialog", (dialog) => dialog.accept());
     await renamedRow.getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await page.getByLabel("Collection name").fill("Account deletion collection");
+    await page.getByRole("button", { name: "Create collection" }).click();
+    const deletionCollection = page.locator("article.hosted-row").filter({
+      hasText: "Account deletion collection"
+    });
+    await expect(deletionCollection).toBeVisible();
+    const deletionDashboard = await page.evaluate(async () => {
+      const response = await fetch("/v1/me");
+      return response.json();
+    });
+    const deletionCollectionId = deletionDashboard.hosted_collections.find(
+      (collection) => collection.display_name === "Account deletion collection"
+    ).id;
+
+    await page.goto(`${controlUrl}/account`);
+    await expect(page.getByRole("heading", { name: "Account and storage." })).toBeVisible();
+    await expect(page.getByText("Account deletion collection", { exact: true })).toBeVisible();
+    const account = await page.evaluate(async () => {
+      const response = await fetch("/v1/account");
+      return response.json();
+    });
+    const accountCollection = account.storage.collections.find(
+      (collection) => collection.id === deletionCollectionId
+    );
+    assert.equal(account.storage.status, "available");
+    assert.equal(accountCollection.usage.collection_id, deletionCollectionId);
+    assert.equal(accountCollection.usage.max_content_bytes, 1024 * 1024 * 1024);
+    await page.getByRole("button", { name: "Delete account…" }).click();
+    await expect(page.getByText(/Local files are never removed/)).toBeVisible();
+    await expect(page.getByText(
+      "Local collection and mirror files remain on your computers.",
+      { exact: true }
+    )).toBeVisible();
+    await page.getByLabel("Type DELETE to confirm").fill("DELETE");
+    await page.getByRole("button", { name: "Delete account permanently" }).click();
+    await expect(page).toHaveURL(`${controlUrl}/account-deleted`);
+    await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
+      .toBeVisible();
+    assert.equal(
+      (
+        await rawRequest(
+          providerUrl,
+          `/internal/v1/collections/${deletionCollectionId}/usage`,
+          { token: internalToken }
+        )
+      ).status,
+      404
+    );
+    assert.match(
+      await readFile(join(browserMirrorDirectory, "mdbase.yaml"), "utf8"),
+      /spec_version: 0\.3\.0/
+    );
   } finally {
     if (connector?.exitCode === null && connector.signalCode === null) connector.kill("SIGTERM");
     await browser.close();

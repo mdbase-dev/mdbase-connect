@@ -29,6 +29,59 @@ export interface AccountSession {
   current: boolean;
 }
 
+export interface AccountData {
+  user: { id: string; name: string; email: string | null; login: string | null };
+  authentication: {
+    managed: boolean;
+    current_provider: "google" | "github" | "password" | "tailscale" | "session";
+    available_providers: {
+      github: boolean;
+      google: boolean;
+      password: boolean;
+    };
+    identities: Array<{
+      provider: "github" | "google";
+      subject: string;
+      login: string | null;
+      email: string | null;
+      email_verified: boolean;
+      linked_at: string;
+      current: boolean;
+      removable: boolean;
+    }>;
+    password: {
+      configured: boolean;
+      email: string | null;
+      current: boolean;
+      change_available: boolean;
+    };
+  };
+  storage: {
+    status: "available" | "partial" | "unavailable";
+    total_content_bytes: number | null;
+    total_records: number | null;
+    collections: Array<{
+      id: string;
+      display_name: string;
+      usage: null | {
+        collection_id: string;
+        record_count: number;
+        content_bytes: number;
+        max_records: number;
+        max_content_bytes: number;
+        max_document_bytes: number;
+      };
+    }>;
+  };
+  deletion: {
+    available: boolean;
+    hosted_collections: number;
+    local_collections: number;
+    computers: number;
+    development_confirmation: boolean;
+  };
+}
+
 export interface DashboardData {
   user: { id: string; name: string; email: string | null; login: string | null };
   hosted_collections_available?: boolean;

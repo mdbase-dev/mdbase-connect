@@ -579,6 +579,18 @@ interface GoogleAccountsApi {
 let googleLibrary: Promise<GoogleAccountsApi> | null = null;
 
 function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: string): void }) {
+  return <GoogleIdentityButton
+    startUrl={`/auth/google?return_to=${encodeURIComponent(returnTo)}`}
+    onComplete={(redirectTo) => { location.href = redirectTo; }}
+    onError={onError}
+  />;
+}
+
+export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
+  startUrl: string;
+  onComplete(redirectTo: string): void;
+  onError(value: string): void;
+}) {
   const button = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -589,9 +601,7 @@ function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: 
     async function prepare() {
       try {
         setReady(false);
-        const start = await api<{ client_id: string; nonce: string }>(
-          `/auth/google?return_to=${encodeURIComponent(returnTo)}`
-        );
+        const start = await api<{ client_id: string; nonce: string }>(startUrl);
         const google = await loadGoogleIdentityServices();
         if (!active || !button.current) return;
         button.current.replaceChildren();
@@ -608,7 +618,7 @@ function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: 
               headers: { "x-mdbase-auth": "google" },
               body: JSON.stringify({ credential: response.credential })
             }).then((result) => {
-              location.href = result.redirect_to;
+              onComplete(result.redirect_to);
             }).catch((reason) => {
               onError(message(reason));
               setBusy(false);
@@ -633,7 +643,7 @@ function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: 
     }
     void prepare();
     return () => { active = false; };
-  }, [attempt, onError, returnTo]);
+  }, [attempt, onComplete, onError, startUrl]);
 
   return <div className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy}>
     <div ref={button} className="google-button" />
@@ -659,4 +669,3 @@ function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
   });
   return googleLibrary;
 }
-

@@ -172,6 +172,16 @@ pub struct ProviderCollection {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProviderCollectionUsage {
+    pub collection_id: Uuid,
+    pub record_count: u64,
+    pub content_bytes: u64,
+    pub max_records: u64,
+    pub max_content_bytes: u64,
+    pub max_document_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ProviderReplicaStatus {
     pub id: Uuid,
     pub head: u64,
