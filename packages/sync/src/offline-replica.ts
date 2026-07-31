@@ -128,6 +128,9 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
       ...mutation,
       scope_epoch: session.scope_epoch
     }));
+    for (const recordId of Object.keys(data.conflicts)) {
+      reconcileConflictCurrent(data.conflicts, recordId, records[recordId]);
+    }
     await this.store.save({
       ...data,
       scopeEpoch: session.scope_epoch,
@@ -354,8 +357,13 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
       }
       validateChangesPage(page, data.cursor!);
       for (const event of page.events) {
-        if (event.type === "put") data.records[event.record.record_id] = clone(event.record);
-        else delete data.records[event.record_id];
+        if (event.type === "put") {
+          data.records[event.record.record_id] = clone(event.record);
+          reconcileConflictCurrent(data.conflicts, event.record.record_id, event.record);
+        } else {
+          delete data.records[event.record_id];
+          reconcileConflictCurrent(data.conflicts, event.record_id);
+        }
       }
       data.records = applyPendingOverlay(data.records, data.pending);
       data.cursor = page.cursor;
@@ -390,6 +398,22 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
     }
     return data;
   }
+}
+
+function reconcileConflictCurrent<Frontmatter extends JsonObject>(
+  conflicts: Record<string, SyncMutationReceipt<Frontmatter>>,
+  recordId: string,
+  current?: SyncRecord<Frontmatter>
+): void {
+  const receipt = conflicts[recordId];
+  if (!receipt || receipt.status !== "conflicted") return;
+  if (current) {
+    receipt.conflict.current = clone(current);
+    receipt.conflict.current_revision = current.revision;
+    return;
+  }
+  delete receipt.conflict.current;
+  delete receipt.conflict.current_revision;
 }
 
 function applyPendingOverlay<Frontmatter extends JsonObject>(

@@ -32,6 +32,31 @@ function store(replicaId: string) {
   return new MemoryReplicaStore({ replicaId, records: {}, pending: [], conflicts: {} });
 }
 
+async function conflictedReplicaFixture() {
+  const hosted = authority();
+  hosted.seed([{
+    record_id: ids.record,
+    path: "tasks/one.md",
+    frontmatter: { type: "task", title: "Original" },
+    body: "",
+    types: ["task"]
+  }]);
+  const concurrentId = crypto.randomUUID();
+  hosted.registerReplica({ id: ids.writer, name: "Writer", mode: "read_write", allowedTypes: ["task"] });
+  hosted.registerReplica({ id: ids.reader, name: "Conflicted", mode: "read_write", allowedTypes: ["task"] });
+  hosted.registerReplica({ id: concurrentId, name: "Concurrent", mode: "read_write", allowedTypes: ["task"] });
+  const writer = new OfflineReplica(hosted.transport(ids.writer), store(ids.writer));
+  const conflicted = new OfflineReplica(hosted.transport(ids.reader), store(ids.reader));
+  const concurrent = new OfflineReplica(hosted.transport(concurrentId), store(concurrentId));
+  await Promise.all([writer.initialize(), conflicted.initialize(), concurrent.initialize()]);
+  await conflicted.queueUpdate({ recordId: ids.record, patch: { title: "Offline edit" } });
+  await concurrent.queueUpdate({ recordId: ids.record, patch: { title: "Concurrent edit" } });
+  await concurrent.sync();
+  await conflicted.sync();
+  expect(await conflicted.conflicts()).toHaveLength(1);
+  return { hosted, writer, conflicted };
+}
+
 describe("hosted sync vertical slice", () => {
   it("accepts only complete secure authority sync endpoints", () => {
     const endpoint = `/v1/authorities/${ids.collection}/sync`;
@@ -182,6 +207,64 @@ describe("hosted sync vertical slice", () => {
     await tablet.resolveConflict(ids.record, "remote");
     expect(await tablet.pending()).toEqual([]);
     expect((await tablet.records())[0].frontmatter.title).toBe("Phone final");
+  });
+
+  it("keeps a waiting conflict aligned with a newer remote update", async () => {
+    const { writer, conflicted } = await conflictedReplicaFixture();
+    await writer.pull();
+    await writer.queueUpdate({ recordId: ids.record, patch: { title: "Newest edit" } });
+    await writer.sync();
+
+    await conflicted.pull();
+    expect((await conflicted.conflicts())[0]).toMatchObject({
+      status: "conflicted",
+      conflict: { current: { frontmatter: { title: "Newest edit" } } }
+    });
+    await conflicted.resolveConflict(ids.record, "remote");
+    expect((await conflicted.records())[0].frontmatter.title).toBe("Newest edit");
+  });
+
+  it("rebases a local conflict resolution onto the newest remote revision", async () => {
+    const { writer, conflicted } = await conflictedReplicaFixture();
+    await writer.pull();
+    await writer.queueUpdate({ recordId: ids.record, patch: { title: "Newest edit" } });
+    await writer.sync();
+
+    await conflicted.pull();
+    await conflicted.resolveConflict(ids.record, "local");
+    await conflicted.sync();
+    expect(await conflicted.conflicts()).toEqual([]);
+    expect(await conflicted.pending()).toEqual([]);
+    expect((await conflicted.records())[0].frontmatter.title).toBe("Offline edit");
+  });
+
+  it("does not resurrect a record deleted while its conflict was waiting", async () => {
+    const { writer, conflicted } = await conflictedReplicaFixture();
+    await writer.pull();
+    await writer.queueDelete({ recordId: ids.record });
+    await writer.sync();
+
+    await conflicted.pull();
+    expect((await conflicted.conflicts())[0]).toMatchObject({
+      status: "conflicted",
+      conflict: { record_id: ids.record }
+    });
+    expect((await conflicted.conflicts())[0]).not.toHaveProperty("conflict.current");
+    await conflicted.resolveConflict(ids.record, "remote");
+    expect(await conflicted.records()).toEqual([]);
+  });
+
+  it("reconciles a waiting conflict when compaction forces a snapshot rebuild", async () => {
+    const { hosted, writer, conflicted } = await conflictedReplicaFixture();
+    await writer.pull();
+    await writer.queueDelete({ recordId: ids.record });
+    await writer.sync();
+    hosted.compactThrough(hosted.serialize().head);
+
+    await conflicted.pull();
+    expect((await conflicted.conflicts())[0]).not.toHaveProperty("conflict.current");
+    await conflicted.resolveConflict(ids.record, "remote");
+    expect(await conflicted.records()).toEqual([]);
   });
 
   it("rebuilds an expired cursor without losing a queued offline mutation", async () => {
