@@ -27,7 +27,9 @@ import {
   initialContractSetupChoice,
   type ContractSetupChoice
 } from "./contract-setup-editor";
+import { ConnectionProgress, Overview } from "./overview-view";
 import {
+  AccessControl,
   Brand,
   Empty,
   NavButton,
@@ -59,9 +61,9 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
     lede: "Collections, application access, and connection status in one place."
   },
   collections: {
-    eyebrow: "Collection authority",
-    title: "Your collections, in one place.",
-    lede: "Manage folders owned by this computer and collections hosted by mdbase."
+    eyebrow: "Collection storage",
+    title: "Your collections.",
+    lede: "See where each main copy lives and which folders stay in sync."
   },
   access: {
     eyebrow: "Application access",
@@ -74,14 +76,21 @@ const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }>
     lede: "Successful, failed, and denied remote operations are recorded locally."
   },
   settings: {
-    eyebrow: "Connector settings",
+    eyebrow: "Settings",
     title: "Connection and startup.",
-    lede: "Manage this computer, its portal, and background behavior."
+    lede: "Manage this computer, its account connection, and background behavior."
   }
 };
 
+const RESUME_AUTHORIZATION_KEY = "mdbase:resume-authorization";
+
+function storedAuthorizationTarget(): string | null {
+  return localStorage.getItem(RESUME_AUTHORIZATION_KEY);
+}
+
 function App() {
-  const [route, setRoute] = useState<Route>("overview");
+  const [route, setRoute] = useState<Route>(() => storedAuthorizationTarget() ? "access" : "overview");
+  const [authorizationTarget, setAuthorizationTarget] = useState<string | null>(storedAuthorizationTarget);
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
@@ -128,6 +137,13 @@ function App() {
     void refresh();
     const timer = window.setInterval(() => void refresh(true), 5_000);
     const removeNavigation = window.mdbaseConnect.onNavigate((next) => {
+      if (next === "access" || next.startsWith("access:")) {
+        const requestId = next.startsWith("access:") ? next.slice("access:".length) : "pending";
+        localStorage.setItem(RESUME_AUTHORIZATION_KEY, requestId);
+        setAuthorizationTarget(requestId);
+        setRoute("access");
+        return;
+      }
       if (next.startsWith("collections:mirror:")) {
         setMirrorTarget(next.slice("collections:mirror:".length));
         setRoute("collections");
@@ -144,6 +160,12 @@ function App() {
       removeUpdateStatus();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (cloud?.configured && route === "access" && authorizationTarget) {
+      localStorage.removeItem(RESUME_AUTHORIZATION_KEY);
+    }
+  }, [authorizationTarget, cloud?.configured, route]);
 
   async function act(action: () => Promise<void>) {
     setBusy(true);
@@ -264,6 +286,8 @@ function App() {
             collectionCount={collectionCount}
             busy={busy}
             onNavigate={setRoute}
+            onAdd={() => void addExisting()}
+            onCreate={() => setCreateOpen(true)}
             onPause={(paused) => void act(async () => {
               await window.mdbaseConnect.setAccessPaused(paused);
               setNotice(paused ? "Remote access is paused on this computer." : "Remote access is available again.");
@@ -294,7 +318,17 @@ function App() {
             collections={collections}
             hostedCollections={hosted.hosted_collections}
             canCreateHosted={hosted.hosted_collections_available !== false}
+            focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
+            resumeAuthorization={authorizationTarget !== null}
             busy={busy}
+            onAddCollection={() => void addExisting()}
+            onCreateCollection={() => setCreateOpen(true)}
+            onAuthorizationHandled={(requestId) => {
+              if (authorizationTarget === requestId || authorizationTarget === "pending") {
+                setAuthorizationTarget(null);
+                localStorage.removeItem(RESUME_AUTHORIZATION_KEY);
+              }
+            }}
             onAct={act}
             onNotice={setNotice}
           />
@@ -317,16 +351,16 @@ function App() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-title" onMouseDown={(event) => event.stopPropagation()}>
             <p className="eyebrow">New collection</p>
             <h2 id="create-title">Create an mdbase collection</h2>
-            <p>Choose the authority deliberately. You can mirror a hosted collection onto this computer after creating it.</p>
+            <p>Choose where the main copy should live. A collection hosted by mdbase can also keep a synced folder on this computer.</p>
             <fieldset className="authority-choice">
-              <legend>Collection authority</legend>
+              <legend>Where should the main copy live?</legend>
               <label className={newAuthority === "local" ? "selected" : ""}>
                 <input type="radio" name="authority" value="local" checked={newAuthority === "local"} onChange={() => setNewAuthority("local")} />
-                <span><strong>On this computer</strong><small>A folder here is the final authority.</small></span>
+                <span><strong>On this computer</strong><small>The folder you choose is the main copy.</small></span>
               </label>
               <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured && hosted.hosted_collections_available !== false ? "" : "disabled"}`}>
                 <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={!cloud?.configured || hosted.hosted_collections_available === false} onChange={() => setNewAuthority("hosted")} />
-                <span><strong>Hosted by mdbase</strong><small>{!cloud?.configured ? "Connect this computer to your account first." : hosted.hosted_collections_available !== false ? "Available while this computer is offline; optional local mirror." : "Hosted collections are not enabled for this Connect service."}</small></span>
+                <span><strong>Hosted by mdbase</strong><small>{!cloud?.configured ? "Connect this computer to your account first." : hosted.hosted_collections_available !== false ? "Available while this computer is off; add a synced folder if you want one." : "Hosted collections are not enabled for this Connect service."}</small></span>
               </label>
             </fieldset>
             <label><span>Collection name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
@@ -342,75 +376,26 @@ function App() {
   );
 }
 
-function ConnectionProgress() {
-  return <div className="connection-progress" role="status" aria-live="polite">
-    <StatusDot state="connecting" />
-    <div><strong>Checking this computer</strong><small>Starting the local connector and checking its secure connection.</small></div>
-  </div>;
-}
-
-function Overview({ status, cloud, access, collectionCount, busy, onNavigate, onPause }: {
-  status: AgentStatus | null;
-  cloud: CloudSetting;
-  access: AccessSnapshot;
-  collectionCount: number;
-  busy: boolean;
-  onNavigate(route: Route): void;
-  onPause(paused: boolean): void;
-}) {
-  if (!cloud.configured) {
-    return <PairingPanel />;
-  }
-  return (
-    <div className="workspace-stack">
-      {access.pending_authorizations.length > 0 && (
-        <button className="pending-banner" onClick={() => onNavigate("access")}>
-          <span>{access.pending_authorizations.length}</span>
-          <div><strong>{plural(access.pending_authorizations.length, "application is", "applications are")} waiting for a decision</strong><small>Review the requested collection and operations.</small></div>
-          <b>Review requests</b>
-        </button>
-      )}
-      <section className="readiness-panel">
-        <div className="readiness-copy">
-          <p className="eyebrow">Connection state</p>
-          <h2>{status?.paused ? "Access is paused." : access.online ? "This computer is ready." : "Working from the local cache."}</h2>
-          <p>{status?.paused ? "Apps remain connected, but every collection operation is being denied locally." : access.online ? "Approved applications can reach available collections directly or through mdbase while this connector is running." : "Direct access keeps working from cached local policy. Cloud changes resume when the portal reconnects."}</p>
-        </div>
-        <SettingSwitch
-          className="pause-control"
-          label="Application access"
-          description="Pause direct and relayed operations without disconnecting apps"
-          checked={status ? !status.paused : false}
-          disabled={busy || status === null}
-          stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
-          onChange={(checked) => onPause(!checked)}
-        />
-      </section>
-      <section className="overview-list" aria-label="Connector summary">
-        <OverviewRow label="Collections" value={`${collectionCount} managed`} detail="Computer-owned and hosted authorities stay explicit" action="Manage" onClick={() => onNavigate("collections")} />
-        <OverviewRow label="Application access" value={`${access.grants.length} active`} detail="Each grant is limited to one collection" action="Manage" onClick={() => onNavigate("access")} />
-        <OverviewRow label="Portal" value={access.account?.user_email ?? cloud.serverUrl ?? "Configured"} detail={access.account?.connector_name ?? "Cloud identity unavailable while offline"} action="Settings" onClick={() => onNavigate("settings")} />
-      </section>
-    </div>
-  );
-}
-
-function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
-  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
-}
-
-function Access({ cloud, access, collections, hostedCollections, canCreateHosted, busy, onAct, onNotice }: {
+function Access({ cloud, access, collections, hostedCollections, canCreateHosted, focusedRequestId, resumeAuthorization, busy, onAddCollection, onCreateCollection, onAuthorizationHandled, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
   collections: CollectionSummary[];
   hostedCollections: HostedCollectionSummary[];
   canCreateHosted: boolean;
+  focusedRequestId: string | null;
+  resumeAuthorization: boolean;
   busy: boolean;
+  onAddCollection(): void;
+  onCreateCollection(): void;
+  onAuthorizationHandled(requestId: string): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
   const applicationAccess = useMemo(() => groupApplicationAccess(access.grants), [access.grants]);
-  if (!cloud.configured) return <PairingPanel />;
+  const pendingAuthorizations = useMemo(() => [...access.pending_authorizations].sort((left, right) =>
+    left.id === focusedRequestId ? -1 : right.id === focusedRequestId ? 1 : 0
+  ), [access.pending_authorizations, focusedRequestId]);
+  if (!cloud.configured) return <PairingPanel resumeAuthorization={resumeAuthorization} />;
   return (
     <div className="workspace-stack">
       <section>
@@ -419,7 +404,20 @@ function Access({ cloud, access, collections, hostedCollections, canCreateHosted
           <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here." />
         ) : (
           <div className="request-list">
-            {access.pending_authorizations.map((request) => <AuthorizationRequest key={request.id} request={request} collections={collections} hostedCollections={hostedCollections} canCreateHosted={canCreateHosted} busy={busy} onAct={onAct} onNotice={onNotice} />)}
+            {pendingAuthorizations.map((request) => <AuthorizationRequest
+              key={request.id}
+              request={request}
+              collections={collections}
+              hostedCollections={hostedCollections}
+              canCreateHosted={canCreateHosted}
+              focused={request.id === focusedRequestId}
+              busy={busy}
+              onAddCollection={onAddCollection}
+              onCreateCollection={onCreateCollection}
+              onHandled={onAuthorizationHandled}
+              onAct={onAct}
+              onNotice={onNotice}
+            />)}
           </div>
         )}
       </section>
@@ -427,7 +425,7 @@ function Access({ cloud, access, collections, hostedCollections, canCreateHosted
       <section>
         <SectionHeading title="Connected applications" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
         {applicationAccess.length === 0 ? (
-          <Empty title="No applications connected" text="Connect from an mdbase-enabled application to manage its access here." />
+          <Empty title="No applications connected" text="Open the app you want to use and choose its mdbase connection action. The request will appear here for your decision." />
         ) : (
           <div className="application-access-list">{applicationAccess.map((group) => (
             <ApplicationGrantGroup key={group.applicationId} group={group} busy={busy} onAct={onAct} onNotice={onNotice} />
@@ -479,12 +477,16 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
   );
 }
 
-function AuthorizationRequest({ request, collections, hostedCollections, canCreateHosted, busy, onAct, onNotice }: {
+function AuthorizationRequest({ request, collections, hostedCollections, canCreateHosted, focused, busy, onAddCollection, onCreateCollection, onHandled, onAct, onNotice }: {
   request: PendingAuthorization;
   collections: CollectionSummary[];
   hostedCollections: HostedCollectionSummary[];
   canCreateHosted: boolean;
+  focused: boolean;
   busy: boolean;
+  onAddCollection(): void;
+  onCreateCollection(): void;
+  onHandled(requestId: string): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
@@ -647,14 +649,20 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
     onNotice(`${created.display_name} was created and selected. Application access is not allowed yet.`);
   }
   return (
-    <article className="request-panel">
+    <article className={`request-panel ${focused ? "focused-request" : ""}`} id={`authorization-${request.id}`}>
       <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{request.application_distribution === "portable" ? `Downloaded HTML file${request.application_project_url ? ` · ${host(request.application_project_url)}` : ""}` : host(request.application_homepage)}</code>{request.application_distribution === "portable" ? <small className="portable-request-warning">Unverified file origin. Only allow it if you intentionally opened the file{request.user_code ? ` and it shows ${request.user_code}` : ""}.</small> : <small>Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>}<small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
       <div className="request-decision">
         <section className="request-section">
           <div><strong>Collection</strong><small>{request.collection_id ? `${request.application_name} requested this specific collection.` : `Choose where ${request.application_name} can work.`}</small></div>
           <div className="request-section-content">
             <label><span>Collection</span><select value={collectionId} disabled={selectable.length === 0 || busy} onChange={(event) => setCollectionId(event.target.value)}>{selectable.length === 0 && <option value="">No compatible collection</option>}{selectable.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "Hosted by mdbase" : "on this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
-            {selectable.length === 0 && <small>{request.collection_id ? "The collection requested by this application is not available." : "No available local or hosted collection supports all requested operations and contracts."}</small>}
+            {selectable.length === 0 && <small>{request.collection_id ? "The collection requested by this application is not available." : "No collection is ready for this application yet. Add a compatible folder or create a collection without restarting the request."}</small>}
+            {selectable.length === 0 && request.requirements.collection_kind !== "hosted" && (
+              <div className="request-prerequisite-actions">
+                <button className="button primary" type="button" disabled={busy} onClick={onAddCollection}>Add a folder</button>
+                <button className="button secondary" type="button" disabled={busy} onClick={onCreateCollection}>Create collection</button>
+              </div>
+            )}
             {canCreateHosted && !request.collection_id && (creatingHosted ? (
               <form
                 className="request-collection-create"
@@ -725,9 +733,10 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
             ? `${request.application_name} will use ${selected.display_name}, ${selected.kind === "hosted" ? "hosted by mdbase" : "on this computer"}, until you revoke access.`
             : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
           <div className="decision-actions">
-            <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
+            <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onHandled(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
             <button className="button primary" disabled={busy || !selected || selectedPermissionCount === 0 || !setupReady} onClick={() => void onAct(async () => {
-              if (selected?.kind === "hosted") {
+              if (!selected) return;
+              if (selected.kind === "hosted") {
                 await window.mdbaseConnect.approveHostedAuthorization({
                   requestId: request.id,
                   collectionId,
@@ -742,7 +751,8 @@ function AuthorizationRequest({ request, collections, hostedCollections, canCrea
                   contractSetups
                 });
               }
-              onNotice(`${request.application_name} can now use the selected operations.`);
+              onHandled(request.id);
+              onNotice(`${request.application_name} is connected to ${selected.display_name}. Return to the application to continue.`);
             })}>{setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
           </div>
         </footer>
@@ -824,14 +834,14 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
     <div className="workspace-stack settings-stack">
       {!cloud.configured ? <PairingPanel /> : (
         <section>
-          <SectionHeading title="Portal connection" note="Account and routing metadata for this computer." />
+          <SectionHeading title="Account connection" note="The account this computer uses for application requests." />
           <div className="settings-rows">
             <ComputerNameSetting account={access.account} online={access.online} busy={busy} onAct={onAct} onNotice={onNotice} />
-            <SettingRow label="Server" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Control service reachable" : "Using cached local policy"} mono />
-            <SettingRow label="Connection" value={connection.settingsLabel} detail="The relay connection is always outbound from this computer" />
-            <SettingRow label="Direct access" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps on this computer can bypass the relay" />
+            <SettingRow label="Connect service" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Account changes are up to date" : "Saved app access still works on this computer"} mono />
+            <SettingRow label="Connection" value={connection.settingsLabel} detail="Keeps approved apps on other devices connected to this computer" />
+            <SettingRow label="Apps on this computer" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps here can connect without sending records over the internet" />
           </div>
-          <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from its portal? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
+          <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from your account? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
         </section>
       )}
       <section>
@@ -849,16 +859,12 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
               onNotice(checked ? "mdbase connect will start at login." : "Launch at login is off.");
             })}
           />
-          <SettingSwitch
-            className="setting-toggle"
-            label="Application access"
-            description="Pause direct and relayed operations while keeping grants connected"
-            checked={status ? !status.paused : false}
+          <AccessControl
+            paused={status?.paused ?? false}
             disabled={busy || status === null}
-            stateLabel={status ? status.paused ? "Paused" : "Available" : "Checking"}
-            onChange={(checked) => void onAct(async () => {
-              await window.mdbaseConnect.setAccessPaused(!checked);
-              onNotice(checked ? "Application access is available." : "Application access is paused.");
+            onChange={(paused) => void onAct(async () => {
+              await window.mdbaseConnect.setAccessPaused(paused);
+              onNotice(paused ? "App access is paused." : "App access is available again.");
             })}
           />
         </div>
@@ -915,7 +921,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           </div>
         </div>
       </section>
-      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never synchronized.</strong><p>Computer-owned collection content stays on this computer. Hosted Markdown is stored by the encrypted hosted provider and optional mirrors synchronize directly with it; the account portal receives only collection and access metadata.</p></div></section>
+      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never uploaded.</strong><p>Collections kept on this computer stay here. Hosted Markdown is stored by mdbase, and synced folders exchange changes directly with it. Your account only receives collection and app-access details.</p></div></section>
     </div>
   );
 }

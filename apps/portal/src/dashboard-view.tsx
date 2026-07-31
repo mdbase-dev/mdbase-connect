@@ -189,14 +189,14 @@ function HostedCollections({ collections, canCreate, onChanged, onError }: {
   return <>
     <SectionHeading
       title="Hosted collections"
-      note="Keep the authoritative Markdown on mdbase, with optional local mirrors."
+      note="Keep the main copy on mdbase, with optional synced folders."
       count={collections.length}
     />
     {collections.length === 0 && !creating
       ? <Empty
           title="No hosted collections"
           text={canCreate
-            ? "Create an mdbase collection whose source of truth stays available without a connected computer."
+            ? "Create an mdbase collection that stays available without a connected computer."
             : "Hosted collections are not enabled for this Connect service."}
         />
       : <div className="hosted-list">{collections.map((collection) => (
@@ -204,7 +204,7 @@ function HostedCollections({ collections, canCreate, onChanged, onError }: {
         ))}</div>}
     {canCreate && (creating ? <form className="inline-create" onSubmit={(event) => void create(event)}>
       <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <p>Starts as a clean mdbase 0.3 collection. Add Markdown through compatible apps, with an optional exact local mirror.</p>
+      <p>Starts as a clean mdbase collection. Add Markdown through compatible apps and optionally keep a folder in sync.</p>
       <div><button type="button" className="quiet-action" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim()}>{busy ? "Creating…" : "Create collection"}</button></div>
     </form> : <button className="button secondary" onClick={() => setCreating(true)}>Create hosted collection</button>)}
   </>;
@@ -265,10 +265,10 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
     <div className="hosted-summary">
       <div><strong>{collection.display_name}</strong><small>
         {collection.authority_state === "transferred"
-          ? `mdbase · moved to a computer · authority epoch ${collection.authority_epoch}`
+          ? "Main copy moved to a computer"
           : collection.authority_state === "transferring"
-            ? "mdbase · authority transfer in progress"
-            : `mdbase · authoritative on mdbase · created ${relativeTime(collection.created_at)}`}
+            ? "Main copy is moving to a computer"
+            : `Main copy hosted by mdbase · created ${relativeTime(collection.created_at)}`}
       </small></div>
       <span className={`availability ${isActive ? "online" : "idle"}`}><i />
         {collection.authority_state === "transferred"
@@ -277,7 +277,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
             ? "Moving"
             : "Hosted"}
       </span>
-      <span className="replica-count">{activeReplicas.length} {activeReplicas.length === 1 ? "mirror" : "mirrors"}</span>
+      <span className="replica-count">{activeReplicas.length} synced {activeReplicas.length === 1 ? "folder" : "folders"}</span>
       <div className="computer-actions">
         {editorCollectionId && <a
           className="quiet-action"
@@ -287,7 +287,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
         >
           Open in editor <span aria-hidden="true">↗</span>
         </a>}
-        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Mirror</button>}
+        {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "mirror" ? null : "mirror")}>Sync a folder</button>}
         {isActive && <button className="quiet-action" disabled={busy} onClick={() => setPanel(panel === "rename" ? null : "rename")}>Rename</button>}
         <button className="quiet-danger" disabled={busy} onClick={() => void remove()}>Delete</button>
       </div>
@@ -300,7 +300,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
       <MirrorSetup collectionId={collection.id} />
     </div>}
     {activeReplicas.length > 0 && <details className="replica-detail">
-      <summary>Manage mirrors</summary>
+      <summary>Manage synced folders</summary>
       <div>{activeReplicas.map((replica) => <div className="replica-row" key={replica.id}>
         <div><strong>{replica.name}</strong><small>{mirrorStatus(replica)}</small></div>
         <div><button className="quiet-danger" disabled={busy} onClick={() => void revoke(replica.id, replica.name)}>Revoke</button></div>
@@ -310,7 +310,7 @@ function HostedCollectionRow({ collection, onChanged, onError }: {
 }
 
 function mirrorStatus(replica: HostedCollection["replicas"][number]): string {
-  const mode = replica.mode === "read_only" ? "Receive-only" : "Two-way";
+  const mode = replica.mode === "read_only" ? "Downloads updates only" : "Edits sync both ways";
   if (!replica.sync_status) return `${mode} · status unavailable`;
   if (!replica.sync_status.last_seen_at) return `${mode} · waiting for first sync`;
   const lag = Math.max(
@@ -324,9 +324,9 @@ function mirrorStatus(replica: HostedCollection["replicas"][number]): string {
 function MirrorSetup({ collectionId }: { collectionId: string }) {
   const desktopUrl = `mdbase-connect://mirror?collection=${encodeURIComponent(collectionId)}`;
   return <div className="mirror-setup" aria-live="polite">
-    <p><strong>Choose the folder in mdbase connect.</strong> The desktop app controls synchronization and keeps mirror credentials in private application storage.</p>
+    <p><strong>Choose the folder in mdbase connect.</strong> The desktop app keeps the folder location and connection details on your computer.</p>
     <div className="mirror-setup-actions"><a className="button primary" href={desktopUrl}>Open mdbase connect</a></div>
-    <p>Existing Markdown is reviewed before upload. Path collisions stop for an explicit decision, and the hosted collection remains authoritative.</p>
+    <p>Existing Markdown is checked before upload. If files overlap, mdbase connect asks you which version to keep. The main copy remains hosted.</p>
   </div>;
 }
 
@@ -500,4 +500,3 @@ function PortalGrant({ grant, connectorName, disabled, onChanged, onError }: {
     </div>
   </details>;
 }
-

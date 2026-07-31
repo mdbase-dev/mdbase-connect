@@ -42,7 +42,7 @@ export function Collections({
 }) {
   return (
     <section className="collection-section">
-      <SectionHeading title="Collections" note="Authority and local copies are shown separately.">
+      <SectionHeading title="Collections" note="Main copies and synced folders are shown separately.">
         <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
         <button className="button primary" disabled={busy} onClick={onCreate}>Create collection</button>
       </SectionHeading>
@@ -67,14 +67,14 @@ export function Collections({
         )?.path ?? conflict.display_name;
         return <section className="copy-registration" aria-labelledby={`authority-${conflict.collection_id}`} key={conflict.collection_id}>
           <div>
-            <p className="eyebrow">Collection identity conflict</p>
+            <p className="eyebrow">Same collection in two places</p>
             <h2 id={`authority-${conflict.collection_id}`}>Choose which copy of {conflict.display_name} to use.</h2>
             <p>The selected folder and an existing connected copy share the same collection ID.</p>
             <dl className="identity-conflict-details">
               <div><dt>Selected folder</dt><dd><code title={selectedFolder}>{selectedFolder}</code></dd></div>
               <div><dt>Currently active through</dt><dd>{conflict.active_connector_name}</dd></div>
             </dl>
-            <small>Using the selected folder moves authority here and revokes application access through {conflict.active_connector_name}. Keeping both writes a new ID only to the selected folder’s <code>mdbase.yaml</code>.</small>
+            <small>Using the selected folder makes it the main copy and revokes application access through {conflict.active_connector_name}. Keeping both writes a new ID only to the selected folder’s <code>mdbase.yaml</code>.</small>
           </div>
           <div className="copy-registration-actions">
             <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
@@ -82,15 +82,15 @@ export function Collections({
               onNotice(`${independent.display_name} now has an independent collection identity.`);
             })}>Keep both copies</button>
             <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
-              if (!window.confirm(`Use ${selectedFolder} as the authority for ${conflict.display_name}? Existing application access through ${conflict.active_connector_name} will be revoked.`)) return;
+              if (!window.confirm(`Use ${selectedFolder} as the main copy of ${conflict.display_name}? Existing application access through ${conflict.active_connector_name} will be revoked.`)) return;
               await window.mdbaseConnect.takeCollectionAuthority(conflict.collection_id);
-              onNotice(`${conflict.display_name} now uses ${selectedFolder} as its authoritative folder.`);
+              onNotice(`${conflict.display_name} now uses ${selectedFolder} as its main folder.`);
             })}>Use selected folder</button>
           </div>
         </section>;
       })}
       <div className="collection-authority-group">
-        <SectionHeading title="On this computer" note="These folders are authoritative here." count={collections.length} />
+        <SectionHeading title="On this computer" note="Each folder below is the main copy of its collection." count={collections.length} />
         {collections.length === 0 ? (
           <Empty title="No computer-owned collections" text="Add a folder with an existing mdbase.yaml, or create one here." />
         ) : (
@@ -119,7 +119,7 @@ export function Collections({
           count={hosted.hosted_collections.length}
         />
         {hosted.hosted_collections.length === 0 ? (
-          <Empty title="No hosted collections" text="Create one to keep its authority online, with an optional folder mirror here." />
+          <Empty title="No hosted collections" text="Create one to keep its main copy available without this computer, with an optional synced folder here." />
         ) : (
           <div className="collection-list">
             {hosted.hosted_collections.map((collection) => (
@@ -204,8 +204,8 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
         </form>
         <section className="collection-editor-section">
           <div>
-            <strong>Authority</strong>
-            <small>Move the source of truth online while keeping this folder as a two-way mirror.</small>
+            <strong>Main copy</strong>
+            <small>Keep this collection available without this computer while this folder continues to sync edits both ways.</small>
           </div>
           <div className="collection-config-actions">
             <button
@@ -214,21 +214,18 @@ function CollectionRow({ collection, cloudConfigured, busy, onAct, onNotice }: {
               disabled={busy || !cloudConfigured || !collection.enabled}
               onClick={() => {
                 if (!window.confirm(
-                  `Move ${collection.display_name} authority online? `
-                  + "The collection will be uploaded directly to the provider, existing local app grants will be revoked, "
-                  + "and this folder will become a two-way mirror."
+                  `Make ${collection.display_name} available without this computer? `
+                  + "The main copy will move to mdbase, existing app access for this folder will be revoked, "
+                  + "and this folder will continue to sync edits both ways."
                 )) return;
                 void onAct(async () => {
-                  const result = await window.mdbaseConnect.transferCollectionAuthority(collection.id);
+                  await window.mdbaseConnect.transferCollectionAuthority(collection.id);
                   setEditing(false);
-                  onNotice(
-                    `${collection.display_name} is now online at authority epoch `
-                    + `${result.transfer.authority_epoch}; this folder is its two-way mirror.`
-                  );
+                  onNotice(`${collection.display_name} is now available without this computer. This folder will stay in sync.`);
                 });
               }}
             >
-              Move authority online
+              Make available without this computer
             </button>
             {!cloudConfigured && <small>Connect this computer to an account first.</small>}
           </div>
@@ -299,10 +296,10 @@ function HostedCollectionRow({
           </div>
           <span className="authority-label">
             {collection.authority_state === "transferred"
-              ? "Retired hosted copy · authority moved"
+              ? "Hosted copy retired · main copy moved"
               : collection.authority_state === "transferring"
-                ? "Authority transfer in progress"
-                : `Hosted authority · ${activeReplicas.length} ${plural(activeReplicas.length, "mirror", "mirrors")}`}
+                ? "Main copy is moving"
+                : `Main copy hosted by mdbase · ${activeReplicas.length} synced ${plural(activeReplicas.length, "folder", "folders")}`}
           </span>
         </div>
         <div className="collection-status">
@@ -321,7 +318,7 @@ function HostedCollectionRow({
           >
             Open in editor <span aria-hidden="true">↗</span>
           </button>}
-          <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Mirror" : "Details"}</button>
+          <button className="quiet-action" disabled={busy} aria-expanded={editing} onClick={() => setEditing((value) => !value)}>{editing ? "Close" : mirror ? "Sync" : "Details"}</button>
         </div>
       </div>
       {editing && <div className="collection-editor hosted-editor">
@@ -333,7 +330,7 @@ function HostedCollectionRow({
           });
         }}>
           <section className="collection-editor-section">
-            <div><strong>Details</strong><small>The name is stored with the hosted authority.</small></div>
+            <div><strong>Details</strong><small>The name is stored with the hosted main copy.</small></div>
             <div className="collection-fields">
               <label><span>Name</span><input value={name} maxLength={200} required onChange={(event) => setName(event.target.value)} /></label>
               <button className="button secondary" disabled={busy || !name.trim() || name.trim() === collection.display_name}>Save name</button>
@@ -342,15 +339,15 @@ function HostedCollectionRow({
         </form>
         {collection.authority_state !== "transferred" && <section className="collection-editor-section mirror-section">
           <div>
-            <strong>Mirror on this computer</strong>
-            <small>A mirror is a local copy. The hosted collection remains authoritative.</small>
+            <strong>Synced folder on this computer</strong>
+            <small>Keep ordinary Markdown here while the main copy remains hosted by mdbase.</small>
           </div>
           {mirror ? (
             <div className="mirror-control">
               <div className="mirror-state-row">
                 <StatusDot state={state.dot} />
                 <div><strong>{state.label}</strong><button className="path" title={mirror.path} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>{mirror.path}</button></div>
-                <code>{mirror.mode === "read_write" ? "two-way" : "receive-only"}</code>
+                <code>{mirror.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code>
               </div>
               {mirror.progress && <small>{mirror.progress.phase === "uploading" ? "Uploading" : "Applying"} {mirror.progress.completed}{mirror.progress.total === null ? "" : ` of ${mirror.progress.total}`} changes…</small>}
               {mirror.error && <div className="message error-message compact-message">{mirror.error}</div>}
@@ -388,36 +385,36 @@ function HostedCollectionRow({
                 })}>{mirror.syncing ? "Synchronizing…" : "Sync now"}</button>
                 <button className="quiet-action" disabled={busy} onClick={() => void window.mdbaseConnect.openMirror(mirror.replica_id)}>Open folder</button>
                 <button className="quiet-action danger" disabled={busy} onClick={() => {
-                  if (!window.confirm(`Stop mirroring ${collection.display_name} on this computer? The folder and its files will remain.`)) return;
+                  if (!window.confirm(`Stop syncing ${collection.display_name} on this computer? The folder and its files will remain.`)) return;
                   void onAct(async () => {
                     await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
-                    onNotice(`The mirror was disconnected. Files remain at ${mirror.path}.`);
+                    onNotice(`The synced folder was disconnected. Files remain at ${mirror.path}.`);
                   });
-                }}>Stop mirror</button>
+                }}>Stop syncing</button>
               </div>
             </div>
           ) : (
             <div className="mirror-setup">
               <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
-              <label><span>Synchronization</span><select value={mode} onChange={(event) => setMode(event.target.value as "read_only" | "read_write")}><option value="read_write">Two-way</option><option value="read_only">Receive-only</option></select></label>
-              <small>Two-way mirrors upload local edits. Receive-only mirrors replace their local view with hosted changes.</small>
+              <label><span>How should it sync?</span><select value={mode} onChange={(event) => setMode(event.target.value as "read_only" | "read_write")}><option value="read_write">Sync edits both ways</option><option value="read_only">Download updates only</option></select></label>
+              <small>Syncing both ways sends local edits to mdbase. Download-only folders replace their local view with hosted changes.</small>
               <button className="button primary" disabled={busy || !path} onClick={() => void onAct(async () => {
                 await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode });
                 setPath("");
-                onNotice(`${collection.display_name} is now mirrored on this computer.`);
-              })}>Start mirror</button>
+                onNotice(`${collection.display_name} now has a synced folder on this computer.`);
+              })}>Start syncing</button>
             </div>
           )}
         </section>}
         {collection.authority_state === "transferred" ? (
           <section className="collection-editor-section">
             <div>
-              <strong>Authority</strong>
+              <strong>Main copy</strong>
               <small>This hosted copy is retained for recovery but no longer accepts changes.</small>
             </div>
             <div className="authority-transfer-control">
               <div>
-                <strong>Source of truth moved to this computer</strong>
+                <strong>Main copy moved to this computer</strong>
                 <small>The collection now appears under On this computer. Applications need fresh access to the computer-owned collection.</small>
               </div>
             </div>
@@ -425,8 +422,8 @@ function HostedCollectionRow({
         ) : mirror && (
           <section className="collection-editor-section">
             <div>
-              <strong>Authority</strong>
-              <small>Make this synchronized folder the source of truth.</small>
+              <strong>Main copy</strong>
+              <small>Make this synced folder the main copy.</small>
             </div>
             <div className="authority-transfer-control">
               <div>
@@ -441,9 +438,9 @@ function HostedCollectionRow({
                   if (
                     !mirror.promotion_pending
                     && !window.confirm(
-                      `Move ${collection.display_name} authority to this computer? `
-                      + `${mirror.path} will become the source of truth. Hosted writes will stop, `
-                      + "and existing application access and other mirrors will be revoked. "
+                      `Use this folder as the main copy of ${collection.display_name}? `
+                      + `${mirror.path} will become the main copy. Hosted changes will stop, `
+                      + "and existing application access and other synced folders will be revoked. "
                       + "You will confirm this change in your browser."
                     )
                   ) return;
@@ -451,18 +448,15 @@ function HostedCollectionRow({
                   void onAct(async () => {
                     onNotice(
                       mirror.promotion_pending
-                        ? "Resuming the authority transfer. Keep mdbase connect open."
-                        : "Confirm the authority transfer in your browser, then return to mdbase connect."
+                        ? "Resuming the main-copy change. Keep mdbase connect open."
+                        : "Confirm the main-copy change in your browser, then return to mdbase connect."
                     );
                     try {
-                      const result = await window.mdbaseConnect.promoteMirrorAuthority(
+                      await window.mdbaseConnect.promoteMirrorAuthority(
                         mirror.replica_id
                       );
                       setEditing(false);
-                      onNotice(
-                        `${collection.display_name} now uses this computer as its authority at epoch `
-                        + `${result.authority_epoch}. Applications need fresh access.`
-                      );
+                      onNotice(`${collection.display_name} now uses this folder as its main copy. Applications need fresh access.`);
                     } finally {
                       setPromotionStarting(false);
                     }
@@ -476,9 +470,9 @@ function HostedCollectionRow({
         )}
         {activeReplicas.some((replica) => replica.id !== mirror?.replica_id) && (
           <section className="collection-editor-section">
-            <div><strong>Other mirrors</strong><small>Mirrors connected from another installation or through the command line.</small></div>
+            <div><strong>Other synced folders</strong><small>Folders connected from another installation or through the command line.</small></div>
             <div className="replica-list">{activeReplicas.filter((replica) => replica.id !== mirror?.replica_id).map((replica) => (
-              <div key={replica.id}><span>{replica.name}</span><code>{replica.mode === "read_write" ? "two-way" : "receive-only"}</code><small>{replica.sync_status?.last_seen_at ? `Seen ${relativeTime(replica.sync_status.last_seen_at)}` : "Not synchronized yet"}</small><button className="quiet-action danger" disabled={busy} onClick={() => {
+              <div key={replica.id}><span>{replica.name}</span><code>{replica.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code><small>{replica.sync_status?.last_seen_at ? `Seen ${relativeTime(replica.sync_status.last_seen_at)}` : "Not synchronized yet"}</small><button className="quiet-action danger" disabled={busy} onClick={() => {
                 if (!window.confirm(`Revoke ${replica.name}? Its local files will remain, but it will no longer synchronize.`)) return;
                 void onAct(async () => {
                   await window.mdbaseConnect.revokeHostedReplica(replica.id);
@@ -489,13 +483,13 @@ function HostedCollectionRow({
           </section>
         )}
         <div className="collection-danger-row">
-          <small>Deleting a hosted collection permanently removes its hosted records. Local mirror files remain.</small>
+          <small>Deleting a hosted collection permanently removes its hosted records. Synced folder files remain.</small>
           <button className="quiet-action danger" disabled={busy} onClick={() => {
             if (!window.confirm(`Permanently delete the hosted collection ${collection.display_name}? This cannot be undone.`)) return;
             void onAct(async () => {
               if (mirror) await window.mdbaseConnect.disconnectMirror(mirror.replica_id);
               await window.mdbaseConnect.deleteHostedCollection(collection.id);
-              onNotice(`${collection.display_name} was deleted. Any local mirror files remain.`);
+              onNotice(`${collection.display_name} was deleted. Any synced folder files remain.`);
             });
           }}>Delete hosted collection</button>
         </div>
@@ -503,5 +497,3 @@ function HostedCollectionRow({
     </article>
   );
 }
-
-

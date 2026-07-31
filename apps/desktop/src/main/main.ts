@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
 import { contractSetupInput } from "./contract-setup-input";
 import { AgentControlError, requestAgent } from "./control-client";
+import { routeForDeepLink } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { createTrayImage } from "./tray-image";
@@ -754,20 +755,8 @@ function registerDeepLinks(): void {
 }
 
 function handleDeepLink(value: string | undefined): void {
-  if (!value?.startsWith("mdbase-connect://")) return;
-  try {
-    const url = new URL(value);
-    if (url.hostname === "authorize") {
-      showRoute("access");
-    } else if (url.hostname === "paired") {
-      showRoute("overview");
-    } else if (url.hostname === "mirror") {
-      const collectionId = url.searchParams.get("collection");
-      showRoute(collectionId ? `collections:mirror:${collectionId}` : "collections");
-    }
-  } catch {
-    // Ignore malformed protocol invocations.
-  }
+  const route = routeForDeepLink(value);
+  if (route) showRoute(route);
 }
 
 function showRoute(route: string): void {

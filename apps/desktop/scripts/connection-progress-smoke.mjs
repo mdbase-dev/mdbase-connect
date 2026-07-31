@@ -55,7 +55,8 @@ try {
   });
   const pairingWindow = await firstApp.firstWindow({ timeout: 15_000 });
   await pairingWindow.getByRole("heading", { name: "Connect this computer." }).waitFor();
-  await pairingWindow.getByLabel("Server").fill(portalUrl);
+  await pairingWindow.getByText("Use another Connect server", { exact: true }).click();
+  await pairingWindow.getByLabel("Server address").fill(portalUrl);
   await pairingWindow.getByLabel("Computer name").fill("Progress test computer");
   await pairingWindow.getByRole("button", { name: "Continue in browser" }).click();
 

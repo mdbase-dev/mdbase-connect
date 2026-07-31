@@ -17,7 +17,19 @@ export function editorUrl(collectionId?: string): string {
 }
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
-export function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
+export function message(value: unknown) {
+  const detail = value instanceof Error ? value.message : String(value);
+  if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
+    return "mdbase connect could not reach the service. Check your connection and try again.";
+  }
+  if (/authorization.+(?:expired|not found)|request.+(?:expired|not found)/i.test(detail)) {
+    return "This application request has expired. Return to the application and start again.";
+  }
+  if (/unsupported.+protocol|up-to-date connector|no longer compatible/i.test(detail)) {
+    return "The mdbase connect app on this computer needs to be updated before you can continue.";
+  }
+  return detail;
+}
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function formatDeviceCode(value: string) {
   const canonical = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -97,4 +109,3 @@ export function relativeTime(value: string) {
   if (Math.abs(hours) < 24) return format.format(hours, "hour");
   return format.format(Math.round(hours / 24), "day");
 }
-

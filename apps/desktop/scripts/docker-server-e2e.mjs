@@ -41,7 +41,12 @@ try {
   await pairingWindow
     .getByRole("heading", { name: "Connect this computer." })
     .waitFor();
-  await pairingWindow.getByLabel("Server").fill(environment.serverUrl);
+  await pairingWindow
+    .getByText("Use another Connect server", { exact: true })
+    .click();
+  await pairingWindow
+    .getByLabel("Server address")
+    .fill(environment.serverUrl);
   await pairingWindow
     .getByLabel("Computer name")
     .fill("Docker test computer");

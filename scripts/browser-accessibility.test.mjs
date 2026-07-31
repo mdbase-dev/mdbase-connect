@@ -16,7 +16,9 @@ const browser = await chromium.launch({ headless: true });
 try {
   await auditPortalLogin();
   await auditPortalDashboard();
+  await auditPortalColdStartAuthorization();
   await auditPortalDeviceAuthorization();
+  await auditDesktopResumedAuthorization();
   await auditDesktopRoutes();
   console.log(
     "Browser accessibility passed: landmarks, names, headings, keyboard reachability, and reduced motion."
@@ -113,10 +115,124 @@ async function auditPortalDeviceAuthorization() {
   await page.close();
 }
 
+async function auditPortalColdStartAuthorization() {
+  const page = await browser.newPage();
+  const errors = watchPageErrors(page);
+  const requestId = "22222222-2222-4222-8222-222222222222";
+  const authorization = portalAuthorizationFixture(requestId);
+  await page.route("**/v1/**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === `/v1/authorization-requests/${requestId}`) {
+      await route.fulfill({
+        json: {
+          authorization,
+          collections: [],
+          hosted_collections_available: true,
+          unavailable_connectors: []
+        }
+      });
+      return;
+    }
+    if (pathname === `/v1/authorization-requests/${requestId}/status`) {
+      await route.fulfill({ json: { status: "pending" } });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { error: "not_found" } });
+  });
+  await page.goto(`${servers[0].origin}/authorize/${requestId}`);
+  await page.getByRole("heading", { name: "Workout journal" }).waitFor();
+  const localFolder = page.getByRole("link", { name: "Use a local folder" });
+  assert.equal(
+    await localFolder.getAttribute("href"),
+    `mdbase-connect://authorize?request_id=${requestId}`,
+    "portal authorization: desktop link preserves request ID"
+  );
+  await expectText(page, "View and find records · Create and edit records · Delete records");
+  await localFolder.evaluate((element) => {
+    element.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  });
+  await localFolder.click();
+  await page.getByRole("heading", { name: "Choose the folder in mdbase connect." }).waitFor();
+  assert.equal(
+    new URL(page.url()).searchParams.get("continue_in_desktop"),
+    "1",
+    "portal authorization: browser records desktop continuation"
+  );
+  await auditPage(page, "portal desktop continuation", { keyboard: true });
+  await page.getByRole("button", { name: "Review in this browser" }).click();
+  await localFolder.waitFor();
+  assert.equal(
+    new URL(page.url()).searchParams.has("continue_in_desktop"),
+    false,
+    "portal authorization: browser review remains available"
+  );
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
+async function auditDesktopResumedAuthorization() {
+  const page = await browser.newPage();
+  const errors = watchPageErrors(page);
+  const requestId = "33333333-3333-4333-8333-333333333333";
+  await page.addInitScript((authorizationId) => {
+    localStorage.setItem("mdbase:resume-authorization", authorizationId);
+    const status = {
+      protocol_version: 1,
+      state: "connected",
+      registered_collections: 0,
+      paused: false,
+      direct_access_available: true
+    };
+    const updateStatus = {
+      phase: "idle",
+      current_version: "0.1.0",
+      channel: "beta",
+      message: "Up to date",
+      can_check: true,
+      can_install: false
+    };
+    window.mdbaseConnect = {
+      status: async () => status,
+      updateStatus: async () => updateStatus,
+      listCollections: async () => [],
+      getLaunchAtLogin: async () => ({ enabled: false, available: true }),
+      getCloudConfig: async () => ({ configured: false, serverUrl: null }),
+      accessSnapshot: async () => ({
+        configured: false,
+        online: false,
+        grants: [],
+        pending_authorizations: [],
+        authority_conflicts: []
+      }),
+      listActivity: async () => [],
+      hostedSnapshot: async () => ({
+        online: false,
+        hosted_collections_available: false,
+        hosted_collections: [],
+        grants: [],
+        pending_authorizations: []
+      }),
+      listMirrors: async () => [],
+      onNavigate: () => () => undefined,
+      onUpdateStatus: () => () => undefined
+    };
+  }, requestId);
+  await page.goto(servers[1].origin);
+  await page.getByRole("heading", { name: "Decide what apps can do." }).waitFor();
+  await page.getByRole("heading", { name: "Connect this computer to continue." }).waitFor();
+  const serverAddress = page.getByLabel("Server address");
+  assert.equal(await serverAddress.isVisible(), false, "desktop pairing: server address starts hidden");
+  await page.getByText("Use another Connect server", { exact: true }).click();
+  await serverAddress.waitFor({ state: "visible" });
+  await auditPage(page, "desktop resumed authorization", { keyboard: true });
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
 async function auditDesktopRoutes() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
-  await page.addInitScript(() => {
+  await page.addInitScript((pendingAuthorization) => {
     const status = {
       protocol_version: 1,
       state: "connected",
@@ -142,7 +258,7 @@ async function auditDesktopRoutes() {
         user_email: "user@example.com"
       },
       grants: [],
-      pending_authorizations: [],
+      pending_authorizations: [pendingAuthorization],
       authority_conflicts: []
     };
     window.mdbaseConnect = {
@@ -171,23 +287,75 @@ async function auditDesktopRoutes() {
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus
     };
-  });
+  }, desktopAuthorizationFixture("44444444-4444-4444-8444-444444444444"));
   await page.goto(servers[1].origin);
   await page.getByRole("heading", { name: "Your local connection." }).waitFor();
+  await page.getByRole("button", { name: "Add existing folder" }).waitFor();
+  await page.getByRole("button", { name: "Create collection" }).waitFor();
+  await page.getByRole("button", { name: "Pause app access" }).waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
 
   for (const route of [
-    ["Collections", "Your collections, in one place."],
+    ["Collections", "Your collections."],
     ["App access", "Decide what apps can do."],
     ["Activity", "What reached this computer."],
     ["Settings", "Connection and startup."]
   ]) {
     await page.getByRole("button", { name: route[0] }).click();
     await page.getByRole("heading", { name: route[1] }).waitFor();
+    if (route[0] === "App access") {
+      await page.getByRole("button", { name: "Add a folder" }).waitFor();
+      await page.getByRole("button", { name: "Create collection" }).waitFor();
+      await expectText(page, "View and find records · Create and edit records · Delete records");
+    }
     await auditPage(page, `desktop ${route[0].toLowerCase()}`);
   }
   assert.deepEqual(errors, []);
   await page.close();
+}
+
+function portalAuthorizationFixture(id) {
+  return {
+    id,
+    flow: "authorization_code",
+    requested_operations: ["read", "create", "delete"],
+    collection_id: null,
+    expires_at: "2099-08-01T00:00:00.000Z",
+    application_id: "app-workout-journal",
+    application_name: "Workout journal",
+    distribution: "web",
+    homepage: "https://journal.example",
+    project_url: null,
+    icon: null,
+    requirements: { contracts: [], access: "full_collection" },
+    provisions: { type_packs: [] },
+    notifications: { criteria: [] },
+    available_collections: [],
+    unavailable_connectors: []
+  };
+}
+
+function desktopAuthorizationFixture(id) {
+  return {
+    id,
+    application_id: "app-workout-journal",
+    application_name: "Workout journal",
+    application_distribution: "web",
+    application_homepage: "https://journal.example",
+    flow: "authorization_code",
+    requested_operations: ["read", "create", "delete"],
+    requirements: { contracts: [], access: "full_collection" },
+    provisions: { type_packs: [] },
+    notifications: { criteria: [] },
+    compatible_collection_ids: [],
+    provisionable_collection_ids: [],
+    collection_types: [],
+    expires_at: "2099-08-01T00:00:00.000Z"
+  };
+}
+
+async function expectText(page, value) {
+  await page.getByText(value, { exact: true }).waitFor();
 }
 
 async function auditPage(page, label, options = {}) {

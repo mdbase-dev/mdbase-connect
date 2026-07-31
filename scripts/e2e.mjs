@@ -48,6 +48,9 @@ const cliBinary = join(repoRoot, "target", "debug", `mdbase${extension}`);
 let agent;
 let manifestServer;
 let browserManifestServer;
+let onboardingBrowser;
+let onboardingContext;
+let onboardingPage;
 let directOrigin;
 const applicationKeyStore = new MemoryGrantKeyStore();
 let relayContext;
@@ -69,11 +72,70 @@ try {
   });
   const cookie = session.response.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("Development session did not set a cookie");
-  const connector = await request("/v1/connectors", {
+
+  const manifest = await openManifestServer();
+  manifestServer = manifest.server;
+  browserManifestServer = manifest.browserServer;
+  directOrigin = manifest.origin;
+  const application = await request("/v1/apps/register", {
     method: "POST",
-    cookie,
-    body: { name: "MVP computer" }
+    body: { manifest: manifest.applicationManifest }
   });
+  const appId = application.body.application.id;
+  const applicationKey = await applicationKeyStore.create("e2e-grant");
+  const verifier = "end-to-end-pkce-verifier-with-forty-three-characters";
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const authorize = await fetch(
+    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(applicationKey.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(applicationKey.signingPublicKey)}`,
+    { headers: { cookie }, redirect: "manual" }
+  );
+  if (authorize.status !== 302) throw new Error(`Authorization start returned HTTP ${authorize.status}`);
+  const authorizationId = authorize.headers.get("location")?.split("/").at(-1);
+  if (!authorizationId) throw new Error("Authorization request ID missing");
+
+  onboardingBrowser = await chromium.launch({ headless: true });
+  onboardingContext = await onboardingBrowser.newContext();
+  const cookieSeparator = cookie.indexOf("=");
+  await onboardingContext.addCookies([{
+    name: cookie.slice(0, cookieSeparator),
+    value: cookie.slice(cookieSeparator + 1),
+    url: serverUrl
+  }]);
+  onboardingPage = await onboardingContext.newPage();
+  await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
+  const localFolder = onboardingPage.getByRole("link", { name: "Use a local folder" });
+  await localFolder.waitFor({ state: "visible" });
+  const expectedDeepLink = `mdbase-connect://authorize?request_id=${authorizationId}`;
+  if (await localFolder.getAttribute("href") !== expectedDeepLink) {
+    throw new Error("The onboarding handoff did not preserve the authorization request ID");
+  }
+  await localFolder.evaluate((element) => {
+    element.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  });
+  await localFolder.click();
+  await onboardingPage.getByRole("heading", {
+    name: "Choose the folder in mdbase connect."
+  }).waitFor();
+  if (new URL(onboardingPage.url()).searchParams.get("continue_in_desktop") !== "1") {
+    throw new Error("The browser did not retain the desktop continuation state");
+  }
+
+  const pairing = await request("/v1/pairing-requests", {
+    method: "POST",
+    body: { connector_name: "MVP computer" }
+  });
+  await request(`/v1/pairing-requests/${pairing.body.pairing_id}/approve`, {
+    method: "POST",
+    cookie
+  });
+  const paired = await request(`/v1/pairing-requests/${pairing.body.pairing_id}/exchange`, {
+    method: "POST",
+    authorization: `Bearer ${pairing.body.pairing_secret}`
+  });
+  if (paired.body.status !== "paired" || !paired.body.token) {
+    throw new Error(`Connector pairing did not complete: ${JSON.stringify(paired.body)}`);
+  }
+  const connectorToken = paired.body.token;
 
   agent = startAgent([]);
   await waitForAgent();
@@ -172,7 +234,7 @@ secret: connector scope test
     `---\ntype: workout\ntitle: Bulk ${index}\nstatus: open\n---\n`
   )));
   await stopAgent(agent);
-  agent = startAgent(["--server-url", serverUrl], connector.body.token);
+  agent = startAgent(["--server-url", serverUrl], connectorToken);
 
   const dashboard = await poll(async () => {
     const current = await request("/v1/me", { cookie });
@@ -180,25 +242,6 @@ secret: connector scope test
   }, "collection metadata did not reach the portal");
   const collection = dashboard.collections[0];
 
-  const manifest = await openManifestServer();
-  manifestServer = manifest.server;
-  browserManifestServer = manifest.browserServer;
-  directOrigin = manifest.origin;
-  const application = await request("/v1/apps/register", {
-    method: "POST",
-    body: { manifest: manifest.applicationManifest }
-  });
-  const appId = application.body.application.id;
-  const applicationKey = await applicationKeyStore.create("e2e-grant");
-  const verifier = "end-to-end-pkce-verifier-with-forty-three-characters";
-  const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const authorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(applicationKey.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(applicationKey.signingPublicKey)}`,
-    { headers: { cookie }, redirect: "manual" }
-  );
-  if (authorize.status !== 302) throw new Error(`Authorization start returned HTTP ${authorize.status}`);
-  const authorizationId = authorize.headers.get("location")?.split("/").at(-1);
-  if (!authorizationId) throw new Error("Authorization request ID missing");
   await poll(async () => {
     const snapshot = await cliJson(["access", "snapshot"]);
     return snapshot.result?.pending_authorizations?.some((pending) => pending.id === authorizationId)
@@ -214,6 +257,20 @@ secret: connector scope test
     return current.body.redirect_uri ? current : null;
   }, "approved authorization did not return to the browser");
   const callback = new URL(completed.body.redirect_uri);
+  await onboardingPage.waitForURL(
+    (url) => url.href.startsWith(manifest.redirectUri),
+    { timeout: 10_000 }
+  );
+  const continuedCallback = new URL(onboardingPage.url());
+  if (!continuedCallback.searchParams.get("code")
+      || continuedCallback.searchParams.get("state") !== "e2e") {
+    throw new Error("The waiting browser page did not continue with the approved request");
+  }
+  await onboardingContext.close();
+  await onboardingBrowser.close();
+  onboardingContext = undefined;
+  onboardingBrowser = undefined;
+  onboardingPage = undefined;
   const token = await request("/oauth/token", {
     method: "POST",
     form: {
@@ -253,7 +310,7 @@ secret: connector scope test
     await readFile(join(collectionPath, "_types", "workout.md"))
   );
   await stopAgent(agent);
-  agent = startAgent(["--server-url", serverUrl], connector.body.token);
+  agent = startAgent(["--server-url", serverUrl], connectorToken);
   await poll(async () => {
     const current = await request("/v1/me", { cookie });
     return current.body.collections.filter(
@@ -1085,6 +1142,8 @@ implements:
   }
   process.stdout.write("mdbase connect end-to-end MVP path passed\n");
 } finally {
+  await onboardingContext?.close().catch(() => {});
+  await onboardingBrowser?.close().catch(() => {});
   if (agent) await stopAgent(agent);
   if (browserManifestServer) {
     await new Promise((resolveClose) => browserManifestServer.close(resolveClose));
@@ -1158,6 +1217,7 @@ async function request(path, options = {}) {
   const headers = {};
   let body;
   if (options.cookie) headers.cookie = options.cookie;
+  if (options.authorization) headers.authorization = options.authorization;
   if (options.body) {
     headers["content-type"] = "application/json";
     body = JSON.stringify(options.body);

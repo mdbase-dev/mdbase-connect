@@ -65,12 +65,15 @@ test("groups requested operations into plain-language permission categories", ()
       },
       {
         id: "change",
-        label: "Change records",
-        description: "Create, edit, rename, move, or delete records.",
-        operations: [
-          { id: "create", label: "Create records" },
-          { id: "delete", label: "Delete records" }
-        ]
+        label: "Create and edit records",
+        description: "Create, edit, rename, or move records.",
+        operations: [{ id: "create", label: "Create records" }]
+      },
+      {
+        id: "delete",
+        label: "Delete records",
+        description: "Permanently remove records from this collection.",
+        operations: [{ id: "delete", label: "Delete records" }]
       },
       {
         id: "manage",

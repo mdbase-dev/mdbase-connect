@@ -202,38 +202,38 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
   const inactive = adoption.state === "cancelled" || adoption.state === "expired";
   return (
     <main className="center-page">
-      <PageBrand label="Collection adoption" />
+      <PageBrand label="Move collection online" />
       <section className="decision-panel authority-decision">
         {adoption.state === "completed" ? <>
-          <p className="eyebrow outcome-label">Adoption complete</p>
+          <p className="eyebrow outcome-label">Move complete</p>
           <h1>{adoption.display_name} is now hosted.</h1>
           <p>
-            mdbase is the authoritative home for this collection.
+            mdbase now keeps the main copy of this collection.
             {adoption.retain_mirror
-              ? ` ${adoption.mirror_name ?? adoption.source_name} will continue as a two-way local mirror.`
-              : " The original local files are no longer authoritative."}
+              ? ` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.`
+              : " The original local files are no longer the main copy."}
           </p>
           <div className="transfer-status" role="status">
             <span className="status-dot connected" aria-hidden="true" />
-            <span>Hosted authority, epoch {adoption.authority_epoch}</span>
+            <span>Main copy hosted by mdbase</span>
           </div>
           <a className="button primary link-button" href="/">Return to your account</a>
         </> : inactive ? <>
-          <p className="eyebrow">Adoption ended</p>
+          <p className="eyebrow">Move ended</p>
           <h1>Your local collection was kept.</h1>
-          <p>No hosted authority was activated.</p>
+          <p>The main copy was not moved to mdbase.</p>
           {error && <div className="message error" role="alert">{error}</div>}
           <a className="button primary link-button" href="/">Return to your account</a>
         </> : adoption.state !== "requested" ? <>
-          <p className="eyebrow outcome-label">Adoption approved</p>
+          <p className="eyebrow outcome-label">Move approved</p>
           <h1>Return to {adoption.source_name}.</h1>
           <p>
-            The app is uploading and validating a final, fenced collection snapshot.
-            Hosted authority will activate only after that exact snapshot is complete.
+            The app is uploading and checking a final collection snapshot.
+            The main copy will move only after that exact snapshot is complete.
           </p>
           <div className="transfer-status" role="status">
             <span className="status-dot paused" aria-hidden="true" />
-            <span>{adoption.state === "activating" ? "Activating hosted authority" : "Waiting for the app"}</span>
+            <span>{adoption.state === "activating" ? "Finishing the move" : "Waiting for the app"}</span>
           </div>
           {error && <div className="message error" role="alert">{error}</div>}
         </> : <>
@@ -241,18 +241,18 @@ export function AuthorityAdoption({ adoptionId }: { adoptionId: string }) {
           <h1>{adoption.display_name}</h1>
           <p>
             Approving uploads the complete collection from {adoption.source_name}, validates it
-            as one snapshot, and then makes the hosted copy authoritative.
+            as one snapshot, and then makes the hosted version the main copy.
           </p>
           <div className="message">
             {adoption.retain_mirror
-              ? `After activation, ${adoption.mirror_name ?? adoption.source_name} becomes a two-way mirror—not a second authority.`
-              : "After activation, the original local files are no longer authoritative."}
+              ? `After the move, ${adoption.mirror_name ?? adoption.source_name} stays as a synced folder. It will not be a second main copy.`
+              : "After the move, the original local files are no longer the main copy."}
           </div>
           {error && <div className="message error" role="alert">{error}</div>}
           <div className="decision-actions">
             <a className="button secondary link-button" href="/">Cancel</a>
             <button className="button primary" disabled={busy} onClick={() => void approve()}>
-              {busy ? "Approving…" : "Adopt this collection"}
+              {busy ? "Approving…" : "Move this collection"}
             </button>
           </div>
         </>}
@@ -323,25 +323,25 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
   const inactive = transfer.state === "cancelled" || transfer.state === "expired";
   return (
     <main className="center-page">
-      <PageBrand label="Authority transfer" />
+      <PageBrand label="Move main copy" />
       <section className="decision-panel authority-decision">
         {transfer.state === "completed" ? <>
           <p className="eyebrow outcome-label">Transfer complete</p>
           <h1>{collectionName} now lives on your computer.</h1>
           <p>
-            The folder on {mirrorName} is the source of truth. Hosted access has stopped
+            The folder on {mirrorName} is now the main copy. Hosted access has stopped
             and previous application connections were revoked.
           </p>
           <div className="transfer-status" role="status">
             <span className="status-dot connected" aria-hidden="true" />
-            <span>Local authority, epoch {transfer.authority_epoch}</span>
+            <span>Main copy on {mirrorName}</span>
           </div>
           <a className="button primary link-button" href="/">Return to your account</a>
         </> : inactive ? <>
           <p className="eyebrow">Transfer ended</p>
-          <h1>Hosted authority was kept.</h1>
+          <h1>The main copy stayed hosted.</h1>
           <p>
-            {collectionName} remains hosted. No source-of-truth change was completed.
+            {collectionName} remains hosted. Its main copy did not move.
           </p>
           {error && <div className="message error" role="alert">{error}</div>}
           <a className="button primary link-button" href="/">Return to your account</a>
@@ -349,8 +349,8 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
           <p className="eyebrow outcome-label">Transfer approved</p>
           <h1>Return to {mirrorName}.</h1>
           <p>
-            The command is checking the final hosted sequence, registering the folder
-            with mdbase connect, and activating local authority.
+            mdbase connect is checking the latest hosted changes, registering the folder,
+            and making it the main copy.
           </p>
           <div className="transfer-status" role="status">
             <span className="status-dot paused" aria-hidden="true" />
@@ -363,14 +363,14 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
             </button>
           </div>
         </> : <>
-          <p className="eyebrow">Move source of truth</p>
-          <h1>Make {mirrorName} authoritative?</h1>
+          <p className="eyebrow">Move the main copy</p>
+          <h1>Use the folder on {mirrorName} as the main copy?</h1>
           <p>
             {collectionName} will stop being hosted and become a computer-owned collection.
             This changes where every future edit is accepted.
           </p>
           <dl className="transfer-consequences">
-            <div><dt>Folder</dt><dd>The synchronized Markdown folder becomes the source of truth.</dd></div>
+            <div><dt>Folder</dt><dd>The synced Markdown folder becomes the main copy.</dd></div>
             <div><dt>Hosted service</dt><dd>Writes pause during verification, then hosted access is retired.</dd></div>
             <div><dt>Applications</dt><dd>Existing access is revoked. Connect applications again to use the local collection.</dd></div>
             <div><dt>Recovery</dt><dd>If verification fails or this request expires, hosted writes resume.</dd></div>
@@ -381,7 +381,7 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
               Keep it hosted
             </button>
             <button className="button primary" disabled={busy} onClick={() => void approve()}>
-              {busy ? "Approving…" : "Move authority"}
+              {busy ? "Approving…" : "Move main copy"}
             </button>
           </div>
         </>}
@@ -389,5 +389,4 @@ export function AuthorityTransfer({ transferId }: { transferId: string }) {
     </main>
   );
 }
-
 

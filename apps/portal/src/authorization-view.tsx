@@ -112,6 +112,9 @@ export function Authorization({ requestId }: { requestId: string }) {
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
   const [status, setStatus] = useState<"pending" | "setting_up" | "approved" | "denied">("pending");
+  const [continuingInDesktop, setContinuingInDesktop] = useState(
+    () => new URLSearchParams(location.search).get("continue_in_desktop") === "1"
+  );
   const [error, setError] = useState("");
   const returning = useRef(false);
   useSystemTheme();
@@ -171,12 +174,24 @@ export function Authorization({ requestId }: { requestId: string }) {
 
   if (!request) return <Loading error={error} />;
   const authorization = request.authorization;
+  function continueInDesktop(value: boolean) {
+    const url = new URL(location.href);
+    if (value) url.searchParams.set("continue_in_desktop", "1");
+    else url.searchParams.delete("continue_in_desktop");
+    history.replaceState(history.state, "", url);
+    setContinuingInDesktop(value);
+  }
   return (
     <main className="center-page">
       <PageBrand label="Application request" themePicker={false} />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
-        {status === "pending" ? <>
+        {status === "pending" && continuingInDesktop ? (
+          <DesktopContinuation
+            request={authorization}
+            onReviewHere={() => continueInDesktop(false)}
+          />
+        ) : status === "pending" ? <>
           <p>{authorization.application_name} is asking to use one collection. Choose where it can work and review what it can do.</p>
           {error && <div className="message error">{error}</div>}
           <ApprovalForm
@@ -184,6 +199,7 @@ export function Authorization({ requestId }: { requestId: string }) {
             canCreateHosted={request.hosted_collections_available !== false}
             collections={request.collections}
             unavailableConnectors={request.unavailable_connectors}
+            onContinueInDesktop={() => continueInDesktop(true)}
             onDecision={(decision) => setStatus(decision)}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
@@ -192,7 +208,7 @@ export function Authorization({ requestId }: { requestId: string }) {
                 : [...current.collections, collection]
             } : current)}
           />
-        </> : status === "setting_up" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Finishing collection setup…</h2><p>Your choices are being validated by the collection’s live authority. The application does not have access yet.</p></> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
+        </> : status === "setting_up" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Finishing collection setup…</h2><p>Your choices are being checked with the collection’s main copy. The application does not have access yet.</p></> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
       </section>
     </main>
   );
@@ -221,6 +237,29 @@ export function RequestIdentity({ request, large = false }: { request: PendingAu
         )}
       </div>
     </div>
+  );
+}
+
+function DesktopContinuation({ request, onReviewHere }: {
+  request: PendingAuthorization;
+  onReviewHere(): void;
+}) {
+  const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`;
+  return (
+    <section className="desktop-continuation" aria-live="polite">
+      <p className="eyebrow">Continue on this computer</p>
+      <h2>Choose the folder in mdbase connect.</h2>
+      <p>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</p>
+      <div className="desktop-continuation-status">
+        <span className="status-dot connecting" aria-hidden="true" />
+        <div><strong>Waiting for mdbase connect</strong><small>The page will notice when the request is approved.</small></div>
+      </div>
+      <div className="desktop-continuation-actions">
+        <a className="button primary link-button" href={desktopUrl}>Open mdbase connect</a>
+        <button className="button secondary" type="button" onClick={onReviewHere}>Review in this browser</button>
+      </div>
+      <p className="field-note">If the desktop app does not open, <a href="https://github.com/mdbase-dev/mdbase-connect/releases/latest" target="_blank" rel="noreferrer">install the latest release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</p>
+    </section>
   );
 }
 
@@ -370,6 +409,7 @@ export function ApprovalForm({
   collections,
   canCreateHosted,
   unavailableConnectors = [],
+  onContinueInDesktop,
   onDecision,
   onCollectionCreated
 }: {
@@ -377,6 +417,7 @@ export function ApprovalForm({
   collections: AvailableCollection[];
   canCreateHosted: boolean;
   unavailableConnectors?: UnavailableConnector[];
+  onContinueInDesktop?(): void;
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
@@ -626,6 +667,19 @@ export function ApprovalForm({
               ? `${connector.connector_name} has remote access paused.`
               : `${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available.
           </div>}
+          {request.requirements.collection_kind !== "hosted"
+            && (compatible.length === 0 || unavailableConnectors.length > 0)
+            && <div className="desktop-collection-option">
+              <div>
+                <strong>Use a folder on this computer</strong>
+                <p>Open the desktop app to connect this computer, add a folder, and continue this same request.</p>
+              </div>
+              <a
+                className="button secondary link-button"
+                href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`}
+                onClick={onContinueInDesktop}
+              >Use a local folder</a>
+            </div>}
           {canCreateHosted && !request.collection_id && (creatingHosted ? (
             <form
               className="authorization-collection-create"
@@ -797,11 +851,14 @@ function PermissionChoices({
       count + group.operations.filter((operation) => selected.has(operation.id)).length,
     0
   );
+  const selectedGroups = groups.filter((group) =>
+    group.operations.some((operation) => selected.has(operation.id))
+  );
   return (
     <details className="permission-review">
       <summary>
-        <span><strong>{selectedTotal} of {total} selected</strong><small>Review or narrow individual actions</small></span>
-        <b>Review</b>
+        <span><strong>{selectedGroups.map((group) => group.label).join(" · ")}</strong><small>{selectedTotal} of {total} specific actions selected. Open details to narrow access.</small></span>
+        <b>Details</b>
       </summary>
       <div className="permission-groups">{groups.map((group) => (
         <fieldset className="permission-group" key={group.id}>

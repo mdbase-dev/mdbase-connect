@@ -812,6 +812,73 @@ h1 {
   gap: 1rem;
 }
 
+.desktop-collection-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.desktop-collection-option > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.desktop-collection-option strong {
+  font-size: 0.76rem;
+}
+
+.desktop-collection-option p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.desktop-continuation {
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.desktop-continuation h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.desktop-continuation > p:not(.eyebrow, .field-note) {
+  max-width: 62ch;
+  margin: 0.55rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.desktop-continuation-status {
+  display: grid;
+  grid-template-columns: 0.45rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.desktop-continuation-status > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.desktop-continuation-status strong { font-size: 0.76rem; }
+.desktop-continuation-status small { color: var(--ink-muted); font-size: 0.7rem; }
+.desktop-continuation-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 1rem; }
+.desktop-continuation .field-note { margin-top: 0.85rem; }
+.desktop-continuation .field-note a { color: var(--ink); }
+
 .authorization-collection-create {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1186,6 +1253,10 @@ select {
 .permission-review summary strong,
 .notification-access summary strong {
   font-size: 0.76rem;
+}
+
+.permission-review summary strong {
+  line-height: 1.4;
 }
 
 .permission-review summary b,
@@ -1823,6 +1894,11 @@ select {
   .approval-section {
     grid-template-columns: 1fr;
     gap: 0.65rem;
+  }
+
+  .desktop-collection-option {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .contract-setup-mode {

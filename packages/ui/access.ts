@@ -43,9 +43,15 @@ const authorizationOperationGroups = [
   },
   {
     id: "change",
-    label: "Change records",
-    description: "Create, edit, rename, move, or delete records.",
-    operations: ["create", "update", "rename", "delete"]
+    label: "Create and edit records",
+    description: "Create, edit, rename, or move records.",
+    operations: ["create", "update", "rename"]
+  },
+  {
+    id: "delete",
+    label: "Delete records",
+    description: "Permanently remove records from this collection.",
+    operations: ["delete"]
   },
   {
     id: "manage",

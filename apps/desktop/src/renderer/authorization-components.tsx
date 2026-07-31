@@ -15,6 +15,9 @@ export function RequestPermissionChoices({ groups, selected, onChange }: {
       count + group.operations.filter((operation) => selectedSet.has(operation.id)).length,
     0
   );
+  const selectedGroups = groups.filter((group) =>
+    group.operations.some((operation) => selectedSet.has(operation.id))
+  );
   function toggle(operation: string, checked: boolean) {
     onChange(checked
       ? [...selected, operation]
@@ -22,7 +25,13 @@ export function RequestPermissionChoices({ groups, selected, onChange }: {
   }
   return (
     <details className="request-permission-review">
-      <summary><span><strong>{selectedTotal} of {total} selected</strong><small>Review or narrow individual actions</small></span><b>Review</b></summary>
+      <summary>
+        <span>
+          <strong>{selectedGroups.map((group) => group.label).join(" · ")}</strong>
+          <small>{selectedTotal} of {total} specific actions selected. Open details to narrow access.</small>
+        </span>
+        <b>Details</b>
+      </summary>
       <div className="request-permission-groups">{groups.map((group) => (
         <fieldset key={group.id}>
           <legend>{group.label}</legend>
