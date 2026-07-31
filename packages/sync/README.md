@@ -9,9 +9,10 @@ mirrors.
 Markdown without a leading, complete YAML frontmatter block is a normal
 record with `{}` persisted fields. Empty files and files beginning with an
 unclosed `---` fence are preserved byte-for-byte as body content. An explicitly
-empty frontmatter block is also accepted; malformed, scalar, or list
-frontmatter is reported as a per-file `local_issues` entry and does not stop
-other writable files from synchronizing.
+empty frontmatter block is also accepted. Malformed, scalar, null, or list
+frontmatter is synchronized byte-for-byte as opaque Markdown with `{}`
+persisted fields; structured queries and field operations ignore its invalid
+frontmatter until the document is repaired.
 
 Application replicas resolve a stale record explicitly with
 `resolveConflict(recordId, "local" | "remote")`. Keeping the local version

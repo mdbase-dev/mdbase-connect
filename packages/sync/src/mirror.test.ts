@@ -1007,7 +1007,7 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("new.md")).toBe("# Same content");
   });
 
-  it("reports malformed or non-object frontmatter per file without blocking valid sync", async () => {
+  it("uploads malformed or non-object frontmatter as opaque Markdown", async () => {
     for (const [path, document] of [
       ["broken.md", "---\nbroken: [\n---\nBody"],
       ["scalar.md", "---\nhello\n---\nBody"],
@@ -1026,20 +1026,19 @@ describe("platform-neutral directory mirror", () => {
 
       await mirror.sync();
       await expect(mirror.status()).resolves.toMatchObject({
-        state: "attention",
-        local_issues: [{
-          path,
-          code: "invalid_frontmatter"
-        }]
+        state: "up_to_date",
+        local_issues: []
       });
       const session = await hosted.transport(replicaId).openSession();
-      expect((await hosted.transport(replicaId).snapshot(session.snapshot_id)).records).toEqual([
-        expect.objectContaining({
-          path: "valid.md",
-          frontmatter: {},
-          body: "# Valid body-only note"
-        })
-      ]);
+      expect((await hosted.transport(replicaId).snapshot(session.snapshot_id)).records)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ path, frontmatter: {}, body: document }),
+          expect.objectContaining({
+            path: "valid.md",
+            frontmatter: {},
+            body: "# Valid body-only note"
+          })
+        ]));
 
       fileSystem.files.set(path, "# Fixed body-only note");
       await mirror.sync();
@@ -1059,7 +1058,7 @@ describe("platform-neutral directory mirror", () => {
     }
   });
 
-  it("preserves a malformed managed file across remote changes and conflicts after repair", async () => {
+  it("syncs a malformed managed file and preserves normal conflict handling", async () => {
     const hosted = new MemoryAuthority();
     hosted.seed([{
       record_id: "managed",
@@ -1099,8 +1098,8 @@ describe("platform-neutral directory mirror", () => {
     expect(fileSystem.files.get("managed.md")).toBe(malformed);
     await expect(mirror.status()).resolves.toMatchObject({
       state: "attention",
-      conflicts: [],
-      local_issues: [{ path: "managed.md", code: "invalid_frontmatter" }]
+      conflicts: [{ record_id: "managed", kind: "conflicted" }],
+      local_issues: []
     });
 
     fileSystem.files.set("managed.md", "# Repaired local body");

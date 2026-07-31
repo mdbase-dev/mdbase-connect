@@ -85,7 +85,7 @@ export function fastRecordDocumentMatches(document: string, record: SyncRecord):
     && offset + body.length === document.length;
 }
 
-export function parseMarkdown(document: string, path: string): { frontmatter: JsonObject; body: string } {
+export function parseMarkdown(document: string, _path: string): { frontmatter: JsonObject; body: string } {
   const match = document.match(/^---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)([\s\S]*)$/m);
   if (!match) {
     return { frontmatter: {}, body: document };
@@ -94,13 +94,13 @@ export function parseMarkdown(document: string, path: string): { frontmatter: Js
   try {
     frontmatter = parse(match[1]!);
   } catch {
-    throw new SyncError("invalid_frontmatter", `Writable mirror file ${path} has invalid YAML frontmatter.`);
+    return { frontmatter: {}, body: document };
   }
   if (frontmatter === null && match[1]!.trim() === "") {
     frontmatter = {};
   }
   if (!frontmatter || typeof frontmatter !== "object" || Array.isArray(frontmatter)) {
-    throw new SyncError("invalid_frontmatter", `Writable mirror file ${path} requires object frontmatter.`);
+    return { frontmatter: {}, body: document };
   }
   return { frontmatter: frontmatter as JsonObject, body: match[2] ?? "" };
 }

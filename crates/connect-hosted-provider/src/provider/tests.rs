@@ -30,12 +30,14 @@ fn authority_manifest_matches_the_node_promotion_fixture() {
 #[test]
 fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() {
     let record_id = Uuid::new_v4();
+    let opaque_record_id = Uuid::new_v4();
     let configuration = "spec_version: 0.3.0\nsettings:\n  types_folder: _types\nx-obsidian:\n  bases:\n    include:\n      - views/**/*.base\n";
     let type_document = "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: tasks/**/*.md\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title:\n        type: string\n---\n\nTask\n";
     let contract_document = "---\nkind: mdbase.contract\ncontract_type: record\nid: example.task\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  ref: ../_schemas/task.json\n---\n";
     let schema_document =
         "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"}\n";
     let record_document = "---\ntitle: One\n---\n\nBody\n";
+    let opaque_document = "---\ntitle: [unterminated\n---\nOpaque body\n";
     let workspace = WorkingSet::materialize(
         [
             ("mdbase.yaml".to_string(), configuration.to_string()),
@@ -50,11 +52,18 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
             ("_types/task.md".to_string(), type_document.to_string()),
             ("views/tasks.base".to_string(), "views: []\n".to_string()),
         ],
-        [StoredDocument {
-            record_id,
-            path: "tasks/one.md".to_string(),
-            document: record_document.to_string(),
-        }],
+        [
+            StoredDocument {
+                record_id,
+                path: "tasks/one.md".to_string(),
+                document: record_document.to_string(),
+            },
+            StoredDocument {
+                record_id: opaque_record_id,
+                path: "tasks/opaque.md".to_string(),
+                document: opaque_document.to_string(),
+            },
+        ],
     )
     .unwrap();
     let canonical = workspace.snapshot().unwrap();
@@ -88,21 +97,39 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
             contracts: Vec::new(),
             documents,
         },
-        record_count: 1,
+        record_count: 2,
     };
     let records = canonicalize_imported_snapshot(
         &workspace,
         &manifest,
-        &[AuthorityImportRecord {
-            record_id,
-            path: "tasks/one.md".to_string(),
-            document: record_document.to_string(),
-        }],
+        &[
+            AuthorityImportRecord {
+                record_id,
+                path: "tasks/one.md".to_string(),
+                document: record_document.to_string(),
+            },
+            AuthorityImportRecord {
+                record_id: opaque_record_id,
+                path: "tasks/opaque.md".to_string(),
+                document: opaque_document.to_string(),
+            },
+        ],
     )
     .unwrap();
 
-    assert_eq!(records[0].record.record_id, record_id);
-    assert_eq!(records[0].record.types, ["task"]);
+    let structured = records
+        .iter()
+        .find(|record| record.record.record_id == record_id)
+        .unwrap();
+    assert_eq!(structured.record.types, ["task"]);
+    let opaque = records
+        .iter()
+        .find(|record| record.record.record_id == opaque_record_id)
+        .unwrap();
+    assert!(opaque.record.frontmatter.is_empty());
+    assert_eq!(opaque.record.body, opaque_document);
+    assert_eq!(opaque.document, opaque_document);
+    assert_eq!(opaque.record.types, ["task"]);
     assert!(manifest
         .resources
         .documents

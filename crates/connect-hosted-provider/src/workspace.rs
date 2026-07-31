@@ -7,7 +7,7 @@ use std::{
 use mdbase::{runtime::CollectionSnapshot, v03::OperationResult, Collection};
 use mdbase_connect_protocol::{SyncMutation, SyncMutationOperation, SyncRecord};
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -117,25 +117,25 @@ impl WorkingSet {
                 "The mutated hosted collection could not open: {error}"
             ))
         })?;
-        let operations = collection.v03_operations().map_err(|diagnostic| {
-            ApiError::internal(format!(
-                "The mutated hosted collection could not open: {}",
-                diagnostic.message
-            ))
-        })?;
         let mut changed = Vec::new();
         if mutation.operation == SyncMutationOperation::Delete {
             changed.push((mutation.record_id, None, primary_before_path.clone()));
         }
         for (path, record_id) in affected {
-            let read = operations.read(&json!({ "path": path }));
-            if !read.valid {
-                return Err(ApiError::internal(
-                    "mdbase-rs accepted a mutation but could not read its resulting record.",
-                ));
-            }
-            let record = sync_record(record_id, &read.result)?;
-            let document = fs::read_to_string(safe_path(self.directory.path(), &record.path)?)?;
+            let snapshot = collection.snapshot_record(&path).map_err(|error| {
+                ApiError::internal(format!(
+                    "mdbase-rs accepted a mutation but could not snapshot its resulting record: {error}"
+                ))
+            })?;
+            let record = SyncRecord {
+                record_id,
+                path: snapshot.path,
+                revision: snapshot.revision,
+                frontmatter: snapshot.frontmatter,
+                body: snapshot.body,
+                types: snapshot.types,
+            };
+            let document = snapshot.document;
             changed.push((record_id, Some(record), Some(document)));
         }
         changed.sort_by_key(|(record_id, _, _)| (*record_id != mutation.record_id, *record_id));
@@ -487,38 +487,6 @@ fn operation_input(
     }
 }
 
-fn sync_record(record_id: Uuid, result: &Value) -> ApiResult<SyncRecord> {
-    let path = required_string(result, "path")?.to_string();
-    safe_relative(&path)?;
-    let revision = required_string(result, "revision")?.to_string();
-    let frontmatter = result
-        .get("frontmatter")
-        .and_then(Value::as_object)
-        .cloned()
-        .ok_or_else(|| ApiError::internal("mdbase-rs returned invalid record frontmatter."))?;
-    let body = result
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let types = result
-        .get("types")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect();
-    Ok(SyncRecord {
-        record_id,
-        path,
-        revision,
-        frontmatter,
-        body,
-        types,
-    })
-}
-
 fn required_string<'a>(value: &'a Value, field: &str) -> ApiResult<&'a str> {
     value.get(field).and_then(Value::as_str).ok_or_else(|| {
         ApiError::bad_request(
@@ -568,6 +536,7 @@ fn safe_relative(relative: &str) -> ApiResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn resources() -> Vec<(String, String)> {
         let mut resources: Vec<(String, String)> = crate::template::resources("mdbase")
@@ -634,6 +603,59 @@ schema:
             .as_ref()
             .unwrap()
             .contains("title: First"));
+    }
+
+    #[test]
+    fn creates_and_updates_opaque_markdown_records_losslessly() {
+        let record_id = Uuid::new_v4();
+        let replica_id = Uuid::new_v4();
+        let original = "---\ntitle: [unterminated\n---\nOriginal body";
+        let mut workspace = WorkingSet::materialize(resources(), []).unwrap();
+        let created = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Create,
+                record_id,
+                base_revision: None,
+                input: Map::from_iter([
+                    ("path".to_string(), json!("opaque.md")),
+                    ("frontmatter".to_string(), json!({})),
+                    ("body".to_string(), json!(original)),
+                ]),
+                created_at: "2026-07-21T00:00:00Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+
+        assert!(created.envelope.valid, "{:?}", created.envelope.diagnostics);
+        let created_record = created.changed[0].1.as_ref().unwrap();
+        assert!(created_record.frontmatter.is_empty());
+        assert_eq!(created_record.body, original);
+        assert_eq!(created.changed[0].2.as_deref(), Some(original));
+
+        let replacement = "---\ntitle: [still broken\n---\nReplacement body";
+        let updated = workspace
+            .execute(&SyncMutation {
+                mutation_id: Uuid::new_v4(),
+                replica_id,
+                scope_epoch: 1,
+                operation: SyncMutationOperation::Update,
+                record_id,
+                base_revision: Some(created_record.revision.clone()),
+                input: Map::from_iter([
+                    ("patch".to_string(), json!({})),
+                    ("body".to_string(), json!(replacement)),
+                ]),
+                created_at: "2026-07-21T00:00:01Z".to_string(),
+                causal_predecessor: None,
+            })
+            .unwrap();
+
+        assert!(updated.envelope.valid, "{:?}", updated.envelope.diagnostics);
+        assert_eq!(updated.changed[0].1.as_ref().unwrap().body, replacement);
+        assert_eq!(updated.changed[0].2.as_deref(), Some(replacement));
     }
 
     #[test]

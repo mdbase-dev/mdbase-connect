@@ -235,27 +235,17 @@ pub(super) fn record_markdown_document(record: &SyncRecord) -> Result<String, Mi
 
 pub(super) fn parse_markdown(
     document: &str,
-    path: &str,
+    _path: &str,
 ) -> Result<(Map<String, Value>, String), MirrorError> {
     let parsed = parse_document(document);
     let frontmatter = match parsed.frontmatter {
         None => Map::new(),
-        Some(value) if is_parse_error(&value) => {
-            return Err(MirrorError::new(
-                "invalid_frontmatter",
-                format!("Writable mirror file {path} has invalid YAML frontmatter."),
-            ))
-        }
+        Some(value) if is_parse_error(&value) => return Ok((Map::new(), document.to_string())),
         Some(serde_yaml::Value::Mapping(mapping)) => yaml_mapping_to_json(&mapping)
             .as_object()
             .cloned()
             .unwrap_or_default(),
-        Some(_) => {
-            return Err(MirrorError::new(
-                "invalid_frontmatter",
-                format!("Writable mirror file {path} requires object frontmatter."),
-            ))
-        }
+        Some(_) => return Ok((Map::new(), document.to_string())),
     };
     Ok((frontmatter, parsed.body))
 }

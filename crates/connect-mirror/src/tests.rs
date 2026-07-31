@@ -1,5 +1,6 @@
 use super::*;
 use mdbase_connect_protocol::{SyncConflict, SyncMutationError, SyncResourceDocument};
+use serde_json::json;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
@@ -450,18 +451,23 @@ async fn writable_mirror_uploads_create_update_rename_and_delete() {
 }
 
 #[tokio::test]
-async fn malformed_frontmatter_is_isolated_without_blocking_other_files() {
+async fn malformed_frontmatter_is_uploaded_as_opaque_markdown() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadWrite, Vec::new());
     mirror.sync().await.unwrap();
     fs::write(mirror.root().join("bad.md"), "---\n[invalid\n---\nBody").unwrap();
     fs::write(mirror.root().join("good.md"), "---\ntitle: Good\n---\nBody").unwrap();
     mirror.sync().await.unwrap();
     let status = mirror.status().unwrap();
-    assert_eq!(status.state, MirrorStatusState::Attention);
-    assert_eq!(status.local_issues.len(), 1);
-    assert_eq!(status.local_issues[0].path, "bad.md");
-    assert_eq!(authority.mutations().len(), 1);
-    assert_eq!(authority.mutations()[0].input["path"], "good.md");
+    assert_eq!(status.state, MirrorStatusState::UpToDate);
+    assert!(status.local_issues.is_empty());
+    let mutations = authority.mutations();
+    assert_eq!(mutations.len(), 2);
+    let bad = mutations
+        .iter()
+        .find(|mutation| mutation.input["path"] == "bad.md")
+        .unwrap();
+    assert_eq!(bad.input["frontmatter"], json!({}));
+    assert_eq!(bad.input["body"], "---\n[invalid\n---\nBody");
 }
 
 #[tokio::test]
