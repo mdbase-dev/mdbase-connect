@@ -18,12 +18,14 @@ React composition (App, feature views)
                                               │
                                   @mdbase/connect or demo adapter
 
-ConnectApp ── @mdbase/connect-management ── account APIs only
+ConnectApp ── shared EditorRail ── @mdbase/connect-management ── account APIs only
 ```
 
-The route entry point lazy-loads `App` and `ConnectApp` independently. Opening
-Connect does not construct a collection gateway or start collection
-authorization. Choosing **Open in editor** creates a normal
+The route entry point lazy-loads `App` and `ConnectApp` independently, while
+both compose the same primary editor rail. Opening Connect replaces the
+editor's note-list context with current-collection and account navigation. It
+does not construct a collection gateway or start collection authorization.
+Choosing Notes, Types, Settings, or **Open in editor** creates a normal
 `?collection=<id>` editor navigation; the collection session then reuses an
 existing grant or begins the standard approval transaction.
 

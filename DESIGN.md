@@ -7,8 +7,10 @@ is making a consequential access decision. The theme is minimal and precise in
 both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
 Editor, Connect workspace, portal, and desktop share visual tokens and core
-controls. The editor uses a narrow product rail beside contextual navigation;
-Connect occupies a peer workspace in that shell. Transactional portal pages
+controls. The editor keeps one persistent collection rail: Notes, Types,
+Settings, then Connect under a quiet Manage heading. Selecting Connect replaces
+the note list with contextual Connect navigation; it does not open a parallel
+product shell. Transactional portal pages
 and desktop views retain their compact product header. Content remains an
 uninterrupted canvas. Hierarchy comes from typography, spacing, and alignment
 rather than tinted boxes or decoration.
@@ -84,8 +86,10 @@ and interaction guidance in
 
 ## Layout
 
-- The editor's product rail switches between editing and Connect. The Connect
-  sidebar contains Overview, Collections, Applications, Computers, and Account.
+- The editor's collection rail switches between Notes, Types, Settings, and
+  Connect. The Connect sidebar separates current-collection controls (Overview,
+  Storage & sync, App access) from account controls (All collections,
+  Applications, Computers, Account & sessions).
 - Desktop primary navigation uses a single horizontal tab row. Counts appear
   only when they clarify local collection state or pending action.
 - Portal pages contain one consequential transaction only: authentication,

@@ -79,7 +79,7 @@ import {
   IncrementalNoteSearchIndex,
   searchNoteResults
 } from "./note-search";
-import { loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
+import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
@@ -197,7 +197,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
-  const [surface, setSurface] = useState<Surface>("notes");
+  const [surface, setSurface] = useState<Surface>(initialEditorSurface);
   const [selectedTypeName, setSelectedTypeName] = useState<string>();
   const [typeWorkspace, setTypeWorkspace] = useState<"definition" | "packs">("definition");
   const [typeDocument, setTypeDocument] = useState<TypeDocument>();

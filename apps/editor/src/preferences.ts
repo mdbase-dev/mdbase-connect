@@ -31,3 +31,8 @@ export function loadPreferences(): EditorPreferences {
 export function savePreferences(value: EditorPreferences): void {
   localStorage.setItem(storageKey, JSON.stringify(value));
 }
+
+export function initialEditorSurface(): "notes" | "types" | "settings" {
+  const requested = new URLSearchParams(location.search).get("surface");
+  return requested === "types" || requested === "settings" ? requested : "notes";
+}

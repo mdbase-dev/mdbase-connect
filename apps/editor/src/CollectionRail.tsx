@@ -8,14 +8,12 @@ import {
   FilePlusIcon as FilePlus2,
   FolderIcon as Folder,
   FolderPlusIcon as FolderPlus,
-  GearSixIcon as Settings2,
   KeyboardIcon as Keyboard,
   NotebookIcon as NotebookPen,
-  SidebarSimpleIcon as PanelLeftClose,
   TagIcon as Tag
 } from "./icons";
-import { Wordmark } from "./Brand";
 import { ContextMenu } from "./ContextMenu";
+import { EditorRail } from "./EditorRail";
 import type { ConnectionSummary, NoteSummary } from "./model";
 import { folderTree, tags as collectionTags, types as collectionTypes, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./NoteList";
@@ -59,13 +57,25 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     return collectionTypes(notes, types.map((type) => type.name))
       .map((item) => ({ ...item, icon: icons.get(item.name) }));
   }, [notes, typeKey]);
-  return <aside className="collection-rail" aria-label="Collection navigation">
-    <div className="rail-header"><Wordmark /><RailCollapseButton onClick={onCollapse} /></div>
-    <nav>
-      <button className="collection-name" aria-label={`Switch collection, current collection ${name}`} onClick={onSwitch}><span>{name}</span><ChevronDown aria-hidden="true" /></button>
-      <button className={surface === "notes" && !activeFilter ? "selected" : ""} aria-label={`Notes, ${count} total`} onClick={() => onFilter(undefined)}><span><NotebookPen aria-hidden="true" />Notes</span><small>{count}</small></button>
-      <button className={surface === "types" ? "selected" : ""} aria-label={`Types (${types.length})`} onClick={onTypes}><span><Braces aria-hidden="true" />Types</span><small>{types.length}</small></button>
-      <button className={surface === "settings" ? "selected" : ""} onClick={onSettings}><span><Settings2 aria-hidden="true" />Settings</span></button>
+  return <EditorRail
+    collectionName={name}
+    noteCount={count}
+    typeCount={types.length}
+    surface={surface}
+    notes={{ onClick: () => onFilter(undefined) }}
+    types={{ onClick: onTypes }}
+    settings={{ onClick: onSettings }}
+    connectHref={connectWorkspaceUrl(collectionId)}
+    onSwitch={onSwitch}
+    onCollapse={onCollapse}
+    footer={<>
+      {directAccess === "permission_required" && connectionState === "connected"
+        ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
+        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
+      {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+      <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
+    </>}
+  >
       <FolderFilterSection
         collectionId={collectionId}
         items={collectionFolders}
@@ -98,16 +108,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         onOpenType={onOpenType}
         onCopy={(type) => onCopyFacet(type, "type name")}
       />
-    </nav>
-    <footer className="connection-footer">
-      {directAccess === "permission_required" && connectionState === "connected"
-        ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : "Reconnecting"}</span></p>}
-      {connectionState === "reconnecting" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
-      <a className="connect-workspace-link" href="/connect"><Settings2 aria-hidden="true" /><span>Connect</span></a>
-      <button className="shortcut-action" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onClick={onShortcuts}><Keyboard aria-hidden="true" /><span>Shortcuts</span></button>
-    </footer>
-  </aside>;
+  </EditorRail>;
 }
 
 function FolderFilterSection({ collectionId, items, activeFilter, loading, onFilter, onCreate, onCreateNote, onCreateSubfolder, onCopy }: {
@@ -357,7 +358,11 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 }
 
 
-function RailCollapseButton({ onClick }: { onClick: () => void }) {
-  const label = "Hide collections sidebar";
-  return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}><PanelLeftClose aria-hidden="true" /></button>;
+function connectWorkspaceUrl(collectionId: string): string {
+  const url = new URL("/connect", location.origin);
+  const source = new URLSearchParams(location.search);
+  const server = source.get("server");
+  if (server) url.searchParams.set("server", server);
+  url.searchParams.set("collection", collectionId);
+  return `${url.pathname}${url.search}`;
 }

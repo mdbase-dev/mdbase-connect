@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
 
 beforeEach(() => {
-  history.replaceState(null, "", "/connect");
+  history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=collection");
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(String(input)).pathname;
     if (path === "/v1/account/sessions") {
@@ -33,8 +33,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    expect(await screen.findByRole("heading", { name: "Your connections" })).toBeInTheDocument();
-    expect(screen.getByText("Garden notes")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
     const calls = vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).pathname);
     expect(calls).toEqual(expect.arrayContaining(["/v1/me", "/v1/account/sessions"]));
     expect(calls.some((path) => path.includes("authorization"))).toBe(false);
@@ -42,5 +41,28 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: /Applications/ }));
     await waitFor(() => expect(location.pathname).toBe("/connect/applications"));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
+  });
+
+  it("keeps Connect inside the editor collection shell", async () => {
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    const collectionNavigation = screen.getByRole("complementary", { name: "Collection navigation" });
+    expect(collectionNavigation).toHaveTextContent("Notes");
+    expect(collectionNavigation).toHaveTextContent("Types");
+    expect(collectionNavigation).toHaveTextContent("Settings");
+    expect(collectionNavigation).toHaveTextContent("Manage");
+    expect(screen.getByRole("link", { name: /Connect/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("complementary", { name: "Product navigation" })).not.toBeInTheDocument();
+    expect(screen.getByText("This collection")).toBeInTheDocument();
+    expect(screen.getByText("Account", { selector: "p" })).toBeInTheDocument();
+
+    const notes = screen.getByRole("link", { name: "Notes" });
+    expect(new URL(notes.getAttribute("href")!).searchParams.get("collection")).toBe("collection");
+
+    await user.click(screen.getByRole("button", { name: "Storage & sync" }));
+    await waitFor(() => expect(location.pathname).toBe("/connect/storage"));
+    expect(screen.getByRole("heading", { name: "Storage & sync" })).toBeInTheDocument();
   });
 });

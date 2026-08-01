@@ -2,61 +2,9 @@
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 68px 248px minmax(0, 1fr);
+  grid-template-columns: 188px 244px minmax(480px, 1fr);
   background: var(--canvas);
   color: var(--ink);
-}
-
-.connect-product-rail {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  padding: 14px 8px;
-  border-right: 1px solid var(--line);
-  background: var(--white);
-}
-
-.connect-product-mark {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
-}
-
-.connect-product-mark .wordmark-mark {
-  width: 32px;
-  height: 32px;
-}
-
-.connect-product-rail nav {
-  width: 100%;
-  display: grid;
-  gap: 7px;
-}
-
-.connect-product-rail nav a,
-.connect-product-rail nav button {
-  min-height: 50px;
-  display: grid;
-  place-items: center;
-  gap: 2px;
-  border-radius: 7px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 0.68rem;
-}
-
-.connect-product-rail nav svg {
-  width: 20px;
-  height: 20px;
-}
-
-.connect-product-rail nav .selected {
-  background: var(--selected);
-  color: var(--accent-strong);
 }
 
 .connect-nav {
@@ -71,35 +19,36 @@
   min-height: 64px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 18px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
 }
 
-.connect-nav > header .wordmark-mark {
-  display: none;
-}
-
-.connect-nav > header .wordmark-label strong {
-  display: none;
-}
-
-.connect-nav > header > span {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.connect-nav > header strong {
+  font-size: 1rem;
+  letter-spacing: -0.01em;
 }
 
 .connect-nav > nav {
   flex: 1;
   display: grid;
   align-content: start;
-  gap: 3px;
-  padding: 14px 10px;
+  gap: 24px;
+  padding: 18px 10px;
   overflow-y: auto;
+}
+
+.connect-nav-group {
+  display: grid;
+  gap: 3px;
+}
+
+.connect-nav-group > p {
+  margin: 0 10px 7px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .connect-nav > nav button {
@@ -147,36 +96,6 @@
   font-weight: 700;
 }
 
-.connect-nav > footer {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--line);
-}
-
-.connect-nav > footer > span:last-child {
-  min-width: 0;
-  display: grid;
-}
-
-.connect-nav > footer strong,
-.connect-nav > footer small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.connect-nav > footer strong {
-  font-size: 0.86rem;
-}
-
-.connect-nav > footer small {
-  color: var(--muted);
-  font-size: 0.74rem;
-}
-
 .connect-avatar {
   width: 32px;
   height: 32px;
@@ -190,35 +109,108 @@
   font-weight: 700;
 }
 
+.connect-shell .collection-rail .connection-footer {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.connect-shell .collection-rail .wordmark-label strong {
+  display: inline;
+  opacity: 1;
+  transform: none;
+}
+
+.connect-shell .collection-rail .connection-footer > p {
+  width: 100%;
+}
+
+.connect-rail-account {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 3px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.connect-rail-account:hover {
+  background: var(--hover);
+}
+
+.connect-rail-account .connect-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.connect-rail-account > span:last-child {
+  min-width: 0;
+  display: grid;
+}
+
+.connect-rail-account strong,
+.connect-rail-account small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-rail-account strong { font-size: 0.75rem; }
+.connect-rail-account small { color: var(--faint); font-size: 0.66rem; }
+
+.connect-request-callout {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  margin: 12px 10px 0;
+  padding: 10px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: 4px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  text-decoration: none;
+}
+
+.connect-request-callout > svg { width: 16px; height: 16px; }
+.connect-request-callout > span { min-width: 0; display: grid; gap: 2px; }
+.connect-request-callout strong,
+.connect-request-callout small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connect-request-callout strong { font-size: 0.72rem; }
+.connect-request-callout small { color: var(--muted); font-size: 0.65rem; }
+
 .connect-main {
   min-width: 0;
   overflow: auto;
-  background: var(--canvas);
+  background: var(--white);
 }
 
 .connect-page {
-  width: min(940px, calc(100% - 64px));
+  width: min(850px, 100%);
   margin: 0 auto;
-  padding: 50px 0 90px;
+  padding: 60px 58px 90px;
 }
 
 .connect-page > header {
-  margin-bottom: 46px;
+  margin-bottom: 52px;
 }
 
 .connect-page > header p {
   margin: 0 0 10px;
-  color: var(--accent);
+  color: var(--faint);
   font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
+  font-size: 9px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
 .connect-page > header h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1.04;
+  font-size: 27px;
+  line-height: 1.05;
   letter-spacing: -0.035em;
 }
 
@@ -227,12 +219,12 @@
   display: block;
   margin-top: 13px;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .connect-page > section {
-  margin-top: 42px;
+  margin-top: 52px;
 }
 
 .connect-section-title {
@@ -253,14 +245,14 @@
 
 .connect-section-title h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 15px;
   letter-spacing: -0.01em;
 }
 
 .connect-section-title span {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 9px;
 }
 
 .connect-section-title button,
@@ -272,7 +264,7 @@
   gap: 5px;
   color: var(--accent-strong);
   text-decoration: none;
-  font-size: 0.84rem;
+  font-size: 10px;
 }
 
 .connect-section-title svg,
@@ -300,12 +292,12 @@
 }
 
 .connect-row strong {
-  font-size: 0.92rem;
+  font-size: 12px;
 }
 
 .connect-row small {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 10px;
 }
 
 .connect-row-actions {
@@ -332,7 +324,7 @@ button.danger:disabled {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -670,27 +662,9 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-.connect-workspace-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 0.76rem;
-}
-
-.connect-workspace-link:hover {
-  color: var(--accent-strong);
-}
-
-.connect-workspace-link svg {
-  width: 15px;
-  height: 15px;
-}
-
 @media (max-width: 820px) {
   .connect-shell {
-    grid-template-columns: 58px 210px minmax(0, 1fr);
+    grid-template-columns: 156px 210px minmax(0, 1fr);
   }
 
   .connect-page {
@@ -717,7 +691,7 @@ button.danger:disabled {
   }
 }
 
-@media (max-width: 620px) {
+@media (max-width: 760px) {
   body:has(.connect-shell) {
     overflow: auto;
   }
@@ -728,28 +702,61 @@ button.danger:disabled {
     display: block;
   }
 
-  .connect-product-rail {
-    height: 52px;
+  .connect-shell > .collection-rail {
     position: sticky;
+    inset: auto;
+    display: flex;
+    height: 58px;
     z-index: 4;
     top: 0;
     flex-direction: row;
+    align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
+    padding: 0 14px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
-  .connect-product-rail nav {
-    width: auto;
-    display: flex;
+  .connect-shell > .collection-rail .rail-header {
+    flex: 0 0 auto;
+    padding: 0;
   }
 
-  .connect-product-rail nav a,
-  .connect-product-rail nav button {
-    min-height: 38px;
-    grid-template-columns: auto auto;
-    padding: 6px 10px;
+  .connect-shell > .collection-rail nav {
+    flex: 1;
+    margin: 0 10px;
+    overflow: visible;
+  }
+
+  .connect-shell > .collection-rail nav > :not(.collection-name) {
+    display: none;
+  }
+
+  .connect-shell > .collection-rail nav .collection-name {
+    width: min(210px, 100%);
+    min-height: 36px;
+    margin: 0 auto;
+  }
+
+  .connect-shell > .collection-rail .connection-footer {
+    width: 34px;
+    min-height: 34px;
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .connect-shell > .collection-rail .connection-footer > p,
+  .connect-rail-account > span:last-child {
+    display: none;
+  }
+
+  .connect-rail-account {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 2px;
   }
 
   .connect-nav {
@@ -758,15 +765,24 @@ button.danger:disabled {
   }
 
   .connect-nav > header,
-  .connect-nav > footer {
+  .connect-request-callout {
     display: none;
   }
 
   .connect-nav > nav {
     display: flex;
-    gap: 2px;
+    gap: 12px;
     padding: 7px 10px;
     overflow-x: auto;
+  }
+
+  .connect-nav-group {
+    display: flex;
+    gap: 2px;
+  }
+
+  .connect-nav-group > p {
+    display: none;
   }
 
   .connect-nav > nav button {

@@ -85,7 +85,17 @@ async function auditEditorConnect() {
           hosted_collections_available: true,
           authentication: { provider: "github", registration: "open" },
           connectors: [],
-          collections: [],
+          collections: [{
+            id: "22222222-2222-4222-8222-222222222222",
+            connector_id: "33333333-3333-4333-8333-333333333333",
+            local_id: "local-collection",
+            connector_name: "Example computer",
+            display_name: "Accessibility collection",
+            spec_version: "1",
+            enabled: true,
+            contracts: [],
+            last_seen_at: new Date().toISOString()
+          }],
           hosted_collections: [],
           grants: [],
           pending_authorizations: []
@@ -100,7 +110,7 @@ async function auditEditorConnect() {
     await route.fulfill({ json: {} });
   });
   await page.goto(`${servers[2].origin}/connect`);
-  await page.getByRole("heading", { name: "Your connections" }).waitFor();
+  await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
   await auditPage(page, "editor Connect workspace", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
