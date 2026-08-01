@@ -40,11 +40,11 @@ pnpm build:packages
 pnpm --filter mdbase-editor dev
 ```
 
-Open `http://localhost:5173/?demo=5000` for a generated local
+Open `http://127.0.0.1:5173/?demo=5000` for a generated local
 collection that does not require authorization.
 
-Open `http://localhost:5173/connect` for account management. The Connect server
-must set `MDBASE_CONNECT_MANAGEMENT_ORIGINS=http://localhost:5173` so its
+Open `http://127.0.0.1:5173/connect` for account management. The Connect server
+must set `MDBASE_CONNECT_MANAGEMENT_ORIGINS=http://127.0.0.1:5173` so its
 HttpOnly account cookie can be used from the editor origin. Production and
 staging should keep the editor and Connect on the same registrable domain and
 allowlist only their exact editor origin.

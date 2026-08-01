@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { resolveDevelopmentOrigins } from "./lib/development-origins.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
+const environmentFile = resolve(repoRoot, ".env");
+if (existsSync(environmentFile)) process.loadEnvFile(environmentFile);
 const command = process.argv[2] ?? "up";
 const projectName = process.env.MDBASE_CONNECT_DEV_PROJECT ?? "mdbase-connect-dev";
 const bindPort = process.env.MDBASE_CONNECT_BIND_PORT ?? "8787";
+const origins = resolveDevelopmentOrigins(process.env, bindPort);
 const compose = [
   "compose",
   "--file",
@@ -24,7 +29,7 @@ const commands = {
 };
 
 if (command === "url") {
-  console.log(`http://127.0.0.1:${bindPort}`);
+  console.log(origins.publicUrl);
 } else if (!(command in commands)) {
   console.error("Usage: dev-environment.mjs <up|down|reset|status|logs|url>");
   process.exitCode = 2;
@@ -32,7 +37,7 @@ if (command === "url") {
   await runDocker(commands[command]);
   if (command === "reset") await runDocker(commands.up);
   if (command === "up" || command === "reset") {
-    console.log(`mdbase connect development environment: http://127.0.0.1:${bindPort}`);
+    console.log(`mdbase connect development environment: ${origins.publicUrl}`);
   }
 }
 
@@ -42,8 +47,9 @@ function runDocker(arguments_) {
       cwd: repoRoot,
       env: {
         ...process.env,
-        PUBLIC_URL:
-          process.env.PUBLIC_URL ?? `http://127.0.0.1:${bindPort}`,
+        PUBLIC_URL: origins.publicUrl,
+        MDBASE_CONNECT_MANAGEMENT_ORIGINS: origins.managementOrigins.join(","),
+        MDBASE_EDITOR_ORIGIN: origins.editorOrigin,
         MDBASE_CONNECT_BIND_PORT: bindPort
       },
       stdio: "inherit"
