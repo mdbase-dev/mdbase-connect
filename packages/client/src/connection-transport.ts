@@ -2,7 +2,6 @@ import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
-  FileTransferSession,
   JsonObject,
   MdbaseOperationRequest
 } from "@mdbase-dev/connect-protocol";
@@ -36,8 +35,7 @@ import type {
   OperationRequestOptions,
   PendingMutationSummary
 } from "./operation-types.js";
-import { LocalFileTransport } from "./local-file-transport.js";
-import { performHostedFilePartRequest, performHostedFileRequest } from "./hosted-file-request.js";
+import { ConnectionFileTransport } from "./connection-file-transport.js";
 import {
   directFallbackStatus,
   isMutation,
@@ -93,7 +91,7 @@ export class ConnectionTransport {
   private readonly collectionId: string;
   private readonly internals: ConnectionTransportInternals;
   private readonly onChange: () => void;
-  private readonly localFiles: LocalFileTransport;
+  readonly files: ConnectionFileTransport;
   private refreshPromise: Promise<StoredToken> | null = null;
   private directStatus: DirectAccessStatus;
   private currentRoute: MdbaseConnectionRoute = "relay";
@@ -109,7 +107,7 @@ export class ConnectionTransport {
     this.collectionId = options.collectionId;
     this.internals = options.internals;
     this.onChange = options.onChange;
-    this.localFiles = new LocalFileTransport({
+    this.files = new ConnectionFileTransport({
       keyStore: this.keyStore,
       serverUrl: this.serverUrl,
       loopbackUrl: this.loopbackUrl,
@@ -121,7 +119,9 @@ export class ConnectionTransport {
         this.setRoute("direct");
       },
       onDirectUnavailable: () => this.markDirectUnavailable(),
-      onRelayAvailable: () => this.setRoute("relay")
+      onRelayAvailable: () => this.setRoute("relay"),
+      authorityProofHeaders: (token, method, url, body, credential) =>
+        this.authorityProofHeaders(token, method, url, body, credential)
     });
     this.directStatus = this.directAccessMode === "disabled"
       ? "disabled"
@@ -392,60 +392,6 @@ export class ConnectionTransport {
     const body = await response.json();
     if (!response.ok) throw apiError(body, "sync_failed", "Collection synchronization failed.", response.status);
     return body as Result;
-  }
-
-  async performFileRequest<Result>(
-    method: "GET" | "POST" | "DELETE",
-    path = "",
-    input?: unknown,
-    signal?: AbortSignal
-  ): Promise<Result> {
-    let token = await this.authorizedToken();
-    if (!token?.fileCapability) {
-      throw connectError(
-        "not_authorized",
-        "This connection has no file capability."
-      );
-    }
-    if (!token.authority) {
-      return this.localFiles.control<Result>(token, method, path, input, signal);
-    }
-    return performHostedFileRequest<Result>(
-      token, method, path, input, signal,
-      () => this.refreshAuthorization(),
-      (proofToken, proofMethod, url, body, credential) =>
-        this.authorityProofHeaders(proofToken, proofMethod, url, body, credential)
-    );
-  }
-
-  async uploadFileChunk(session: FileTransferSession, chunkIndex: number, bytes: Uint8Array, signal?: AbortSignal): Promise<void> {
-    return this.localFiles.uploadChunk(session, chunkIndex, bytes, signal);
-  }
-
-  async downloadFileChunk(session: FileTransferSession, chunkIndex: number, signal?: AbortSignal): Promise<Uint8Array> {
-    return this.localFiles.downloadChunk(session, chunkIndex, signal);
-  }
-
-  async downloadHostedFilePart(
-    session: FileTransferSession,
-    partIndex: number,
-    signal?: AbortSignal
-  ): Promise<Uint8Array> {
-    const token = await this.authorizedToken();
-    if (!token?.fileCapability || !token.authority) {
-      throw connectError(
-        "not_remote_authority",
-        "Hosted file delivery requires a remote authority endpoint."
-      );
-    }
-    return performHostedFilePartRequest(
-      token,
-      `downloads/${encodeURIComponent(session.transfer_id)}/parts/${partIndex}`,
-      signal,
-      () => this.refreshAuthorization(),
-      (proofToken, proofMethod, url, body, credential) =>
-        this.authorityProofHeaders(proofToken, proofMethod, url, body, credential)
-    );
   }
 
   private async sendAuthoritySyncRequest(

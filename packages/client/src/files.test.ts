@@ -193,7 +193,7 @@ describe("MdbaseFileClient", () => {
       throw new Error(`Unexpected control path ${path}`);
     });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
-      const value = new Uint8Array(await (init?.body as Blob).arrayBuffer());
+      const value = await requestBodyBytes(init?.body);
       expect(value.byteLength).toBeLessThanOrEqual(8);
       uploaded.push(value);
       return new Response(undefined, {
@@ -203,8 +203,8 @@ describe("MdbaseFileClient", () => {
     });
     const source = (async function* () {
       yield content.slice(0, 2);
-      yield content.slice(2, 11);
-      yield content.slice(11, 12);
+      yield content.slice(2, 10);
+      yield content.slice(10, 12);
       yield content.slice(12);
     })();
 
@@ -272,6 +272,41 @@ describe("MdbaseFileClient", () => {
     expect(closed).toBe(true);
   });
 
+  it("rejects source chunks larger than the negotiated upload part", async () => {
+    const content = bytes("ninebytes");
+    let uploaded = false;
+    let aborted = false;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_multipart", part_size: 4 },
+          content.length
+        );
+      }
+      if (path?.endsWith("/parts")) {
+        uploaded = true;
+        throw new Error("oversized source chunks must fail before upload");
+      }
+      if (method === "DELETE") {
+        aborted = true;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+
+    await expect(client.uploadStream("stream.bin", {
+      size: content.length,
+      contentDigest: digest(content),
+      stream: (async function* () { yield content; })()
+    })).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("negotiated 4-byte")
+    });
+    expect(uploaded).toBe(false);
+    expect(aborted).toBe(true);
+  });
+
   it("resumes streamed uploads without re-sending accepted parts", async () => {
     const content = Uint8Array.from({ length: 17 }, (_, index) => 30 + index);
     const preparedParts: number[] = [];
@@ -319,7 +354,11 @@ describe("MdbaseFileClient", () => {
     await expect(client.uploadStream("resumed-stream.bin", {
       size: content.byteLength,
       contentDigest: digest(content),
-      stream: (async function* () { yield content; })()
+      stream: (async function* () {
+        yield content.slice(0, 8);
+        yield content.slice(8, 16);
+        yield content.slice(16);
+      })()
     }, {
       transferId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
     })).resolves.toEqual(expected);
@@ -385,7 +424,8 @@ describe("MdbaseFileClient", () => {
       throw new Error(`Unexpected control path ${path}`);
     }, undefined, {
       async downloadPart(_session, index) {
-        return content.slice(index * 7, Math.min(content.length, (index + 1) * 7));
+        const part = content.slice(index * 7, Math.min(content.length, (index + 1) * 7));
+        return byteStream(part.slice(0, 2), part.slice(2));
       }
     });
 
@@ -408,7 +448,7 @@ describe("MdbaseFileClient", () => {
       throw new Error(`Unexpected control path ${path}`);
     }, undefined, {
       async downloadPart() {
-        return bytes("corrupt!");
+        return byteStream(bytes("corrupt!"));
       }
     });
 
@@ -416,6 +456,70 @@ describe("MdbaseFileClient", () => {
       expect.objectContaining<Partial<MdbaseConnectError>>({ code: "invalid_operation_response" })
     );
     expect(aborts).toBe(1);
+  });
+
+  it("fails a truncated hosted range without retrying after delivery begins", async () => {
+    const content = bytes("expected bytes");
+    const file = descriptor("expected.bin", content);
+    let attempts = 0;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_ranges", part_size: content.length },
+          content.length,
+          "download"
+        );
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart() {
+        attempts += 1;
+        return byteStream(content.slice(0, 3));
+      }
+    });
+
+    await expect(client.downloadBytes(file)).rejects.toMatchObject({
+      code: "invalid_operation_response",
+      message: expect.stringContaining("ended before")
+    });
+    expect(attempts).toBe(1);
+  });
+
+  it("cancels an active hosted response when its consumer stops", async () => {
+    const content = bytes("cancel hosted stream");
+    const file = descriptor("cancel.bin", content);
+    let responseCancelled = false;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_ranges", part_size: content.length },
+          content.length,
+          "download"
+        );
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart() {
+        return new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(content.slice(0, 3));
+          },
+          cancel() {
+            responseCancelled = true;
+          }
+        });
+      }
+    });
+
+    const stream = await client.downloadStream(file);
+    const reader = stream.getReader();
+    await expect(reader.read()).resolves.toMatchObject({ done: false });
+    await reader.cancel();
+    expect(responseCancelled).toBe(true);
   });
 
   it("moves and deletes stable file identities with optimistic revisions", async () => {
@@ -845,6 +949,24 @@ function descriptor(path: string, content: Uint8Array): CollectionFileDescriptor
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
+}
+
+function byteStream(...chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    }
+  });
+}
+
+async function requestBodyBytes(body: BodyInit | null | undefined): Promise<Uint8Array> {
+  if (body instanceof Blob) return new Uint8Array(await body.arrayBuffer());
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (ArrayBuffer.isView(body)) {
+    return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+  }
+  throw new Error("Expected a binary request body.");
 }
 
 function digest(value: Uint8Array): `sha256:${string}` {

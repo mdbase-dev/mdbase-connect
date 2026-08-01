@@ -87,10 +87,11 @@ export async function performHostedFileRequest<Result>(
 export async function performHostedFilePartRequest(
   token: StoredToken,
   path: string,
+  expectedLength: number,
   signal: AbortSignal | undefined,
   refresh: () => Promise<StoredToken>,
   proofHeaders: ProofHeaders
-): Promise<Uint8Array> {
+): Promise<ReadableStream<Uint8Array>> {
   let active = token;
   let response = await sendHostedFileRequest(
     active, "GET", path, undefined, signal, proofHeaders
@@ -116,5 +117,20 @@ export async function performHostedFilePartRequest(
       response.status
     );
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const contentLength = response.headers.get("content-length");
+  if (contentLength === null || !/^(0|[1-9][0-9]*)$/u.test(contentLength)
+      || Number(contentLength) !== expectedLength) {
+    await response.body?.cancel().catch(() => undefined);
+    throw connectError(
+      "invalid_operation_response",
+      "The hosted file response declared an unexpected byte length."
+    );
+  }
+  if (!response.body) {
+    throw connectError(
+      "invalid_operation_response",
+      "The hosted file response did not contain a byte stream."
+    );
+  }
+  return response.body;
 }

@@ -12,6 +12,7 @@ import type {
 import { FILE_PROTOCOL_VERSION } from "@mdbase/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
+import { BinaryPartReader, streamBytes } from "./file-stream-source.js";
 
 const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
@@ -28,6 +29,10 @@ export interface MdbaseFileStreamSource {
   size: number;
   /** SHA-256 commitment verified by both this client and the authority. */
   contentDigest: `sha256:${string}`;
+  /**
+   * A one-shot byte source. Each yielded chunk must fit within the upload part
+   * size negotiated by the authority; ordinary browser and Node streams do.
+   */
   stream: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
   mediaType?: string;
 }
@@ -99,9 +104,12 @@ export interface MdbaseHostedFileTransport {
   downloadPart(
     session: FileTransferSession,
     partIndex: number,
+    expectedLength: number,
     signal?: AbortSignal
-  ): Promise<Uint8Array>;
+  ): Promise<ReadableStream<Uint8Array>>;
 }
+
+type UploadPartBody = Blob | Uint8Array<ArrayBuffer>;
 
 type ControlRequest = <Result>(
   method: "GET" | "POST" | "DELETE",
@@ -174,8 +182,10 @@ export class MdbaseFileClient {
   }
 
   /**
-   * Upload a one-shot byte stream while retaining at most one negotiated part.
-   * Reuse `transferId` with a newly opened source after an ambiguous failure.
+   * Upload a one-shot byte stream without buffering the whole file. SDK
+   * read-ahead is bounded to one negotiated part, and oversized source chunks
+   * are rejected. Reuse `transferId` with a newly opened source after an
+   * ambiguous failure.
    */
   async uploadStream(
     path: string,
@@ -204,9 +214,7 @@ export class MdbaseFileClient {
       async (_partIndex, _offset, length) => {
         const bytes = await reader.read(length);
         hash.update(bytes);
-        const copy = new Uint8Array(bytes.byteLength);
-        copy.set(bytes);
-        return new Blob([copy.buffer]);
+        return bytes;
       },
       async () => {
         await reader.expectEnd();
@@ -217,7 +225,8 @@ export class MdbaseFileClient {
           );
         }
       },
-      () => reader.close()
+      () => reader.close(),
+      (partSize) => reader.setMaxSourceChunkBytes(partSize)
     );
   }
 
@@ -228,9 +237,10 @@ export class MdbaseFileClient {
     mediaType: string | undefined,
     options: MdbaseFileStreamUploadOptions,
     concurrency: number,
-    readPart: (partIndex: number, offset: number, length: number) => Promise<Blob>,
+    readPart: (partIndex: number, offset: number, length: number) => Promise<UploadPartBody>,
     finishSource?: () => Promise<void>,
-    closeSource?: () => Promise<void>
+    closeSource?: () => Promise<void>,
+    prepareSource?: (partSize: number) => void
   ): Promise<CollectionFileDescriptor> {
     const transferId = options.transferId ?? crypto.randomUUID();
     if (!UUID.test(transferId)) {
@@ -269,6 +279,7 @@ export class MdbaseFileClient {
       const partCount = session.strategy.kind === "object_put"
         ? 1
         : Math.ceil(size / partSize);
+      prepareSource?.(partSize);
       if (!framed && session.received.length === partCount) {
         const replay = await this.tryReplayUploadCommit(
           transferId,
@@ -292,7 +303,7 @@ export class MdbaseFileClient {
         const offset = partIndex * partSize;
         const length = Math.min(partSize, Math.max(0, size - offset));
         const part = await readPart(partIndex, offset, length);
-        if (part.size !== length) {
+        if (uploadBodyLength(part) !== length) {
           throw connectError("invalid_request", "Streamed file bytes ended before the declared size.");
         }
         if (received.has(partIndex)) return uploadedParts.get(partIndex) ?? null;
@@ -301,7 +312,7 @@ export class MdbaseFileClient {
             async () => this.framed!.uploadChunk(
               session,
               partIndex,
-              new Uint8Array(await part.arrayBuffer()),
+              await uploadBodyBytes(part),
               options.signal
             ),
             options.signal
@@ -376,7 +387,7 @@ export class MdbaseFileClient {
     }), { type: file.media_type ?? "" });
   }
 
-  /** Download and verify a file with memory bounded to one negotiated part. */
+  /** Download and verify a file with network backpressure and bounded buffering. */
   async downloadStream(
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
@@ -416,11 +427,15 @@ export class MdbaseFileClient {
     const partCount = Math.ceil(file.size / partSize);
     const hash = new IncrementalSha256();
     let partIndex = 0;
+    let partRemaining = 0;
+    let hostedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let receivedBytes = 0;
     let closed = false;
     const finish = async () => {
       if (closed) return;
       closed = true;
+      await hostedReader?.cancel().catch(() => undefined);
+      hostedReader = null;
       await this.abort(transferId);
     };
     const verify = () => {
@@ -433,6 +448,66 @@ export class MdbaseFileClient {
       pull: async (controller) => {
         try {
           throwIfAborted(options.signal);
+          if (session.strategy.kind === "object_ranges") {
+            while (true) {
+              if (!hostedReader) {
+                if (partIndex >= partCount) {
+                  verify();
+                  await finish();
+                  controller.close();
+                  return;
+                }
+                const offset = partIndex * partSize;
+                partRemaining = Math.min(partSize, file.size - offset);
+                const body = await retryChunk(
+                  () => this.hosted!.downloadPart(
+                    session,
+                    partIndex,
+                    partRemaining,
+                    options.signal
+                  ),
+                  options.signal
+                );
+                hostedReader = body.getReader();
+              }
+              const next = await hostedReader.read();
+              if (next.done) {
+                hostedReader.releaseLock();
+                hostedReader = null;
+                if (partRemaining !== 0) {
+                  throw connectError(
+                    "invalid_operation_response",
+                    "A hosted file range ended before its declared byte length."
+                  );
+                }
+                partIndex += 1;
+                continue;
+              }
+              if (!(next.value instanceof Uint8Array)) {
+                throw connectError(
+                  "invalid_operation_response",
+                  "A hosted file range returned a non-byte chunk."
+                );
+              }
+              if (next.value.byteLength === 0) continue;
+              if (next.value.byteLength > partRemaining) {
+                throw connectError(
+                  "invalid_operation_response",
+                  "A hosted file range exceeded its declared byte length."
+                );
+              }
+              partRemaining -= next.value.byteLength;
+              hash.update(next.value);
+              receivedBytes += next.value.byteLength;
+              options.onProgress?.({
+                phase: "downloading",
+                transferredBytes: receivedBytes,
+                totalBytes: file.size
+              });
+              controller.enqueue(next.value);
+              return;
+            }
+          }
           if (partIndex >= partCount) {
             verify();
             await finish();
@@ -441,15 +516,10 @@ export class MdbaseFileClient {
           }
           const offset = partIndex * partSize;
           const length = Math.min(partSize, file.size - offset);
-          const chunk = session.strategy.kind === "framed_chunks"
-            ? await retryChunk(
-              () => this.framed!.downloadChunk(session, partIndex, options.signal),
-              options.signal
-            )
-            : await retryChunk(
-              () => this.hosted!.downloadPart(session, partIndex, options.signal),
-              options.signal
-            );
+          const chunk = await retryChunk(
+            () => this.framed!.downloadChunk(session, partIndex, options.signal),
+            options.signal
+          );
           if (chunk.byteLength !== length) {
             throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
           }
@@ -566,7 +636,7 @@ export class MdbaseFileClient {
     transferId: string,
     partIndex: number,
     offset: number,
-    body: Blob,
+    body: UploadPartBody,
     contentLength: number,
     requireEtag: boolean,
     signal?: AbortSignal
@@ -695,6 +765,16 @@ function sourceBlob(source: MdbaseFileSource, mediaType?: string): Blob {
   const copy = new Uint8Array(source.byteLength);
   copy.set(new Uint8Array(source.buffer, source.byteOffset, source.byteLength));
   return new Blob([copy.buffer], { type: mediaType });
+}
+
+function uploadBodyLength(body: UploadPartBody): number {
+  return body instanceof Blob ? body.size : body.byteLength;
+}
+
+async function uploadBodyBytes(body: UploadPartBody): Promise<Uint8Array<ArrayBuffer>> {
+  return body instanceof Blob
+    ? new Uint8Array(await body.arrayBuffer())
+    : body;
 }
 
 function validConcurrency(value = DEFAULT_CONCURRENCY): number {
@@ -829,104 +909,6 @@ function browserObjectHeaders(headers: Record<string, string>): Headers {
     result.set(name, value);
   }
   return result;
-}
-
-class BinaryPartReader {
-  private readonly iterator: AsyncIterator<Uint8Array>;
-  private remainder = new Uint8Array();
-  private ended = false;
-
-  constructor(
-    source: AsyncIterable<Uint8Array>,
-    private readonly signal?: AbortSignal
-  ) {
-    this.iterator = source[Symbol.asyncIterator]();
-  }
-
-  async read(length: number): Promise<Uint8Array> {
-    const output = new Uint8Array(length);
-    let offset = 0;
-    while (offset < length) {
-      if (this.remainder.byteLength === 0) {
-        throwIfAborted(this.signal);
-        const next = await this.iterator.next();
-        if (next.done) {
-          this.ended = true;
-          throw connectError("invalid_request", "Streamed file bytes ended before the declared size.");
-        }
-        if (!(next.value instanceof Uint8Array)) {
-          throw connectError("invalid_request", "A streamed file chunk was not a Uint8Array.");
-        }
-        this.remainder = new Uint8Array(next.value);
-        if (this.remainder.byteLength === 0) continue;
-      }
-      const count = Math.min(length - offset, this.remainder.byteLength);
-      output.set(this.remainder.subarray(0, count), offset);
-      offset += count;
-      this.remainder = this.remainder.slice(count);
-    }
-    return output;
-  }
-
-  async expectEnd(): Promise<void> {
-    if (this.remainder.byteLength > 0) {
-      throw connectError("invalid_request", "Streamed file bytes exceed the declared size.");
-    }
-    while (!this.ended) {
-      throwIfAborted(this.signal);
-      const next = await this.iterator.next();
-      if (next.done) {
-        this.ended = true;
-        return;
-      }
-      if (!(next.value instanceof Uint8Array)) {
-        throw connectError("invalid_request", "A streamed file chunk was not a Uint8Array.");
-      }
-      if (next.value.byteLength > 0) {
-        throw connectError("invalid_request", "Streamed file bytes exceed the declared size.");
-      }
-    }
-  }
-
-  async close(): Promise<void> {
-    this.ended = true;
-    await this.iterator.return?.();
-  }
-}
-
-async function* streamBytes(
-  source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
-  signal?: AbortSignal
-): AsyncGenerator<Uint8Array> {
-  if (typeof (source as ReadableStream<Uint8Array>).getReader === "function") {
-    const reader = (source as ReadableStream<Uint8Array>).getReader();
-    const abort = () => void reader.cancel(signal?.reason).catch(() => undefined);
-    signal?.addEventListener("abort", abort, { once: true });
-    let completed = false;
-    try {
-      throwIfAborted(signal);
-      while (true) {
-        const next = await reader.read();
-        if (next.done) {
-          completed = true;
-          return;
-        }
-        yield next.value;
-      }
-    } finally {
-      signal?.removeEventListener("abort", abort);
-      if (!completed) await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-    }
-  }
-  const iterable = source as AsyncIterable<Uint8Array>;
-  if (typeof iterable[Symbol.asyncIterator] !== "function") {
-    throw connectError("invalid_request", "Streamed files require a readable byte stream.");
-  }
-  for await (const chunk of iterable) {
-    throwIfAborted(signal);
-    yield chunk;
-  }
 }
 
 async function mapConcurrent<Result>(
