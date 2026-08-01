@@ -302,18 +302,28 @@ impl CollectionRegistry {
                 .unwrap_or_default();
             let snapshot = collection.snapshot()?;
             store.reconcile(id, &snapshot, &HashMap::new())?;
+            let files = self.reconcile_files_loaded(&registered, &snapshot)?;
             match action {
                 "open_session" => {
                     let description = self.describe_loaded(&registered, collection)?;
                     let resources = sync_resources(&snapshot, description, &replica.allowed_types);
-                    serde_json::to_value(store.open_session(id, &replica, resources, &snapshot)?)
-                        .map_err(Into::into)
+                    serde_json::to_value(
+                        store.open_session(id, &replica, resources, &snapshot, &files)?,
+                    )
+                    .map_err(Into::into)
                 }
                 "snapshot" => {
                     store.ensure_replica(id, &replica)?;
                     let snapshot_id = required_uuid(input, "snapshot_id")?;
                     let page = input.get("page").and_then(Value::as_str);
                     serde_json::to_value(store.snapshot(id, replica.id, snapshot_id, page)?)
+                        .map_err(Into::into)
+                }
+                "file_snapshot" => {
+                    store.ensure_replica(id, &replica)?;
+                    let snapshot_id = required_uuid(input, "snapshot_id")?;
+                    let page = input.get("page").and_then(Value::as_str);
+                    serde_json::to_value(store.file_snapshot(id, replica.id, snapshot_id, page)?)
                         .map_err(Into::into)
                 }
                 "changes" => {

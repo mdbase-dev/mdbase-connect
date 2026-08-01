@@ -182,6 +182,7 @@ impl CollectionRegistry {
                 scope_epoch INTEGER NOT NULL,
                 cursor INTEGER NOT NULL,
                 records TEXT NOT NULL,
+                files TEXT NOT NULL DEFAULT '[]',
                 expires_at TEXT NOT NULL,
                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
                 FOREIGN KEY (replica_id) REFERENCES local_sync_replicas(id) ON DELETE CASCADE
@@ -245,6 +246,7 @@ impl CollectionRegistry {
             "ALTER TABLE grant_crypto_requests ADD COLUMN response_envelope TEXT",
             "ALTER TABLE local_sync_collections ADD COLUMN authority_state TEXT NOT NULL DEFAULT 'active'",
             "ALTER TABLE local_sync_collections ADD COLUMN transfer_id TEXT",
+            "ALTER TABLE local_sync_snapshots ADD COLUMN files TEXT NOT NULL DEFAULT '[]'",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {

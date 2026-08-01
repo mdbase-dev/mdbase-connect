@@ -2,9 +2,9 @@ use crate::{CollectionRegistry, ConnectError};
 use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
     authority_manifest_digest, AuthoritySnapshot, AuthoritySnapshotRecord, SyncChange,
-    SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation, SyncMutationOperation,
-    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncSession, SyncSnapshotPage,
-    SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
+    SyncChangesPage, SyncCollectionResources, SyncConflict, SyncFileSnapshotPage,
+    SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
+    SyncReplicaMode, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -12,10 +12,24 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uuid::Uuid;
 
 const SNAPSHOT_PAGE_SIZE: usize = 200;
-const RETAINED_CHANGES: u64 = 10_000;
+pub(crate) const RETAINED_CHANGES: u64 = 10_000;
 
 mod storage;
 use storage::*;
+
+fn snapshot_offset(page: Option<&str>) -> Result<usize, ConnectError> {
+    page.map(|value| value.parse::<usize>().map_err(|_| invalid_snapshot_page()))
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+fn snapshot_expired() -> ConnectError {
+    ConnectError::AccessDenied("Snapshot expired or belongs to another replica.".to_string())
+}
+
+fn invalid_snapshot_page() -> ConnectError {
+    ConnectError::AccessDenied("Snapshot page is outside the result set.".to_string())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalReplica {
@@ -405,6 +419,11 @@ impl LocalSyncStore {
                  WHERE collection_id = ?1 AND sequence <= ?2",
                 params![collection_id.to_string(), retained_after],
             )?;
+            transaction.execute(
+                "DELETE FROM collection_file_changes
+                 WHERE collection_id = ?1 AND sequence <= ?2",
+                params![collection_id.to_string(), retained_after],
+            )?;
             state.retained_after = retained_after;
         }
         transaction.execute(
@@ -428,6 +447,7 @@ impl LocalSyncStore {
         replica: &LocalReplica,
         resources: SyncCollectionResources,
         collection_snapshot: &CollectionSnapshot,
+        files: &[mdbase_connect_protocol::CollectionFileDescriptor],
     ) -> Result<SyncSession, ConnectError> {
         let mut connection = self.connection()?;
         let transaction =
@@ -462,8 +482,8 @@ impl LocalSyncStore {
         )?;
         transaction.execute(
             "INSERT INTO local_sync_snapshots
-               (id, collection_id, replica_id, scope_epoch, cursor, records, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', '+10 minutes'))",
+               (id, collection_id, replica_id, scope_epoch, cursor, records, files, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now', '+10 minutes'))",
             params![
                 snapshot_id.to_string(),
                 collection_id.to_string(),
@@ -471,6 +491,7 @@ impl LocalSyncStore {
                 replica.scope_epoch,
                 state.head,
                 serde_json::to_string(&records)?,
+                serde_json::to_string(files)?,
             ],
         )?;
         transaction.execute(
@@ -489,6 +510,53 @@ impl LocalSyncStore {
             head: state.head,
             snapshot_id,
             resources,
+        })
+    }
+
+    pub(crate) fn file_snapshot(
+        &self,
+        collection_id: Uuid,
+        replica_id: Uuid,
+        snapshot_id: Uuid,
+        page: Option<&str>,
+    ) -> Result<SyncFileSnapshotPage, ConnectError> {
+        let offset = snapshot_offset(page)?;
+        let connection = self.connection()?;
+        let row = connection
+            .query_row(
+                "SELECT scope_epoch, cursor, files
+                 FROM local_sync_snapshots
+                 WHERE id = ?1 AND collection_id = ?2 AND replica_id = ?3
+                   AND expires_at > CURRENT_TIMESTAMP",
+                params![
+                    snapshot_id.to_string(),
+                    collection_id.to_string(),
+                    replica_id.to_string(),
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, u64>(0)?,
+                        row.get::<_, u64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(snapshot_expired)?;
+        let files =
+            serde_json::from_str::<Vec<mdbase_connect_protocol::CollectionFileDescriptor>>(&row.2)?;
+        if offset > files.len() {
+            return Err(invalid_snapshot_page());
+        }
+        let end = offset.saturating_add(SNAPSHOT_PAGE_SIZE).min(files.len());
+        Ok(SyncFileSnapshotPage {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            message_type: SyncFileSnapshotPageKind::FileSnapshotPage,
+            snapshot_id,
+            scope_epoch: row.0,
+            cursor: row.1,
+            files: files[offset..end].to_vec(),
+            next_page: (end < files.len()).then(|| end.to_string()),
         })
     }
 
@@ -626,6 +694,47 @@ impl LocalSyncStore {
             }
         }
         drop(statement);
+        let mut file_statement = transaction.prepare(
+            "SELECT sequence, file_id, before_file, after_file, revision
+             FROM collection_file_changes
+             WHERE collection_id = ?1 AND sequence > ?2
+             ORDER BY sequence",
+        )?;
+        let file_rows =
+            file_statement.query_map(params![collection_id.to_string(), after], |row| {
+                Ok((
+                    row.get::<_, u64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?;
+        for row in file_rows {
+            let (sequence, file_id, before, after_file, revision) = row?;
+            if let Some(after_file) = after_file {
+                events.push(SyncChange::FilePut {
+                    sequence,
+                    file: serde_json::from_str(&after_file)?,
+                });
+            } else if let Some(before) = before {
+                let before = serde_json::from_str::<
+                    mdbase_connect_protocol::CollectionFileDescriptor,
+                >(&before)?;
+                events.push(SyncChange::FileRemove {
+                    sequence,
+                    file_id: Uuid::parse_str(&file_id).map_err(|error| {
+                        ConnectError::CollectionOpen(format!(
+                            "invalid local file ID in change history: {error}"
+                        ))
+                    })?,
+                    previous_path: before.path,
+                    revision,
+                });
+            }
+        }
+        drop(file_statement);
+        events.sort_by_key(change_sequence);
         let has_more = events.len() > limit;
         events.truncate(limit);
         let cursor = if has_more {

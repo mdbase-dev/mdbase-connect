@@ -177,9 +177,22 @@ impl CollectionRegistry {
                     ],
                 )?;
             }
+            let retained_after = head.saturating_sub(crate::local_sync::RETAINED_CHANGES);
             transaction.execute(
-                "UPDATE local_sync_collections SET head = ?2 WHERE collection_id = ?1",
-                params![collection_id.to_string(), head],
+                "DELETE FROM local_sync_changes
+                 WHERE collection_id = ?1 AND sequence <= ?2",
+                params![collection_id.to_string(), retained_after],
+            )?;
+            transaction.execute(
+                "DELETE FROM collection_file_changes
+                 WHERE collection_id = ?1 AND sequence <= ?2",
+                params![collection_id.to_string(), retained_after],
+            )?;
+            transaction.execute(
+                "UPDATE local_sync_collections
+                 SET head = ?2, retained_after = MAX(retained_after, ?3)
+                 WHERE collection_id = ?1",
+                params![collection_id.to_string(), head, retained_after],
             )?;
         }
 

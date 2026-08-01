@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:39:39+10:00
+updated_at: 2026-08-01T13:44:01+10:00
 type: task
 ---
 
@@ -170,7 +170,16 @@ expiry, zero-byte files, and lost-response replay are covered. Ten focused
 transfer tests, 72 total core tests, full-workspace checking, strict workspace
 Clippy, formatting, architecture budgets, and diff checks pass.
 
+Local sync now pins a separately paged file manifest in each snapshot and
+merges file put/remove events with record changes by the shared sequence. A
+rename retains its file ID and emits a complete descriptor; deletion emits a
+tombstone without bytes. Both change tables compact at the same retained
+boundary. The public sync operation exposes `file_snapshot`, while existing
+record-only mirrors continue to fail before checkpointing a file event. The
+focused end-to-end cursor test, 73 core tests, 36 mirror tests, strict workspace
+Clippy, and architecture checks pass.
+
 ## Handoff
 
 Work is active. Add download/range access and expose local file operations over
-the binary loopback and relay data plane, then materialize file sync.
+the binary loopback and relay data plane, then materialize the manifests.

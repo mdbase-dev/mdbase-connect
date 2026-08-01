@@ -5,6 +5,7 @@ use tempfile::tempdir;
 
 mod authority;
 mod collections;
+mod file_sync;
 mod operations;
 mod scope;
 mod security_state;
