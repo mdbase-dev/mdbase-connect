@@ -235,10 +235,7 @@ describe("MdbaseFileClient", () => {
       };
     });
 
-    await expect(client.move(original, moved.path, {
-      updateReferences: true,
-      mutationId: moveMutationId
-    }))
+    await expect(client.move(original, moved.path, { mutationId: moveMutationId }))
       .resolves.toEqual(moved);
     await expect(client.delete(moved, { mutationId: deleteMutationId })).resolves.toMatchObject({
       type: "file_deleted",
@@ -257,7 +254,7 @@ describe("MdbaseFileClient", () => {
         if_revision: original.revision,
         from_path: original.path,
         path: moved.path,
-        update_references: true
+        update_references: false
       }
     });
     expect(calls[1]).toEqual({

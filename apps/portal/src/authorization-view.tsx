@@ -902,9 +902,7 @@ function FilePermissionSummary({ files }: {
 }) {
   const scope = files.scope.kind === "collection"
     ? "Every visible folder in this collection. Hidden folders are always excluded."
-    : files.scope.kind === "referenced"
-      ? "Only files explicitly referenced by records this application can access."
-      : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;
+    : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;
   return (
     <details className="permission-review file-permission-review">
       <summary>
@@ -914,13 +912,10 @@ function FilePermissionSummary({ files }: {
       <div className="permission-groups">
         <fieldset className="permission-group">
           <legend>Files</legend>
-          <p>{scope}</p>
-          <div>{files.actions.map((action) => (
-            <label key={action}>
-              <input type="checkbox" checked readOnly disabled />
-              <span>{FILE_ACTION_LABELS[action]}</span>
-            </label>
-          ))}</div>
+          <p>{scope} These actions are required together by the application.</p>
+          <ul className="permission-action-list">{files.actions.map((action) => (
+            <li key={action}>{FILE_ACTION_LABELS[action]}</li>
+          ))}</ul>
         </fieldset>
       </div>
     </details>

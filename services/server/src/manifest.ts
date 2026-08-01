@@ -71,7 +71,6 @@ function validFileFolder(folder: string): boolean {
     });
 }
 const fileScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("referenced") }).strict(),
   z.object({
     kind: z.literal("selected_folders"),
     folders: z.array(fileFolderSchema).min(1).max(100).refine(

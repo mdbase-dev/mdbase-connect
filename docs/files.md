@@ -105,7 +105,6 @@ represented by one ever-growing operation list:
 
 The initial file scope modes are:
 
-- `referenced`: files resolved from links in records visible to the grant;
 - `selected_folders`: files below authority-approved collection folders; and
 - `collection`: every eligible file in the logical file namespace.
 

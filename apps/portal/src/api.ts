@@ -249,7 +249,6 @@ export interface ApplicationRequirements {
   files?: {
     actions: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
     scope:
-      | { kind: "referenced" }
       | { kind: "selected_folders"; folders: string[] }
       | { kind: "collection" };
   };

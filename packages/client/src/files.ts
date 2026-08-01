@@ -50,8 +50,6 @@ export interface MdbaseFileDownloadOptions {
 }
 
 export interface MdbaseFileMoveOptions {
-  /** Rewrite supported Markdown references in the same authority transaction. */
-  updateReferences?: boolean;
   ifRevision?: string;
   /** Reuse after an ambiguous network failure to receive the original receipt. */
   mutationId?: string;
@@ -365,7 +363,9 @@ export class MdbaseFileClient {
           if_revision: options.ifRevision ?? file.revision,
           from_path: file.path,
           path,
-          update_references: options.updateReferences ?? false
+          // Reserved for a future protocol that can update record links
+          // atomically with a file move. Protocol v1 must remain false.
+          update_references: false
         },
         options.signal
       );

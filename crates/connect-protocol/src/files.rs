@@ -64,7 +64,6 @@ pub enum FileAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FileScope {
-    Referenced,
     SelectedFolders { folders: Vec<String> },
     Collection,
 }

@@ -108,10 +108,6 @@ pub(super) fn authorize_file_access(
                 {
                     Ok(())
                 }
-                (FileScope::Referenced, _) => Err(ApiError::forbidden(
-                    "referenced_file_scope_required",
-                    "Referenced-file access requires a file linked from an accessible record.",
-                )),
                 _ => Err(ApiError::forbidden(
                     "scope_denied",
                     "The file is outside this application's approved folders.",

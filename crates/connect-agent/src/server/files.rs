@@ -588,7 +588,6 @@ fn file_visible(capability: &mdbase_connect_protocol::FileCapability, path: &str
         FileScope::SelectedFolders { folders } => {
             folders.iter().any(|folder| path_in_folder(path, folder))
         }
-        FileScope::Referenced => false,
     }
 }
 

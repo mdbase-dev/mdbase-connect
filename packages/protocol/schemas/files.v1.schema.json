@@ -90,12 +90,6 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind"],
-          "properties": { "kind": { "const": "referenced" } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
           "required": ["kind", "folders"],
           "properties": {
             "kind": { "const": "selected_folders" },

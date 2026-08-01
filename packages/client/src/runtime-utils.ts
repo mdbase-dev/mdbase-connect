@@ -166,7 +166,7 @@ export function validFileCapability(value: unknown): value is FileCapability {
   ) return false;
   const scope = capability.scope;
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) return false;
-  if (scope.kind === "referenced" || scope.kind === "collection") {
+  if (scope.kind === "collection") {
     return Object.keys(scope).length === 1;
   }
   return scope.kind === "selected_folders"

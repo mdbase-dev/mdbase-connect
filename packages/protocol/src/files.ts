@@ -48,7 +48,6 @@ export type RelayFileKind =
   | "rejected";
 
 export type FileScope =
-  | { kind: "referenced" }
   | { kind: "selected_folders"; folders: string[] }
   | { kind: "collection" };
 

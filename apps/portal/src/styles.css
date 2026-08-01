@@ -1550,6 +1550,22 @@ select {
   accent-color: var(--accent-dark);
 }
 
+.permission-action-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  list-style: none;
+}
+
+.permission-action-list li::before {
+  content: "•";
+  margin-right: 0.45rem;
+  color: var(--ink-muted);
+}
+
 .notification-access {
   padding: 0.9rem 0;
   border-bottom: 1px solid var(--line);
