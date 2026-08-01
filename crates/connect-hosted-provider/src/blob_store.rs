@@ -605,7 +605,9 @@ mod tests {
             Duration::from_secs(900),
         )
         .unwrap();
-        assert_eq!(R2BlobStore::new(valid).upload_part_size(), 8 * 1024 * 1024);
+        let store = R2BlobStore::new(valid);
+        assert_eq!(store.upload_part_size(), 8 * 1024 * 1024);
+        assert_eq!(store.download_part_size(), 8 * 1024 * 1024);
 
         for invalid in [
             R2Config::new(
@@ -633,6 +635,15 @@ mod tests {
                 "secret",
                 4 * 1024 * 1024,
                 8 * 1024 * 1024,
+                Duration::from_secs(900),
+            ),
+            R2Config::new(
+                "https://account.r2.cloudflarestorage.com",
+                "bucket",
+                "access",
+                "secret",
+                8 * 1024 * 1024,
+                33 * 1024 * 1024,
                 Duration::from_secs(900),
             ),
         ] {
