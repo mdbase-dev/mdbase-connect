@@ -79,14 +79,15 @@ export function throwIfCancelled(signal?: AbortSignal): void {
 export function operationTransportError(
   error: unknown,
   signal: AbortSignal | undefined,
-  outcomeUnknown: boolean
+  outcomeUnknown: boolean,
+  unavailableCode: "hosted_provider_unavailable" | "relay_unavailable"
 ): Error {
   // Problems raised before transport dispatch already describe the
   // authoritative outcome. Do not overwrite them merely because an older
   // pending mutation also exists in storage.
   if (error instanceof MdbaseConnectError) return error;
   if (signal?.aborted) {
-    if (outcomeUnknown) return uncertainDirectMutation(error);
+    if (outcomeUnknown) return unknownMutationOutcome(error);
     return connectError(
       "operation_cancelled",
       "The operation was cancelled before it changed the collection.",
@@ -94,7 +95,16 @@ export function operationTransportError(
     );
   }
   if (outcomeUnknown) {
-    return uncertainDirectMutation(error);
+    return unknownMutationOutcome(error);
+  }
+  if (error instanceof TypeError) {
+    return connectError(
+      unavailableCode,
+      unavailableCode === "hosted_provider_unavailable"
+        ? "The hosted collection provider is unavailable."
+        : "The Connect relay is unavailable.",
+      { cause: error }
+    );
   }
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -169,10 +179,10 @@ export function sortJson(value: unknown): unknown {
   return value;
 }
 
-export function uncertainDirectMutation(cause: unknown): MdbaseConnectError {
+export function unknownMutationOutcome(cause: unknown): MdbaseConnectError {
   return connectError(
-    "direct_outcome_unknown",
-    "The direct write may have completed, and mdbase could not recover its receipt through the relay. Retry the exact same write to recover safely.",
+    "operation_outcome_unknown",
+    "The write may have completed, but mdbase could not recover its authoritative result. Retry the exact same write to recover safely.",
     { operationOutcome: "unknown", cause }
   );
 }

@@ -1,7 +1,7 @@
 import type { Application } from "./internal-types.js";
 import type { StoredToken } from "./internal-types.js";
 import { connectError } from "./errors.js";
-import { apiError, parseStored } from "./runtime-utils.js";
+import { apiError, connectFetch, parseStored } from "./runtime-utils.js";
 import { base64UrlBytes, randomBase64Url } from "./base64.js";
 import type {
   MdbaseNativeNotificationRegistration,
@@ -47,7 +47,12 @@ export class ConnectionNotifications {
         "This application manifest does not declare any notification criteria."
       );
     }
-    const keyResponse = await fetch(`${this.context.serverUrl}/v1/notifications/vapid-public-key`);
+    const keyResponse = await connectFetch(
+      `${this.context.serverUrl}/v1/notifications/vapid-public-key`,
+      undefined,
+      "notifications_unavailable",
+      "Push notifications are unavailable."
+    );
     const keyBody = await keyResponse.json();
     if (!keyResponse.ok) {
       throw apiError(keyBody, "notifications_unavailable", "Push notifications are unavailable.", keyResponse.status);
@@ -72,7 +77,7 @@ export class ConnectionNotifications {
     const installationId = options.installationId
       ?? previous?.installationId
       ?? randomBase64Url(24);
-    const channelResponse = await fetch(`${this.context.serverUrl}/v1/notifications/channels`, {
+    const channelResponse = await connectFetch(`${this.context.serverUrl}/v1/notifications/channels`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${token.accessToken}`,
@@ -87,7 +92,7 @@ export class ConnectionNotifications {
           keys: serialized.keys
         }
       })
-    });
+    }, "notification_registration_failed", "Could not register push notifications.");
     const channelBody = await channelResponse.json();
     if (!channelResponse.ok) {
       throw apiError(channelBody, "notification_registration_failed", "Could not register push notifications.", channelResponse.status);
@@ -154,7 +159,7 @@ export class ConnectionNotifications {
     const installationId = options.installationId
       ?? previous?.installationId
       ?? randomBase64Url(24);
-    const response = await fetch(`${this.context.serverUrl}/v1/notifications/channels`, {
+    const response = await connectFetch(`${this.context.serverUrl}/v1/notifications/channels`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${token.accessToken}`,
@@ -166,7 +171,7 @@ export class ConnectionNotifications {
         transport: "fcm",
         token: options.token
       })
-    });
+    }, "notification_registration_failed", "Could not register native notifications.");
     const body = await response.json();
     if (!response.ok) {
       throw apiError(
@@ -225,10 +230,10 @@ export class ConnectionNotifications {
       );
     }
     if (registration?.channelId && token) {
-      const response = await fetch(`${this.context.serverUrl}/v1/notifications/channels/${registration.channelId}`, {
+      const response = await connectFetch(`${this.context.serverUrl}/v1/notifications/channels/${registration.channelId}`, {
         method: "DELETE",
         headers: { authorization: `Bearer ${token.accessToken}` }
-      });
+      }, "notification_unregistration_failed", "Could not unregister push notifications.");
       if (!response.ok && response.status !== 404) {
         const body = await response.json();
         throw apiError(
@@ -247,12 +252,14 @@ export class ConnectionNotifications {
     channelId: string,
     accessToken: string
   ): Promise<void> {
-    const response = await fetch(
+    const response = await connectFetch(
       `${this.context.serverUrl}/v1/notifications/channels/${channelId}`,
       {
         method: "DELETE",
         headers: { authorization: `Bearer ${accessToken}` }
-      }
+      },
+      "notification_unregistration_failed",
+      "Could not unregister push notifications."
     );
     if (!response.ok && response.status !== 404) {
       const body = await response.json();

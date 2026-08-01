@@ -1,4 +1,4 @@
-import { MdbaseConnectError } from "./errors.js";
+import type { ConnectProblem } from "@mdbase/connect-protocol";
 
 export function cleanAuthorizationParameters(url: URL): URL {
   for (const parameter of ["code", "state", "error", "error_description"]) {
@@ -18,11 +18,10 @@ export function isAuthorizationCallbackUrl(value: string): boolean {
     && (url.searchParams.has("code") || url.searchParams.has("error"));
 }
 
-export function authorizationReturnToFromError(error: unknown): string | undefined {
-  if (!(error instanceof MdbaseConnectError)
-      || !error.details
-      || typeof error.details !== "object"
-      || Array.isArray(error.details)) return undefined;
-  const returnTo = (error.details as { returnTo?: unknown }).returnTo;
+export function authorizationReturnToFromProblem(problem: ConnectProblem): string | undefined {
+  if (!problem.details
+      || typeof problem.details !== "object"
+      || Array.isArray(problem.details)) return undefined;
+  const returnTo = (problem.details as { return_to?: unknown }).return_to;
   return typeof returnTo === "string" ? returnTo : undefined;
 }

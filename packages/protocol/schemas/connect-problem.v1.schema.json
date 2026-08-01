@@ -1191,46 +1191,6 @@
           "const": 1
         },
         "code": {
-          "const": "direct_outcome_unknown"
-        },
-        "category": {
-          "const": "conflict"
-        },
-        "recovery": {
-          "const": "resolve_outcome"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "operation_outcome": {
-          "enum": [
-            "not_sent",
-            "rejected",
-            "unknown"
-          ]
-        },
-        "trace_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "problem_version",
-        "code",
-        "category",
-        "recovery",
-        "message"
-      ],
-      "properties": {
-        "problem_version": {
-          "const": 1
-        },
-        "code": {
           "const": "discovery_failed"
         },
         "category": {
@@ -2580,6 +2540,46 @@
             },
             "partial_result": true
           }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "operation_outcome_unknown"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "resolve_outcome"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

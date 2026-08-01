@@ -3,7 +3,7 @@ import type {
   JsonObject
 } from "@mdbase/connect-protocol";
 import {
-  authorizationReturnToFromError,
+  authorizationReturnToFromProblem,
   isAuthorizationCallbackUrl
 } from "./authorization-url.js";
 import {
@@ -16,9 +16,16 @@ import type {
   MdbaseAuthorizationCapabilities,
   MdbaseConnectionInfo
 } from "./connection-types.js";
-import { connectError } from "./errors.js";
+import { connectProblem } from "./errors.js";
 import { DEFAULT_OPERATIONS } from "./internal-types.js";
 import { uniqueOperations } from "./operation-helpers.js";
+import {
+  connectFailure,
+  connectSuccess,
+  type AuthorizationProblemCode,
+  type ConnectOutcome,
+  type SessionProblemCode
+} from "./outcomes.js";
 import type {
   MdbaseSelectionHistory,
   MdbaseSessionSelection
@@ -27,10 +34,10 @@ import type {
 export interface MdbaseSessionConnect<Frontmatter extends JsonObject> {
   authorize(
     options?: MdbaseAuthorizeOptions
-  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>>;
+  ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, AuthorizationProblemCode>>;
   completeAuthorization(
     callbackUrl: string
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>>;
+  ): Promise<ConnectOutcome<MdbaseAuthorizationResult<Frontmatter>, AuthorizationProblemCode>>;
   connections(): MdbaseConnectionInfo[];
   connection(collectionId: string): MdbaseConnection<Frontmatter> | null;
   unavailableReason(collectionId: string): MdbaseUnavailableReason | null;
@@ -86,7 +93,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   private refreshing = false;
   private refreshQueued = false;
   private transactionDepth = 0;
-  private callbackPromise: Promise<MdbaseConnection<Frontmatter>> | null = null;
+  private callbackPromise: Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> | null = null;
 
   constructor(
     private readonly connect: MdbaseSessionConnect<Frontmatter>,
@@ -99,7 +106,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     this.refresh();
   }
 
-  async start(): Promise<MdbaseSessionSnapshot<Frontmatter>> {
+  async start(): Promise<ConnectOutcome<MdbaseSessionSnapshot<Frontmatter>, SessionProblemCode>> {
     if (!this.started) {
       this.started = true;
       this.stopConnections = this.connect.onConnectionsChange(() => this.refresh());
@@ -109,10 +116,13 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
       });
     }
     const callback = this.selection.authorizationCallback();
-    if (callback) await this.handleAuthorizationCallback(callback);
+    if (callback) {
+      const completed = await this.handleAuthorizationCallback(callback);
+      if (!completed.ok) return completed;
+    }
     else this.autoSelectOnlyConnection();
     this.refresh();
-    return this.snapshot;
+    return connectSuccess(this.snapshot);
   }
 
   destroy(): void {
@@ -138,18 +148,18 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   select(
     collectionId: string,
     options: { history?: MdbaseSelectionHistory } = {}
-  ): MdbaseConnection<Frontmatter> {
+  ): ConnectOutcome<MdbaseConnection<Frontmatter>, "unknown_collection"> {
     const connection = this.connect.connection(collectionId);
     if (!connection) {
-      throw connectError(
+      return connectFailure(connectProblem(
         "unknown_collection",
         "This collection is not authorized for this application."
-      );
+      ));
     }
     this.unavailableReason = "not_authorized";
     this.selection.select(collectionId, options);
     this.refresh();
-    return connection;
+    return connectSuccess(connection);
   }
 
   clearSelection(options: { history?: MdbaseSelectionHistory } = {}): void {
@@ -173,10 +183,13 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   async authorize(
     target: "choose" | "selected" | { collectionId: string },
     options: Omit<MdbaseAuthorizeOptions, "operations" | "returnTo" | "target"> = {}
-  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
+  ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, SessionProblemCode>> {
     const selectedCollectionId = this.selection.selectedCollectionId();
     if (target === "selected" && !selectedCollectionId) {
-      throw connectError("collection_not_selected", "Choose a collection before updating its access.");
+      return connectFailure(connectProblem(
+        "collection_not_selected",
+        "Choose a collection before updating its access."
+      ));
     }
     const targetCollectionId = typeof target === "object"
       ? target.collectionId
@@ -193,8 +206,11 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
           : { kind: "collection", collectionId: targetCollectionId },
         returnTo: this.selection.authorizationReturnTo()
       });
-      if (outcome.kind === "connected") {
-        this.selection.finishAuthorization(outcome.returnTo, outcome.connection.collectionId);
+      if (outcome.ok && outcome.value.kind === "connected") {
+        this.selection.finishAuthorization(
+          outcome.value.returnTo,
+          outcome.value.connection.collectionId
+        );
       }
       return outcome;
     } finally {
@@ -205,14 +221,23 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
 
   async ensureOperations(
     requiredOperations: CollectionOperation[]
-  ): Promise<MdbaseAuthorizationOutcome<Frontmatter> | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }> {
+  ): Promise<ConnectOutcome<
+    MdbaseAuthorizationOutcome<Frontmatter>
+    | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> },
+    SessionProblemCode
+  >> {
     const current = this.snapshot;
     if (current.status !== "ready") {
-      throw connectError("collection_not_ready", "Choose an authorized collection first.");
+      return connectFailure(connectProblem(
+        "collection_not_ready",
+        "Choose an authorized collection first."
+      ));
     }
     const required = uniqueOperations(requiredOperations);
     const capabilities = current.connection.authorizationCapabilities(required);
-    if (capabilities.sufficient) return { kind: "unchanged", connection: current.connection };
+    if (capabilities.sufficient) {
+      return connectSuccess({ kind: "unchanged", connection: current.connection });
+    }
     this.transactionDepth += 1;
     try {
       const outcome = await this.connect.authorize({
@@ -220,8 +245,11 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
         target: { kind: "collection", collectionId: current.collectionId },
         returnTo: this.selection.authorizationReturnTo()
       });
-      if (outcome.kind === "connected") {
-        this.selection.finishAuthorization(outcome.returnTo, outcome.connection.collectionId);
+      if (outcome.ok && outcome.value.kind === "connected") {
+        this.selection.finishAuthorization(
+          outcome.value.returnTo,
+          outcome.value.connection.collectionId
+        );
       }
       return outcome;
     } finally {
@@ -232,22 +260,31 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
 
   handleAuthorizationCallback(
     callbackUrl: string
-  ): Promise<MdbaseConnection<Frontmatter>> {
+  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
     if (!isAuthorizationCallbackUrl(callbackUrl)) {
-      return Promise.reject(connectError("invalid_callback", "This URL is not an authorization callback."));
+      return Promise.resolve(connectFailure(connectProblem(
+        "invalid_callback",
+        "This URL is not an authorization callback."
+      )));
     }
     if (this.callbackPromise) return this.callbackPromise;
     this.transactionDepth += 1;
     const completion = this.connect.completeAuthorization(callbackUrl)
-      .then((result) => {
+      .then((outcome) => {
+        if (!outcome.ok) {
+          const returnTo = authorizationReturnToFromProblem(outcome.problem);
+          this.selection.clearAuthorizationCallback(returnTo);
+          this.refresh();
+          return outcome;
+        }
+        const result = outcome.value;
         this.unavailableReason = "not_authorized";
         this.selection.finishAuthorization(result.returnTo, result.connection.collectionId);
         this.refresh();
-        return result.connection;
+        return connectSuccess(result.connection, outcome.diagnostics);
       })
-      .catch((error) => {
-        const returnTo = authorizationReturnToFromError(error);
-        this.selection.clearAuthorizationCallback(returnTo);
+      .catch((error: unknown) => {
+        this.selection.clearAuthorizationCallback();
         this.refresh();
         throw error;
       })

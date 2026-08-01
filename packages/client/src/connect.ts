@@ -36,6 +36,14 @@ import {
 } from "./internal-types.js";
 import { uniqueOperations } from "./operation-helpers.js";
 import {
+  AUTHORIZATION_PROBLEM_CODES,
+  REGISTRATION_PROBLEM_CODES,
+  captureConnectOutcome,
+  type AuthorizationProblemCode,
+  type ConnectOutcome,
+  type RegistrationProblemCode
+} from "./outcomes.js";
+import {
   MdbaseSession,
   type MdbaseSessionOptions,
   type MdbaseUnavailableReason
@@ -44,6 +52,7 @@ import {
   MemoryStorage,
   apiError,
   canonicalLoopbackUrl,
+  connectFetch,
   createPkce,
   defaultCallbackUrl,
   defaultManifestSource,
@@ -86,12 +95,20 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
     this.internals = new MdbaseConnectInternals(options);
   }
 
-  register(): Promise<Application> {
-    return this.internals.register();
+  register(): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.register(),
+      REGISTRATION_PROBLEM_CODES
+    );
   }
 
-  authorize(options: MdbaseAuthorizeOptions = {}): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    return this.internals.authorize(options);
+  authorize(
+    options: MdbaseAuthorizeOptions = {}
+  ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, AuthorizationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.authorize(options),
+      AUTHORIZATION_PROBLEM_CODES
+    );
   }
 
   createSession(options: MdbaseSessionOptions): MdbaseSession<Frontmatter> {
@@ -103,9 +120,12 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
   }
 
   completeAuthorization(
-    callbackUrl = defaultCallbackUrl()
-  ): Promise<MdbaseAuthorizationResult<Frontmatter>> {
-    return this.internals.completeAuthorization(callbackUrl);
+    callbackUrl?: string
+  ): Promise<ConnectOutcome<MdbaseAuthorizationResult<Frontmatter>, AuthorizationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.completeAuthorization(callbackUrl ?? defaultCallbackUrl()),
+      AUTHORIZATION_PROBLEM_CODES
+    );
   }
 
   connections(): MdbaseConnectionInfo[] {
@@ -203,11 +223,11 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
 
   async register(): Promise<Application> {
     if (this.application) return this.application;
-    const response = await fetch(`${this.serverUrl}/v1/apps/register`, {
+    const response = await connectFetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ manifest: await this.loadManifest() })
-    });
+    }, "temporarily_unavailable", "Application registration is temporarily unavailable.");
     const body = await response.json();
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
     this.application = body.application;
@@ -569,7 +589,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     if (!code) {
       throw connectError("invalid_callback", "Authorization callback is missing its code.");
     }
-    const response = await fetch(`${this.serverUrl}/oauth/token`, {
+    const response = await connectFetch(`${this.serverUrl}/oauth/token`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -579,7 +599,7 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         redirect_uri: pending.redirectUri,
         code_verifier: pending.verifier
       })
-    });
+    }, "temporarily_unavailable", "Authorization completion is temporarily unavailable.");
     const body = await response.json();
     if (!response.ok) throw apiError(body, "token_exchange_failed", "Authorization could not be completed.", response.status);
     if (pending.relayEncryption === "required" && !body.authority && (

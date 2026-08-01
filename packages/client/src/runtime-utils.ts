@@ -17,6 +17,26 @@ import {
   randomBase64Url
 } from "./base64.js";
 
+type NetworkProblemCode =
+  | "notification_registration_failed"
+  | "notification_unregistration_failed"
+  | "notifications_unavailable"
+  | "temporarily_unavailable";
+
+/** Normalize fetch rejection at the exact I/O boundary. */
+export async function connectFetch(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  code: NetworkProblemCode,
+  message: string
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (cause) {
+    throw connectError(code, message, { cause });
+  }
+}
+
 export function canonicalLoopbackUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "http:"

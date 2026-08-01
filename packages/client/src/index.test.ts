@@ -458,7 +458,10 @@ describe("provider-neutral collection client", () => {
       storage: new MemoryStorage()
     });
 
-    await expect(connect.register()).resolves.toMatchObject({ name: "Tasks" });
+    await expect(connect.register()).resolves.toMatchObject({
+      ok: true,
+      value: { name: "Tasks" }
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toBe(
       "https://connect.example/v1/apps/register"
@@ -603,7 +606,8 @@ describe("provider-neutral collection client", () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(authorization).resolves.toMatchObject({
-      connection: { collectionId: portableCollectionId }
+      ok: true,
+      value: { connection: { collectionId: portableCollectionId } }
     });
     expect(connect.connections()).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -694,7 +698,7 @@ describe("provider-neutral collection client", () => {
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(1_000);
 
-    const result = await authorization;
+    const result = unwrapConnectOutcome(await authorization);
     expect(result.connection).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
       route: "remote"
@@ -732,11 +736,14 @@ describe("provider-neutral collection client", () => {
       navigate: vi.fn()
     });
 
-    await expect(connect.authorize()).rejects.toMatchObject({
-      code: "approval_window_blocked",
-      details: {
-        user_code: "ABCD-EFGH",
-        verification_uri: "https://connect.example/device"
+    await expect(connect.authorize()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "approval_window_blocked",
+        details: {
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://connect.example/device"
+        }
       }
     });
   });
@@ -803,8 +810,9 @@ describe("provider-neutral collection client", () => {
 
     const authorization = expect(
       connect.authorize({ openVerification: opened })
-    ).rejects.toMatchObject({
-      code: "encryption_required"
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "encryption_required" }
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(1_000);
@@ -873,8 +881,9 @@ describe("provider-neutral collection client", () => {
 
     const authorization = expect(
       connect.authorize({ openVerification: opened })
-    ).rejects.toMatchObject({
-      code: "invalid_token_response"
+    ).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "invalid_token_response" }
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(1_000);
@@ -885,6 +894,25 @@ describe("provider-neutral collection client", () => {
 });
 
 describe("actionable SDK errors", () => {
+  it("normalizes registration network failures at the I/O boundary", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network unavailable"));
+    const connect = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: portableManifest(),
+      storage: new MemoryStorage(),
+      keyStore: new MemoryGrantKeyStore()
+    });
+
+    await expect(connect.register()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "temporarily_unavailable",
+        category: "availability",
+        recovery: "retry"
+      }
+    });
+  });
+
   it("classifies retry, authorization, refresh, and uncertain-outcome recovery", () => {
     const offline = connectError("connector_offline", "Connector offline.", { status: 503 });
     expect(offline).toMatchObject({
@@ -907,7 +935,7 @@ describe("actionable SDK errors", () => {
       retryable: false,
       recovery: "refresh"
     });
-    expect(connectError("direct_outcome_unknown", "Check the write.", {
+    expect(connectError("operation_outcome_unknown", "Check the write.", {
       operationOutcome: "unknown"
     })).toMatchObject({
       retryable: false,
@@ -1050,11 +1078,11 @@ describe("mobile notifications", () => {
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
 
-    const registration = await connect.registerNotifications({
+    const registration = unwrapConnectOutcome(await connect.registerNotifications({
       serviceWorker,
       criteria: ["task.ready"],
       installationId: "installation-0000000001"
-    });
+    }));
 
     expect(registration).toEqual({
       channelId: "00000000-0000-0000-0000-000000000003",
@@ -1112,7 +1140,10 @@ describe("mobile notifications", () => {
         pushManager: { getSubscription }
       } as unknown as ServiceWorkerRegistration,
       criteria: ["task.private"]
-    })).rejects.toMatchObject({ code: "notification_criterion_not_declared" });
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "notification_criterion_not_declared" }
+    });
     expect(getSubscription).not.toHaveBeenCalled();
   });
 
@@ -1201,10 +1232,10 @@ describe("mobile notifications", () => {
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
 
-    const registration = await connect.registerNativeNotifications({
+    const registration = unwrapConnectOutcome(await connect.registerNativeNotifications({
       token: "fcm_registration_token_012345678901234567890123",
       installationId: "native-installation-0001"
-    });
+    }));
 
     expect(registration).toEqual({
       channelId: "00000000-0000-0000-0000-000000000004",
@@ -1255,8 +1286,9 @@ describe("mobile notifications", () => {
     const connect = manager.connection(TEST_COLLECTION_ID)!;
     storage.removeItem(tokenKey);
 
-    await expect(connect.unregisterNativeNotifications()).rejects.toMatchObject({
-      code: "not_authorized"
+    await expect(connect.unregisterNativeNotifications()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "not_authorized" }
     });
     expect(storage.getItem(registrationKey)).not.toBeNull();
   });
@@ -1442,7 +1474,7 @@ describe("application sessions", () => {
 
     const snapshots: string[] = [];
     session.subscribe(() => snapshots.push(session.getSnapshot().status));
-    const selected = session.select(TEST_COLLECTION_ID);
+    const selected = unwrapConnectOutcome(session.select(TEST_COLLECTION_ID));
 
     expect(selected.collectionId).toBe(TEST_COLLECTION_ID);
     expect(session.getSnapshot()).toMatchObject({
@@ -1459,9 +1491,10 @@ describe("application sessions", () => {
     const session = manager.createSession({ selection: new MdbaseBrowserSelection() });
     await session.start();
 
-    expect(() => session.select("not-authorized")).toThrowError(
-      expect.objectContaining({ code: "unknown_collection" })
-    );
+    expect(session.select("not-authorized")).toMatchObject({
+      ok: false,
+      problem: { code: "unknown_collection" }
+    });
     expect(new URL(browser.href()).searchParams.get("collection")).toBe(TEST_COLLECTION_ID);
     expect(session.getSnapshot()).toMatchObject({
       status: "ready",
@@ -1566,7 +1599,9 @@ describe("application sessions", () => {
   it("keeps choose and exact authorization intents distinct", async () => {
     installBrowser(`https://tasks.example/?collection=${TEST_COLLECTION_ID}`);
     const manager = managerWithConnections([TEST_COLLECTION_ID]);
-    const authorize = vi.spyOn(manager, "authorize").mockResolvedValue({ kind: "redirecting" });
+    const authorize = vi.spyOn(manager, "authorize").mockResolvedValue(
+      connectSuccess({ kind: "redirecting" })
+    );
     const session = manager.createSession({
       operations: ["query", "update"],
       selection: new MdbaseBrowserSelection()
@@ -1617,17 +1652,17 @@ describe("application sessions", () => {
     const browser = installBrowser("https://tasks.example/auth/mdbase/callback?code=one&state=two");
     const manager = managerWithConnections([TEST_COLLECTION_ID]);
     const connection = manager.connection(TEST_COLLECTION_ID)!;
-    vi.spyOn(manager, "completeAuthorization").mockResolvedValue({
+    vi.spyOn(manager, "completeAuthorization").mockResolvedValue(connectSuccess({
       connection,
       returnTo: "/search?q=next&error=stale#result"
-    });
+    }));
     const session = manager.createSession({
       selection: new MdbaseBrowserSelection({ fallbackPath: "/app/" })
     });
 
     await expect(session.start()).resolves.toMatchObject({
-      status: "ready",
-      collectionId: TEST_COLLECTION_ID
+      ok: true,
+      value: { status: "ready", collectionId: TEST_COLLECTION_ID }
     });
     const completed = new URL(browser.href());
     expect(completed.pathname).toBe("/search");
@@ -1636,10 +1671,10 @@ describe("application sessions", () => {
     expect(completed.searchParams.has("error")).toBe(false);
     expect(completed.hash).toBe("#result");
 
-    vi.mocked(manager.completeAuthorization).mockResolvedValue({
+    vi.mocked(manager.completeAuthorization).mockResolvedValue(connectSuccess({
       connection,
       returnTo: "https://other.example/steal"
-    });
+    }));
     browser.navigate("https://tasks.example/auth/mdbase/callback?code=two&state=three");
     await session.handleAuthorizationCallback(browser.href());
     expect(new URL(browser.href()).pathname).toBe("/app/");
@@ -1847,10 +1882,13 @@ describe("authorization renewal", () => {
 
     await expect(manager.completeAuthorization(
       "https://tasks.example/callback?error=access_denied&error_description=Not%20now&state=denied-state"
-    )).rejects.toMatchObject({
-      code: "access_denied",
-      message: "Not now",
-      details: { return_to: "/today" }
+    )).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "access_denied",
+        message: "Not now",
+        details: { return_to: "/today" }
+      }
     });
 
     expect(storage.getItem(pendingKey)).toBeNull();
@@ -1895,7 +1933,8 @@ describe("authorization renewal", () => {
     ]);
 
     expect(first).toEqual(second);
-    expect(first.connection.info()).toMatchObject({
+    const completed = unwrapConnectOutcome(first);
+    expect(completed.connection.info()).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
       displayName: "Tasks",
       operations: ["query"]
@@ -2279,6 +2318,43 @@ describe("authorization renewal", () => {
 });
 
 describe("direct loopback routing", () => {
+  it("classifies a relay network failure without throwing", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("relay unavailable"));
+
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "relay_unavailable",
+        category: "availability",
+        recovery: "retry"
+      }
+    });
+  });
+
+  it("marks a relay write as unknown when its network response is lost", async () => {
+    const fixture = await encryptedConnection();
+    fixture.connect.disableDirectAccess();
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("relay response lost"));
+
+    await expect(fixture.connect.create({
+      path: "uncertain.md",
+      frontmatter: { title: "Uncertain" }
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_outcome_unknown",
+        operation_outcome: "unknown",
+        recovery: "resolve_outcome"
+      }
+    });
+    expect(fixture.connect.pendingMutation()).toMatchObject({
+      operation: "create",
+      resumable: true
+    });
+  });
+
   it("retries the exact encrypted envelope through the relay after an ambiguous direct failure", async () => {
     const fixture = await encryptedConnection();
     const requests: Array<{ url: string; body: string }> = [];
@@ -2299,7 +2375,7 @@ describe("direct loopback routing", () => {
       frontmatter: { title: "Only once" }
     })).resolves.toMatchObject({
       ok: false,
-      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
+      problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
 
     expect(requests.map(({ url }) => url)).toEqual([
@@ -2348,7 +2424,7 @@ schema:
       path: "one.md"
     })).resolves.toMatchObject({
       ok: false,
-      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
+      problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
     expect(requests[2].body).toBe(requests[0].body);
   });
@@ -2369,7 +2445,7 @@ schema:
     })).resolves.toMatchObject({
       ok: false,
       problem: {
-        code: "direct_outcome_unknown",
+        code: "operation_outcome_unknown",
         operation_outcome: "unknown",
         recovery: "resolve_outcome"
       }
@@ -2395,7 +2471,7 @@ schema:
 
     await expect(fixture.connect.resumePendingMutation(input)).resolves.toMatchObject({
       ok: false,
-      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
+      problem: { code: "operation_outcome_unknown", operation_outcome: "unknown" }
     });
     expect(requests.map(({ url }) => url)).toEqual([
       "http://127.0.0.1:28485/v1/operations",
@@ -2537,7 +2613,10 @@ schema:
       if (connection) changes.push(connection.directAccess);
     });
 
-    await expect(fixture.connect.requestDirectAccess()).resolves.toBe("available");
+    await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({
+      ok: true,
+      value: "available"
+    });
     const init = fetchMock.mock.calls[0][1] as RequestInit & { targetAddressSpace?: string };
     expect(init.credentials).toBe("omit");
     expect(init.targetAddressSpace).toBe("loopback");
@@ -2555,7 +2634,10 @@ schema:
       encrypted_protocol_version: 1
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.requestDirectAccess()).resolves.toBe("available");
+    await expect(fixture.connect.requestDirectAccess()).resolves.toMatchObject({
+      ok: true,
+      value: "available"
+    });
     expect(fixture.connect.info()?.directAccess).toBe("available");
   });
 
