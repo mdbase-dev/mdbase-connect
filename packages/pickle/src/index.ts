@@ -6,7 +6,10 @@ import type {
   RecordDocument,
   QueryRecord
 } from "@mdbase/connect-protocol";
-import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
+import {
+  unwrapConnectOutcome,
+  type MdbaseConnection
+} from "@mdbase/connect";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
@@ -116,10 +119,10 @@ export interface RespondOptions {
 }
 
 export interface PickleClient {
-  describe(): Promise<CollectionDescription>;
+  describe(): ReturnType<MdbaseConnection<PickleFrontmatter>["describe"]>;
   queryAll(
     input: Parameters<MdbaseConnection<PickleFrontmatter>["queryAll"]>[0]
-  ): Promise<QueryResult<PickleFrontmatter>>;
+  ): ReturnType<MdbaseConnection<PickleFrontmatter>["queryAll"]>;
   create(
     input: Parameters<MdbaseConnection<PickleFrontmatter>["create"]>[0]
   ): ReturnType<MdbaseConnection<PickleFrontmatter>["create"]>;
@@ -177,18 +180,18 @@ export class PickleCollection {
     collection: CollectionDescription;
     contract: PickleContract;
   }> {
-    this.description ??= await this.connect.describe();
+    this.description ??= unwrapConnectOutcome(await this.connect.describe());
     this.contract ??= resolvePickleContract(this.description);
     return { collection: this.description, contract: this.contract };
   }
 
   async list(): Promise<PickleRequest[]> {
     const { collection, contract } = await this.describe();
-    const requestQuery = await this.connect.queryAll({
+    const requestQuery = unwrapConnectOutcome(await this.connect.queryAll({
       types: contract.implementations.map(({ typeName }) => typeName),
       include_body: true,
       frontmatter_mode: "effective"
-    });
+    }));
     const requests = requestQuery.results.map(requireEffectiveFrontmatter);
     const responseTypes = [
       ...new Set(
@@ -205,11 +208,11 @@ export class PickleCollection {
     ];
     const responses = responseTypes.length
       ? (
-          await this.connect.queryAll({
+          unwrapConnectOutcome(await this.connect.queryAll({
             types: responseTypes,
             include_body: true,
             frontmatter_mode: "effective"
-          })
+          }))
         ).results.map(requireEffectiveFrontmatter)
       : [];
     return requests
@@ -254,8 +257,7 @@ export class PickleCollection {
       frontmatter,
       body: ""
     });
-    assertValid(created);
-    return created.result;
+    return unwrapConnectOutcome(created);
   }
 }
 
@@ -499,16 +501,6 @@ function validFieldPath(value: string): boolean {
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+|\/+$/g, "");
-}
-
-function assertValid(value: {
-  valid: boolean;
-  diagnostics: Array<{ message: string }>;
-}): void {
-  if (value.valid) return;
-  throw new PickleContractError(
-    value.diagnostics[0]?.message ?? "Pickle operation failed."
-  );
 }
 
 function asObject(value: unknown): JsonObject | undefined {

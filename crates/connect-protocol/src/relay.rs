@@ -86,7 +86,7 @@ pub enum RelayMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         result: Option<Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<ControlError>,
+        problem: Option<ConnectProblem>,
     },
     EncryptedOperationRequest {
         #[serde(flatten)]
@@ -99,6 +99,6 @@ pub enum RelayMessage {
     EncryptedOperationRejected {
         protocol_version: u32,
         request_id: Uuid,
-        error: ControlError,
+        problem: ConnectProblem,
     },
 }

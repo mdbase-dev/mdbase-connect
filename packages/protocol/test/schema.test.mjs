@@ -432,7 +432,14 @@ test("relay request and response discriminators reject malformed wire messages",
     protocol_version: 1,
     request_id: request.request_id,
     ok: false,
-    error: { code: "access_denied", message: "Denied" }
+    problem: {
+      problem_version: 1,
+      code: "access_denied",
+      category: "authorization",
+      recovery: "reauthorize",
+      message: "Denied",
+      operation_outcome: "rejected"
+    }
   };
   assert.equal(validate(response), true, JSON.stringify(validate.errors));
   assert.equal(validate({ ...response, result: {} }), false);

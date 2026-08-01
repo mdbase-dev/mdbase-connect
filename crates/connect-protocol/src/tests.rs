@@ -53,7 +53,10 @@ fn assert_encrypted_schema(value: Value) {
 fn generated_connect_problem_metadata_matches_the_wire_schema() {
     let definition = connect_problem_definition("collection_version_unsupported").unwrap();
     assert_eq!(definition.category, ConnectProblemCategory::Compatibility);
-    assert_eq!(definition.recovery, ConnectRecoveryAction::UpgradeCollection);
+    assert_eq!(
+        definition.recovery,
+        ConnectRecoveryAction::UpgradeCollection
+    );
     assert!(connect_problem_definition("future_problem").is_none());
 
     let schema: Value = serde_json::from_str(include_str!(
@@ -85,6 +88,13 @@ fn generated_connect_problem_metadata_matches_the_wire_schema() {
         .map(|errors| errors.map(|error| error.to_string()).collect::<Vec<_>>())
         .unwrap_or_default();
     assert!(errors.is_empty(), "schema errors: {errors:#?}");
+
+    let future = ConnectProblem::new("future_problem", "A newer problem occurred.")
+        .with_operation_outcome(ConnectOperationOutcome::Rejected);
+    assert_eq!(future.code, "unknown");
+    assert_eq!(future.server_code.as_deref(), Some("future_problem"));
+    assert_eq!(future.category, ConnectProblemCategory::Unknown);
+    assert_eq!(future.recovery, ConnectRecoveryAction::None);
 }
 
 fn assert_sync_schema(reference: &str, value: Value) {
@@ -262,7 +272,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
             request_id: ids[0],
             ok: true,
             result: Some(serde_json::json!({"valid": true})),
-            error: None,
+            problem: None,
         },
         RelayMessage::PolicySnapshot {
             protocol_version: CONTROL_PROTOCOL_VERSION,

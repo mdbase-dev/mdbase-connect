@@ -1,7 +1,7 @@
 import {
   CONNECT_PROBLEM_CATALOG,
   CONNECT_PROBLEM_VERSION,
-  isConnectProblemCode,
+  normalizeConnectProblem,
   type ConnectOperationOutcome,
   type ConnectProblem,
   type ConnectProblemCode,
@@ -99,19 +99,11 @@ export function unknownConnectProblem(
   message: string,
   options: ProblemOptions & { details?: unknown } = {}
 ): ConnectProblem {
-  return {
-    problem_version: CONNECT_PROBLEM_VERSION,
-    code: "unknown",
-    server_code: serverCode,
-    category: "unknown",
-    recovery: "none",
-    message,
-    ...(options.details === undefined ? {} : { details: options.details }),
-    ...(options.operationOutcome === undefined
-      ? {}
-      : { operation_outcome: options.operationOutcome }),
-    ...(options.traceId === undefined ? {} : { trace_id: options.traceId })
-  };
+  return normalizeConnectProblem(serverCode, message, {
+    details: options.details,
+    operation_outcome: options.operationOutcome,
+    trace_id: options.traceId
+  });
 }
 
 export function connectError<Code extends ConnectProblemCode>(
@@ -132,25 +124,11 @@ export function serverConnectError(
   options: ProblemOptions & { details?: unknown; status?: number; cause?: unknown } = {}
 ): MdbaseConnectError {
   const { status, cause, ...problemOptions } = options;
-  if (!isConnectProblemCode(serverCode)) {
-    return new MdbaseConnectError(
-      unknownConnectProblem(serverCode, message, problemOptions),
-      { status, cause }
-    );
-  }
-  const definition = CONNECT_PROBLEM_CATALOG[serverCode];
-  return new MdbaseConnectError({
-    problem_version: CONNECT_PROBLEM_VERSION,
-    code: serverCode,
-    category: definition.category,
-    recovery: definition.recovery,
-    message,
-    ...(problemOptions.details === undefined ? {} : { details: problemOptions.details }),
-    ...(problemOptions.operationOutcome === undefined
-      ? {}
-      : { operation_outcome: problemOptions.operationOutcome }),
-    ...(problemOptions.traceId === undefined ? {} : { trace_id: problemOptions.traceId })
-  } as KnownConnectProblem, { status, cause });
+  return new MdbaseConnectError(normalizeConnectProblem(serverCode, message, {
+    details: problemOptions.details,
+    operation_outcome: problemOptions.operationOutcome,
+    trace_id: problemOptions.traceId
+  }), { status, cause });
 }
 
 export function operationProblem<Result>(

@@ -30,6 +30,7 @@ pub enum ConnectRecoveryAction {
     Reauthorize,
     Refresh,
     RepairCollection,
+    ResumeConnectorAccess,
     ResolveConflict,
     ResolveOutcome,
     Retry,
@@ -69,9 +70,11 @@ pub struct ConnectProblem {
     pub server_code: Option<String>,
 }
 
+#[rustfmt::skip]
 pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition> {
     match code {
         "access_denied" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
+        "access_paused" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::ResumeConnectorAccess }),
         "approval_window_blocked" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "authority_authorization_changed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "authorization_cancelled" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Cancellation, recovery: ConnectRecoveryAction::None }),
@@ -98,6 +101,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "device_authorization_failed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "direct_operation_rejected" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "discovery_failed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
+        "encrypted_relay_rejected" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "encryption_required" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "expired_token" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "hosted_provider_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
@@ -149,5 +153,51 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "unsupported_encryption" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::UpgradeApplication }),
         "unsupported_operation" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::FixRequest }),
         _ => None,
+    }
+}
+
+impl ConnectProblem {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        let server_code = code.into();
+        let message = message.into();
+        match connect_problem_definition(&server_code) {
+            Some(definition) => Self {
+                problem_version: CONNECT_PROBLEM_VERSION,
+                code: server_code,
+                category: definition.category,
+                recovery: definition.recovery,
+                message,
+                details: None,
+                operation_outcome: None,
+                trace_id: None,
+                server_code: None,
+            },
+            None => Self {
+                problem_version: CONNECT_PROBLEM_VERSION,
+                code: "unknown".to_string(),
+                category: ConnectProblemCategory::Unknown,
+                recovery: ConnectRecoveryAction::None,
+                message,
+                details: None,
+                operation_outcome: None,
+                trace_id: None,
+                server_code: Some(server_code),
+            },
+        }
+    }
+
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
+    pub fn with_operation_outcome(mut self, outcome: ConnectOperationOutcome) -> Self {
+        self.operation_outcome = Some(outcome);
+        self
+    }
+
+    pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
+        self.trace_id = Some(trace_id.into());
+        self
     }
 }

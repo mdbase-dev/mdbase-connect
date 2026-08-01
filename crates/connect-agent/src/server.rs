@@ -11,9 +11,10 @@ use mdbase_connect_protocol::crypto::{
 };
 use mdbase_connect_protocol::{
     AgentConnectionState, AgentStatus, ApplicationAccess, AuthorityTarget,
-    AuthorizationCollectionOffer, AuthorizationCollectionTypes, ContractSetupChoice,
-    ControlCommand, ControlError, ControlRequest, ControlResponse, RelayMessage, SyncReplicaMode,
-    CONTROL_PROTOCOL_VERSION, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
+    AuthorizationCollectionOffer, AuthorizationCollectionTypes, ConnectOperationOutcome,
+    ConnectProblem, ContractSetupChoice, ControlCommand, ControlError, ControlRequest,
+    ControlResponse, RelayMessage, SyncReplicaMode, CONTROL_PROTOCOL_VERSION,
+    ENCRYPTED_RELAY_PROTOCOL_VERSION, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use std::io;
 use std::sync::Arc;
@@ -233,11 +234,11 @@ fn encrypted_rejection(request_id: uuid::Uuid) -> RelayMessage {
     RelayMessage::EncryptedOperationRejected {
         protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
         request_id,
-        error: ControlError {
-            code: "encrypted_relay_rejected".to_string(),
-            message: "Encrypted relay request was rejected.".to_string(),
-            details: None,
-        },
+        problem: ConnectProblem::new(
+            "encrypted_relay_rejected",
+            "Encrypted relay request was rejected.",
+        )
+        .with_operation_outcome(ConnectOperationOutcome::Rejected),
     }
 }
 

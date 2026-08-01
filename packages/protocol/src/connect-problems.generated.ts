@@ -4,6 +4,7 @@ export const CONNECT_PROBLEM_VERSION = 1 as const;
 
 export const CONNECT_PROBLEM_CATALOG = {
   "access_denied": { category: "authorization", recovery: "reauthorize" },
+  "access_paused": { category: "availability", recovery: "resume_connector_access" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
   "authorization_cancelled": { category: "cancellation", recovery: "none" },
@@ -30,6 +31,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "device_authorization_failed": { category: "authorization", recovery: "reauthorize" },
   "direct_operation_rejected": { category: "authorization", recovery: "reauthorize" },
   "discovery_failed": { category: "availability", recovery: "retry" },
+  "encrypted_relay_rejected": { category: "authorization", recovery: "reauthorize" },
   "encryption_required": { category: "authorization", recovery: "reauthorize" },
   "expired_token": { category: "authorization", recovery: "reauthorize" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
@@ -84,7 +86,7 @@ export const CONNECT_PROBLEM_CATALOG = {
 
 export type ConnectProblemCode = keyof typeof CONNECT_PROBLEM_CATALOG;
 export type ConnectProblemCategory = "authorization" | "availability" | "cancellation" | "compatibility" | "conflict" | "integrity" | "internal" | "selection" | "validation" | "unknown";
-export type ConnectRecoveryAction = "choose_collection" | "contact_support" | "fix_request" | "none" | "reauthorize" | "refresh" | "repair_collection" | "resolve_conflict" | "resolve_outcome" | "retry" | "upgrade_application" | "upgrade_collection" | "upgrade_connector";
+export type ConnectRecoveryAction = "choose_collection" | "contact_support" | "fix_request" | "none" | "reauthorize" | "refresh" | "repair_collection" | "resume_connector_access" | "resolve_conflict" | "resolve_outcome" | "retry" | "upgrade_application" | "upgrade_collection" | "upgrade_connector";
 export type ConnectOperationOutcome = "not_sent" | "rejected" | "unknown";
 
 export interface ConnectProblemBase {
@@ -96,6 +98,7 @@ export interface ConnectProblemBase {
 
 export interface ConnectProblemDetailsByCode {
   "access_denied": undefined;
+  "access_paused": undefined;
   "approval_window_blocked": {
   "user_code": string;
   "verification_uri": string;
@@ -144,6 +147,7 @@ export interface ConnectProblemDetailsByCode {
   "device_authorization_failed": undefined;
   "direct_operation_rejected": undefined;
   "discovery_failed": undefined;
+  "encrypted_relay_rejected": undefined;
   "encryption_required": undefined;
   "expired_token": undefined;
   "hosted_provider_unavailable": undefined;
@@ -210,6 +214,12 @@ export interface ConnectProblemByCode {
     code: "access_denied";
     category: "authorization";
     recovery: "reauthorize";
+    details?: never;
+  };
+  "access_paused": ConnectProblemBase & {
+    code: "access_paused";
+    category: "availability";
+    recovery: "resume_connector_access";
     details?: never;
   };
   "approval_window_blocked": ConnectProblemBase & {
@@ -366,6 +376,12 @@ export interface ConnectProblemByCode {
     code: "discovery_failed";
     category: "availability";
     recovery: "retry";
+    details?: never;
+  };
+  "encrypted_relay_rejected": ConnectProblemBase & {
+    code: "encrypted_relay_rejected";
+    category: "authorization";
+    recovery: "reauthorize";
     details?: never;
   };
   "encryption_required": ConnectProblemBase & {
@@ -682,6 +698,257 @@ export type UnknownConnectProblem = ConnectProblemBase & {
 
 export type ConnectProblem<Code extends ConnectProblemCode = ConnectProblemCode> = KnownConnectProblem<Code> | UnknownConnectProblem;
 
+type ConnectProblemDetailSchema = {
+  type?: "string" | "integer" | "number" | "boolean" | "array" | "object";
+  required?: readonly string[];
+  properties?: Readonly<Record<string, ConnectProblemDetailSchema>>;
+  items?: ConnectProblemDetailSchema;
+};
+
+const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDetailSchema>> = {
+  "approval_window_blocked": {
+    "type": "object",
+    "required": [
+      "user_code",
+      "verification_uri",
+      "verification_uri_complete",
+      "expires_at",
+      "interval_seconds"
+    ],
+    "properties": {
+      "user_code": {
+        "type": "string"
+      },
+      "verification_uri": {
+        "type": "string"
+      },
+      "verification_uri_complete": {
+        "type": "string"
+      },
+      "expires_at": {
+        "type": "integer"
+      },
+      "interval_seconds": {
+        "type": "integer"
+      }
+    }
+  },
+  "collection_configuration_invalid": {
+    "type": "object",
+    "required": [
+      "diagnostics"
+    ],
+    "properties": {
+      "diagnostics": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "collection_contracts_missing": {
+    "type": "object",
+    "required": [
+      "contracts"
+    ],
+    "properties": {
+      "contracts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "collection_invalid": {
+    "type": "object",
+    "required": [
+      "diagnostics"
+    ],
+    "properties": {
+      "diagnostics": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "collection_type_registry_invalid": {
+    "type": "object",
+    "required": [
+      "diagnostics"
+    ],
+    "properties": {
+      "diagnostics": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "collection_version_unsupported": {
+    "type": "object",
+    "required": [
+      "current_version",
+      "required_version"
+    ],
+    "properties": {
+      "current_version": {
+        "type": "string"
+      },
+      "required_version": {
+        "type": "string"
+      }
+    }
+  },
+  "connector_offline": {
+    "type": "object",
+    "required": [],
+    "properties": {
+      "connector_name": {
+        "type": "string"
+      }
+    }
+  },
+  "insufficient_access": {
+    "type": "object",
+    "required": [
+      "required_operations",
+      "granted_operations",
+      "missing_operations"
+    ],
+    "properties": {
+      "required_operations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "granted_operations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "missing_operations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "operation_invalid": {
+    "type": "object",
+    "required": [
+      "diagnostics"
+    ],
+    "properties": {
+      "diagnostics": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "partial_result": {}
+    }
+  },
+  "rate_limited": {
+    "type": "object",
+    "required": [],
+    "properties": {
+      "retry_after_ms": {
+        "type": "integer"
+      }
+    }
+  }
+};
+
 export function isConnectProblemCode(code: string): code is ConnectProblemCode {
   return Object.hasOwn(CONNECT_PROBLEM_CATALOG, code);
+}
+
+export function isConnectProblem(value: unknown): value is ConnectProblem {
+  if (!isPlainObject(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.problem_version !== CONNECT_PROBLEM_VERSION || typeof candidate.message !== "string" || candidate.message.length === 0) return false;
+  if (candidate.operation_outcome !== undefined && candidate.operation_outcome !== "not_sent" && candidate.operation_outcome !== "rejected" && candidate.operation_outcome !== "unknown") return false;
+  if (candidate.trace_id !== undefined && (typeof candidate.trace_id !== "string" || candidate.trace_id.length === 0)) return false;
+  if (candidate.code === "unknown") {
+    return typeof candidate.server_code === "string"
+      && candidate.server_code.length > 0
+      && candidate.category === "unknown"
+      && candidate.recovery === "none";
+  }
+  if (typeof candidate.code !== "string" || !isConnectProblemCode(candidate.code) || candidate.server_code !== undefined) return false;
+  const definition = CONNECT_PROBLEM_CATALOG[candidate.code];
+  const detailsSchema = CONNECT_PROBLEM_DETAIL_SCHEMAS[candidate.code];
+  return candidate.category === definition.category
+    && candidate.recovery === definition.recovery
+    && (detailsSchema === undefined ? candidate.details === undefined : matchesDetailSchema(candidate.details, detailsSchema));
+}
+
+function matchesDetailSchema(value: unknown, schema: ConnectProblemDetailSchema): boolean {
+  if (schema.type === undefined) return true;
+  if (schema.type === "string") return typeof value === "string";
+  if (schema.type === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (schema.type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (schema.type === "boolean") return typeof value === "boolean";
+  if (schema.type === "array") return Array.isArray(value) && value.every((item) => matchesDetailSchema(item, schema.items ?? {}));
+  if (!isPlainObject(value)) return false;
+  if (!schema.properties) return true;
+  const candidate = value as Record<string, unknown>;
+  if (!Object.keys(candidate).every((key) => Object.hasOwn(schema.properties!, key))) return false;
+  if (!(schema.required ?? []).every((key) => Object.hasOwn(candidate, key))) return false;
+  return Object.entries(candidate).every(([key, item]) => matchesDetailSchema(item, schema.properties![key]!));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeConnectProblem(
+  serverCode: string,
+  message: string,
+  options: { details?: unknown; operation_outcome?: ConnectOperationOutcome; trace_id?: string } = {}
+): ConnectProblem {
+  if (!isConnectProblemCode(serverCode)) {
+    return {
+      problem_version: CONNECT_PROBLEM_VERSION,
+      code: "unknown",
+      server_code: serverCode,
+      category: "unknown",
+      recovery: "none",
+      message,
+      ...(options.details === undefined ? {} : { details: options.details }),
+      ...(options.operation_outcome === undefined ? {} : { operation_outcome: options.operation_outcome }),
+      ...(options.trace_id === undefined ? {} : { trace_id: options.trace_id })
+    };
+  }
+  const definition = CONNECT_PROBLEM_CATALOG[serverCode];
+  return {
+    problem_version: CONNECT_PROBLEM_VERSION,
+    code: serverCode,
+    category: definition.category,
+    recovery: definition.recovery,
+    message,
+    ...(options.details === undefined ? {} : { details: options.details }),
+    ...(options.operation_outcome === undefined ? {} : { operation_outcome: options.operation_outcome }),
+    ...(options.trace_id === undefined ? {} : { trace_id: options.trace_id })
+  } as ConnectProblem;
 }

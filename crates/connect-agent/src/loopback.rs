@@ -620,7 +620,9 @@ mod tests {
         fixture.registry.set_paused(true).unwrap();
         let paused = fixture.direct(&app, "query", json!({}), 1).await;
         assert_eq!(paused["ok"], false);
-        assert_eq!(paused["error"]["code"], "access_paused");
+        assert_eq!(paused["problem"]["code"], "access_paused");
+        assert_eq!(paused["problem"]["category"], "availability");
+        assert_eq!(paused["problem"]["recovery"], "resume_connector_access");
         fixture.registry.set_paused(false).unwrap();
 
         let mut tampered = fixture.encrypted_request("query", json!({}), 2);

@@ -1,3 +1,4 @@
+import type { ConnectProblem } from "./connect-problems.generated.js";
 export * from "./connect-problems.generated.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
@@ -298,17 +299,21 @@ export interface RelayOperationRequest {
   input: unknown;
 }
 
-export interface RelayOperationResponse {
-  type: "operation_response";
-  protocol_version: 1;
-  request_id: string;
-  ok: boolean;
-  result?: unknown;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
+export type RelayOperationResponse =
+  | {
+      type: "operation_response";
+      protocol_version: 1;
+      request_id: string;
+      ok: true;
+      result: unknown;
+    }
+  | {
+      type: "operation_response";
+      protocol_version: 1;
+      request_id: string;
+      ok: false;
+      problem: ConnectProblem;
+    };
 
 export interface MdbaseOperationRequest<Input = unknown> {
   protocol_version: 1;
@@ -327,11 +332,7 @@ export type MdbaseOperationResponse<Result = unknown> =
       protocol_version: 1;
       request_id: string;
       ok: false;
-      error: {
-        code: string;
-        message: string;
-        details?: unknown;
-      };
+      problem: ConnectProblem;
     };
 
 export interface GrantPolicy {

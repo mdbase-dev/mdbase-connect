@@ -799,7 +799,7 @@ async fn operation(
             request_id: request.request_id,
             ok: true,
             result: Some(result),
-            error: None,
+            problem: None,
         })
         .map_err(|error| {
             ApiError::internal(format!(
