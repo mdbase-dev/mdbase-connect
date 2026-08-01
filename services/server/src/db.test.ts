@@ -42,7 +42,8 @@ describe("database migrations", () => {
       "0006_notification_event_ids",
       "0007_beta_access_requests",
       "0007_oauth_login_state_foundation",
-      "0008_account_management"
+      "0008_account_management",
+      "0009_grant_file_capabilities"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -50,6 +51,12 @@ describe("database migrations", () => {
          AND column_name = 'authorized_user_id'`
     );
     expect(columns.rows).toHaveLength(1);
+    const fileCapability = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'grants'
+         AND column_name = 'file_capability'`
+    );
+    expect(fileCapability.rows).toHaveLength(1);
 
     await expect(assertControlPlaneMigrationsCurrent(db)).resolves.toBeUndefined();
     await runControlPlaneMigrations(db);
@@ -305,7 +312,8 @@ describe("database migrations", () => {
       "0006_notification_event_ids",
       "0007_beta_access_requests",
       "0007_oauth_login_state_foundation",
-      "0008_account_management"
+      "0008_account_management",
+      "0009_grant_file_capabilities"
     ]);
   });
 

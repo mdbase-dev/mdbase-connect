@@ -80,7 +80,7 @@ fn authority_rollback_restores_a_retired_local_registration() {
 
     let restored = registry.get(created.id).unwrap();
     assert!(!restored.enabled);
-    assert_eq!(restored.path, root.to_string_lossy());
+    assert_eq!(restored.path, created.path);
     assert_eq!(collection_identity(&root).unwrap(), Some(created.id));
     assert_eq!(mirror_collection_id(&root).unwrap(), Some(created.id));
 }
