@@ -46,19 +46,26 @@ describe("connector identity continuity", () => {
       "grant-key"
     );
 
-    expect(() => internals.storeTokenResponse(
-      tokenResponse(
-        application.agreementPublicKey,
-        secondConnector.agreementPublicKey,
-        3
-      ),
-      "application",
-      "grant-key"
-    )).toThrow(expect.objectContaining({
-      code: "connector_identity_changed",
-      requiresAuthorization: true,
-      recovery: "reauthorize"
-    }));
+    try {
+      internals.storeTokenResponse(
+        tokenResponse(
+          application.agreementPublicKey,
+          secondConnector.agreementPublicKey,
+          3
+        ),
+        "application",
+        "grant-key"
+      );
+      throw new Error("Expected connector substitution to fail.");
+    } catch (error) {
+      expect(error).toMatchObject({
+        problem: {
+          code: "connector_identity_changed",
+          category: "integrity",
+          recovery: "reauthorize"
+        }
+      });
+    }
 
     const saved = JSON.parse(
       storage.getItem(

@@ -9,6 +9,7 @@ import type {
   DeleteViewSourceResult,
   ExecuteViewInput,
   JsonObject,
+  MdbaseDiagnostic,
   MdbaseOperationEnvelope,
   ReadViewSourceInput,
   RecordDocument,
@@ -21,10 +22,29 @@ import type {
 } from "@mdbase/connect-protocol";
 import { abortableDelay } from "./async.js";
 import {
-  MdbaseConnectError,
-  isRetryableConnectError,
-  unwrapOperation
+  connectError,
+  connectProblem,
+  operationProblem
 } from "./errors.js";
+import {
+  COLLECTION_CHANGES_PROBLEM_CODES,
+  COLLECTION_MUTATION_PROBLEM_CODES,
+  COLLECTION_QUERY_PROBLEM_CODES,
+  COLLECTION_READ_PROBLEM_CODES,
+  COLLECTION_TYPE_PROBLEM_CODES,
+  ALL_CONNECT_PROBLEM_CODES,
+  COMMON_OPERATION_PROBLEM_CODES,
+  captureConnectOutcome,
+  connectFailure,
+  connectSuccess,
+  type CollectionChangesProblemCode,
+  type CollectionMutationProblemCode,
+  type CollectionQueryProblemCode,
+  type CollectionReadProblemCode,
+  type CollectionTypeProblemCode,
+  type CommonOperationProblemCode,
+  type ConnectOutcome
+} from "./outcomes.js";
 import type {
   ChangesInput,
   CreateInput,
@@ -61,27 +81,43 @@ import type {
 export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject> {
   constructor(private readonly transport: MdbaseCollectionTransport) {}
 
-  operation<Result>(operation: CollectionOperation, input: unknown, options?: OperationRequestOptions): Promise<Result> {
-    return this.transport.operation(operation, input, options);
+  operation<Result>(
+    operation: CollectionOperation,
+    input: unknown,
+    options?: OperationRequestOptions
+  ): Promise<ConnectOutcome<Result>> {
+    return captureConnectOutcome(
+      () => this.transport.operation<Result>(operation, input, options),
+      ALL_CONNECT_PROBLEM_CODES
+    );
   }
 
-  describe(): Promise<CollectionDescription> {
-    return this.operation("describe", {});
+  describe(): Promise<ConnectOutcome<CollectionDescription, CommonOperationProblemCode>> {
+    return this.rawOperation("describe", {}, COMMON_OPERATION_PROBLEM_CODES);
   }
 
-  changes(input: ChangesInput = {}, options?: OperationRequestOptions): Promise<CollectionChangesPage> {
-    return this.operation("changes", input, options);
+  changes(
+    input: ChangesInput = {},
+    options?: OperationRequestOptions
+  ): Promise<ConnectOutcome<CollectionChangesPage, CollectionChangesProblemCode>> {
+    return this.rawOperation("changes", input, COLLECTION_CHANGES_PROBLEM_CODES, options);
   }
 
-  read(input: ReadInput): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("read", input);
+  read(input: ReadInput): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionReadProblemCode>> {
+    return this.envelopeOperation("read", input, COLLECTION_READ_PROBLEM_CODES);
   }
 
-  query(input: QueryInput = {}, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<QueryResult<Frontmatter>>> {
-    return this.operation("query", input, options);
+  query(
+    input: QueryInput = {},
+    options?: OperationRequestOptions
+  ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
+    return this.envelopeOperation("query", input, COLLECTION_QUERY_PROBLEM_CODES, options);
   }
 
-  async *queryPages(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): AsyncGenerator<QueryPage<Frontmatter>> {
+  async *queryPages(
+    input: QueryInput = {},
+    options: QueryPagesOptions<Frontmatter> = {}
+  ): AsyncGenerator<ConnectOutcome<QueryPage<Frontmatter>, CollectionQueryProblemCode>> {
     const {
       offset: requestedOffset,
       limit: requestedLimit,
@@ -96,19 +132,24 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     let pageNumber = 0;
 
     while (!options.signal?.aborted) {
-      const result = unwrapOperation(await this.query({
+      const queried = await this.query({
         ...criteria,
         offset,
         limit: pageNumber === 0 ? firstPageSize : pageSize,
         ...(snapshot ? { snapshot } : {})
-      }, { signal: options.signal }));
+      }, { signal: options.signal });
+      if (!queried.ok) {
+        yield queried;
+        return;
+      }
+      const result = queried.value;
       const returnedSnapshot = result.meta?.snapshot;
       if (snapshot && returnedSnapshot && snapshot !== returnedSnapshot) {
-        throw new MdbaseConnectError(
+        yield connectFailure(connectProblem(
           "query_snapshot_changed",
-          "The collection query snapshot changed while paging. Refresh the query before continuing.",
-          { recovery: "refresh" }
-        );
+          "The collection query snapshot changed while paging. Refresh the query before continuing."
+        ));
+        return;
       }
       if (!snapshot && returnedSnapshot) snapshot = returnedSnapshot;
       loaded += result.results.length;
@@ -123,21 +164,28 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         ...(snapshot ? { snapshot } : {})
       };
       options.onProgress?.(page);
-      yield page;
+      yield connectSuccess(page, queried.diagnostics);
       if (complete) return;
       offset += result.results.length;
       pageNumber += 1;
     }
   }
 
-  async queryAll(input: QueryInput = {}, options: QueryPagesOptions<Frontmatter> = {}): Promise<QueryResult<Frontmatter>> {
+  async queryAll(
+    input: QueryInput = {},
+    options: QueryPagesOptions<Frontmatter> = {}
+  ): Promise<ConnectOutcome<QueryResult<Frontmatter>, CollectionQueryProblemCode>> {
     const results: QueryResult<Frontmatter>["results"] = [];
     let finalPage: QueryPage<Frontmatter> | undefined;
-    for await (const page of this.queryPages(input, options)) {
+    const diagnostics: MdbaseDiagnostic[] = [];
+    for await (const outcome of this.queryPages(input, options)) {
+      if (!outcome.ok) return outcome;
+      const page = outcome.value;
       results.push(...page.results);
       finalPage = page;
+      diagnostics.push(...outcome.diagnostics);
     }
-    return {
+    return connectSuccess({
       results,
       meta: {
         ...(finalPage?.meta ?? {}),
@@ -145,106 +193,106 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
         has_more: finalPage ? !finalPage.complete : false,
         ...(finalPage?.snapshot ? { snapshot: finalPage.snapshot } : {})
       }
-    };
+    }, diagnostics);
   }
 
-  listViews(): Promise<MdbaseOperationEnvelope<SavedViewList>> {
-    return this.operation("list_views", {});
+  listViews(): Promise<ConnectOutcome<SavedViewList, CollectionReadProblemCode>> {
+    return this.envelopeOperation("list_views", {}, COLLECTION_READ_PROBLEM_CODES);
   }
 
-  executeView(input: ExecuteViewInput): Promise<MdbaseOperationEnvelope<SavedViewExecution<Frontmatter>>> {
-    return this.operation("execute_view", input);
+  executeView(input: ExecuteViewInput): Promise<ConnectOutcome<SavedViewExecution<Frontmatter>, CollectionReadProblemCode>> {
+    return this.envelopeOperation("execute_view", input, COLLECTION_READ_PROBLEM_CODES);
   }
 
-  readViewSource(input: ReadViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("read_view_source", input);
+  readViewSource(input: ReadViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionReadProblemCode>> {
+    return this.envelopeOperation("read_view_source", input, COLLECTION_READ_PROBLEM_CODES);
   }
 
-  createViewSource(input: CreateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("create_view_source", input);
+  createViewSource(input: CreateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("create_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  updateViewSource(input: UpdateViewSourceInput): Promise<MdbaseOperationEnvelope<SavedViewSourceDocument>> {
-    return this.operation("update_view_source", input);
+  updateViewSource(input: UpdateViewSourceInput): Promise<ConnectOutcome<SavedViewSourceDocument, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("update_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  deleteViewSource(input: DeleteViewSourceInput): Promise<MdbaseOperationEnvelope<DeleteViewSourceResult>> {
-    return this.operation("delete_view_source", input);
+  deleteViewSource(input: DeleteViewSourceInput): Promise<ConnectOutcome<DeleteViewSourceResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("delete_view_source", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  create(input: CreateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("create", input);
+  create(input: CreateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("create", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  update(input: UpdateInput<Frontmatter>): Promise<MdbaseOperationEnvelope<RecordDocument<Frontmatter>>> {
-    return this.operation("update", input);
+  update(input: UpdateInput<Frontmatter>): Promise<ConnectOutcome<RecordDocument<Frontmatter>, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("update", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeleteResult>> {
-    return this.operation("delete", input, options);
+  delete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeleteResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("delete", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<DeletePreflightResult>> {
-    return this.operation("delete", { ...input, check_backlinks: true, dry_run: true }, options);
+  preflightDelete(input: DeleteInput, options?: OperationRequestOptions): Promise<ConnectOutcome<DeletePreflightResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("delete", { ...input, check_backlinks: true, dry_run: true }, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  rename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenameResult>> {
-    return this.operation("rename", input, options);
+  rename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenameResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("rename", input, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<MdbaseOperationEnvelope<RenamePreflightResult>> {
-    return this.operation("rename", { ...input, dry_run: true }, options);
+  preflightRename(input: RenameInput, options?: OperationRequestOptions): Promise<ConnectOutcome<RenamePreflightResult, CollectionMutationProblemCode>> {
+    return this.envelopeOperation("rename", { ...input, dry_run: true }, COLLECTION_MUTATION_PROBLEM_CODES, options);
   }
 
-  validate(input: JsonObject = {}): Promise<MdbaseOperationEnvelope> {
-    return this.operation("validate", input);
+  validate(input: JsonObject = {}): Promise<ConnectOutcome<JsonObject, CollectionReadProblemCode>> {
+    return this.envelopeOperation("validate", input, COLLECTION_READ_PROBLEM_CODES);
   }
 
-  readType(input: ReadTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("read_type", input);
+  readType(input: ReadTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("read_type", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
-  createType(input: CreateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("create_type", input);
+  createType(input: CreateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("create_type", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
-  updateType(input: UpdateTypeInput): Promise<MdbaseOperationEnvelope<CollectionTypeDocument>> {
-    return this.operation("update_type", input);
+  updateType(input: UpdateTypeInput): Promise<ConnectOutcome<CollectionTypeDocument, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("update_type", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
-  installTypePack(input: TypePackProvision): Promise<MdbaseOperationEnvelope<TypePackInstallResult>> {
-    return this.operation("install_type_pack", input);
+  installTypePack(input: TypePackProvision): Promise<ConnectOutcome<TypePackInstallResult, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("install_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
-  listTimers(namespace: string): Promise<MdbaseTimerList> {
-    return this.operation("list_timers", { namespace });
+  listTimers(namespace: string): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {
+    return this.rawOperation("list_timers", { namespace }, COLLECTION_READ_PROBLEM_CODES);
   }
 
   putTimer(input: {
     namespace: string;
     criterion_id: string;
     timer: MdbaseDesiredTimer;
-  }): Promise<MdbaseTimer> {
-    return this.operation("put_timer", input);
+  }): Promise<ConnectOutcome<MdbaseTimer, CollectionMutationProblemCode>> {
+    return this.rawOperation("put_timer", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
   cancelTimer(input: {
     namespace: string;
     id: string;
     generation?: number;
-  }): Promise<{ namespace: string; id: string; cancelled: boolean }> {
-    return this.operation("cancel_timer", input);
+  }): Promise<ConnectOutcome<{ namespace: string; id: string; cancelled: boolean }, CollectionMutationProblemCode>> {
+    return this.rawOperation("cancel_timer", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
   reconcileTimers(input: {
     namespace: string;
     criterion_id: string;
     timers: MdbaseDesiredTimer[];
-  }): Promise<MdbaseTimerReconciliation> {
-    return this.operation("reconcile_timers", input);
+  }): Promise<ConnectOutcome<MdbaseTimerReconciliation, CollectionMutationProblemCode>> {
+    return this.rawOperation("reconcile_timers", input, COLLECTION_MUTATION_PROBLEM_CODES);
   }
 
-  async *watch(options: WatchOptions = {}): AsyncGenerator<CollectionChange> {
+  async *watch(options: WatchOptions = {}): AsyncGenerator<ConnectOutcome<CollectionChange, CollectionChangesProblemCode>> {
     let cursor = options.cursor;
     const pollInterval = Math.max(100, options.pollIntervalMs ?? 1_000);
     const retry = watchRetryPolicy(options.retry);
@@ -252,30 +300,23 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     let connected = false;
     options.onStatus?.({ state: "connecting", ...(cursor === undefined ? {} : { cursor }) });
     while (!options.signal?.aborted) {
-      try {
-        if (cursor === undefined) cursor = (await this.changes({}, { signal: options.signal })).cursor;
-        const page = await this.changes({ after: cursor, limit: 200 }, { signal: options.signal });
-        if (page.reset) {
-          const error = new MdbaseConnectError(
-            "change_cursor_reset",
-            "The collection change cursor expired. Refresh collection state before subscribing again."
-          );
-          options.onStatus?.({ state: "reset_required", cursor, error });
-          throw error;
-        }
-        const recovered = failures > 0;
-        failures = 0;
-        if (!connected || recovered) options.onStatus?.({ state: "connected", cursor, recovered });
-        connected = true;
-        for (const event of page.events) yield event;
-        cursor = page.cursor;
-        if (!page.has_more) await abortableDelay(pollInterval, options.signal);
-      } catch (error) {
+      const changed = await this.changes(
+        cursor === undefined ? {} : { after: cursor, limit: 200 },
+        { signal: options.signal }
+      );
+      if (!changed.ok) {
+        const problem = changed.problem;
         if (options.signal?.aborted) return;
-        if (!retry || !isRetryableConnectError(error)) throw error;
+        if (!retry || problem.recovery !== "retry") {
+          yield changed;
+          return;
+        }
         connected = false;
         failures += 1;
-        if (retry.maxAttempts !== undefined && failures > retry.maxAttempts) throw error;
+        if (retry.maxAttempts !== undefined && failures > retry.maxAttempts) {
+          yield changed;
+          return;
+        }
         const retryInMs = Math.min(
           retry.maxDelayMs,
           Math.round(retry.initialDelayMs * retry.multiplier ** (failures - 1))
@@ -285,11 +326,73 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
           ...(cursor === undefined ? {} : { cursor }),
           attempt: failures,
           retryInMs,
-          error
+          problem
         });
-        await abortableDelay(retryInMs, options.signal);
+        try {
+          await abortableDelay(retryInMs, options.signal);
+        } catch {
+          if (!options.signal?.aborted) throw connectError("operation_failed", "Watch retry delay failed unexpectedly.");
+        }
+        continue;
+      }
+      const page = changed.value;
+      if (cursor === undefined) {
+        cursor = page.cursor;
+        continue;
+      }
+      if (page.reset) {
+          const problem = connectProblem(
+            "change_cursor_reset",
+            "The collection change cursor expired. Refresh collection state before subscribing again."
+          );
+          options.onStatus?.({ state: "reset_required", cursor, problem });
+          yield connectFailure(problem);
+          return;
+        }
+        const recovered = failures > 0;
+        failures = 0;
+        if (!connected || recovered) options.onStatus?.({ state: "connected", cursor, recovered });
+        connected = true;
+        for (const event of page.events) yield connectSuccess(event);
+        cursor = page.cursor;
+        if (!page.has_more) {
+          try {
+            await abortableDelay(pollInterval, options.signal);
+          } catch {
+            if (!options.signal?.aborted) throw connectError("operation_failed", "Watch polling delay failed unexpectedly.");
+          }
+        }
       }
     }
+
+  private rawOperation<Result, Code extends CommonOperationProblemCode | CollectionReadProblemCode | CollectionMutationProblemCode | CollectionChangesProblemCode>(
+    operation: CollectionOperation,
+    input: unknown,
+    allowedCodes: readonly Code[],
+    options?: OperationRequestOptions
+  ): Promise<ConnectOutcome<Result, Code>> {
+    return captureConnectOutcome(
+      () => this.transport.operation<Result>(operation, input, options),
+      allowedCodes
+    );
+  }
+
+  private async envelopeOperation<Result, Code extends CollectionReadProblemCode | CollectionQueryProblemCode | CollectionMutationProblemCode | CollectionTypeProblemCode>(
+    operation: CollectionOperation,
+    input: unknown,
+    allowedCodes: readonly Code[],
+    options?: OperationRequestOptions
+  ): Promise<ConnectOutcome<Result, Code>> {
+    const transported = await captureConnectOutcome(
+      () => this.transport.operation<MdbaseOperationEnvelope<Result>>(operation, input, options),
+      allowedCodes
+    );
+    if (!transported.ok) return transported;
+    const envelope = transported.value;
+    if (!envelope.valid) {
+      return connectFailure(operationProblem(envelope)) as unknown as ConnectOutcome<Result, Code>;
+    }
+    return connectSuccess(envelope.result, envelope.diagnostics);
   }
 }
 

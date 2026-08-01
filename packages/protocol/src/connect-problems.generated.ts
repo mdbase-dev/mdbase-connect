@@ -3,6 +3,7 @@
 export const CONNECT_PROBLEM_VERSION = 1 as const;
 
 export const CONNECT_PROBLEM_CATALOG = {
+  "access_denied": { category: "authorization", recovery: "reauthorize" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
   "authorization_cancelled": { category: "cancellation", recovery: "none" },
@@ -65,6 +66,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "pending_mutation_unresolved": { category: "conflict", recovery: "resolve_outcome" },
   "query_snapshot_changed": { category: "conflict", recovery: "refresh" },
   "rate_limited": { category: "availability", recovery: "retry" },
+  "redirect_uri_required": { category: "validation", recovery: "fix_request" },
   "relay_authorization_expired": { category: "authorization", recovery: "reauthorize" },
   "relay_unavailable": { category: "availability", recovery: "retry" },
   "sandbox_unsupported": { category: "compatibility", recovery: "fix_request" },
@@ -93,7 +95,14 @@ export interface ConnectProblemBase {
 }
 
 export interface ConnectProblemDetailsByCode {
-  "approval_window_blocked": undefined;
+  "access_denied": undefined;
+  "approval_window_blocked": {
+  "user_code": string;
+  "verification_uri": string;
+  "verification_uri_complete": string;
+  "expires_at": number;
+  "interval_seconds": number;
+};
   "authority_authorization_changed": undefined;
   "authorization_cancelled": undefined;
   "authorization_expired": undefined;
@@ -180,6 +189,7 @@ export interface ConnectProblemDetailsByCode {
   "rate_limited": {
   "retry_after_ms"?: number;
 };
+  "redirect_uri_required": undefined;
   "relay_authorization_expired": undefined;
   "relay_unavailable": undefined;
   "sandbox_unsupported": undefined;
@@ -196,11 +206,17 @@ export interface ConnectProblemDetailsByCode {
 }
 
 export interface ConnectProblemByCode {
+  "access_denied": ConnectProblemBase & {
+    code: "access_denied";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "approval_window_blocked": ConnectProblemBase & {
     code: "approval_window_blocked";
     category: "authorization";
     recovery: "reauthorize";
-    details?: never;
+    details: ConnectProblemDetailsByCode["approval_window_blocked"];
   };
   "authority_authorization_changed": ConnectProblemBase & {
     code: "authority_authorization_changed";
@@ -567,6 +583,12 @@ export interface ConnectProblemByCode {
     category: "availability";
     recovery: "retry";
     details?: ConnectProblemDetailsByCode["rate_limited"];
+  };
+  "redirect_uri_required": ConnectProblemBase & {
+    code: "redirect_uri_required";
+    category: "validation";
+    recovery: "fix_request";
+    details?: never;
   };
   "relay_authorization_expired": ConnectProblemBase & {
     code: "relay_authorization_expired";

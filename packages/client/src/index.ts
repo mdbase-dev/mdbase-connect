@@ -16,6 +16,7 @@ export * from "./connection.js";
 export * from "./connection-types.js";
 export * from "./errors.js";
 export * from "./notifications.js";
+export * from "./outcomes.js";
 export * from "./operation-types.js";
 export * from "./selection.js";
 export * from "./session.js";

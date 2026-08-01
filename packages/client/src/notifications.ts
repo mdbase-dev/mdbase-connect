@@ -1,4 +1,4 @@
-import { MdbaseConnectError } from "./errors.js";
+import { connectError } from "./errors.js";
 
 export interface MdbaseNotificationRegistrationOptions {
   serviceWorker: ServiceWorkerRegistration;
@@ -51,7 +51,7 @@ export interface MdbasePushPayload {
 
 export function parseMdbasePushPayload(value: unknown): MdbasePushPayload {
   if (!value || typeof value !== "object") {
-    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an object.");
+    throw connectError("invalid_push_payload", "The push payload is not an object.");
   }
   const payload = value as Partial<MdbasePushPayload>;
   if (
@@ -63,7 +63,7 @@ export function parseMdbasePushPayload(value: unknown): MdbasePushPayload {
     || !payload.presentation
     || typeof payload.presentation.title !== "string"
   ) {
-    throw new MdbaseConnectError("invalid_push_payload", "The push payload is not an mdbase notification.");
+    throw connectError("invalid_push_payload", "The push payload is not an mdbase notification.");
   }
   return payload as MdbasePushPayload;
 }
@@ -73,7 +73,7 @@ export function parseMdbaseNativeNotificationData(
   value: unknown
 ): MdbaseNativeNotificationData {
   if (!value || typeof value !== "object") {
-    throw new MdbaseConnectError(
+    throw connectError(
       "invalid_push_payload",
       "The native notification data is not an object."
     );
@@ -86,7 +86,7 @@ export function parseMdbaseNativeNotificationData(
     || typeof data.criterion_id !== "string"
     || typeof data.cursor !== "string"
   ) {
-    throw new MdbaseConnectError(
+    throw connectError(
       "invalid_push_payload",
       "The native notification data is not an mdbase notification."
     );

@@ -71,6 +71,7 @@ pub struct ConnectProblem {
 
 pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition> {
     match code {
+        "access_denied" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "approval_window_blocked" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "authority_authorization_changed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "authorization_cancelled" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Cancellation, recovery: ConnectRecoveryAction::None }),
@@ -133,6 +134,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "pending_mutation_unresolved" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::ResolveOutcome }),
         "query_snapshot_changed" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "rate_limited" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
+        "redirect_uri_required" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),
         "relay_authorization_expired" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "relay_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "sandbox_unsupported" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Compatibility, recovery: ConnectRecoveryAction::FixRequest }),

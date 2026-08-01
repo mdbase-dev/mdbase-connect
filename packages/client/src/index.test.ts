@@ -5,13 +5,15 @@ import {
   MdbaseCollectionClient,
   MdbaseConnect,
   MdbaseConnectError,
-  MdbaseOperationValidationError,
+  ConnectOutcomeError,
+  connectError,
+  connectSuccess,
   isRetryableConnectError,
   MemoryGrantKeyStore,
   parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
   showMdbasePushNotification,
-  unwrapOperation
+  unwrapConnectOutcome
 } from "./index.js";
 import type {
   GrantEncryption,
@@ -72,7 +74,11 @@ describe("provider-neutral collection client", () => {
 
     const created = await client.create({ path: "plain.md", body: "# Plain" });
 
-    expect(created.result.frontmatter).toEqual({});
+    expect(created).toMatchObject({
+      ok: true,
+      value: { frontmatter: {} },
+      diagnostics: []
+    });
     expect(calls).toEqual([{
       operation: "create",
       input: { path: "plain.md", body: "# Plain" }
@@ -291,11 +297,12 @@ describe("provider-neutral collection client", () => {
     const progress: Array<{ loaded: number; complete: boolean }> = [];
     const loaded: string[] = [];
 
-    for await (const page of client.queryPages(
+    for await (const outcome of client.queryPages(
       { include_body: false, order_by: [{ field: "file.mtime", direction: "desc" }] },
       { firstPageSize: 1, pageSize: 2, onProgress: ({ loaded, complete }) => progress.push({ loaded, complete }) }
     )) {
-      loaded.push(...page.results.map((record) => record.path));
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) loaded.push(...outcome.value.results.map((record) => record.path));
     }
 
     expect(loaded).toEqual(["one.md", "two.md", "three.md"]);
@@ -323,8 +330,17 @@ describe("provider-neutral collection client", () => {
     });
     const iterator = client.queryPages({}, { firstPageSize: 1, pageSize: 1 });
 
-    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { snapshot: "snapshot-1" } });
-    await expect(iterator.next()).rejects.toMatchObject({ code: "query_snapshot_changed", recovery: "refresh" });
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { ok: true, value: { snapshot: "snapshot-1" } }
+    });
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        ok: false,
+        problem: { code: "query_snapshot_changed", recovery: "refresh" }
+      }
+    });
   });
 
   it("surfaces cursor resets from any transport", async () => {
@@ -339,10 +355,13 @@ describe("provider-neutral collection client", () => {
       pollIntervalMs: 100,
       onStatus: (status) => statuses.push(status.state)
     });
-    await expect(iterator.next()).rejects.toEqual(expect.objectContaining({
-      code: "change_cursor_reset",
-      recovery: "refresh"
-    }));
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: {
+        ok: false,
+        problem: { code: "change_cursor_reset", recovery: "refresh" }
+      }
+    });
     expect(statuses).toEqual(["connecting", "reset_required"]);
   });
 
@@ -354,7 +373,7 @@ describe("provider-neutral collection client", () => {
         calls.push(input);
         call += 1;
         if (call === 1) return { events: [], cursor: 5, has_more: false } as Result;
-        if (call === 2) throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+        if (call === 2) throw connectError("connector_offline", "Offline.", { status: 503 });
         return {
           events: [{ cursor: 6, type: "mdbase.record.modified", occurred_at: "2026-07-23T00:00:00Z", payload: { path: "notes/one.md" } }],
           cursor: 6,
@@ -370,7 +389,10 @@ describe("provider-neutral collection client", () => {
     });
 
     await expect(iterator.next()).resolves.toMatchObject({
-      value: { cursor: 6, type: "mdbase.record.modified" },
+      value: {
+        ok: true,
+        value: { cursor: 6, type: "mdbase.record.modified" }
+      },
       done: false
     });
     await iterator.return(undefined);
@@ -390,13 +412,16 @@ describe("provider-neutral collection client", () => {
   it("can opt out of automatic watch retries", async () => {
     const client = new MdbaseCollectionClient({
       async operation<Result>() {
-        throw new MdbaseConnectError("connector_offline", "Offline.", { status: 503 });
+        throw connectError("connector_offline", "Offline.", { status: 503 });
       }
     });
     const statuses: string[] = [];
     const iterator = client.watch({ retry: false, onStatus: (status) => statuses.push(status.state) });
 
-    await expect(iterator.next()).rejects.toMatchObject({ code: "connector_offline" });
+    await expect(iterator.next()).resolves.toMatchObject({
+      done: false,
+      value: { ok: false, problem: { code: "connector_offline" } }
+    });
     expect(statuses).toEqual(["connecting"]);
   });
 
@@ -676,7 +701,7 @@ describe("provider-neutral collection client", () => {
     });
     expect(deleteKey).not.toHaveBeenCalled();
     expect(connect.connections()).toHaveLength(1);
-    expect((await result.connection.query()).valid).toBe(true);
+    expect((await result.connection.query()).ok).toBe(true);
     expect(providerHeaders?.[AUTHORITY_PROOF_HEADERS.version]).toBe("1");
     expect(providerHeaders?.[AUTHORITY_PROOF_HEADERS.signature]).toMatch(/^[A-Za-z0-9_-]+$/);
   });
@@ -710,8 +735,8 @@ describe("provider-neutral collection client", () => {
     await expect(connect.authorize()).rejects.toMatchObject({
       code: "approval_window_blocked",
       details: {
-        userCode: "ABCD-EFGH",
-        verificationUri: "https://connect.example/device"
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://connect.example/device"
       }
     });
   });
@@ -861,7 +886,7 @@ describe("provider-neutral collection client", () => {
 
 describe("actionable SDK errors", () => {
   it("classifies retry, authorization, refresh, and uncertain-outcome recovery", () => {
-    const offline = new MdbaseConnectError("connector_offline", "Connector offline.", { status: 503 });
+    const offline = connectError("connector_offline", "Connector offline.", { status: 503 });
     expect(offline).toMatchObject({
       name: "MdbaseConnectError",
       status: 503,
@@ -871,28 +896,27 @@ describe("actionable SDK errors", () => {
       recovery: "retry"
     });
     expect(isRetryableConnectError(offline)).toBe(true);
-    expect(isRetryableConnectError(new TypeError("network unavailable"))).toBe(true);
+    expect(isRetryableConnectError(new TypeError("network unavailable"))).toBe(false);
 
-    expect(new MdbaseConnectError("authorization_expired", "Reconnect.")).toMatchObject({
+    expect(connectError("authorization_expired", "Reconnect.")).toMatchObject({
       retryable: false,
       requiresAuthorization: true,
       recovery: "reauthorize"
     });
-    expect(new MdbaseConnectError("change_cursor_reset", "Refresh.")).toMatchObject({
+    expect(connectError("change_cursor_reset", "Refresh.")).toMatchObject({
       retryable: false,
       recovery: "refresh"
     });
-    expect(new MdbaseConnectError("direct_outcome_unknown", "Check the write.")).toMatchObject({
+    expect(connectError("direct_outcome_unknown", "Check the write.", {
+      operationOutcome: "unknown"
+    })).toMatchObject({
       retryable: false,
       outcomeUnknown: true,
       recovery: "resolve_outcome"
     });
   });
 
-  it("unwraps valid envelopes and preserves rejected diagnostics and partial results", () => {
-    expect(unwrapOperation({ valid: true, result: { path: "notes/one.md" }, diagnostics: [] }))
-      .toEqual({ path: "notes/one.md" });
-
+  it("normalizes collection envelopes and offers an explicit throwing adapter", async () => {
     const envelope = {
       valid: false,
       result: { path: "notes/one.md", inspected: true },
@@ -901,21 +925,36 @@ describe("actionable SDK errors", () => {
         { severity: "error" as const, code: "missing_required", message: "Title is required.", field: "title" }
       ]
     };
-    try {
-      unwrapOperation(envelope);
-      throw new Error("Expected unwrapOperation to throw.");
-    } catch (error) {
-      expect(error).toBeInstanceOf(MdbaseOperationValidationError);
-      expect(error).toMatchObject({
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return envelope as Result;
+      }
+    });
+    const outcome = await client.read({ path: "notes/one.md" });
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      problem: {
         code: "operation_invalid",
         message: "Title is required.",
-        diagnostics: envelope.diagnostics,
-        result: envelope.result
+        operation_outcome: "rejected",
+        details: {
+          diagnostics: envelope.diagnostics,
+          partial_result: envelope.result
+        }
+      }
+    });
+    expect(() => unwrapConnectOutcome(outcome)).toThrow(ConnectOutcomeError);
+    try {
+      unwrapConnectOutcome(outcome);
+    } catch (error) {
+      expect(error).toMatchObject({
+        problem: { code: "operation_invalid", details: { partial_result: envelope.result } }
       });
     }
   });
 
-  it("keeps server status and diagnostic details on operation failures", async () => {
+  it("normalizes server failures into transport-independent problems", async () => {
     const fixture = await encryptedConnection();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       error: {
@@ -925,12 +964,14 @@ describe("actionable SDK errors", () => {
       }
     }), { status: 503, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.query()).rejects.toMatchObject({
-      code: "connector_offline",
-      status: 503,
-      retryable: true,
-      recovery: "retry",
-      details: { computer: "Studio" }
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "connector_offline",
+        category: "availability",
+        recovery: "retry",
+        details: { computer: "Studio" }
+      }
     });
   });
 });
@@ -1267,18 +1308,14 @@ describe("long mutation progress", () => {
   it("reports authoritative phases and estimates without repeating a supplied preflight", async () => {
     const connect = progressConnection();
     const preflight = vi.spyOn(connect, "preflightRename");
-    vi.spyOn(connect, "rename").mockResolvedValue({
-      valid: true,
-      diagnostics: [],
-      result: {
+    vi.spyOn(connect, "rename").mockResolvedValue(connectSuccess({
         from: renameInput.from,
         to: renameInput.to,
         path: renameInput.to,
         revision: "sha256:renamed",
         frontmatter: {},
         types: []
-      }
-    });
+    }));
     const progress: Array<Record<string, unknown>> = [];
 
     const result = await connect.renameWithProgress(renameInput, {
@@ -1286,7 +1323,7 @@ describe("long mutation progress", () => {
       onProgress: (event) => progress.push(event as unknown as Record<string, unknown>)
     });
 
-    expect(result.result.path).toBe(renameInput.to);
+    expect(result).toMatchObject({ ok: true, value: { path: renameInput.to } });
     expect(preflight).not.toHaveBeenCalled();
     expect(progress.map(({ state }) => state)).toEqual([
       "preflighting",
@@ -1319,10 +1356,13 @@ describe("long mutation progress", () => {
         states.push(progress.state);
         if (progress.state === "ready") controller.abort("user cancelled");
       }
-    })).rejects.toMatchObject({
-      code: "operation_cancelled",
-      outcomeUnknown: false,
-      recovery: "none"
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_cancelled",
+        operation_outcome: "not_sent",
+        recovery: "none"
+      }
     });
 
     expect(rename).not.toHaveBeenCalled();
@@ -1336,24 +1376,23 @@ describe("long mutation progress", () => {
     await expect(connect.renameWithProgress(
       { ...renameInput, to: "Archive/different.md" },
       { preflight: renamePreview }
-    )).rejects.toMatchObject({ code: "invalid_preflight", recovery: "fix_request" });
+    )).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "invalid_preflight", recovery: "refresh" }
+    });
     expect(rename).not.toHaveBeenCalled();
   });
 
   it("does not estimate reference updates for a rename-only move", async () => {
     const connect = progressConnection();
-    vi.spyOn(connect, "rename").mockResolvedValue({
-      valid: true,
-      diagnostics: [],
-      result: {
+    vi.spyOn(connect, "rename").mockResolvedValue(connectSuccess({
         from: renameInput.from,
         to: renameInput.to,
         path: renameInput.to,
         revision: "sha256:moved",
         frontmatter: {},
         types: []
-      }
-    });
+    }));
     const progress: Array<{ state: string; estimate?: { affectedRecords: number; totalUnits: number } }> = [];
 
     await connect.renameWithProgress({ ...renameInput, update_refs: false }, {
@@ -1811,7 +1850,7 @@ describe("authorization renewal", () => {
     )).rejects.toMatchObject({
       code: "access_denied",
       message: "Not now",
-      details: { returnTo: "/today" }
+      details: { return_to: "/today" }
     });
 
     expect(storage.getItem(pendingKey)).toBeNull();
@@ -1947,14 +1986,17 @@ describe("authorization renewal", () => {
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
 
-    await expect(connect.read({ path: "Notes/example.md" })).rejects.toMatchObject({
-      code: "insufficient_access",
-      requiresAuthorization: true,
-      recovery: "reauthorize",
-      details: {
-        requiredOperations: ["read"],
-        grantedOperations: ["query"],
-        missingOperations: ["read"]
+    await expect(connect.read({ path: "Notes/example.md" })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "insufficient_access",
+        category: "authorization",
+        recovery: "reauthorize",
+        details: {
+          required_operations: ["read"],
+          granted_operations: ["query"],
+          missing_operations: ["read"]
+        }
       }
     });
   });
@@ -2040,7 +2082,7 @@ describe("authorization renewal", () => {
     });
     const connect = manager.connection(TEST_COLLECTION_ID)!;
 
-    expect((await connect.query()).valid).toBe(true);
+    expect((await connect.query()).ok).toBe(true);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations/query`
     );
@@ -2162,7 +2204,7 @@ describe("authorization renewal", () => {
     const connect = manager.connection(TEST_COLLECTION_ID)!;
     const result = await connect.query();
 
-    expect(result.valid).toBe(true);
+    expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0][0])).toBe(`${serverUrl}/oauth/token`);
     expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>).authorization)
@@ -2227,7 +2269,7 @@ describe("authorization renewal", () => {
     const connect = manager.connection(TEST_COLLECTION_ID)!;
     const result = await connect.query();
 
-    expect(result.valid).toBe(true);
+    expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>).authorization)
       .toBe("Bearer mdb_from_other_tab");
@@ -2255,7 +2297,10 @@ describe("direct loopback routing", () => {
     await expect(fixture.connect.create({
       path: "one.md",
       frontmatter: { title: "Only once" }
-    })).rejects.toEqual(expect.objectContaining({ code: "direct_outcome_unknown" }));
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
+    });
 
     expect(requests.map(({ url }) => url)).toEqual([
       "http://127.0.0.1:28485/v1/operations",
@@ -2279,7 +2324,10 @@ schema:
     type: object
 ---
 `
-    })).rejects.toEqual(expect.objectContaining({ code: "pending_mutation_unresolved" }));
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "pending_mutation_unresolved" }
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     fetchMock
@@ -2298,7 +2346,10 @@ schema:
     await expect(fixture.connect.create({
       frontmatter: { title: "Only once" },
       path: "one.md"
-    })).rejects.toEqual(expect.objectContaining({ code: "direct_outcome_unknown" }));
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
+    });
     expect(requests[2].body).toBe(requests[0].body);
   });
 
@@ -2315,10 +2366,13 @@ schema:
 
     await expect(fixture.connect.operation("create", input, {
       signal: controller.signal
-    })).rejects.toMatchObject({
-      code: "operation_cancelled",
-      outcomeUnknown: true,
-      recovery: "resolve_outcome"
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "direct_outcome_unknown",
+        operation_outcome: "unknown",
+        recovery: "resolve_outcome"
+      }
     });
     expect(fixture.connect.pendingMutation()).toMatchObject({
       operation: "create",
@@ -2339,9 +2393,9 @@ schema:
         }), { status: 503, headers: { "content-type": "application/json" } });
       });
 
-    await expect(fixture.connect.resumePendingMutation(input)).rejects.toMatchObject({
-      code: "direct_outcome_unknown",
-      outcomeUnknown: true
+    await expect(fixture.connect.resumePendingMutation(input)).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "direct_outcome_unknown", operation_outcome: "unknown" }
     });
     expect(requests.map(({ url }) => url)).toEqual([
       "http://127.0.0.1:28485/v1/operations",
@@ -2360,12 +2414,13 @@ schema:
       error: { code: "direct_operation_rejected", message: "Rejected locally." }
     }), { status: 403, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.query()).rejects.toMatchObject({
-      code: "direct_operation_rejected",
-      status: 403,
-      requiresAuthorization: true,
-      outcomeUnknown: false,
-      recovery: "reauthorize"
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "direct_operation_rejected",
+        category: "authorization",
+        recovery: "reauthorize"
+      }
     });
     expect(connectionChanges[0]).toEqual(expect.objectContaining({
       collectionId: fixture.collectionId
@@ -2394,11 +2449,13 @@ schema:
       path: "rejected.md",
       frontmatter: {},
       body: ""
-    })).rejects.toMatchObject({
-      code: "direct_operation_rejected",
-      requiresAuthorization: true,
-      outcomeUnknown: false,
-      recovery: "reauthorize"
+    })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "direct_operation_rejected",
+        category: "authorization",
+        recovery: "reauthorize"
+      }
     });
     expect(fixture.connect.pendingMutation()).toBeNull();
     expect(fixture.connect.info()).toBeNull();
@@ -2419,12 +2476,14 @@ schema:
         }), { status: 503, headers: { "content-type": "application/json" } });
       });
 
-    await expect(fixture.connect.query()).rejects.toEqual(expect.objectContaining({
-      code: "connector_offline"
-    }));
-    await expect(fixture.connect.query()).rejects.toEqual(expect.objectContaining({
-      code: "connector_offline"
-    }));
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "connector_offline" }
+    });
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "connector_offline" }
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(urls).toEqual([
       "http://127.0.0.1:28485/v1/operations",
@@ -2459,9 +2518,10 @@ schema:
         error: { code: "connector_offline", message: "Connector offline." }
       }), { status: 503, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.query()).rejects.toEqual(expect.objectContaining({
-      code: "connector_offline"
-    }));
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "connector_offline" }
+    });
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -2512,9 +2572,10 @@ schema:
       error: { code: "direct_operation_rejected", message: "Reached the connector." }
     }), { status: 403, headers: { "content-type": "application/json" } }));
 
-    await expect(fixture.connect.query()).rejects.toEqual(expect.objectContaining({
-      code: "direct_operation_rejected"
-    }));
+    await expect(fixture.connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "direct_operation_rejected" }
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://127.0.0.1:28485/v1/operations");
     expect(fixture.storage.getItem(tokenKey)).toBeNull();

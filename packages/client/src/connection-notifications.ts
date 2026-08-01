@@ -1,6 +1,6 @@
 import type { Application } from "./internal-types.js";
 import type { StoredToken } from "./internal-types.js";
-import { MdbaseConnectError } from "./errors.js";
+import { connectError } from "./errors.js";
 import { apiError, parseStored } from "./runtime-utils.js";
 import { base64UrlBytes, randomBase64Url } from "./base64.js";
 import type {
@@ -26,7 +26,7 @@ export class ConnectionNotifications {
   ): Promise<MdbaseNotificationRegistration> {
     const token = await this.context.authorizedToken();
     if (!token) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "not_authorized",
         "Connect this application before enabling notifications."
       );
@@ -36,13 +36,13 @@ export class ConnectionNotifications {
     const criteria = [...new Set(options.criteria ?? declared)];
     const undeclared = criteria.find((criterion) => !declared.includes(criterion));
     if (undeclared) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "notification_criterion_not_declared",
         `The application manifest does not declare notification criterion ${undeclared}.`
       );
     }
     if (criteria.length === 0) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "notifications_not_declared",
         "This application manifest does not declare any notification criteria."
       );
@@ -61,7 +61,7 @@ export class ConnectionNotifications {
     }
     const serialized = pushSubscription.toJSON();
     if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "invalid_push_subscription",
         "The browser returned an incomplete push subscription."
       );
@@ -118,14 +118,14 @@ export class ConnectionNotifications {
   ): Promise<MdbaseNativeNotificationRegistration> {
     const token = await this.context.authorizedToken();
     if (!token) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "not_authorized",
         "Connect this application before enabling notifications."
       );
     }
     const application = await this.context.register();
     if (application.notifications?.native_delivery?.mode !== "managed_fcm") {
-      throw new MdbaseConnectError(
+      throw connectError(
         "managed_fcm_not_declared",
         "This application does not declare Connect-managed native notifications."
       );
@@ -136,13 +136,13 @@ export class ConnectionNotifications {
     const criteria = [...new Set(options.criteria ?? declared)];
     const undeclared = criteria.find((criterion) => !declared.includes(criterion));
     if (undeclared) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "notification_criterion_not_declared",
         `The application manifest does not declare notification criterion ${undeclared}.`
       );
     }
     if (criteria.length === 0) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "notifications_not_declared",
         "This application manifest does not declare any notification criteria."
       );
@@ -197,7 +197,7 @@ export class ConnectionNotifications {
     );
     const token = await this.context.authorizedToken();
     if (registration?.channelId && !token) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "not_authorized",
         "Reconnect this application before disabling native notifications."
       );
@@ -219,7 +219,7 @@ export class ConnectionNotifications {
     );
     const token = await this.context.authorizedToken();
     if (registration?.channelId && !token) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "not_authorized",
         "Reconnect this application before disabling push notifications."
       );

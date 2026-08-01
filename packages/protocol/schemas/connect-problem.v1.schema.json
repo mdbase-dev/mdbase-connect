@@ -18,6 +18,47 @@
           "const": 1
         },
         "code": {
+          "const": "access_denied"
+        },
+        "category": {
+          "const": "authorization"
+        },
+        "recovery": {
+          "const": "reauthorize"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "approval_window_blocked"
         },
         "category": {
@@ -40,6 +81,34 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user_code",
+            "verification_uri",
+            "verification_uri_complete",
+            "expires_at",
+            "interval_seconds"
+          ],
+          "properties": {
+            "user_code": {
+              "type": "string"
+            },
+            "verification_uri": {
+              "type": "string"
+            },
+            "verification_uri_complete": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "integer"
+            },
+            "interval_seconds": {
+              "type": "integer"
+            }
+          }
         }
       }
     },
@@ -2641,6 +2710,46 @@
               "type": "integer"
             }
           }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "redirect_uri_required"
+        },
+        "category": {
+          "const": "validation"
+        },
+        "recovery": {
+          "const": "fix_request"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
