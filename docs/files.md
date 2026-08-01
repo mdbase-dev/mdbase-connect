@@ -171,9 +171,12 @@ base revision, completeness, exact size, and the full content digest before it
 atomically installs the file entry and change receipt.
 
 Downloads pin one file revision for their lifetime and support indexed range
-reads. A client can resume or switch between direct and relayed delivery
-without reopening the logical transfer while its grant, revision, and expiry
-remain valid.
+reads. The protocol lets a client that retains the transfer identity resume
+those reads while its grant, revision, and expiry remain valid. A live SDK
+download keeps one identity while retrying unopened chunks and can switch local
+delivery between direct and relay. The current public `downloadStream()` does
+not persist a stopped download or resume a hosted range after some of its bytes
+have already reached the consumer; callers reopen the pinned revision instead.
 
 For local downloads, path-scope authorization runs inside the authoritative
 reconcile-and-open operation against the descriptor that will actually be
@@ -388,10 +391,11 @@ the current client surface.
 The hosted implementation already owns transport negotiation, incremental
 hashing, single versus multipart R2 delivery, bounded sequential uploads and
 range reads, retry, receipts, progress, abort cleanup, and exact verification.
-`uploadStream()` requires an exact size and SHA-256 commitment, verifies the
-one-shot source before commit, bounds source chunks to the negotiated part
-size, and never buffers the complete file. A retry uses a newly opened source
-and the same caller-chosen transfer ID.
+`uploadStream()` requires an exact size and SHA-256 commitment and verifies the
+one-shot source before commit. It does not accumulate multiple file parts: SDK
+memory is bounded by one assembled negotiated part plus at most one bounded
+source chunk. For a single-part upload, that part is the complete file. A retry
+uses a newly opened source and the same caller-chosen transfer ID.
 `download()` and `downloadBytes()` are convenience methods capped at 64 MiB;
 larger downloads use `downloadStream()` so hosted response chunks flow through
 native stream backpressure without assembling a complete range in memory.

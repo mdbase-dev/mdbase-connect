@@ -448,14 +448,20 @@ await connection.files.delete(moved);
 Use `downloadStream()` for larger files; it verifies the pinned revision while
 forwarding response chunks with native stream backpressure rather than
 buffering a complete hosted range.
+The live stream retries unopened chunks and can switch a local download between
+direct and relay. It does not persist progress after consumption stops or
+resume a hosted range after part of that range has reached the consumer;
+restart `downloadStream()` to reopen the pinned revision in those cases.
 
 `upload()` accepts `Blob`, `ArrayBuffer`, and typed-array values and hashes them
 before opening the transfer. `uploadStream()` accepts a `ReadableStream` or
 async iterable plus its exact size and `sha256:…` commitment. It verifies the
-stream while uploading sequentially and never buffers the complete file.
-Yielded source chunks must fit within the authority's negotiated upload part;
-ordinary browser and Node streams already produce much smaller chunks. After
-an ambiguous failure, call it again with a newly opened source and the same
+stream while uploading sequentially without accumulating multiple file parts.
+SDK memory is bounded by one assembled negotiated part plus at most one source
+chunk; a single-part upload may therefore hold the complete file. Yielded
+source chunks must fit within the authority's negotiated upload part; ordinary
+browser and Node streams already produce much smaller chunks. After an
+ambiguous failure, call it again with a newly opened source and the same
 `transferId` to resume safely.
 
 Both lifecycle methods are optimistic and use the descriptor revision by
