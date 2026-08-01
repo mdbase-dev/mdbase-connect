@@ -84,11 +84,15 @@ it calls an injected filesystem adapter. Rust and TypeScript run one shared
 cross-platform path corpus, including Windows device names and case/Unicode
 aliases.
 
-Binary attachments are not ordinary records or structural resources. A future
-binary-transfer feature must use a separately granted attachment capability, a
-dedicated attachment root, bounded size and quota controls, opaque content
-handling, and non-executable delivery semantics. Adding a binary extension to
-the record allowlist is not an attachment design.
+Collection files are not ordinary records or structural resources. Their
+physical paths may remain anywhere inside the safe collection namespace, but
+their authorization and transfer use a separately granted, versioned file
+capability and binary data plane. Hidden, reserved, nested, excluded,
+symlinked, non-regular, and platform-unsafe paths remain outside that namespace.
+Transfers use bounded chunks, size and quota controls, opaque content handling,
+and non-executable materialization semantics. Adding a binary extension to the
+record allowlist is not a file-transfer design. See
+[Collection files](./files.md).
 
 ### Local privacy
 

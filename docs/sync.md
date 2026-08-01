@@ -161,9 +161,12 @@ The initial hosted store can keep canonical Markdown documents as PostgreSQL
 text alongside indexed metadata. This gives record mutation and change-log
 publication one database transaction. Object storage becomes useful for large
 attachments and old versions later; it is unnecessary for ordinary Markdown in
-the first service. Attachments, when introduced, remain a separate replication
-object and capability. They are not represented by widening the record
-extension allowlist or by accepting arbitrary resource paths.
+the first service. Collection files remain a separate replication object and
+capability. They are not represented by widening the record extension allowlist
+or by accepting arbitrary resource paths. File descriptors share the
+collection's authoritative sequence, while manifests and changes carry
+metadata and replicas fetch exact blob revisions through the independently
+versioned binary transfer protocol. See [Collection files](./files.md).
 
 The provider, rather than the control plane, stores:
 

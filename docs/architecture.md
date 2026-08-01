@@ -135,6 +135,11 @@ derived capabilities without taking the service offline.
 - Domain adapters consume collection contracts and remain in their owning
   application repositories.
 
+First-class non-record files use a separate logical namespace, grant
+capability, binary transfer data plane, blob store, and replication object
+while retaining ordinary collection-relative paths. The complete design is in
+[Collection files](./files.md).
+
 ## Collection API
 
 Connect protocol 1 exposes these grantable operations:
