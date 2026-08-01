@@ -161,7 +161,11 @@ export async function buildApp(options: BuildOptions) {
     timeWindow: "1 minute"
   });
   await app.register(formbody);
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]
+  });
   await app.register(websocket);
   app.addContentTypeParser(
     "application/mdbase-connect-file",

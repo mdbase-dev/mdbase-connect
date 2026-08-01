@@ -37,6 +37,34 @@ afterEach(async () => {
 });
 
 describe("mdbase connect server", () => {
+  it("permits management mutations from the configured editor origin", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test",
+      editorOrigin: "http://editor.test",
+      managementOrigins: ["http://editor.test"]
+    });
+    resources.push(() => app.close());
+
+    for (const method of ["PATCH", "DELETE"]) {
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/v1/hosted/collections/00000000-0000-4000-8000-000000000000",
+        headers: {
+          origin: "http://editor.test",
+          "access-control-request-method": method
+        }
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe("http://editor.test");
+      expect(response.headers["access-control-allow-methods"]).toContain(method);
+    }
+  });
+
   it("publishes the runtime editor handoff without baking it into the portal", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
