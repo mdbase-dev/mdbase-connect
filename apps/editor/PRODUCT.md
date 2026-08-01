@@ -17,8 +17,9 @@ mdbase editor is a general Markdown collection editor and the web home for
 mdbase Connect. Its editing workspace opens one separately authorized
 collection, presents every record as a note, and preserves the collection's
 files, frontmatter, types, and revision checks. Its `/connect` workspace uses
-the user's Connect account session to manage collection inventory, application
-grants, computers, and browser sessions without receiving collection content.
+the user's Connect account session to manage collection inventory, hosted
+storage, sign-in methods, application grants, computers, browser sessions, and
+account deletion without receiving collection content.
 It is also the reference full-access consumer for the mdbase connect SDK.
 
 ## Brand personality

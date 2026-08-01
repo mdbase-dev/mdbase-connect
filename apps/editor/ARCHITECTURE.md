@@ -3,7 +3,7 @@
 mdbase editor is a client-side application with two deliberately separate
 authorities. `/connect` uses `@mdbase/connect-management` and the user's account
 session for control-plane administration. The editing workspace uses an
-explicitly authorized `@mdbase/connect` collection grant. The design keeps
+explicitly authorized `@mdbase-dev/connect` collection grant. The design keeps
 account management, collection transport, lifecycle, editing state, and
 rendering separate even though the application is deployed as one static site.
 
@@ -16,7 +16,7 @@ React composition (App, feature views)
         ├── note session store            ├── narrow gateway contracts
         └── operation coordinator ────────┘
                                               │
-                                  @mdbase/connect or demo adapter
+                                  @mdbase-dev/connect or demo adapter
 
 ConnectApp ── shared EditorRail ── @mdbase/connect-management ── account APIs only
 ```
