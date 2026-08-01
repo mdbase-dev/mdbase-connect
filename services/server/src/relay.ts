@@ -10,7 +10,8 @@ import type {
   EncryptedRelayOperationResponse,
   GrantPolicy,
   GrantScope,
-  ConnectProblem
+  ConnectProblem,
+  RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
@@ -29,8 +30,15 @@ import {
   type RelayBrokerCommand,
   type RelayBrokerReply
 } from "./relay-broker.js";
+import {
+  ConnectorOperationError,
+  RelayUnavailableError
+} from "./relay-errors.js";
+import { RelayFileBridge } from "./relay-file.js";
 import { canonicalSha256 } from "./canonical-json.js";
 import type { WebSocket } from "ws";
+
+export { ConnectorOperationError, RelayUnavailableError } from "./relay-errors.js";
 
 const OPERATION_TIMEOUT_MS = 30_000;
 const BROKER_OPERATION_TIMEOUT_MS = OPERATION_TIMEOUT_MS + 1_000;
@@ -71,11 +79,18 @@ interface RelayHello {
 export class RelayHub {
   private readonly connectors = new Map<string, ConnectorSession>();
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly files: RelayFileBridge;
 
   constructor(
     private readonly db: DatabasePool,
     private readonly broker: RelayBroker = new LocalRelayBroker()
-  ) {}
+  ) {
+    this.files = new RelayFileBridge(
+      broker,
+      (connectorId) => this.connectors.get(connectorId),
+      (connectorId) => this.currentGeneration(connectorId)
+    );
+  }
 
   beginHandshake(socket: WebSocket): Promise<RelayHello | null> {
     return receiveRelayHello(socket);
@@ -111,6 +126,7 @@ export class RelayHub {
       connectorId,
       generation,
       handle: (command) => this.handleBrokerCommand(connectorId, generation, command),
+      handleBinary: (frame) => this.files.handleBrokerCommand(connectorId, generation, frame),
       replaced: () => {
         const current = this.connectors.get(connectorId);
         if (current?.generation === generation && current.socket === socket) {
@@ -132,8 +148,12 @@ export class RelayHub {
       await previous.binding.close();
     }
 
-    socket.on("message", (raw) => {
+    socket.on("message", (raw, isBinary) => {
       try {
+        if (isBinary) {
+          this.files.handleConnectorResponse(socket, raw);
+          return;
+        }
         const message = JSON.parse(raw.toString()) as {
           type?: string;
           request_id?: string;
@@ -444,6 +464,13 @@ export class RelayHub {
     return response as EncryptedRelayOperationResponse;
   }
 
+  async routeFile(
+    connectorId: string,
+    request: RelayFileFrame
+  ): Promise<RelayFileFrame> {
+    return this.files.route(connectorId, request);
+  }
+
   async authorizationOffers(
     connectorId: string,
     authorizationId: string,
@@ -503,6 +530,7 @@ export class RelayHub {
       pending.reject(new RelayUnavailableError());
     }
     this.pending.clear();
+    this.files.close();
     await this.broker.close();
   }
 
@@ -683,6 +711,7 @@ export class RelayHub {
     for (const [requestId, pending] of this.pending) {
       if (pending.socket === socket) this.rejectPending(requestId, error);
     }
+    this.files.rejectForSocket(socket, error);
   }
 }
 
@@ -805,27 +834,4 @@ function matchesEncryptedMetadata(
     && response.key_id === request.key_id
     && response.counter === request.counter
     && typeof response.ciphertext === "string";
-}
-
-export class RelayUnavailableError extends Error {
-  constructor() {
-    super("The computer hosting this collection is offline.");
-  }
-}
-
-export class ConnectorOperationError extends Error {
-  readonly problem: ConnectProblem;
-
-  constructor(public readonly code: string, message: string, problem?: ConnectProblem) {
-    super(message);
-    this.problem = problem ?? normalizeConnectProblem(code, message);
-  }
-
-  static fromProblem(problem: ConnectProblem): ConnectorOperationError {
-    return new ConnectorOperationError(
-      problem.code === "unknown" ? problem.server_code : problem.code,
-      problem.message,
-      problem
-    );
-  }
 }

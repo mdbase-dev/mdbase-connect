@@ -1,8 +1,8 @@
 use crate::server::AgentState;
 use futures_util::{SinkExt, StreamExt};
 use mdbase_connect_protocol::{
-    AgentConnectionState, RelayMessage, CONTROL_PROTOCOL_VERSION, RELAY_CAPABILITIES,
-    RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
+    AgentConnectionState, RelayFileFrame, RelayMessage, CONTROL_PROTOCOL_VERSION,
+    RELAY_CAPABILITIES, RELAY_HANDSHAKE_TIMEOUT_SECONDS, RELAY_REQUIRED_CAPABILITIES,
 };
 use reqwest::Client;
 use std::sync::Arc;
@@ -79,7 +79,9 @@ async fn connect_once(
     }
     let (mut writer, mut reader) = socket.split();
     let (responses, mut response_rx) = tokio::sync::mpsc::channel::<RelayMessage>(64);
+    let (file_responses, mut file_response_rx) = tokio::sync::mpsc::channel::<RelayFileFrame>(8);
     let operation_slots = Arc::new(tokio::sync::Semaphore::new(16));
+    let file_slots = Arc::new(tokio::sync::Semaphore::new(8));
     state.set_connection_state(AgentConnectionState::Connected);
     tracing::info!(server = server_url, "connected to cloud relay");
     let mut sync_interval = tokio::time::interval(Duration::from_secs(15));
@@ -119,6 +121,32 @@ async fn connect_once(
                             });
                         }
                     }
+                    Message::Binary(bytes) => {
+                        let request = match RelayFileFrame::decode(&bytes) {
+                            Ok(request) => request,
+                            Err(error) => {
+                                tracing::warn!(%error, "relay sent an invalid binary file message");
+                                continue;
+                            }
+                        };
+                        // Acquire before spawning so the websocket itself provides bounded
+                        // backpressure instead of retaining an unbounded queue of file frames.
+                        let permit = file_slots.clone().acquire_owned().await?;
+                        let state_for_file = state.clone();
+                        let file_responses = file_responses.clone();
+                        tokio::spawn(async move {
+                            let response = tokio::task::spawn_blocking(move || {
+                                let _permit = permit;
+                                state_for_file.handle_relay_file_frame(request)
+                            }).await;
+                            match response {
+                                Ok(response) => {
+                                    let _ = file_responses.send(response).await;
+                                }
+                                Err(error) => tracing::warn!(%error, "relay file task failed"),
+                            }
+                        });
+                    }
                     Message::Ping(payload) => writer.send(Message::Pong(payload)).await?,
                     Message::Close(_) => return Err("relay closed the connection".into()),
                     _ => {}
@@ -129,6 +157,12 @@ async fn connect_once(
                     return Err("relay response channel closed".into());
                 };
                 writer.send(Message::Text(serde_json::to_string(&response)?.into())).await?;
+            }
+            response = file_response_rx.recv() => {
+                let Some(response) = response else {
+                    return Err("relay file response channel closed".into());
+                };
+                writer.send(Message::Binary(response.encode()?.into())).await?;
             }
             _ = sync_interval.tick() => {
                 let client = client.clone();

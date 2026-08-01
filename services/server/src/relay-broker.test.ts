@@ -20,6 +20,7 @@ describe("local relay broker", () => {
       connectorId,
       generation: "7",
       handle,
+      handleBinary: async (frame) => ({ version: 1, ok: true, value: frame }),
       replaced: vi.fn()
     });
 
@@ -44,6 +45,7 @@ describe("local relay broker", () => {
       connectorId,
       generation: "99",
       handle: async () => ({ version: 1, ok: true }),
+      handleBinary: async (frame) => ({ version: 1, ok: true, value: frame }),
       replaced
     });
 
@@ -61,5 +63,30 @@ describe("local relay broker", () => {
     await expect(broker.ready()).rejects.toBeInstanceOf(RelayBrokerUnavailableError);
     await expect(broker.request(connectorId, "1", policy, 10))
       .rejects.toBeInstanceOf(RelayBrokerUnavailableError);
+  });
+
+  it("routes opaque binary frames only to the exact session generation", async () => {
+    const broker = new LocalRelayBroker();
+    const frame = Uint8Array.of(0, 1, 2, 255);
+    const handleBinary = vi.fn(async (value: Uint8Array) => ({
+      version: 1 as const,
+      ok: true as const,
+      value: Uint8Array.from(value).reverse()
+    }));
+    const binding = await broker.bind({
+      connectorId,
+      generation: "8",
+      handle: async () => ({ version: 1, ok: true }),
+      handleBinary,
+      replaced: vi.fn()
+    });
+
+    const reply = await broker.requestBinary(connectorId, "8", frame, 10);
+    expect(reply.ok && [...reply.value]).toEqual([255, 2, 1, 0]);
+    expect(handleBinary).toHaveBeenCalledWith(frame);
+    await expect(broker.requestBinary(connectorId, "7", frame, 10))
+      .rejects.toBeInstanceOf(RelayBrokerUnavailableError);
+
+    await binding.close();
   });
 });

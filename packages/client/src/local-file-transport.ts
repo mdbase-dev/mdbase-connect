@@ -1,5 +1,6 @@
 import type {
   ConnectProblem,
+  EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   FileFrameHeader,
   FileTransferSession
@@ -21,15 +22,22 @@ import {
 } from "./errors.js";
 import { GrantFileTransferCipher } from "./file-crypto.js";
 import type { StoredToken } from "./internal-types.js";
-import { loopbackRequest } from "./operation-helpers.js";
+import {
+  directFallbackStatus,
+  loopbackRequest
+} from "./operation-helpers.js";
 import { apiError } from "./runtime-utils.js";
 
 interface LocalFileTransportOptions {
   keyStore: GrantKeyStore;
+  serverUrl: string;
   loopbackUrl: string;
   authorizedToken(): Promise<StoredToken | null>;
+  refreshAuthorization(): Promise<StoredToken>;
   shouldAttemptDirect(token: StoredToken): Promise<boolean>;
   onDirectAvailable(): void;
+  onDirectUnavailable(): void;
+  onRelayAvailable(): void;
 }
 
 /** Keeps grant-bound file crypto and loopback framing out of the operation transport. */
@@ -44,23 +52,46 @@ export class LocalFileTransport {
     signal?: AbortSignal
   ): Promise<Result> {
     requireEncryption(token);
-    await this.requireDirect(token, "control");
-    const encryptedRequest = await encryptRelayRequest(
-      this.options.keyStore,
-      token.keyHandle!,
-      relayBinding(token),
-      "file_control",
-      localFileControlInput(method, path, input)
-    );
-    const response = await fetch(
-      `${this.options.loopbackUrl}/v1/files/control`,
-      loopbackRequest({
-        method: "POST",
-        headers: { "content-type": "application/mdbase-connect+json" },
-        body: JSON.stringify(encryptedRequest),
-        signal
-      })
-    );
+    const controlInput = localFileControlInput(method, path, input);
+    let encryptedRequest = await this.encryptControl(token, controlInput);
+    let response: Response | undefined;
+    if (await this.options.shouldAttemptDirect(token)) {
+      try {
+        response = await fetch(
+          `${this.options.loopbackUrl}/v1/files/control`,
+          loopbackRequest({
+            method: "POST",
+            headers: { "content-type": "application/mdbase-connect+json" },
+            body: JSON.stringify(encryptedRequest),
+            signal
+          })
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        this.options.onDirectUnavailable();
+      }
+      if (response && !directFallbackStatus(response.status)) {
+        if (response.ok) this.options.onDirectAvailable();
+        return this.decryptControlResponse<Result>(token, encryptedRequest, response);
+      }
+      if (response) this.options.onDirectUnavailable();
+    }
+    response = await this.sendRelayControl(token, encryptedRequest, signal);
+    if (await refreshableBindingFailure(response, token)) {
+      token = await this.options.refreshAuthorization();
+      requireLocalFileToken(token);
+      encryptedRequest = await this.encryptControl(token, controlInput);
+      response = await this.sendRelayControl(token, encryptedRequest, signal);
+    }
+    if (response.ok) this.options.onRelayAvailable();
+    return this.decryptControlResponse<Result>(token, encryptedRequest, response);
+  }
+
+  private async decryptControlResponse<Result>(
+    token: StoredToken,
+    encryptedRequest: EncryptedRelayOperationRequest,
+    response: Response
+  ): Promise<Result> {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw apiError(body, "operation_failed", "Collection file request failed.", response.status);
@@ -80,7 +111,6 @@ export class LocalFileTransport {
       encryptedResponse
     );
     if (!decrypted.ok) throwEncryptedProblem(decrypted.problem);
-    this.options.onDirectAvailable();
     return decrypted.result;
   }
 
@@ -91,19 +121,47 @@ export class LocalFileTransport {
     signal?: AbortSignal
   ): Promise<void> {
     const token = await this.localFileToken(session, "upload");
-    await this.requireDirect(token, "delivery");
-    const header = fileFrameHeader(token, session, chunkIndex, bytes.byteLength);
-    const encoded = await (await fileCipher(this.options.keyStore, token, session))
-      .encryptChunk("upload_chunk", header, bytes);
-    const response = await fetch(
-      `${this.options.loopbackUrl}/v1/files/upload`,
-      loopbackRequest({
-        method: "POST",
-        headers: { "content-type": "application/mdbase-connect-file" },
-        body: Uint8Array.from(encoded).buffer,
-        signal
-      })
+    let deliveryToken = token;
+    let encoded = await encryptedUploadChunk(
+      this.options.keyStore,
+      deliveryToken,
+      session,
+      chunkIndex,
+      bytes
     );
+    let response: Response | undefined;
+    if (await this.options.shouldAttemptDirect(deliveryToken)) {
+      try {
+        response = await fetch(
+          `${this.options.loopbackUrl}/v1/files/upload`,
+          loopbackRequest(fileUploadRequest(encoded, signal))
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        this.options.onDirectUnavailable();
+      }
+      if (response && !directFallbackStatus(response.status)) {
+        if (response.ok) this.options.onDirectAvailable();
+        return requireSuccessfulChunkResponse(
+          response,
+          "Encrypted file chunk upload failed."
+        );
+      }
+      if (response) this.options.onDirectUnavailable();
+    }
+    response = await this.sendRelayUpload(deliveryToken, encoded, signal);
+    if (response.status === 401 && deliveryToken.refreshToken) {
+      deliveryToken = await this.options.refreshAuthorization();
+      requireLocalFileToken(deliveryToken);
+      encoded = await encryptedUploadChunk(
+        this.options.keyStore,
+        deliveryToken,
+        session,
+        chunkIndex,
+        bytes
+      );
+      response = await this.sendRelayUpload(deliveryToken, encoded, signal);
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw apiError(
@@ -113,7 +171,7 @@ export class LocalFileTransport {
         response.status
       );
     }
-    this.options.onDirectAvailable();
+    this.options.onRelayAvailable();
   }
 
   async downloadChunk(
@@ -121,12 +179,40 @@ export class LocalFileTransport {
     chunkIndex: number,
     signal?: AbortSignal
   ): Promise<Uint8Array> {
-    const token = await this.localFileToken(session, "download");
-    await this.requireDirect(token, "delivery");
-    const response = await fetch(
-      `${this.options.loopbackUrl}/v1/files/download/${encodeURIComponent(token.grantId!)}/${encodeURIComponent(session.transfer_id)}/${chunkIndex}`,
-      loopbackRequest({ method: "GET", signal })
-    );
+    let token = await this.localFileToken(session, "download");
+    let response: Response | undefined;
+    if (await this.options.shouldAttemptDirect(token)) {
+      try {
+        response = await fetch(
+          `${this.options.loopbackUrl}/v1/files/download/${encodeURIComponent(token.grantId!)}/${encodeURIComponent(session.transfer_id)}/${chunkIndex}`,
+          loopbackRequest({ method: "GET", signal })
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        this.options.onDirectUnavailable();
+      }
+      if (response && !directFallbackStatus(response.status)) {
+        if (response.ok) this.options.onDirectAvailable();
+        return this.decryptDownloadResponse(token, session, chunkIndex, response);
+      }
+      if (response) this.options.onDirectUnavailable();
+    }
+    response = await this.sendRelayDownload(token, session, chunkIndex, signal);
+    if (response.status === 401 && token.refreshToken) {
+      token = await this.options.refreshAuthorization();
+      requireLocalFileToken(token);
+      response = await this.sendRelayDownload(token, session, chunkIndex, signal);
+    }
+    if (response.ok) this.options.onRelayAvailable();
+    return this.decryptDownloadResponse(token, session, chunkIndex, response);
+  }
+
+  private async decryptDownloadResponse(
+    token: StoredToken,
+    session: FileTransferSession,
+    chunkIndex: number,
+    response: Response
+  ): Promise<Uint8Array> {
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw apiError(
@@ -163,8 +249,73 @@ export class LocalFileTransport {
         "The connector returned a truncated file chunk."
       );
     }
-    this.options.onDirectAvailable();
     return plaintext;
+  }
+
+  private encryptControl(
+    token: StoredToken,
+    input: Record<string, unknown>
+  ): Promise<EncryptedRelayOperationRequest> {
+    requireEncryption(token);
+    return encryptRelayRequest(
+      this.options.keyStore,
+      token.keyHandle!,
+      relayBinding(token),
+      "file_control",
+      input
+    );
+  }
+
+  private sendRelayControl(
+    token: StoredToken,
+    encryptedRequest: EncryptedRelayOperationRequest,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    return fetch(
+      `${this.options.serverUrl}/v1/authorities/${encodeURIComponent(token.collectionId)}/files/control`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token.accessToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(encryptedRequest),
+        signal
+      }
+    );
+  }
+
+  private sendRelayUpload(
+    token: StoredToken,
+    encoded: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    return fetch(
+      `${this.options.serverUrl}/v1/authorities/${encodeURIComponent(token.collectionId)}/files/upload`,
+      {
+        ...fileUploadRequest(encoded, signal),
+        headers: {
+          authorization: `Bearer ${token.accessToken}`,
+          "content-type": "application/mdbase-connect-file"
+        }
+      }
+    );
+  }
+
+  private sendRelayDownload(
+    token: StoredToken,
+    session: FileTransferSession,
+    chunkIndex: number,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    return fetch(
+      `${this.options.serverUrl}/v1/authorities/${encodeURIComponent(token.collectionId)}/files/download/${encodeURIComponent(session.transfer_id)}/${chunkIndex}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${token.accessToken}` },
+        signal
+      }
+    );
   }
 
   private async localFileToken(
@@ -185,14 +336,57 @@ export class LocalFileTransport {
     return token;
   }
 
-  private async requireDirect(token: StoredToken, purpose: string): Promise<void> {
-    if (!await this.options.shouldAttemptDirect(token)) {
-      throw connectError(
-        "temporarily_unavailable",
-        `Encrypted file relay ${purpose} is unavailable; enable direct access and retry.`
-      );
-    }
+}
+
+function requireLocalFileToken(token: StoredToken): void {
+  if (token.authority || !token.fileCapability) {
+    throw connectError(
+      "not_authorized",
+      "This connection cannot use encrypted local file delivery."
+    );
   }
+  requireEncryption(token);
+}
+
+async function encryptedUploadChunk(
+  keyStore: GrantKeyStore,
+  token: StoredToken,
+  session: FileTransferSession,
+  chunkIndex: number,
+  bytes: Uint8Array
+): Promise<Uint8Array> {
+  const header = fileFrameHeader(token, session, chunkIndex, bytes.byteLength);
+  return (await fileCipher(keyStore, token, session))
+    .encryptChunk("upload_chunk", header, bytes);
+}
+
+function fileUploadRequest(encoded: Uint8Array, signal?: AbortSignal): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/mdbase-connect-file" },
+    body: Uint8Array.from(encoded).buffer,
+    signal
+  };
+}
+
+async function requireSuccessfulChunkResponse(
+  response: Response,
+  message: string
+): Promise<void> {
+  if (response.ok) return;
+  const body = await response.json().catch(() => ({}));
+  throw apiError(body, "operation_failed", message, response.status);
+}
+
+async function refreshableBindingFailure(
+  response: Response,
+  token: StoredToken
+): Promise<boolean> {
+  if (!token.refreshToken) return false;
+  if (response.status === 401) return true;
+  if (response.status !== 409) return false;
+  const body = await response.clone().json().catch(() => null);
+  return body?.error?.code === "encryption_binding_stale";
 }
 
 function requireEncryption(token: StoredToken): void {

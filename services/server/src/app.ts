@@ -34,6 +34,7 @@ import { approveHostedAuthorization } from "./features/authorizations/approval-s
 import { registerAuthorityAdoptionRoutes } from "./features/authority-adoption/routes.js";
 import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { registerLocalToHostedTransferRoutes } from "./features/authority-transfer/local-to-hosted-routes.js";
+import { registerLocalFileRoutes } from "./features/files/local-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
 import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
 import { registerConnectorControlRoutes } from "./features/connectors/control-routes.js";
@@ -156,6 +157,11 @@ export async function buildApp(options: BuildOptions) {
   await app.register(formbody);
   await app.register(cors, { origin: true, credentials: false });
   await app.register(websocket);
+  app.addContentTypeParser(
+    "application/mdbase-connect-file",
+    { parseAs: "buffer" },
+    (_request, body, done) => done(null, body)
+  );
 
   app.addHook("onClose", async () => {
     await providerRevocations?.close();
@@ -308,6 +314,7 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider
   });
   registerLocalOperationRoutes(app, { db: options.db, relay });
+  registerLocalFileRoutes(app, { db: options.db, relay });
   registerConnectorHostedRoutes(app, {
     db: options.db,
     publicUrl,

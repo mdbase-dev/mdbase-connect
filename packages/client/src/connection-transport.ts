@@ -111,13 +111,17 @@ export class ConnectionTransport {
     this.onChange = options.onChange;
     this.localFiles = new LocalFileTransport({
       keyStore: this.keyStore,
+      serverUrl: this.serverUrl,
       loopbackUrl: this.loopbackUrl,
       authorizedToken: () => this.authorizedToken(),
+      refreshAuthorization: () => this.refreshAuthorization(),
       shouldAttemptDirect: (token) => this.shouldAttemptDirect(token),
       onDirectAvailable: () => {
         this.markDirectAvailable();
         this.setRoute("direct");
-      }
+      },
+      onDirectUnavailable: () => this.markDirectUnavailable(),
+      onRelayAvailable: () => this.setRoute("relay")
     });
     this.directStatus = this.directAccessMode === "disabled"
       ? "disabled"

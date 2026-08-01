@@ -6,6 +6,10 @@ import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import {
   CONTROL_PROTOCOL_VERSION,
+  decodeRelayFileFrame,
+  encodeFileFrame,
+  encodeRelayFileFrame,
+  FILE_TRANSFER_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
 
@@ -187,11 +191,88 @@ try {
     application_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url"),
     connector_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url")
   };
-  await database.query("UPDATE grants SET encryption = $2::jsonb WHERE id = $1", [
+  await database.query(
+    `UPDATE grants
+     SET encryption = $2::jsonb,
+         file_capability = $3::jsonb
+     WHERE id = $1`, [
     fixture.grantId,
-    JSON.stringify(encryption)
+    JSON.stringify(encryption),
+    JSON.stringify({
+      kind: "files",
+      protocol_version: 1,
+      actions: ["list", "read", "add", "replace"],
+      scope: { kind: "collection" }
+    })
   ]);
   await builtB.relay.pushPolicy(fixture.connectorId);
+  const uploadTransferId = randomUUID();
+  const uploadFrame = opaqueFileFrame({
+    fixture,
+    encryption,
+    transferId: uploadTransferId,
+    direction: "upload",
+    plaintextLength: 128
+  });
+  const relayedUpload = await fetch(
+    `${urlA}/v1/authorities/${fixture.localCollectionId}/files/upload`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.accessToken}`,
+        "content-type": "application/mdbase-connect-file"
+      },
+      body: uploadFrame
+    }
+  );
+  assert(relayedUpload.status === 204,
+    `Opaque file upload did not cross NATS: ${relayedUpload.status} ${await relayedUpload.text()}`);
+  assert(connectorB.fileUploads.length === 1
+      && Buffer.compare(Buffer.from(connectorB.fileUploads[0]), Buffer.from(uploadFrame)) === 0,
+  "The connector did not receive the exact opaque upload frame");
+
+  const downloadTransferId = randomUUID();
+  const downloadFrame = opaqueFileFrame({
+    fixture,
+    encryption,
+    transferId: downloadTransferId,
+    direction: "download",
+    plaintextLength: 96
+  });
+  connectorB.setDownloadFrame(downloadFrame);
+  const relayedDownload = await fetch(
+    `${urlA}/v1/authorities/${fixture.localCollectionId}/files/download/${downloadTransferId}/0`,
+    { headers: { authorization: `Bearer ${fixture.accessToken}` } }
+  );
+  assert(relayedDownload.status === 200
+      && relayedDownload.headers.get("content-type") === "application/mdbase-connect-file"
+      && Buffer.compare(
+        Buffer.from(await relayedDownload.arrayBuffer()),
+        Buffer.from(downloadFrame)
+      ) === 0,
+  "The exact opaque download frame did not return across NATS");
+
+  const foreignFrame = opaqueFileFrame({
+    fixture,
+    encryption: { ...encryption, key_id: "foreign-key" },
+    transferId: randomUUID(),
+    direction: "upload",
+    plaintextLength: 1
+  });
+  const rejectedFile = await fetch(
+    `${urlA}/v1/authorities/${fixture.localCollectionId}/files/upload`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${fixture.accessToken}`,
+        "content-type": "application/mdbase-connect-file"
+      },
+      body: foreignFrame
+    }
+  );
+  assert(rejectedFile.status === 400 && connectorB.fileUploads.length === 1,
+    "The control plane forwarded a file frame with a stale grant key");
+
   const encryptedEnvelope = {
     type: "encrypted_operation_request",
     protocol_version: 1,
@@ -415,10 +496,25 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
   let closeDetails;
   let policyWaiter;
   let welcomeWaiter;
+  let downloadFrame;
+  const fileUploads = [];
   socket.on("close", (code, reason) => {
     closeDetails = { code, reason: reason.toString() };
   });
-  socket.on("message", (raw) => {
+  socket.on("message", (raw, isBinary) => {
+    if (isBinary) {
+      const request = decodeRelayFileFrame(new Uint8Array(raw));
+      if (request.kind === "upload_chunk") fileUploads.push(request.payload);
+      const kind = request.kind === "upload_chunk"
+        ? "upload_acknowledged"
+        : "download_chunk";
+      socket.send(encodeRelayFileFrame({
+        kind,
+        header: { ...request.header, type: kind },
+        payload: kind === "download_chunk" ? downloadFrame : new Uint8Array()
+      }));
+      return;
+    }
     const message = JSON.parse(raw.toString());
     messageTypes.push(message.type);
     if (message.type === "relay_welcome") {
@@ -503,6 +599,10 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
   return {
     socket,
     policies,
+    fileUploads,
+    setDownloadFrame(frame) {
+      downloadFrame = frame;
+    },
     async waitForPolicy() {
       if (policies.length > 0) return;
       await new Promise((resolvePolicy, reject) => {
@@ -517,6 +617,29 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
       });
     }
   };
+}
+
+function opaqueFileFrame({ fixture, encryption, transferId, direction, plaintextLength }) {
+  return encodeFileFrame({
+    kind: direction === "upload" ? "upload_chunk" : "download_chunk",
+    header: {
+      protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+      protection: "grant_aead_v1",
+      grant_id: fixture.grantId,
+      authority_id: fixture.connectorId,
+      collection_id: fixture.localCollectionId,
+      transfer_id: transferId,
+      direction,
+      chunk_size: 64 * 1024,
+      chunk_index: 0,
+      offset: 0,
+      plaintext_length: plaintextLength,
+      total_size: plaintextLength,
+      scope_epoch: encryption.scope_epoch,
+      key_id: encryption.key_id
+    },
+    payload: new Uint8Array(plaintextLength + 16)
+  });
 }
 
 async function operation(serverUrl, fixture, operationName, input) {

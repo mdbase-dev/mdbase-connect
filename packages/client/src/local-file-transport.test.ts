@@ -80,22 +80,131 @@ describe("LocalFileTransport", () => {
     );
   });
 
-  it("does not derive keys or touch loopback when direct delivery is not allowed", async () => {
+  it("uses encrypted relay delivery when direct access is not allowed", async () => {
     const fixture = await transportFixture("upload", false);
-    const fetch = vi.spyOn(globalThis, "fetch");
+    const plaintext = new TextEncoder().encode("relay upload");
+    let received: Uint8Array | undefined;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      expect(String(url)).toBe(
+        `https://connect.example/v1/authorities/${ids.collection}/files/upload`
+      );
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access");
+      const encoded = new Uint8Array(await new Response(init?.body).arrayBuffer());
+      received = await fixture.peerCipher.decryptChunk(encoded);
+      return new Response(undefined, { status: 204 });
+    });
 
-    await expect(
-      fixture.transport.uploadChunk(
-        fixture.session,
-        0,
-        new Uint8Array(fixture.session.total_size)
-      )
-    ).rejects.toEqual(
-      expect.objectContaining<Partial<MdbaseConnectError>>({
-        code: "temporarily_unavailable"
-      })
+    await fixture.transport.uploadChunk(fixture.session, 0, plaintext);
+
+    expect(received).toEqual(plaintext);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.relayAvailable).toHaveBeenCalledOnce();
+  });
+
+  it("falls back from an unreachable loopback to the relay with the same chunk", async () => {
+    const fixture = await transportFixture("upload");
+    const plaintext = new TextEncoder().encode("fallback!!!!");
+    const fetch = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new TypeError("loopback unavailable"))
+      .mockImplementationOnce(async (url, init) => {
+        expect(String(url)).toContain("https://connect.example/v1/authorities/");
+        const encoded = new Uint8Array(await new Response(init?.body).arrayBuffer());
+        await expect(fixture.peerCipher.decryptChunk(encoded)).resolves.toEqual(plaintext);
+        return new Response(undefined, { status: 204 });
+      });
+
+    await fixture.transport.uploadChunk(fixture.session, 0, plaintext);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fixture.directUnavailable).toHaveBeenCalledOnce();
+    expect(fixture.relayAvailable).toHaveBeenCalledOnce();
+  });
+
+  it("does not bypass an explicit direct authorization rejection", async () => {
+    const fixture = await transportFixture("upload");
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: "direct_operation_rejected", message: "Denied" } }),
+      { status: 403, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(fixture.transport.uploadChunk(
+      fixture.session,
+      0,
+      new TextEncoder().encode("denied bytes")
+    )).rejects.toEqual(expect.objectContaining<Partial<MdbaseConnectError>>({
+      code: "direct_operation_rejected",
+      status: 403
+    }));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fixture.relayAvailable).not.toHaveBeenCalled();
+  });
+
+  it("authenticates and decrypts download chunks returned through the relay", async () => {
+    const fixture = await transportFixture("download", false);
+    const plaintext = new TextEncoder().encode("relay download");
+    const encoded = await fixture.peerCipher.encryptChunk(
+      "download_chunk",
+      header(fixture.encryption, fixture.session, 0, plaintext.byteLength),
+      plaintext
     );
-    expect(fetch).not.toHaveBeenCalled();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      expect(String(url)).toBe(
+        `https://connect.example/v1/authorities/${ids.collection}/files/download/${ids.transfer}/0`
+      );
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access");
+      return fileResponse(encoded);
+    });
+
+    await expect(fixture.transport.downloadChunk(fixture.session, 0))
+      .resolves.toEqual(plaintext);
+    expect(fixture.relayAvailable).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes an expired relay bearer before retrying an idempotent chunk", async () => {
+    const fixture = await transportFixture("upload", false);
+    const plaintext = new TextEncoder().encode("refresh me!!");
+    const fetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "invalid_token", message: "Expired" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockImplementationOnce(async (_url, init) => {
+        const encoded = new Uint8Array(await new Response(init?.body).arrayBuffer());
+        await expect(fixture.peerCipher.decryptChunk(encoded)).resolves.toEqual(plaintext);
+        return new Response(undefined, { status: 204 });
+      });
+
+    await fixture.transport.uploadChunk(fixture.session, 0, plaintext);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fixture.refreshAuthorization).toHaveBeenCalledOnce();
+  });
+
+  it("sends encrypted file control through the relay when direct is disabled", async () => {
+    const fixture = await transportFixture("upload", false);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      expect(String(url)).toBe(
+        `https://connect.example/v1/authorities/${ids.collection}/files/control`
+      );
+      const request = JSON.parse(String(init?.body));
+      expect(request).toMatchObject({
+        type: "encrypted_operation_request",
+        operation: "file_control",
+        grant_id: ids.grant,
+        collection_id: ids.collection
+      });
+      expect(request).not.toHaveProperty("input");
+      return new Response(
+        JSON.stringify({ error: { code: "connector_offline", message: "Offline" } }),
+        { status: 503, headers: { "content-type": "application/json" } }
+      );
+    });
+
+    await expect(fixture.transport.control(fixture.token, "GET", "", undefined))
+      .rejects.toEqual(expect.objectContaining<Partial<MdbaseConnectError>>({
+        code: "connector_offline",
+        status: 503
+      }));
   });
 });
 
@@ -126,6 +235,8 @@ async function transportFixture(
     operations: [],
     scope: { access: "full_collection" },
     expiresAt: Date.now() + 60_000,
+    refreshToken: "refresh",
+    refreshExpiresAt: Date.now() + 3_600_000,
     grantId: ids.grant,
     encryption,
     fileCapability: {
@@ -162,14 +273,31 @@ async function transportFixture(
   );
   const peerCipher = await GrantFileTransferCipher.fromSharedSecret(shared, binding);
   const directAvailable = vi.fn();
+  const directUnavailable = vi.fn();
+  const relayAvailable = vi.fn();
+  const refreshAuthorization = vi.fn(async () => token);
   const transport = new LocalFileTransport({
     keyStore: applicationStore,
+    serverUrl: "https://connect.example",
     loopbackUrl: "http://127.0.0.1:28485",
     authorizedToken: async () => token,
+    refreshAuthorization,
     shouldAttemptDirect: async () => direct,
-    onDirectAvailable: directAvailable
+    onDirectAvailable: directAvailable,
+    onDirectUnavailable: directUnavailable,
+    onRelayAvailable: relayAvailable
   });
-  return { transport, session, encryption, peerCipher, directAvailable };
+  return {
+    transport,
+    session,
+    encryption,
+    token,
+    peerCipher,
+    directAvailable,
+    directUnavailable,
+    relayAvailable,
+    refreshAuthorization
+  };
 }
 
 function header(

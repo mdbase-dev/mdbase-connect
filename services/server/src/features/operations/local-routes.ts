@@ -3,9 +3,7 @@ import type {
   GrantEncryption
 } from "@mdbase-dev/connect-protocol";
 import {
-  CONTROL_PROTOCOL_VERSION,
-  ENCRYPTED_RELAY_PROTOCOL_VERSION,
-  RELAY_ENCRYPTION_SUITE
+  CONTROL_PROTOCOL_VERSION
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -19,6 +17,11 @@ import {
 import { tokenHash } from "../../security.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
+import {
+  encryptedRelayRequestSchema,
+  matchesGrantEncryption,
+  matchesGrantIdentity
+} from "./encrypted-envelope.js";
 
 interface LocalOperationRoutesOptions {
   db: DatabasePool;
@@ -26,24 +29,6 @@ interface LocalOperationRoutesOptions {
 }
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
-const encryptedRelayRequestSchema = z.object({
-  type: z.literal("encrypted_operation_request"),
-  protocol_version: z.literal(ENCRYPTED_RELAY_PROTOCOL_VERSION),
-  suite: z.literal(RELAY_ENCRYPTION_SUITE),
-  request_id: z.uuid(),
-  grant_id: z.uuid(),
-  application_id: z.uuid(),
-  connector_id: z.uuid(),
-  collection_id: z.uuid(),
-  operation: operationSchema,
-  scope_epoch: z.number().int().positive(),
-  key_id: z.string().min(1).max(200),
-  counter: z.string().regex(/^[1-9][0-9]{0,19}$/),
-  ciphertext: z.string()
-    .min(1)
-    .max(2_800_000)
-    .regex(/^[A-Za-z0-9_-]+$/)
-}).strict();
 const operationRequestSchema = z.object({
   protocol_version: z.literal(CONTROL_PROTOCOL_VERSION),
   request_id: z.uuid(),
@@ -187,49 +172,4 @@ export function registerLocalOperationRoutes(
       }
     }
   );
-}
-
-function matchesGrantEncryption(
-  envelope: EncryptedRelayOperationRequest,
-  grant: {
-    grant_id: string;
-    application_id: string;
-    connector_id: string;
-    local_id: string;
-    encryption: GrantEncryption;
-  },
-  operation: string
-): boolean {
-  const encryption = grant.encryption;
-  return envelope.protocol_version === encryption.protocol_version
-    && envelope.suite === encryption.suite
-    && envelope.grant_id === grant.grant_id
-    && envelope.application_id === grant.application_id
-    && envelope.connector_id === grant.connector_id
-    && envelope.connector_id === encryption.connector_id
-    && envelope.collection_id === grant.local_id
-    && envelope.collection_id === encryption.collection_id
-    && envelope.operation === operation
-    && envelope.scope_epoch === encryption.scope_epoch
-    && envelope.key_id === encryption.key_id;
-}
-
-function matchesGrantIdentity(
-  envelope: EncryptedRelayOperationRequest,
-  grant: {
-    grant_id: string;
-    application_id: string;
-    connector_id: string;
-    local_id: string;
-    encryption: GrantEncryption | null;
-  },
-  operation: string
-): boolean {
-  return envelope.protocol_version === ENCRYPTED_RELAY_PROTOCOL_VERSION
-    && envelope.suite === RELAY_ENCRYPTION_SUITE
-    && envelope.grant_id === grant.grant_id
-    && envelope.application_id === grant.application_id
-    && envelope.connector_id === grant.connector_id
-    && envelope.collection_id === grant.local_id
-    && envelope.operation === operation;
 }

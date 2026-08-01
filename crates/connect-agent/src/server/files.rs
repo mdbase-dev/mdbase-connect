@@ -4,7 +4,8 @@ use mdbase_connect_protocol::{
     FileFrameKind, FileScope, FileTransferBinding, FileTransferCipher, FileTransferDirection,
     FileTransferProtection, FileTransferStrategy, GetFileTransferStatusRequest, ListFilesPage,
     ListFilesPageKind, ListFilesRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+    RelayFileFrame, RelayFileHeader, RelayFileKind, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, RELAY_FILE_PROTOCOL_VERSION,
 };
 
 impl AgentState {
@@ -166,13 +167,69 @@ impl AgentState {
                 format!("The file frame is invalid: {error}"),
             )
         })?;
+        self.handle_file_upload(Some(origin), frame)
+    }
+
+    pub fn handle_relay_file_frame(&self, request: RelayFileFrame) -> RelayFileFrame {
+        let response = match request.kind {
+            RelayFileKind::UploadChunk => FileFrame::decode(&request.payload)
+                .map_err(|error| {
+                    local_file_error(
+                        "invalid_file_frame",
+                        format!("The relayed file frame is invalid: {error}"),
+                    )
+                })
+                .and_then(|frame| {
+                    validate_relay_binding(&request.header, &frame.header)?;
+                    self.handle_file_upload(None, frame)
+                })
+                .map(|()| (RelayFileKind::UploadAcknowledged, Vec::new())),
+            RelayFileKind::DownloadRequest => self
+                .file_download_chunk(
+                    None,
+                    request.header.grant_id,
+                    request.header.transfer_id,
+                    request.header.chunk_index,
+                )
+                .map(|bytes| (RelayFileKind::DownloadChunk, bytes)),
+            _ => Err(local_file_error(
+                "invalid_relay_file_message",
+                "The relay sent an unexpected file message.",
+            )),
+        };
+        let (kind, payload) = response.unwrap_or_else(|error| {
+            tracing::warn!(
+                code = error.code(),
+                "rejected relayed file transfer message"
+            );
+            (RelayFileKind::Rejected, Vec::new())
+        });
+        RelayFileFrame {
+            kind,
+            header: RelayFileHeader {
+                protocol_version: RELAY_FILE_PROTOCOL_VERSION,
+                message_type: kind,
+                request_id: request.header.request_id,
+                grant_id: request.header.grant_id,
+                transfer_id: request.header.transfer_id,
+                chunk_index: request.header.chunk_index,
+            },
+            payload,
+        }
+    }
+
+    fn handle_file_upload(
+        &self,
+        origin: Option<&str>,
+        frame: FileFrame,
+    ) -> Result<(), ConnectError> {
         if frame.kind != FileFrameKind::UploadChunk {
             return Err(local_file_error(
                 "invalid_file_frame",
                 "The upload endpoint requires an upload chunk frame.",
             ));
         }
-        let grant = self.direct_file_grant(origin, frame.header.grant_id, FileAction::Add, true)?;
+        let grant = self.file_grant(origin, frame.header.grant_id, FileAction::Add, true)?;
         let session = self.registry.file_transfer_session(
             grant.collection_id,
             grant.id,
@@ -221,7 +278,17 @@ impl AgentState {
         transfer_id: uuid::Uuid,
         chunk_index: u64,
     ) -> Result<Vec<u8>, ConnectError> {
-        let grant = self.direct_file_grant(origin, grant_id, FileAction::Read, false)?;
+        self.file_download_chunk(Some(origin), grant_id, transfer_id, chunk_index)
+    }
+
+    fn file_download_chunk(
+        &self,
+        origin: Option<&str>,
+        grant_id: uuid::Uuid,
+        transfer_id: uuid::Uuid,
+        chunk_index: u64,
+    ) -> Result<Vec<u8>, ConnectError> {
+        let grant = self.file_grant(origin, grant_id, FileAction::Read, false)?;
         let path = self
             .registry
             .file_download_path(grant.collection_id, grant.id, transfer_id)?;
@@ -291,9 +358,9 @@ impl AgentState {
         })
     }
 
-    fn direct_file_grant(
+    fn file_grant(
         &self,
-        origin: &str,
+        origin: Option<&str>,
         grant_id: uuid::Uuid,
         action: FileAction,
         allow_either_write: bool,
@@ -306,7 +373,10 @@ impl AgentState {
         let grant = self
             .registry
             .grant_context(grant_id)?
-            .filter(|grant| grant.application_origin == origin && grant.encryption.is_some())
+            .filter(|grant| {
+                origin.is_none_or(|expected| grant.application_origin == expected)
+                    && grant.encryption.is_some()
+            })
             .ok_or_else(|| ConnectError::AccessDenied("File access was denied.".to_string()))?;
         if allow_either_write {
             require_file_write(&grant)?;
@@ -534,6 +604,22 @@ fn validate_frame_session(
         return Err(local_file_error(
             "invalid_file_frame",
             "The upload frame does not match its transfer session.",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_relay_binding(
+    relay: &RelayFileHeader,
+    frame: &FileFrameHeader,
+) -> Result<(), ConnectError> {
+    if relay.grant_id != frame.grant_id
+        || relay.transfer_id != frame.transfer_id
+        || relay.chunk_index != frame.chunk_index
+    {
+        return Err(local_file_error(
+            "invalid_relay_file_message",
+            "The relay wrapper does not match its encrypted file frame.",
         ));
     }
     Ok(())

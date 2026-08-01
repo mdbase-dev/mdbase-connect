@@ -26,6 +26,10 @@ export interface RelayBrokerCommand {
   message: unknown;
 }
 
+export type RelayBrokerError =
+  | { kind: "connector"; problem: ConnectProblem }
+  | { kind: "unavailable" | "internal"; code: string; message: string };
+
 export type RelayBrokerReply = {
   version: 1;
   ok: true;
@@ -33,9 +37,17 @@ export type RelayBrokerReply = {
 } | {
   version: 1;
   ok: false;
-  error:
-    | { kind: "connector"; problem: ConnectProblem }
-    | { kind: "unavailable" | "internal"; code: string; message: string };
+  error: RelayBrokerError;
+};
+
+export type RelayBrokerBinaryReply = {
+  version: 1;
+  ok: true;
+  value: Uint8Array;
+} | {
+  version: 1;
+  ok: false;
+  error: RelayBrokerError;
 };
 
 export interface RelayBrokerBinding {
@@ -47,6 +59,7 @@ export interface RelayBroker {
     connectorId: string;
     generation: string;
     handle(command: RelayBrokerCommand): Promise<RelayBrokerReply>;
+    handleBinary(frame: Uint8Array): Promise<RelayBrokerBinaryReply>;
     replaced(): void;
   }): Promise<RelayBrokerBinding>;
   request(
@@ -55,6 +68,12 @@ export interface RelayBroker {
     command: RelayBrokerCommand,
     timeoutMs: number
   ): Promise<RelayBrokerReply>;
+  requestBinary(
+    connectorId: string,
+    generation: string,
+    frame: Uint8Array,
+    timeoutMs: number
+  ): Promise<RelayBrokerBinaryReply>;
   publishReplacement(connectorId: string, generation: string): Promise<void>;
   ready(): Promise<void>;
   close(): Promise<void>;
@@ -70,6 +89,7 @@ interface LocalBinding {
   connectorId: string;
   generation: string;
   handle(command: RelayBrokerCommand): Promise<RelayBrokerReply>;
+  handleBinary(frame: Uint8Array): Promise<RelayBrokerBinaryReply>;
   replaced(): void;
 }
 
@@ -104,6 +124,18 @@ export class LocalRelayBroker implements RelayBroker {
     const binding = this.bindings.get(deliverySubject(connectorId, generation));
     if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
     return binding.handle(command);
+  }
+
+  async requestBinary(
+    connectorId: string,
+    generation: string,
+    frame: Uint8Array,
+    _timeoutMs: number
+  ): Promise<RelayBrokerBinaryReply> {
+    this.assertOpen();
+    const binding = this.bindings.get(deliverySubject(connectorId, generation));
+    if (!binding) throw new RelayBrokerUnavailableError("No relay owns the current connector session.");
+    return binding.handleBinary(frame);
   }
 
   async publishReplacement(connectorId: string, generation: string): Promise<void> {
@@ -153,6 +185,7 @@ export class NatsRelayBroker implements RelayBroker {
     connectorId: string;
     generation: string;
     handle(command: RelayBrokerCommand): Promise<RelayBrokerReply>;
+    handleBinary(frame: Uint8Array): Promise<RelayBrokerBinaryReply>;
     replaced(): void;
   }): Promise<RelayBrokerBinding> {
     this.assertAvailable();
@@ -162,6 +195,14 @@ export class NatsRelayBroker implements RelayBroker {
         void this.handleRequest(error, message, input.handle);
       }
     });
+    const binaryDelivery = this.connection.subscribe(
+      binaryDeliverySubject(input.connectorId, input.generation),
+      {
+        callback: (error, message) => {
+          void this.handleBinaryRequest(error, message, input.handleBinary);
+        }
+      }
+    );
     const replacements = this.connection.subscribe(replacementSubject(input.connectorId), {
       callback: (error, message) => {
         if (error) return;
@@ -173,7 +214,7 @@ export class NatsRelayBroker implements RelayBroker {
       }
     });
     await this.connection.flush();
-    return new NatsRelayBinding(delivery, replacements);
+    return new NatsRelayBinding(delivery, binaryDelivery, replacements);
   }
 
   async request(
@@ -204,6 +245,35 @@ export class NatsRelayBroker implements RelayBroker {
         });
       }
       throw new RelayBrokerUnavailableError("The relay broker request failed.", { cause: error });
+    }
+  }
+
+  async requestBinary(
+    connectorId: string,
+    generation: string,
+    frame: Uint8Array,
+    timeoutMs: number
+  ): Promise<RelayBrokerBinaryReply> {
+    this.assertAvailable();
+    assertSubjectParts(connectorId, generation);
+    try {
+      const response = await this.connection.request(
+        binaryDeliverySubject(connectorId, generation),
+        frame,
+        { timeout: timeoutMs }
+      );
+      return decodeBinaryReply(response.data);
+    } catch (error) {
+      if (error instanceof RelayBrokerUnavailableError) throw error;
+      if (error instanceof TimeoutError
+          || (error instanceof RequestError && error.isNoResponders())) {
+        throw new RelayBrokerUnavailableError("No relay owns the current connector session.", {
+          cause: error
+        });
+      }
+      throw new RelayBrokerUnavailableError("The relay broker file request failed.", {
+        cause: error
+      });
     }
   }
 
@@ -262,6 +332,21 @@ export class NatsRelayBroker implements RelayBroker {
     }
     this.connection.publish(message.reply, encodeJson(reply));
   }
+
+  private async handleBinaryRequest(
+    error: Error | null,
+    message: Msg,
+    handle: (frame: Uint8Array) => Promise<RelayBrokerBinaryReply>
+  ): Promise<void> {
+    if (error || !message.reply) return;
+    let reply: RelayBrokerBinaryReply;
+    try {
+      reply = await handle(message.data);
+    } catch {
+      reply = binaryInternalError("relay_file_delivery_failed", "The relay could not deliver the file frame.");
+    }
+    this.connection.publish(message.reply, encodeBinaryReply(reply));
+  }
 }
 
 class NatsRelayBinding implements RelayBrokerBinding {
@@ -269,6 +354,7 @@ class NatsRelayBinding implements RelayBrokerBinding {
 
   constructor(
     private readonly delivery: Subscription,
+    private readonly binaryDelivery: Subscription,
     private readonly replacements: Subscription
   ) {}
 
@@ -276,6 +362,7 @@ class NatsRelayBinding implements RelayBrokerBinding {
     if (this.closed) return;
     this.closed = true;
     this.delivery.unsubscribe();
+    this.binaryDelivery.unsubscribe();
     this.replacements.unsubscribe();
   }
 }
@@ -286,6 +373,10 @@ export async function createRelayBroker(config: RelayBrokerConfig | null): Promi
 
 function deliverySubject(connectorId: string, generation: string): string {
   return `${SUBJECT_PREFIX}.deliver.${connectorId}.${generation}`;
+}
+
+function binaryDeliverySubject(connectorId: string, generation: string): string {
+  return `${SUBJECT_PREFIX}.file.${connectorId}.${generation}`;
 }
 
 function replacementSubject(connectorId: string): string {
@@ -317,6 +408,32 @@ function decodeJson(data: Uint8Array): unknown {
   }
 }
 
+function encodeBinaryReply(reply: RelayBrokerBinaryReply): Uint8Array {
+  if (!reply.ok) {
+    const error = encodeJson(reply);
+    const output = new Uint8Array(error.byteLength + 1);
+    output[0] = 0;
+    output.set(error, 1);
+    return output;
+  }
+  const output = new Uint8Array(reply.value.byteLength + 1);
+  output[0] = 1;
+  output.set(reply.value, 1);
+  return output;
+}
+
+function decodeBinaryReply(data: Uint8Array): RelayBrokerBinaryReply {
+  if (data.byteLength < 2) {
+    throw new RelayBrokerUnavailableError("The relay broker returned an invalid file response.");
+  }
+  if (data[0] === 1) return { version: 1, ok: true, value: data.slice(1) };
+  if (data[0] === 0) {
+    const reply = decodeJson(data.subarray(1));
+    if (isRelayBrokerReply(reply) && !reply.ok) return reply;
+  }
+  throw new RelayBrokerUnavailableError("The relay broker returned an invalid file response.");
+}
+
 function isRelayBrokerCommand(value: unknown): value is RelayBrokerCommand {
   if (!isObject(value) || value.version !== 1) return false;
   return (value.kind === "deliver" || value.kind === "policy") && "message" in value;
@@ -344,6 +461,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function internalError(code: string, message: string): RelayBrokerReply {
+  return { version: 1, ok: false, error: { kind: "internal", code, message } };
+}
+
+function binaryInternalError(code: string, message: string): RelayBrokerBinaryReply {
   return { version: 1, ok: false, error: { kind: "internal", code, message } };
 }
 
