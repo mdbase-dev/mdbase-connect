@@ -62,6 +62,24 @@ export function registerReferenceSyncRoutes(
   );
 
   app.get(
+    "/v1/authorities/:collectionId/sync/files/snapshot",
+    async (request, reply) => {
+      const scoped = await scopedReplica(request, reply, options);
+      if (!scoped) return;
+      const query = z.object({
+        snapshot_id: z.uuid(),
+        page: z.string().regex(/^[1-9][0-9]*$/).optional()
+      }).parse(request.query);
+      return (
+        await options.hostedReference!.transport(
+          scoped.collectionId,
+          scoped.replicaId
+        )
+      ).fileSnapshot(query.snapshot_id, query.page);
+    }
+  );
+
+  app.get(
     "/v1/authorities/:collectionId/sync/changes",
     async (request, reply) => {
       const scoped = await scopedReplica(request, reply, options);
