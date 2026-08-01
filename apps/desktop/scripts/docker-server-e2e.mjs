@@ -256,20 +256,12 @@ try {
     .getByText("Docker fixture consumer", { exact: true })
     .waitFor({ timeout: 10_000 });
 
-  phase("reviewing and revoking application access through the portal");
-  await portalPage.goto(environment.serverUrl);
+  phase("reviewing and revoking application access through the editor");
+  const applicationsUrl = new URL("/connect/applications", editor.origin);
+  applicationsUrl.searchParams.set("server", environment.serverUrl);
+  await portalPage.goto(applicationsUrl.href);
   await portalPage
-    .getByRole("button", { name: "Applications" })
-    .click();
-  await portalPage
-    .getByRole("heading", { name: "Applications" })
-    .waitFor();
-  await portalPage
-    .getByRole("navigation", { name: "mdbase connect navigation" })
-    .getByRole("link", { name: /^App access/ })
-    .click();
-  await portalPage
-    .getByRole("heading", { name: "Decide what apps can do." })
+    .getByRole("heading", { name: "Applications", exact: true })
     .waitFor();
   const portalApplication = portalPage
     .locator("details.connect-application")
