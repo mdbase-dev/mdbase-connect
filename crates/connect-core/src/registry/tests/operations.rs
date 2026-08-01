@@ -109,7 +109,7 @@ fn legacy_description_only_advertises_executable_operations() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("legacy");
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.1\n").unwrap();
+    fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.0\n").unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let collection = registry.add(&root).unwrap();
 
@@ -130,7 +130,7 @@ fn legacy_records_are_read_only_until_explicit_migration() {
     let collection_parent = tempdir().unwrap();
     let root = collection_parent.path().join("legacy");
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.1\n").unwrap();
+    fs::write(root.join("mdbase.yaml"), "spec_version: 0.2.0\n").unwrap();
     let document = "---\ntitle: Legacy\n---\nBody\n";
     fs::write(root.join("legacy.md"), document).unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
@@ -187,6 +187,11 @@ fn legacy_records_are_read_only_until_explicit_migration() {
             result["diagnostics"][0]["code"], "migration_required",
             "{operation}: {result}"
         );
+        assert_eq!(
+            result["diagnostics"][0]["details"],
+            json!({ "current_version": "0.2.0", "required_version": "0.3.0" }),
+            "{operation}: {result}"
+        );
     }
     assert_eq!(
         fs::read_to_string(root.join("legacy.md")).unwrap(),
@@ -194,6 +199,49 @@ fn legacy_records_are_read_only_until_explicit_migration() {
     );
     assert!(!root.join("new.md").exists());
     assert!(!root.join("renamed.md").exists());
+}
+
+#[test]
+fn invalid_collection_setup_preserves_actionable_diagnostics() {
+    let state = tempdir().unwrap();
+    let collection_parent = tempdir().unwrap();
+    let root = collection_parent.path().join("invalid-setup");
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let collection = registry.create(&root, Some("Invalid setup")).unwrap();
+
+    fs::create_dir_all(root.join("_types")).unwrap();
+    fs::write(
+        root.join("_types/broken.md"),
+        "---\nkind: mdbase.type\nname: broken\nversion: nope\n---\n",
+    )
+    .unwrap();
+    let error = registry.describe(collection.id).unwrap_err();
+    match error {
+        ConnectError::CollectionInvalid {
+            code, diagnostics, ..
+        } => {
+            assert_eq!(code, "collection_type_registry_invalid");
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic["path"] == "_types/broken.md" && diagnostic["severity"] == "error"
+            }));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    fs::remove_file(root.join("_types/broken.md")).unwrap();
+    fs::write(root.join("mdbase.yaml"), "spec_version: [0, 3, 0]\n").unwrap();
+    let error = registry.describe(collection.id).unwrap_err();
+    match error {
+        ConnectError::CollectionInvalid {
+            code, diagnostics, ..
+        } => {
+            assert_eq!(code, "collection_configuration_invalid");
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic["path"] == "mdbase.yaml" && diagnostic["severity"] == "error"
+            }));
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[test]

@@ -40,6 +40,16 @@
         "trace_id": {
           "type": "string",
           "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "return_to": {
+              "type": "string"
+            }
+          }
         }
       }
     },

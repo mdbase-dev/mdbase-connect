@@ -20,6 +20,7 @@ pub(super) fn has_contract(
 
 pub(super) fn execute_loaded(
     collection: &Collection,
+    current_version: &str,
     operation: &str,
     input: &Value,
 ) -> Result<Value, ConnectError> {
@@ -47,7 +48,7 @@ pub(super) fn execute_loaded(
         }
         let operations = collection
             .v03_operations()
-            .map_err(|diagnostic| ConnectError::CollectionOpen(diagnostic.message.clone()))?;
+            .map_err(|diagnostic| ConnectError::invalid_collection(vec![*diagnostic]))?;
         let result = match operation {
             "read" => operations.read(input),
             "query" => operations.query(input),
@@ -85,7 +86,9 @@ pub(super) fn execute_loaded(
             typed_result(collection, request, |typed, request| typed.query(request))
         }
         "validate" => collection.validate_op(input),
-        "create" | "update" | "delete" | "rename" => migration_required_result(operation),
+        "create" | "update" | "delete" | "rename" => {
+            migration_required_result(operation, current_version)
+        }
         other => return Err(ConnectError::UnsupportedOperation(other.to_string())),
     };
     Ok(result)
@@ -149,11 +152,16 @@ pub(super) fn typed_error_result(error: mdbase::api::MdbaseError) -> Value {
         MdbaseError::InvalidResult { message } => ("invalid_result", message, Vec::new()),
     };
     let diagnostics = if diagnostics.is_empty() {
-        vec![json!({
+        let mut diagnostic = json!({
             "severity": "error",
             "code": code,
             "message": message,
-        })]
+        });
+        if code == "migration_required" || code == "migration_lossy" {
+            diagnostic["details"] =
+                json!({ "current_version": "0.2.x", "required_version": "0.3.0" });
+        }
+        vec![diagnostic]
     } else {
         diagnostics
     };
@@ -164,7 +172,7 @@ pub(super) fn typed_error_result(error: mdbase::api::MdbaseError) -> Value {
     })
 }
 
-pub(super) fn migration_required_result(operation: &str) -> Value {
+pub(super) fn migration_required_result(operation: &str, current_version: &str) -> Value {
     json!({
         "valid": false,
         "result": {},
@@ -174,6 +182,10 @@ pub(super) fn migration_required_result(operation: &str) -> Value {
             "message": format!(
                 "Operation '{operation}' requires migrating this v0.2 collection to v0.3."
             ),
+            "details": {
+                "current_version": current_version,
+                "required_version": "0.3.0"
+            }
         }],
     })
 }

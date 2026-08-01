@@ -222,7 +222,16 @@ export const SESSION_PROBLEM_CODES = [
   "unknown_collection"
 ] as const satisfies readonly SessionProblemCode[];
 
-export type CollectionReadProblemCode = CommonOperationProblemCode | "invalid_path" | "operation_invalid";
+export type CollectionSetupProblemCode =
+  | "collection_configuration_invalid"
+  | "collection_invalid"
+  | "collection_type_registry_invalid"
+  | "collection_version_unsupported";
+export type CollectionDescriptionProblemCode = CommonOperationProblemCode | CollectionSetupProblemCode;
+export type CollectionReadProblemCode =
+  | CollectionDescriptionProblemCode
+  | "invalid_path"
+  | "operation_invalid";
 export type CollectionQueryProblemCode =
   | CollectionReadProblemCode
   | "query_snapshot_changed"
@@ -232,11 +241,23 @@ export type CollectionMutationProblemCode =
   | "concurrent_modification"
   | "invalid_preflight"
   | "pending_mutation_unresolved";
-export type CollectionChangesProblemCode = CommonOperationProblemCode | "change_cursor_reset";
+export type CollectionChangesProblemCode = CollectionDescriptionProblemCode | "change_cursor_reset";
 export type CollectionTypeProblemCode = CollectionMutationProblemCode | "type_pack_provision_failed";
 
-export const COLLECTION_READ_PROBLEM_CODES = [
+export const COLLECTION_SETUP_PROBLEM_CODES = [
+  "collection_configuration_invalid",
+  "collection_invalid",
+  "collection_type_registry_invalid",
+  "collection_version_unsupported"
+] as const satisfies readonly CollectionSetupProblemCode[];
+
+export const COLLECTION_DESCRIPTION_PROBLEM_CODES = [
   ...COMMON_OPERATION_PROBLEM_CODES,
+  ...COLLECTION_SETUP_PROBLEM_CODES
+] as const satisfies readonly CollectionDescriptionProblemCode[];
+
+export const COLLECTION_READ_PROBLEM_CODES = [
+  ...COLLECTION_DESCRIPTION_PROBLEM_CODES,
   "invalid_path",
   "operation_invalid"
 ] as const satisfies readonly CollectionReadProblemCode[];
@@ -255,7 +276,7 @@ export const COLLECTION_MUTATION_PROBLEM_CODES = [
 ] as const satisfies readonly CollectionMutationProblemCode[];
 
 export const COLLECTION_CHANGES_PROBLEM_CODES = [
-  ...COMMON_OPERATION_PROBLEM_CODES,
+  ...COLLECTION_DESCRIPTION_PROBLEM_CODES,
   "change_cursor_reset"
 ] as const satisfies readonly CollectionChangesProblemCode[];
 

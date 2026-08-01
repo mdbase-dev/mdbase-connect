@@ -33,9 +33,9 @@ impl CollectionRegistry {
                 return serde_json::to_value(self.describe_loaded(&registered, collection)?)
                     .map_err(ConnectError::from);
             }
-            execute_loaded(collection, operation, input)
+            execute_loaded(collection, &registered.spec_version, operation, input)
         };
-        if is_collection_mutation(operation) {
+        let result = if is_collection_mutation(operation) {
             provider.with_collection(|collection| {
                 sync_store.assert_mutation_allowed(id)?;
                 let result = execute(collection)?;
@@ -45,7 +45,8 @@ impl CollectionRegistry {
             })
         } else {
             provider.with_collection_read(execute)
-        }
+        };
+        result.map_err(|error| classify_collection_error(&registered, error))
     }
 
     pub fn is_compatible(
@@ -412,7 +413,7 @@ impl CollectionRegistry {
                     .map_err(ConnectError::from),
                 "changes" => serde_json::to_value(self.changes(registered.id, input)?)
                     .map_err(ConnectError::from),
-                _ => execute_loaded(collection, operation, input),
+                _ => execute_loaded(collection, &registered.spec_version, operation, input),
             };
         };
         let allowed_types = &resolved_scope.allowed_types;
@@ -440,7 +441,7 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .query_input(input)
                     .map_err(contract_scope_error)?;
-                let result = execute_loaded(collection, operation, &input)?;
+                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
                     .map_err(contract_scope_error)
@@ -458,7 +459,7 @@ impl CollectionRegistry {
                 let (input, selector) = resolved_scope
                     .read_input(input)
                     .map_err(contract_scope_error)?;
-                let result = execute_loaded(collection, operation, &input)?;
+                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
                 ensure_result_in_scope(&result, allowed_types)?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
@@ -483,7 +484,7 @@ impl CollectionRegistry {
                     &BTreeSet::new(),
                     allowed_types,
                 )?;
-                let result = execute_loaded(collection, operation, &input)?;
+                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
                 if result.get("valid").and_then(Value::as_bool) != Some(false) {
                     ensure_result_in_scope(&result, allowed_types)?;
                 }
@@ -496,7 +497,12 @@ impl CollectionRegistry {
                     .map_write_input(input, false)
                     .map_err(contract_scope_error)?;
                 let path = required_string(&input, "path")?;
-                let current = execute_loaded(collection, "read", &json!({ "path": path }))?;
+                let current = execute_loaded(
+                    collection,
+                    &registered.spec_version,
+                    "read",
+                    &json!({ "path": path }),
+                )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 let current_types = result_types(&current);
                 let mut prospective = current
@@ -521,7 +527,7 @@ impl CollectionRegistry {
                     &current_types,
                     allowed_types,
                 )?;
-                let result = execute_loaded(collection, operation, &input)?;
+                let result = execute_loaded(collection, &registered.spec_version, operation, &input)?;
                 resolved_scope
                     .project_result(collection, result, Some(&selector))
                     .map_err(contract_scope_error)
@@ -531,7 +537,12 @@ impl CollectionRegistry {
                     .identity_input(input)
                     .map_err(contract_scope_error)?;
                 let path = required_string(&scoped_input, "path")?;
-                let current = execute_loaded(collection, "read", &json!({ "path": path }))?;
+                let current = execute_loaded(
+                    collection,
+                    &registered.spec_version,
+                    "read",
+                    &json!({ "path": path }),
+                )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
                     .authorize_record_result(collection, &current, selector.as_ref())
@@ -540,7 +551,12 @@ impl CollectionRegistry {
                 if let Some(object) = scoped_input.as_object_mut() {
                     object.insert("check_backlinks".to_string(), Value::Bool(false));
                 }
-                execute_loaded(collection, operation, &scoped_input)
+                execute_loaded(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &scoped_input,
+                )
             }
             "rename" => {
                 let (scoped_input, selector) = resolved_scope
@@ -554,7 +570,12 @@ impl CollectionRegistry {
                             .to_string(),
                     ));
                 }
-                let current = execute_loaded(collection, "read", &json!({ "path": from }))?;
+                let current = execute_loaded(
+                    collection,
+                    &registered.spec_version,
+                    "read",
+                    &json!({ "path": from }),
+                )?;
                 ensure_result_in_scope(&current, allowed_types)?;
                 resolved_scope
                     .authorize_record_result(collection, &current, selector.as_ref())
@@ -571,7 +592,12 @@ impl CollectionRegistry {
                     &current_types,
                     allowed_types,
                 )?;
-                let result = execute_loaded(collection, operation, &scoped_input)?;
+                let result = execute_loaded(
+                    collection,
+                    &registered.spec_version,
+                    operation,
+                    &scoped_input,
+                )?;
                 resolved_scope
                     .project_result(collection, result, selector.as_ref())
                     .map_err(contract_scope_error)

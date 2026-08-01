@@ -28,7 +28,14 @@
     "upgrade_connector"
   ],
   "codes": {
-    "access_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "access_denied": {
+      "category": "authorization",
+      "recovery": "reauthorize",
+      "details": {
+        "required": [],
+        "properties": { "return_to": { "type": "string" } }
+      }
+    },
     "access_paused": { "category": "availability", "recovery": "resume_connector_access" },
     "approval_window_blocked": {
       "category": "authorization",
