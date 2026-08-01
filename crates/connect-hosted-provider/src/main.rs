@@ -240,6 +240,11 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             Ok(imports) => tracing::warn!(imports, "removed expired authority imports"),
             Err(error) => tracing::error!(%error, "authority import recovery failed"),
         }
+        match provider.recover_expired_file_transfers(500).await {
+            Ok(0) => {}
+            Ok(transfers) => tracing::warn!(transfers, "expired abandoned file transfers"),
+            Err(error) => tracing::error!(%error, "file transfer recovery failed"),
+        }
         match provider.delete_pending_blobs(500).await {
             Ok(0) => {}
             Ok(blobs) => tracing::info!(blobs, "deleted deferred hosted file objects"),

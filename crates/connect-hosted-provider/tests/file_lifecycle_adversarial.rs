@@ -23,6 +23,10 @@ async fn adversarial_file_lifecycle_scenarios() {
     abort_wins_against_late_copy(&database_url).await;
     abort_wins_after_copy_is_visible(&database_url).await;
     expiry_wins_against_late_copy(&database_url).await;
+    maintenance_wins_against_late_copy(&database_url).await;
+    commit_wins_maintenance_loses(&database_url).await;
+    maintenance_recovers_abandoned_open_upload(&database_url).await;
+    maintenance_retries_object_deletion_after_outage(&database_url).await;
     duplicate_commit_is_idempotent(&database_url).await;
     duplicate_commit_across_providers_is_idempotent(&database_url).await;
 }
@@ -221,6 +225,139 @@ async fn abort_wins_after_copy_is_visible(database_url: &str) {
     assert_terminal_objects_absent(&fixture, transfer_id).await;
 }
 
+async fn maintenance_wins_against_late_copy(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/maintenance-wins.bin",
+            b"maintenance compensates a copy that publishes late",
+        )
+        .await;
+    fixture.blobs.arm_copy(CopyCheckpoint::BeforePublish).await;
+    let commit = spawn_commit(&fixture, transfer_id);
+    fixture.blobs.wait_for_copy().await;
+    expire_transfer(&fixture, transfer_id).await;
+
+    assert_eq!(
+        fixture
+            .provider
+            .recover_expired_file_transfers(10)
+            .await
+            .expect("maintenance succeeds"),
+        1
+    );
+    fixture.blobs.release_copy().await;
+    commit
+        .await
+        .expect("commit task joins")
+        .expect_err("late commit observes maintenance expiry");
+    assert_terminal_objects_absent(&fixture, transfer_id).await;
+}
+
+async fn commit_wins_maintenance_loses(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/commit-wins-maintenance.bin",
+            b"maintenance skips a finalization holding the transfer row",
+        )
+        .await;
+    sqlx::query(
+        "UPDATE hosted_provider_file_transfers SET expires_at = now() + interval '750 milliseconds' WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .execute(&fixture.pool)
+    .await
+    .expect("expiry is brought close");
+    let mut blocker = fixture.pool.begin().await.expect("blocker begins");
+    blocker
+        .execute("LOCK TABLE hosted_provider_file_changes IN ACCESS EXCLUSIVE MODE")
+        .await
+        .expect("file change table is locked");
+    let commit = spawn_commit(&fixture, transfer_id);
+    wait_for_query_blocked(&fixture.pool, "INSERT INTO hosted_provider_file_changes").await;
+    wait_until_expired(&fixture, transfer_id).await;
+
+    assert_eq!(
+        fixture
+            .provider
+            .recover_expired_file_transfers(10)
+            .await
+            .expect("maintenance succeeds"),
+        0,
+        "SKIP LOCKED leaves in-flight finalization to its owner"
+    );
+    blocker.commit().await.expect("blocker releases");
+    commit
+        .await
+        .expect("commit task joins")
+        .expect("commit wins");
+    assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
+async fn maintenance_recovers_abandoned_open_upload(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/abandoned-open.bin",
+            b"an abandoned staging object is reclaimed",
+        )
+        .await;
+    expire_transfer(&fixture, transfer_id).await;
+
+    assert_eq!(
+        fixture
+            .provider
+            .recover_expired_file_transfers(1)
+            .await
+            .expect("maintenance succeeds"),
+        1
+    );
+    assert_terminal_objects_absent(&fixture, transfer_id).await;
+    let state: String =
+        sqlx::query_scalar("SELECT state FROM hosted_provider_file_transfers WHERE id = $1")
+            .bind(transfer_id)
+            .fetch_one(&fixture.pool)
+            .await
+            .expect("transfer state can be read");
+    assert_eq!(state, "expired");
+}
+
+async fn maintenance_retries_object_deletion_after_outage(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let transfer_id = fixture
+        .stage_upload(
+            "races/deletion-outage.bin",
+            b"durable deletion intent survives an object-store outage",
+        )
+        .await;
+    expire_transfer(&fixture, transfer_id).await;
+    fixture.blobs.fail_next_delete().await;
+
+    assert_eq!(
+        fixture
+            .provider
+            .recover_expired_file_transfers(1)
+            .await
+            .expect("maintenance persists cleanup despite the object-store failure"),
+        1
+    );
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_blob_deletions WHERE reason = 'file_transfer_cleanup'",
+    )
+    .fetch_one(&fixture.pool)
+    .await
+    .expect("durable deletion intent can be read");
+    assert!(queued > 0, "failed deletion remains durably queued");
+
+    fixture
+        .provider
+        .delete_pending_blobs(10)
+        .await
+        .expect("a later maintenance pass drains the queue");
+    assert_terminal_objects_absent(&fixture, transfer_id).await;
+}
+
 async fn duplicate_commit_is_idempotent(database_url: &str) {
     let fixture = FileLifecycleFixture::new(database_url).await;
     let transfer_id = fixture
@@ -347,4 +484,30 @@ async fn assert_terminal_objects_absent(fixture: &FileLifecycleFixture, transfer
             .await
     );
     assert_storage_consistent(&fixture.pool, &fixture.blobs, fixture.collection_id).await;
+}
+
+async fn expire_transfer(fixture: &FileLifecycleFixture, transfer_id: Uuid) {
+    sqlx::query(
+        "UPDATE hosted_provider_file_transfers SET expires_at = now() - interval '1 second' WHERE id = $1",
+    )
+    .bind(transfer_id)
+    .execute(&fixture.pool)
+    .await
+    .expect("transfer expires");
+}
+
+async fn wait_until_expired(fixture: &FileLifecycleFixture, transfer_id: Uuid) {
+    wait_for_database_condition(&fixture.pool, || {
+        let pool = fixture.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT expires_at <= now() FROM hosted_provider_file_transfers WHERE id = $1",
+            )
+            .bind(transfer_id)
+            .fetch_one(&pool)
+            .await
+            .expect("expiry can be observed")
+        }
+    })
+    .await;
 }

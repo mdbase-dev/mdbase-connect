@@ -69,6 +69,25 @@ struct HostedDownloadTransfer {
     expires_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+struct HostedUploadCleanup {
+    id: Uuid,
+    staging_object_key: String,
+    committed_object_key: String,
+    multipart_upload_id: Option<String>,
+}
+
+impl From<&HostedFileTransfer> for HostedUploadCleanup {
+    fn from(transfer: &HostedFileTransfer) -> Self {
+        Self {
+            id: transfer.id,
+            staging_object_key: transfer.staging_object_key.clone(),
+            committed_object_key: transfer.committed_object_key.clone(),
+            multipart_upload_id: transfer.multipart_upload_id.clone(),
+        }
+    }
+}
+
 mod lifecycle;
 mod list_download;
 mod persistence;

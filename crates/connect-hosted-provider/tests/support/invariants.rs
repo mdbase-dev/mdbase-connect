@@ -87,6 +87,20 @@ pub async fn assert_storage_consistent(
     .await
     .expect("transfer states can be audited");
     assert_eq!(invalid_terminal_count, 0, "invalid terminal transfer state");
+    let incomplete_upload_cleanup: i64 = sqlx::query_scalar(
+        r#"SELECT count(*) FROM hosted_provider_file_transfers
+           WHERE collection_id = $1 AND direction = 'upload'
+             AND state IN ('aborted', 'expired')
+             AND cleanup_completed_at IS NULL"#,
+    )
+    .bind(collection_id)
+    .fetch_one(pool)
+    .await
+    .expect("upload cleanup checkpoints can be audited");
+    assert_eq!(
+        incomplete_upload_cleanup, 0,
+        "terminal upload cleanup was not checkpointed"
+    );
 
     for staging_key in sqlx::query_scalar::<_, String>(
         r#"SELECT staging_object_key FROM hosted_provider_file_transfers
