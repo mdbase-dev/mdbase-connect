@@ -153,6 +153,28 @@
     "transferProtection": {
       "enum": ["grant_aead_v1", "transport_tls"]
     },
+    "transferStrategy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "chunk_size"],
+          "properties": {
+            "kind": { "const": "framed_chunks" },
+            "chunk_size": { "type": "integer", "minimum": 65536, "maximum": 4194304 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "part_size"],
+          "properties": {
+            "kind": { "const": "object_multipart" },
+            "part_size": { "type": "integer", "minimum": 5242880, "maximum": 5368709120 }
+          }
+        }
+      ]
+    },
     "transferSession": {
       "type": "object",
       "additionalProperties": false,
@@ -162,7 +184,7 @@
         "transfer_id",
         "direction",
         "protection",
-        "chunk_size",
+        "strategy",
         "total_size",
         "expires_at",
         "received"
@@ -173,7 +195,7 @@
         "transfer_id": { "$ref": "#/$defs/uuid" },
         "direction": { "enum": ["upload", "download"] },
         "protection": { "$ref": "#/$defs/transferProtection" },
-        "chunk_size": { "type": "integer", "minimum": 65536, "maximum": 4194304 },
+        "strategy": { "$ref": "#/$defs/transferStrategy" },
         "total_size": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
         "expires_at": { "type": "string", "format": "date-time" },
         "received": {

@@ -93,13 +93,25 @@ test("file transfer control messages are bounded and resumable", () => {
     transfer_id: "01922222-2222-7222-8222-222222222222",
     direction: "upload",
     protection: "grant_aead_v1",
-    chunk_size: 1048576,
+    strategy: { kind: "framed_chunks", chunk_size: 1048576 },
     total_size: 3145729,
     expires_at: "2026-08-01T02:13:04Z",
     received: [0, 2]
   };
   assert.equal(validateSession(session), true, JSON.stringify(validateSession.errors));
-  assert.equal(validateSession({ ...session, chunk_size: 1024 }), false);
+  assert.equal(validateSession({
+    ...session,
+    strategy: { kind: "framed_chunks", chunk_size: 1024 }
+  }), false);
+  assert.equal(validateSession({
+    ...session,
+    protection: "transport_tls",
+    strategy: { kind: "object_multipart", part_size: 8388608 }
+  }), true, JSON.stringify(validateSession.errors));
+  assert.equal(validateSession({
+    ...session,
+    strategy: { kind: "object_multipart", part_size: 4194304 }
+  }), false);
   assert.equal(validateSession({ ...session, received: [0, 0] }), false);
 
   const validateHeader = validator(`${filesSchema.$id}#/$defs/frameHeader`);

@@ -189,7 +189,9 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
         direction: FileTransferDirection::Upload,
         protection: FileTransferProtection::GrantAeadV1,
-        chunk_size: DEFAULT_FILE_CHUNK_BYTES,
+        strategy: FileTransferStrategy::FramedChunks {
+            chunk_size: DEFAULT_FILE_CHUNK_BYTES,
+        },
         total_size: 3_145_729,
         expires_at: "2026-08-01T02:13:04Z".to_string(),
         received: vec![0, 2],

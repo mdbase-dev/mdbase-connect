@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:44:01+10:00
+updated_at: 2026-08-01T13:49:41+10:00
 type: task
 ---
 
@@ -178,6 +178,14 @@ boundary. The public sync operation exposes `file_snapshot`, while existing
 record-only mirrors continue to fail before checkpointing a file event. The
 focused end-to-end cursor test, 73 core tests, 36 mirror tests, strict workspace
 Clippy, and architecture checks pass.
+
+Transfer sessions now negotiate a discriminated delivery strategy instead of
+pretending one chunk size fits every transport. Local and relayed transfers use
+bounded `framed_chunks`; hosted R2 transfers use `object_multipart` with an
+independent minimum five MiB part size and an eight MiB deployment default.
+The provider must stream-verify SHA-256 because R2's multipart SHA-256 is
+composite rather than full-object. Rust/schema tests and TypeScript protocol
+tests/typechecking pass for both strategies.
 
 ## Handoff
 

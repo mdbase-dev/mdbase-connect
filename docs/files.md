@@ -128,8 +128,12 @@ Small commands remain bounded encrypted JSON:
 - commit or abort an upload; and
 - move or delete a committed file.
 
-File bytes use a separate binary data plane. Protocol 1 uses independently
-authenticated indexed chunks with a negotiated size and a default of one MiB.
+File bytes use a separate negotiated data plane. Local direct and relayed
+transfers use independently authenticated indexed frames with a default of one
+MiB and a four MiB maximum. Hosted direct transfers use presigned object-store
+multipart parts; R2 parts default to eight MiB because every non-final R2 part
+must be at least five MiB. Multipart parts are not MDBF frames and do not relax
+the smaller relay memory bound.
 The transfer record contains an opaque ID, direction, grant binding, file
 intent, expected size, optional declared digest, base revision, accepted chunk
 map, expiry, and terminal receipt.
@@ -222,8 +226,10 @@ receipts in PostgreSQL. Actual immutable file bytes live in Cloudflare R2 under
 opaque collection-scoped staging and committed object keys; neither the Render
 filesystem nor PostgreSQL is a blob store. R2 credentials remain provider-only.
 Any direct multipart upload uses short-lived authority-issued permissions for
-one opaque staging object, and an R2 completion is not a collection commit.
-The Render authority still verifies the declared size and SHA-256 digest,
+one opaque staging object, and an R2 completion is not a collection commit. R2
+exposes composite rather than full-object SHA-256 for multipart content, so the
+provider streams the completed staging object through a SHA-256 verifier. The
+Render authority still verifies the declared size and SHA-256 digest,
 checks current grant/path/quota/base-revision state, finalizes the object, and
 atomically commits its PostgreSQL file row and ordered change receipt.
 

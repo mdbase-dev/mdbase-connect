@@ -34,7 +34,10 @@ fn upload_all(
     session: &FileTransferSession,
     bytes: &[u8],
 ) {
-    for (index, chunk) in bytes.chunks(session.chunk_size as usize).enumerate() {
+    let FileTransferStrategy::FramedChunks { chunk_size } = session.strategy else {
+        panic!("local upload should use framed chunks")
+    };
+    for (index, chunk) in bytes.chunks(chunk_size as usize).enumerate() {
         registry
             .put_file_upload_chunk(collection_id, session.transfer_id, index as u64, chunk)
             .unwrap();

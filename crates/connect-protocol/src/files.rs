@@ -165,6 +165,13 @@ pub enum FileTransferState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FileTransferStrategy {
+    FramedChunks { chunk_size: u32 },
+    ObjectMultipart { part_size: u64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileTransferSession {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -172,7 +179,7 @@ pub struct FileTransferSession {
     pub transfer_id: Uuid,
     pub direction: FileTransferDirection,
     pub protection: FileTransferProtection,
-    pub chunk_size: u32,
+    pub strategy: FileTransferStrategy,
     pub total_size: u64,
     pub expires_at: String,
     pub received: Vec<u64>,

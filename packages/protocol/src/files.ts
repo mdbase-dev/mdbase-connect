@@ -16,6 +16,9 @@ export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete"
 export type FileTransferDirection = "upload" | "download";
 export type FileTransferProtection = "grant_aead_v1" | "transport_tls";
 export type FileTransferState = "open" | "committed" | "aborted" | "expired";
+export type FileTransferStrategy =
+  | { kind: "framed_chunks"; chunk_size: number }
+  | { kind: "object_multipart"; part_size: number };
 export type FileFrameKind = "upload_chunk" | "download_chunk";
 
 export type FileScope =
@@ -79,7 +82,7 @@ export interface FileTransferSession {
   transfer_id: string;
   direction: FileTransferDirection;
   protection: FileTransferProtection;
-  chunk_size: number;
+  strategy: FileTransferStrategy;
   total_size: number;
   expires_at: string;
   received: number[];

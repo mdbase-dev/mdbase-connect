@@ -8,8 +8,8 @@ use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadReceiptKind, FileTransferDirection,
     FileTransferProtection, FileTransferSession, FileTransferSessionKind, FileTransferState,
-    FileTransferStatus, FileTransferStatusKind, OpenFileUploadRequest, DEFAULT_FILE_CHUNK_BYTES,
-    FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+    FileTransferStatus, FileTransferStatusKind, FileTransferStrategy, OpenFileUploadRequest,
+    DEFAULT_FILE_CHUNK_BYTES, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
 };
 use rusqlite::Transaction;
 use std::fs::{File, OpenOptions};
@@ -392,7 +392,9 @@ impl CollectionRegistry {
             transfer_id,
             direction: FileTransferDirection::Upload,
             protection: FileTransferProtection::GrantAeadV1,
-            chunk_size: DEFAULT_FILE_CHUNK_BYTES,
+            strategy: FileTransferStrategy::FramedChunks {
+                chunk_size: DEFAULT_FILE_CHUNK_BYTES,
+            },
             total_size: request.size,
             expires_at: expires_at.to_rfc3339_opts(SecondsFormat::Millis, true),
             received: Vec::new(),
