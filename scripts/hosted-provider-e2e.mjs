@@ -1225,7 +1225,7 @@ schema:
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   await assert.rejects(
     async () => unwrapConnectOutcome(await hostedConnection.query()),
-    (error) => error?.problem?.code === "invalid_grant"
+    (error) => error?.problem?.code === "authorization_expired"
   );
   globalThis.fetch = originalFetch;
 

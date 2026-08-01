@@ -48,6 +48,7 @@ import {
 } from "./operation-helpers.js";
 import {
   apiError,
+  oauthErrorCode,
   parseGrantScope,
   parseStored,
   validStoredAuthority,
@@ -843,6 +844,13 @@ export class ConnectionTransport {
       }
       if (!this.directCapable(current)) {
         this.internals.removeToken(this.collectionId, current.keyHandle);
+      }
+      if ((oauthErrorCode(body) ?? body?.error?.code) === "invalid_grant") {
+        throw connectError(
+          "authorization_expired",
+          body?.error_description ?? body?.error?.message ?? "Reconnect this application to continue.",
+          { status: response.status }
+        );
       }
       throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
     }

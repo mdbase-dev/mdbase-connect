@@ -2486,6 +2486,45 @@ describe("authorization renewal", () => {
     expect(JSON.parse(storage.getItem(tokenKey)!))
       .toEqual(expect.objectContaining({ refreshToken: "ref_from_other_tab" }));
   });
+
+  it("maps an invalid refresh grant to the public authorization-expired problem", async () => {
+    const storage = new MemoryStorage();
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
+      accessToken: "mdb_expired",
+      refreshToken: "ref_revoked",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Worklog",
+      operations: ["query"],
+      scope: { contracts: [WORK_ITEM_CONTRACT], access: "contract" },
+      expiresAt: Date.now() - 1,
+      refreshExpiresAt: Date.now() + 60_000
+    }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      error: { code: "invalid_grant", message: "Refresh token is invalid or expired." }
+    }), { status: 400, headers: { "content-type": "application/json" } }));
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest: manifestUrl,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled"
+    });
+    const connect = manager.connection(TEST_COLLECTION_ID)!;
+
+    await expect(connect.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "authorization_expired",
+        category: "authorization",
+        recovery: "reauthorize"
+      }
+    });
+    expect(manager.connections()).toEqual([]);
+  });
 });
 
 describe("direct loopback routing", () => {
