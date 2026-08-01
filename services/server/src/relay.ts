@@ -524,6 +524,9 @@ export class RelayHub {
     }
     if (reply.ok) return reply.value;
     if (reply.error.kind === "unavailable") throw new RelayUnavailableError();
+    if (reply.error.kind === "connector") {
+      throw ConnectorOperationError.fromProblem(reply.error.problem);
+    }
     throw new ConnectorOperationError(reply.error.code, reply.error.message);
   }
 
@@ -568,7 +571,7 @@ export class RelayHub {
           return brokerError("unavailable", "connector_offline", error.message);
         }
         if (error instanceof ConnectorOperationError) {
-          return brokerError("connector", error.code, error.message);
+          return brokerProblem(error.problem);
         }
         return brokerError("internal", "policy_delivery_failed", "The connector could not apply its policy.");
       }
@@ -595,7 +598,7 @@ export class RelayHub {
         return brokerError("unavailable", "connector_offline", error.message);
       }
       if (error instanceof ConnectorOperationError) {
-        return brokerError("connector", error.code, error.message);
+        return brokerProblem(error.problem);
       }
       return brokerError("internal", "relay_delivery_failed", "The relay could not deliver the request.");
     }
@@ -774,7 +777,14 @@ function brokerError(
   code: string,
   message: string
 ): RelayBrokerReply {
+  if (kind === "connector") {
+    return brokerProblem(normalizeConnectProblem(code, message));
+  }
   return { version: 1, ok: false, error: { kind, code, message } };
+}
+
+function brokerProblem(problem: ConnectProblem): RelayBrokerReply {
+  return { version: 1, ok: false, error: { kind: "connector", problem } };
 }
 
 function matchesEncryptedMetadata(

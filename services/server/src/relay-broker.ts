@@ -6,6 +6,10 @@ import {
   type NatsConnection,
   type Subscription
 } from "@nats-io/transport-node";
+import {
+  isConnectProblem,
+  type ConnectProblem
+} from "@mdbase/connect-protocol";
 
 const SUBJECT_PREFIX = "mdbase.connect.relay.v1";
 const encoder = new TextEncoder();
@@ -29,11 +33,9 @@ export type RelayBrokerReply = {
 } | {
   version: 1;
   ok: false;
-  error: {
-    kind: "unavailable" | "connector" | "internal";
-    code: string;
-    message: string;
-  };
+  error:
+    | { kind: "connector"; problem: ConnectProblem }
+    | { kind: "unavailable" | "internal"; code: string; message: string };
 };
 
 export interface RelayBrokerBinding {
@@ -323,10 +325,9 @@ function isRelayBrokerCommand(value: unknown): value is RelayBrokerCommand {
 function isRelayBrokerReply(value: unknown): value is RelayBrokerReply {
   if (!isObject(value) || value.version !== 1 || typeof value.ok !== "boolean") return false;
   if (value.ok) return true;
-  return isObject(value.error)
-    && (value.error.kind === "unavailable"
-      || value.error.kind === "connector"
-      || value.error.kind === "internal")
+  if (!isObject(value.error)) return false;
+  if (value.error.kind === "connector") return isConnectProblem(value.error.problem);
+  return (value.error.kind === "unavailable" || value.error.kind === "internal")
     && typeof value.error.code === "string"
     && typeof value.error.message === "string";
 }
