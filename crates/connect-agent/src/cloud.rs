@@ -742,3 +742,103 @@ async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, ConnectErr
 fn cloud_error(error: reqwest::Error) -> ConnectError {
     ConnectError::Cloud(error.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdbase_connect_protocol::PreparedFilePartKind;
+    use std::collections::BTreeMap;
+
+    fn prepared_part(url: &str, transfer_id: uuid::Uuid) -> PreparedFilePart {
+        PreparedFilePart {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: PreparedFilePartKind::FilePart,
+            transfer_id,
+            part_index: 2,
+            offset: 16,
+            content_length: 8,
+            method: "PUT".to_string(),
+            url: url.to_string(),
+            headers: BTreeMap::new(),
+            expires_at: "2030-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn import_sources_are_confined_regular_single_link_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("collection");
+        let nested = root.join("Photos");
+        std::fs::create_dir_all(&nested).unwrap();
+        let source = nested.join("image.bin");
+        std::fs::write(&source, b"exact bytes").unwrap();
+
+        assert_eq!(
+            safe_import_source(&root, "Photos/image.bin").unwrap(),
+            std::fs::canonicalize(&source).unwrap()
+        );
+        for unsafe_path in [
+            "/absolute.bin",
+            "../outside.bin",
+            "Photos/../image.bin",
+            "Photos\\image.bin",
+            "Photos//image.bin",
+            "./image.bin",
+        ] {
+            assert!(safe_import_source(&root, unsafe_path).is_err());
+        }
+        assert!(safe_import_source(&root, "Photos").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_sources_reject_symlinks_and_hard_links() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("collection");
+        let outside = temporary.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.bin"), b"secret").unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+        assert!(safe_import_source(&root, "linked/secret.bin").is_err());
+
+        let original = root.join("original.bin");
+        std::fs::write(&original, b"shared inode").unwrap();
+        std::fs::hard_link(&original, root.join("alias.bin")).unwrap();
+        assert!(safe_import_source(&root, "original.bin").is_err());
+        assert!(open_import_source(&original).is_err());
+    }
+
+    #[test]
+    fn prepared_r2_parts_are_bound_to_the_exact_upload_range() {
+        let transfer_id = uuid::Uuid::now_v7();
+        let valid = prepared_part(
+            "https://objects.example/upload?signature=opaque",
+            transfer_id,
+        );
+        validate_import_prepared_part(&valid, transfer_id, 2, 16, 8).unwrap();
+
+        let local = prepared_part("http://127.0.0.1:9000/upload", transfer_id);
+        validate_import_prepared_part(&local, transfer_id, 2, 16, 8).unwrap();
+
+        for invalid_url in [
+            "http://objects.example/upload",
+            "https://user:secret@objects.example/upload",
+            "file:///tmp/upload",
+            "not a url",
+        ] {
+            let invalid = prepared_part(invalid_url, transfer_id);
+            assert!(validate_import_prepared_part(&invalid, transfer_id, 2, 16, 8).is_err());
+        }
+
+        let mut wrong = valid.clone();
+        wrong.method = "POST".to_string();
+        assert!(validate_import_prepared_part(&wrong, transfer_id, 2, 16, 8).is_err());
+        assert!(validate_import_prepared_part(&valid, uuid::Uuid::now_v7(), 2, 16, 8).is_err());
+        assert!(validate_import_prepared_part(&valid, transfer_id, 3, 16, 8).is_err());
+        assert!(validate_import_prepared_part(&valid, transfer_id, 2, 24, 8).is_err());
+        assert!(validate_import_prepared_part(&valid, transfer_id, 2, 16, 7).is_err());
+    }
+}
