@@ -6,12 +6,17 @@ import { fileURLToPath } from "node:url";
 import {
   FILE_FRAME_PREFIX_BYTES,
   FileFrameError,
+  RELAY_FILE_PREFIX_BYTES,
+  RelayFileFrameError,
   decodeFileFrame,
+  decodeRelayFileFrame,
+  encodeRelayFileFrame,
   encodeFileFrame
 } from "../dist/files.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const goldenFrame = JSON.parse(readFileSync(resolve(here, "fixtures/file-frame-v1.json"), "utf8"));
+const goldenRelay = JSON.parse(readFileSync(resolve(here, "fixtures/relay-file-v1.json"), "utf8"));
 
 const header = Object.freeze({
   protocol_version: 1,
@@ -32,6 +37,10 @@ const payload = Uint8Array.from({ length: 32 }, (_, index) => index);
 
 function expectFrameError(code, action) {
   assert.throws(action, (error) => error instanceof FileFrameError && error.code === code);
+}
+
+function expectRelayError(code, action) {
+  assert.throws(action, (error) => error instanceof RelayFileFrameError && error.code === code);
 }
 
 function rawFrame(headerSource, framePayload = payload) {
@@ -141,4 +150,84 @@ test("AEAD file frames account for their authentication tag", () => {
     payload: protectedPayload
   }));
   assert.equal(decoded.payload.length, 48);
+});
+
+test("relay file envelopes correlate opaque chunks without base64", () => {
+  const relayHeader = {
+    protocol_version: 1,
+    type: "upload_chunk",
+    request_id: "01955555-5555-7555-8555-555555555555",
+    grant_id: header.grant_id,
+    transfer_id: header.transfer_id,
+    chunk_index: 0
+  };
+  const opaque = encodeFileFrame({ kind: "upload_chunk", header, payload });
+  const encoded = encodeRelayFileFrame({
+    kind: "upload_chunk",
+    header: relayHeader,
+    payload: opaque
+  });
+  const decoded = decodeRelayFileFrame(encoded);
+  assert.deepEqual(decoded.header, relayHeader);
+  assert.deepEqual(decoded.payload, opaque);
+
+  const request = encodeRelayFileFrame({
+    kind: "download_request",
+    header: { ...relayHeader, type: "download_request" },
+    payload: new Uint8Array()
+  });
+  assert.equal(decodeRelayFileFrame(request).payload.length, 0);
+});
+
+test("relay file v1 encoding matches the shared Rust and TypeScript fixture", () => {
+  const payload = Buffer.from(goldenRelay.payload_base64, "base64");
+  const encoded = encodeRelayFileFrame({
+    kind: goldenRelay.kind,
+    header: goldenRelay.header,
+    payload
+  });
+  assert.equal(Buffer.from(encoded).toString("base64"), goldenRelay.frame_base64);
+  assert.deepEqual(decodeRelayFileFrame(encoded).header, goldenRelay.header);
+});
+
+test("relay file envelopes reject ambiguity before forwarding bytes", () => {
+  const relayHeader = {
+    protocol_version: 1,
+    type: "upload_acknowledged",
+    request_id: "01955555-5555-7555-8555-555555555555",
+    grant_id: header.grant_id,
+    transfer_id: header.transfer_id,
+    chunk_index: 0
+  };
+  const encoded = encodeRelayFileFrame({
+    kind: "upload_acknowledged",
+    header: relayHeader,
+    payload: new Uint8Array()
+  });
+  expectRelayError("invalid_length", () => decodeRelayFileFrame(encoded.subarray(0, -1)));
+  const badKind = encoded.slice();
+  badKind[5] = 99;
+  expectRelayError("invalid_kind", () => decodeRelayFileFrame(badKind));
+  expectRelayError("invalid_header", () => encodeRelayFileFrame({
+    kind: "rejected",
+    header: relayHeader,
+    payload: new Uint8Array()
+  }));
+  expectRelayError("invalid_length", () => encodeRelayFileFrame({
+    kind: "upload_acknowledged",
+    header: relayHeader,
+    payload: new Uint8Array([1])
+  }));
+
+  const headerLength = new DataView(encoded.buffer).getUint32(8, false);
+  const source = new TextDecoder().decode(
+    encoded.subarray(RELAY_FILE_PREFIX_BYTES, RELAY_FILE_PREFIX_BYTES + headerLength)
+  );
+  const noncanonical = new TextEncoder().encode(` ${source}`);
+  const raw = new Uint8Array(RELAY_FILE_PREFIX_BYTES + noncanonical.length);
+  raw.set(encoded.subarray(0, RELAY_FILE_PREFIX_BYTES), 0);
+  const view = new DataView(raw.buffer);
+  view.setUint32(8, noncanonical.length, false);
+  raw.set(noncanonical, RELAY_FILE_PREFIX_BYTES);
+  expectRelayError("invalid_header", () => decodeRelayFileFrame(raw));
 });

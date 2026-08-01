@@ -14,6 +14,7 @@ export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
 export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
+export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
   "authorization-activation",
   "encrypted-relay",
@@ -21,7 +22,8 @@ export const RELAY_REQUIRED_CAPABILITIES = [
 ] as const;
 export const RELAY_CAPABILITIES = [
   ...RELAY_REQUIRED_CAPABILITIES,
-  CONTRACT_SETUP_CAPABILITY
+  CONTRACT_SETUP_CAPABILITY,
+  FILE_RELAY_CAPABILITY
 ] as const;
 export const AUTHORITY_PROOF_VERSION = 1 as const;
 export const AUTHORITY_PROOF_ALGORITHM = "P256-SHA256" as const;

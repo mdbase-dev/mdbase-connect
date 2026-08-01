@@ -350,6 +350,38 @@
         "transfer_id": { "$ref": "#/$defs/uuid" }
       }
     },
+    "relayFileHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "type",
+        "request_id",
+        "grant_id",
+        "transfer_id",
+        "chunk_index"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": {
+          "enum": [
+            "upload_chunk",
+            "upload_acknowledged",
+            "download_request",
+            "download_chunk",
+            "rejected"
+          ]
+        },
+        "request_id": { "$ref": "#/$defs/uuid" },
+        "grant_id": { "$ref": "#/$defs/uuid" },
+        "transfer_id": { "$ref": "#/$defs/uuid" },
+        "chunk_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
     "frameHeader": {
       "type": "object",
       "additionalProperties": false,

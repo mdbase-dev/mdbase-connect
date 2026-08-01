@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T16:01:00+10:00
+updated_at: 2026-08-01T16:14:00+10:00
 type: task
 ---
 
@@ -285,6 +285,18 @@ framed resume, concurrency, transport absence, binding, permission denial, and
 frame substitution. All 76 core tests, 25 daemon tests, 21 Rust protocol tests,
 105 client tests, 25 JavaScript protocol tests, strict Clippy, typechecking,
 schema compilation, and architecture budgets pass for this slice.
+
+Relay file delivery now has a frozen binary wrapper rather than a JSON/base64
+escape hatch. `MDBR` protocol 1 correlates one opaque `MDBF` upload chunk,
+download request, acknowledgement, download chunk, or rejection with exact
+grant, transfer, request, and chunk identities. Prefix, canonical header, kind,
+payload presence, safe-integer, and total-size limits fail closed before
+forwarding. A shared fixture proves byte-identical Rust and TypeScript encoding.
+Connectors advertise `file-relay-v1` independently from the required record
+relay capabilities, preserving compatibility with older connectors while file
+routes can demand an upgraded endpoint. All 24 Rust protocol tests, 28
+JavaScript protocol/schema tests, strict protocol Clippy, and architecture
+budgets pass.
 
 ## Handoff
 

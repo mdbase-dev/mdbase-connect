@@ -8,9 +8,18 @@ pub const MAX_FILE_CHUNK_BYTES: u32 = 4 * 1024 * 1024;
 pub const MAX_FILE_FRAME_HEADER_BYTES: usize = 16 * 1024;
 pub const FILE_FRAME_PREFIX_BYTES: usize = 16;
 pub const FILE_FRAME_MAGIC: [u8; 4] = *b"MDBF";
+pub const MAX_FILE_FRAME_BYTES: usize =
+    FILE_FRAME_PREFIX_BYTES + MAX_FILE_FRAME_HEADER_BYTES + MAX_FILE_CHUNK_BYTES as usize + 16;
+pub const RELAY_FILE_PROTOCOL_VERSION: u32 = 1;
+pub const RELAY_FILE_PREFIX_BYTES: usize = 16;
+pub const MAX_RELAY_FILE_HEADER_BYTES: usize = 1024;
+pub const MAX_RELAY_FILE_PAYLOAD_BYTES: usize = MAX_FILE_FRAME_BYTES;
+pub const RELAY_FILE_MAGIC: [u8; 4] = *b"MDBR";
 
 const FILE_FRAME_VERSION: u8 = 1;
 const FILE_FRAME_FLAGS: u16 = 0;
+const RELAY_FILE_FRAME_VERSION: u8 = 1;
+const RELAY_FILE_FRAME_FLAGS: u16 = 0;
 const AEAD_TAG_BYTES: usize = 16;
 const MAX_SAFE_WIRE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -364,6 +373,192 @@ pub struct FileFrameHeader {
     pub key_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayFileKind {
+    UploadChunk,
+    UploadAcknowledged,
+    DownloadRequest,
+    DownloadChunk,
+    Rejected,
+}
+
+impl RelayFileKind {
+    fn code(self) -> u8 {
+        match self {
+            Self::UploadChunk => 1,
+            Self::UploadAcknowledged => 2,
+            Self::DownloadRequest => 3,
+            Self::DownloadChunk => 4,
+            Self::Rejected => 5,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, RelayFileFrameError> {
+        match code {
+            1 => Ok(Self::UploadChunk),
+            2 => Ok(Self::UploadAcknowledged),
+            3 => Ok(Self::DownloadRequest),
+            4 => Ok(Self::DownloadChunk),
+            5 => Ok(Self::Rejected),
+            other => Err(RelayFileFrameError::InvalidKind(other)),
+        }
+    }
+
+    fn carries_payload(self) -> bool {
+        matches!(self, Self::UploadChunk | Self::DownloadChunk)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelayFileHeader {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: RelayFileKind,
+    pub request_id: Uuid,
+    pub grant_id: Uuid,
+    pub transfer_id: Uuid,
+    pub chunk_index: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayFileFrame {
+    pub kind: RelayFileKind,
+    pub header: RelayFileHeader,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum RelayFileFrameError {
+    #[error("relay file frame is shorter than its fixed prefix")]
+    TooShort,
+    #[error("relay file frame magic is not MDBR")]
+    InvalidMagic,
+    #[error("unsupported relay file frame version {0}")]
+    UnsupportedVersion(u8),
+    #[error("unknown relay file frame kind {0}")]
+    InvalidKind(u8),
+    #[error("unsupported relay file frame flags {0}")]
+    UnsupportedFlags(u16),
+    #[error("relay file frame header must not be empty")]
+    EmptyHeader,
+    #[error("relay file frame exceeds protocol limits")]
+    LimitExceeded,
+    #[error("relay file frame lengths do not match the supplied bytes")]
+    LengthMismatch,
+    #[error("invalid relay file frame header: {0}")]
+    InvalidHeader(String),
+    #[error("relay file frame header is not canonical JSON")]
+    NonCanonicalHeader,
+    #[error("relay file frame kind does not match its header")]
+    KindMismatch,
+    #[error("relay file frame payload does not match its kind")]
+    PayloadMismatch,
+}
+
+impl RelayFileFrame {
+    pub fn encode(&self) -> Result<Vec<u8>, RelayFileFrameError> {
+        self.validate()?;
+        let header = serde_json::to_vec(&self.header)
+            .map_err(|error| RelayFileFrameError::InvalidHeader(error.to_string()))?;
+        if header.is_empty()
+            || header.len() > MAX_RELAY_FILE_HEADER_BYTES
+            || self.payload.len() > MAX_RELAY_FILE_PAYLOAD_BYTES
+        {
+            return Err(RelayFileFrameError::LimitExceeded);
+        }
+        let header_length =
+            u32::try_from(header.len()).map_err(|_| RelayFileFrameError::LimitExceeded)?;
+        let payload_length =
+            u32::try_from(self.payload.len()).map_err(|_| RelayFileFrameError::LimitExceeded)?;
+        let capacity = RELAY_FILE_PREFIX_BYTES
+            .checked_add(header.len())
+            .and_then(|size| size.checked_add(self.payload.len()))
+            .ok_or(RelayFileFrameError::LimitExceeded)?;
+        let mut output = Vec::with_capacity(capacity);
+        output.extend_from_slice(&RELAY_FILE_MAGIC);
+        output.push(RELAY_FILE_FRAME_VERSION);
+        output.push(self.kind.code());
+        output.extend_from_slice(&RELAY_FILE_FRAME_FLAGS.to_be_bytes());
+        output.extend_from_slice(&header_length.to_be_bytes());
+        output.extend_from_slice(&payload_length.to_be_bytes());
+        output.extend_from_slice(&header);
+        output.extend_from_slice(&self.payload);
+        Ok(output)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, RelayFileFrameError> {
+        if bytes.len() < RELAY_FILE_PREFIX_BYTES {
+            return Err(RelayFileFrameError::TooShort);
+        }
+        if bytes[..4] != RELAY_FILE_MAGIC {
+            return Err(RelayFileFrameError::InvalidMagic);
+        }
+        if bytes[4] != RELAY_FILE_FRAME_VERSION {
+            return Err(RelayFileFrameError::UnsupportedVersion(bytes[4]));
+        }
+        let kind = RelayFileKind::from_code(bytes[5])?;
+        let flags = u16::from_be_bytes([bytes[6], bytes[7]]);
+        if flags != RELAY_FILE_FRAME_FLAGS {
+            return Err(RelayFileFrameError::UnsupportedFlags(flags));
+        }
+        let header_length =
+            u32::from_be_bytes(bytes[8..12].try_into().expect("fixed prefix slice")) as usize;
+        let payload_length =
+            u32::from_be_bytes(bytes[12..16].try_into().expect("fixed prefix slice")) as usize;
+        if header_length == 0 {
+            return Err(RelayFileFrameError::EmptyHeader);
+        }
+        if header_length > MAX_RELAY_FILE_HEADER_BYTES
+            || payload_length > MAX_RELAY_FILE_PAYLOAD_BYTES
+        {
+            return Err(RelayFileFrameError::LimitExceeded);
+        }
+        let header_end = RELAY_FILE_PREFIX_BYTES
+            .checked_add(header_length)
+            .ok_or(RelayFileFrameError::LengthMismatch)?;
+        let expected_length = header_end
+            .checked_add(payload_length)
+            .ok_or(RelayFileFrameError::LengthMismatch)?;
+        if expected_length != bytes.len() {
+            return Err(RelayFileFrameError::LengthMismatch);
+        }
+        let header_bytes = &bytes[RELAY_FILE_PREFIX_BYTES..header_end];
+        let header: RelayFileHeader = serde_json::from_slice(header_bytes)
+            .map_err(|error| RelayFileFrameError::InvalidHeader(error.to_string()))?;
+        let canonical = serde_json::to_vec(&header)
+            .map_err(|error| RelayFileFrameError::InvalidHeader(error.to_string()))?;
+        if canonical != header_bytes {
+            return Err(RelayFileFrameError::NonCanonicalHeader);
+        }
+        let frame = Self {
+            kind,
+            header,
+            payload: bytes[header_end..].to_vec(),
+        };
+        frame.validate()?;
+        Ok(frame)
+    }
+
+    fn validate(&self) -> Result<(), RelayFileFrameError> {
+        if self.header.protocol_version != RELAY_FILE_PROTOCOL_VERSION
+            || self.header.chunk_index > MAX_SAFE_WIRE_INTEGER
+        {
+            return Err(RelayFileFrameError::InvalidHeader(
+                "header value is outside its allowed range".to_string(),
+            ));
+        }
+        if self.kind != self.header.message_type {
+            return Err(RelayFileFrameError::KindMismatch);
+        }
+        if self.kind.carries_payload() == self.payload.is_empty() {
+            return Err(RelayFileFrameError::PayloadMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFrameKind {
     UploadChunk,
@@ -616,6 +811,9 @@ fn validate_file_frame_parts(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod relay_tests;
 
 #[cfg(test)]
 mod tests {

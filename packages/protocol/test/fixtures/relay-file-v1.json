@@ -1,0 +1,13 @@
+{
+  "kind": "upload_chunk",
+  "header": {
+    "protocol_version": 1,
+    "type": "upload_chunk",
+    "request_id": "01955555-5555-7555-8555-555555555555",
+    "grant_id": "01911111-1111-7111-8111-111111111111",
+    "transfer_id": "01944444-4444-7444-8444-444444444444",
+    "chunk_index": 3
+  },
+  "payload_base64": "AAEC/w==",
+  "frame_base64": "TURCUgEBAAAAAADXAAAABHsicHJvdG9jb2xfdmVyc2lvbiI6MSwidHlwZSI6InVwbG9hZF9jaHVuayIsInJlcXVlc3RfaWQiOiIwMTk1NTU1NS01NTU1LTc1NTUtODU1NS01NTU1NTU1NTU1NTUiLCJncmFudF9pZCI6IjAxOTExMTExLTExMTEtNzExMS04MTExLTExMTExMTExMTExMSIsInRyYW5zZmVyX2lkIjoiMDE5NDQ0NDQtNDQ0NC03NDQ0LTg0NDQtNDQ0NDQ0NDQ0NDQ0IiwiY2h1bmtfaW5kZXgiOjN9AAEC/w=="
+}

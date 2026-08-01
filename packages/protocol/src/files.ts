@@ -5,10 +5,22 @@ export const MAX_FILE_CHUNK_BYTES = 4 * 1024 * 1024;
 export const MAX_FILE_FRAME_HEADER_BYTES = 16 * 1024;
 export const FILE_FRAME_PREFIX_BYTES = 16;
 export const FILE_FRAME_MAGIC = "MDBF" as const;
+export const MAX_FILE_FRAME_BYTES = FILE_FRAME_PREFIX_BYTES
+  + MAX_FILE_FRAME_HEADER_BYTES
+  + MAX_FILE_CHUNK_BYTES
+  + 16;
+export const RELAY_FILE_PROTOCOL_VERSION = 1 as const;
+export const RELAY_FILE_PREFIX_BYTES = 16;
+export const MAX_RELAY_FILE_HEADER_BYTES = 1024;
+export const MAX_RELAY_FILE_PAYLOAD_BYTES = MAX_FILE_FRAME_BYTES;
+export const RELAY_FILE_MAGIC = "MDBR" as const;
 
 const FILE_FRAME_MAGIC_BYTES = new Uint8Array([0x4d, 0x44, 0x42, 0x46]);
 const FILE_FRAME_VERSION = 1;
 const FILE_FRAME_FLAGS = 0;
+const RELAY_FILE_MAGIC_BYTES = new Uint8Array([0x4d, 0x44, 0x42, 0x52]);
+const RELAY_FILE_FRAME_VERSION = 1;
+const RELAY_FILE_FRAME_FLAGS = 0;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type FileMediaClass = "image" | "audio" | "video" | "pdf" | "other";
@@ -22,6 +34,12 @@ export type FileTransferStrategy =
   | { kind: "object_multipart"; part_size: number }
   | { kind: "object_ranges"; part_size: number };
 export type FileFrameKind = "upload_chunk" | "download_chunk";
+export type RelayFileKind =
+  | "upload_chunk"
+  | "upload_acknowledged"
+  | "download_request"
+  | "download_chunk"
+  | "rejected";
 
 export type FileScope =
   | { kind: "referenced" }
@@ -189,6 +207,21 @@ export interface FileFrame {
   payload: Uint8Array;
 }
 
+export interface RelayFileHeader {
+  protocol_version: 1;
+  type: RelayFileKind;
+  request_id: string;
+  grant_id: string;
+  transfer_id: string;
+  chunk_index: number;
+}
+
+export interface RelayFileFrame {
+  kind: RelayFileKind;
+  header: RelayFileHeader;
+  payload: Uint8Array;
+}
+
 export interface FileFrameDecodeLimits {
   maxHeaderBytes?: number;
   maxPayloadBytes?: number;
@@ -210,6 +243,16 @@ export class FileFrameError extends Error {
   ) {
     super(message);
     this.name = "FileFrameError";
+  }
+}
+
+export class RelayFileFrameError extends Error {
+  constructor(
+    public readonly code: FileFrameErrorCode,
+    message: string
+  ) {
+    super(message);
+    this.name = "RelayFileFrameError";
   }
 }
 
@@ -458,4 +501,157 @@ export function decodeFileFrame(bytes: Uint8Array, limits: FileFrameDecodeLimits
   const header = parseHeader(bytes.subarray(FILE_FRAME_PREFIX_BYTES, headerEnd));
   validateFrameSemantics(kind, header, payloadLength);
   return { kind, header, payload: bytes.slice(headerEnd) };
+}
+
+export function encodeRelayFileFrame(frame: RelayFileFrame): Uint8Array {
+  const header = canonicalRelayHeader(frame.header);
+  validateRelayFrame(frame.kind, header, frame.payload.byteLength);
+  const headerBytes = new TextEncoder().encode(JSON.stringify(header));
+  if (headerBytes.byteLength > MAX_RELAY_FILE_HEADER_BYTES
+      || frame.payload.byteLength > MAX_RELAY_FILE_PAYLOAD_BYTES) {
+    throw new RelayFileFrameError("limit_exceeded", "Relay file frame exceeds protocol limits");
+  }
+  const output = new Uint8Array(
+    RELAY_FILE_PREFIX_BYTES + headerBytes.byteLength + frame.payload.byteLength
+  );
+  output.set(RELAY_FILE_MAGIC_BYTES, 0);
+  const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+  view.setUint8(4, RELAY_FILE_FRAME_VERSION);
+  view.setUint8(5, relayFileKindCode(frame.kind));
+  view.setUint16(6, RELAY_FILE_FRAME_FLAGS, false);
+  view.setUint32(8, headerBytes.byteLength, false);
+  view.setUint32(12, frame.payload.byteLength, false);
+  output.set(headerBytes, RELAY_FILE_PREFIX_BYTES);
+  output.set(frame.payload, RELAY_FILE_PREFIX_BYTES + headerBytes.byteLength);
+  return output;
+}
+
+export function decodeRelayFileFrame(bytes: Uint8Array): RelayFileFrame {
+  if (bytes.byteLength < RELAY_FILE_PREFIX_BYTES) {
+    throw new RelayFileFrameError("invalid_length", "Relay file frame is shorter than its prefix");
+  }
+  if (!RELAY_FILE_MAGIC_BYTES.every((byte, index) => bytes[index] === byte)) {
+    throw new RelayFileFrameError("invalid_magic", "Relay file frame magic is not MDBR");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint8(4) !== RELAY_FILE_FRAME_VERSION) {
+    throw new RelayFileFrameError("unsupported_version", "Unsupported relay file frame version");
+  }
+  const kind = relayFileKindFromCode(view.getUint8(5));
+  if (view.getUint16(6, false) !== RELAY_FILE_FRAME_FLAGS) {
+    throw new RelayFileFrameError("unsupported_flags", "Relay file frame uses unsupported flags");
+  }
+  const headerLength = view.getUint32(8, false);
+  const payloadLength = view.getUint32(12, false);
+  if (headerLength === 0) {
+    throw new RelayFileFrameError("invalid_length", "Relay file frame header must not be empty");
+  }
+  if (headerLength > MAX_RELAY_FILE_HEADER_BYTES
+      || payloadLength > MAX_RELAY_FILE_PAYLOAD_BYTES) {
+    throw new RelayFileFrameError("limit_exceeded", "Relay file frame exceeds protocol limits");
+  }
+  const expectedLength = RELAY_FILE_PREFIX_BYTES + headerLength + payloadLength;
+  if (!Number.isSafeInteger(expectedLength) || expectedLength !== bytes.byteLength) {
+    throw new RelayFileFrameError("invalid_length", "Relay file frame lengths do not match its bytes");
+  }
+  const headerEnd = RELAY_FILE_PREFIX_BYTES + headerLength;
+  const headerBytes = bytes.subarray(RELAY_FILE_PREFIX_BYTES, headerEnd);
+  let source: string;
+  let parsed: unknown;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(headerBytes);
+    parsed = JSON.parse(source);
+  } catch {
+    throw new RelayFileFrameError("invalid_header", "Relay file frame header is not valid JSON");
+  }
+  const header = parseRelayHeader(parsed);
+  if (JSON.stringify(header) !== source) {
+    throw new RelayFileFrameError("invalid_header", "Relay file frame header is not canonical JSON");
+  }
+  validateRelayFrame(kind, header, payloadLength);
+  return { kind, header, payload: bytes.slice(headerEnd) };
+}
+
+function canonicalRelayHeader(header: RelayFileHeader): RelayFileHeader {
+  if (header.protocol_version !== RELAY_FILE_PROTOCOL_VERSION) {
+    throw new RelayFileFrameError("unsupported_version", "Unsupported relay file protocol");
+  }
+  if (!relayFileKinds.includes(header.type)) {
+    throw new RelayFileFrameError("invalid_kind", "Unknown relay file message type");
+  }
+  for (const [name, value] of [
+    ["request_id", header.request_id],
+    ["grant_id", header.grant_id],
+    ["transfer_id", header.transfer_id]
+  ] as const) {
+    if (!UUID_PATTERN.test(value)) {
+      throw new RelayFileFrameError("invalid_header", `Relay file header ${name} must be a UUID`);
+    }
+  }
+  if (!Number.isSafeInteger(header.chunk_index) || header.chunk_index < 0) {
+    throw new RelayFileFrameError("invalid_header", "Relay file chunk index is invalid");
+  }
+  return {
+    protocol_version: RELAY_FILE_PROTOCOL_VERSION,
+    type: header.type,
+    request_id: header.request_id,
+    grant_id: header.grant_id,
+    transfer_id: header.transfer_id,
+    chunk_index: header.chunk_index
+  };
+}
+
+function parseRelayHeader(value: unknown): RelayFileHeader {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RelayFileFrameError("invalid_header", "Relay file header must be an object");
+  }
+  const object = value as Record<string, unknown>;
+  const allowed = new Set([
+    "protocol_version", "type", "request_id", "grant_id", "transfer_id", "chunk_index"
+  ]);
+  if (Object.keys(object).some((key) => !allowed.has(key))) {
+    throw new RelayFileFrameError("invalid_header", "Relay file header contains an unknown field");
+  }
+  return canonicalRelayHeader({
+    protocol_version: object.protocol_version as 1,
+    type: object.type as RelayFileKind,
+    request_id: object.request_id as string,
+    grant_id: object.grant_id as string,
+    transfer_id: object.transfer_id as string,
+    chunk_index: object.chunk_index as number
+  });
+}
+
+const relayFileKinds: RelayFileKind[] = [
+  "upload_chunk",
+  "upload_acknowledged",
+  "download_request",
+  "download_chunk",
+  "rejected"
+];
+
+function relayFileKindCode(kind: RelayFileKind): number {
+  const index = relayFileKinds.indexOf(kind);
+  if (index < 0) throw new RelayFileFrameError("invalid_kind", "Unknown relay file frame kind");
+  return index + 1;
+}
+
+function relayFileKindFromCode(code: number): RelayFileKind {
+  const kind = relayFileKinds[code - 1];
+  if (!kind) throw new RelayFileFrameError("invalid_kind", `Unknown relay file frame kind ${code}`);
+  return kind;
+}
+
+function validateRelayFrame(
+  kind: RelayFileKind,
+  header: RelayFileHeader,
+  payloadLength: number
+): void {
+  if (kind !== header.type) {
+    throw new RelayFileFrameError("invalid_header", "Relay file kind does not match its header");
+  }
+  const carriesPayload = kind === "upload_chunk" || kind === "download_chunk";
+  if (carriesPayload !== (payloadLength > 0)) {
+    throw new RelayFileFrameError("invalid_length", "Relay file payload does not match its kind");
+  }
 }

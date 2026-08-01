@@ -150,6 +150,18 @@ test("file transfer control messages are bounded and resumable", () => {
     JSON.stringify(validateStatusRequest.errors)
   );
   assert.equal(validateStatusRequest({ ...statusRequest, owner_id: session.transfer_id }), false);
+
+  const validateRelayHeader = validator(`${filesSchema.$id}#/$defs/relayFileHeader`);
+  const relayHeader = {
+    protocol_version: 1,
+    type: "download_request",
+    request_id: "01911111-1111-7111-8111-111111111111",
+    grant_id: "01922222-2222-7222-8222-222222222222",
+    transfer_id: session.transfer_id,
+    chunk_index: 2
+  };
+  assert.equal(validateRelayHeader(relayHeader), true, JSON.stringify(validateRelayHeader.errors));
+  assert.equal(validateRelayHeader({ ...relayHeader, payload: "base64" }), false);
 });
 
 test("connect problems bind stable codes to exact categories, recovery, and details", () => {
