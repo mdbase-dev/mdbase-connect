@@ -31,6 +31,12 @@ export async function startConnectTestEnvironment(options = {}) {
     ...(options.allowLocalApps
       ? { MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS: "1" }
       : {}),
+    ...(options.editorOrigin
+      ? {
+          MDBASE_EDITOR_ORIGIN: options.editorOrigin,
+          MDBASE_CONNECT_MANAGEMENT_ORIGINS: options.editorOrigin
+        }
+      : {}),
     ...(options.hostedProvider
       ? {
           MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
