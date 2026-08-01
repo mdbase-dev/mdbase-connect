@@ -10,7 +10,7 @@ import {
   type EncryptedRelayOperationRequest,
   type EncryptedRelayOperationResponse,
   type GrantEncryption
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 const DATABASE_NAME = "mdbase-connect-keys";
 const STORE_NAME = "grant-keys";

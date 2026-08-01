@@ -3,7 +3,7 @@ import type {
   AuthorityImportRecord,
   AuthorityImportRecordPage,
   AuthorityImportSnapshot
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   AuthorityAdoptionError,
   AuthorityAdoptionOutcomeUnknownError

@@ -3,7 +3,7 @@ import type {
   CollectionContractDescriptor,
   CollectionOperation,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
 
 const FULL_COLLECTION_OPERATIONS = new Set<CollectionOperation>([

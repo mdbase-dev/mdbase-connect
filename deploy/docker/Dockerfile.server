@@ -20,8 +20,8 @@ COPY packages/sync packages/sync
 COPY packages/ui packages/ui
 COPY services/server services/server
 
-RUN pnpm --filter @mdbase/connect-protocol build \
- && pnpm --filter @mdbase/connect-sync build \
+RUN pnpm --filter @mdbase-dev/connect-protocol build \
+ && pnpm --filter @mdbase-dev/connect-sync build \
  && pnpm --filter @mdbase/connect-portal build \
  && pnpm --filter @mdbase/connect-server build
 

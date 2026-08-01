@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, stringify } from "yaml";
-import type { JsonObject, SyncRecord } from "@mdbase/connect-protocol";
+import type { JsonObject, SyncRecord } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import type { MirrorLocalIssue } from "./mirror-state.js";
 

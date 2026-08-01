@@ -1,4 +1,4 @@
-import type { JsonObject } from "@mdbase/connect-protocol";
+import type { JsonObject } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 
 export function explicitTypes(frontmatter: JsonObject): string[] {

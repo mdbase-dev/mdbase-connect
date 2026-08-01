@@ -6,8 +6,8 @@ import type {
   CollectionTypeDescriptor,
   GrantEncryption,
   GrantScope
-} from "@mdbase/connect-protocol";
-import { ENCRYPTED_RELAY_PROTOCOL_VERSION } from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
+import { ENCRYPTED_RELAY_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {

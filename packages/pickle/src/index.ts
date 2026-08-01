@@ -5,11 +5,11 @@ import type {
   JsonObject,
   RecordDocument,
   QueryRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   unwrapConnectOutcome,
   type MdbaseConnection
-} from "@mdbase/connect";
+} from "@mdbase-dev/connect";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,

@@ -9,7 +9,7 @@ import {
   type KnownConnectProblem,
   type MdbaseDiagnostic,
   type MdbaseOperationEnvelope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 interface ProblemOptions {
   operationOutcome?: ConnectOperationOutcome;

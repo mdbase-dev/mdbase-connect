@@ -113,7 +113,7 @@ Use an exact package version, copy the SHA-384 value from that version's
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@mdbase/connect@0.1.0-beta.12/dist/browser/mdbase-connect.min.js"
+  src="https://cdn.jsdelivr.net/npm/@mdbase-dev/connect@0.1.0-beta.12/dist/browser/mdbase-connect.min.js"
   integrity="sha384-59o+Qu3oMjMb1kcDBWnSLTqTE3mf1sTMQEjsGN/KckEDkO/M6nTW6AgKghiJFh14"
   crossorigin="anonymous"></script>
 ```

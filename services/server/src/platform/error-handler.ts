@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { SyncError } from "@mdbase/connect-sync";
+import { SyncError } from "@mdbase-dev/connect-sync";
 import { ZodError } from "zod";
 import {
   AccountDeletionAuthorizationError,

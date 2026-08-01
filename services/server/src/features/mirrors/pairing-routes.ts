@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { SyncError } from "@mdbase/connect-sync";
+import { SyncError } from "@mdbase-dev/connect-sync";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";

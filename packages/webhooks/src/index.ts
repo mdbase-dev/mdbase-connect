@@ -2,7 +2,7 @@ import { createPublicKey, verify } from "node:crypto";
 import type {
   MdbaseNotification,
   NotificationWebhook
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export type { MdbaseNotification, NotificationWebhook };
 

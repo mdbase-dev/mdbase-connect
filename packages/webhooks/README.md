@@ -1,9 +1,9 @@
-# `@mdbase/connect-webhooks`
+# `@mdbase-dev/connect-webhooks`
 
 Server-side verification for signed mdbase notification webhooks.
 
 ```ts
-import { verifyNotificationWebhook } from "@mdbase/connect-webhooks";
+import { verifyNotificationWebhook } from "@mdbase-dev/connect-webhooks";
 
 const event = verifyNotificationWebhook({
   body: rawRequestBody,

@@ -6,7 +6,7 @@ import type {
   AuthorityImportSnapshot,
   CollectionContractDescriptor,
   SyncResourceDocument
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { AuthorityAdoptionError } from "./adoption-errors.js";
 import { requiredUuid } from "./adoption-values.js";
 import { authorityManifestDigest } from "./mirror-format.js";

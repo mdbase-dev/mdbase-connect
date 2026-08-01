@@ -1,4 +1,4 @@
-import type { ConnectProblem } from "@mdbase/connect-protocol";
+import type { ConnectProblem } from "@mdbase-dev/connect-protocol";
 
 export function cleanAuthorizationParameters(url: URL): URL {
   for (const parameter of ["code", "state", "error", "error_description"]) {

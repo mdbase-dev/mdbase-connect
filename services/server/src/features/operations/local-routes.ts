@@ -1,12 +1,12 @@
 import type {
   EncryptedRelayOperationRequest,
   GrantEncryption
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";

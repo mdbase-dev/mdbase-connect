@@ -1,4 +1,4 @@
-import { SyncError } from "@mdbase/connect-sync";
+import { SyncError } from "@mdbase-dev/connect-sync";
 import { resolveHostedCollectionAccess } from "../../collection-access.js";
 import type {
   DatabasePool,

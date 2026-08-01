@@ -72,4 +72,4 @@ export type {
   TypePackResourceDiff,
   TypePackSourceResource,
   UnknownConnectProblem
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";

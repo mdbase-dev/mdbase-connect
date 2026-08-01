@@ -3,8 +3,8 @@ import type {
   ApplicationNotifications,
   ApplicationProvisions,
   ApplicationRequirements
-} from "@mdbase/connect-protocol";
-import { isNativeRedirectUri } from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
+import { isNativeRedirectUri } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { canonicalSha256 } from "./canonical-json.js";
 

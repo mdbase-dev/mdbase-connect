@@ -4,7 +4,7 @@ import type {
   JsonObject,
   QueryRecord,
   RecordDocument
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export interface MdbaseDesiredTimer {
   /** Stable within the timer namespace. */

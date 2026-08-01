@@ -11,7 +11,7 @@ import type {
   GrantPolicy,
   GrantScope,
   ConnectProblem
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
@@ -19,7 +19,7 @@ import {
   normalizeConnectProblem,
   RELAY_CAPABILITIES,
   RELAY_REQUIRED_CAPABILITIES
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "./db.js";
 import {
   LocalRelayBroker,

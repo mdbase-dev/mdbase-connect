@@ -1,4 +1,4 @@
-# @mdbase/connect-sync
+# @mdbase-dev/connect-sync
 
 Provider-neutral replication protocol and executable reference state machine for
 mdbase authorities. It models stable record identity, pinned snapshots,
@@ -30,7 +30,7 @@ Applications that materialize a remote collection into their own filesystem
 can use the browser-approval client without copying the CLI workflow:
 
 ```ts
-import { MirrorEnrollmentClient } from "@mdbase/connect-sync/enrollment";
+import { MirrorEnrollmentClient } from "@mdbase-dev/connect-sync/enrollment";
 
 const client = new MirrorEnrollmentClient();
 
@@ -62,14 +62,14 @@ The enrollment client deliberately does not persist credentials, mark a
 folder, open a browser, or choose a filesystem. A host must keep the renewal
 credential in device-local secret state, never in the mirrored collection.
 Node hosts can use the profile and marker helpers from
-`@mdbase/connect-sync/device`, then construct `DirectoryMirror` or
-`WritableDirectoryMirror` from `@mdbase/connect-sync/node`. The enrollment
+`@mdbase-dev/connect-sync/device`, then construct `DirectoryMirror` or
+`WritableDirectoryMirror` from `@mdbase-dev/connect-sync/node`. The enrollment
 and portable mirror entry points have no Node dependency and can run in a
 mobile host.
 
 ## Portable directory mirrors
 
-`@mdbase/connect-sync/mirror` contains the complete mirror state machine,
+`@mdbase-dev/connect-sync/mirror` contains the complete mirror state machine,
 Markdown codec, collision preflight, durable mutation journal, reset handling,
 and conflict resolution without importing Node filesystem, path, process, or
 Buffer APIs. A mobile application supplies its own filesystem and durable-state
@@ -80,7 +80,7 @@ import {
   DirectoryMirror,
   type MirrorFileSystem,
   type MirrorStateStore
-} from "@mdbase/connect-sync/mirror";
+} from "@mdbase-dev/connect-sync/mirror";
 
 const mirror = new DirectoryMirror(replicaId, transport, {
   fileSystem: mobileVaultAdapter satisfies MirrorFileSystem,

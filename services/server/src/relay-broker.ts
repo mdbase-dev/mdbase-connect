@@ -9,7 +9,7 @@ import {
 import {
   isConnectProblem,
   type ConnectProblem
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 const SUBJECT_PREFIX = "mdbase.connect.relay.v1";
 const encoder = new TextEncoder();

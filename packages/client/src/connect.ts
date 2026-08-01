@@ -3,12 +3,12 @@ import type {
   GrantScope,
   JsonObject,
   MdbaseAppManifest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   DEFAULT_LOOPBACK_PORT,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import { randomBase64Url } from "./base64.js";

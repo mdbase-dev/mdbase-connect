@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { JsonObject } from "@mdbase/connect-protocol";
+import type { JsonObject } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./index.js";
 import { SyncError } from "./index.js";
 import {

@@ -3,7 +3,7 @@ import type {
   CollectionContractDescriptor,
   CollectionOperation,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   ownerAccess,
   type CollectionAccessContext

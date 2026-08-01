@@ -18,12 +18,12 @@ import {
 import type {
   GrantEncryption,
   MdbaseAppManifest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   AUTHORITY_PROOF_HEADERS,
   isConnectProblem,
   normalizeConnectProblem
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 afterEach(() => {
   vi.restoreAllMocks();

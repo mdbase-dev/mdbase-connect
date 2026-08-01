@@ -9,7 +9,7 @@ import type {
   SyncSession,
   SyncSnapshotPage,
   SyncSnapshotRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { stringify } from "yaml";
 import { documentRevision } from "./mirror-format.js";
 import { SyncError } from "./sync-error.js";

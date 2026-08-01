@@ -34,7 +34,7 @@ The recovery action should drive the primary UI. The exact code can refine the
 copy and details:
 
 ```ts
-import type { ConnectProblem } from "@mdbase/connect";
+import type { ConnectProblem } from "@mdbase-dev/connect";
 
 function presentProblem(problem: ConnectProblem) {
   switch (problem.recovery) {

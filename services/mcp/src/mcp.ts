@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CollectionOperation } from "@mdbase/connect-protocol";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { ConnectGateway, GatewayOperationError } from "./connect.js";
 import { OAuthService, type McpAuthContext } from "./oauth.js";

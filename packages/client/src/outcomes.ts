@@ -2,8 +2,8 @@ import type {
   ConnectProblem,
   ConnectProblemCode,
   MdbaseDiagnostic
-} from "@mdbase/connect-protocol";
-import { CONNECT_PROBLEM_CATALOG } from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
+import { CONNECT_PROBLEM_CATALOG } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, unknownConnectProblem } from "./errors.js";
 
 export type ConnectSuccess<Value> = {

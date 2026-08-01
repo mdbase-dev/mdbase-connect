@@ -108,7 +108,7 @@ Register a service worker from a user gesture, then enable all declared
 criteria or an explicit subset:
 
 ```ts
-import { MdbaseConnect } from "@mdbase/connect";
+import { MdbaseConnect } from "@mdbase-dev/connect";
 
 const worker = await navigator.serviceWorker.register("/service-worker.js");
 await connection.registerNotifications({
@@ -125,7 +125,7 @@ The service worker validates the push envelope and displays its static
 presentation:
 
 ```ts
-import { showMdbasePushNotification } from "@mdbase/connect";
+import { showMdbasePushNotification } from "@mdbase-dev/connect";
 
 self.addEventListener("push", (event) => {
   event.waitUntil(
@@ -238,7 +238,7 @@ Verify the signature over the exact raw request body before parsing or
 enqueueing work:
 
 ```ts
-import { verifyNotificationWebhook } from "@mdbase/connect-webhooks";
+import { verifyNotificationWebhook } from "@mdbase-dev/connect-webhooks";
 
 const event = verifyNotificationWebhook({
   body: rawRequestBody,

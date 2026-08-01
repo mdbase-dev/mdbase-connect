@@ -9,7 +9,7 @@ import type {
   GrantPolicy,
   GrantScope,
   NotificationCriterion
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";

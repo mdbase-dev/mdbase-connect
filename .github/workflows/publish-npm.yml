@@ -83,12 +83,12 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           for PACKAGE_NAME in \
-            @mdbase/connect-protocol \
-            @mdbase/connect \
-            @mdbase/connect-dev \
-            @mdbase/connect-sync \
-            @mdbase/pickle \
-            @mdbase/connect-webhooks
+            @mdbase-dev/connect-protocol \
+            @mdbase-dev/connect \
+            @mdbase-dev/connect-dev \
+            @mdbase-dev/connect-sync \
+            @mdbase-dev/pickle \
+            @mdbase-dev/connect-webhooks
           do
             if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
               echo "$PACKAGE_NAME@$VERSION is already published; skipping"

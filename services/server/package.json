@@ -21,8 +21,8 @@
     "@fastify/rate-limit": "^11.1.0",
     "@fastify/static": "^10.1.2",
     "@fastify/websocket": "^11.3.0",
-    "@mdbase/connect-protocol": "workspace:*",
-    "@mdbase/connect-sync": "workspace:*",
+    "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/connect-sync": "workspace:*",
     "@nats-io/transport-node": "^3.4.0",
     "@node-rs/argon2": "^2.0.2",
     "fastify": "^5.10.0",
@@ -34,7 +34,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@mdbase/connect-webhooks": "workspace:*",
+    "@mdbase-dev/connect-webhooks": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.20.0",
     "@types/web-push": "^3.6.4",

@@ -1,7 +1,7 @@
 import type {
   JsonObject,
   SyncChange
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import type { MirrorState } from "./mirror-state.js";
 import {

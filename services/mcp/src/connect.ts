@@ -3,14 +3,14 @@ import {
   decryptRelayResponse,
   encryptRelayRequest,
   type GrantKeyStore
-} from "@mdbase/connect";
+} from "@mdbase-dev/connect";
 import type {
   CollectionOperation,
   EncryptedRelayOperationResponse,
   GrantEncryption,
   GrantScope,
   MdbaseAppManifest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";

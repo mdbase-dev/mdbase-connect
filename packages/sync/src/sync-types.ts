@@ -5,7 +5,7 @@ import type {
   SyncMutationReceipt,
   SyncSession,
   SyncSnapshotPage
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export interface SyncTransport<Frontmatter extends JsonObject = JsonObject> {
   openSession(): Promise<SyncSession>;
