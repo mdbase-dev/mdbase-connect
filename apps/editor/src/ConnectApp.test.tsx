@@ -98,7 +98,7 @@ describe("ConnectApp", () => {
     }];
     overview.grants = [{
       id: "grant", operations: ["read", "update"], scope: { contracts: [], access: "full_collection" },
-      created_at: now, revoked_at: null, collection_id: "collection", collection_name: "Garden notes",
+      created_at: now, revoked_at: null, revocation_status: "active", collection_id: "collection", collection_name: "Garden notes",
       collection_kind: "local", application_id: "reading-list", application_name: "Reading list",
       distribution: "web", homepage: "https://reading.example", project_url: null,
       application_origin: "https://reading.example", icon: null
@@ -110,6 +110,28 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Read and update records")).toBeInTheDocument();
     expect(screen.queryByText(/allowed actions/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "App access" })).not.toHaveTextContent("1");
+  });
+
+  it("keeps provider-pending revocations visible without claiming success", async () => {
+    overview.grants = [{
+      id: "grant", operations: ["read"],
+      scope: { contracts: [], access: "full_collection" },
+      created_at: new Date().toISOString(), revoked_at: new Date().toISOString(),
+      revocation_status: "revoking", collection_id: "collection",
+      collection_name: "Garden notes", collection_kind: "hosted",
+      application_id: "app", application_name: "Photo catalog",
+      distribution: "web", homepage: "https://photos.example",
+      project_url: null, application_origin: "https://photos.example", icon: null
+    }];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("button", { name: /Applications/ }));
+
+    expect(await screen.findByText("Revoking…")).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for the hosted authority to confirm revocation/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 });
 

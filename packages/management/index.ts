@@ -21,6 +21,7 @@ export interface HostedReplica {
   mode: "read_only" | "read_write";
   allowed_types: string[];
   revoked_at: string | null;
+  revocation_status: "active" | "revoking" | "revoked";
   created_at: string;
   sync_status: {
     head: number;
@@ -75,6 +76,7 @@ export interface ManagementOverview {
     scope: { contracts: CollectionContractDescriptor[]; access: "contract" | "full_collection" };
     created_at: string;
     revoked_at: string | null;
+    revocation_status: "active" | "revoking" | "revoked";
     collection_id: string;
     collection_name: string;
     collection_kind: "local" | "hosted";

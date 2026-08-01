@@ -166,6 +166,7 @@ class RemoteAuthorityHarness {
         authority: {
           operations_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/operations`,
           sync_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/sync`,
+          files_url: `${providerOrigin}/v1/authorities/${selectedSecondCollection ? secondCollectionId : collectionId}/files`,
           replica_id: selectedSecondCollection ? secondReplicaId : replicaId,
           access_token: selectedSecondCollection ? "remote-authority-access-second" : "remote-authority-access",
           proof_public_key: this.proofPublicKey

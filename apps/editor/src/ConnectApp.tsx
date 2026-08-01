@@ -138,7 +138,7 @@ export function ConnectApp() {
   if (!data) return <ConnectLoading error={error} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const activeGrants = data.grants.filter((grant) => !grant.revoked_at);
+  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
   const applications = groupApplicationAccess(activeGrants);
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
@@ -242,7 +242,7 @@ function Storage({ collection, busy, perform }: {
   perform(id: string, action: () => Promise<void>): Promise<void>;
 }) {
   if (collection.kind === "hosted") {
-    const replicas = collection.source.replicas.filter((replica) => !replica.revoked_at);
+    const replicas = collection.source.replicas.filter((replica) => replica.revocation_status !== "revoked");
     return <Page eyebrow={collection.name} title="Storage & sync" intro="Manage the main copy and its synced Markdown folders.">
       <section>
         <SectionTitle title="Main copy" />
@@ -250,7 +250,7 @@ function Storage({ collection, busy, perform }: {
       </section>
       <section>
         <SectionTitle title="Synced folders" count={replicas.length} action={<a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.source.id)}`}><Plus aria-hidden="true" />Sync a folder</a>} />
-        {replicas.map((replica) => <div className="connect-row" key={replica.id}><div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Edits sync both ways"}</small></div><span>{replica.sync_status ? `Seen ${relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)}` : "Waiting to sync"}</span><button className="danger" disabled={busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>Disconnect</button></div>)}
+        {replicas.map((replica) => <div className="connect-row" key={replica.id}><div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Edits sync both ways"}</small></div><span>{replica.revocation_status === "revoking" ? "Disconnecting…" : replica.sync_status ? `Seen ${relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)}` : "Waiting to sync"}</span><button className="danger" disabled={replica.revocation_status === "revoking" || busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>{replica.revocation_status === "revoking" ? "Disconnecting…" : "Disconnect"}</button></div>)}
         {replicas.length === 0 && <Empty title="No synced folders" body="Use the desktop app to keep an ordinary Markdown folder on a computer." />}
       </section>
     </Page>;
@@ -339,7 +339,7 @@ function HostedCollectionRow({ collection, busy, perform, onManage, showReplicas
       await perform(`collection-${collection.id}`, () => management.deleteHostedCollection(collection.id));
     }
   }
-  const replicas = collection.replicas.filter((replica) => !replica.revoked_at);
+  const replicas = collection.replicas.filter((replica) => replica.revocation_status !== "revoked");
   return <div className="connect-row connect-collection-row">
     <div><strong>{collection.display_name}</strong><small>{active ? `Hosted by mdbase · ${replicas.length} synced ${replicas.length === 1 ? "folder" : "folders"}` : collection.authority_state === "transferring" ? "Moving to a computer" : "Main copy moved to a computer"}</small></div>
     <span className={`connect-status ${active ? "online" : "idle"}`}><i />{active ? "Hosted" : "Moved"}</span>
@@ -352,7 +352,7 @@ function HostedCollectionRow({ collection, busy, perform, onManage, showReplicas
     </div>
     {showReplicas && replicas.length > 0 && <details className="connect-row-detail"><summary>Synced folders</summary>{replicas.map((replica) => <div key={replica.id}>
       <span><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Two-way sync"}</small></span>
-      <button className="danger" disabled={busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>Revoke</button>
+      <button className="danger" disabled={replica.revocation_status === "revoking" || busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>{replica.revocation_status === "revoking" ? "Revoking…" : "Revoke"}</button>
     </div>)}</details>}
   </div>;
 }
@@ -387,6 +387,9 @@ function GrantEditor({ grant, busy, perform }: {
   busy: string;
   perform(id: string, action: () => Promise<void>): Promise<void>;
 }) {
+  if (grant.revocation_status === "revoking") {
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Local access is disabled. Waiting for the hosted authority to confirm revocation.</small></span><b>Revoking…</b></div>;
+  }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const [operations, setOperations] = useState(() => new Set(grant.operations));
   useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
