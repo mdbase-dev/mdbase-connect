@@ -15,7 +15,10 @@ import {
   RelayUnavailableError
 } from "../../relay.js";
 import { tokenHash } from "../../security.js";
-import { apiError } from "../../platform/http-errors.js";
+import {
+  apiError,
+  insufficientAccessError
+} from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import {
   encryptedRelayRequestSchema,
@@ -83,8 +86,9 @@ export function registerLocalOperationRoutes(
         ));
       }
       if (!grant.operations.includes(params.operation)) {
-        return reply.code(403).send(apiError(
-          "insufficient_access",
+        return reply.code(403).send(insufficientAccessError(
+          [params.operation],
+          grant.operations,
           "The application is not allowed to perform this operation."
         ));
       }

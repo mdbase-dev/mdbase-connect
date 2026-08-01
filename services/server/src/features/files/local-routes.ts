@@ -13,7 +13,10 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import { apiError } from "../../platform/http-errors.js";
+import {
+  apiError,
+  insufficientAccessError
+} from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import {
   ConnectorOperationError,
@@ -59,8 +62,9 @@ export function registerLocalFileRoutes(
       const grant = await authorizedFileGrant(request, options.db, params.collectionId);
       if (!grant) return invalidToken(reply);
       if (!grant.file_capability) {
-        return reply.code(403).send(apiError(
-          "insufficient_access",
+        return reply.code(403).send(insufficientAccessError(
+          ["files"],
+          [],
           "The application has no collection file access."
         ));
       }
@@ -241,8 +245,9 @@ function requireBinaryFileGrant(
   grant: LocalFileGrant
 ): (LocalFileGrant & { encryption: GrantEncryption }) | null {
   if (!grant.file_capability) {
-    reply.code(403).send(apiError(
-      "insufficient_access",
+    reply.code(403).send(insufficientAccessError(
+      ["files"],
+      [],
       "The application has no collection file access."
     ));
     return null;

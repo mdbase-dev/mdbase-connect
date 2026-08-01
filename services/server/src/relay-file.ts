@@ -16,11 +16,21 @@ import {
   RelayUnavailableError
 } from "./relay-errors.js";
 
-const CONNECTOR_FILE_TIMEOUT_MS = 30_000;
-const BROKER_FILE_TIMEOUT_MS = CONNECTOR_FILE_TIMEOUT_MS + 1_000;
-const MAX_PENDING_FILE_REQUESTS_PER_GRANT = 8;
-const MAX_PENDING_FILE_REQUESTS_PER_CONNECTOR = 16;
-const MAX_PENDING_FILE_REQUESTS_PROCESS = 256;
+export interface RelayFileLimits {
+  connectorTimeoutMs: number;
+  brokerTimeoutMs: number;
+  pendingPerGrant: number;
+  pendingPerConnector: number;
+  pendingProcess: number;
+}
+
+const DEFAULT_RELAY_FILE_LIMITS: RelayFileLimits = Object.freeze({
+  connectorTimeoutMs: 30_000,
+  brokerTimeoutMs: 31_000,
+  pendingPerGrant: 8,
+  pendingPerConnector: 16,
+  pendingProcess: 256
+});
 
 interface RelayFileSession {
   generation: string;
@@ -45,8 +55,11 @@ export class RelayFileBridge {
   constructor(
     private readonly broker: RelayBroker,
     private readonly sessionFor: (connectorId: string) => RelayFileSession | undefined,
-    private readonly currentGeneration: (connectorId: string) => Promise<string | null>
-  ) {}
+    private readonly currentGeneration: (connectorId: string) => Promise<string | null>,
+    private readonly limits: RelayFileLimits = DEFAULT_RELAY_FILE_LIMITS
+  ) {
+    validateLimits(limits);
+  }
 
   async route(connectorId: string, request: RelayFileFrame): Promise<RelayFileFrame> {
     if (request.kind !== "upload_chunk" && request.kind !== "download_request") {
@@ -62,7 +75,7 @@ export class RelayFileBridge {
         connectorId,
         generation,
         encodeRelayFileFrame(request),
-        BROKER_FILE_TIMEOUT_MS
+        this.limits.brokerTimeoutMs
       );
     } catch (error) {
       if (error instanceof RelayBrokerUnavailableError) throw new RelayUnavailableError();
@@ -217,19 +230,19 @@ export class RelayFileBridge {
       (pending) => pending.connectorId === connectorId
         && pending.grantId === request.header.grant_id
     );
-    if (grantPending >= MAX_PENDING_FILE_REQUESTS_PER_GRANT) {
+    if (grantPending >= this.limits.pendingPerGrant) {
       return Promise.reject(new ConnectorOperationError(
         "rate_limited",
         "This grant is already processing its maximum number of file chunks."
       ));
     }
-    if (connectorPending >= MAX_PENDING_FILE_REQUESTS_PER_CONNECTOR) {
+    if (connectorPending >= this.limits.pendingPerConnector) {
       return Promise.reject(new ConnectorOperationError(
         "rate_limited",
         "The connector is already processing its maximum number of file chunks."
       ));
     }
-    if (this.pending.size >= MAX_PENDING_FILE_REQUESTS_PROCESS) {
+    if (this.pending.size >= this.limits.pendingProcess) {
       return Promise.reject(new ConnectorOperationError(
         "rate_limited",
         "The file relay is temporarily at capacity."
@@ -242,7 +255,7 @@ export class RelayFileBridge {
           "connector_timeout",
           "The connector file operation timed out."
         ));
-      }, CONNECTOR_FILE_TIMEOUT_MS);
+      }, this.limits.connectorTimeoutMs);
       this.pending.set(requestId, {
         resolve,
         reject,
@@ -274,6 +287,16 @@ export class RelayFileBridge {
     const generation = await this.currentGeneration(connectorId);
     if (!generation || generation === "0") throw new RelayUnavailableError();
     return generation;
+  }
+}
+
+function validateLimits(limits: RelayFileLimits): void {
+  const values = Object.values(limits);
+  if (values.some((value) => !Number.isSafeInteger(value) || value < 1)
+      || limits.pendingPerGrant > limits.pendingPerConnector
+      || limits.pendingPerConnector > limits.pendingProcess
+      || limits.brokerTimeoutMs <= limits.connectorTimeoutMs) {
+    throw new TypeError("Relay file limits are inconsistent.");
   }
 }
 

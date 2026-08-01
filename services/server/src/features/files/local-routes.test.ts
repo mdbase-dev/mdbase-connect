@@ -177,6 +177,14 @@ describe("local collection file relay routes", () => {
       payload: Buffer.from(fileFrame("upload_chunk"))
     });
     expect(noCapability.statusCode).toBe(403);
+    expect(noCapability.json().error).toMatchObject({
+      code: "insufficient_access",
+      details: {
+        required_operations: ["files"],
+        granted_operations: [],
+        missing_operations: ["files"]
+      }
+    });
 
     const allowed = await fixture();
     const wrongMediaType = await allowed.app.inject({

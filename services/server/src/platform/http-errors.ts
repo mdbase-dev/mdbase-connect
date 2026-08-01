@@ -2,8 +2,27 @@ export class RequestValidationError extends Error {}
 
 export class OriginDeniedError extends Error {}
 
-export function apiError(code: string, message: string) {
-  return { error: { code, message } };
+export function apiError(code: string, message: string, details?: unknown) {
+  return {
+    error: {
+      code,
+      message,
+      ...(details === undefined ? {} : { details })
+    }
+  };
+}
+
+export function insufficientAccessError(
+  requiredOperations: readonly string[],
+  grantedOperations: readonly string[],
+  message: string
+) {
+  const granted = new Set(grantedOperations);
+  return apiError("insufficient_access", message, {
+    required_operations: [...requiredOperations],
+    granted_operations: [...grantedOperations],
+    missing_operations: requiredOperations.filter((operation) => !granted.has(operation))
+  });
 }
 
 export function oauthError(error: string, errorDescription: string) {
