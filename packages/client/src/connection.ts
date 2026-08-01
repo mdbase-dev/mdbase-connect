@@ -86,17 +86,25 @@ import type {
   WatchOptions
 } from "./operation-types.js";
 import {
+  AUTHORIZATION_PROBLEM_CODES,
   COLLECTION_MUTATION_PROBLEM_CODES,
+  DIRECT_ACCESS_PROBLEM_CODES,
+  NOTIFICATION_PROBLEM_CODES,
+  REGISTRATION_PROBLEM_CODES,
   captureConnectOutcome,
   connectFailure,
   connectSuccess,
+  type AuthorizationProblemCode,
   type CollectionChangesProblemCode,
   type CollectionMutationProblemCode,
   type CollectionQueryProblemCode,
   type CollectionReadProblemCode,
   type CollectionTypeProblemCode,
   type CommonOperationProblemCode,
-  type ConnectOutcome
+  type ConnectOutcome,
+  type DirectAccessProblemCode,
+  type NotificationProblemCode,
+  type RegistrationProblemCode
 } from "./outcomes.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 
@@ -186,7 +194,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       serverUrl: internals.serverUrl,
       storage: internals.storage,
       authorizedToken: () => this.transport.authorizedToken(),
-      register: () => this.register(),
+      register: () => this.internals.register(),
       notificationKey: (transport) =>
         internals.notificationKey(collectionId, transport)
     });
@@ -201,15 +209,8 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return [...(this.transport.currentToken()?.operations ?? [])];
   }
 
-  get scope(): GrantScope {
-    const scope = this.transport.currentToken()?.scope;
-    if (!scope) {
-      throw connectError(
-        "not_authorized",
-        "This collection is no longer authorized for this application."
-      );
-    }
-    return scope;
+  get scope(): GrantScope | null {
+    return this.transport.currentToken()?.scope ?? null;
   }
 
   get directAccess(): DirectAccessStatus {
@@ -220,8 +221,11 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.transport.route;
   }
 
-  register(): Promise<Application> {
-    return this.internals.register();
+  register(): Promise<ConnectOutcome<Application, RegistrationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.register(),
+      REGISTRATION_PROBLEM_CODES
+    );
   }
 
   info(): MdbaseConnectionInfo | null {
@@ -257,22 +261,30 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   authorize(
     options: MdbaseConnectionAuthorizeOptions = {}
-  ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
-    return this.internals.authorize({
-      ...options,
-      target: { kind: "collection", collectionId: this.collectionId }
-    });
+  ): Promise<ConnectOutcome<MdbaseAuthorizationOutcome<Frontmatter>, AuthorizationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.authorize({
+        ...options,
+        target: { kind: "collection", collectionId: this.collectionId }
+      }),
+      AUTHORIZATION_PROBLEM_CODES
+    );
   }
 
   async requestOperations(
     requiredOperations: CollectionOperation[],
     options: Pick<MdbaseConnectionAuthorizeOptions, "returnTo"> = {}
   ): Promise<
-    MdbaseAuthorizationOutcome<Frontmatter>
-    | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }
+    ConnectOutcome<
+      MdbaseAuthorizationOutcome<Frontmatter>
+      | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> },
+      AuthorizationProblemCode
+    >
   > {
     const capabilities = this.authorizationCapabilities(requiredOperations);
-    if (capabilities.sufficient) return { kind: "unchanged", connection: this };
+    if (capabilities.sufficient) {
+      return connectSuccess({ kind: "unchanged", connection: this });
+    }
     return this.authorize({
       ...options,
       operations: uniqueOperations([
@@ -292,13 +304,19 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.transport.notifyStorageChanged();
   }
 
-  checkDirectAccess(): Promise<DirectAccessStatus> {
-    return this.transport.checkDirectAccess();
+  checkDirectAccess(): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
+    return captureConnectOutcome(
+      () => this.transport.checkDirectAccess(),
+      DIRECT_ACCESS_PROBLEM_CODES
+    );
   }
 
   /** Call from a user gesture to request browser permission for direct local access. */
-  requestDirectAccess(): Promise<DirectAccessStatus> {
-    return this.transport.requestDirectAccess();
+  requestDirectAccess(): Promise<ConnectOutcome<DirectAccessStatus, DirectAccessProblemCode>> {
+    return captureConnectOutcome(
+      () => this.transport.requestDirectAccess(),
+      DIRECT_ACCESS_PROBLEM_CODES
+    );
   }
 
   disableDirectAccess(): void {
@@ -375,24 +393,36 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
    */
   registerNotifications(
     options: MdbaseNotificationRegistrationOptions
-  ): Promise<MdbaseNotificationRegistration> {
-    return this.notifications.registerNotifications(options);
+  ): Promise<ConnectOutcome<MdbaseNotificationRegistration, NotificationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.notifications.registerNotifications(options),
+      NOTIFICATION_PROBLEM_CODES
+    );
   }
 
   registerNativeNotifications(
     options: MdbaseNativeNotificationRegistrationOptions
-  ): Promise<MdbaseNativeNotificationRegistration> {
-    return this.notifications.registerNativeNotifications(options);
+  ): Promise<ConnectOutcome<MdbaseNativeNotificationRegistration, NotificationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.notifications.registerNativeNotifications(options),
+      NOTIFICATION_PROBLEM_CODES
+    );
   }
 
-  unregisterNativeNotifications(): Promise<void> {
-    return this.notifications.unregisterNativeNotifications();
+  unregisterNativeNotifications(): Promise<ConnectOutcome<void, NotificationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.notifications.unregisterNativeNotifications(),
+      NOTIFICATION_PROBLEM_CODES
+    );
   }
 
   unregisterNotifications(
     serviceWorker?: ServiceWorkerRegistration
-  ): Promise<void> {
-    return this.notifications.unregisterNotifications(serviceWorker);
+  ): Promise<ConnectOutcome<void, NotificationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.notifications.unregisterNotifications(serviceWorker),
+      NOTIFICATION_PROBLEM_CODES
+    );
   }
 
   forget(): void {

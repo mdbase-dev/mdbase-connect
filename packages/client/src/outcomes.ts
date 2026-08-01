@@ -33,7 +33,7 @@ export type CommonOperationProblemCode =
   | "connector_offline"
   | "connector_upgrade_required"
   | "direct_operation_rejected"
-  | "direct_outcome_unknown"
+  | "operation_outcome_unknown"
   | "encryption_required"
   | "hosted_provider_unavailable"
   | "insufficient_access"
@@ -57,7 +57,7 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "connector_offline",
   "connector_upgrade_required",
   "direct_operation_rejected",
-  "direct_outcome_unknown",
+  "operation_outcome_unknown",
   "encryption_required",
   "hosted_provider_unavailable",
   "insufficient_access",
@@ -78,6 +78,141 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
 export const ALL_CONNECT_PROBLEM_CODES = Object.keys(
   CONNECT_PROBLEM_CATALOG
 ) as ConnectProblemCode[];
+
+export type RegistrationProblemCode =
+  | "discovery_failed"
+  | "invalid_application_manifest"
+  | "invalid_request"
+  | "manifest_load_failed"
+  | "rate_limited"
+  | "temporarily_unavailable"
+  | "timeout";
+
+export const REGISTRATION_PROBLEM_CODES = [
+  "discovery_failed",
+  "invalid_application_manifest",
+  "invalid_request",
+  "manifest_load_failed",
+  "rate_limited",
+  "temporarily_unavailable",
+  "timeout"
+] as const satisfies readonly RegistrationProblemCode[];
+
+export type AuthorizationProblemCode =
+  | RegistrationProblemCode
+  | "access_denied"
+  | "approval_window_blocked"
+  | "authorization_cancelled"
+  | "browser_required"
+  | "collection_access_denied"
+  | "collection_configuration_invalid"
+  | "collection_contracts_missing"
+  | "collection_incompatible"
+  | "collection_invalid"
+  | "collection_kind_unsupported"
+  | "collection_mismatch"
+  | "collection_not_found"
+  | "collection_type_registry_invalid"
+  | "collection_version_unsupported"
+  | "connector_identity_changed"
+  | "connector_offline"
+  | "connector_upgrade_required"
+  | "device_authorization_failed"
+  | "encryption_required"
+  | "expired_token"
+  | "invalid_callback"
+  | "invalid_device_authorization_response"
+  | "invalid_token_response"
+  | "scope_denied"
+  | "token_exchange_failed";
+
+export const AUTHORIZATION_PROBLEM_CODES = [
+  ...REGISTRATION_PROBLEM_CODES,
+  "access_denied",
+  "approval_window_blocked",
+  "authorization_cancelled",
+  "browser_required",
+  "collection_access_denied",
+  "collection_configuration_invalid",
+  "collection_contracts_missing",
+  "collection_incompatible",
+  "collection_invalid",
+  "collection_kind_unsupported",
+  "collection_mismatch",
+  "collection_not_found",
+  "collection_type_registry_invalid",
+  "collection_version_unsupported",
+  "connector_identity_changed",
+  "connector_offline",
+  "connector_upgrade_required",
+  "device_authorization_failed",
+  "encryption_required",
+  "expired_token",
+  "invalid_callback",
+  "invalid_device_authorization_response",
+  "invalid_token_response",
+  "scope_denied",
+  "token_exchange_failed"
+] as const satisfies readonly AuthorizationProblemCode[];
+
+export type NotificationProblemCode =
+  | RegistrationProblemCode
+  | "authorization_expired"
+  | "invalid_push_subscription"
+  | "managed_fcm_not_declared"
+  | "not_authorized"
+  | "notification_criterion_not_declared"
+  | "notification_reauthorization_required"
+  | "notification_registration_failed"
+  | "notification_unregistration_failed"
+  | "notifications_not_declared"
+  | "notifications_unavailable";
+
+export const NOTIFICATION_PROBLEM_CODES = [
+  ...REGISTRATION_PROBLEM_CODES,
+  "authorization_expired",
+  "invalid_push_subscription",
+  "managed_fcm_not_declared",
+  "not_authorized",
+  "notification_criterion_not_declared",
+  "notification_reauthorization_required",
+  "notification_registration_failed",
+  "notification_unregistration_failed",
+  "notifications_not_declared",
+  "notifications_unavailable"
+] as const satisfies readonly NotificationProblemCode[];
+
+export type DirectAccessProblemCode =
+  | "connector_offline"
+  | "connector_upgrade_required"
+  | "invalid_operation_response"
+  | "not_authorized"
+  | "operation_failed"
+  | "temporarily_unavailable"
+  | "timeout";
+
+export const DIRECT_ACCESS_PROBLEM_CODES = [
+  "connector_offline",
+  "connector_upgrade_required",
+  "invalid_operation_response",
+  "not_authorized",
+  "operation_failed",
+  "temporarily_unavailable",
+  "timeout"
+] as const satisfies readonly DirectAccessProblemCode[];
+
+export type SessionProblemCode =
+  | AuthorizationProblemCode
+  | "collection_not_ready"
+  | "collection_not_selected"
+  | "unknown_collection";
+
+export const SESSION_PROBLEM_CODES = [
+  ...AUTHORIZATION_PROBLEM_CODES,
+  "collection_not_ready",
+  "collection_not_selected",
+  "unknown_collection"
+] as const satisfies readonly SessionProblemCode[];
 
 export type CollectionReadProblemCode = CommonOperationProblemCode | "invalid_path" | "operation_invalid";
 export type CollectionQueryProblemCode =

@@ -131,7 +131,6 @@
     "connector_upgrade_required": { "category": "compatibility", "recovery": "upgrade_connector" },
     "device_authorization_failed": { "category": "authorization", "recovery": "reauthorize" },
     "direct_operation_rejected": { "category": "authorization", "recovery": "reauthorize" },
-    "direct_outcome_unknown": { "category": "conflict", "recovery": "resolve_outcome" },
     "discovery_failed": { "category": "availability", "recovery": "retry" },
     "encryption_required": { "category": "authorization", "recovery": "reauthorize" },
     "expired_token": { "category": "authorization", "recovery": "reauthorize" },
@@ -186,6 +185,7 @@
         }
       }
     },
+    "operation_outcome_unknown": { "category": "conflict", "recovery": "resolve_outcome" },
     "pending_mutation_unresolved": { "category": "conflict", "recovery": "resolve_outcome" },
     "query_snapshot_changed": { "category": "conflict", "recovery": "refresh" },
     "rate_limited": {

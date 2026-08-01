@@ -43,7 +43,7 @@ import {
   operationTransportError,
   sameAuthorization,
   throwIfCancelled,
-  uncertainDirectMutation
+  unknownMutationOutcome
 } from "./operation-helpers.js";
 import {
   apiError,
@@ -202,7 +202,12 @@ export class ConnectionTransport {
     try {
       attempt = await this.sendOperation(token, operation, input, tryDirect, options);
     } catch (error) {
-      throw operationTransportError(error, options.signal, isMutation(operation, input) && this.pendingMutation() !== null);
+      throw operationTransportError(
+        error,
+        options.signal,
+        isMutation(operation, input) && this.pendingMutation() !== null,
+        token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
+      );
     }
     let response = attempt.response;
     const staleBinding = response.status === 409
@@ -212,7 +217,7 @@ export class ConnectionTransport {
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
         throw connectError(
-          "direct_outcome_unknown",
+          "operation_outcome_unknown",
           "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change.",
           { operationOutcome: "unknown" }
         );
@@ -223,17 +228,32 @@ export class ConnectionTransport {
       try {
         attempt = await this.sendOperation(token, operation, input, tryDirect, options);
       } catch (error) {
-        throw operationTransportError(error, options.signal, isMutation(operation, input) && this.pendingMutation() !== null);
+        throw operationTransportError(
+          error,
+          options.signal,
+          isMutation(operation, input) && this.pendingMutation() !== null,
+          token.authority ? "hosted_provider_unavailable" : "relay_unavailable"
+        );
       }
       response = attempt.response;
     }
-    const body = await response.json();
+    let body: any;
+    try {
+      body = await response.json();
+    } catch (cause) {
+      if (attempt.pendingMutation) throw unknownMutationOutcome(cause);
+      throw connectError(
+        "invalid_operation_response",
+        "The collection authority returned a response that is not valid JSON.",
+        { cause }
+      );
+    }
     if (!response.ok) {
       const error = apiError(body, "operation_failed", "Collection operation failed.", response.status);
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
-        throw uncertainDirectMutation(error);
+        throw unknownMutationOutcome(error);
       }
       if (attempt.pendingMutation && !attempt.directDeliveryUncertain) {
         this.clearPendingMutation();
@@ -246,6 +266,9 @@ export class ConnectionTransport {
     if (attempt.encryptedRequest) {
       const encryptedResponse = body?.envelope as EncryptedRelayOperationResponse | undefined;
       if (!encryptedResponse || !token.encryption || !token.grantId || !token.keyHandle) {
+        if (attempt.pendingMutation) throw unknownMutationOutcome(
+          new Error("Encrypted operation response was missing its envelope.")
+        );
         throw connectError(
           "invalid_encrypted_response",
           "The relay did not return an encrypted connector response."
@@ -268,11 +291,17 @@ export class ConnectionTransport {
         return decrypted.result;
       } catch (error) {
         if (error instanceof MdbaseConnectError) throw error;
-        if (error instanceof RelayCryptoError) throw serverConnectError(error.code, error.message);
+        if (error instanceof RelayCryptoError) {
+          if (attempt.pendingMutation) throw unknownMutationOutcome(error);
+          throw serverConnectError(error.code, error.message);
+        }
         throw error;
       }
     }
     if (body?.protocol_version !== 1 || body?.request_id !== attempt.requestId) {
+      if (attempt.pendingMutation) throw unknownMutationOutcome(
+        new Error("Operation response protocol or request ID did not match.")
+      );
       throw connectError(
         "invalid_operation_response",
         "The collection authority returned a response for a different protocol request."
@@ -479,7 +508,7 @@ export class ConnectionTransport {
           ? token
           : await this.refreshAuthorization();
       } catch (error) {
-        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw uncertainDirectMutation(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(error);
         throw error;
       }
       let response: Response;
@@ -497,7 +526,7 @@ export class ConnectionTransport {
           }
         );
       } catch (error) {
-        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw uncertainDirectMutation(error);
+        if (pendingMutation && (directDeliveryUncertain || resumingMutation)) throw unknownMutationOutcome(error);
         throw error;
       }
       if (response.ok) this.setRoute("relay");

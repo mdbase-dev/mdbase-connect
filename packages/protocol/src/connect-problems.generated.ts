@@ -29,7 +29,6 @@ export const CONNECT_PROBLEM_CATALOG = {
   "connector_upgrade_required": { category: "compatibility", recovery: "upgrade_connector" },
   "device_authorization_failed": { category: "authorization", recovery: "reauthorize" },
   "direct_operation_rejected": { category: "authorization", recovery: "reauthorize" },
-  "direct_outcome_unknown": { category: "conflict", recovery: "resolve_outcome" },
   "discovery_failed": { category: "availability", recovery: "retry" },
   "encryption_required": { category: "authorization", recovery: "reauthorize" },
   "expired_token": { category: "authorization", recovery: "reauthorize" },
@@ -63,6 +62,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "operation_cancelled": { category: "cancellation", recovery: "none" },
   "operation_failed": { category: "internal", recovery: "contact_support" },
   "operation_invalid": { category: "validation", recovery: "fix_request" },
+  "operation_outcome_unknown": { category: "conflict", recovery: "resolve_outcome" },
   "pending_mutation_unresolved": { category: "conflict", recovery: "resolve_outcome" },
   "query_snapshot_changed": { category: "conflict", recovery: "refresh" },
   "rate_limited": { category: "availability", recovery: "retry" },
@@ -143,7 +143,6 @@ export interface ConnectProblemDetailsByCode {
   "connector_upgrade_required": undefined;
   "device_authorization_failed": undefined;
   "direct_operation_rejected": undefined;
-  "direct_outcome_unknown": undefined;
   "discovery_failed": undefined;
   "encryption_required": undefined;
   "expired_token": undefined;
@@ -184,6 +183,7 @@ export interface ConnectProblemDetailsByCode {
   "diagnostics": Array<Record<string, unknown>>;
   "partial_result"?: unknown;
 };
+  "operation_outcome_unknown": undefined;
   "pending_mutation_unresolved": undefined;
   "query_snapshot_changed": undefined;
   "rate_limited": {
@@ -360,12 +360,6 @@ export interface ConnectProblemByCode {
     code: "direct_operation_rejected";
     category: "authorization";
     recovery: "reauthorize";
-    details?: never;
-  };
-  "direct_outcome_unknown": ConnectProblemBase & {
-    code: "direct_outcome_unknown";
-    category: "conflict";
-    recovery: "resolve_outcome";
     details?: never;
   };
   "discovery_failed": ConnectProblemBase & {
@@ -565,6 +559,12 @@ export interface ConnectProblemByCode {
     category: "validation";
     recovery: "fix_request";
     details: ConnectProblemDetailsByCode["operation_invalid"];
+  };
+  "operation_outcome_unknown": ConnectProblemBase & {
+    code: "operation_outcome_unknown";
+    category: "conflict";
+    recovery: "resolve_outcome";
+    details?: never;
   };
   "pending_mutation_unresolved": ConnectProblemBase & {
     code: "pending_mutation_unresolved";
