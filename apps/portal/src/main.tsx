@@ -19,6 +19,7 @@ import {
   Pairing
 } from "./authority-workflows";
 import { Authorization, DeviceAuthorization } from "./authorization-view";
+import { editorRedirectTarget } from "./editor-redirect";
 import { editorConnectUrl } from "./portal-model";
 import "./styles.css";
 
@@ -49,19 +50,6 @@ function EditorRedirect() {
       .catch(() => location.replace(editorRedirectTarget(editorConnectUrl())));
   }, []);
   return <main className="portal-redirect" aria-live="polite">Opening mdbase Connect in the editor…</main>;
-}
-
-export function editorRedirectTarget(configuredTarget: string): string {
-  const target = new URL(configuredTarget, location.origin);
-  if (location.pathname !== "/account") return target.href;
-  target.pathname = "/connect/account";
-  const linked = new URLSearchParams(location.search).get("linked");
-  if (linked === "github" || linked === "google") target.searchParams.set("linked", linked);
-  const deletionToken = new URLSearchParams(location.hash.slice(1)).get("delete_token");
-  if (deletionToken && /^act_[A-Za-z0-9_-]+$/.test(deletionToken)) {
-    target.hash = `delete_token=${encodeURIComponent(deletionToken)}`;
-  }
-  return target.href;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><Portal /></React.StrictMode>);
