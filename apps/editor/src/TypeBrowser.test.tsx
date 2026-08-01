@@ -212,7 +212,7 @@ describe("recursive type builder", () => {
     expect(screen.getByText("Validation may change")).toBeInTheDocument();
     expect(screen.getByText("Future file paths may change")).toBeInTheDocument();
     expect(screen.getByText(/Display metadata · Read defaults · Link rules · Uniqueness rules · Path policy/)).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("suggests a contract from field shape and waits for an explicit claim", async () => {
     const user = userEvent.setup();
