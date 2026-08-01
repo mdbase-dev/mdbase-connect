@@ -358,6 +358,10 @@ jobs:
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
             --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
+            --env MDBASE_CONNECT_R2_ENDPOINT=https://r2.invalid \
+            --env MDBASE_CONNECT_R2_BUCKET=upgrade-canary \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID=upgrade-canary \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY=upgrade-canary-secret \
             "$CANDIDATE_IMAGE" >/dev/null
 
           for attempt in {1..30}; do
