@@ -13,7 +13,10 @@ import {
   encryptRelayRequest,
   MemoryGrantKeyStore
 } from "../packages/client/dist/crypto.js";
-import { MdbaseConnect } from "../packages/client/dist/index.js";
+import {
+  MdbaseConnect,
+  unwrapConnectOutcome
+} from "../packages/client/dist/index.js";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -747,12 +750,11 @@ implements:
     if (!connection) {
       throw new Error("Browser SDK did not restore the saved collection connection");
     }
-    if (await connection.requestDirectAccess() !== "available") {
+    if (unwrapConnectOutcome(await connection.requestDirectAccess()) !== "available") {
       throw new Error("Browser SDK did not discover the direct connector");
     }
-    const sdkQuery = await connection.query({ limit: 1_100 });
-    if (!sdkQuery.valid
-        || sdkQuery.result.results.length !== 1_000
+    const sdkQuery = unwrapConnectOutcome(await connection.query({ limit: 1_100 }));
+    if (sdkQuery.results.length !== 1_000
         || connection.route !== "direct") {
       throw new Error("Browser SDK did not complete the 1,000-record query directly");
     }
@@ -765,8 +767,40 @@ implements:
     const browserContext = await browser.newContext();
     await browserContext.grantPermissions(["local-network-access"], { origin: manifest.browserOrigin });
     const page = await browserContext.newPage();
+    const browserPageErrors = [];
+    const browserConsoleErrors = [];
+    const browserRequestFailures = [];
+    page.on("pageerror", (error) => browserPageErrors.push(error));
+    page.on("console", (message) => {
+      if (message.type() === "error") browserConsoleErrors.push(message.text());
+    });
+    page.on("requestfailed", (request) => {
+      browserRequestFailures.push(`${request.url()}: ${request.failure()?.errorText ?? "failed"}`);
+    });
+    page.on("response", (browserResponse) => {
+      const contentType = browserResponse.headers()["content-type"] ?? "";
+      if (browserResponse.request().resourceType() === "script"
+          && !contentType.includes("javascript")) {
+        browserRequestFailures.push(
+          `${browserResponse.url()}: unexpected script content type ${contentType || "missing"}`
+        );
+      }
+    });
     await page.goto(`${manifest.browserOrigin}/browser-e2e`);
-    await page.waitForFunction(() => Boolean(globalThis.directHarness?.agreementPublicKey));
+    try {
+      await page.waitForFunction(() => Boolean(globalThis.directHarness?.agreementPublicKey));
+    } catch (error) {
+      const failures = [
+        ...browserPageErrors.map((failure) => failure.message),
+        ...browserConsoleErrors,
+        ...browserRequestFailures
+      ];
+      if (!failures.length) throw error;
+      throw new Error(
+        `Browser direct harness did not start: ${failures.join("; ")}`,
+        { cause: error }
+      );
+    }
     const browserKeys = await page.evaluate(() => ({
       agreementPublicKey: globalThis.directHarness.agreementPublicKey,
       signingPublicKey: globalThis.directHarness.signingPublicKey
@@ -900,19 +934,20 @@ implements:
         document.querySelector("#code").textContent = authorization.userCode;
       },
       openVerification() {}
-    }).then(async ({ connection }) => {
-      const description = await connection.describe();
-      const query = await connection.query({ limit: 2 });
+    }).then(async (authorizationOutcome) => {
+      const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
+      const description = MdbaseConnect.unwrapConnectOutcome(await connection.describe());
+      const query = MdbaseConnect.unwrapConnectOutcome(await connection.query({ limit: 2 }));
       globalThis.portableHarness.result = {
         collectionId: connection.collectionId,
         displayName: description.display_name,
-        records: query.result.results.length,
+        records: query.results.length,
         route: connection.route,
         connections: manager.connections().length
       };
     }).catch((error) => {
       globalThis.portableHarness.error = {
-        code: error?.code,
+        code: error?.problem?.code ?? error?.code,
         message: error?.message
       };
     });
@@ -1283,8 +1318,8 @@ async function rawOperation(collectionId, operation, accessToken, input) {
   if (decrypted.ok) {
     return syntheticResponse(200, { ok: true, result: decrypted.result });
   }
-  const denied = decrypted.error.code === "access_paused" || decrypted.error.code === "access_denied";
-  return syntheticResponse(denied ? 403 : 502, { error: decrypted.error });
+  const denied = decrypted.problem.code === "access_paused" || decrypted.problem.code === "access_denied";
+  return syntheticResponse(denied ? 403 : 502, { error: decrypted.problem });
 }
 
 function syntheticResponse(status, body) {
@@ -1380,9 +1415,12 @@ async function openApplicationServer(name, contracts, access) {
       ));
       return;
     }
-    if (request.url === "/protocol/index.js") {
+    const protocolModule = request.url?.match(/^\/protocol\/([a-z0-9.-]+\.js)$/)?.[1];
+    if (protocolModule) {
       response.setHeader("content-type", "text/javascript");
-      response.end(await readFile(join(repoRoot, "packages", "protocol", "dist", "index.js")));
+      response.end(await readFile(
+        join(repoRoot, "packages", "protocol", "dist", protocolModule)
+      ));
       return;
     }
     if (request.url === "/browser-e2e") {
@@ -1391,7 +1429,7 @@ async function openApplicationServer(name, contracts, access) {
 <meta charset="utf-8">
 <script type="importmap">{"imports":{"@mdbase/connect-protocol":"${origin}/protocol/index.js"}}</script>
 <script type="module">
-  import { MdbaseConnect, MemoryGrantKeyStore } from "${origin}/client/index.js";
+  import { MdbaseConnect, MemoryGrantKeyStore, unwrapConnectOutcome } from "${origin}/client/index.js";
   const keyStore = new MemoryGrantKeyStore();
   const key = await keyStore.create("browser-e2e-grant");
   globalThis.directHarness = {
@@ -1416,27 +1454,27 @@ async function openApplicationServer(name, contracts, access) {
       });
       const connection = connect.connection(config.token.collectionId);
       if (!connection) throw new Error("Saved browser connection was not restored");
-      const status = await connection.requestDirectAccess();
-      const description = await connection.describe();
-      const created = await connection.create({
+      const status = unwrapConnectOutcome(await connection.requestDirectAccess());
+      const description = unwrapConnectOutcome(await connection.describe());
+      const created = unwrapConnectOutcome(await connection.create({
         path: "browser/direct.md",
         frontmatter: { type: "workout", title: "Real browser direct", status: "open" },
         body: "Created in Chromium."
-      });
-      const revision = created.result.revision;
-      const read = await connection.read({ path: "browser/direct.md" });
-      const updated = await connection.update({
+      }));
+      const revision = created.revision;
+      const read = unwrapConnectOutcome(await connection.read({ path: "browser/direct.md" }));
+      const updated = unwrapConnectOutcome(await connection.update({
         path: "browser/direct.md",
         patch: { status: "done" },
         if_revision: revision
-      });
-      const readUpdated = await connection.read({ path: "browser/direct.md" });
-      const renamed = await connection.rename({
+      }));
+      const readUpdated = unwrapConnectOutcome(await connection.read({ path: "browser/direct.md" }));
+      const renamed = unwrapConnectOutcome(await connection.rename({
         from: "browser/direct.md",
         to: "browser/renamed.md"
-      });
-      const query = await connection.query({ limit: 1_100 });
-      const validated = await connection.validate();
+      }));
+      const query = unwrapConnectOutcome(await connection.query({ limit: 1_100 }));
+      unwrapConnectOutcome(await connection.validate());
       const typeDocument = \`---
 kind: mdbase.type
 name: browsernote
@@ -1450,45 +1488,43 @@ schema:
       title: { type: string }
 ---
 \`;
-      const createdType = await connection.createType({ document: typeDocument });
-      const readType = await connection.readType({ name: "browsernote" });
-      const updatedType = await connection.updateType({
+      const createdType = unwrapConnectOutcome(await connection.createType({ document: typeDocument }));
+      const readType = unwrapConnectOutcome(await connection.readType({ name: "browsernote" }));
+      const updatedType = unwrapConnectOutcome(await connection.updateType({
         name: "browsernote",
         document: typeDocument.replace("Browser note", "Updated browser note"),
-        if_revision: readType.result.revision
-      });
-      const views = await connection.listViews();
-      const executedView = await connection.executeView({
+        if_revision: readType.revision
+      }));
+      const views = unwrapConnectOutcome(await connection.listViews());
+      const executedView = unwrapConnectOutcome(await connection.executeView({
         path: "Views/workouts.base",
         view: "open-workouts"
-      });
-      const changed = await connection.changes({ after: description.change_cursor });
-      const deleted = await connection.delete({ path: "browser/renamed.md" });
+      }));
+      const changed = unwrapConnectOutcome(await connection.changes({ after: description.change_cursor }));
+      const deleted = unwrapConnectOutcome(await connection.delete({ path: "browser/renamed.md" }));
       return {
         status,
         route: connection.route,
-        records: query.result.results.length,
-        read: read.result.body.includes("Created in Chromium"),
-        updated: updated.valid && readUpdated.result.frontmatter.status === "done",
-        renamed: renamed.result.path === "browser/renamed.md",
-        validated: validated.valid,
-        createdType: createdType.valid && createdType.result.path === "_types/browsernote.md",
-        readType: readType.valid && readType.result.document.includes("Browser note"),
-        updatedType: updatedType.valid && updatedType.result.document.includes("Updated browser note"),
-        listedView: views.valid
-          && views.result.views.some((document) =>
+        records: query.results.length,
+        read: read.body.includes("Created in Chromium"),
+        updated: updated.frontmatter.status === "done" && readUpdated.frontmatter.status === "done",
+        renamed: renamed.path === "browser/renamed.md",
+        validated: true,
+        createdType: createdType.path === "_types/browsernote.md",
+        readType: readType.document.includes("Browser note"),
+        updatedType: updatedType.document.includes("Updated browser note"),
+        listedView: views.views.some((document) =>
             document.source.path === "Views/workouts.base"
               && document.views.some((view) => view.id === "open-workouts"
                 && view.properties[1].key === "formula.lane"
                 && view.properties[1].label === "Lane")
           ),
-        executedView: executedView.valid
-          && executedView.result.results.length === 1000
-          && executedView.result.meta.groups[0].values.status === "open"
-          && executedView.result.results[0].values["formula.lane"] === "Ready"
-          && !("file.path" in executedView.result.results[0].values),
+        executedView: executedView.results.length === 1000
+          && executedView.meta.groups[0].values.status === "open"
+          && executedView.results[0].values["formula.lane"] === "Ready"
+          && !("file.path" in executedView.results[0].values),
         changed: changed.events.length > 0,
-        deleted: deleted.result.deleted
+        deleted: deleted.deleted
       };
     }
   };
