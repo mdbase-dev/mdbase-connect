@@ -347,7 +347,16 @@ jobs:
 
       - name: Require candidate migration and recovery readiness
         run: |
+          node --input-type=module --eval '
+            import { createServer } from "node:http";
+            createServer((_request, response) => {
+              response.writeHead(200);
+              response.end();
+            }).listen(9000, "127.0.0.1");
+          ' >/tmp/mdbase-upgrade-r2.log 2>&1 &
+          r2_pid=$!
           cleanup() {
+            kill "$r2_pid" >/dev/null 2>&1 || true
             docker logs mdbase-provider-upgrade-candidate || true
             docker rm --force mdbase-provider-upgrade-candidate >/dev/null 2>&1 || true
           }
@@ -358,10 +367,11 @@ jobs:
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
             --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
-            --env MDBASE_CONNECT_R2_ENDPOINT=https://r2.invalid \
+            --env MDBASE_CONNECT_R2_ENDPOINT=http://127.0.0.1:9000 \
             --env MDBASE_CONNECT_R2_BUCKET=upgrade-canary \
             --env MDBASE_CONNECT_R2_ACCESS_KEY_ID=upgrade-canary \
             --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY=upgrade-canary-secret \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2=true \
             "$CANDIDATE_IMAGE" >/dev/null
 
           for attempt in {1..30}; do
