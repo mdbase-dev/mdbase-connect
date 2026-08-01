@@ -187,6 +187,15 @@ The provider must stream-verify SHA-256 because R2's multipart SHA-256 is
 composite rather than full-object. Rust/schema tests and TypeScript protocol
 tests/typechecking pass for both strategies.
 
+The hosted provider now has a testable blob-store boundary and a production R2
+implementation built on Cloudflare's S3-compatible API. It validates private
+HTTPS endpoints and multipart limits, produces length-bound presigned part
+requests, canonicalizes completion parts, supports bounded range reads, and
+streams every completed object through an exact size and full SHA-256 check.
+R2 errors are logged without exposing storage credentials or object internals.
+The AWS SDK dependency set is intentionally locked to versions compatible with
+the repository's current stable Rust compiler.
+
 ## Handoff
 
 Work is active. Add download/range access and expose local file operations over

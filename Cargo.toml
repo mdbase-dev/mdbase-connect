@@ -20,6 +20,8 @@ repository = "https://github.com/mdbase-dev/mdbase-connect"
 [workspace.dependencies]
 aes-gcm = "0.11"
 async-trait = "0.1"
+aws-credential-types = "=1.2.14"
+aws-sdk-s3 = "=1.137.0"
 axum = "0.8.9"
 base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }
