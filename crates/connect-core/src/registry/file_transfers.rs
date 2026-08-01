@@ -17,6 +17,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 
 mod download;
+mod lifecycle;
 use download::{download_staging_path, download_transfer_status, required_download};
 mod routing;
 use routing::{transfer_direction, transfer_exists, upload_session};
@@ -299,11 +300,14 @@ impl CollectionRegistry {
             }
 
             let after_snapshot = collection.snapshot()?;
-            let preferred = HashMap::from([(transfer.path_key.clone(), transfer.file_id)]);
-            let files = self.reconcile_files_loaded_with_preferred(
+            let preferences = crate::registry::files::FileReconcilePreferences {
+                ids_by_path: HashMap::from([(transfer.path_key.clone(), transfer.file_id)]),
+                ..Default::default()
+            };
+            let files = self.reconcile_files_loaded_with_preferences(
                 &registered,
                 &after_snapshot,
-                &preferred,
+                &preferences,
             )?;
             let file = files
                 .into_iter()

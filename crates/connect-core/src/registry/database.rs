@@ -165,6 +165,18 @@ impl CollectionRegistry {
                 PRIMARY KEY (transfer_id, chunk_index),
                 FOREIGN KEY (transfer_id) REFERENCES collection_file_transfers(transfer_id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS collection_file_mutations (
+                mutation_id TEXT PRIMARY KEY,
+                collection_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('move', 'delete')),
+                request TEXT NOT NULL,
+                planned_receipt TEXT NOT NULL,
+                receipt TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS local_sync_replicas (
                 id TEXT PRIMARY KEY,
                 collection_id TEXT NOT NULL,
@@ -251,6 +263,7 @@ impl CollectionRegistry {
             "ALTER TABLE local_sync_collections ADD COLUMN authority_state TEXT NOT NULL DEFAULT 'active'",
             "ALTER TABLE local_sync_collections ADD COLUMN transfer_id TEXT",
             "ALTER TABLE local_sync_snapshots ADD COLUMN files TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE collection_file_mutations ADD COLUMN planned_receipt TEXT NOT NULL DEFAULT ''",
         ] {
             if let Err(error) = connection.execute(migration, []) {
                 if !error.to_string().contains("duplicate column name") {

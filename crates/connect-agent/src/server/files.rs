@@ -1,11 +1,12 @@
 use super::*;
 use mdbase_connect_protocol::{
-    AbortFileTransferRequest, CommitFileUploadRequest, FileAction, FileFrame, FileFrameHeader,
-    FileFrameKind, FileScope, FileTransferBinding, FileTransferCipher, FileTransferDirection,
-    FileTransferProtection, FileTransferStrategy, GetFileTransferStatusRequest, ListFilesPage,
-    ListFilesPageKind, ListFilesRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    RelayFileFrame, RelayFileHeader, RelayFileKind, FILE_PROTOCOL_VERSION,
-    FILE_TRANSFER_PROTOCOL_VERSION, RELAY_FILE_PROTOCOL_VERSION,
+    AbortFileTransferRequest, CommitFileUploadRequest, DeleteFileRequest, FileAction, FileFrame,
+    FileFrameHeader, FileFrameKind, FileScope, FileTransferBinding, FileTransferCipher,
+    FileTransferDirection, FileTransferProtection, FileTransferStrategy,
+    GetFileTransferStatusRequest, ListFilesPage, ListFilesPageKind, ListFilesRequest,
+    MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest, RelayFileFrame,
+    RelayFileHeader, RelayFileKind, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+    RELAY_FILE_PROTOCOL_VERSION,
 };
 
 impl AgentState {
@@ -95,6 +96,27 @@ impl AgentState {
                     &request,
                 )?)
                 .map_err(ConnectError::from)
+            }
+            "move_file" => {
+                let request: MoveFileRequest = parse_file_control(input)?;
+                let capability = require_file_action(grant, FileAction::Move)?;
+                require_visible_path(capability, &request.from_path)?;
+                require_visible_path(capability, &request.path)?;
+                let receipt = self
+                    .registry
+                    .move_file(grant.collection_id, grant.id, &request)?;
+                self.watcher.rescan(grant.collection_id);
+                serde_json::to_value(receipt).map_err(ConnectError::from)
+            }
+            "delete_file" => {
+                let request: DeleteFileRequest = parse_file_control(input)?;
+                let capability = require_file_action(grant, FileAction::Delete)?;
+                require_visible_path(capability, &request.path)?;
+                let receipt = self
+                    .registry
+                    .delete_file(grant.collection_id, grant.id, &request)?;
+                self.watcher.rescan(grant.collection_id);
+                serde_json::to_value(receipt).map_err(ConnectError::from)
             }
             "get_file_transfer_status" => {
                 let request: GetFileTransferStatusRequest = parse_file_control(input)?;
@@ -635,7 +657,13 @@ fn local_file_error(code: impl Into<String>, message: impl Into<String>) -> Conn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mdbase_connect_protocol::ListFilesRequestKind;
+    use mdbase_connect_protocol::{
+        ApplicationAccess, DeleteFileRequestKind, FileCapability, FileCapabilityKind, GrantScope,
+        GrantSummary, ListFilesRequestKind, MoveFileRequestKind,
+    };
+    use std::fs;
+    use tempfile::tempdir;
+    use uuid::Uuid;
 
     fn list_request() -> ListFilesRequest {
         ListFilesRequest {
@@ -659,5 +687,108 @@ mod tests {
         invalid = list_request();
         invalid.protocol_version += 1;
         assert!(validate_list_request(&invalid).is_err());
+    }
+
+    fn file_grant(collection_id: Uuid, actions: Vec<FileAction>) -> GrantSummary {
+        GrantSummary {
+            id: Uuid::now_v7(),
+            application_id: Uuid::now_v7(),
+            application_name: "File application".to_string(),
+            application_distribution: "portable".to_string(),
+            application_homepage: "https://example.test".to_string(),
+            application_project_url: None,
+            application_origin: String::new(),
+            application_icon: None,
+            collection_id,
+            collection_name: "Files".to_string(),
+            operations: Vec::new(),
+            scope: GrantScope {
+                contracts: Vec::new(),
+                access: ApplicationAccess::FullCollection,
+            },
+            notification_criteria: Vec::new(),
+            created_at: "2026-08-01T00:00:00Z".to_string(),
+            encryption: None,
+            file_capability: Some(FileCapability {
+                kind: FileCapabilityKind::Files,
+                protocol_version: FILE_PROTOCOL_VERSION,
+                actions,
+                scope: FileScope::SelectedFolders {
+                    folders: vec!["Allowed".to_string()],
+                },
+            }),
+        }
+    }
+
+    #[test]
+    fn lifecycle_control_authorizes_source_destination_and_action_before_mutation() {
+        let state_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        fs::create_dir(root.path().join("Allowed")).unwrap();
+        fs::write(root.path().join("Allowed/source.bin"), b"safe").unwrap();
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let collection = registry.add(root.path()).unwrap();
+        let original = registry.reconcile_files(collection.id).unwrap().remove(0);
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry, watcher, None);
+        let grant = file_grant(collection.id, vec![FileAction::Move, FileAction::Delete]);
+
+        let outside = MoveFileRequest {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: MoveFileRequestKind::MoveFile,
+            mutation_id: Uuid::now_v7(),
+            file_id: original.file_id,
+            if_revision: original.revision.clone(),
+            from_path: original.path.clone(),
+            path: "Outside/moved.bin".to_string(),
+            update_references: false,
+        };
+        assert_eq!(
+            state
+                .file_control(&grant, serde_json::to_value(&outside).unwrap())
+                .unwrap_err()
+                .code(),
+            "access_denied"
+        );
+        assert_eq!(fs::read(root.path().join(&original.path)).unwrap(), b"safe");
+
+        let mut allowed = outside;
+        allowed.mutation_id = Uuid::now_v7();
+        allowed.path = "Allowed/moved.bin".to_string();
+        let moved: mdbase_connect_protocol::MoveFileReceipt = serde_json::from_value(
+            state
+                .file_control(&grant, serde_json::to_value(&allowed).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(moved.file.path, "Allowed/moved.bin");
+
+        let delete = DeleteFileRequest {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: DeleteFileRequestKind::DeleteFile,
+            mutation_id: Uuid::now_v7(),
+            file_id: moved.file.file_id,
+            if_revision: moved.file.revision.clone(),
+            path: moved.file.path.clone(),
+        };
+        let read_only = file_grant(collection.id, vec![FileAction::Read]);
+        assert_eq!(
+            state
+                .file_control(&read_only, serde_json::to_value(&delete).unwrap())
+                .unwrap_err()
+                .code(),
+            "access_denied"
+        );
+        assert!(root.path().join(&delete.path).exists());
+
+        let receipt: mdbase_connect_protocol::DeleteFileReceipt = serde_json::from_value(
+            state
+                .file_control(&grant, serde_json::to_value(&delete).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt.previous_path, delete.path);
+        assert!(!root.path().join(&receipt.previous_path).exists());
     }
 }

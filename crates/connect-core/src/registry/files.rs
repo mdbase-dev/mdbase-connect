@@ -22,6 +22,13 @@ struct ObservedFile<'a> {
     content_digest: String,
 }
 
+#[derive(Debug, Default)]
+pub(super) struct FileReconcilePreferences {
+    pub(super) ids_by_path: HashMap<String, Uuid>,
+    pub(super) revisions_by_path: HashMap<String, String>,
+    pub(super) tombstone_revisions_by_file: HashMap<Uuid, String>,
+}
+
 impl CollectionRegistry {
     /// Reconcile the authority's logical file namespace with its filesystem.
     ///
@@ -49,14 +56,18 @@ impl CollectionRegistry {
         registered: &CollectionSummary,
         snapshot: &CollectionSnapshot,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
-        self.reconcile_files_loaded_with_preferred(registered, snapshot, &HashMap::new())
+        self.reconcile_files_loaded_with_preferences(
+            registered,
+            snapshot,
+            &FileReconcilePreferences::default(),
+        )
     }
 
-    pub(super) fn reconcile_files_loaded_with_preferred(
+    pub(super) fn reconcile_files_loaded_with_preferences(
         &self,
         registered: &CollectionSummary,
         snapshot: &CollectionSnapshot,
-        preferred_ids: &HashMap<String, Uuid>,
+        preferences: &FileReconcilePreferences,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let managed_paths = snapshot
             .resources
@@ -75,7 +86,7 @@ impl CollectionRegistry {
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
-        self.reconcile_observed_files(registered.id, &observed, preferred_ids)
+        self.reconcile_observed_files(registered.id, &observed, preferences)
     }
 
     pub fn indexed_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
@@ -90,12 +101,12 @@ impl CollectionRegistry {
         &self,
         collection_id: Uuid,
         observed: &[ObservedFile<'_>],
-        preferred_ids: &HashMap<String, Uuid>,
+        preferences: &FileReconcilePreferences,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let previous = read_indexed_files(&transaction, collection_id)?;
-        let assignments = assign_file_ids(&previous, observed, preferred_ids);
+        let assignments = assign_file_ids(&previous, observed, &preferences.ids_by_path);
         let mut after = BTreeMap::<Uuid, IndexedFile>::new();
 
         for (position, file) in observed.iter().enumerate() {
@@ -112,7 +123,11 @@ impl CollectionRegistry {
             let revision = if unchanged {
                 prior.expect("checked above").descriptor.revision.clone()
             } else {
-                format!("file:{}", Uuid::now_v7())
+                preferences
+                    .revisions_by_path
+                    .get(&file.candidate.path_key)
+                    .cloned()
+                    .unwrap_or_else(|| format!("file:{}", Uuid::now_v7()))
             };
             after.insert(
                 file_id,
@@ -158,6 +173,12 @@ impl CollectionRegistry {
                 })?;
                 let revision = current
                     .map(|value| value.descriptor.revision.clone())
+                    .or_else(|| {
+                        preferences
+                            .tombstone_revisions_by_file
+                            .get(&file_id)
+                            .cloned()
+                    })
                     .unwrap_or_else(|| format!("file:{}", Uuid::now_v7()));
                 transaction.execute(
                     "INSERT INTO collection_file_changes
