@@ -46,7 +46,7 @@ function EditorRedirect() {
     void fetch("/v1/ui-configuration")
       .then(async (response) => response.ok ? await response.json() as { editor_url?: string | null } : {})
       .then((configuration) => location.replace(editorRedirectTarget(configuration.editor_url ?? editorConnectUrl())))
-      .catch(() => location.replace(editorConnectUrl()));
+      .catch(() => location.replace(editorRedirectTarget(editorConnectUrl())));
   }, []);
   return <main className="portal-redirect" aria-live="polite">Opening mdbase Connect in the editor…</main>;
 }

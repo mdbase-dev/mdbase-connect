@@ -114,6 +114,12 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     }
   }
 
+  const googleCompleted = useCallback(() => undefined, []);
+  const googleFailed = useCallback((reason: unknown) => {
+    setError(errorMessage(reason));
+    setGoogleAction(null);
+  }, []);
+
   if (!account) {
     return <Page title="Account" intro="Manage hosted storage, sign-in methods, and browser sessions.">
       <p className="connect-muted" role="status">{error || "Loading account details…"}</p>
@@ -129,12 +135,6 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const deletionAuthorized = account.deletion.development_confirmation
     || Boolean(reauthenticationToken)
     || Boolean(deletionPassword);
-  const googleCompleted = () => undefined;
-  const googleFailed = (reason: unknown) => {
-    setError(errorMessage(reason));
-    setGoogleAction(null);
-  };
-
   return <Page title="Account" intro="Manage hosted storage, sign-in methods, and browser sessions.">
     {error && <div className="connect-account-message error" role="alert">{error}</div>}
     {notice && <div className="connect-account-message success" role="status">{notice}</div>}
@@ -223,7 +223,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 }
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
-  return <main className="connect-deleted-account"><div><p>Account deleted</p><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={loginUrl(client)}>Return to sign in</a></div></main>;
+  return <main className="connect-deleted-account"><div><p>Account deleted</p><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
 function Page({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
@@ -302,7 +302,7 @@ function relativeTime(value: string): string {
 
 function loginUrl(client: ConnectManagementClient): string {
   const url = new URL("/login", client.baseUrl);
-  url.searchParams.set("return_to", location.href);
+  url.searchParams.set("return_to", "/account");
   return url.href;
 }
 

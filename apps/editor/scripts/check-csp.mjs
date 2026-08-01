@@ -17,6 +17,15 @@ if (!scriptDirective) throw new Error("The Content-Security-Policy has no script
 if (scriptDirective.includes("'unsafe-inline'")) {
   throw new Error("script-src must not allow unsafe-inline scripts.");
 }
+for (const required of [
+  "https://accounts.google.com/gsi/client",
+  "frame-src https://accounts.google.com/gsi/",
+  "https://accounts.google.com/gsi/style"
+]) {
+  if (!policy.includes(required)) {
+    throw new Error(`The Content-Security-Policy does not allow the account provider source: ${required}`);
+  }
+}
 
 const allowedHashes = new Set(scriptDirective.match(/'sha256-[^']+'/g) ?? []);
 const inlineScripts = [...html.matchAll(/<script(?![^>]+\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
