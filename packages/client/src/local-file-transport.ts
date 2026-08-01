@@ -507,6 +507,14 @@ function localFileControlInput(
   if (method === "DELETE" && segments.length === 2 && segments[0] === "transfers") {
     return transferControl("abort_file_transfer", segments[1]!);
   }
+  if (
+    method === "DELETE"
+    && segments.length === 1
+    && segments[0]
+    && isRecord(input)
+    && input.type === "delete_file"
+    && input.file_id === decodeURIComponent(segments[0])
+  ) return { ...input };
   if (method === "POST" && isRecord(input)) {
     const expectedType = path === "uploads"
       ? "open_file_upload"
@@ -514,7 +522,10 @@ function localFileControlInput(
         ? "open_file_download"
         : segments.length === 3 && segments[0] === "uploads" && segments[2] === "commit"
           ? "commit_file_upload"
-          : null;
+          : segments.length === 2 && segments[1] === "move"
+            && input.file_id === decodeURIComponent(segments[0]!)
+            ? "move_file"
+            : null;
     if (expectedType && input.type === expectedType) return { ...input };
   }
   throw connectError("invalid_request", "The file control request path is invalid.");

@@ -10,7 +10,7 @@ import { MdbaseFileClient, type MdbaseFramedFileTransport } from "./files.js";
 const capability: FileCapability = {
   kind: "files",
   protocol_version: 1,
-  actions: ["list", "read", "add", "replace"],
+  actions: ["list", "read", "add", "replace", "move", "delete"],
   scope: { kind: "collection" }
 };
 
@@ -158,6 +158,93 @@ describe("MdbaseFileClient", () => {
       expect.objectContaining<Partial<MdbaseConnectError>>({ code: "invalid_operation_response" })
     );
     expect(aborts).toBe(1);
+  });
+
+  it("moves and deletes stable file identities with optimistic revisions", async () => {
+    const original = descriptor("Assets/original.bin", bytes("stable"));
+    const moved = { ...original, path: "Archive/final.bin", revision: "file:2" };
+    const moveMutationId = crypto.randomUUID();
+    const deleteMutationId = crypto.randomUUID();
+    const calls: Array<{ method: string; path?: string; input?: any }> = [];
+    const client = fileClient(async (method, path, input) => {
+      calls.push({ method, path, input });
+      if (path?.endsWith("/move")) {
+        return {
+          protocol_version: 1,
+          type: "file_moved",
+          mutation_id: input.mutation_id,
+          file: moved
+        };
+      }
+      return {
+        protocol_version: 1,
+        type: "file_deleted",
+        mutation_id: input.mutation_id,
+        file_id: moved.file_id,
+        previous_path: moved.path,
+        revision: "file:deleted:3"
+      };
+    });
+
+    await expect(client.move(original, moved.path, {
+      updateReferences: true,
+      mutationId: moveMutationId
+    }))
+      .resolves.toEqual(moved);
+    await expect(client.delete(moved, { mutationId: deleteMutationId })).resolves.toMatchObject({
+      type: "file_deleted",
+      file_id: moved.file_id,
+      previous_path: moved.path
+    });
+
+    expect(calls[0]).toEqual({
+      method: "POST",
+      path: `${encodeURIComponent(original.file_id)}/move`,
+      input: {
+        protocol_version: 1,
+        type: "move_file",
+        mutation_id: moveMutationId,
+        file_id: original.file_id,
+        if_revision: original.revision,
+        from_path: original.path,
+        path: moved.path,
+        update_references: true
+      }
+    });
+    expect(calls[1]).toEqual({
+      method: "DELETE",
+      path: encodeURIComponent(moved.file_id),
+      input: {
+        protocol_version: 1,
+        type: "delete_file",
+        mutation_id: deleteMutationId,
+        file_id: moved.file_id,
+        if_revision: moved.revision,
+        path: moved.path
+      }
+    });
+  });
+
+  it("requires lifecycle actions and validates identity-bound receipts", async () => {
+    const value = descriptor("file.bin", bytes("value"));
+    const request = vi.fn(async () => ({
+      protocol_version: 1,
+      type: "file_moved",
+      mutation_id: crypto.randomUUID(),
+      file: { ...value, file_id: crypto.randomUUID(), path: "moved.bin" }
+    }));
+    const readOnly = new MdbaseFileClient(
+      () => ({ ...capability, actions: ["list", "read"] }),
+      request
+    );
+    await expect(readOnly.move(value, "moved.bin")).rejects.toMatchObject({ code: "not_authorized" });
+    await expect(readOnly.delete(value)).rejects.toMatchObject({ code: "not_authorized" });
+    expect(request).not.toHaveBeenCalled();
+
+    const invalid = new MdbaseFileClient(() => capability, request);
+    await expect(invalid.move(value, "moved.bin")).rejects.toMatchObject({
+      code: "invalid_operation_response"
+    });
   });
 
   it("rejects missing actions before opening a transfer", async () => {

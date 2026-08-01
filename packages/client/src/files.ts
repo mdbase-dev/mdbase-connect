@@ -1,9 +1,11 @@
 import type {
   CollectionFileDescriptor,
   CommitFileUploadReceipt,
+  DeleteFileReceipt,
   FileCapability,
   FileTransferSession,
   ListFilesPage,
+  MoveFileReceipt,
   PreparedFilePart,
   UploadedFilePart
 } from "@mdbase/connect-protocol";
@@ -42,6 +44,22 @@ export interface MdbaseFileDownloadOptions {
   concurrency?: number;
   signal?: AbortSignal;
   onProgress?: (progress: MdbaseFileProgress) => void;
+}
+
+export interface MdbaseFileMoveOptions {
+  /** Rewrite supported Markdown references in the same authority transaction. */
+  updateReferences?: boolean;
+  ifRevision?: string;
+  /** Reuse after an ambiguous network failure to receive the original receipt. */
+  mutationId?: string;
+  signal?: AbortSignal;
+}
+
+export interface MdbaseFileDeleteOptions {
+  ifRevision?: string;
+  /** Reuse after an ambiguous network failure to receive the original receipt. */
+  mutationId?: string;
+  signal?: AbortSignal;
 }
 
 /** Internal transport seam used by direct and relayed encrypted chunk delivery. */
@@ -313,6 +331,81 @@ export class MdbaseFileClient {
     options: MdbaseFileDownloadOptions = {}
   ): Promise<Uint8Array> {
     return new Uint8Array(await (await this.download(file, options)).arrayBuffer());
+  }
+
+  async move(
+    file: CollectionFileDescriptor,
+    path: string,
+    options: MdbaseFileMoveOptions = {}
+  ): Promise<CollectionFileDescriptor> {
+    this.requireAction("move");
+    const mutationId = options.mutationId ?? crypto.randomUUID();
+    let receipt: MoveFileReceipt;
+    try {
+      receipt = await this.request<MoveFileReceipt>(
+        "POST",
+        `${encodeURIComponent(file.file_id)}/move`,
+        {
+          protocol_version: FILE_PROTOCOL_VERSION,
+          type: "move_file",
+          mutation_id: mutationId,
+          file_id: file.file_id,
+          if_revision: options.ifRevision ?? file.revision,
+          from_path: file.path,
+          path,
+          update_references: options.updateReferences ?? false
+        },
+        options.signal
+      );
+    } catch (error) {
+      throw normalizeFileError(error);
+    }
+    if (
+      receipt.protocol_version !== 1
+      || receipt.type !== "file_moved"
+      || receipt.mutation_id !== mutationId
+      || receipt.file.file_id !== file.file_id
+      || receipt.file.path !== path
+    ) {
+      throw connectError("invalid_operation_response", "The authority returned an invalid file move receipt.");
+    }
+    return receipt.file;
+  }
+
+  async delete(
+    file: CollectionFileDescriptor,
+    options: MdbaseFileDeleteOptions = {}
+  ): Promise<DeleteFileReceipt> {
+    this.requireAction("delete");
+    const mutationId = options.mutationId ?? crypto.randomUUID();
+    let receipt: DeleteFileReceipt;
+    try {
+      receipt = await this.request<DeleteFileReceipt>(
+        "DELETE",
+        encodeURIComponent(file.file_id),
+        {
+          protocol_version: FILE_PROTOCOL_VERSION,
+          type: "delete_file",
+          mutation_id: mutationId,
+          file_id: file.file_id,
+          if_revision: options.ifRevision ?? file.revision,
+          path: file.path
+        },
+        options.signal
+      );
+    } catch (error) {
+      throw normalizeFileError(error);
+    }
+    if (
+      receipt.protocol_version !== 1
+      || receipt.type !== "file_deleted"
+      || receipt.mutation_id !== mutationId
+      || receipt.file_id !== file.file_id
+      || receipt.previous_path !== file.path
+    ) {
+      throw connectError("invalid_operation_response", "The authority returned an invalid file delete receipt.");
+    }
+    return receipt;
   }
 
   private async uploadPart(
