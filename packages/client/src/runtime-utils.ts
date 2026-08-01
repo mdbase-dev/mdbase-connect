@@ -2,7 +2,7 @@ import type {
   GrantEncryption,
   GrantScope,
   MdbaseAppManifest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { validateGrantEncryption } from "./crypto.js";
 import { MdbaseConnectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";

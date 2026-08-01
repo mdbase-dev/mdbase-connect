@@ -4,7 +4,7 @@ import {
   MdbaseCollectionClient,
   MdbaseConnectError,
   type MdbaseCollectionTransport
-} from "@mdbase/connect";
+} from "@mdbase-dev/connect";
 import type {
   CollectionChange,
   CollectionChangesPage,
@@ -14,11 +14,11 @@ import type {
   MdbaseOperationEnvelope,
   RecordDocument,
   TypePackProvision
-} from "@mdbase/connect-protocol";
-import { isNativeRedirectUri } from "@mdbase/connect-protocol";
-import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
-import dataContractSchema from "@mdbase/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
-import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
+} from "@mdbase-dev/connect-protocol";
+import { isNativeRedirectUri } from "@mdbase-dev/connect-protocol";
+import appManifestSchema from "@mdbase-dev/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
+import dataContractSchema from "@mdbase-dev/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
+import connectProtocolSchema from "@mdbase-dev/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
 
 export interface ValidationIssue {
   path: string;

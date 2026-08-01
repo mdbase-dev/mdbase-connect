@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GrantEncryption, GrantScope } from "@mdbase/connect-protocol";
+import type { GrantEncryption, GrantScope } from "@mdbase-dev/connect-protocol";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,

@@ -88,11 +88,11 @@ gateway's trust boundary.
 
 ## Build an application
 
-The `@mdbase/connect` SDK gives browser and native applications an authorized,
+The `@mdbase-dev/connect` SDK gives browser and native applications an authorized,
 collection-scoped client:
 
 ```bash
-pnpm add @mdbase/connect
+pnpm add @mdbase-dev/connect
 ```
 
 Start with the [five-minute quickstart](https://mdbase.dev/sdk/quickstart/) or

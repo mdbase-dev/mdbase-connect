@@ -1,4 +1,4 @@
-# `@mdbase/connect`
+# `@mdbase-dev/connect`
 
 Browser SDK for dynamically discovered mdbase connect applications.
 
@@ -119,7 +119,7 @@ await connection.registerNotifications({
 In the service worker:
 
 ```ts
-import { showMdbasePushNotification } from "@mdbase/connect";
+import { showMdbasePushNotification } from "@mdbase-dev/connect";
 
 self.addEventListener("push", (event) => {
   event.waitUntil(
@@ -281,7 +281,7 @@ the declared type pack safely. The developer helper computes every resource
 digest:
 
 ```ts
-import { defineTypePack } from "@mdbase/connect-dev";
+import { defineTypePack } from "@mdbase-dev/connect-dev";
 
 const contract = `---
 kind: mdbase.contract
@@ -397,7 +397,7 @@ local and hosted authorities.
 
 `sync()` exposes a provider-neutral sync transport without exposing the
 provider credential. It refreshes the grant-bound capability as needed and can
-be passed directly to `@mdbase/connect-sync` for an offline application cache.
+be passed directly to `@mdbase-dev/connect-sync` for an offline application cache.
 
 Record-facing code can depend on `MdbaseCollectionClient` instead of the OAuth
 client. It accepts a small `MdbaseCollectionTransport`, which is the stable seam

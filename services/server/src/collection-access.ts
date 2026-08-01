@@ -1,7 +1,7 @@
 import type {
   CollectionOperation,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import {
   resolveHostedCollection,

@@ -18,7 +18,7 @@ import type {
   TypePackInstallResult,
   TypePackProvision,
   UpdateViewSourceInput
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import {
   MdbaseConnectError,

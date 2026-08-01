@@ -4,7 +4,7 @@ import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { accessView, resolveLocalCollectionAccess } from "../../collection-access.js";
 import { listLocalCollectionsVisibleToUser } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";

@@ -7,7 +7,7 @@ import type {
   GrantEncryption,
   GrantScope,
   TypePackProvision
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
 import { typesForContracts } from "../../hosted.js";
 import { RequestValidationError } from "../../platform/http-errors.js";

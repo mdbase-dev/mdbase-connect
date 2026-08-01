@@ -2,7 +2,7 @@ import type {
   ApplicationNotifications,
   ApplicationRequirements,
   CollectionContractDescriptor
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";

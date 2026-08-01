@@ -4,7 +4,7 @@ import type {
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import {
   accessView,

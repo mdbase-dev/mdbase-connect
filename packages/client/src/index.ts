@@ -63,4 +63,4 @@ export type {
   TypePackProvision,
   TypePackResourceDiff,
   TypePackSourceResource
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";

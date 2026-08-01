@@ -5,7 +5,7 @@ import type {
   SyncMutationReceipt,
   SyncSession,
   SyncSnapshotPage
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import type { SyncTransport } from "./sync-types.js";
 

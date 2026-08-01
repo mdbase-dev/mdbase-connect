@@ -1,7 +1,7 @@
 import type {
   CollectionOperation,
   JsonObject
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   authorizationReturnToFromError,
   isAuthorizationCallbackUrl

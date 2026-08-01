@@ -1,4 +1,4 @@
-import type { CollectionOperation } from "@mdbase/connect-protocol";
+import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError } from "./errors.js";
 import type { StoredToken } from "./internal-types.js";
 import type {

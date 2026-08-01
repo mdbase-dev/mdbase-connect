@@ -19,7 +19,7 @@ import type {
   TypePackInstallResult,
   TypePackProvision,
   UpdateViewSourceInput
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import {
   ConnectionNotifications

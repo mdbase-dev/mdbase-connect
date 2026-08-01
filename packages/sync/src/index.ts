@@ -9,7 +9,7 @@ export type {
   SyncSession,
   SyncSnapshotPage,
   SyncSnapshotRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export {
   MemoryAuthority,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { CollectionContractDescriptor } from "@mdbase/connect-protocol";
+import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";

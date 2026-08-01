@@ -7,7 +7,7 @@ import {
   AUTHORITY_PROOF_DOMAIN,
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 const PROOF_WINDOW_SECONDS = 5 * 60;
 

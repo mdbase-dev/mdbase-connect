@@ -1,5 +1,5 @@
 {
-  "name": "@mdbase/connect-sync",
+  "name": "@mdbase-dev/connect-sync",
   "version": "0.1.0-beta.21",
   "private": false,
   "type": "module",
@@ -49,7 +49,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@mdbase/connect-protocol": "workspace:*",
+    "@mdbase-dev/connect-protocol": "workspace:*",
     "@noble/hashes": "^2.2.0",
     "yaml": "^2.9.0"
   },

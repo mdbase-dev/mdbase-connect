@@ -8,7 +8,7 @@ import { runInNewContext } from "node:vm";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
-const packages = ["protocol", "client", "devkit", "sync", "webhooks"];
+const packages = ["protocol", "client", "devkit", "sync", "pickle", "webhooks"];
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-packages-"));
 
 try {
@@ -27,7 +27,7 @@ try {
       const entry = `package/${target.replace(/^\.\//, "")}`;
       assert(entries.includes(entry), `${manifest.name} exports missing file ${target}`);
     }
-    if (manifest.name === "@mdbase/connect") {
+    if (manifest.name === "@mdbase-dev/connect") {
       const browserEntry = "package/dist/browser/mdbase-connect.min.js";
       const integrityEntry = "package/dist/browser/integrity.json";
       assert(entries.includes(browserEntry), `${manifest.name} is missing its browser bundle`);

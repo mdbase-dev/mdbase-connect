@@ -4,7 +4,7 @@ import type {
   EncryptedRelayOperationRequest,
   GrantEncryption,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {

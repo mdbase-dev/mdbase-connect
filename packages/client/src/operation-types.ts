@@ -3,7 +3,7 @@ import type {
   JsonObject,
   QueryRecord,
   RecordDocument
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { MdbaseConnectError } from "./errors.js";
 
 export interface MdbaseDesiredTimer {

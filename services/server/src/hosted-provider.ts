@@ -4,7 +4,7 @@ import type {
   ContractSetupChoice,
   GrantPolicy,
   TypePackProvision
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 

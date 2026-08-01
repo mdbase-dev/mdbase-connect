@@ -1,4 +1,4 @@
-import type { JsonObject } from "@mdbase/connect-protocol";
+import type { JsonObject } from "@mdbase-dev/connect-protocol";
 import { DirectoryMirror } from "./directory-mirror.js";
 import type { SyncTransport } from "./sync-types.js";
 import type { DirectoryMirrorOptions } from "./mirror-state.js";

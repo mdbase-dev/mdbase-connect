@@ -1,4 +1,4 @@
-import { createSandbox } from "@mdbase/connect-dev";
+import { createSandbox } from "@mdbase-dev/connect-dev";
 import { describe, expect, it } from "vitest";
 
 import {

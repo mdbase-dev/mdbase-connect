@@ -1,4 +1,4 @@
-# @mdbase/connect-dev
+# @mdbase-dev/connect-dev
 
 Developer tools for applications built on mdbase connect.
 
@@ -9,7 +9,7 @@ cursors. It rejects CEL filters and ordering so semantic tests cannot silently
 depend on an approximation; run those against a real connector.
 
 ```ts
-import { createSandbox } from "@mdbase/connect-dev";
+import { createSandbox } from "@mdbase-dev/connect-dev";
 
 const { client } = createSandbox({
   records: [{
@@ -42,7 +42,7 @@ Use `defineTypePack` to generate the manifest entries and digests from readable
 documents:
 
 ```ts
-import { defineTypePack } from "@mdbase/connect-dev";
+import { defineTypePack } from "@mdbase-dev/connect-dev";
 
 const provision = defineTypePack({
   id: "example.tasks",

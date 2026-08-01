@@ -1,7 +1,7 @@
 import type {
   MdbaseDiagnostic,
   MdbaseOperationEnvelope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export type MdbaseRecoveryAction = "retry" | "reauthorize" | "refresh" | "resolve_outcome" | "fix_request" | "none";
 

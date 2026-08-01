@@ -3,17 +3,17 @@ import type {
   ContractRequirement,
   SyncCollectionResources,
   SyncMutation
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   MemoryAuthority,
   SyncError,
   type ReplicaOptions,
   type SerializedMemoryAuthority,
   type SyncTransport
-} from "@mdbase/connect-sync";
+} from "@mdbase-dev/connect-sync";
 import {
   authorityManifestDigest
-} from "@mdbase/connect-sync/mirror";
+} from "@mdbase-dev/connect-sync/mirror";
 import { createHash } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 

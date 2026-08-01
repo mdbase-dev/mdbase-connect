@@ -1,4 +1,4 @@
-import type { SyncResourceDocument } from "@mdbase/connect-protocol";
+import type { SyncResourceDocument } from "@mdbase-dev/connect-protocol";
 import { parse } from "yaml";
 import { SyncError } from "./sync-error.js";
 import { documentRevision, parseMarkdown } from "./mirror-format.js";

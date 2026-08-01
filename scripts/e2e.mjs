@@ -1389,7 +1389,7 @@ async function openApplicationServer(name, contracts, access) {
       response.setHeader("content-type", "text/html");
       response.end(`<!doctype html>
 <meta charset="utf-8">
-<script type="importmap">{"imports":{"@mdbase/connect-protocol":"${origin}/protocol/index.js"}}</script>
+<script type="importmap">{"imports":{"@mdbase-dev/connect-protocol":"${origin}/protocol/index.js"}}</script>
 <script type="module">
   import { MdbaseConnect, MemoryGrantKeyStore } from "${origin}/client/index.js";
   const keyStore = new MemoryGrantKeyStore();

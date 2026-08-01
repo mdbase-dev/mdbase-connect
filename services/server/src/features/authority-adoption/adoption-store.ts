@@ -1,4 +1,4 @@
-import type { CollectionContractDescriptor } from "@mdbase/connect-protocol";
+import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabasePool } from "../../database-types.js";
 import {
   HostedProviderResponseError,

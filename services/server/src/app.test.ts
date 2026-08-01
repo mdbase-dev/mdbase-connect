@@ -8,11 +8,11 @@ import {
 import type {
   ApplicationRequirements,
   MdbaseAppManifest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";

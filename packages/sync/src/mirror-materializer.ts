@@ -1,4 +1,4 @@
-import type { JsonObject, SyncRecord } from "@mdbase/connect-protocol";
+import type { JsonObject, SyncRecord } from "@mdbase-dev/connect-protocol";
 import { MirrorDivergenceError } from "./mirror-errors.js";
 import { recordMarkdownDocument } from "./mirror-format.js";
 import {

@@ -7,7 +7,7 @@ import type {
   SyncMutationReceipt,
   SyncSession,
   SyncSnapshotPage
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 
 export type MdbaseConnectionRoute = "remote" | "direct" | "relay";
 export type DirectAccessStatus =

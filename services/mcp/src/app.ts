@@ -3,7 +3,7 @@ import formbody from "@fastify/formbody";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { MdbaseAppManifest } from "@mdbase/connect-protocol";
+import type { MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import { ZodError, z } from "zod";
 import type { DatabasePool } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";

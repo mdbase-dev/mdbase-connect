@@ -14,8 +14,8 @@ COPY packages/protocol packages/protocol
 COPY packages/client packages/client
 COPY services/mcp services/mcp
 
-RUN pnpm --filter @mdbase/connect-protocol build \
- && pnpm --filter @mdbase/connect build \
+RUN pnpm --filter @mdbase-dev/connect-protocol build \
+ && pnpm --filter @mdbase-dev/connect build \
  && pnpm --filter @mdbase/connect-mcp build
 
 FROM node:24-bookworm-slim AS runtime

@@ -1,4 +1,4 @@
-import type { CollectionContractDescriptor } from "@mdbase/connect-protocol";
+import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
 import type { HostedTemplate } from "./hosted.js";
 

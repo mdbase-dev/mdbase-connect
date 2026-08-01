@@ -168,6 +168,6 @@ Recommended consumer assertions are:
 - pause, revocation, stale credentials, and reconnection fail or recover
   visibly and safely.
 
-Keep fast component tests on `@mdbase/connect-dev`'s in-memory sandbox. Use the
+Keep fast component tests on `@mdbase-dev/connect-dev`'s in-memory sandbox. Use the
 container environment for protocol, persistence, networking, packaging, and
 cross-process behavior that an in-memory transport cannot represent.

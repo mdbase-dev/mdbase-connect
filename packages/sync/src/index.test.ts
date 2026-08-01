@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { JsonObject, SyncMutation } from "@mdbase/connect-protocol";
+import type { JsonObject, SyncMutation } from "@mdbase-dev/connect-protocol";
 import {
   HttpSyncTransport,
   MemoryAuthority,

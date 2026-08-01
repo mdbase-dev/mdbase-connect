@@ -5,8 +5,8 @@ import type {
   JsonObject,
   RecordDocument,
   QueryRecord
-} from "@mdbase/connect-protocol";
-import type { MdbaseConnection, QueryResult } from "@mdbase/connect";
+} from "@mdbase-dev/connect-protocol";
+import type { MdbaseConnection, QueryResult } from "@mdbase-dev/connect";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,

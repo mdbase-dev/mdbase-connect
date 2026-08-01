@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { ConnectGateway } from "./connect.js";
-import type { GrantKeyStore } from "@mdbase/connect";
+import type { GrantKeyStore } from "@mdbase-dev/connect";
 import { pkceChallenge, randomToken, safeEqual, tokenHash } from "./security.js";
 
 export const MCP_SCOPES = ["mdbase:read", "mdbase:write"] as const;

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   authorityProofMessage,
   AuthorityProofError,

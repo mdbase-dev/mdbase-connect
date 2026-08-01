@@ -4,7 +4,7 @@ import type {
   SyncResourceDocument,
   SyncSession,
   SyncSnapshotRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   fastRecordDocumentMatches,
   parseMarkdown,

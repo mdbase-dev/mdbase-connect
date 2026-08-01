@@ -4,7 +4,7 @@ import type {
   SyncMutation,
   SyncMutationReceipt,
   SyncRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import { clone } from "./sync-values.js";
 

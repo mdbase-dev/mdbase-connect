@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import type { CollectionDescription } from "@mdbase/connect-protocol";
+import type { CollectionDescription } from "@mdbase-dev/connect-protocol";
 import {
   DataContractDefinitionError,
   TypePackDefinitionError,

@@ -132,7 +132,7 @@ importers:
 
   packages/client:
     dependencies:
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
@@ -148,10 +148,10 @@ importers:
 
   packages/devkit:
     dependencies:
-      '@mdbase/connect':
+      '@mdbase-dev/connect':
         specifier: workspace:*
         version: link:../client
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
       ajv:
@@ -170,14 +170,14 @@ importers:
 
   packages/pickle:
     dependencies:
-      '@mdbase/connect':
+      '@mdbase-dev/connect':
         specifier: workspace:*
         version: link:../client
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
-      '@mdbase/connect-dev':
+      '@mdbase-dev/connect-dev':
         specifier: workspace:*
         version: link:../devkit
       typescript:
@@ -201,7 +201,7 @@ importers:
 
   packages/sync:
     dependencies:
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
       '@noble/hashes':
@@ -232,7 +232,7 @@ importers:
 
   packages/webhooks:
     dependencies:
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
@@ -260,10 +260,10 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.1.0
         version: 11.1.0
-      '@mdbase/connect':
+      '@mdbase-dev/connect':
         specifier: workspace:*
         version: link:../../packages/client
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       '@modelcontextprotocol/sdk':
@@ -321,10 +321,10 @@ importers:
       '@fastify/websocket':
         specifier: ^11.3.0
         version: 11.3.0
-      '@mdbase/connect-protocol':
+      '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@mdbase/connect-sync':
+      '@mdbase-dev/connect-sync':
         specifier: workspace:*
         version: link:../../packages/sync
       '@nats-io/transport-node':
@@ -355,7 +355,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@mdbase/connect-webhooks':
+      '@mdbase-dev/connect-webhooks':
         specifier: workspace:*
         version: link:../../packages/webhooks
       '@types/node':

@@ -127,10 +127,10 @@ derived capabilities without taking the service offline.
 - `connect-mcp` owns MCP host OAuth sessions and encrypted upstream Connect
   credentials. It uses one exact Connect grant per approved collection and
   never shares a collection grant across MCP connection sets.
-- `@mdbase/connect` provides OAuth with PKCE, typed operation envelopes,
+- `@mdbase-dev/connect` provides OAuth with PKCE, typed operation envelopes,
   collection discovery, end-to-end encrypted relay operations, cursor-based
   subscriptions, and Web Push installation registration.
-- `@mdbase/connect-sync` defines hosted replication and supplies offline replica
+- `@mdbase-dev/connect-sync` defines hosted replication and supplies offline replica
   stores, an HTTP transport, and a receive-only Markdown mirror.
 - Domain adapters consume collection contracts and remain in their owning
   application repositories.
@@ -238,7 +238,7 @@ selector.
 Event sources and action providers are executable application declarations,
 not type implementations. They use the mdbase event/action interoperability
 profile and CloudEvents envelope. Connect ships exact copies of those portable
-schemas from `@mdbase/connect-protocol`; a future durable binding can add
+schemas from `@mdbase-dev/connect-protocol`; a future durable binding can add
 authority routing, journals, and offline delivery without defining another
 event/action vocabulary. Installing or validating any contract grants no
 authority.

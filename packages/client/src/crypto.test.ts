@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GrantEncryption } from "@mdbase/connect-protocol";
+import type { GrantEncryption } from "@mdbase-dev/connect-protocol";
 import {
   encryptRelayRequest,
   authorityProofMessage,
@@ -7,7 +7,7 @@ import {
   RelayCryptoError,
   signAuthorityRequest
 } from "./crypto.js";
-import { AUTHORITY_PROOF_HEADERS } from "@mdbase/connect-protocol";
+import { AUTHORITY_PROOF_HEADERS } from "@mdbase-dev/connect-protocol";
 
 const ids = {
   grant: "01911111-1111-7111-8111-111111111111",

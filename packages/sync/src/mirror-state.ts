@@ -5,7 +5,7 @@ import type {
   SyncMutationReceipt,
   SyncRecord,
   SyncChange
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import {
   portableMirrorPathKey,

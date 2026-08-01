@@ -1,4 +1,4 @@
-# `@mdbase/pickle`
+# `@mdbase-dev/pickle`
 
 Contract adapter and provisioning resources for Pickle collections.
 

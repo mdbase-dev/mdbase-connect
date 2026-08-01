@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { verifyNotificationWebhook } from "@mdbase/connect-webhooks";
+import { verifyNotificationWebhook } from "@mdbase-dev/connect-webhooks";
 import { describe, expect, it } from "vitest";
 import { SignedWebhookTransport } from "./webhook.js";
 

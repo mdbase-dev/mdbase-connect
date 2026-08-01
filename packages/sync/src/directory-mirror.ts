@@ -1,4 +1,4 @@
-import type { JsonObject, SyncMutation, SyncRecord } from "@mdbase/connect-protocol";
+import type { JsonObject, SyncMutation, SyncRecord } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
 import {

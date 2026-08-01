@@ -4,11 +4,11 @@ import type {
   EncryptedRelayOperationResponse,
   JsonObject,
   MdbaseOperationRequest
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   ENCRYPTED_RELAY_PROTOCOL_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   decryptRelayResponse,
   encryptRelayRequest,

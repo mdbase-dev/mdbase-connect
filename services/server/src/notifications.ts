@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ApplicationNotifications,
   NotificationCriterion
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 
 export interface PushSubscriptionTarget {

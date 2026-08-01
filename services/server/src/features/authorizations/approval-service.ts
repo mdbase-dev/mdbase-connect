@@ -11,11 +11,11 @@ import type {
   GrantEncryption,
   GrantPolicy,
   GrantScope
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   requireCollectionAction,
   resolveLocalCollectionAccess,
