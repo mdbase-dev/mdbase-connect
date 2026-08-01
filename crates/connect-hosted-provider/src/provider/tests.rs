@@ -389,11 +389,15 @@ fn application_capabilities_bind_operations_mode_and_origin() {
     authorize_application_operation(&replica, "list_views", Some("https://tasks.example")).unwrap();
     authorize_application_operation(&replica, "execute_view", Some("https://tasks.example"))
         .unwrap();
+    let insufficient = authorize_application_operation(&replica, "create", None).unwrap_err();
+    assert_eq!(insufficient.code, "insufficient_access");
     assert_eq!(
-        authorize_application_operation(&replica, "create", None)
-            .unwrap_err()
-            .code,
-        "insufficient_access"
+        insufficient.details,
+        Some(json!({
+            "required_operations": ["create"],
+            "granted_operations": ["query", "list_views", "execute_view"],
+            "missing_operations": ["create"],
+        }))
     );
     assert_eq!(
         authorize_application_operation(&replica, "query", Some("https://evil.example"))

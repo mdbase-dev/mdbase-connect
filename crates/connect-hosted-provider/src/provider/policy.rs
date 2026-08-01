@@ -12,7 +12,12 @@ pub(super) fn authorize_application_operation(
         return Err(ApiError::forbidden(
             "insufficient_access",
             "The application is not allowed to perform this operation.",
-        ));
+        )
+        .with_details(json!({
+            "required_operations": [operation],
+            "granted_operations": replica.allowed_operations,
+            "missing_operations": [operation],
+        })));
     }
     authorize_application_origin(replica, request_origin)
 }
