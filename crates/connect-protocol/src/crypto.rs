@@ -73,13 +73,18 @@ impl RelayIdentity {
         binding: &RelayBinding,
     ) -> Result<RelayKeys, RelayCryptoError> {
         binding.validate()?;
+        let shared = self.shared_secret(peer_public_key)?;
+        RelayKeys::derive(&shared, binding)
+    }
+
+    pub(crate) fn shared_secret(&self, peer_public_key: &str) -> Result<Vec<u8>, RelayCryptoError> {
         let peer_bytes = URL_SAFE_NO_PAD
             .decode(peer_public_key)
             .map_err(|_| RelayCryptoError::InvalidPublicKey)?;
         let peer = PublicKey::from_sec1_bytes(&peer_bytes)
             .map_err(|_| RelayCryptoError::InvalidPublicKey)?;
         let shared = diffie_hellman(self.secret.to_nonzero_scalar(), peer.as_affine());
-        RelayKeys::derive(shared.raw_secret_bytes(), binding)
+        Ok(shared.raw_secret_bytes().to_vec())
     }
 
     #[cfg(test)]

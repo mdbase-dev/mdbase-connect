@@ -126,7 +126,7 @@ export interface FileFrameHeader {
   offset: number;
   plaintext_length: number;
   total_size: number;
-  scope_revision: string;
+  scope_epoch: number;
   key_id?: string;
 }
 
@@ -235,8 +235,8 @@ function canonicalHeader(header: FileFrameHeader): FileFrameHeader {
   if (header.chunk_size < 64 * 1024) {
     throw new FileFrameError("invalid_header", "File frame chunk_size is below the protocol minimum");
   }
-  if (!header.scope_revision) {
-    throw new FileFrameError("invalid_header", "File frame header scope_revision must not be empty");
+  if (!Number.isSafeInteger(header.scope_epoch) || header.scope_epoch < 1) {
+    throw new FileFrameError("invalid_header", "File frame header scope_epoch must be a positive integer");
   }
   if (header.protection === "grant_aead_v1" && !header.key_id) {
     throw new FileFrameError("invalid_header", "AEAD-protected file frames require key_id");
@@ -254,7 +254,7 @@ function canonicalHeader(header: FileFrameHeader): FileFrameHeader {
     offset: header.offset,
     plaintext_length: header.plaintext_length,
     total_size: header.total_size,
-    scope_revision: header.scope_revision,
+    scope_epoch: header.scope_epoch,
     ...(header.key_id === undefined ? {} : { key_id: header.key_id })
   };
 }
@@ -276,7 +276,7 @@ function parseHeader(bytes: Uint8Array): FileFrameHeader {
   const allowed = new Set([
     "protocol_version", "protection", "grant_id", "authority_id", "collection_id",
     "transfer_id", "direction", "chunk_size", "chunk_index", "offset", "plaintext_length",
-    "total_size", "scope_revision", "key_id"
+    "total_size", "scope_epoch", "key_id"
   ]);
   if (Object.keys(object).some((key) => !allowed.has(key))) {
     throw new FileFrameError("invalid_header", "File frame header contains an unknown field");
@@ -301,7 +301,7 @@ function parseHeader(bytes: Uint8Array): FileFrameHeader {
     offset: expectInteger(object, "offset"),
     plaintext_length: expectInteger(object, "plaintext_length", MAX_FILE_CHUNK_BYTES),
     total_size: expectInteger(object, "total_size"),
-    scope_revision: expectString(object, "scope_revision"),
+    scope_epoch: expectInteger(object, "scope_epoch"),
     ...(keyId === undefined ? {} : { key_id: keyId })
   });
   if (JSON.stringify(header) !== source) {
@@ -333,26 +333,41 @@ function validateFrameSemantics(kind: FileFrameKind, header: FileFrameHeader, pa
   }
 }
 
-export function encodeFileFrame(frame: FileFrame): Uint8Array {
-  const header = canonicalHeader(frame.header);
-  validateFrameSemantics(frame.kind, header, frame.payload.byteLength);
+function expectedFileFramePayloadLength(header: FileFrameHeader): number {
+  return header.plaintext_length + (header.protection === "grant_aead_v1" ? 16 : 0);
+}
+
+/** Prefix and canonical header authenticated by the file chunk AEAD profile. */
+export function fileFrameAuthenticatedData(kind: FileFrameKind, input: FileFrameHeader): Uint8Array {
+  const header = canonicalHeader(input);
+  const payloadLength = expectedFileFramePayloadLength(header);
+  validateFrameSemantics(kind, header, payloadLength);
   const headerBytes = new TextEncoder().encode(JSON.stringify(header));
   if (headerBytes.byteLength > MAX_FILE_FRAME_HEADER_BYTES) {
     throw new FileFrameError("limit_exceeded", "File frame header exceeds the protocol limit");
   }
-  if (frame.payload.byteLength > MAX_FILE_CHUNK_BYTES + 16) {
-    throw new FileFrameError("limit_exceeded", "File frame payload exceeds the protocol limit");
-  }
-  const output = new Uint8Array(FILE_FRAME_PREFIX_BYTES + headerBytes.byteLength + frame.payload.byteLength);
+  const output = new Uint8Array(FILE_FRAME_PREFIX_BYTES + headerBytes.byteLength);
   output.set(FILE_FRAME_MAGIC_BYTES, 0);
   const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
   view.setUint8(4, FILE_FRAME_VERSION);
-  view.setUint8(5, frameKindCode(frame.kind));
+  view.setUint8(5, frameKindCode(kind));
   view.setUint16(6, FILE_FRAME_FLAGS, false);
   view.setUint32(8, headerBytes.byteLength, false);
-  view.setUint32(12, frame.payload.byteLength, false);
+  view.setUint32(12, payloadLength, false);
   output.set(headerBytes, FILE_FRAME_PREFIX_BYTES);
-  output.set(frame.payload, FILE_FRAME_PREFIX_BYTES + headerBytes.byteLength);
+  return output;
+}
+
+export function encodeFileFrame(frame: FileFrame): Uint8Array {
+  const header = canonicalHeader(frame.header);
+  validateFrameSemantics(frame.kind, header, frame.payload.byteLength);
+  if (frame.payload.byteLength > MAX_FILE_CHUNK_BYTES + 16) {
+    throw new FileFrameError("limit_exceeded", "File frame payload exceeds the protocol limit");
+  }
+  const authenticatedData = fileFrameAuthenticatedData(frame.kind, header);
+  const output = new Uint8Array(authenticatedData.byteLength + frame.payload.byteLength);
+  output.set(authenticatedData, 0);
+  output.set(frame.payload, authenticatedData.byteLength);
   return output;
 }
 

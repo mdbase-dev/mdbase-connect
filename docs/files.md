@@ -170,7 +170,7 @@ payload            plaintext or AEAD ciphertext according to protection
 
 The header contains the protocol, protection profile, grant and authority
 binding, collection and transfer IDs, direction, chunk index, byte offset,
-negotiated chunk size, plaintext length, total size, scope revision, and key
+negotiated chunk size, plaintext length, total size, scope epoch, and key
 ID. Headers use the canonical field order with no insignificant whitespace so
 Rust and TypeScript produce identical bytes. The complete prefix and exact
 header bytes are authenticated associated data. Routers may inspect the header
@@ -216,16 +216,27 @@ digest, and installs the result with atomic replacement. Crash recovery either
 completes an already committed journal entry or removes an uncommitted staging
 file; it never exposes a partial destination.
 
-A hosted authority stores transactional file metadata, grants, transfer state,
-quota accounting, changes, versions, and receipts in PostgreSQL. Immutable
-blob chunks live in object storage under opaque collection-scoped keys and use
-per-collection envelope encryption. Cross-collection deduplication is excluded
-from protocol 1 to avoid equality, lifecycle, and deletion coupling.
+A hosted authority running on Render stores transactional file and attachment
+metadata, grants, transfer state, quota accounting, changes, versions, and
+receipts in PostgreSQL. Actual immutable file bytes live in Cloudflare R2 under
+opaque collection-scoped staging and committed object keys; neither the Render
+filesystem nor PostgreSQL is a blob store. R2 credentials remain provider-only.
+Any direct multipart upload uses short-lived authority-issued permissions for
+one opaque staging object, and an R2 completion is not a collection commit.
+The Render authority still verifies the declared size and SHA-256 digest,
+checks current grant/path/quota/base-revision state, finalizes the object, and
+atomically commits its PostgreSQL file row and ordered change receipt.
 
-Garbage collection removes expired staging objects and unreferenced retained
+R2's storage encryption is part of the standard-hosted at-rest boundary. Any
+additional provider envelope-encryption profile must preserve resumable range
+reads and avoid exposing collection keys in signed browser requests.
+Cross-collection deduplication is excluded from protocol 1 to avoid equality,
+lifecycle, and deletion coupling.
+
+Garbage collection removes expired R2 staging objects and unreferenced retained
 versions only after snapshot leases, transfer pins, mutation receipts, and
-recovery retention permit it. Provider deletion covers both database metadata
-and object versions and is verified by restore and deletion drills.
+recovery retention permit it. Provider deletion covers both Render/PostgreSQL
+metadata and R2 object versions and is verified by restore and deletion drills.
 
 ## Replication and selective sync
 

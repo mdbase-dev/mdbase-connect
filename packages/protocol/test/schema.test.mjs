@@ -116,7 +116,7 @@ test("file transfer control messages are bounded and resumable", () => {
     offset: 2097152,
     plaintext_length: 1048576,
     total_size: 3145729,
-    scope_revision: "scope_7",
+    scope_epoch: 7,
     key_id: "grant-key-3"
   };
   assert.equal(validateHeader(header), true, JSON.stringify(validateHeader.errors));

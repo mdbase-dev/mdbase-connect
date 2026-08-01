@@ -12,6 +12,7 @@ pub const FILE_FRAME_MAGIC: [u8; 4] = *b"MDBF";
 const FILE_FRAME_VERSION: u8 = 1;
 const FILE_FRAME_FLAGS: u16 = 0;
 const AEAD_TAG_BYTES: usize = 16;
+const MAX_SAFE_WIRE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -258,7 +259,7 @@ pub struct FileFrameHeader {
     pub offset: u64,
     pub plaintext_length: u32,
     pub total_size: u64,
-    pub scope_revision: String,
+    pub scope_epoch: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_id: Option<String>,
 }
@@ -350,30 +351,16 @@ pub enum FileFrameError {
 impl FileFrame {
     pub fn encode(&self) -> Result<Vec<u8>, FileFrameError> {
         self.validate()?;
-        let header_bytes = serde_json::to_vec(&self.header)
-            .map_err(|error| FileFrameError::InvalidHeader(error.to_string()))?;
-        if header_bytes.is_empty() || header_bytes.len() > MAX_FILE_FRAME_HEADER_BYTES {
-            return Err(FileFrameError::LimitExceeded);
-        }
         if self.payload.len() > MAX_FILE_CHUNK_BYTES as usize + AEAD_TAG_BYTES {
             return Err(FileFrameError::LimitExceeded);
         }
-        let header_length =
-            u32::try_from(header_bytes.len()).map_err(|_| FileFrameError::LimitExceeded)?;
-        let payload_length =
-            u32::try_from(self.payload.len()).map_err(|_| FileFrameError::LimitExceeded)?;
-        let capacity = FILE_FRAME_PREFIX_BYTES
-            .checked_add(header_bytes.len())
-            .and_then(|length| length.checked_add(self.payload.len()))
+        let authenticated_data = file_frame_authenticated_data(self.kind, &self.header)?;
+        let capacity = authenticated_data
+            .len()
+            .checked_add(self.payload.len())
             .ok_or(FileFrameError::LimitExceeded)?;
         let mut output = Vec::with_capacity(capacity);
-        output.extend_from_slice(&FILE_FRAME_MAGIC);
-        output.push(FILE_FRAME_VERSION);
-        output.push(self.kind.code());
-        output.extend_from_slice(&FILE_FRAME_FLAGS.to_be_bytes());
-        output.extend_from_slice(&header_length.to_be_bytes());
-        output.extend_from_slice(&payload_length.to_be_bytes());
-        output.extend_from_slice(&header_bytes);
+        output.extend_from_slice(&authenticated_data);
         output.extend_from_slice(&self.payload);
         Ok(output)
     }
@@ -437,51 +424,97 @@ impl FileFrame {
     }
 
     fn validate(&self) -> Result<(), FileFrameError> {
-        let header = &self.header;
-        if header.protocol_version != FILE_TRANSFER_PROTOCOL_VERSION {
-            return Err(FileFrameError::InvalidHeader(format!(
-                "unsupported transfer protocol {}",
-                header.protocol_version
-            )));
-        }
-        if header.direction != self.kind.direction() {
-            return Err(FileFrameError::DirectionMismatch);
-        }
-        if !(MIN_FILE_CHUNK_BYTES..=MAX_FILE_CHUNK_BYTES).contains(&header.chunk_size)
-            || header.plaintext_length > header.chunk_size
-            || header.scope_revision.is_empty()
-            || matches!(header.protection, FileTransferProtection::GrantAeadV1)
-                && header.key_id.as_deref().is_none_or(str::is_empty)
-        {
-            return Err(FileFrameError::InvalidHeader(
-                "header value is outside its allowed range".to_string(),
-            ));
-        }
-        let expected_offset = header
-            .chunk_index
-            .checked_mul(u64::from(header.chunk_size))
-            .ok_or(FileFrameError::OffsetMismatch)?;
-        if header.offset != expected_offset {
-            return Err(FileFrameError::OffsetMismatch);
-        }
-        let end = header
-            .offset
-            .checked_add(u64::from(header.plaintext_length))
-            .ok_or(FileFrameError::TransferBounds)?;
-        if end > header.total_size {
-            return Err(FileFrameError::TransferBounds);
-        }
-        let expected_payload = header.plaintext_length as usize
-            + if matches!(header.protection, FileTransferProtection::GrantAeadV1) {
-                AEAD_TAG_BYTES
-            } else {
-                0
-            };
-        if self.payload.len() != expected_payload {
-            return Err(FileFrameError::PayloadLengthMismatch);
-        }
-        Ok(())
+        validate_file_frame_parts(self.kind, &self.header, self.payload.len())
     }
+}
+
+/** Fixed prefix and canonical header authenticated by the file chunk AEAD profile. */
+pub fn file_frame_authenticated_data(
+    kind: FileFrameKind,
+    header: &FileFrameHeader,
+) -> Result<Vec<u8>, FileFrameError> {
+    let payload_length = header.plaintext_length as usize
+        + if matches!(header.protection, FileTransferProtection::GrantAeadV1) {
+            AEAD_TAG_BYTES
+        } else {
+            0
+        };
+    validate_file_frame_parts(kind, header, payload_length)?;
+    let header_bytes = serde_json::to_vec(header)
+        .map_err(|error| FileFrameError::InvalidHeader(error.to_string()))?;
+    if header_bytes.is_empty() || header_bytes.len() > MAX_FILE_FRAME_HEADER_BYTES {
+        return Err(FileFrameError::LimitExceeded);
+    }
+    let header_length =
+        u32::try_from(header_bytes.len()).map_err(|_| FileFrameError::LimitExceeded)?;
+    let payload_length =
+        u32::try_from(payload_length).map_err(|_| FileFrameError::LimitExceeded)?;
+    let capacity = FILE_FRAME_PREFIX_BYTES
+        .checked_add(header_bytes.len())
+        .ok_or(FileFrameError::LimitExceeded)?;
+    let mut output = Vec::with_capacity(capacity);
+    output.extend_from_slice(&FILE_FRAME_MAGIC);
+    output.push(FILE_FRAME_VERSION);
+    output.push(kind.code());
+    output.extend_from_slice(&FILE_FRAME_FLAGS.to_be_bytes());
+    output.extend_from_slice(&header_length.to_be_bytes());
+    output.extend_from_slice(&payload_length.to_be_bytes());
+    output.extend_from_slice(&header_bytes);
+    Ok(output)
+}
+
+fn validate_file_frame_parts(
+    kind: FileFrameKind,
+    header: &FileFrameHeader,
+    payload_length: usize,
+) -> Result<(), FileFrameError> {
+    if header.protocol_version != FILE_TRANSFER_PROTOCOL_VERSION {
+        return Err(FileFrameError::InvalidHeader(format!(
+            "unsupported transfer protocol {}",
+            header.protocol_version
+        )));
+    }
+    if header.direction != kind.direction() {
+        return Err(FileFrameError::DirectionMismatch);
+    }
+    if !(MIN_FILE_CHUNK_BYTES..=MAX_FILE_CHUNK_BYTES).contains(&header.chunk_size)
+        || header.plaintext_length > header.chunk_size
+        || header.scope_epoch == 0
+        || header.scope_epoch > MAX_SAFE_WIRE_INTEGER
+        || header.chunk_index > MAX_SAFE_WIRE_INTEGER
+        || header.offset > MAX_SAFE_WIRE_INTEGER
+        || header.total_size > MAX_SAFE_WIRE_INTEGER
+        || matches!(header.protection, FileTransferProtection::GrantAeadV1)
+            && header.key_id.as_deref().is_none_or(str::is_empty)
+    {
+        return Err(FileFrameError::InvalidHeader(
+            "header value is outside its allowed range".to_string(),
+        ));
+    }
+    let expected_offset = header
+        .chunk_index
+        .checked_mul(u64::from(header.chunk_size))
+        .ok_or(FileFrameError::OffsetMismatch)?;
+    if header.offset != expected_offset {
+        return Err(FileFrameError::OffsetMismatch);
+    }
+    let end = header
+        .offset
+        .checked_add(u64::from(header.plaintext_length))
+        .ok_or(FileFrameError::TransferBounds)?;
+    if end > header.total_size {
+        return Err(FileFrameError::TransferBounds);
+    }
+    let expected_payload = header.plaintext_length as usize
+        + if matches!(header.protection, FileTransferProtection::GrantAeadV1) {
+            AEAD_TAG_BYTES
+        } else {
+            0
+        };
+    if payload_length != expected_payload {
+        return Err(FileFrameError::PayloadLengthMismatch);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -592,18 +625,13 @@ mod tests {
             FileFrame::decode(&raw_frame(&format!(" {canonical}"), &frame.payload)),
             Err(FileFrameError::NonCanonicalHeader)
         );
-        let duplicate = canonical.replace(
-            "\"scope_revision\":\"scope_7\"",
-            "\"scope_revision\":\"scope_7\",\"scope_revision\":\"scope_7\"",
-        );
+        let duplicate =
+            canonical.replace("\"scope_epoch\":7", "\"scope_epoch\":7,\"scope_epoch\":7");
         assert!(matches!(
             FileFrame::decode(&raw_frame(&duplicate, &frame.payload)),
             Err(FileFrameError::InvalidHeader(_))
         ));
-        let unknown = canonical.replace(
-            "\"scope_revision\":\"scope_7\"",
-            "\"scope_revision\":\"scope_7\",\"future\":true",
-        );
+        let unknown = canonical.replace("\"scope_epoch\":7", "\"scope_epoch\":7,\"future\":true");
         assert!(matches!(
             FileFrame::decode(&raw_frame(&unknown, &frame.payload)),
             Err(FileFrameError::InvalidHeader(_))

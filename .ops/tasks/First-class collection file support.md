@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T12:51:30+10:00
+updated_at: 2026-08-01T13:01:14+10:00
 type: task
 ---
 
@@ -50,8 +50,9 @@ encryption, resumability, or authority-specific storage.
   materialization policy independent.
 - Replicate file manifests in snapshots and changes, then fetch immutable blob
   content separately and resumably.
-- Store hosted file metadata and transactions in PostgreSQL and large immutable
-  content in encrypted object storage.
+- Store hosted file and attachment metadata and transactions with the
+  Render-hosted authority in PostgreSQL, while actual immutable bytes live in
+  Cloudflare R2 under opaque authority-controlled keys.
 - Version file capabilities, transfer framing, and sync wire objects explicitly
   across Rust and TypeScript.
 
@@ -115,6 +116,18 @@ Focused verification passes: 18 Rust protocol tests, strict protocol Clippy,
 Rust formatting, TypeScript typechecking/build, 24 Node protocol tests,
 strict compilation of every canonical JSON Schema, architecture budgets, and
 `git diff --check`.
+
+The file data plane now has its own grant-bound encryption implementation in
+Rust and the browser SDK. It derives a distinct HKDF-SHA-256/AES-256-GCM key
+for each transfer direction, uses the chunk index as a transfer-local nonce,
+authenticates the complete bounded prefix and canonical header, and does not
+consume ordinary JSON operation counters. A fixed shared-secret fixture proves
+byte-identical ciphertext and decryption across Rust and Web Crypto. Focused
+verification now passes 21 Rust protocol tests and 86 browser SDK tests.
+
+The hosted boundary is explicit: attachment/file rows and transactions live in
+the Render-hosted PostgreSQL authority; immutable file bytes live in Cloudflare
+R2. Provider-issued staging access never constitutes a collection commit.
 
 ## Handoff
 

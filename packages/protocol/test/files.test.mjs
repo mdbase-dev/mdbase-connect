@@ -26,7 +26,7 @@ const header = Object.freeze({
   offset: 0,
   plaintext_length: 32,
   total_size: 32,
-  scope_revision: "scope_7"
+  scope_epoch: 7
 });
 const payload = Uint8Array.from({ length: 32 }, (_, index) => index);
 
@@ -99,12 +99,12 @@ test("file frame headers are canonical, closed, and semantically bound", () => {
   const canonical = JSON.stringify(header);
   expectFrameError("invalid_header", () => decodeFileFrame(rawFrame(` ${canonical}`)));
   expectFrameError("invalid_header", () => decodeFileFrame(rawFrame(canonical.replace(
-    '"scope_revision":"scope_7"',
-    '"scope_revision":"scope_7","scope_revision":"scope_7"'
+    '"scope_epoch":7',
+    '"scope_epoch":7,"scope_epoch":7'
   ))));
   expectFrameError("invalid_header", () => decodeFileFrame(rawFrame(canonical.replace(
-    '"scope_revision":"scope_7"',
-    '"scope_revision":"scope_7","future":true'
+    '"scope_epoch":7',
+    '"scope_epoch":7,"future":true'
   ))));
   expectFrameError("invalid_header", () => encodeFileFrame({
     kind: "download_chunk",

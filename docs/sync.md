@@ -535,8 +535,9 @@ private hosted collections, local files, and device caches are defined in
 
 ## Cost and operational shape
 
-The initial service can run with one Rust hosted-provider service and
-PostgreSQL:
+The initial service can run with one Rust hosted-provider service on Render,
+PostgreSQL for authoritative metadata and records, and Cloudflare R2 for
+collection file bytes:
 
 - current Markdown records are stored once;
 - retained versions and change events have bounded lifetimes;
@@ -547,13 +548,16 @@ PostgreSQL:
   sync egress.
 
 Free hosted collections can be constrained by record count, current stored
-bytes, and monthly mutation volume. Those limits map directly to provider cost
-and leave local and self-hosted collections unrestricted. Attachments can use
-object storage with separate quotas when they enter the product.
+bytes, R2 file bytes, file egress, and monthly mutation volume. Those limits
+map directly to provider cost and leave local and self-hosted collections
+unrestricted. Attachment/file metadata and quota accounting remain
+transactional provider rows; the corresponding bytes are always R2 objects.
 
-PostgreSQL point-in-time recovery protects hosted state. Users can export a
-hosted collection as an ordinary mdbase directory at any time, including its
-Markdown records and type definitions.
+PostgreSQL point-in-time recovery protects hosted metadata. R2 lifecycle,
+versioning, and recovery policy protect file objects, and restore drills verify
+that database manifests and object generations remain consistent. Users can
+export a hosted collection as an ordinary mdbase directory at any time,
+including its Markdown records, type definitions, and selected files.
 
 ## Implementation sequence
 
