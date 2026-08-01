@@ -87,10 +87,7 @@ export function ConnectApp() {
     const path = next === "overview" ? "/connect" : `/connect/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
-    if (collectionId) {
-      url.searchParams.set("collection", collectionId);
-      rememberCollection(collectionId);
-    }
+    if (collectionId) url.searchParams.set("collection", collectionId);
     history.pushState(null, "", `${url.pathname}${url.search}`);
     setView(next);
   }
@@ -107,47 +104,20 @@ export function ConnectApp() {
     }
   }
 
-  const collections = data ? collectionRows(data) : [];
-  const requestedCollectionId = new URLSearchParams(location.search).get("collection");
-  const rememberedCollectionId = readRememberedCollection();
-  const selectedCollection = collections.find((collection) => collection.id === requestedCollectionId)
-    ?? collections.find((collection) => collection.id === rememberedCollectionId)
-    ?? (collections.length === 1 ? collections[0] : undefined);
-  const selectedCollectionId = selectedCollection?.id;
-
-  useEffect(() => {
-    if (!data) return;
-    if (selectedCollectionId) {
-      rememberCollection(selectedCollectionId);
-      if (requestedCollectionId !== selectedCollectionId) {
-        const url = new URL(location.href);
-        url.searchParams.set("collection", selectedCollectionId);
-        history.replaceState(null, "", `${url.pathname}${url.search}`);
-      }
-      return;
-    }
-    if (isCollectionView(view)) {
-      const url = new URL(location.href);
-      url.pathname = "/connect/collections";
-      url.searchParams.delete("collection");
-      history.replaceState(null, "", `${url.pathname}${url.search}`);
-      setView("collections");
-    }
-  }, [data, requestedCollectionId, selectedCollectionId, view]);
-
   if (!data) return <ConnectLoading error={error} />;
 
-  const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const activeGrants = data.grants.filter((grant) => !grant.revoked_at);
+  const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked");
   const applications = groupApplicationAccess(activeGrants);
+  const collections = collectionRows(data);
+  const requestedCollectionId = new URLSearchParams(location.search).get("collection");
+  const selectedCollection = collections.find((collection) => collection.id === requestedCollectionId) ?? collections[0];
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
   const selectedApplications = groupApplicationAccess(selectedGrants);
-  const pendingRequest = data.pending_authorizations[0];
-  const pendingCollection = pendingRequest?.collection_id
-    ? collections.find((collection) => collection.id === pendingRequest.collection_id)
-    : undefined;
+  const pendingRequest = data.pending_authorizations.find((request) =>
+    !request.collection_id || request.collection_id === selectedCollection?.id
+  );
   const editorLinks = editorSurfaceUrls(selectedCollection?.id);
   return <div className="connect-shell">
     <EditorRail
@@ -156,7 +126,7 @@ export function ConnectApp() {
       notes={{ href: editorLinks.notes }}
       types={{ href: editorLinks.types }}
       settings={{ href: editorLinks.settings }}
-      connectHref={connectViewUrl(activeView, selectedCollection?.id)}
+      connectHref={connectViewUrl(view, selectedCollection?.id)}
       connectCount={data.pending_authorizations.length || undefined}
       onSwitch={() => navigate("collections", selectedCollection?.id)}
       footer={<>
@@ -166,72 +136,65 @@ export function ConnectApp() {
     />
     <aside className="connect-nav" aria-label="Connect navigation">
       <header><strong>Connect</strong></header>
+      {pendingRequest && <a className="connect-request-callout" href={new URL(`/authorize/${pendingRequest.id}`, management.baseUrl).href}><Warning aria-hidden="true" /><span><strong>{pendingRequest.application_name} is waiting</strong><small>Review collection access</small></span></a>}
       <nav>
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">This collection</p>
-          <NavButton label="Overview" icon={<Info />} selected={activeView === "overview"} onClick={() => navigate("overview", selectedCollection.id)} />
-          <NavButton label="Storage & sync" icon={<Notebook />} selected={activeView === "storage"} onClick={() => navigate("storage", selectedCollection.id)} />
-          <NavButton label="App access" icon={<Package />} selected={activeView === "access"} onClick={() => navigate("access", selectedCollection.id)} />
+          <NavButton label="Overview" icon={<Info />} selected={view === "overview"} onClick={() => navigate("overview", selectedCollection.id)} />
+          <NavButton label="Storage & sync" icon={<Notebook />} selected={view === "storage"} onClick={() => navigate("storage", selectedCollection.id)} />
+          <NavButton label="App access" count={selectedApplications.length} icon={<Package />} selected={view === "access"} onClick={() => navigate("access", selectedCollection.id)} />
         </section>}
         <section className="connect-nav-group" aria-labelledby="account-navigation">
           <p id="account-navigation">Account</p>
-          <NavButton label="All collections" icon={<Notebook />} selected={activeView === "collections"} onClick={() => navigate("collections", selectedCollection?.id)} />
-          <NavButton label="Applications" icon={<Package />} selected={activeView === "applications"} onClick={() => navigate("applications", selectedCollection?.id)} />
-          <NavButton label="Computers" icon={<Braces />} selected={activeView === "computers"} onClick={() => navigate("computers", selectedCollection?.id)} />
-          <NavButton label="Account & sessions" icon={<Settings />} selected={activeView === "account"} onClick={() => navigate("account", selectedCollection?.id)} />
+          <NavButton label="All collections" count={collections.length} icon={<Notebook />} selected={view === "collections"} onClick={() => navigate("collections", selectedCollection?.id)} />
+          <NavButton label="Applications" count={applications.length} icon={<Package />} selected={view === "applications"} onClick={() => navigate("applications", selectedCollection?.id)} />
+          <NavButton label="Computers" count={data.connectors.length} icon={<Braces />} selected={view === "computers"} onClick={() => navigate("computers", selectedCollection?.id)} />
+          <NavButton label="Account & sessions" icon={<Settings />} selected={view === "account"} onClick={() => navigate("account", selectedCollection?.id)} />
         </section>
       </nav>
     </aside>
     <main className="connect-main">
       {error && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{error}<button onClick={() => setError("")}>Dismiss</button></div>}
-      {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
-      {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview collection={selectedCollection} applications={selectedApplications} navigate={navigate} />
+      {view === "overview" && (selectedCollection
+        ? <CollectionOverview collection={selectedCollection} data={data} applications={selectedApplications} navigate={navigate} />
         : <Collections data={data} busy={busy} perform={perform} navigate={navigate} />)}
-      {activeView === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
-      {activeView === "access" && selectedCollection && <CollectionAccess collection={selectedCollection} groups={selectedApplications} busy={busy} perform={perform} />}
-      {activeView === "collections" && <Collections data={data} busy={busy} perform={perform} navigate={navigate} />}
-      {activeView === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
-      {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
-      {activeView === "account" && <Account data={data} sessions={sessions} busy={busy} perform={perform} />}
+      {view === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
+      {view === "access" && selectedCollection && <CollectionAccess collection={selectedCollection} groups={selectedApplications} busy={busy} perform={perform} />}
+      {view === "collections" && <Collections data={data} busy={busy} perform={perform} navigate={navigate} />}
+      {view === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
+      {view === "computers" && <Computers data={data} busy={busy} perform={perform} />}
+      {view === "account" && <Account data={data} sessions={sessions} busy={busy} perform={perform} />}
     </main>
   </div>;
 }
 
-function PendingRequestBanner({ request, collectionName, count }: {
-  request: ManagementOverview["pending_authorizations"][number];
-  collectionName?: string;
-  count: number;
-}) {
-  const title = count === 1 ? `${request.application_name} is waiting` : `${count} access requests are waiting`;
-  const detail = collectionName
-    ? `Review ${request.application_name}’s request for ${collectionName}.`
-    : `Review ${request.application_name}’s collection access request.`;
-  return <a className="connect-pending-banner" href={new URL(`/authorize/${request.id}`, management.baseUrl).href}>
-    <Warning aria-hidden="true" />
-    <span><strong>{title}</strong><small>{detail}</small></span>
-    <b>{count === 1 ? "Review request" : "Review next request"}</b>
-  </a>;
-}
-
-function CollectionOverview({ collection, applications, navigate }: {
+function CollectionOverview({ collection, data, applications, navigate }: {
   collection: CollectionRow;
+  data: ManagementOverview;
   applications: ApplicationAccessGroup<Grant>[];
   navigate(view: ConnectView, collectionId?: string): void;
 }) {
+  const requests = data.pending_authorizations.filter((request) => !request.collection_id || request.collection_id === collection.id);
   return <Page eyebrow="Current collection" title={collection.name} intro="Manage where this collection lives and which applications can use it.">
+    {requests.length > 0 && <section className="connect-attention" aria-labelledby="access-requests-title">
+      <SectionTitle id="access-requests-title" title="Access requests" count={requests.length} />
+      {requests.map((request) => <div className="connect-row" key={request.id}>
+        <div><strong>{request.application_name}</strong><small>Requests access to this collection</small></div>
+        <a className="connect-primary-action" href={new URL(`/authorize/${request.id}`, management.baseUrl).href}>Review request</a>
+      </div>)}
+    </section>}
     <section>
       <SectionTitle title="Storage" action={<button onClick={() => navigate("storage", collection.id)}>Manage</button>} />
-      <div className="connect-row connect-storage-summary"><div><strong>Main copy</strong><small>{collection.kind === "hosted" ? "Stored by mdbase" : `Stored on ${collection.detail}`}</small></div><span className={`connect-status ${collection.online ? "online" : "idle"}`}><i />{collection.status}</span></div>
+      <div className="connect-row"><div><strong>Main copy</strong><small>{collection.kind === "hosted" ? "Available without a connected computer" : `Provided by ${collection.detail}`}</small></div><span>{collection.detail}</span><span className={`connect-status ${collection.online ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
     <section>
       <SectionTitle title="Application access" count={applications.length} action={<button onClick={() => navigate("access", collection.id)}>Review all</button>} />
-      {applications.map((application) => <div className="connect-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><button onClick={() => navigate("access", collection.id)}>Review</button></div>)}
+      {applications.map((application) => <div className="connect-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{application.grants[0].operations.length} allowed actions</span><button onClick={() => navigate("access", collection.id)}>Review</button></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
     <section>
       <SectionTitle title="Connection" />
-      <div className="connect-row"><div><strong>{collection.online ? "Connected" : "Unavailable"}</strong><small>{collection.online ? "The editor can reach this collection now." : "The editor cannot reach this collection."}</small></div><span className={`connect-status ${collection.online ? "online" : "idle"}`}><i />{collection.online ? "Connected" : "Unavailable"}</span></div>
+      <div className="connect-row"><div><strong>{collection.online ? "Available" : "Unavailable"}</strong><small>The editor chooses a direct or relayed route automatically.</small></div><span className={`connect-status ${collection.online ? "online" : "idle"}`}><i />{collection.status}</span></div>
     </section>
   </Page>;
 }
@@ -242,7 +205,7 @@ function Storage({ collection, busy, perform }: {
   perform(id: string, action: () => Promise<void>): Promise<void>;
 }) {
   if (collection.kind === "hosted") {
-    const replicas = collection.source.replicas.filter((replica) => !replica.revoked_at);
+    const replicas = collection.source.replicas.filter((replica) => replica.revocation_status !== "revoked");
     return <Page eyebrow={collection.name} title="Storage & sync" intro="Manage the main copy and its synced Markdown folders.">
       <section>
         <SectionTitle title="Main copy" />
@@ -250,7 +213,7 @@ function Storage({ collection, busy, perform }: {
       </section>
       <section>
         <SectionTitle title="Synced folders" count={replicas.length} action={<a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.source.id)}`}><Plus aria-hidden="true" />Sync a folder</a>} />
-        {replicas.map((replica) => <div className="connect-row" key={replica.id}><div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Edits sync both ways"}</small></div><span>{replica.sync_status ? `Seen ${relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)}` : "Waiting to sync"}</span><button className="danger" disabled={busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>Disconnect</button></div>)}
+        {replicas.map((replica) => <div className="connect-row" key={replica.id}><div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Edits sync both ways"}</small></div><span>{replica.revocation_status === "revoking" ? "Disconnecting…" : replica.sync_status ? `Seen ${relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)}` : "Waiting to sync"}</span><button className="danger" disabled={replica.revocation_status === "revoking" || busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>{replica.revocation_status === "revoking" ? "Disconnecting…" : "Disconnect"}</button></div>)}
         {replicas.length === 0 && <Empty title="No synced folders" body="Use the desktop app to keep an ordinary Markdown folder on a computer." />}
       </section>
     </Page>;
@@ -339,7 +302,7 @@ function HostedCollectionRow({ collection, busy, perform, onManage, showReplicas
       await perform(`collection-${collection.id}`, () => management.deleteHostedCollection(collection.id));
     }
   }
-  const replicas = collection.replicas.filter((replica) => !replica.revoked_at);
+  const replicas = collection.replicas.filter((replica) => replica.revocation_status !== "revoked");
   return <div className="connect-row connect-collection-row">
     <div><strong>{collection.display_name}</strong><small>{active ? `Hosted by mdbase · ${replicas.length} synced ${replicas.length === 1 ? "folder" : "folders"}` : collection.authority_state === "transferring" ? "Moving to a computer" : "Main copy moved to a computer"}</small></div>
     <span className={`connect-status ${active ? "online" : "idle"}`}><i />{active ? "Hosted" : "Moved"}</span>
@@ -352,7 +315,7 @@ function HostedCollectionRow({ collection, busy, perform, onManage, showReplicas
     </div>
     {showReplicas && replicas.length > 0 && <details className="connect-row-detail"><summary>Synced folders</summary>{replicas.map((replica) => <div key={replica.id}>
       <span><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? "Downloads only" : "Two-way sync"}</small></span>
-      <button className="danger" disabled={busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>Revoke</button>
+      <button className="danger" disabled={replica.revocation_status === "revoking" || busy === `replica-${replica.id}`} onClick={() => window.confirm(`Revoke ${replica.name}?`) && void perform(`replica-${replica.id}`, () => management.revokeReplica(replica.id))}>{replica.revocation_status === "revoking" ? "Revoking…" : "Revoke"}</button>
     </div>)}</details>}
   </div>;
 }
@@ -387,6 +350,9 @@ function GrantEditor({ grant, busy, perform }: {
   busy: string;
   perform(id: string, action: () => Promise<void>): Promise<void>;
 }) {
+  if (grant.revocation_status === "revoking") {
+    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Local access is disabled. Waiting for the hosted authority to confirm revocation.</small></span><b>Revoking…</b></div>;
+  }
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const [operations, setOperations] = useState(() => new Set(grant.operations));
   useEffect(() => setOperations(new Set(grant.operations)), [grant.operations]);
@@ -499,12 +465,12 @@ function Page({ eyebrow = "mdbase Connect", title, intro, children }: { eyebrow?
   return <div className="connect-page"><header><p>{eyebrow}</p><h1>{title}</h1><span>{intro}</span></header>{children}</div>;
 }
 
-function SectionTitle({ title, count, action }: { title: string; count?: number; action?: ReactNode }) {
-  return <header className="connect-section-title"><div><h2>{title}</h2>{count !== undefined && <span>{count}</span>}</div>{action}</header>;
+function SectionTitle({ id, title, count, action }: { id?: string; title: string; count?: number; action?: ReactNode }) {
+  return <header className="connect-section-title"><div><h2 id={id}>{title}</h2>{count !== undefined && <span>{count}</span>}</div>{action}</header>;
 }
 
-function NavButton({ label, icon, selected, onClick }: { label: string; icon: ReactNode; selected: boolean; onClick(): void }) {
-  return <button className={selected ? "selected" : ""} aria-current={selected ? "page" : undefined} onClick={onClick}><span aria-hidden="true">{icon}</span><strong>{label}</strong></button>;
+function NavButton({ label, count, icon, selected, onClick }: { label: string; count?: number; icon: ReactNode; selected: boolean; onClick(): void }) {
+  return <button className={selected ? "selected" : ""} aria-current={selected ? "page" : undefined} onClick={onClick}><span aria-hidden="true">{icon}</span><strong>{label}</strong>{count !== undefined && <small>{count}</small>}</button>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) {
@@ -518,52 +484,6 @@ function ConnectLoading({ error }: { error: string }) {
 function viewFromPath(): ConnectView {
   const segment = location.pathname.split("/")[2];
   return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" ? segment : "overview";
-}
-
-function isCollectionView(view: ConnectView): boolean {
-  return view === "overview" || view === "storage" || view === "access";
-}
-
-function collectionPreferenceKey(): string {
-  const configuredServer = new URLSearchParams(location.search).get("server");
-  let origin = new URL(management.baseUrl).origin;
-  try {
-    if (configuredServer) origin = new URL(configuredServer).origin;
-  } catch {
-    // The management client reports malformed server URLs elsewhere.
-  }
-  return `mdbase-connect:last-collection:${origin}`;
-}
-
-function readRememberedCollection(): string | null {
-  try { return localStorage.getItem(collectionPreferenceKey()); } catch { return null; }
-}
-
-function rememberCollection(collectionId: string): void {
-  try { localStorage.setItem(collectionPreferenceKey(), collectionId); } catch { /* Storage is optional. */ }
-}
-
-function permissionSummary(grants: ApplicationAccessGroup<Grant>["grants"]): string {
-  const operations = new Set(grants.flatMap((grant) => grant.operations));
-  const verbs = [
-    operations.has("read") || operations.has("query") || operations.has("changes") ? "read" : "",
-    operations.has("create") ? "create" : "",
-    operations.has("update") || operations.has("rename") ? "update" : "",
-    operations.has("delete") ? "delete" : ""
-  ].filter(Boolean);
-  const capabilities: string[] = [];
-  if (verbs.length > 0) capabilities.push(`${joinWords(verbs)} records`);
-  if (["create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source"].some((operation) => operations.has(operation))) capabilities.push("manage types");
-  if (["put_timer", "cancel_timer", "reconcile_timers"].some((operation) => operations.has(operation))) capabilities.push("manage timers");
-  if (capabilities.length === 0) return `${operations.size} ${operations.size === 1 ? "permission" : "permissions"}`;
-  const summary = capabilities.join("; ");
-  return summary[0].toUpperCase() + summary.slice(1);
-}
-
-function joinWords(words: string[]): string {
-  if (words.length < 2) return words[0] ?? "";
-  if (words.length === 2) return `${words[0]} and ${words[1]}`;
-  return `${words.slice(0, -1).join(", ")}, and ${words.at(-1)}`;
 }
 
 function connectViewUrl(view: ConnectView, collectionId?: string): string {
