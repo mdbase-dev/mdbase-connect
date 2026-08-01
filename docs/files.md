@@ -68,6 +68,16 @@ The authority owns the mapping from stable file ID and path to one immutable
 blob revision. The blob store owns exact bytes; it does not decide path,
 authorization, mutation, or collection policy.
 
+Local authorities keep descriptors in a durable SQLite index. A filesystem
+watcher advances a durable observed generation for any collection change; the
+next new listing reconciles that generation, while a bounded age check recovers
+from missed watcher signals. Reconciliation walks eligible paths and hashes
+verified handles once per generation, not once per page. Listing pages then use
+bounded indexed queries. Continuation cursors are opaque and tied to one index
+revision, so a refresh that changes descriptors expires the cursor instead of
+silently mixing two inventories. A dirty signal or no-op reconciliation does
+not invalidate an in-progress page sequence.
+
 ## Authority and commit ordering
 
 Records, resources, and files share one collection write authority and one
@@ -160,6 +170,11 @@ Downloads pin one file revision for their lifetime and support indexed range
 reads. A client can resume or switch between direct and relayed delivery
 without reopening the logical transfer while its grant, revision, and expiry
 remain valid.
+
+For local downloads, path-scope authorization runs inside the authoritative
+reconcile-and-open operation against the descriptor that will actually be
+staged. A file moved outside a selected-folder grant cannot exploit a stale
+listing descriptor between the scope check and the verified open.
 
 ## Binary frame
 

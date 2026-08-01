@@ -410,7 +410,9 @@ fn download_is_revision_pinned_resumable_and_snapshot_backed() {
     fs::write(root.path().join("asset.bin"), &bytes).unwrap();
     let descriptor = registry.reconcile_files(id).unwrap().remove(0);
     let request = download_request(&descriptor);
-    let session = registry.open_file_download(id, owner(), &request).unwrap();
+    let session = registry
+        .open_file_download(id, owner(), &request, |_| Ok(()))
+        .unwrap();
     assert_eq!(session.direction, FileTransferDirection::Download);
     assert_eq!(session.protection, FileTransferProtection::GrantAeadV1);
     assert_eq!(session.total_size, bytes.len() as u64);
@@ -427,7 +429,7 @@ fn download_is_revision_pinned_resumable_and_snapshot_backed() {
     assert_eq!(second, b"download tail");
     assert_eq!(
         reopened
-            .open_file_download(id, owner(), &request)
+            .open_file_download(id, owner(), &request, |_| Ok(()))
             .unwrap()
             .transfer_id,
         session.transfer_id
@@ -450,14 +452,16 @@ fn download_rejects_stale_revisions_other_owners_and_expired_snapshots() {
     stale.revision = Some("file:stale".to_string());
     assert_eq!(
         registry
-            .open_file_download(id, owner(), &stale)
+            .open_file_download(id, owner(), &stale, |_| Ok(()))
             .unwrap_err()
             .code(),
         "file_revision_not_found"
     );
 
     let request = download_request(&descriptor);
-    let session = registry.open_file_download(id, owner(), &request).unwrap();
+    let session = registry
+        .open_file_download(id, owner(), &request, |_| Ok(()))
+        .unwrap();
     assert_eq!(
         registry
             .read_file_download_chunk(id, Uuid::from_u128(43), session.transfer_id, 0)

@@ -8,6 +8,17 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::Read;
+use std::time::Duration as StdDuration;
+
+const FILE_INVENTORY_MAX_AGE: StdDuration = StdDuration::from_secs(60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileInventoryState {
+    observed_generation: u64,
+    reconciled_generation: u64,
+    index_revision: u64,
+    reconciled_at_ms: i64,
+}
 
 #[derive(Debug, Clone)]
 struct IndexedFile {
@@ -30,6 +41,92 @@ pub(super) struct FileReconcilePreferences {
 }
 
 impl CollectionRegistry {
+    /// Return the durable inventory revision after refreshing a dirty or stale index.
+    /// Watcher generations make changes visible promptly; the age bound recovers from
+    /// watcher failures without forcing every page to walk and hash the collection.
+    pub fn refresh_file_index_if_needed(&self, id: Uuid) -> Result<u64, ConnectError> {
+        self.get(id)?;
+        let state = self.file_inventory_state(id)?;
+        let now = Utc::now().timestamp_millis();
+        let max_age_ms = i64::try_from(FILE_INVENTORY_MAX_AGE.as_millis())
+            .expect("inventory maximum age fits in i64");
+        if state.observed_generation != state.reconciled_generation
+            || now.saturating_sub(state.reconciled_at_ms) >= max_age_ms
+        {
+            self.reconcile_files(id)?;
+        }
+        Ok(self.file_inventory_state(id)?.index_revision)
+    }
+
+    /// Return the current durable revision without refreshing it. Continuation pages
+    /// use this to remain on one snapshot even if a watcher has marked the next
+    /// generation dirty.
+    pub fn file_index_revision(&self, id: Uuid) -> Result<u64, ConnectError> {
+        self.get(id)?;
+        Ok(self.file_inventory_state(id)?.index_revision)
+    }
+
+    /// Mark the durable inventory dirty. This is intentionally cheap enough to run
+    /// for every collection watcher event, including record and configuration events.
+    pub fn mark_file_inventory_dirty(&self, id: Uuid) -> Result<(), ConnectError> {
+        self.get(id)?;
+        self.connection()?.execute(
+            "INSERT INTO collection_file_inventory_state
+                (collection_id, observed_generation, reconciled_generation,
+                 index_revision, reconciled_at_ms)
+             VALUES (?1, 1, 0, 0, 0)
+             ON CONFLICT(collection_id) DO UPDATE SET
+                observed_generation = CASE
+                    WHEN observed_generation < 9223372036854775807
+                    THEN observed_generation + 1
+                    ELSE observed_generation
+                END",
+            [id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Read a bounded page directly from the durable index. Filtering for a grant is
+    /// deliberately left to the local authorization boundary.
+    pub fn indexed_files_page(
+        &self,
+        id: Uuid,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        self.get(id)?;
+        let connection = self.connection()?;
+        let sql = if after.is_some() {
+            "SELECT file_id, path, revision, content_digest, size, media_type,
+                    media_class, modified_at
+             FROM collection_files
+             WHERE collection_id = ?1 AND path > ?2
+             ORDER BY path LIMIT ?3"
+        } else {
+            "SELECT file_id, path, revision, content_digest, size, media_type,
+                    media_class, modified_at
+             FROM collection_files
+             WHERE collection_id = ?1
+             ORDER BY path LIMIT ?3"
+        };
+        let mut statement = connection.prepare(sql)?;
+        let collection_id = id.to_string();
+        let limit = i64::try_from(limit).map_err(|_| ConnectError::File {
+            code: "invalid_file_request".to_string(),
+            message: "The requested file page is too large.".to_string(),
+        })?;
+        let mut rows = if let Some(after) = after {
+            statement.query(params![collection_id, after, limit])?
+        } else {
+            statement.query(params![collection_id, rusqlite::types::Null, limit])?
+        };
+        let mut files = Vec::new();
+        while let Some(row) = rows.next()? {
+            files.push(descriptor_from_index_row(row)?);
+        }
+        Ok(files)
+    }
+
     /// Reconcile the authority's logical file namespace with its filesystem.
     ///
     /// The mdbase snapshot remains the source of truth for records and
@@ -72,6 +169,14 @@ impl CollectionRegistry {
         snapshot: &CollectionSnapshot,
         preferences: &FileReconcilePreferences,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        let reconcile_lock = self.file_reconcile_lock(registered.id)?;
+        let _reconcile = reconcile_lock.lock().map_err(|_| ConnectError::File {
+            code: "file_index_unavailable".to_string(),
+            message: "The local file index lock is unavailable.".to_string(),
+        })?;
+        let observed_generation = self
+            .file_inventory_state(registered.id)?
+            .observed_generation;
         let managed_paths = snapshot
             .resources
             .iter()
@@ -89,7 +194,7 @@ impl CollectionRegistry {
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
-        self.reconcile_observed_files(registered.id, &observed, preferences)
+        self.reconcile_observed_files(registered.id, &observed, preferences, observed_generation)
     }
 
     pub fn indexed_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
@@ -105,6 +210,7 @@ impl CollectionRegistry {
         collection_id: Uuid,
         observed: &[ObservedFile<'_>],
         preferences: &FileReconcilePreferences,
+        observed_generation: u64,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -227,9 +333,94 @@ impl CollectionRegistry {
         for file in after.values() {
             persist_indexed_file(&transaction, collection_id, file)?;
         }
+        let inventory_changed = previous.len() != after.len()
+            || previous.iter().any(|(file_id, before)| {
+                after
+                    .get(file_id)
+                    .is_none_or(|current| current.descriptor != before.descriptor)
+            });
+        transaction.execute(
+            "INSERT INTO collection_file_inventory_state
+                (collection_id, observed_generation, reconciled_generation,
+                 index_revision, reconciled_at_ms)
+             VALUES (?1, ?2, ?2, 1, ?3)
+             ON CONFLICT(collection_id) DO UPDATE SET
+                reconciled_generation = MAX(reconciled_generation, ?2),
+                index_revision = CASE
+                    WHEN ?4 THEN index_revision + 1
+                    ELSE MAX(index_revision, 1)
+                END,
+                reconciled_at_ms = ?3",
+            params![
+                collection_id.to_string(),
+                observed_generation,
+                Utc::now().timestamp_millis(),
+                inventory_changed
+            ],
+        )?;
         transaction.commit()?;
         Ok(after.into_values().map(|file| file.descriptor).collect())
     }
+
+    fn file_inventory_state(&self, id: Uuid) -> Result<FileInventoryState, ConnectError> {
+        let connection = self.connection()?;
+        connection.execute(
+            "INSERT OR IGNORE INTO collection_file_inventory_state (collection_id)
+             VALUES (?1)",
+            [id.to_string()],
+        )?;
+        connection
+            .query_row(
+                "SELECT observed_generation, reconciled_generation, index_revision,
+                        reconciled_at_ms
+                 FROM collection_file_inventory_state WHERE collection_id = ?1",
+                [id.to_string()],
+                |row| {
+                    Ok(FileInventoryState {
+                        observed_generation: row.get(0)?,
+                        reconciled_generation: row.get(1)?,
+                        index_revision: row.get(2)?,
+                        reconciled_at_ms: row.get(3)?,
+                    })
+                },
+            )
+            .map_err(ConnectError::from)
+    }
+
+    fn file_reconcile_lock(&self, id: Uuid) -> Result<Arc<Mutex<()>>, ConnectError> {
+        let mut locks = self
+            .file_reconciles
+            .lock()
+            .map_err(|_| ConnectError::File {
+                code: "file_index_unavailable".to_string(),
+                message: "The local file index lock registry is unavailable.".to_string(),
+            })?;
+        Ok(locks
+            .entry(id)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+}
+
+fn descriptor_from_index_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<CollectionFileDescriptor, ConnectError> {
+    let file_id = row.get::<_, String>(0)?;
+    let file_id = Uuid::parse_str(&file_id).map_err(|error| ConnectError::File {
+        code: "file_index_corrupt".to_string(),
+        message: format!("The local file index contains an invalid file ID: {error}"),
+    })?;
+    let media_class = row.get::<_, String>(6)?;
+    Ok(CollectionFileDescriptor {
+        file_id,
+        path: row.get(1)?,
+        revision: row.get(2)?,
+        content_digest: row.get(3)?,
+        size: row.get(4)?,
+        media_type: row.get(5)?,
+        media_class: parse_media_class(&media_class)?,
+        modified_at: row.get(7)?,
+    })
 }
 
 fn assign_file_ids(
@@ -611,6 +802,78 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files.iter().all(|file| file.file_id != original.file_id));
         assert_ne!(files[0].file_id, files[1].file_id);
+    }
+
+    #[test]
+    fn inventory_refresh_reuses_the_index_until_dirty_and_survives_restart() {
+        let (state, root, registry, id) = registered();
+        fs::write(root.path().join("asset.bin"), b"first").unwrap();
+
+        let first_revision = registry.refresh_file_index_if_needed(id).unwrap();
+        let first = registry.indexed_files(id).unwrap().remove(0);
+        fs::write(root.path().join("asset.bin"), b"second").unwrap();
+
+        assert_eq!(
+            registry.refresh_file_index_if_needed(id).unwrap(),
+            first_revision
+        );
+        assert_eq!(registry.indexed_files(id).unwrap(), vec![first.clone()]);
+
+        registry.mark_file_inventory_dirty(id).unwrap();
+        let reopened = CollectionRegistry::open(state.path()).unwrap();
+        let second_revision = reopened.refresh_file_index_if_needed(id).unwrap();
+        let second = reopened.indexed_files(id).unwrap().remove(0);
+        assert!(second_revision > first_revision);
+        assert_ne!(second.content_digest, first.content_digest);
+        assert_ne!(second.revision, first.revision);
+    }
+
+    #[test]
+    fn stale_inventory_is_reconciled_when_watcher_signals_are_missing() {
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("asset.bin"), b"first").unwrap();
+        let first = registry.refresh_file_index_if_needed(id).unwrap();
+        fs::write(root.path().join("asset.bin"), b"second").unwrap();
+        registry
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE collection_file_inventory_state SET reconciled_at_ms = 0
+                 WHERE collection_id = ?1",
+                [id.to_string()],
+            )
+            .unwrap();
+
+        assert!(registry.refresh_file_index_if_needed(id).unwrap() > first);
+        assert_eq!(registry.indexed_files(id).unwrap()[0].size, 6);
+    }
+
+    #[test]
+    fn indexed_pages_are_bounded_and_ordered_by_portable_path() {
+        let (_state, root, registry, id) = registered();
+        for path in ["z.bin", "a.bin", "m.bin"] {
+            fs::write(root.path().join(path), path.as_bytes()).unwrap();
+        }
+        registry.refresh_file_index_if_needed(id).unwrap();
+
+        let first = registry.indexed_files_page(id, None, 2).unwrap();
+        assert_eq!(
+            first
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a.bin", "m.bin"]
+        );
+        let second = registry
+            .indexed_files_page(id, Some(&first[1].path), 2)
+            .unwrap();
+        assert_eq!(
+            second
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["z.bin"]
+        );
     }
 
     #[cfg(unix)]

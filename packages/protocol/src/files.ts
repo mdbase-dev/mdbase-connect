@@ -79,6 +79,7 @@ export interface ListFilesRequest {
   protocol_version: 1;
   type: "list_files";
   folder?: string;
+  /** Opaque authority-issued continuation cursor. */
   after?: string;
   limit?: number;
 }
@@ -87,6 +88,7 @@ export interface ListFilesPage {
   protocol_version: 1;
   type: "files_page";
   files: CollectionFileDescriptor[];
+  /** Opaque continuation cursor; pass it back unchanged as `after`. */
   next?: string;
 }
 

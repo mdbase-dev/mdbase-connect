@@ -277,6 +277,7 @@ pub(crate) fn ensure_private_state_dir(state_dir: &Path) -> Result<(), ConnectEr
 pub struct CollectionRegistry {
     db_path: PathBuf,
     providers: Arc<Mutex<HashMap<Uuid, Arc<FilesystemProvider>>>>,
+    file_reconciles: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
 }
 
 /// Filesystem state that must be synchronized after a successful operation.

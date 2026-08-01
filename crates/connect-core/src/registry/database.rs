@@ -9,6 +9,7 @@ impl CollectionRegistry {
         let registry = Self {
             db_path: state_dir.as_ref().join("connector.sqlite"),
             providers: Arc::new(Mutex::new(HashMap::new())),
+            file_reconciles: Arc::new(Mutex::new(HashMap::new())),
         };
         registry.migrate()?;
         registry.recover_file_transfers()?;
@@ -137,6 +138,14 @@ impl CollectionRegistry {
                 PRIMARY KEY (collection_id, sequence),
                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS collection_file_inventory_state (
+                collection_id TEXT PRIMARY KEY,
+                observed_generation INTEGER NOT NULL DEFAULT 1,
+                reconciled_generation INTEGER NOT NULL DEFAULT 0,
+                index_revision INTEGER NOT NULL DEFAULT 0,
+                reconciled_at_ms INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS collection_file_transfers (
                 transfer_id TEXT PRIMARY KEY,
                 collection_id TEXT NOT NULL,
@@ -215,6 +224,8 @@ impl CollectionRegistry {
                 ON collection_file_changes(collection_id, sequence);
             CREATE INDEX IF NOT EXISTS collection_files_digest_idx
                 ON collection_files(collection_id, content_digest);
+            CREATE INDEX IF NOT EXISTS collection_files_path_idx
+                ON collection_files(collection_id, path);
             CREATE INDEX IF NOT EXISTS collection_file_transfers_collection_idx
                 ON collection_file_transfers(collection_id, state, expires_at);
             CREATE INDEX IF NOT EXISTS local_sync_snapshots_expiry_idx

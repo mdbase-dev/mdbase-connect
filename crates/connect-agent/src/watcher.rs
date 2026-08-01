@@ -263,6 +263,9 @@ fn persist_event(
             return;
         }
     }
+    if let Err(error) = registry.mark_file_inventory_dirty(collection_id) {
+        tracing::warn!(collection_id = %collection_id, %error, "failed to mark the file inventory dirty");
+    }
     match registry.append_change(collection_id, event) {
         Err(error) => {
             tracing::warn!(collection_id = %collection_id, %error, "failed to persist collection change");

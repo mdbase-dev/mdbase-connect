@@ -19,6 +19,7 @@ impl CollectionRegistry {
         id: Uuid,
         owner_id: Uuid,
         request: &OpenFileDownloadRequest,
+        authorize_path: impl Fn(&str) -> Result<(), ConnectError>,
     ) -> Result<FileTransferSession, ConnectError> {
         require_file_protocol(request.protocol_version)?;
         if transfer_exists(&self.connection()?, request.transfer_id)? {
@@ -35,6 +36,7 @@ impl CollectionRegistry {
                     "This transfer ID was already opened for a different file revision.",
                 ));
             }
+            authorize_path(&transfer.path)?;
             return Ok(download_session(&transfer));
         }
         let registered = self.get(id)?;
@@ -63,6 +65,7 @@ impl CollectionRegistry {
                         "The requested file revision is no longer available locally.",
                     )
                 })?;
+            authorize_path(&descriptor.path)?;
             let staging_name = format!("{}.download", request.transfer_id);
             let staging = ensure_staging_root(Path::new(&registered.path))?.join(&staging_name);
             remove_file_if_present(&staging)?;

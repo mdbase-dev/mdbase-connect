@@ -29,22 +29,55 @@ impl AgentState {
                 let request: ListFilesRequest = parse_file_control(input)?;
                 let limit = validate_list_request(&request)?;
                 let capability = require_file_action(grant, FileAction::List)?;
-                let mut files = self.registry.reconcile_files(grant.collection_id)?;
-                files.retain(|file| {
-                    file_visible(capability, &file.path)
-                        && request
-                            .folder
-                            .as_ref()
-                            .is_none_or(|folder| path_in_folder(&file.path, folder))
-                });
-                files.sort_by(|left, right| left.path.cmp(&right.path));
-                if let Some(after) = request.after.as_ref() {
-                    files.retain(|file| file.path > *after);
+                let (inventory_revision, mut scan_after) = if let Some(cursor) =
+                    request.after.as_deref()
+                {
+                    let (revision, path) = parse_local_file_cursor(cursor)?;
+                    if self.registry.file_index_revision(grant.collection_id)? != revision {
+                        return Err(local_file_error(
+                                "file_list_changed",
+                                "The local file inventory changed while it was being listed; restart the listing.",
+                            ));
+                    }
+                    (revision, Some(path.to_string()))
+                } else {
+                    (
+                        self.registry
+                            .refresh_file_index_if_needed(grant.collection_id)?,
+                        None,
+                    )
+                };
+                let batch_size = limit.saturating_add(1).clamp(128, 1_001);
+                let mut files = Vec::with_capacity(limit.saturating_add(1));
+                while files.len() <= limit {
+                    let batch = self.registry.indexed_files_page(
+                        grant.collection_id,
+                        scan_after.as_deref(),
+                        batch_size,
+                    )?;
+                    let exhausted = batch.len() < batch_size;
+                    if let Some(last) = batch.last() {
+                        scan_after = Some(last.path.clone());
+                    }
+                    files.extend(batch.into_iter().filter(|file| {
+                        file_visible(capability, &file.path)
+                            && request
+                                .folder
+                                .as_ref()
+                                .is_none_or(|folder| path_in_folder(&file.path, folder))
+                    }));
+                    if files.len() > limit || exhausted {
+                        break;
+                    }
                 }
                 let has_more = files.len() > limit;
                 files.truncate(limit);
-                let next =
-                    has_more.then(|| files.last().expect("non-empty limited page").path.clone());
+                let next = has_more.then(|| {
+                    encode_local_file_cursor(
+                        inventory_revision,
+                        &files.last().expect("non-empty limited page").path,
+                    )
+                });
                 serde_json::to_value(ListFilesPage {
                     protocol_version: FILE_PROTOCOL_VERSION,
                     message_type: ListFilesPageKind::FilesPage,
@@ -72,28 +105,11 @@ impl AgentState {
             "open_file_download" => {
                 let request: OpenFileDownloadRequest = parse_file_control(input)?;
                 let capability = require_file_action(grant, FileAction::Read)?;
-                let file = self
-                    .registry
-                    .reconcile_files(grant.collection_id)?
-                    .into_iter()
-                    .find(|file| {
-                        file.file_id == request.file_id
-                            && request
-                                .revision
-                                .as_ref()
-                                .is_none_or(|revision| revision == &file.revision)
-                    })
-                    .ok_or_else(|| {
-                        local_file_error(
-                            "file_revision_not_found",
-                            "The requested file revision was not found.",
-                        )
-                    })?;
-                require_visible_path(capability, &file.path)?;
                 serde_json::to_value(self.registry.open_file_download(
                     grant.collection_id,
                     grant.id,
                     &request,
+                    |path| require_visible_path(capability, path),
                 )?)
                 .map_err(ConnectError::from)
             }
@@ -528,7 +544,7 @@ fn validate_list_request(request: &ListFilesRequest) -> Result<usize, ConnectErr
         || request
             .after
             .as_deref()
-            .is_some_and(|after| after.is_empty() || after.len() > 1_024)
+            .is_some_and(|after| after.is_empty() || after.len() > 2_048)
     {
         return Err(local_file_error(
             "invalid_file_request",
@@ -536,6 +552,42 @@ fn validate_list_request(request: &ListFilesRequest) -> Result<usize, ConnectErr
         ));
     }
     Ok(usize::from(limit))
+}
+
+const LOCAL_FILE_CURSOR_PREFIX: &str = "local-v1:";
+
+fn encode_local_file_cursor(inventory_revision: u64, path: &str) -> String {
+    format!("{LOCAL_FILE_CURSOR_PREFIX}{inventory_revision}:{path}")
+}
+
+fn parse_local_file_cursor(cursor: &str) -> Result<(u64, &str), ConnectError> {
+    let value = cursor
+        .strip_prefix(LOCAL_FILE_CURSOR_PREFIX)
+        .ok_or_else(|| {
+            local_file_error(
+                "invalid_file_request",
+                "The local file list cursor is invalid.",
+            )
+        })?;
+    let (revision, path) = value.split_once(':').ok_or_else(|| {
+        local_file_error(
+            "invalid_file_request",
+            "The local file list cursor is invalid.",
+        )
+    })?;
+    let revision = revision.parse::<u64>().map_err(|_| {
+        local_file_error(
+            "invalid_file_request",
+            "The local file list cursor is invalid.",
+        )
+    })?;
+    if revision == 0 || !valid_control_path(path) {
+        return Err(local_file_error(
+            "invalid_file_request",
+            "The local file list cursor is invalid.",
+        ));
+    }
+    Ok((revision, path))
 }
 
 fn require_file_action(
@@ -658,7 +710,7 @@ mod tests {
     use super::*;
     use mdbase_connect_protocol::{
         ApplicationAccess, DeleteFileRequestKind, FileCapability, FileCapabilityKind, GrantScope,
-        GrantSummary, ListFilesRequestKind, MoveFileRequestKind,
+        GrantSummary, ListFilesRequestKind, MoveFileRequestKind, OpenFileDownloadRequestKind,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -686,6 +738,68 @@ mod tests {
         invalid = list_request();
         invalid.protocol_version += 1;
         assert!(validate_list_request(&invalid).is_err());
+        assert_eq!(
+            parse_local_file_cursor(&encode_local_file_cursor(42, "Assets/images/one.png"))
+                .unwrap(),
+            (42, "Assets/images/one.png")
+        );
+        assert!(parse_local_file_cursor("Assets/images/one.png").is_err());
+        assert!(parse_local_file_cursor("local-v1:0:Assets/images/one.png").is_err());
+    }
+
+    #[test]
+    fn local_list_pages_share_one_index_revision_and_expire_after_refresh() {
+        let state_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        fs::create_dir(root.path().join("Allowed")).unwrap();
+        for name in ["a.bin", "b.bin", "c.bin"] {
+            fs::write(root.path().join("Allowed").join(name), name.as_bytes()).unwrap();
+        }
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let collection = registry.add(root.path()).unwrap();
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry.clone(), watcher, None);
+        let grant = file_grant(collection.id, vec![FileAction::List]);
+        let request = ListFilesRequest {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: ListFilesRequestKind::ListFiles,
+            folder: Some("Allowed".to_string()),
+            after: None,
+            limit: Some(1),
+        };
+        let first: ListFilesPage = serde_json::from_value(
+            state
+                .file_control(&grant, serde_json::to_value(&request).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first.files.len(), 1);
+        let cursor = first.next.expect("three files produce a continuation");
+
+        registry.mark_file_inventory_dirty(collection.id).unwrap();
+        let mut continuation = request.clone();
+        continuation.after = Some(cursor.clone());
+        let second: ListFilesPage = serde_json::from_value(
+            state
+                .file_control(&grant, serde_json::to_value(&continuation).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second.files[0].path, "Allowed/b.bin");
+
+        fs::write(root.path().join("Allowed/d.bin"), b"d.bin").unwrap();
+        registry.mark_file_inventory_dirty(collection.id).unwrap();
+        state
+            .file_control(&grant, serde_json::to_value(&request).unwrap())
+            .unwrap();
+        assert_eq!(
+            state
+                .file_control(&grant, serde_json::to_value(&continuation).unwrap())
+                .unwrap_err()
+                .code(),
+            "file_list_changed"
+        );
     }
 
     fn file_grant(collection_id: Uuid, actions: Vec<FileAction>) -> GrantSummary {
@@ -789,5 +903,46 @@ mod tests {
         .unwrap();
         assert_eq!(receipt.previous_path, delete.path);
         assert!(!root.path().join(&receipt.previous_path).exists());
+    }
+
+    #[test]
+    fn download_scope_is_rechecked_against_the_authoritative_current_path() {
+        let state_dir = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        fs::create_dir(root.path().join("Allowed")).unwrap();
+        fs::create_dir(root.path().join("Outside")).unwrap();
+        fs::write(root.path().join("Allowed/source.bin"), b"safe").unwrap();
+        let registry = CollectionRegistry::open(state_dir.path()).unwrap();
+        let collection = registry.add(root.path()).unwrap();
+        let original = registry.reconcile_files(collection.id).unwrap().remove(0);
+        fs::rename(
+            root.path().join("Allowed/source.bin"),
+            root.path().join("Outside/source.bin"),
+        )
+        .unwrap();
+
+        let watcher = CollectionWatchService::start(registry.clone());
+        let state = AgentState::new(registry, watcher, None);
+        let grant = file_grant(collection.id, vec![FileAction::Read]);
+        let request = OpenFileDownloadRequest {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: OpenFileDownloadRequestKind::OpenFileDownload,
+            transfer_id: Uuid::now_v7(),
+            file_id: original.file_id,
+            revision: None,
+        };
+        assert_eq!(
+            state
+                .file_control(&grant, serde_json::to_value(&request).unwrap())
+                .unwrap_err()
+                .code(),
+            "access_denied"
+        );
+        assert!(!root
+            .path()
+            .join(".mdbase-connect/transfers")
+            .join(format!("{}.download", request.transfer_id))
+            .exists());
     }
 }
