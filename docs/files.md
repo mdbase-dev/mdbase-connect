@@ -365,6 +365,9 @@ not cross the boundary.
 
 ## Verification
 
+Cross-store lifecycle races use the deterministic harness described in
+[Adversarial file lifecycle testing](adversarial-file-testing.md).
+
 The file feature is not complete without:
 
 - shared Rust and TypeScript fixtures for every JSON object and binary frame;

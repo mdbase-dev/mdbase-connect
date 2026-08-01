@@ -416,6 +416,7 @@ jobs:
       - run: node scripts/e2e.mjs
       - run: node scripts/relay-e2e.mjs
       - run: node scripts/hosted-provider-e2e.mjs
+      - run: pnpm e2e:files:adversarial
       # Electron runs natively with an isolated profile while the control
       # plane uses the same packaged Docker boundary as production.
       - run: xvfb-run -a node apps/desktop/scripts/docker-server-e2e.mjs
