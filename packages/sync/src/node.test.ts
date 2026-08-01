@@ -9,6 +9,7 @@ import {
   authorityFileHash,
   authorityManifestDigest,
   DirectoryMirror,
+  MemoryMirrorBlobStore,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
   MirrorDivergenceError,
@@ -329,6 +330,7 @@ describe("writable Markdown mirror", () => {
       {
         stateStore: new MemoryMirrorStateStore(),
         fileSystem,
+        blobStore: new MemoryMirrorBlobStore(),
         lease: new MemoryMirrorLease(),
         selectiveSync: fullFileSync
       }
@@ -352,6 +354,7 @@ describe("writable Markdown mirror", () => {
       {
         stateStore: new MemoryMirrorStateStore(),
         fileSystem: new MemoryMirrorFileSystem(),
+        blobStore: new MemoryMirrorBlobStore(),
         lease: new MemoryMirrorLease()
       }
     );
@@ -369,6 +372,7 @@ describe("writable Markdown mirror", () => {
       {
         stateStore: new MemoryMirrorStateStore(),
         fileSystem,
+        blobStore: new MemoryMirrorBlobStore(),
         lease: new MemoryMirrorLease(),
         selectiveSync: fullFileSync
       }
