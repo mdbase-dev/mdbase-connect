@@ -21,6 +21,7 @@ import { AgentControlError, requestAgent } from "./control-client";
 import { routeForDeepLink } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { ElectronUpdateBackend } from "./electron-update-backend";
+import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import { UpdateCoordinator } from "./update-coordinator";
 import { UpdateStateStore } from "./update-state";
@@ -718,28 +719,6 @@ function registerIpc(): void {
 function asObject(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
   return value as Record<string, unknown>;
-}
-
-function selectiveSyncPolicy(value: unknown): {
-  file_classes: Array<"image" | "audio" | "video" | "pdf" | "other">;
-  excluded_folders: string[];
-} {
-  const policy = asObject(value, "Invalid selective sync settings.");
-  const allowed = new Set(["image", "audio", "video", "pdf", "other"]);
-  if (
-    !Array.isArray(policy.file_classes)
-    || policy.file_classes.some((item) => typeof item !== "string" || !allowed.has(item))
-    || !Array.isArray(policy.excluded_folders)
-    || policy.excluded_folders.some((item) => typeof item !== "string" || item.length === 0)
-  ) {
-    throw new Error("Invalid selective sync settings.");
-  }
-  return {
-    file_classes: [...new Set(policy.file_classes)] as Array<
-      "image" | "audio" | "video" | "pdf" | "other"
-    >,
-    excluded_folders: [...new Set(policy.excluded_folders as string[])]
-  };
 }
 
 function stringArray(value: unknown, message: string): string[] {

@@ -543,6 +543,11 @@ mod tests {
         let root = tempdir().unwrap();
         write(root.path(), "Notes/Example.png");
         write(root.path(), "notes/example.png");
+        if fs::read_dir(root.path()).unwrap().count() < 2 {
+            // A case-insensitive filesystem cannot represent both portable
+            // spellings at once, so there is no pair for the scanner to reject.
+            return;
+        }
         let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
         assert_eq!(inventory.issues.len(), 2);
