@@ -37,7 +37,6 @@ for (const name of fixtureNames) {
     assert.equal(result.actionDigest, expected.actionDigest, `${fixture.name} action trace changed for ${result.mode}`);
   }
 }
-
 process.stdout.write(`stress regression replay passed (${fixtureNames.length} fixture${fixtureNames.length === 1 ? "" : "s"})\n`);
 
 function validateFixture(fixture, name) {
@@ -57,4 +56,3 @@ function validateFixture(fixture, name) {
     throw new Error(`${name} has invalid transport`);
   }
 }
-

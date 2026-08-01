@@ -12,4 +12,3 @@ pnpm test:stress-regressions
 
 Per-run traces, logs, and snapshots are written under `.tmp/stress-failures/`
 and remain untracked.
-

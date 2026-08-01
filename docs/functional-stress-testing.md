@@ -61,4 +61,3 @@ Use the existing `e2e:ecosystem`, `e2e:relay`, `e2e:provider`,
 True OS process-kill testing and upgrade-from-previous-release fixtures remain
 separate future extensions; server reconstruction in this runner verifies the
 same durable reference-authority state transition without container overhead.
-

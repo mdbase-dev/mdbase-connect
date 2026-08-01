@@ -60,4 +60,3 @@ export function parseDuration(value) {
   const multipliers = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 };
   return Number.parseFloat(match[1]) * multipliers[match[2]];
 }
-
