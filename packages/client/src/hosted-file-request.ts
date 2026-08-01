@@ -36,6 +36,7 @@ export async function sendHostedFileRequest(
   );
   return fetch(url, {
     method,
+    redirect: "error",
     headers: {
       authorization: `Bearer ${token.authority.accessToken}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
@@ -81,4 +82,39 @@ export async function performHostedFileRequest<Result>(
     );
   }
   return body as Result;
+}
+
+export async function performHostedFilePartRequest(
+  token: StoredToken,
+  path: string,
+  signal: AbortSignal | undefined,
+  refresh: () => Promise<StoredToken>,
+  proofHeaders: ProofHeaders
+): Promise<Uint8Array> {
+  let active = token;
+  let response = await sendHostedFileRequest(
+    active, "GET", path, undefined, signal, proofHeaders
+  );
+  if (response.status === 401 && active.refreshToken) {
+    active = await refresh();
+    if (!active.authority || !active.fileCapability) {
+      throw connectError(
+        "authority_authorization_changed",
+        "Reconnect this collection before accessing its files."
+      );
+    }
+    response = await sendHostedFileRequest(
+      active, "GET", path, undefined, signal, proofHeaders
+    );
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw apiError(
+      body,
+      "operation_failed",
+      "Collection file range request failed.",
+      response.status
+    );
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }

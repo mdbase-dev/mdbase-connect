@@ -355,21 +355,6 @@ pub enum PrepareFileUploadPartRequestKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PrepareFileDownloadPartRequest {
-    pub protocol_version: u32,
-    #[serde(rename = "type")]
-    pub message_type: PrepareFileDownloadPartRequestKind,
-    pub transfer_id: Uuid,
-    pub part_index: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PrepareFileDownloadPartRequestKind {
-    PrepareFileDownloadPart,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreparedFilePart {
     pub protocol_version: u32,
     #[serde(rename = "type")]

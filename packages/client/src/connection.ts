@@ -198,6 +198,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
           this.transport.uploadFileChunk(session, chunkIndex, bytes, signal),
         downloadChunk: (session, chunkIndex, signal) =>
           this.transport.downloadFileChunk(session, chunkIndex, signal)
+      },
+      {
+        downloadPart: (session, partIndex, signal) =>
+          this.transport.downloadHostedFilePart(session, partIndex, signal)
       }
     );
     this.collectionClient = new MdbaseCollectionClient({

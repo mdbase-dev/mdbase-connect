@@ -218,18 +218,18 @@ impl HostedProvider {
         })
     }
 
-    pub async fn prepare_file_download_part(
+    pub async fn download_file_part(
         &self,
         collection_id: Uuid,
         token: &str,
-        request: PrepareFileDownloadPartRequest,
+        transfer_id: Uuid,
+        part_index: u64,
         request_origin: Option<&str>,
-    ) -> ApiResult<PreparedFilePart> {
-        require_file_protocol(request.protocol_version)?;
+    ) -> ApiResult<Vec<u8>> {
         let replica = self.authenticate_for_file(collection_id, token).await?;
         let data_key = self.load_collection_key(collection_id).await?;
         let transfer = self
-            .load_download_transfer(collection_id, request.transfer_id, &data_key)
+            .load_download_transfer(collection_id, transfer_id, &data_key)
             .await?
             .ok_or_else(transfer_not_found)?;
         if transfer.replica_id != replica.id {
@@ -254,26 +254,21 @@ impl HostedProvider {
             ));
         }
         let part_size = self.blob_store.part_size();
-        let offset = request
-            .part_index
+        let offset = part_index
             .checked_mul(part_size)
             .ok_or_else(invalid_file_part)?;
-        let content_length = part_length(transfer.size, part_size, request.part_index)?;
-        let prepared = self
+        let content_length = part_length(transfer.size, part_size, part_index)?;
+        let bytes = self
             .blob_store
-            .presign_range(&transfer.object_key, offset, content_length)
+            .read_range(&transfer.object_key, offset, content_length)
             .await?;
-        Ok(PreparedFilePart {
-            protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
-            message_type: PreparedFilePartKind::FilePart,
-            transfer_id: transfer.id,
-            part_index: request.part_index,
-            offset,
-            content_length,
-            method: prepared.method,
-            url: prepared.url,
-            headers: prepared.headers,
-            expires_at: prepared.expires_at.to_rfc3339(),
-        })
+        if bytes.len() as u64 != content_length {
+            return Err(ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "file_storage_unavailable",
+                "The stored file range had an unexpected length.",
+            ));
+        }
+        Ok(bytes)
     }
 }

@@ -79,6 +79,15 @@ export interface MdbaseFramedFileTransport {
   ): Promise<Uint8Array>;
 }
 
+/** Internal authenticated hosted-object delivery seam. */
+export interface MdbaseHostedFileTransport {
+  downloadPart(
+    session: FileTransferSession,
+    partIndex: number,
+    signal?: AbortSignal
+  ): Promise<Uint8Array>;
+}
+
 type ControlRequest = <Result>(
   method: "GET" | "POST" | "DELETE",
   path?: string,
@@ -91,7 +100,8 @@ export class MdbaseFileClient {
   constructor(
     private readonly capability: () => FileCapability | null,
     private readonly request: ControlRequest,
-    private readonly framed?: MdbaseFramedFileTransport
+    private readonly framed?: MdbaseFramedFileTransport,
+    private readonly hosted?: MdbaseHostedFileTransport
   ) {}
 
   async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
@@ -301,6 +311,9 @@ export class MdbaseFileClient {
       if (session.strategy.kind === "framed_chunks" && !this.framed) {
         throw connectError("invalid_operation_response", "Encrypted file chunk delivery is unavailable.");
       }
+      if (session.strategy.kind === "object_ranges" && file.size > 0 && !this.hosted) {
+        throw connectError("invalid_operation_response", "Authenticated hosted file delivery is unavailable.");
+      }
     } catch (error) {
       await this.abort(transferId);
       throw normalizeFileError(error);
@@ -342,7 +355,10 @@ export class MdbaseFileClient {
               () => this.framed!.downloadChunk(session, partIndex, options.signal),
               options.signal
             )
-            : await this.downloadPart(transferId, partIndex, offset, length, options.signal);
+            : await retryChunk(
+              () => this.hosted!.downloadPart(session, partIndex, options.signal),
+              options.signal
+            );
           if (chunk.byteLength !== length) {
             throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
           }
@@ -546,48 +562,6 @@ export class MdbaseFileClient {
     throw lastError;
   }
 
-  private async downloadPart(
-    transferId: string,
-    partIndex: number,
-    offset: number,
-    contentLength: number,
-    signal?: AbortSignal
-  ): Promise<Uint8Array> {
-    for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
-      throwIfAborted(signal);
-      try {
-        const prepared = await this.request<PreparedFilePart>(
-          "POST",
-          `downloads/${encodeURIComponent(transferId)}/parts`,
-          {
-            protocol_version: FILE_PROTOCOL_VERSION,
-            type: "prepare_file_download_part",
-            transfer_id: transferId,
-            part_index: partIndex
-          },
-          signal
-        );
-        requirePreparedPart(prepared, transferId, partIndex, offset, contentLength, "GET");
-        const response = await fetch(prepared.url, {
-          method: prepared.method,
-          headers: browserObjectHeaders(prepared.headers),
-          redirect: "error",
-          signal
-        });
-        if (!response.ok) throw new Error(`Object download failed with HTTP ${response.status}.`);
-        const chunk = new Uint8Array(await response.arrayBuffer());
-        if (chunk.byteLength !== prepared.content_length) {
-          throw new Error("Object download returned the wrong byte length.");
-        }
-        return chunk;
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (attempt === MAX_OBJECT_ATTEMPTS) throw error;
-      }
-    }
-    throw new Error("Unreachable download retry state.");
-  }
-
   private requireAction(action: FileCapability["actions"][number]): void {
     if (!this.capability()?.actions.includes(action)) {
       throw connectError("not_authorized", `This connection is not authorized to ${action} files.`);
@@ -732,7 +706,7 @@ function requirePreparedPart(
   partIndex: number,
   offset: number,
   contentLength: number,
-  method: "GET" | "PUT"
+  method: "PUT"
 ): void {
   let url: URL;
   try {

@@ -37,7 +37,10 @@ import type {
   PendingMutationSummary
 } from "./operation-types.js";
 import { LocalFileTransport } from "./local-file-transport.js";
-import { performHostedFileRequest } from "./hosted-file-request.js";
+import {
+  performHostedFilePartRequest,
+  performHostedFileRequest
+} from "./hosted-file-request.js";
 import {
   directFallbackStatus,
   isMutation,
@@ -433,6 +436,28 @@ export class ConnectionTransport {
     signal?: AbortSignal
   ): Promise<Uint8Array> {
     return this.localFiles.downloadChunk(session, chunkIndex, signal);
+  }
+
+  async downloadHostedFilePart(
+    session: FileTransferSession,
+    partIndex: number,
+    signal?: AbortSignal
+  ): Promise<Uint8Array> {
+    const token = await this.authorizedToken();
+    if (!token?.fileCapability || !token.authority) {
+      throw connectError(
+        "not_remote_authority",
+        "Hosted file delivery requires a remote authority endpoint."
+      );
+    }
+    return performHostedFilePartRequest(
+      token,
+      `downloads/${encodeURIComponent(session.transfer_id)}/parts/${partIndex}`,
+      signal,
+      () => this.refreshAuthorization(),
+      (proofToken, proofMethod, url, body, credential) =>
+        this.authorityProofHeaders(proofToken, proofMethod, url, body, credential)
+    );
   }
 
   private async sendAuthoritySyncRequest(

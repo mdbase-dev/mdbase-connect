@@ -154,7 +154,6 @@ pub trait BlobStore: Send + Sync {
         part_number: i32,
         content_length: u64,
     ) -> ApiResult<PresignedPart>;
-    async fn presign_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<PresignedPart>;
     async fn complete_multipart(
         &self,
         key: &str,
@@ -253,21 +252,6 @@ impl BlobStore for R2BlobStore {
             .presigned(self.presigning_config()?)
             .await
             .map_err(|error| r2_unavailable("presign multipart part", &error))?;
-        Ok(self.prepared_request(request))
-    }
-
-    async fn presign_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<PresignedPart> {
-        validate_object_key(key)?;
-        let end = range_end(offset, length)?;
-        let request = self
-            .client
-            .get_object()
-            .bucket(&self.config.bucket)
-            .key(key)
-            .range(format!("bytes={offset}-{end}"))
-            .presigned(self.presigning_config()?)
-            .await
-            .map_err(|error| r2_unavailable("presign object range", &error))?;
         Ok(self.prepared_request(request))
     }
 

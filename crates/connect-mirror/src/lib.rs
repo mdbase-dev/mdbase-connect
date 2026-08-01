@@ -9,12 +9,11 @@ use mdbase_connect_protocol::{
     FileTransferDirection, FileTransferProtection, FileTransferSession, FileTransferStatus,
     FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue, MirrorResolution,
     MirrorState as MirrorStatusState, OpenFileDownloadRequest, OpenFileDownloadRequestKind,
-    PrepareFileDownloadPartRequest, PrepareFileDownloadPartRequestKind, PreparedFilePart,
-    PreparedFilePartKind, SelectiveSyncPolicy, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation,
-    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
-    SyncSession, SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION,
-    FILE_TRANSFER_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    SelectiveSyncPolicy, SyncChange, SyncChangesPage, SyncCollectionResources,
+    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation,
+    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
+    SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+    SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};

@@ -144,15 +144,6 @@ impl BlobStore for ControlledBlobStore {
         Ok(presigned(key))
     }
 
-    async fn presign_range(
-        &self,
-        key: &str,
-        _offset: u64,
-        _length: u64,
-    ) -> ApiResult<PresignedPart> {
-        Ok(presigned(key))
-    }
-
     async fn complete_multipart(
         &self,
         _key: &str,

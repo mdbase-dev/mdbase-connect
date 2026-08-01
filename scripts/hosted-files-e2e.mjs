@@ -118,6 +118,42 @@ try {
     });
   assert.equal(deniedDelete.status, 403);
 
+  const revocationTransferId = randomUUID();
+  const revocationSession = await json(
+    provider.url,
+    `/v1/authorities/${collectionId}/files/downloads`,
+    readOnly.token,
+    {
+      protocol_version: 1,
+      type: "open_file_download",
+      transfer_id: revocationTransferId,
+      file_id: largeUpload.receipt.file.file_id,
+      revision: largeUpload.receipt.file.revision
+    }
+  );
+  assert.equal(revocationSession.strategy.kind, "object_ranges");
+  assert.ok((await fetch(
+    `${provider.url}/v1/authorities/${collectionId}/files/downloads/${revocationTransferId}/parts/0`,
+    { headers: { authorization: `Bearer ${readOnly.token}` } }
+  )).ok);
+  assert.equal((await request(
+    provider.url,
+    `/internal/v1/replicas/${readOnly.id}`,
+    { method: "DELETE", token: internalToken }
+  )).status, 204);
+  const revokedRange = await request(
+    provider.url,
+    `/v1/authorities/${collectionId}/files/downloads/${revocationTransferId}/parts/1`,
+    { token: readOnly.token }
+  );
+  assert.equal(revokedRange.status, 401);
+  const revokedRecordRead = await request(
+    provider.url,
+    `/v1/authorities/${collectionId}/sync/changes?after=0&limit=1`,
+    { token: readOnly.token }
+  );
+  assert.equal(revokedRecordRead.status, 401);
+
   const deleteMutationId = randomUUID();
   const deleted = await sdk.delete(moved, { mutationId: deleteMutationId });
   assert.equal(deleted.previous_path, moved.path);
@@ -241,11 +277,10 @@ async function download(url, collectionId, token, file) {
   });
   const chunks = [];
   for (let index = 0; index * open.strategy.part_size < file.size; index += 1) {
-    const part = await json(url, `/v1/authorities/${collectionId}/files/downloads/${transferId}/parts`, token, {
-      protocol_version: 1, type: "prepare_file_download_part", transfer_id: transferId, part_index: index
+    const response = await fetch(`${url}/v1/authorities/${collectionId}/files/downloads/${transferId}/parts/${index}`, {
+      headers: { authorization: `Bearer ${token}` }
     });
-    const response = await fetch(part.url, { headers: part.headers });
-    assert.ok(response.ok);
+    if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
     chunks.push(Buffer.from(await response.arrayBuffer()));
   }
   const bytes = Buffer.concat(chunks);
@@ -265,7 +300,18 @@ function fileSdk(url, collectionId, token) {
       url,
       `/v1/authorities/${collectionId}/files${path === "" || path.startsWith("?") ? path : `/${path}`}`,
       { method, token, ...(input === undefined ? {} : { body: input }) }
-    ))
+    )),
+    undefined,
+    {
+      async downloadPart(session, partIndex) {
+        const response = await fetch(
+          `${url}/v1/authorities/${collectionId}/files/downloads/${session.transfer_id}/parts/${partIndex}`,
+          { headers: { authorization: `Bearer ${token}` } }
+        );
+        if (!response.ok) throw new Error(`Hosted range failed with HTTP ${response.status}.`);
+        return new Uint8Array(await response.arrayBuffer());
+      }
+    }
   );
 }
 

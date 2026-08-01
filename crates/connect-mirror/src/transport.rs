@@ -283,39 +283,34 @@ impl HttpSyncTransport {
                 MirrorError::new("invalid_sync_response", "File part offset overflowed.")
             })?;
             let content_length = part_size.min(file.size - offset);
-            let prepared = self
-                .file_request::<PreparedFilePart>(
-                    Method::POST,
-                    &format!("downloads/{transfer_id}/parts"),
-                    Some(&serde_json::to_value(PrepareFileDownloadPartRequest {
-                        protocol_version: FILE_PROTOCOL_VERSION,
-                        message_type: PrepareFileDownloadPartRequestKind::PrepareFileDownloadPart,
-                        transfer_id,
-                        part_index,
-                    })?),
-                )
-                .await?;
-            validate_prepared_download(&prepared, transfer_id, part_index, offset, content_length)?;
-            let mut request = self.client.get(&prepared.url);
-            for (name, value) in &prepared.headers {
-                if matches!(
-                    name.to_ascii_lowercase().as_str(),
-                    "host" | "content-length"
-                ) {
-                    continue;
-                }
-                request = request.header(name, value);
-            }
-            let mut response = request.send().await.map_err(|error| {
-                MirrorError::new(
-                    "mirror_offline",
-                    format!("Object storage is unavailable: {error}"),
-                )
-            })?;
+            let mut response = self
+                .client
+                .get(format!(
+                    "{}/downloads/{transfer_id}/parts/{part_index}",
+                    self.files_url
+                ))
+                .bearer_auth(&self.replica_token)
+                .send()
+                .await
+                .map_err(|error| {
+                    MirrorError::new(
+                        "mirror_offline",
+                        format!("Hosted authority is unavailable: {error}"),
+                    )
+                })?;
             if !response.status().is_success() {
+                let status = response.status();
+                let value = response.json::<Value>().await.unwrap_or(Value::Null);
                 return Err(MirrorError::new(
-                    "file_download_failed",
-                    format!("Object storage returned HTTP {}.", response.status()),
+                    value
+                        .pointer("/error/code")
+                        .and_then(Value::as_str)
+                        .unwrap_or("file_download_failed"),
+                    value
+                        .pointer("/error/message")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| format!("Hosted authority returned HTTP {status}.")),
                 ));
             }
             if response
@@ -324,14 +319,14 @@ impl HttpSyncTransport {
             {
                 return Err(MirrorError::new(
                     "file_integrity_failed",
-                    "Object storage returned a file part with the wrong length.",
+                    "Hosted authority returned a file part with the wrong length.",
                 ));
             }
             let mut received = 0_u64;
             while let Some(bytes) = response.chunk().await.map_err(|error| {
                 MirrorError::new(
                     "file_download_failed",
-                    format!("Could not read an object-storage response: {error}"),
+                    format!("Could not read the hosted file response: {error}"),
                 )
             })? {
                 received = received.checked_add(bytes.len() as u64).ok_or_else(|| {
@@ -340,7 +335,7 @@ impl HttpSyncTransport {
                 if received > content_length {
                     return Err(MirrorError::new(
                         "file_integrity_failed",
-                        "Object storage returned an oversized file part.",
+                        "Hosted authority returned an oversized file part.",
                     ));
                 }
                 output
@@ -351,7 +346,7 @@ impl HttpSyncTransport {
             if received != content_length {
                 return Err(MirrorError::new(
                     "file_integrity_failed",
-                    "Object storage returned a file part with the wrong length.",
+                    "Hosted authority returned a file part with the wrong length.",
                 ));
             }
         }
@@ -375,62 +370,9 @@ impl HttpSyncTransport {
     }
 }
 
-fn validate_prepared_download(
-    part: &PreparedFilePart,
-    transfer_id: Uuid,
-    part_index: u64,
-    offset: u64,
-    content_length: u64,
-) -> Result<(), MirrorError> {
-    let url = Url::parse(&part.url).map_err(|_| {
-        MirrorError::new(
-            "invalid_sync_response",
-            "The authority returned an invalid object URL.",
-        )
-    })?;
-    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
-    if part.protocol_version != FILE_TRANSFER_PROTOCOL_VERSION
-        || part.message_type != PreparedFilePartKind::FilePart
-        || part.transfer_id != transfer_id
-        || part.part_index != part_index
-        || part.offset != offset
-        || part.content_length != content_length
-        || !part.method.eq_ignore_ascii_case("GET")
-        || !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err(MirrorError::new(
-            "invalid_sync_response",
-            "The authority returned an invalid prepared file part.",
-        ));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn prepared(url: &str) -> (Uuid, PreparedFilePart) {
-        let transfer_id = Uuid::new_v4();
-        (
-            transfer_id,
-            PreparedFilePart {
-                protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
-                message_type: PreparedFilePartKind::FilePart,
-                transfer_id,
-                part_index: 2,
-                offset: 32,
-                content_length: 16,
-                method: "GET".to_string(),
-                url: url.to_string(),
-                headers: BTreeMap::new(),
-                expires_at: Utc::now().to_rfc3339(),
-            },
-        )
-    }
 
     #[test]
     fn sync_transport_derives_the_file_endpoint_from_one_valid_authority() {
@@ -456,36 +398,6 @@ mod tests {
                     .code,
                 "invalid_sync_url"
             );
-        }
-    }
-
-    #[test]
-    fn prepared_downloads_are_pinned_to_exact_parts_and_safe_urls() {
-        let (transfer_id, valid) = prepared("https://objects.example/signed-part");
-        validate_prepared_download(&valid, transfer_id, 2, 32, 16).unwrap();
-
-        for mut invalid in [
-            prepared("http://objects.example/signed-part").1,
-            prepared("file:///tmp/private").1,
-            prepared("https://user:password@objects.example/signed-part").1,
-        ] {
-            invalid.transfer_id = transfer_id;
-            assert_eq!(
-                validate_prepared_download(&invalid, transfer_id, 2, 32, 16)
-                    .unwrap_err()
-                    .code,
-                "invalid_sync_response"
-            );
-        }
-
-        for mutate in [
-            |part: &mut PreparedFilePart| part.part_index = 3,
-            |part: &mut PreparedFilePart| part.offset = 33,
-            |part: &mut PreparedFilePart| part.content_length = 15,
-        ] {
-            let mut invalid = valid.clone();
-            mutate(&mut invalid);
-            assert!(validate_prepared_download(&invalid, transfer_id, 2, 32, 16).is_err());
         }
     }
 }

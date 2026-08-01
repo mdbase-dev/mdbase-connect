@@ -6,9 +6,8 @@ use mdbase_connect_protocol::{
     FileMediaClass, FileTransferDirection, FileTransferProtection, FileTransferSession,
     FileTransferSessionKind, FileTransferState, FileTransferStatus, FileTransferStatusKind,
     FileTransferStrategy, ListFilesPage, ListFilesPageKind, ListFilesRequest, MoveFileReceipt,
-    MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    PrepareFileDownloadPartRequest, PrepareFileUploadPartRequest, PreparedFilePart,
-    PreparedFilePartKind, UploadedFilePart, FILE_TRANSFER_PROTOCOL_VERSION,
+    MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest, PrepareFileUploadPartRequest,
+    PreparedFilePart, PreparedFilePartKind, UploadedFilePart, FILE_TRANSFER_PROTOCOL_VERSION,
 };
 
 const TRANSFER_LIFETIME_HOURS: i64 = 24;

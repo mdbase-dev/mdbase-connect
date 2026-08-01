@@ -5,7 +5,11 @@ import type {
 } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "./errors.js";
-import { MdbaseFileClient, type MdbaseFramedFileTransport } from "./files.js";
+import {
+  MdbaseFileClient,
+  type MdbaseFramedFileTransport,
+  type MdbaseHostedFileTransport
+} from "./files.js";
 
 const capability: FileCapability = {
   kind: "files",
@@ -164,22 +168,15 @@ describe("MdbaseFileClient", () => {
       if (path === "downloads") {
         return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: 7 }, content.length, "download");
       }
-      if (path?.endsWith("/parts")) {
-        const offset = input.part_index * 7;
-        return {
-          ...prepared(input.transfer_id, input.part_index, offset, Math.min(7, content.length - offset), "GET", `https://r2.example/download/${input.part_index}`)
-        };
-      }
       if (method === "DELETE") {
         aborted = true;
         return { protocol_version: 1, type: "file_transfer_status", state: "aborted" };
       }
       throw new Error(`Unexpected control path ${path}`);
-    });
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
-      const index = Number(String(request).split("/").at(-1));
-      const chunk = content.slice(index * 7, Math.min(content.length, (index + 1) * 7));
-      return new Response(chunk, { status: 206 });
+    }, undefined, {
+      async downloadPart(_session, index) {
+        return content.slice(index * 7, Math.min(content.length, (index + 1) * 7));
+      }
     });
 
     await expect(client.downloadBytes(file, { concurrency: 3 })).resolves.toEqual(content);
@@ -194,14 +191,16 @@ describe("MdbaseFileClient", () => {
       if (path === "downloads") {
         return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: content.length }, content.length, "download");
       }
-      if (path?.endsWith("/parts")) return prepared(input.transfer_id, 0, 0, content.length, "GET", "https://r2.example/corrupt");
       if (method === "DELETE") {
         aborts += 1;
         return {};
       }
       throw new Error(`Unexpected control path ${path}`);
+    }, undefined, {
+      async downloadPart() {
+        return bytes("corrupt!");
+      }
     });
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(bytes("corrupt!"), { status: 206 }));
 
     await expect(client.download(file)).rejects.toEqual(
       expect.objectContaining<Partial<MdbaseConnectError>>({ code: "invalid_operation_response" })
@@ -340,15 +339,12 @@ describe("MdbaseFileClient", () => {
     expect(aborts).toBe(1);
   });
 
-  it("rejects prepared parts that do not match the requested range", async () => {
+  it("fails closed when hosted ranges are negotiated without an authenticated transport", async () => {
     const content = bytes("range integrity");
     const file = descriptor("range.bin", content);
     const client = fileClient(async (method, path, input) => {
       if (path === "downloads") {
         return uploadSession(input.transfer_id, { kind: "object_ranges", part_size: content.length }, content.length, "download");
-      }
-      if (path?.endsWith("/parts")) {
-        return prepared(input.transfer_id, 0, 1, content.length, "GET", "https://r2.example/range");
       }
       if (method === "DELETE") return {};
       throw new Error(`Unexpected control path ${path}`);
@@ -552,13 +548,15 @@ describe("MdbaseFileClient", () => {
 
 function fileClient(
   handler: (method: "GET" | "POST" | "DELETE", path?: string, input?: any) => Promise<any>,
-  framed?: MdbaseFramedFileTransport
+  framed?: MdbaseFramedFileTransport,
+  hosted?: MdbaseHostedFileTransport
 ): MdbaseFileClient {
   return new MdbaseFileClient(
     () => capability,
     async <Result>(method: "GET" | "POST" | "DELETE", path?: string, input?: unknown) =>
       await handler(method, path, input) as Result,
-    framed
+    framed,
+    hosted
   );
 }
 

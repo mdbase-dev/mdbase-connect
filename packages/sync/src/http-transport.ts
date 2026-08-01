@@ -89,50 +89,43 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
       for (let partIndex = 0; partIndex < partCount; partIndex += 1) {
         const offset = partIndex * partSize;
         const contentLength = Math.min(partSize, file.size - offset);
-        const prepared = await this.fileRequest<PreparedFilePart>(
-          "POST",
-          `downloads/${encodeURIComponent(transferId)}/parts`,
+        const response = await fetch(
+          `${this.filesUrl}/downloads/${encodeURIComponent(transferId)}/parts/${partIndex}`,
           {
-            protocol_version: 1,
-            type: "prepare_file_download_part",
-            transfer_id: transferId,
-            part_index: partIndex
+            method: "GET",
+            headers: { authorization: `Bearer ${this.replicaToken}` },
+            redirect: "error"
           }
         );
-        validatePreparedDownload(prepared, transferId, partIndex, offset, contentLength);
-        const response = await fetch(prepared.url, {
-          method: "GET",
-          headers: safeObjectHeaders(prepared.headers),
-          redirect: "manual"
-        });
         if (!response.ok || response.type === "opaqueredirect") {
+          const value = await response.json().catch(() => undefined);
           throw new SyncError(
-            "file_download_failed",
-            `Object storage returned HTTP ${response.status}.`
+            value?.error?.code ?? "file_download_failed",
+            value?.error?.message ?? `Hosted authority returned HTTP ${response.status}.`
           );
         }
         const declaredLength = response.headers.get("content-length");
         if (declaredLength !== null && Number(declaredLength) !== contentLength) {
           throw new SyncError(
             "file_integrity_failed",
-            "Object storage returned a file part with the wrong length."
+            "Hosted authority returned a file part with the wrong length."
           );
         }
         if (!response.body) {
-          throw new SyncError("file_download_failed", "Object storage returned no response body.");
+          throw new SyncError("file_download_failed", "Hosted authority returned no response body.");
         }
         let received = 0;
         for await (const chunk of readableStreamBytes(response.body)) {
           received += chunk.byteLength;
           if (!Number.isSafeInteger(received) || received > contentLength) {
-            throw new SyncError("file_integrity_failed", "Object storage returned an oversized file part.");
+            throw new SyncError("file_integrity_failed", "Hosted authority returned an oversized file part.");
           }
           yield chunk;
         }
         if (received !== contentLength) {
           throw new SyncError(
             "file_integrity_failed",
-            "Object storage returned a file part with the wrong length."
+            "Hosted authority returned a file part with the wrong length."
           );
         }
       }
@@ -326,39 +319,6 @@ class BinaryPartReader {
         throw new SyncError("pending_file_snapshot_corrupt", "Pending file bytes are oversized.");
       }
     }
-  }
-}
-
-function validatePreparedDownload(
-  part: PreparedFilePart,
-  transferId: string,
-  partIndex: number,
-  offset: number,
-  contentLength: number
-): void {
-  let url: URL;
-  try {
-    url = new URL(part.url);
-  } catch {
-    throw new SyncError("invalid_sync_response", "The authority returned an invalid object URL.");
-  }
-  if (
-    part.protocol_version !== 1
-    || part.type !== "file_part"
-    || part.transfer_id !== transferId
-    || part.part_index !== partIndex
-    || part.offset !== offset
-    || part.content_length !== contentLength
-    || part.method.toUpperCase() !== "GET"
-    || !secureHttpEndpoint(url)
-    || url.username
-    || url.password
-    || !url.hostname
-  ) {
-    throw new SyncError(
-      "invalid_sync_response",
-      "The authority returned an invalid prepared file part."
-    );
   }
 }
 

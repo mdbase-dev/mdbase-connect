@@ -1,4 +1,6 @@
 use super::*;
+use axum::body::Body;
+use axum::response::Response;
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
     PrepareFileUploadPartRequest, PreparedFilePart,
@@ -33,8 +35,8 @@ pub(super) fn file_routes() -> Router<AppState> {
             post(open_file_download),
         )
         .route(
-            "/v1/authorities/{collection_id}/files/downloads/{transfer_id}/parts",
-            post(prepare_file_download_part),
+            "/v1/authorities/{collection_id}/files/downloads/{transfer_id}/parts/{part_index}",
+            get(download_file_part),
         )
         .route(
             "/v1/authorities/{collection_id}/files/transfers/{transfer_id}",
@@ -154,24 +156,25 @@ async fn open_file_download(
     ))
 }
 
-async fn prepare_file_download_part(
+async fn download_file_part(
     State(state): State<AppState>,
     headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
-    Path((collection_id, transfer_id)): Path<(Uuid, Uuid)>,
-    body: Bytes,
-) -> ApiResult<Json<PreparedFilePart>> {
+    Path((collection_id, transfer_id, part_index)): Path<(Uuid, Uuid, u64)>,
+) -> ApiResult<Response> {
     let token =
-        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+        authorize_file_request(&state, &headers, Method::GET, &uri, collection_id, &[]).await?;
     let origin = request_origin(&headers);
-    let request = file_json::<PrepareFileDownloadPartRequest>(&body)?;
-    require_matching_transfer(transfer_id, request.transfer_id)?;
-    Ok(Json(
-        state
-            .provider
-            .prepare_file_download_part(collection_id, token, request, origin)
-            .await?,
-    ))
+    let bytes = state
+        .provider
+        .download_file_part(collection_id, token, transfer_id, part_index, origin)
+        .await?;
+    Response::builder()
+        .header("content-type", "application/octet-stream")
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from(bytes))
+        .map_err(|_| ApiError::internal("Could not build the hosted file response."))
 }
 
 async fn file_transfer_status(

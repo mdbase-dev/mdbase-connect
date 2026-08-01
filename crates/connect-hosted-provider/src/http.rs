@@ -15,9 +15,9 @@ use mdbase_connect_protocol::{
     AuthorityImportRecordPage, ContractSetupChoice, DeleteFileReceipt, DeleteFileRequest,
     FileTransferStatus, GrantSummary, ListFilesPage, ListFilesRequest, ListFilesRequestKind,
     MoveFileReceipt, MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    OperationRequest, OperationResponse, PrepareFileDownloadPartRequest, SyncChangesPage,
-    SyncFileSnapshotPage, SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage,
-    TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
+    OperationRequest, OperationResponse, SyncChangesPage, SyncFileSnapshotPage, SyncMutation,
+    SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
+    AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
     AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
 };
 use serde::Deserialize;

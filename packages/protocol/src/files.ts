@@ -183,13 +183,6 @@ export interface PrepareFileUploadPartRequest {
   content_length: number;
 }
 
-export interface PrepareFileDownloadPartRequest {
-  protocol_version: 1;
-  type: "prepare_file_download_part";
-  transfer_id: string;
-  part_index: number;
-}
-
 export interface PreparedFilePart {
   protocol_version: 1;
   type: "file_part";
