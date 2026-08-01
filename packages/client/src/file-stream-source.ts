@@ -6,10 +6,14 @@ export class BinaryPartReader {
   private remainder: Uint8Array<ArrayBufferLike> = new Uint8Array();
   private remainderOffset = 0;
   private maxSourceChunkBytes: number | null = null;
+  private iteratorClosing = false;
   private ended = false;
 
-  constructor(source: AsyncIterable<Uint8Array>, private readonly signal?: AbortSignal) {
-    this.iterator = source[Symbol.asyncIterator]();
+  constructor(
+    source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
+    private readonly signal?: AbortSignal
+  ) {
+    this.iterator = sourceIterator(source);
   }
 
   setMaxSourceChunkBytes(value: number): void {
@@ -21,8 +25,7 @@ export class BinaryPartReader {
     let offset = 0;
     while (offset < length) {
       if (this.remainderOffset === this.remainder.byteLength) {
-        throwIfAborted(this.signal);
-        const next = await this.iterator.next();
+        const next = await this.nextSourceChunk();
         if (next.done) {
           this.ended = true;
           throw connectError(
@@ -65,8 +68,7 @@ export class BinaryPartReader {
       throw connectError("invalid_request", "Streamed file bytes exceed the declared size.");
     }
     while (!this.ended) {
-      throwIfAborted(this.signal);
-      const next = await this.iterator.next();
+      const next = await this.nextSourceChunk();
       if (next.done) {
         this.ended = true;
         return;
@@ -82,50 +84,91 @@ export class BinaryPartReader {
 
   async close(): Promise<void> {
     this.ended = true;
-    await this.iterator.return?.();
+    this.closeIterator();
+  }
+
+  private async nextSourceChunk(): Promise<IteratorResult<Uint8Array>> {
+    throwIfAborted(this.signal);
+    const pending = this.iterator.next();
+    const signal = this.signal;
+    if (!signal) return pending;
+
+    let removeAbortListener = () => {};
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      const abort = () => {
+        this.closeIterator();
+        reject(cancelledError(signal));
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      removeAbortListener = () => signal.removeEventListener("abort", abort);
+      if (signal.aborted) abort();
+    });
+    try {
+      const next = await Promise.race([pending, cancelled]);
+      throwIfAborted(signal);
+      return next;
+    } finally {
+      removeAbortListener();
+    }
+  }
+
+  private closeIterator(): void {
+    if (this.iteratorClosing) return;
+    this.iteratorClosing = true;
+    try {
+      const closing = this.iterator.return?.();
+      void closing?.catch(() => undefined);
+    } catch {
+      // Cancellation and transfer cleanup must not wait for a broken source.
+    }
   }
 }
 
-export async function* streamBytes(
-  source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
-  signal?: AbortSignal
-): AsyncGenerator<Uint8Array> {
+function sourceIterator(
+  source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
+): AsyncIterator<Uint8Array> {
   if (typeof (source as ReadableStream<Uint8Array>).getReader === "function") {
     const reader = (source as ReadableStream<Uint8Array>).getReader();
-    const abort = () => void reader.cancel(signal?.reason).catch(() => undefined);
-    signal?.addEventListener("abort", abort, { once: true });
-    let completed = false;
-    try {
-      throwIfAborted(signal);
-      while (true) {
-        const next = await reader.read();
-        if (next.done) {
-          completed = true;
-          return;
-        }
-        yield next.value;
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
+        reader.releaseLock();
       }
-    } finally {
-      signal?.removeEventListener("abort", abort);
-      if (!completed) await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-    }
+    };
+    return {
+      async next() {
+        if (released) return { done: true, value: undefined };
+        const next = await reader.read();
+        if (next.done) release();
+        return next;
+      },
+      async return() {
+        if (!released) {
+          try {
+            await reader.cancel();
+          } finally {
+            release();
+          }
+        }
+        return { done: true, value: undefined };
+      }
+    };
   }
   const iterable = source as AsyncIterable<Uint8Array>;
   if (typeof iterable[Symbol.asyncIterator] !== "function") {
     throw connectError("invalid_request", "Streamed files require a readable byte stream.");
   }
-  for await (const chunk of iterable) {
-    throwIfAborted(signal);
-    yield chunk;
-  }
+  return iterable[Symbol.asyncIterator]();
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw connectError("operation_cancelled", "The file transfer was cancelled.", {
-      operationOutcome: "not_sent",
-      cause: signal.reason
-    });
-  }
+  if (signal?.aborted) throw cancelledError(signal);
+}
+
+function cancelledError(signal?: AbortSignal) {
+  return connectError("operation_cancelled", "The file transfer was cancelled.", {
+    operationOutcome: "not_sent",
+    cause: signal?.reason
+  });
 }

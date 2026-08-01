@@ -409,6 +409,102 @@ describe("MdbaseFileClient", () => {
     expect(transferAborted).toBe(true);
   });
 
+  it("cancels a readable stream while its next chunk is pending", async () => {
+    const content = bytes("wait");
+    const controller = new AbortController();
+    let sourceCancelled = false;
+    let transferAborted = false;
+    let startedRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      startedRead = resolve;
+    });
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_multipart", part_size: content.length },
+          content.length
+        );
+      }
+      if (method === "DELETE") {
+        transferAborted = true;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        startedRead();
+      },
+      cancel() {
+        sourceCancelled = true;
+      }
+    }, { highWaterMark: 0 });
+
+    const upload = client.uploadStream("pending-readable.bin", {
+      size: content.byteLength,
+      contentDigest: digest(content),
+      stream
+    }, { signal: controller.signal });
+    await readStarted;
+    controller.abort();
+
+    await expect(upload).rejects.toMatchObject({ code: "operation_cancelled" });
+    expect(sourceCancelled).toBe(true);
+    expect(transferAborted).toBe(true);
+  });
+
+  it("does not wait for a stalled async iterator to cooperate with cancellation", async () => {
+    const content = bytes("wait");
+    const controller = new AbortController();
+    let iteratorClosed = false;
+    let transferAborted = false;
+    let startedRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      startedRead = resolve;
+    });
+    const source: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            startedRead();
+            return new Promise<IteratorResult<Uint8Array>>(() => {});
+          },
+          return() {
+            iteratorClosed = true;
+            return new Promise<IteratorResult<Uint8Array>>(() => {});
+          }
+        };
+      }
+    };
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(
+          input.transfer_id,
+          { kind: "object_multipart", part_size: content.length },
+          content.length
+        );
+      }
+      if (method === "DELETE") {
+        transferAborted = true;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+
+    const upload = client.uploadStream("pending-iterable.bin", {
+      size: content.byteLength,
+      contentDigest: digest(content),
+      stream: source
+    }, { signal: controller.signal });
+    await readStarted;
+    controller.abort();
+
+    await expect(upload).rejects.toMatchObject({ code: "operation_cancelled" });
+    expect(iteratorClosed).toBe(true);
+    expect(transferAborted).toBe(true);
+  });
+
   it("reassembles revision-pinned ranges in order and verifies the digest", async () => {
     const content = bytes("ordered range download");
     const file = descriptor("Assets/download.bin", content);

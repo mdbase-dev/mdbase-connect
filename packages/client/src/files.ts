@@ -12,7 +12,7 @@ import type {
 import { FILE_PROTOCOL_VERSION } from "@mdbase/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
-import { BinaryPartReader, streamBytes } from "./file-stream-source.js";
+import { BinaryPartReader } from "./file-stream-source.js";
 
 const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
@@ -182,10 +182,10 @@ export class MdbaseFileClient {
   }
 
   /**
-   * Upload a one-shot byte stream without buffering the whole file. SDK
-   * read-ahead is bounded to one negotiated part, and oversized source chunks
-   * are rejected. Reuse `transferId` with a newly opened source after an
-   * ambiguous failure.
+   * Upload a one-shot byte stream without accumulating multiple file parts.
+   * SDK memory is bounded by one assembled negotiated part plus at most one
+   * source chunk; a single-part upload may therefore hold the complete file.
+   * Reuse `transferId` with a newly opened source after an ambiguous failure.
    */
   async uploadStream(
     path: string,
@@ -199,10 +199,7 @@ export class MdbaseFileClient {
     if (!SHA256_DIGEST.test(source.contentDigest)) {
       throw connectError("invalid_request", "Streamed files require a lowercase SHA-256 content digest.");
     }
-    const reader = new BinaryPartReader(
-      streamBytes(source.stream, options.signal),
-      options.signal
-    );
+    const reader = new BinaryPartReader(source.stream, options.signal);
     const hash = new IncrementalSha256();
     return this.uploadKnownSource(
       path,
