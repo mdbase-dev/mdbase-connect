@@ -1,8 +1,9 @@
-use std::{net::IpAddr, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use clap::Parser;
 use mdbase_connect_hosted_provider::{
     app, AppState, HostedNotificationConfig, HostedProvider, ProviderCrypto, ProviderLimits,
+    R2BlobStore, R2Config,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -48,6 +49,30 @@ struct Arguments {
     max_replicas_per_collection: u64,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_HOSTED_MAX_FILES_PER_COLLECTION",
+        default_value_t = 10_000
+    )]
+    max_files_per_collection: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_MAX_FILE_BYTES_PER_COLLECTION",
+        default_value_t = 5_368_709_120
+    )]
+    max_file_bytes_per_collection: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_MAX_STORED_FILE_BYTES_PER_COLLECTION",
+        default_value_t = 10_737_418_240
+    )]
+    max_stored_file_bytes_per_collection: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_MAX_FILE_BYTES",
+        default_value_t = 1_073_741_824
+    )]
+    max_bytes_per_file: u64,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_HOSTED_RETAIN_CHANGES",
         default_value_t = 100_000
     )]
@@ -64,6 +89,32 @@ struct Arguments {
         default_value_t = 5
     )]
     notification_interval_seconds: u64,
+    #[arg(long, env = "MDBASE_CONNECT_R2_ENDPOINT")]
+    r2_endpoint: String,
+    #[arg(long, env = "MDBASE_CONNECT_R2_BUCKET")]
+    r2_bucket: String,
+    #[arg(long, env = "MDBASE_CONNECT_R2_ACCESS_KEY_ID")]
+    r2_access_key_id: String,
+    #[arg(long, env = "MDBASE_CONNECT_R2_SECRET_ACCESS_KEY")]
+    r2_secret_access_key: String,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_R2_MULTIPART_PART_BYTES",
+        default_value_t = 8_388_608
+    )]
+    r2_multipart_part_bytes: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_R2_PRESIGN_TTL_SECONDS",
+        default_value_t = 900
+    )]
+    r2_presign_ttl_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_ALLOW_INSECURE_R2",
+        default_value_t = false
+    )]
+    allow_insecure_r2: bool,
 }
 
 #[tokio::main]
@@ -96,6 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_bytes_per_collection: arguments.max_bytes_per_collection,
         max_bytes_per_document: arguments.max_bytes_per_document,
         max_replicas_per_collection: arguments.max_replicas_per_collection,
+        max_files_per_collection: arguments.max_files_per_collection,
+        max_file_bytes_per_collection: arguments.max_file_bytes_per_collection,
+        max_stored_file_bytes_per_collection: arguments.max_stored_file_bytes_per_collection,
+        max_bytes_per_file: arguments.max_bytes_per_file,
     };
     let notification_config =
         arguments
@@ -104,9 +159,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 control_plane_url,
                 internal_token: arguments.internal_token.clone(),
             });
-    let provider =
-        HostedProvider::connect(&arguments.database_url, crypto, limits, notification_config)
-            .await?;
+    let r2_config = if arguments.allow_insecure_r2 {
+        R2Config::new_insecure_loopback(
+            arguments.r2_endpoint,
+            arguments.r2_bucket,
+            arguments.r2_access_key_id,
+            arguments.r2_secret_access_key,
+            arguments.r2_multipart_part_bytes,
+            Duration::from_secs(arguments.r2_presign_ttl_seconds),
+        )?
+    } else {
+        R2Config::new(
+            arguments.r2_endpoint,
+            arguments.r2_bucket,
+            arguments.r2_access_key_id,
+            arguments.r2_secret_access_key,
+            arguments.r2_multipart_part_bytes,
+            Duration::from_secs(arguments.r2_presign_ttl_seconds),
+        )?
+    };
+    let blob_store = Arc::new(R2BlobStore::new(r2_config));
+    let provider = HostedProvider::connect(
+        &arguments.database_url,
+        crypto,
+        limits,
+        blob_store,
+        notification_config,
+    )
+    .await?;
     let state = AppState::new(provider.clone(), &arguments.internal_token)?;
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
@@ -159,6 +239,11 @@ async fn maintain_history(provider: HostedProvider, retain_changes: u64, period:
             Ok(0) => {}
             Ok(imports) => tracing::warn!(imports, "removed expired authority imports"),
             Err(error) => tracing::error!(%error, "authority import recovery failed"),
+        }
+        match provider.delete_pending_blobs(500).await {
+            Ok(0) => {}
+            Ok(blobs) => tracing::info!(blobs, "deleted deferred hosted file objects"),
+            Err(error) => tracing::error!(%error, "deferred hosted file deletion failed"),
         }
     }
 }

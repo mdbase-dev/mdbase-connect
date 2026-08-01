@@ -33,6 +33,7 @@ const connectBinary = resolve(
       : "mdbase")
 );
 const postgresContainer = `mdbase-connect-provider-e2e-${process.pid}`;
+const objectStoreContainer = `mdbase-connect-provider-objects-${process.pid}`;
 const databasePassword = `test-${crypto.randomUUID()}`;
 const internalToken = `internal-${crypto.randomUUID()}-${crypto.randomUUID()}`;
 const masterKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
@@ -50,6 +51,8 @@ const desktopMirrorData = await mkdtemp(join(tmpdir(), "mdbase-provider-desktop-
 process.env.MDBASE_CONNECT_MIRROR_STATE_DIR = mirrorStateRoot;
 const children = new Set();
 let postgresStarted = false;
+let objectStoreStarted = false;
+let objectStoreEndpoint;
 let controlApp;
 let controlDatabase;
 let manifestServer;
@@ -90,6 +93,8 @@ const { HostedProviderClient } = await import("../services/server/dist/hosted-pr
 try {
   phase("starting disposable PostgreSQL 18");
   const databaseUrl = await startPostgres();
+  phase("starting disposable S3-compatible object storage");
+  objectStoreEndpoint = await startObjectStore();
   let provider = await startProvider(databaseUrl);
   await assert.rejects(
     () => startProvider(
@@ -2097,6 +2102,13 @@ schema:
       { timeout: 30_000 }
     ).catch(() => {});
   }
+  if (objectStoreStarted) {
+    await execute(
+      "docker",
+      ["rm", "-f", objectStoreContainer],
+      { timeout: 30_000 }
+    ).catch(() => {});
+  }
   await rm(mirrorRoot, { recursive: true, force: true });
   await rm(writableMirrorRoot, { recursive: true, force: true });
   await rm(importMirrorRoot, { recursive: true, force: true });
@@ -3433,6 +3445,35 @@ async function startPostgres() {
   throw new Error(`PostgreSQL did not become ready\n${logs}`);
 }
 
+async function startObjectStore() {
+  await execute("docker", [
+    "run", "--rm", "--detach", "--name", objectStoreContainer,
+    "--env", "MINIO_ROOT_USER=mdbase-test-access",
+    "--env", "MINIO_ROOT_PASSWORD=mdbase-test-secret-key",
+    "--publish", "127.0.0.1::9000",
+    "minio/minio:RELEASE.2025-09-07T16-13-09Z",
+    "server", "/data", "--address", ":9000"
+  ]);
+  objectStoreStarted = true;
+  const { stdout } = await execute("docker", ["port", objectStoreContainer, "9000/tcp"]);
+  const port = stdout.trim().match(/:(\d+)$/)?.[1];
+  if (!port) throw new Error(`Could not resolve object-store port from ${stdout}`);
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const ready = await fetch(`http://127.0.0.1:${port}/minio/health/ready`)
+      .then((response) => response.ok, () => false);
+    if (ready) break;
+    await delay(250);
+  }
+  await execute("docker", [
+    "run", "--rm", "--network", `container:${objectStoreContainer}`,
+    "--entrypoint", "/bin/sh",
+    "minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    "-c",
+    "mc alias set local http://127.0.0.1:9000 mdbase-test-access mdbase-test-secret-key && mc mb --ignore-existing local/mdbase-connect-files"
+  ]);
+  return `http://127.0.0.1:${port}`;
+}
+
 async function availablePort() {
   const server = createServer();
   await new Promise((resolveListen, reject) => {
@@ -3541,6 +3582,11 @@ async function startProvider(
       DATABASE_URL: databaseUrl,
       MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: internalToken,
       MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY: providerMasterKey,
+      MDBASE_CONNECT_R2_ENDPOINT: objectStoreEndpoint,
+      MDBASE_CONNECT_R2_BUCKET: "mdbase-connect-files",
+      MDBASE_CONNECT_R2_ACCESS_KEY_ID: "mdbase-test-access",
+      MDBASE_CONNECT_R2_SECRET_ACCESS_KEY: "mdbase-test-secret-key",
+      MDBASE_CONNECT_ALLOW_INSECURE_R2: "true",
       HOST: "127.0.0.1",
       PORT: String(port),
       RUST_LOG: "warn",

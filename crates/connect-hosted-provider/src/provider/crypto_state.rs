@@ -38,6 +38,26 @@ pub(super) fn receipt_aad(replica_id: Uuid, mutation_id: Uuid) -> Vec<u8> {
     aad(("mutation_receipt", replica_id, mutation_id))
 }
 
+pub(super) fn current_file_aad(collection_id: Uuid, file_id: Uuid, sequence: u64) -> Vec<u8> {
+    aad(("current_file", collection_id, file_id, sequence))
+}
+
+pub(super) fn file_version_aad(collection_id: Uuid, file_id: Uuid, sequence: u64) -> Vec<u8> {
+    aad(("file_version", collection_id, file_id, sequence))
+}
+
+pub(super) fn change_file_aad(collection_id: Uuid, sequence: u64, side: &str) -> Vec<u8> {
+    aad(("change_file", collection_id, sequence, side))
+}
+
+pub(super) fn file_transfer_intent_aad(transfer_id: Uuid) -> Vec<u8> {
+    aad(("file_transfer_intent", transfer_id))
+}
+
+pub(super) fn file_transfer_receipt_aad(transfer_id: Uuid) -> Vec<u8> {
+    aad(("file_transfer_receipt", transfer_id))
+}
+
 pub(super) fn authority_import_manifest_aad(import_id: Uuid) -> Vec<u8> {
     aad(("authority_import_manifest", import_id))
 }

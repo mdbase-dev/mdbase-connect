@@ -117,6 +117,7 @@ pub(super) fn validate_proof_public_key(value: &str) -> ApiResult<()> {
 
 pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<()> {
     validate_operations(&input.allowed_operations, input.mode)?;
+    validate_file_capability(input.file_capability.as_ref(), input.mode)?;
     match input.purpose {
         ReplicaPurpose::Mirror => {
             if !input.allowed_operations.is_empty()
@@ -125,6 +126,7 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                 || input.grant_id.is_some()
                 || input.full_collection
                 || !input.contract_scope.is_empty()
+                || input.file_capability.is_some()
             {
                 return Err(ApiError::bad_request(
                     "invalid_mirror_capability",
@@ -133,10 +135,10 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
             }
         }
         ReplicaPurpose::Application => {
-            if input.allowed_operations.is_empty() {
+            if input.allowed_operations.is_empty() && input.file_capability.is_none() {
                 return Err(ApiError::bad_request(
                     "invalid_application_capability",
-                    "Application capabilities require at least one operation.",
+                    "Application capabilities require record operations or file access.",
                 ));
             }
             if input.grant_id.is_none() {
@@ -145,12 +147,24 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
                     "Application capabilities require a grant.",
                 ));
             }
-            validate_collection_scope(
-                input.full_collection,
-                &input.allowed_types,
-                &input.contract_scope,
-                &input.allowed_operations,
-            )?;
+            if input.allowed_operations.is_empty() {
+                if input.full_collection
+                    || !input.allowed_types.is_empty()
+                    || !input.contract_scope.is_empty()
+                {
+                    return Err(ApiError::bad_request(
+                        "invalid_application_scope",
+                        "File-only capabilities cannot carry record scope.",
+                    ));
+                }
+            } else {
+                validate_collection_scope(
+                    input.full_collection,
+                    &input.allowed_types,
+                    &input.contract_scope,
+                    &input.allowed_operations,
+                )?;
+            }
             if input.proof_public_key.is_some() && input.allowed_origin.is_none() {
                 return Err(ApiError::bad_request(
                     "invalid_authority_proof_key",
@@ -192,6 +206,61 @@ pub(super) fn validate_replica_capability(input: &RegisterReplica) -> ApiResult<
         }
     }
     Ok(())
+}
+
+pub(super) fn validate_file_capability(
+    capability: Option<&FileCapability>,
+    mode: SyncReplicaMode,
+) -> ApiResult<()> {
+    let Some(capability) = capability else {
+        return Ok(());
+    };
+    if capability.protocol_version != FILE_PROTOCOL_VERSION || capability.actions.is_empty() {
+        return Err(ApiError::bad_request(
+            "invalid_file_capability",
+            "File access requires protocol 1 and at least one action.",
+        ));
+    }
+    let actions = capability.actions.iter().copied().collect::<BTreeSet<_>>();
+    if actions.len() != capability.actions.len()
+        || (mode == SyncReplicaMode::ReadOnly
+            && actions.iter().any(|action| {
+                matches!(
+                    action,
+                    FileAction::Add | FileAction::Replace | FileAction::Move | FileAction::Delete
+                )
+            }))
+    {
+        return Err(ApiError::bad_request(
+            "invalid_file_capability",
+            "File actions must be unique and compatible with the replica mode.",
+        ));
+    }
+    if let FileScope::SelectedFolders { folders } = &capability.scope {
+        if folders.is_empty()
+            || folders.len() > 100
+            || folders
+                .iter()
+                .any(|folder| !valid_capability_folder(folder))
+        {
+            return Err(ApiError::bad_request(
+                "invalid_file_capability",
+                "Selected file folders must be portable collection-relative paths.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_capability_folder(folder: &str) -> bool {
+    !folder.is_empty()
+        && folder.len() <= 1024
+        && !folder.starts_with('/')
+        && !folder.ends_with('/')
+        && !folder.contains('\\')
+        && !folder
+            .split('/')
+            .any(|component| component.is_empty() || matches!(component, "." | ".."))
 }
 
 pub(super) fn validate_collection_scope(

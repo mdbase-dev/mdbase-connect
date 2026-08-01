@@ -12,11 +12,12 @@ use mdbase_connect_protocol::{
     AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
     CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
     CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
-    GrantSummary, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict, SyncMutation,
-    SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
-    SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision,
-    AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    SYNC_PROTOCOL_VERSION,
+    FileAction, FileCapability, FileScope, GrantSummary, SyncChange, SyncChangesPage,
+    SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
+    SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
+    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
+    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
+    FILE_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -32,6 +33,7 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::{
+    blob_store::BlobStore,
     crypto::ProviderCrypto,
     error::{ApiError, ApiResult},
     notifications::{HostedNotificationConfig, HostedNotificationRuntime},
@@ -46,6 +48,8 @@ mod capabilities;
 mod collections;
 mod compaction;
 mod crypto_state;
+mod file_policy;
+mod files;
 mod lifecycle;
 mod lifecycle_states;
 mod mutations;
@@ -64,6 +68,7 @@ mod sync_reads;
 use authority_snapshots::*;
 use capabilities::*;
 use crypto_state::*;
+use file_policy::*;
 use lifecycle_states::{
     authority_import_state, authority_transfer_state, hosted_collection_state,
     HostedCollectionState,
@@ -84,6 +89,10 @@ pub struct ProviderLimits {
     pub max_bytes_per_collection: u64,
     pub max_bytes_per_document: u64,
     pub max_replicas_per_collection: u64,
+    pub max_files_per_collection: u64,
+    pub max_file_bytes_per_collection: u64,
+    pub max_stored_file_bytes_per_collection: u64,
+    pub max_bytes_per_file: u64,
 }
 
 impl Default for ProviderLimits {
@@ -93,6 +102,10 @@ impl Default for ProviderLimits {
             max_bytes_per_collection: 1024 * 1024 * 1024,
             max_bytes_per_document: 2 * 1024 * 1024,
             max_replicas_per_collection: 100,
+            max_files_per_collection: 10_000,
+            max_file_bytes_per_collection: 5 * 1024 * 1024 * 1024,
+            max_stored_file_bytes_per_collection: 10 * 1024 * 1024 * 1024,
+            max_bytes_per_file: 1024 * 1024 * 1024,
         }
     }
 }
@@ -105,6 +118,7 @@ pub struct HostedProvider {
     working_sets: WorkingSetRegistry,
     notifications: Option<HostedNotificationRuntime>,
     notification_recovery: Arc<RwLock<NotificationRecoveryStatus>>,
+    blob_store: Arc<dyn BlobStore>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -132,6 +146,8 @@ pub struct RegisterReplica {
     #[serde(default)]
     pub allowed_operations: Vec<String>,
     #[serde(default)]
+    pub file_capability: Option<FileCapability>,
+    #[serde(default)]
     pub allowed_origin: Option<String>,
     #[serde(default)]
     pub proof_public_key: Option<String>,
@@ -153,6 +169,8 @@ pub struct UpdateApplicationReplica {
     #[serde(default)]
     pub full_collection: bool,
     pub allowed_operations: Vec<String>,
+    #[serde(default)]
+    pub file_capability: Option<FileCapability>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -244,6 +262,7 @@ struct Replica {
     contract_scope: Vec<CollectionContractDescriptor>,
     full_collection: bool,
     allowed_operations: Vec<String>,
+    file_capability: Option<FileCapability>,
     allowed_origin: Option<String>,
     proof_public_key: Option<String>,
     grant_id: Option<Uuid>,

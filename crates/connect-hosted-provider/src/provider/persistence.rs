@@ -36,7 +36,7 @@ pub(super) async fn authenticate_in(
     purpose: ReplicaPurpose,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -59,7 +59,7 @@ pub(super) async fn authenticate_in_for_sync(
     request_origin: Option<&str>,
 ) -> ApiResult<Replica> {
     let row = sqlx::query(
-        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+        r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
                   allowed_origin, proof_public_key, grant_id, scope_epoch
            FROM hosted_provider_replicas
            WHERE collection_id = $1 AND token_hash = $2
@@ -105,6 +105,13 @@ pub(super) fn replica_from_row(row: Option<sqlx::postgres::PgRow>) -> ApiResult<
         })?,
         full_collection: row.get("full_collection"),
         allowed_operations: row.get("allowed_operations"),
+        file_capability: row
+            .get::<Option<Value>, _>("file_capability")
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!("Stored file capability is invalid: {error}"))
+            })?,
         allowed_origin: row.get("allowed_origin"),
         proof_public_key: row.get("proof_public_key"),
         grant_id: row.get("grant_id"),

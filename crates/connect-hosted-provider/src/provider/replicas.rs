@@ -17,6 +17,14 @@ impl HostedProvider {
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_replica_capability(&input)?;
+        let file_capability = input
+            .file_capability
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!("File capability could not be serialized: {error}"))
+            })?;
         let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
             ApiError::internal(format!("Contract scope could not be serialized: {error}"))
         })?;
@@ -48,7 +56,7 @@ impl HostedProvider {
         if let Some(existing) = sqlx::query(
             r#"SELECT collection_id, name, purpose, mode, allowed_types, contract_scope,
                       full_collection,
-                      allowed_operations, allowed_origin, proof_public_key, grant_id,
+                      allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id,
                       token_hash, revoked_at
                FROM hosted_provider_replicas WHERE id = $1 FOR UPDATE"#,
         )
@@ -65,6 +73,7 @@ impl HostedProvider {
                 && existing.get::<Value, _>("contract_scope") == contract_scope
                 && existing.get::<bool, _>("full_collection") == input.full_collection
                 && existing.get::<Vec<String>, _>("allowed_operations") == input.allowed_operations
+                && existing.get::<Option<Value>, _>("file_capability") == file_capability
                 && existing
                     .get::<Option<String>, _>("allowed_origin")
                     .as_deref()
@@ -104,10 +113,10 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_replicas
                  (id, collection_id, name, purpose, mode, allowed_types, contract_scope,
                   full_collection,
-                  allowed_operations, allowed_origin, proof_public_key, grant_id, token_hash,
+                  allowed_operations, file_capability, allowed_origin, proof_public_key, grant_id, token_hash,
                   token_expires_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                       now() + ($14 * interval '1 second'))"#,
+                       $14, now() + ($15 * interval '1 second'))"#,
         )
         .bind(input.replica_id)
         .bind(collection_id)
@@ -118,6 +127,7 @@ impl HostedProvider {
         .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
+        .bind(file_capability)
         .bind(input.allowed_origin)
         .bind(input.proof_public_key)
         .bind(input.grant_id)
@@ -231,7 +241,7 @@ impl HostedProvider {
         }
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2
@@ -300,21 +310,42 @@ impl HostedProvider {
         input.allowed_operations.sort();
         input.allowed_operations.dedup();
         validate_operations(&input.allowed_operations, input.mode)?;
-        if input.allowed_operations.is_empty() {
+        validate_file_capability(input.file_capability.as_ref(), input.mode)?;
+        if input.allowed_operations.is_empty() && input.file_capability.is_none() {
             return Err(ApiError::bad_request(
                 "invalid_application_capability",
-                "Application capabilities require at least one operation.",
+                "Application capabilities require record operations or file access.",
             ));
         }
-        validate_collection_scope(
-            input.full_collection,
-            &input.allowed_types,
-            &input.contract_scope,
-            &input.allowed_operations,
-        )?;
+        if input.allowed_operations.is_empty() {
+            if input.full_collection
+                || !input.allowed_types.is_empty()
+                || !input.contract_scope.is_empty()
+            {
+                return Err(ApiError::bad_request(
+                    "invalid_application_scope",
+                    "File-only capabilities cannot carry record scope.",
+                ));
+            }
+        } else {
+            validate_collection_scope(
+                input.full_collection,
+                &input.allowed_types,
+                &input.contract_scope,
+                &input.allowed_operations,
+            )?;
+        }
         let contract_scope = serde_json::to_value(&input.contract_scope).map_err(|error| {
             ApiError::internal(format!("Contract scope could not be serialized: {error}"))
         })?;
+        let file_capability = input
+            .file_capability
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| {
+                ApiError::internal(format!("File capability could not be serialized: {error}"))
+            })?;
         let result = sqlx::query(
             r#"UPDATE hosted_provider_replicas
                SET scope_epoch = scope_epoch + CASE
@@ -323,14 +354,16 @@ impl HostedProvider {
                        OR contract_scope IS DISTINCT FROM $4
                        OR full_collection IS DISTINCT FROM $5
                        OR allowed_operations IS DISTINCT FROM $6
-                       OR grant_id IS DISTINCT FROM $7
+                       OR file_capability IS DISTINCT FROM $7
+                       OR grant_id IS DISTINCT FROM $8
                      THEN 1 ELSE 0 END,
                    mode = $2,
                    allowed_types = $3,
                    contract_scope = $4,
                    full_collection = $5,
                    allowed_operations = $6,
-                   grant_id = $7
+                   file_capability = $7,
+                   grant_id = $8
                WHERE id = $1 AND purpose = 'application' AND revoked_at IS NULL"#,
         )
         .bind(replica_id)
@@ -339,6 +372,7 @@ impl HostedProvider {
         .bind(contract_scope)
         .bind(input.full_collection)
         .bind(input.allowed_operations)
+        .bind(file_capability)
         .bind(input.grant_id)
         .execute(&self.pool)
         .await?;
@@ -368,7 +402,7 @@ impl HostedProvider {
         purpose: ReplicaPurpose,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2 AND purpose = $3
@@ -390,7 +424,7 @@ impl HostedProvider {
         request_origin: Option<&str>,
     ) -> ApiResult<Replica> {
         let row = sqlx::query(
-            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
+            r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations, file_capability,
                       allowed_origin, proof_public_key, grant_id, scope_epoch
                FROM hosted_provider_replicas
                WHERE collection_id = $1 AND token_hash = $2

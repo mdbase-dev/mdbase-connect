@@ -23,6 +23,7 @@ pub struct R2Config {
     pub secret_access_key: String,
     pub multipart_part_bytes: u64,
     pub presign_ttl: Duration,
+    allow_insecure_loopback: bool,
 }
 
 impl R2Config {
@@ -41,14 +42,43 @@ impl R2Config {
             secret_access_key: secret_access_key.into(),
             multipart_part_bytes,
             presign_ttl,
+            allow_insecure_loopback: false,
         };
         config.validate()?;
         Ok(config)
     }
 
+    pub fn new_insecure_loopback(
+        endpoint: impl Into<String>,
+        bucket: impl Into<String>,
+        access_key_id: impl Into<String>,
+        secret_access_key: impl Into<String>,
+        multipart_part_bytes: u64,
+        presign_ttl: Duration,
+    ) -> ApiResult<Self> {
+        let mut config = Self {
+            endpoint: endpoint.into(),
+            bucket: bucket.into(),
+            access_key_id: access_key_id.into(),
+            secret_access_key: secret_access_key.into(),
+            multipart_part_bytes,
+            presign_ttl,
+            allow_insecure_loopback: true,
+        };
+        config.validate()?;
+        config.endpoint = config.endpoint.trim_end_matches('/').to_string();
+        Ok(config)
+    }
+
     fn validate(&self) -> ApiResult<()> {
         let endpoint = Url::parse(&self.endpoint).map_err(|_| invalid_r2_config())?;
-        if endpoint.scheme() != "https"
+        let secure_endpoint = endpoint.scheme() == "https";
+        let allowed_loopback = self.allow_insecure_loopback
+            && endpoint.scheme() == "http"
+            && endpoint
+                .host_str()
+                .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1"));
+        if (!secure_endpoint && !allowed_loopback)
             || endpoint.host_str().is_none()
             || endpoint.path() != "/"
             || endpoint.query().is_some()
@@ -131,7 +161,14 @@ pub trait BlobStore: Send + Sync {
         upload_id: &str,
         parts: &[UploadedPart],
     ) -> ApiResult<()>;
+    async fn list_multipart_parts(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> ApiResult<Vec<UploadedPart>>;
     async fn abort_multipart(&self, key: &str, upload_id: &str) -> ApiResult<()>;
+    async fn object_exists(&self, key: &str) -> ApiResult<bool>;
+    async fn copy(&self, source_key: &str, destination_key: &str) -> ApiResult<()>;
     async fn verify_object(&self, key: &str, size: u64, content_digest: &str) -> ApiResult<()>;
     async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<Vec<u8>>;
     async fn delete(&self, key: &str) -> ApiResult<()>;
@@ -278,6 +315,51 @@ impl BlobStore for R2BlobStore {
         Ok(())
     }
 
+    async fn list_multipart_parts(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> ApiResult<Vec<UploadedPart>> {
+        validate_object_key(key)?;
+        let mut marker = None;
+        let mut uploaded = Vec::new();
+        loop {
+            let page = self
+                .client
+                .list_parts()
+                .bucket(&self.config.bucket)
+                .key(key)
+                .upload_id(upload_id)
+                .set_part_number_marker(marker)
+                .send()
+                .await
+                .map_err(|error| r2_unavailable("list multipart parts", &error))?;
+            for part in page.parts() {
+                let part_number = part
+                    .part_number()
+                    .ok_or_else(|| ApiError::internal("R2 returned a part without its number."))?;
+                let etag = part
+                    .e_tag()
+                    .filter(|etag| !etag.is_empty())
+                    .ok_or_else(|| ApiError::internal("R2 returned a part without its ETag."))?;
+                uploaded.push(UploadedPart {
+                    part_number,
+                    etag: etag.to_string(),
+                });
+            }
+            if !page.is_truncated().unwrap_or(false) {
+                break;
+            }
+            marker = page.next_part_number_marker().map(str::to_string);
+            if marker.is_none() {
+                return Err(ApiError::internal(
+                    "R2 multipart pagination omitted its continuation marker.",
+                ));
+            }
+        }
+        Ok(uploaded)
+    }
+
     async fn abort_multipart(&self, key: &str, upload_id: &str) -> ApiResult<()> {
         validate_object_key(key)?;
         self.client
@@ -288,6 +370,43 @@ impl BlobStore for R2BlobStore {
             .send()
             .await
             .map_err(|error| r2_unavailable("abort multipart upload", &error))?;
+        Ok(())
+    }
+
+    async fn object_exists(&self, key: &str) -> ApiResult<bool> {
+        validate_object_key(key)?;
+        match self
+            .client
+            .head_object()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error)
+                if error
+                    .as_service_error()
+                    .is_some_and(|error| error.is_not_found()) =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(r2_unavailable("inspect object", &error)),
+        }
+    }
+
+    async fn copy(&self, source_key: &str, destination_key: &str) -> ApiResult<()> {
+        validate_object_key(source_key)?;
+        validate_object_key(destination_key)?;
+        let copy_source = format!("{}/{source_key}", self.config.bucket);
+        self.client
+            .copy_object()
+            .bucket(&self.config.bucket)
+            .key(destination_key)
+            .copy_source(copy_source)
+            .send()
+            .await
+            .map_err(|error| r2_unavailable("copy verified object", &error))?;
         Ok(())
     }
 
@@ -405,7 +524,7 @@ fn range_end(offset: u64, length: u64) -> ApiResult<u64> {
         .ok_or_else(|| ApiError::bad_request("invalid_file_range", "File range overflowed."))
 }
 
-fn parse_sha256_digest(value: &str) -> ApiResult<[u8; 32]> {
+pub(crate) fn parse_sha256_digest(value: &str) -> ApiResult<[u8; 32]> {
     let encoded = value.strip_prefix("sha256:").ok_or_else(|| {
         ApiError::bad_request(
             "invalid_content_digest",
@@ -514,6 +633,24 @@ mod tests {
         ] {
             assert!(invalid.is_err());
         }
+        assert!(R2Config::new_insecure_loopback(
+            "http://127.0.0.1:9000",
+            "bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .is_ok());
+        assert!(R2Config::new_insecure_loopback(
+            "http://storage.example:9000",
+            "bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .is_err());
     }
 
     #[test]

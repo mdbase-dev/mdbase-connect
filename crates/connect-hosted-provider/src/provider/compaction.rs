@@ -41,6 +41,13 @@ impl HostedProvider {
         .execute(&mut *transaction)
         .await?;
         sqlx::query(
+            "DELETE FROM hosted_provider_file_changes WHERE collection_id = $1 AND sequence <= $2",
+        )
+        .bind(collection_id)
+        .bind(to_i64(through, "compaction cursor")?)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
             "DELETE FROM hosted_provider_resource_changes WHERE collection_id = $1 AND sequence <= $2",
         )
         .bind(collection_id)
@@ -74,7 +81,73 @@ impl HostedProvider {
         .bind(prune_boundary)
         .execute(&mut *transaction)
         .await?;
+        let obsolete_files = sqlx::query(
+            r#"SELECT version.object_key, version.size
+               FROM hosted_provider_file_versions version
+               WHERE version.collection_id = $1
+                 AND version.sequence <= $2
+                 AND version.deleted = false
+                 AND version.sequence < (
+                   SELECT max(anchor.sequence)
+                   FROM hosted_provider_file_versions anchor
+                   WHERE anchor.collection_id = version.collection_id
+                     AND anchor.file_id = version.file_id
+                     AND anchor.sequence <= $2
+                 )"#,
+        )
+        .bind(collection_id)
+        .bind(prune_boundary)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let mut released_bytes = 0_u64;
+        for row in &obsolete_files {
+            let key: String = row.get("object_key");
+            let size = number(row.get("size"), "file version size")?;
+            released_bytes = released_bytes
+                .checked_add(size)
+                .ok_or_else(|| ApiError::internal("Released file bytes overflowed."))?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_blob_deletions
+                     (object_key, byte_length, reason)
+                   VALUES ($1, $2, 'version_compaction')
+                   ON CONFLICT (object_key) DO NOTHING"#,
+            )
+            .bind(key)
+            .bind(to_i64(size, "file version size")?)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        sqlx::query(
+            r#"DELETE FROM hosted_provider_file_versions version
+               WHERE version.collection_id = $1
+                 AND version.sequence <= $2
+                 AND version.sequence < (
+                   SELECT max(anchor.sequence)
+                   FROM hosted_provider_file_versions anchor
+                   WHERE anchor.collection_id = version.collection_id
+                     AND anchor.file_id = version.file_id
+                     AND anchor.sequence <= $2
+                 )"#,
+        )
+        .bind(collection_id)
+        .bind(prune_boundary)
+        .execute(&mut *transaction)
+        .await?;
+        if released_bytes > 0 {
+            sqlx::query(
+                r#"UPDATE hosted_provider_collections
+                   SET stored_file_bytes = stored_file_bytes - $2
+                   WHERE id = $1 AND stored_file_bytes >= $2"#,
+            )
+            .bind(collection_id)
+            .bind(to_i64(released_bytes, "released file bytes")?)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
+        if let Err(error) = self.delete_pending_blobs(500).await {
+            tracing::warn!(%error, "deferred hosted blob deletion failed after compaction");
+        }
         Ok(())
     }
 
@@ -100,5 +173,40 @@ impl HostedProvider {
             compacted += 1;
         }
         Ok(compacted)
+    }
+
+    pub async fn delete_pending_blobs(&self, limit: u32) -> ApiResult<usize> {
+        let rows = sqlx::query(
+            r#"SELECT object_key FROM hosted_provider_blob_deletions
+               ORDER BY created_at LIMIT $1"#,
+        )
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(&self.pool)
+        .await?;
+        let mut deleted = 0;
+        for row in rows {
+            let key: String = row.get("object_key");
+            match self.blob_store.delete(&key).await {
+                Ok(()) => {
+                    sqlx::query("DELETE FROM hosted_provider_blob_deletions WHERE object_key = $1")
+                        .bind(&key)
+                        .execute(&self.pool)
+                        .await?;
+                    deleted += 1;
+                }
+                Err(error) => {
+                    sqlx::query(
+                        r#"UPDATE hosted_provider_blob_deletions
+                           SET attempts = attempts + 1, last_attempt_at = now()
+                           WHERE object_key = $1"#,
+                    )
+                    .bind(&key)
+                    .execute(&self.pool)
+                    .await?;
+                    return Err(error);
+                }
+            }
+        }
+        Ok(deleted)
     }
 }

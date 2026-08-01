@@ -58,6 +58,69 @@ pub(super) fn authorize_sync_access(
     }
 }
 
+pub(super) fn authorize_file_access(
+    replica: &Replica,
+    action: FileAction,
+    path: Option<&str>,
+    request_origin: Option<&str>,
+) -> ApiResult<()> {
+    match replica.purpose {
+        ReplicaPurpose::Mirror => {
+            if request_origin.is_some() {
+                return Err(ApiError::forbidden(
+                    "origin_denied",
+                    "Mirror credentials cannot be used by browser applications.",
+                ));
+            }
+            if replica.mode == SyncReplicaMode::ReadOnly
+                && matches!(
+                    action,
+                    FileAction::Add | FileAction::Replace | FileAction::Move | FileAction::Delete
+                )
+            {
+                return Err(ApiError::forbidden(
+                    "insufficient_access",
+                    "This mirror is read-only.",
+                ));
+            }
+            Ok(())
+        }
+        ReplicaPurpose::Application => {
+            authorize_application_origin(replica, request_origin)?;
+            let capability = replica.file_capability.as_ref().ok_or_else(|| {
+                ApiError::forbidden(
+                    "insufficient_access",
+                    "This application has no collection file access.",
+                )
+            })?;
+            if !capability.actions.contains(&action) {
+                return Err(ApiError::forbidden(
+                    "insufficient_access",
+                    "This application is not allowed to perform that file action.",
+                ));
+            }
+            match (&capability.scope, path) {
+                (FileScope::Collection, _) | (_, None) => Ok(()),
+                (FileScope::SelectedFolders { folders }, Some(path))
+                    if folders
+                        .iter()
+                        .any(|folder| file_path_in_folder(path, folder)) =>
+                {
+                    Ok(())
+                }
+                (FileScope::Referenced, _) => Err(ApiError::forbidden(
+                    "referenced_file_scope_required",
+                    "Referenced-file access requires a file linked from an accessible record.",
+                )),
+                _ => Err(ApiError::forbidden(
+                    "scope_denied",
+                    "The file is outside this application's approved folders.",
+                )),
+            }
+        }
+    }
+}
+
 pub(super) fn scope_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::forbidden("scope_denied", error.to_string())
 }

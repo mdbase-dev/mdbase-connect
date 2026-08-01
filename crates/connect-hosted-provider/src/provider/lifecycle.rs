@@ -4,6 +4,7 @@ impl HostedProvider {
         database_url: &str,
         crypto: ProviderCrypto,
         limits: ProviderLimits,
+        blob_store: Arc<dyn BlobStore>,
         notification_config: Option<HostedNotificationConfig>,
     ) -> ApiResult<Self> {
         let started = Instant::now();
@@ -43,6 +44,7 @@ impl HostedProvider {
                                         last_success_at: None,
                                     },
                                 )),
+                                blob_store,
                             };
                             if let Some(notifications) = &provider.notifications {
                                 notifications.prepare().await?;
@@ -95,6 +97,7 @@ impl HostedProvider {
 
     pub async fn ready(&self) -> ApiResult<NotificationRecoveryStatus> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
+        self.blob_store.ready().await?;
         let status = self.notification_recovery.read().await.clone();
         if status.configured && status.recovery != "ok" {
             return Err(ApiError::new(

@@ -198,6 +198,18 @@ R2 errors are logged without exposing storage credentials or object internals.
 The AWS SDK dependency set is intentionally locked to versions compatible with
 the repository's current stable Rust compiler.
 
+The first hosted vertical slice now persists encrypted file descriptors and
+transfer intents in PostgreSQL while keeping bytes in R2. Client-chosen upload
+IDs make open retry-safe; single and multipart uploads use presigned staging
+objects; commit verifies full SHA-256, copies to an immutable non-presigned
+key, rechecks capability/base revision/quotas in a locked transaction, and
+publishes an encrypted idempotent receipt. Listing, progress, abort, historical
+revision downloads, bounded signed ranges, file snapshot pages, and merged
+record/file changes are exposed by the hosted API. A dedicated PostgreSQL +
+MinIO end-to-end suite covers single PUT, multipart, replay, listing, exact
+downloads, sync manifests/events, digest rejection, hidden paths, database
+path confidentiality, and staging cleanup.
+
 ## Handoff
 
 Work is active. Add download/range access and expose local file operations over

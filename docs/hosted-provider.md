@@ -66,6 +66,16 @@ Canonical documents and retained content are encrypted with a per-collection
 data key. Type labels, identifiers, revisions, sequences, sizes, deletion state,
 and keyed path tokens may remain visible as documented routing metadata.
 
+Hosted collection files use a separate object data plane. PostgreSQL retains
+encrypted paths and descriptors, capabilities, transfer journals, exact
+idempotent receipts, revision history, quotas, and the shared record/file
+sequence. Cloudflare R2 retains only opaque staging and immutable committed
+objects. Presigned URLs address staging objects only; the provider streams an
+exact size and SHA-256 verification, copies verified bytes to a non-presigned
+committed key, verifies that copy, and then commits PostgreSQL. Downloads pin a
+stored revision and use short-lived signed ranges, while SDKs hide single-PUT,
+multipart, and range mechanics from applications.
+
 ## Mutation transaction
 
 Every mutation follows one failure-atomic transaction:

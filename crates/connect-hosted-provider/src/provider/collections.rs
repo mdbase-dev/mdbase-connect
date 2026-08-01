@@ -56,8 +56,10 @@ impl HostedProvider {
             r#"INSERT INTO hosted_provider_collections
                  (id, template, display_name, spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
-                  max_document_bytes, max_replicas)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                  max_document_bytes, max_replicas, max_files, max_file_bytes,
+                  max_stored_file_bytes, max_single_file_bytes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       $13, $14, $15)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
@@ -82,6 +84,19 @@ impl HostedProvider {
         .bind(to_i64(
             self.limits.max_replicas_per_collection,
             "replica quota",
+        )?)
+        .bind(to_i64(self.limits.max_files_per_collection, "file quota")?)
+        .bind(to_i64(
+            self.limits.max_file_bytes_per_collection,
+            "current file byte quota",
+        )?)
+        .bind(to_i64(
+            self.limits.max_stored_file_bytes_per_collection,
+            "stored file byte quota",
+        )?)
+        .bind(to_i64(
+            self.limits.max_bytes_per_file,
+            "single file byte quota",
         )?)
         .execute(&mut *transaction)
         .await?;
@@ -167,11 +182,48 @@ impl HostedProvider {
     }
 
     pub async fn delete_collection(&self, collection_id: Uuid) -> ApiResult<()> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("UPDATE hosted_provider_collections SET state = 'deleting' WHERE id = $1")
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
+               SELECT object_key, max(size), 'collection_deletion'
+               FROM hosted_provider_file_versions
+               WHERE collection_id = $1 AND object_key IS NOT NULL
+               GROUP BY object_key
+               ON CONFLICT (object_key) DO NOTHING"#,
+        )
+        .bind(collection_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
+               SELECT object_key, 0, 'collection_deletion'
+               FROM (
+                 SELECT staging_object_key AS object_key
+                 FROM hosted_provider_file_transfers
+                 WHERE collection_id = $1 AND staging_object_key IS NOT NULL
+                 UNION
+                 SELECT committed_object_key AS object_key
+                 FROM hosted_provider_file_transfers
+                 WHERE collection_id = $1
+               ) objects
+               ON CONFLICT (object_key) DO NOTHING"#,
+        )
+        .bind(collection_id)
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query("DELETE FROM hosted_provider_collections WHERE id = $1")
             .bind(collection_id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         self.working_sets.lock().await.remove(&collection_id);
+        if let Err(error) = self.delete_pending_blobs(1_000).await {
+            tracing::warn!(collection_id = %collection_id, %error, "deferred collection blob deletion failed");
+        }
         Ok(())
     }
 }
