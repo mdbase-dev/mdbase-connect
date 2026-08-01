@@ -80,6 +80,7 @@ pub struct CollectionFileDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListFilesRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -115,6 +116,7 @@ pub enum ListFilesPageKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpenFileUploadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -136,6 +138,7 @@ pub enum OpenFileUploadRequestKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpenFileDownloadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -280,6 +283,7 @@ pub struct UploadedFilePart {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommitFileUploadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -311,6 +315,7 @@ pub enum CommitFileUploadReceiptKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AbortFileTransferRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
@@ -322,6 +327,21 @@ pub struct AbortFileTransferRequest {
 #[serde(rename_all = "snake_case")]
 pub enum AbortFileTransferRequestKind {
     AbortFileTransfer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GetFileTransferStatusRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: GetFileTransferStatusRequestKind,
+    pub transfer_id: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GetFileTransferStatusRequestKind {
+    GetFileTransferStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,6 +5,7 @@ pub(super) struct DownloadTransfer {
     transfer_id: Uuid,
     pub(super) state: String,
     file_id: Uuid,
+    pub(super) path: String,
     expected_size: u64,
     revision: String,
     chunk_size: u32,
@@ -181,7 +182,7 @@ pub(super) fn required_download(
 ) -> Result<DownloadTransfer, ConnectError> {
     connection
         .query_row(
-            "SELECT owner_id, state, file_id, expected_size, base_revision,
+            "SELECT owner_id, state, file_id, path, expected_size, base_revision,
                     chunk_size, staging_path, expires_at
              FROM collection_file_transfers
              WHERE transfer_id = ?1 AND collection_id = ?2 AND direction = 'download'",
@@ -191,11 +192,12 @@ pub(super) fn required_download(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, u64>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, u32>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, u64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, u32>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
                 ))
             },
         )
@@ -206,6 +208,7 @@ pub(super) fn required_download(
                 stored_owner_id,
                 state,
                 file_id,
+                path,
                 expected_size,
                 revision,
                 chunk_size,
@@ -223,6 +226,7 @@ pub(super) fn required_download(
                     transfer_id,
                     state,
                     file_id: parse_uuid(&file_id, "file")?,
+                    path,
                     expected_size,
                     revision,
                     chunk_size,

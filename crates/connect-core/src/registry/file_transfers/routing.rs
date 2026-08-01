@@ -1,4 +1,47 @@
+use super::download::download_session;
 use super::*;
+
+impl CollectionRegistry {
+    pub fn file_upload_intent(
+        &self,
+        id: Uuid,
+        owner_id: Uuid,
+        transfer_id: Uuid,
+    ) -> Result<(String, bool), ConnectError> {
+        let transfer = required_upload(&self.connection()?, id, Some(owner_id), transfer_id)?;
+        Ok((transfer.path, transfer.base_revision.is_some()))
+    }
+
+    pub fn file_download_path(
+        &self,
+        id: Uuid,
+        owner_id: Uuid,
+        transfer_id: Uuid,
+    ) -> Result<String, ConnectError> {
+        Ok(required_download(&self.connection()?, id, Some(owner_id), transfer_id)?.path)
+    }
+
+    pub fn file_transfer_session(
+        &self,
+        id: Uuid,
+        owner_id: Uuid,
+        transfer_id: Uuid,
+    ) -> Result<FileTransferSession, ConnectError> {
+        let connection = self.connection()?;
+        if transfer_direction(&connection, id, owner_id, transfer_id)? == "upload" {
+            let transfer = required_upload(&connection, id, Some(owner_id), transfer_id)?;
+            let status = transfer_status(&connection, &transfer)?;
+            Ok(upload_session(&transfer, status.received))
+        } else {
+            Ok(download_session(&required_download(
+                &connection,
+                id,
+                Some(owner_id),
+                transfer_id,
+            )?))
+        }
+    }
+}
 
 pub(super) fn transfer_exists(
     connection: &Connection,

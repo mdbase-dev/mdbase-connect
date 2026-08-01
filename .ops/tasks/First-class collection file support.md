@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T15:40:00+10:00
+updated_at: 2026-08-01T16:01:00+10:00
 type: task
 ---
 
@@ -269,9 +269,27 @@ revision staleness, live-file mutation, expiry, symlinks, corruption, and
 zero-byte files; all 76 core tests, strict core Clippy, and architecture budgets
 pass.
 
+Local applications now use the same high-level `connection.files` facade as
+hosted applications. Encrypted JSON `file_control` messages open, inspect,
+commit, and abort grant-owned sessions; a separate loopback data plane carries
+bounded `MDBF` frames without base64 or JSON buffering. Upload and download
+keys remain grant-, authority-, transfer-, and direction-bound. The SDK skips
+already received upload chunks, retries idempotent chunks, validates every
+negotiated offset and length, authenticates each download frame, restores
+ordering, verifies the final SHA-256, and hides framing and keys from normal
+applications. The connector rechecks current action and folder scope on every
+chunk and terminal control operation, including after policy changes. One
+HTTP-level Rust test exercises encrypted open, binary upload, atomic commit,
+listing, revision-pinned binary download, and decryption; browser tests cover
+framed resume, concurrency, transport absence, binding, permission denial, and
+frame substitution. All 76 core tests, 25 daemon tests, 21 Rust protocol tests,
+105 client tests, 25 JavaScript protocol tests, strict Clippy, typechecking,
+schema compilation, and architecture budgets pass for this slice.
+
 ## Handoff
 
-Work is active. Next expose framed local/direct and relay file transfers behind
-the same SDK facade, then materialize file manifests and immutable content in
-mirrors with independent selective-sync policy. Follow with move/delete APIs,
+Work is active. Direct framed transfer is complete; next route the same control
+and binary frames opaquely through the cloud relay without JSON/base64 payloads.
+Then materialize file manifests and immutable content in mirrors with
+independent selective-sync policy. Follow with move/delete APIs,
 authority-transfer coverage, recovery/fault injection, and desktop settings.

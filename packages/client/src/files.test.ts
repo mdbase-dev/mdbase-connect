@@ -5,7 +5,7 @@ import type {
 } from "@mdbase/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "./errors.js";
-import { MdbaseFileClient } from "./files.js";
+import { MdbaseFileClient, type MdbaseFramedFileTransport } from "./files.js";
 
 const capability: FileCapability = {
   kind: "files",
@@ -246,15 +246,97 @@ describe("MdbaseFileClient", () => {
     expect(paths.some((path) => path.endsWith("/parts"))).toBe(false);
     expect(objectFetch).not.toHaveBeenCalled();
   });
+
+  it("resumes encrypted framed uploads from the authority's received chunk set", async () => {
+    const content = bytes("resume framed upload");
+    const uploaded: Array<{ index: number; bytes: Uint8Array }> = [];
+    let commit: any;
+    const framed: MdbaseFramedFileTransport = {
+      async uploadChunk(_session, index, chunk) {
+        uploaded.push({ index, bytes: chunk });
+      },
+      async downloadChunk() {
+        throw new Error("unexpected download");
+      }
+    };
+    const client = fileClient(async (_method, path, input) => {
+      if (path === "uploads") {
+        return framedSession(input.transfer_id, content.length, "upload", [0], 6);
+      }
+      if (path?.endsWith("/commit")) {
+        commit = input;
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: descriptor("resume.bin", content)
+        };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    }, framed);
+
+    await expect(client.upload("resume.bin", content, { concurrency: 2 })).resolves.toMatchObject({
+      path: "resume.bin"
+    });
+
+    expect(uploaded.map(({ index }) => index)).toEqual([1, 2, 3]);
+    expect(uploaded.map(({ bytes: chunk }) => [...chunk])).toEqual([
+      [...content.slice(6, 12)],
+      [...content.slice(12, 18)],
+      [...content.slice(18)]
+    ]);
+    expect(commit).not.toHaveProperty("parts");
+  });
+
+  it("downloads encrypted frames concurrently, reorders them, and verifies integrity", async () => {
+    const content = bytes("framed chunks stay ordered");
+    const file = descriptor("framed.bin", content);
+    const framed: MdbaseFramedFileTransport = {
+      async uploadChunk() {
+        throw new Error("unexpected upload");
+      },
+      async downloadChunk(session, index) {
+        await new Promise((resolve) => setTimeout(resolve, (4 - index) * 2));
+        const size = session.strategy.kind === "framed_chunks"
+          ? session.strategy.chunk_size
+          : 0;
+        return content.slice(index * size, Math.min(content.length, (index + 1) * size));
+      }
+    };
+    const client = fileClient(async (method, path, input) => {
+      if (path === "downloads") {
+        return framedSession(input.transfer_id, content.length, "download", [], 7);
+      }
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    }, framed);
+
+    await expect(client.downloadBytes(file, { concurrency: 4 })).resolves.toEqual(content);
+  });
+
+  it("fails closed when an authority negotiates frames without a framed transport", async () => {
+    const content = bytes("no transport");
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") return framedSession(input.transfer_id, content.length, "upload");
+      if (method === "DELETE") return {};
+      throw new Error(`Unexpected control path ${path}`);
+    });
+
+    await expect(client.upload("no-transport.bin", content)).rejects.toEqual(
+      expect.objectContaining<Partial<MdbaseConnectError>>({ code: "invalid_operation_response" })
+    );
+  });
 });
 
 function fileClient(
-  handler: (method: "GET" | "POST" | "DELETE", path?: string, input?: any) => Promise<any>
+  handler: (method: "GET" | "POST" | "DELETE", path?: string, input?: any) => Promise<any>,
+  framed?: MdbaseFramedFileTransport
 ): MdbaseFileClient {
   return new MdbaseFileClient(
     () => capability,
     async <Result>(method: "GET" | "POST" | "DELETE", path?: string, input?: unknown) =>
-      await handler(method, path, input) as Result
+      await handler(method, path, input) as Result,
+    framed
   );
 }
 
@@ -274,6 +356,26 @@ function uploadSession(
     total_size: totalSize,
     expires_at: "2026-08-01T12:00:00Z",
     received: []
+  };
+}
+
+function framedSession(
+  transferId: string,
+  totalSize: number,
+  direction: "upload" | "download",
+  received: number[] = [],
+  chunkSize = 1024
+) {
+  return {
+    protocol_version: 1,
+    type: "file_transfer",
+    transfer_id: transferId,
+    direction,
+    protection: "grant_aead_v1",
+    strategy: { kind: "framed_chunks", chunk_size: chunkSize },
+    total_size: totalSize,
+    expires_at: "2026-08-01T12:00:00Z",
+    received
   };
 }
 

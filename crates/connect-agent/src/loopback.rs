@@ -3,11 +3,7 @@ use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, Request, Response, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
 use axum::{Json, Router};
-use mdbase_connect_protocol::{
-    RelayMessage, ENCRYPTED_RELAY_PROTOCOL_VERSION, LOOPBACK_PROTOCOL_VERSION,
-};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -20,6 +16,9 @@ use tokio::task::JoinHandle;
 const MAX_REQUEST_BYTES: usize = 3 * 1024 * 1024;
 const MAX_CONCURRENT_OPERATIONS: usize = 32;
 const MAX_REQUESTS_PER_MINUTE_PER_ORIGIN: u32 = 600;
+
+mod control;
+mod files;
 
 #[derive(Clone)]
 struct LoopbackState {
@@ -81,169 +80,36 @@ fn router(agent: Arc<AgentState>, port: u16) -> Router {
         rates: Arc::new(Mutex::new(HashMap::new())),
     };
     Router::new()
-        .route("/v1/ready", get(ready).options(preflight))
-        .route("/v1/operations", post(operation).options(preflight))
+        .merge(control::routes())
+        .merge(files::routes())
         .fallback(not_found)
-        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .layer(DefaultBodyLimit::max(files::MAX_FILE_REQUEST_BYTES))
         .with_state(state)
 }
 
-async fn ready(State(state): State<LoopbackState>, request: Request<Body>) -> Response<Body> {
-    let Ok(origin) = authorize_browser_request(&state, &request, false) else {
-        return denied();
-    };
-    cors_response(
-        Json(json!({
-            "service": "mdbase-connect",
-            "loopback_protocol_version": LOOPBACK_PROTOCOL_VERSION,
-            "encrypted_protocol_version": ENCRYPTED_RELAY_PROTOCOL_VERSION,
-        }))
-        .into_response(),
-        &origin,
-    )
-}
-
-async fn preflight(State(state): State<LoopbackState>, request: Request<Body>) -> Response<Body> {
-    let Ok(origin) = authorize_browser_request(&state, &request, true) else {
-        return denied();
-    };
-    let requested_method = request
-        .headers()
-        .get(header::ACCESS_CONTROL_REQUEST_METHOD)
-        .and_then(|value| value.to_str().ok());
-    if !matches!(requested_method, Some("GET" | "POST")) {
-        return denied();
-    }
-    let requested_headers = request
-        .headers()
-        .get(header::ACCESS_CONTROL_REQUEST_HEADERS)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if requested_headers
-        .split(',')
-        .map(|value| value.trim().to_ascii_lowercase())
-        .any(|value| !value.is_empty() && value != "content-type")
-    {
-        return denied();
-    }
-    let mut response = cors_response(StatusCode::NO_CONTENT.into_response(), &origin);
-    response.headers_mut().insert(
-        header::ACCESS_CONTROL_ALLOW_METHODS,
-        HeaderValue::from_static("GET, POST, OPTIONS"),
-    );
-    response.headers_mut().insert(
-        header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("Content-Type"),
-    );
-    response.headers_mut().insert(
-        header::ACCESS_CONTROL_MAX_AGE,
-        HeaderValue::from_static("600"),
-    );
-    if request
-        .headers()
-        .get("access-control-request-private-network")
-        .is_some_and(|value| value == "true")
-    {
-        response.headers_mut().insert(
-            "access-control-allow-private-network",
-            HeaderValue::from_static("true"),
-        );
-    }
-    response
-}
-
-async fn operation(
-    State(state): State<LoopbackState>,
+fn request_for_authorization(
+    method: Method,
+    uri: &'static str,
     headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
-) -> Response<Body> {
+) -> Request<Body> {
     let request = Request::builder()
-        .method(Method::POST)
-        .uri("/v1/operations")
+        .method(method)
+        .uri(uri)
         .body(Body::empty())
-        .expect("static direct request");
+        .expect("static direct file request");
     let (mut parts, _) = request.into_parts();
     parts.headers = headers;
-    let request = Request::from_parts(parts, Body::empty());
-    let Ok(origin) = authorize_browser_request(&state, &request, false) else {
-        return denied();
-    };
-    if request
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        != Some("application/mdbase-connect+json")
-    {
-        return cors_error(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "unsupported_media_type",
-            "Direct operations require application/mdbase-connect+json.",
-            &origin,
-        );
-    }
-    let Ok(RelayMessage::EncryptedOperationRequest { envelope }) =
-        serde_json::from_value::<RelayMessage>(body)
-    else {
-        return cors_error(
-            StatusCode::UPGRADE_REQUIRED,
-            "encryption_required",
-            "Direct operations require encrypted protocol 1.",
-            &origin,
-        );
-    };
-    let permit = match tokio::time::timeout(
+    Request::from_parts(parts, Body::empty())
+}
+
+async fn operation_permit(state: &LoopbackState) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    tokio::time::timeout(
         Duration::from_secs(5),
         state.operations.clone().acquire_owned(),
     )
     .await
-    {
-        Ok(Ok(permit)) => permit,
-        _ => {
-            return cors_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connector_busy",
-                "The local connector is busy.",
-                &origin,
-            )
-        }
-    };
-    let agent = state.agent.clone();
-    let operation_origin = origin.clone();
-    let execution = tokio::task::spawn_blocking(move || {
-        // Keep the concurrency slot until the filesystem operation and its durable receipt
-        // have both completed, even when the HTTP request times out and disconnects.
-        let _permit = permit;
-        agent.handle_direct_encrypted_operation(&operation_origin, envelope)
-    });
-    let response = tokio::time::timeout(Duration::from_secs(30), execution).await;
-    match response {
-        Ok(Ok(RelayMessage::EncryptedOperationResponse { envelope })) => cors_response(
-            Json(json!({
-                "ok": true,
-                "envelope": RelayMessage::EncryptedOperationResponse { envelope }
-            }))
-            .into_response(),
-            &origin,
-        ),
-        Ok(Ok(_)) => cors_error(
-            StatusCode::FORBIDDEN,
-            "direct_operation_rejected",
-            "The local connector rejected this operation.",
-            &origin,
-        ),
-        Ok(Err(_)) => cors_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "connector_failed",
-            "The local connector could not complete this operation.",
-            &origin,
-        ),
-        Err(_) => cors_error(
-            StatusCode::GATEWAY_TIMEOUT,
-            "connector_timeout",
-            "The local connector did not complete this operation in time.",
-            &origin,
-        ),
-    }
+    .ok()?
+    .ok()
 }
 
 async fn not_found() -> Response<Body> {
@@ -353,7 +219,9 @@ mod tests {
         RelayBinding, RelayDirection, RelayIdentity, RelayMetadata,
     };
     use mdbase_connect_protocol::{
-        EncryptedRelayEnvelope, GrantEncryption, GrantPolicy, GrantScope, RELAY_ENCRYPTION_SUITE,
+        EncryptedRelayEnvelope, FileAction, FileCapability, FileCapabilityKind, FileScope,
+        GrantEncryption, GrantPolicy, GrantScope, RelayMessage, ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        RELAY_ENCRYPTION_SUITE,
     };
     use std::fs;
     use tower::ServiceExt;
@@ -703,6 +571,189 @@ mod tests {
         fs::remove_dir_all(fixture.root).unwrap();
     }
 
+    #[tokio::test]
+    async fn encrypted_file_control_and_binary_frames_round_trip_directly() {
+        use mdbase_connect_protocol::{
+            FileFrameHeader, FileFrameKind, FileTransferBinding, FileTransferCipher,
+            FileTransferDirection, FileTransferProtection, FileTransferSession,
+            FileTransferStrategy, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+        };
+
+        let fixture = fixture();
+        let app = router(fixture.agent.clone(), 28_485);
+        let content = b"direct binary file";
+        let upload_id = Uuid::new_v4();
+        let opened = fixture
+            .file_control(
+                &app,
+                json!({
+                    "protocol_version": FILE_PROTOCOL_VERSION,
+                    "type": "open_file_upload",
+                    "transfer_id": upload_id,
+                    "path": "Assets/direct.bin",
+                    "size": content.len(),
+                    "content_digest": "sha256:2e438f39c46deb1a9ef51e7c521302fdf1b1a5c824f01038db5c9983da7d6442",
+                    "media_type": "application/octet-stream"
+                }),
+                1,
+            )
+            .await;
+        assert_eq!(opened["ok"], true);
+        let upload: FileTransferSession = serde_json::from_value(opened["result"].clone()).unwrap();
+        let FileTransferStrategy::FramedChunks { chunk_size } = upload.strategy else {
+            panic!("direct upload must use framed chunks")
+        };
+        let upload_cipher = FileTransferCipher::derive(
+            &fixture.application,
+            &fixture.encryption.connector_agreement_public_key,
+            FileTransferBinding {
+                grant_id: fixture.grant_id,
+                application_id: fixture.application_id,
+                connector_id: fixture.encryption.connector_id,
+                authority_id: fixture.encryption.connector_id,
+                collection_id: fixture.encryption.collection_id,
+                scope_epoch: fixture.encryption.scope_epoch,
+                key_id: fixture.encryption.key_id.clone(),
+                transfer_id: upload_id,
+                direction: FileTransferDirection::Upload,
+            },
+        )
+        .unwrap();
+        let encoded = upload_cipher
+            .encrypt_chunk(
+                FileFrameKind::UploadChunk,
+                FileFrameHeader {
+                    protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+                    protection: FileTransferProtection::GrantAeadV1,
+                    grant_id: fixture.grant_id,
+                    authority_id: fixture.encryption.connector_id,
+                    collection_id: fixture.encryption.collection_id,
+                    transfer_id: upload_id,
+                    direction: FileTransferDirection::Upload,
+                    chunk_size,
+                    chunk_index: 0,
+                    offset: 0,
+                    plaintext_length: content.len() as u32,
+                    total_size: content.len() as u64,
+                    scope_epoch: fixture.encryption.scope_epoch,
+                    key_id: Some(fixture.encryption.key_id.clone()),
+                },
+                content,
+            )
+            .unwrap()
+            .encode()
+            .unwrap();
+        let uploaded = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/files/upload")
+                    .header(HOST, "127.0.0.1:28485")
+                    .header(ORIGIN, &fixture.origin)
+                    .header(CONTENT_TYPE, "application/mdbase-connect-file")
+                    .body(Body::from(encoded))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(uploaded.status(), StatusCode::NO_CONTENT);
+
+        let committed = fixture
+            .file_control(
+                &app,
+                json!({
+                    "protocol_version": FILE_PROTOCOL_VERSION,
+                    "type": "commit_file_upload",
+                    "transfer_id": upload_id
+                }),
+                2,
+            )
+            .await;
+        assert_eq!(committed["ok"], true);
+        assert_eq!(
+            fs::read(fixture.root.join("collection/Assets/direct.bin")).unwrap(),
+            content
+        );
+        let file = committed["result"]["file"].clone();
+
+        let download_id = Uuid::new_v4();
+        let opened = fixture
+            .file_control(
+                &app,
+                json!({
+                    "protocol_version": FILE_PROTOCOL_VERSION,
+                    "type": "open_file_download",
+                    "transfer_id": download_id,
+                    "file_id": file["file_id"],
+                    "revision": file["revision"]
+                }),
+                3,
+            )
+            .await;
+        assert_eq!(opened["ok"], true);
+        let download: FileTransferSession =
+            serde_json::from_value(opened["result"].clone()).unwrap();
+        let downloaded = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "/v1/files/download/{}/{}/0",
+                        fixture.grant_id, download_id
+                    ))
+                    .header(HOST, "127.0.0.1:28485")
+                    .header(ORIGIN, &fixture.origin)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(downloaded.status(), StatusCode::OK);
+        assert_eq!(
+            downloaded.headers().get(CONTENT_TYPE).unwrap(),
+            "application/mdbase-connect-file"
+        );
+        let encoded = to_bytes(downloaded.into_body(), files::MAX_FILE_REQUEST_BYTES)
+            .await
+            .unwrap();
+        let download_cipher = FileTransferCipher::derive(
+            &fixture.application,
+            &fixture.encryption.connector_agreement_public_key,
+            FileTransferBinding {
+                grant_id: fixture.grant_id,
+                application_id: fixture.application_id,
+                connector_id: fixture.encryption.connector_id,
+                authority_id: fixture.encryption.connector_id,
+                collection_id: fixture.encryption.collection_id,
+                scope_epoch: fixture.encryption.scope_epoch,
+                key_id: fixture.encryption.key_id.clone(),
+                transfer_id: download_id,
+                direction: FileTransferDirection::Download,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            download_cipher
+                .decrypt_chunk(&mdbase_connect_protocol::FileFrame::decode(&encoded).unwrap())
+                .unwrap(),
+            content
+        );
+        assert_eq!(download.total_size, content.len() as u64);
+
+        let listed = fixture
+            .file_control(
+                &app,
+                json!({ "protocol_version": 1, "type": "list_files" }),
+                4,
+            )
+            .await;
+        assert_eq!(listed["result"]["files"][0]["path"], "Assets/direct.bin");
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
     struct Fixture {
         root: std::path::PathBuf,
         registry: CollectionRegistry,
@@ -743,11 +794,20 @@ mod tests {
         }
 
         async fn send(&self, app: &Router, message: RelayMessage) -> EncryptedRelayEnvelope {
+            self.send_at(app, "/v1/operations", message).await
+        }
+
+        async fn send_at(
+            &self,
+            app: &Router,
+            path: &str,
+            message: RelayMessage,
+        ) -> EncryptedRelayEnvelope {
             let response = app
                 .clone()
                 .oneshot(request(
                     Method::POST,
-                    "/v1/operations",
+                    path,
                     &self.origin,
                     Some(&serde_json::to_string(&message).unwrap()),
                 ))
@@ -761,6 +821,36 @@ mod tests {
                 serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["envelope"].clone(),
             )
             .unwrap()
+        }
+
+        async fn file_control(
+            &self,
+            app: &Router,
+            input: serde_json::Value,
+            counter: u64,
+        ) -> serde_json::Value {
+            let request = self.encrypted_request("file_control", input, counter);
+            let RelayMessage::EncryptedOperationRequest {
+                envelope: request_envelope,
+            } = request.clone()
+            else {
+                unreachable!()
+            };
+            let response = self.send_at(app, "/v1/files/control", request).await;
+            let binding =
+                RelayBinding::from_grant(self.grant_id, self.application_id, &self.encryption);
+            let keys = self
+                .application
+                .derive(&self.encryption.connector_agreement_public_key, &binding)
+                .unwrap();
+            let metadata = RelayMetadata {
+                binding: &binding,
+                request_id: request_envelope.request_id,
+                operation: "file_control",
+                counter: &request_envelope.counter,
+            };
+            keys.decrypt_json(RelayDirection::Response, metadata, &response.ciphertext)
+                .unwrap()
         }
 
         async fn direct(
@@ -857,7 +947,19 @@ mod tests {
                 notification_criteria: Vec::new(),
                 created_at: "2026-07-22T00:00:00Z".to_string(),
                 encryption: Some(encryption.clone()),
-                file_capability: None,
+                file_capability: Some(FileCapability {
+                    kind: FileCapabilityKind::Files,
+                    protocol_version: 1,
+                    actions: vec![
+                        FileAction::List,
+                        FileAction::Read,
+                        FileAction::Add,
+                        FileAction::Replace,
+                        FileAction::Move,
+                        FileAction::Delete,
+                    ],
+                    scope: FileScope::Collection,
+                }),
             }])
             .unwrap();
         let watcher = crate::watcher::CollectionWatchService::start(registry.clone());

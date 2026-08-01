@@ -17,7 +17,8 @@
     { "$ref": "#/$defs/preparedPart" },
     { "$ref": "#/$defs/commitUploadRequest" },
     { "$ref": "#/$defs/commitUploadReceipt" },
-    { "$ref": "#/$defs/abortTransferRequest" }
+    { "$ref": "#/$defs/abortTransferRequest" },
+    { "$ref": "#/$defs/getTransferStatusRequest" }
   ],
   "$defs": {
     "uuid": { "type": "string", "format": "uuid" },
@@ -389,6 +390,16 @@
           "then": { "required": ["key_id"] }
         }
       ]
+    },
+    "getTransferStatusRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "transfer_id"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "get_file_transfer_status" },
+        "transfer_id": { "$ref": "#/$defs/uuid" }
+      }
     }
   }
 }

@@ -466,12 +466,18 @@ impl AgentState {
             return rejected();
         };
         let binding = RelayBinding::from_grant(context.id, context.application_id, encryption);
-        if validate_envelope(&envelope, &binding).is_err()
-            || context.collection_id != envelope.collection_id
-            || !context
+        let file_control = envelope.operation == "file_control";
+        let operation_allowed = if file_control {
+            context.file_capability.is_some()
+        } else {
+            context
                 .operations
                 .iter()
                 .any(|allowed| allowed == &envelope.operation)
+        };
+        if validate_envelope(&envelope, &binding).is_err()
+            || context.collection_id != envelope.collection_id
+            || !operation_allowed
         {
             return rejected();
         }
@@ -547,6 +553,8 @@ impl AgentState {
             Err(ConnectError::AccessDenied(
                 "Remote access is paused on this computer.".to_string(),
             ))
+        } else if file_control {
+            self.file_control(&context, input)
         } else {
             self.scoped_operation(
                 "encrypted",

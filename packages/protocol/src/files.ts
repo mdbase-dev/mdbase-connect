@@ -160,6 +160,12 @@ export interface AbortFileTransferRequest {
   transfer_id: string;
 }
 
+export interface GetFileTransferStatusRequest {
+  protocol_version: 1;
+  type: "get_file_transfer_status";
+  transfer_id: string;
+}
+
 export interface FileFrameHeader {
   protocol_version: 1;
   protection: FileTransferProtection;

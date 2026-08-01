@@ -2,6 +2,7 @@ import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
+  FileTransferSession,
   JsonObject,
   MdbaseOperationRequest
 } from "@mdbase-dev/connect-protocol";
@@ -35,6 +36,8 @@ import type {
   OperationRequestOptions,
   PendingMutationSummary
 } from "./operation-types.js";
+import { LocalFileTransport } from "./local-file-transport.js";
+import { performHostedFileRequest } from "./hosted-file-request.js";
 import {
   directFallbackStatus,
   isMutation,
@@ -90,6 +93,7 @@ export class ConnectionTransport {
   private readonly collectionId: string;
   private readonly internals: ConnectionTransportInternals;
   private readonly onChange: () => void;
+  private readonly localFiles: LocalFileTransport;
   private refreshPromise: Promise<StoredToken> | null = null;
   private directStatus: DirectAccessStatus;
   private currentRoute: MdbaseConnectionRoute = "relay";
@@ -105,6 +109,16 @@ export class ConnectionTransport {
     this.collectionId = options.collectionId;
     this.internals = options.internals;
     this.onChange = options.onChange;
+    this.localFiles = new LocalFileTransport({
+      keyStore: this.keyStore,
+      loopbackUrl: this.loopbackUrl,
+      authorizedToken: () => this.authorizedToken(),
+      shouldAttemptDirect: (token) => this.shouldAttemptDirect(token),
+      onDirectAvailable: () => {
+        this.markDirectAvailable();
+        this.setRoute("direct");
+      }
+    });
     this.directStatus = this.directAccessMode === "disabled"
       ? "disabled"
       : "unavailable";
@@ -376,35 +390,45 @@ export class ConnectionTransport {
     return body as Result;
   }
 
-  async performAuthorityFileRequest<Result>(
+  async performFileRequest<Result>(
     method: "GET" | "POST" | "DELETE",
     path = "",
     input?: unknown,
     signal?: AbortSignal
   ): Promise<Result> {
     let token = await this.authorizedToken();
-    if (!token?.authority || !token.fileCapability) {
+    if (!token?.fileCapability) {
       throw connectError(
         "not_authorized",
-        "This connection has no remote file capability."
+        "This connection has no file capability."
       );
     }
-    let response = await this.sendAuthorityFileRequest(token, method, path, input, signal);
-    if (response.status === 401 && token.refreshToken) {
-      token = await this.refreshAuthorization();
-      if (!token.authority || !token.fileCapability) {
-        throw connectError(
-          "authority_authorization_changed",
-          "Reconnect this collection before accessing its files."
-        );
-      }
-      response = await this.sendAuthorityFileRequest(token, method, path, input, signal);
+    if (!token.authority) {
+      return this.localFiles.control<Result>(token, method, path, input, signal);
     }
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw apiError(body, "operation_failed", "Collection file request failed.", response.status);
-    }
-    return body as Result;
+    return performHostedFileRequest<Result>(
+      token, method, path, input, signal,
+      () => this.refreshAuthorization(),
+      (proofToken, proofMethod, url, body, credential) =>
+        this.authorityProofHeaders(proofToken, proofMethod, url, body, credential)
+    );
+  }
+
+  async uploadFileChunk(
+    session: FileTransferSession,
+    chunkIndex: number,
+    bytes: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<void> {
+    return this.localFiles.uploadChunk(session, chunkIndex, bytes, signal);
+  }
+
+  async downloadFileChunk(
+    session: FileTransferSession,
+    chunkIndex: number,
+    signal?: AbortSignal
+  ): Promise<Uint8Array> {
+    return this.localFiles.downloadChunk(session, chunkIndex, signal);
   }
 
   private async sendAuthoritySyncRequest(
@@ -431,38 +455,6 @@ export class ConnectionTransport {
         ...(body === undefined ? {} : { body })
       }
     );
-  }
-
-  private async sendAuthorityFileRequest(
-    token: StoredToken,
-    method: "GET" | "POST" | "DELETE",
-    path: string,
-    input?: unknown,
-    signal?: AbortSignal
-  ): Promise<Response> {
-    if (!token.authority) {
-      throw connectError("not_remote_authority", "This authorization has no remote authority endpoint.");
-    }
-    const suffix = path === "" || path.startsWith("?") ? path : `/${path}`;
-    const url = `${token.authority.filesUrl}${suffix}`;
-    const body = input === undefined ? undefined : JSON.stringify(input);
-    const proof = await this.authorityProofHeaders(
-      token,
-      method,
-      url,
-      body,
-      token.authority.accessToken
-    );
-    return fetch(url, {
-      method,
-      headers: {
-        authorization: `Bearer ${token.authority.accessToken}`,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-        ...proof
-      },
-      ...(body === undefined ? {} : { body }),
-      ...(signal ? { signal } : {})
-    });
   }
 
   private async sendOperation(

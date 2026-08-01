@@ -40,6 +40,7 @@ pub struct AgentState {
 
 mod account;
 mod control;
+mod files;
 mod operations;
 
 impl AgentState {

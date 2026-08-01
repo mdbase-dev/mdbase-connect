@@ -44,6 +44,21 @@ export interface MdbaseFileDownloadOptions {
   onProgress?: (progress: MdbaseFileProgress) => void;
 }
 
+/** Internal transport seam used by direct and relayed encrypted chunk delivery. */
+export interface MdbaseFramedFileTransport {
+  uploadChunk(
+    session: FileTransferSession,
+    chunkIndex: number,
+    bytes: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<void>;
+  downloadChunk(
+    session: FileTransferSession,
+    chunkIndex: number,
+    signal?: AbortSignal
+  ): Promise<Uint8Array>;
+}
+
 type ControlRequest = <Result>(
   method: "GET" | "POST" | "DELETE",
   path?: string,
@@ -55,7 +70,8 @@ type ControlRequest = <Result>(
 export class MdbaseFileClient {
   constructor(
     private readonly capability: () => FileCapability | null,
-    private readonly request: ControlRequest
+    private readonly request: ControlRequest,
+    private readonly framed?: MdbaseFramedFileTransport
   ) {}
 
   async *list(options: MdbaseFileListOptions = {}): AsyncGenerator<CollectionFileDescriptor> {
@@ -121,32 +137,53 @@ export class MdbaseFileClient {
         },
         options.signal
       );
-      requireHostedSession(session, transferId, "upload");
-      if (
-        session.strategy.kind !== "object_put"
-        && session.strategy.kind !== "object_multipart"
-      ) {
+      requireTransferSession(session, transferId, "upload");
+      if (session.total_size !== blob.size || session.strategy.kind === "object_ranges") {
         throw connectError("invalid_operation_response", "The authority returned an incompatible upload strategy.");
+      }
+      const framed = session.strategy.kind === "framed_chunks";
+      if (framed && !this.framed) {
+        throw connectError("invalid_operation_response", "Encrypted file chunk delivery is unavailable.");
       }
       const partSize = session.strategy.kind === "object_put"
         ? Math.max(1, blob.size)
-        : session.strategy.part_size;
+        : session.strategy.kind === "framed_chunks"
+          ? session.strategy.chunk_size
+          : session.strategy.part_size;
       const partCount = session.strategy.kind === "object_put"
         ? 1
         : Math.ceil(blob.size / partSize);
-      let transferredBytes = 0;
+      const received = new Set(framed ? session.received : []);
+      let transferredBytes = framed
+        ? [...received].reduce(
+          (total, index) => total + chunkLength(blob.size, partSize, index),
+          0
+        )
+        : 0;
       const parts = await mapConcurrent(partCount, concurrency, async (partIndex) => {
         const offset = partIndex * partSize;
         const length = Math.min(partSize, Math.max(0, blob.size - offset));
-        const uploaded = await this.uploadPart(
-          transferId,
-          partIndex,
-          offset,
-          blob.slice(offset, offset + length),
-          length,
-          session.strategy.kind === "object_multipart",
-          options.signal
-        );
+        if (received.has(partIndex)) return null;
+        const part = blob.slice(offset, offset + length);
+        const uploaded = framed
+          ? await retryChunk(
+            async () => this.framed!.uploadChunk(
+              session,
+              partIndex,
+              new Uint8Array(await part.arrayBuffer()),
+              options.signal
+            ),
+            options.signal
+          ).then(() => null)
+          : await this.uploadPart(
+            transferId,
+            partIndex,
+            offset,
+            part,
+            length,
+            session.strategy.kind === "object_multipart",
+            options.signal
+          );
         transferredBytes += length;
         options.onProgress?.({
           phase: "uploading",
@@ -162,7 +199,9 @@ export class MdbaseFileClient {
           protocol_version: FILE_PROTOCOL_VERSION,
           type: "commit_file_upload",
           transfer_id: transferId,
-          ...(session.strategy.kind === "object_multipart" ? { parts } : {})
+          ...(session.strategy.kind === "object_multipart"
+            ? { parts: parts.filter((part): part is UploadedFilePart => part !== null) }
+            : {})
         },
         options.signal
       );
@@ -202,23 +241,41 @@ export class MdbaseFileClient {
         },
         options.signal
       );
-      requireHostedSession(session, transferId, "download");
-      if (session.total_size !== file.size || session.strategy.kind !== "object_ranges") {
+      requireTransferSession(session, transferId, "download");
+      if (
+        session.total_size !== file.size
+        || (session.strategy.kind !== "object_ranges"
+          && session.strategy.kind !== "framed_chunks")
+      ) {
         throw connectError("invalid_operation_response", "The authority returned an incompatible download session.");
       }
-      const partSize = session.strategy.part_size;
+      const framed = session.strategy.kind === "framed_chunks";
+      if (framed && !this.framed) {
+        throw connectError("invalid_operation_response", "Encrypted file chunk delivery is unavailable.");
+      }
+      const partSize = session.strategy.kind === "framed_chunks"
+        ? session.strategy.chunk_size
+        : session.strategy.part_size;
       const partCount = Math.ceil(file.size / partSize);
       let transferredBytes = 0;
       const chunks = await mapConcurrent(partCount, concurrency, async (partIndex) => {
         const offset = partIndex * partSize;
         const length = Math.min(partSize, file.size - offset);
-        const chunk = await this.downloadPart(
-          transferId,
-          partIndex,
-          offset,
-          length,
-          options.signal
-        );
+        const chunk = framed
+          ? await retryChunk(
+            () => this.framed!.downloadChunk(session, partIndex, options.signal),
+            options.signal
+          )
+          : await this.downloadPart(
+            transferId,
+            partIndex,
+            offset,
+            length,
+            options.signal
+          );
+        if (chunk.byteLength !== length) {
+          throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
+        }
         transferredBytes += chunk.byteLength;
         options.onProgress?.({
           phase: "downloading",
@@ -402,7 +459,7 @@ function validPageSize(value: number): number {
   return value;
 }
 
-function requireHostedSession(
+function requireTransferSession(
   session: FileTransferSession,
   transferId: string,
   direction: "upload" | "download"
@@ -412,11 +469,56 @@ function requireHostedSession(
     || session.type !== "file_transfer"
     || session.transfer_id !== transferId
     || session.direction !== direction
-    || session.protection !== "transport_tls"
-    || !["object_put", "object_multipart", "object_ranges"].includes(session.strategy.kind)
+    || !Number.isSafeInteger(session.total_size)
+    || session.total_size < 0
+    || !Array.isArray(session.received)
+    || !validTransferStrategy(session)
   ) {
     throw connectError("invalid_operation_response", "The authority returned an invalid file transfer session.");
   }
+  const partSize = session.strategy.kind === "framed_chunks"
+    ? session.strategy.chunk_size
+    : session.strategy.kind === "object_put"
+      ? Math.max(1, session.total_size)
+      : session.strategy.part_size;
+  const partCount = session.strategy.kind === "object_put"
+    ? 1
+    : Math.ceil(session.total_size / partSize);
+  if (new Set(session.received).size !== session.received.length
+      || session.received.some((index) =>
+        !Number.isSafeInteger(index) || index < 0 || index >= partCount)) {
+    throw connectError("invalid_operation_response", "The authority returned invalid transfer progress.");
+  }
+}
+
+function validTransferStrategy(session: FileTransferSession): boolean {
+  if (session.strategy.kind === "framed_chunks") {
+    return session.protection === "grant_aead_v1"
+      && Number.isSafeInteger(session.strategy.chunk_size)
+      && session.strategy.chunk_size > 0;
+  }
+  if (session.protection !== "transport_tls") return false;
+  if (session.strategy.kind === "object_put") return true;
+  return Number.isSafeInteger(session.strategy.part_size) && session.strategy.part_size > 0;
+}
+
+function chunkLength(totalSize: number, partSize: number, index: number): number {
+  return Math.min(partSize, Math.max(0, totalSize - index * partSize));
+}
+
+async function retryChunk<Result>(
+  work: () => Promise<Result>,
+  signal?: AbortSignal
+): Promise<Result> {
+  for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
+    throwIfAborted(signal);
+    try {
+      return await work();
+    } catch (error) {
+      if (signal?.aborted || attempt === MAX_OBJECT_ATTEMPTS) throw error;
+    }
+  }
+  throw new Error("Unreachable file chunk retry state.");
 }
 
 function requirePreparedPart(

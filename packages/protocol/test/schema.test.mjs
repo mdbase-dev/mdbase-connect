@@ -135,6 +135,21 @@ test("file transfer control messages are bounded and resumable", () => {
   const { key_id: _keyId, ...withoutKey } = header;
   assert.equal(validateHeader(withoutKey), false);
   assert.equal(validateHeader({ ...header, plaintext_length: 4194305 }), false);
+
+  const validateStatusRequest = validator(
+    `${filesSchema.$id}#/$defs/getTransferStatusRequest`
+  );
+  const statusRequest = {
+    protocol_version: 1,
+    type: "get_file_transfer_status",
+    transfer_id: session.transfer_id
+  };
+  assert.equal(
+    validateStatusRequest(statusRequest),
+    true,
+    JSON.stringify(validateStatusRequest.errors)
+  );
+  assert.equal(validateStatusRequest({ ...statusRequest, owner_id: session.transfer_id }), false);
 });
 
 test("connect problems bind stable codes to exact categories, recovery, and details", () => {
@@ -572,6 +587,11 @@ test("encrypted relay envelopes expose routing metadata and reject payload-shape
     ciphertext: "opaque_ciphertext"
   };
   assert.equal(validate(envelope), true, JSON.stringify(validate.errors));
+  assert.equal(
+    validate({ ...envelope, operation: "file_control" }),
+    true,
+    JSON.stringify(validate.errors)
+  );
   assert.equal(validate({ ...envelope, input: { path: "private.md" } }), false);
   assert.equal(validate({ ...envelope, counter: "01" }), false);
   assert.equal(validate({ ...envelope, type: "operation_request" }), false);

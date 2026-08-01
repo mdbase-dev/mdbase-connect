@@ -5,8 +5,8 @@ import {
   AUTHORITY_PROOF_VERSION,
   RELAY_ENCRYPTION_SUITE,
   isConnectProblem,
-  type CollectionOperation,
   type ConnectProblem,
+  type EncryptedRelayOperation,
   type EncryptedRelayOperationRequest,
   type EncryptedRelayOperationResponse,
   type GrantEncryption
@@ -236,7 +236,7 @@ export async function encryptRelayRequest(
   store: GrantKeyStore,
   handle: string,
   binding: RelayBinding,
-  operation: CollectionOperation,
+  operation: EncryptedRelayOperation,
   input: unknown,
   requestId: string = crypto.randomUUID()
 ): Promise<EncryptedRelayOperationRequest> {
@@ -432,7 +432,7 @@ function context(binding: RelayBinding): string {
 }
 
 function aad(
-  metadata: { binding: RelayBinding; requestId: string; operation: CollectionOperation; counter: string },
+  metadata: { binding: RelayBinding; requestId: string; operation: EncryptedRelayOperation; counter: string },
   direction: "request" | "response"
 ): string {
   return [context(metadata.binding), metadata.requestId, direction, metadata.operation, metadata.counter].join("|");
@@ -441,7 +441,7 @@ function aad(
 function envelopeMetadata(metadata: {
   binding: RelayBinding;
   requestId: string;
-  operation: CollectionOperation;
+  operation: EncryptedRelayOperation;
   counter: string;
 }): Omit<EncryptedRelayOperationRequest, "type" | "ciphertext"> {
   const encryption = metadata.binding.encryption;

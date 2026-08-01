@@ -386,12 +386,15 @@ export interface EncryptedRelayEnvelope {
   application_id: string;
   connector_id: string;
   collection_id: string;
-  operation: CollectionOperation;
+  operation: EncryptedRelayOperation;
   scope_epoch: number;
   key_id: string;
   counter: string;
   ciphertext: string;
 }
+
+/** Encrypted control namespaces share grant authentication but not record permissions. */
+export type EncryptedRelayOperation = CollectionOperation | "file_control";
 
 export interface SyncRecord<Frontmatter extends JsonObject = JsonObject> {
   record_id: string;
