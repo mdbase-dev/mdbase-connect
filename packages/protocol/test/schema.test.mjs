@@ -97,6 +97,38 @@ test("file descriptors separate stable identity, path, revision, and content", (
   assert.equal(validate({ ...descriptor, size: -1 }), false);
 });
 
+test("file lifecycle mutations are identity-bound and revision-conditional", () => {
+  const fileId = "01911111-1111-7111-8111-111111111111";
+  const move = {
+    protocol_version: 1,
+    type: "move_file",
+    mutation_id: "01922222-2222-7222-8222-222222222222",
+    file_id: fileId,
+    if_revision: "file:1",
+    from_path: "Projects/Launch/diagram.png",
+    path: "Projects/Launch/final.png",
+    update_references: false
+  };
+  const validateMove = validator(`${filesSchema.$id}#/$defs/moveFileRequest`);
+  assert.equal(validateMove(move), true, JSON.stringify(validateMove.errors));
+  assert.equal(validateMove({ ...move, if_revision: undefined }), false);
+  assert.equal(validateMove({ ...move, update_references: undefined }), false);
+  assert.equal(validateMove({ ...move, bytes: "not allowed" }), false);
+
+  const remove = {
+    protocol_version: 1,
+    type: "delete_file",
+    mutation_id: "01933333-3333-7333-8333-333333333333",
+    file_id: fileId,
+    if_revision: "file:2",
+    path: "Projects/Launch/final.png"
+  };
+  const validateDelete = validator(`${filesSchema.$id}#/$defs/deleteFileRequest`);
+  assert.equal(validateDelete(remove), true, JSON.stringify(validateDelete.errors));
+  const { path: _path, ...withoutPath } = remove;
+  assert.equal(validateDelete(withoutPath), false);
+});
+
 test("file transfer control messages are bounded and resumable", () => {
   const validateSession = validator(`${filesSchema.$id}#/$defs/transferSession`);
   const session = {

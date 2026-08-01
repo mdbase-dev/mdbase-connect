@@ -202,6 +202,33 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         serde_json::to_value(&file).unwrap(),
     );
 
+    let move_request = MoveFileRequest {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: MoveFileRequestKind::MoveFile,
+        mutation_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+        file_id: file.file_id,
+        if_revision: file.revision.clone(),
+        from_path: file.path.clone(),
+        path: "Projects/Launch/final.png".to_string(),
+        update_references: false,
+    };
+    assert_file_schema(
+        "/$defs/moveFileRequest",
+        serde_json::to_value(move_request).unwrap(),
+    );
+    let delete_request = DeleteFileRequest {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: DeleteFileRequestKind::DeleteFile,
+        mutation_id: Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
+        file_id: file.file_id,
+        if_revision: file.revision.clone(),
+        path: file.path.clone(),
+    };
+    assert_file_schema(
+        "/$defs/deleteFileRequest",
+        serde_json::to_value(delete_request).unwrap(),
+    );
+
     let capability = FileCapability {
         kind: FileCapabilityKind::Files,
         protocol_version: FILE_PROTOCOL_VERSION,
@@ -254,11 +281,33 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         protocol_version: FILE_PROTOCOL_VERSION,
         message_type: CommitFileUploadReceiptKind::FileUploadCommitted,
         transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
-        file,
+        file: file.clone(),
     };
     assert_file_schema(
         "/$defs/commitUploadReceipt",
         serde_json::to_value(receipt).unwrap(),
+    );
+    assert_file_schema(
+        "/$defs/moveFileReceipt",
+        serde_json::to_value(MoveFileReceipt {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: MoveFileReceiptKind::FileMoved,
+            mutation_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+            file: file.clone(),
+        })
+        .unwrap(),
+    );
+    assert_file_schema(
+        "/$defs/deleteFileReceipt",
+        serde_json::to_value(DeleteFileReceipt {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            message_type: DeleteFileReceiptKind::FileDeleted,
+            mutation_id: Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
+            file_id: file.file_id,
+            previous_path: file.path,
+            revision: "file:deleted".to_string(),
+        })
+        .unwrap(),
     );
 }
 

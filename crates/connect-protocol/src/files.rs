@@ -181,6 +181,76 @@ pub enum OpenFileDownloadRequestKind {
     OpenFileDownload,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MoveFileRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: MoveFileRequestKind,
+    pub mutation_id: Uuid,
+    pub file_id: Uuid,
+    pub if_revision: String,
+    pub from_path: String,
+    pub path: String,
+    pub update_references: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveFileRequestKind {
+    MoveFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveFileReceipt {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: MoveFileReceiptKind,
+    pub mutation_id: Uuid,
+    pub file: CollectionFileDescriptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveFileReceiptKind {
+    FileMoved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteFileRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: DeleteFileRequestKind,
+    pub mutation_id: Uuid,
+    pub file_id: Uuid,
+    pub if_revision: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteFileRequestKind {
+    DeleteFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteFileReceipt {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: DeleteFileReceiptKind,
+    pub mutation_id: Uuid,
+    pub file_id: Uuid,
+    pub previous_path: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteFileReceiptKind {
+    FileDeleted,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileTransferDirection {

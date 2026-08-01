@@ -11,6 +11,10 @@
     { "$ref": "#/$defs/listFilesPage" },
     { "$ref": "#/$defs/openUploadRequest" },
     { "$ref": "#/$defs/openDownloadRequest" },
+    { "$ref": "#/$defs/moveFileRequest" },
+    { "$ref": "#/$defs/moveFileReceipt" },
+    { "$ref": "#/$defs/deleteFileRequest" },
+    { "$ref": "#/$defs/deleteFileReceipt" },
     { "$ref": "#/$defs/transferSession" },
     { "$ref": "#/$defs/transferStatus" },
     { "$ref": "#/$defs/prepareUploadPartRequest" },
@@ -191,6 +195,60 @@
         "type": { "const": "open_file_download" },
         "transfer_id": { "$ref": "#/$defs/uuid" },
         "file_id": { "$ref": "#/$defs/uuid" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "moveFileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version", "type", "mutation_id", "file_id", "if_revision", "from_path", "path", "update_references"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "move_file" },
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "file_id": { "$ref": "#/$defs/uuid" },
+        "if_revision": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "from_path": { "$ref": "#/$defs/path" },
+        "path": { "$ref": "#/$defs/path" },
+        "update_references": { "type": "boolean" }
+      }
+    },
+    "moveFileReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "mutation_id", "file"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_moved" },
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "file": { "$ref": "#/$defs/fileDescriptor" }
+      }
+    },
+    "deleteFileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "mutation_id", "file_id", "if_revision", "path"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "delete_file" },
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "file_id": { "$ref": "#/$defs/uuid" },
+        "if_revision": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "path": { "$ref": "#/$defs/path" }
+      }
+    },
+    "deleteFileReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "mutation_id", "file_id", "previous_path", "revision"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_deleted" },
+        "mutation_id": { "$ref": "#/$defs/uuid" },
+        "file_id": { "$ref": "#/$defs/uuid" },
+        "previous_path": { "$ref": "#/$defs/path" },
         "revision": { "type": "string", "minLength": 1, "maxLength": 255 }
       }
     },

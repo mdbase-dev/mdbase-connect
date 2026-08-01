@@ -110,6 +110,42 @@ export interface OpenFileDownloadRequest {
   revision?: string;
 }
 
+export interface MoveFileRequest {
+  protocol_version: 1;
+  type: "move_file";
+  mutation_id: string;
+  file_id: string;
+  if_revision: string;
+  from_path: string;
+  path: string;
+  update_references: boolean;
+}
+
+export interface MoveFileReceipt {
+  protocol_version: 1;
+  type: "file_moved";
+  mutation_id: string;
+  file: CollectionFileDescriptor;
+}
+
+export interface DeleteFileRequest {
+  protocol_version: 1;
+  type: "delete_file";
+  mutation_id: string;
+  file_id: string;
+  if_revision: string;
+  path: string;
+}
+
+export interface DeleteFileReceipt {
+  protocol_version: 1;
+  type: "file_deleted";
+  mutation_id: string;
+  file_id: string;
+  previous_path: string;
+  revision: string;
+}
+
 export interface FileTransferSession {
   protocol_version: 1;
   type: "file_transfer";
