@@ -37,10 +37,7 @@ import type {
   PendingMutationSummary
 } from "./operation-types.js";
 import { LocalFileTransport } from "./local-file-transport.js";
-import {
-  performHostedFilePartRequest,
-  performHostedFileRequest
-} from "./hosted-file-request.js";
+import { performHostedFilePartRequest, performHostedFileRequest } from "./hosted-file-request.js";
 import {
   directFallbackStatus,
   isMutation,
@@ -421,20 +418,11 @@ export class ConnectionTransport {
     );
   }
 
-  async uploadFileChunk(
-    session: FileTransferSession,
-    chunkIndex: number,
-    bytes: Uint8Array,
-    signal?: AbortSignal
-  ): Promise<void> {
+  async uploadFileChunk(session: FileTransferSession, chunkIndex: number, bytes: Uint8Array, signal?: AbortSignal): Promise<void> {
     return this.localFiles.uploadChunk(session, chunkIndex, bytes, signal);
   }
 
-  async downloadFileChunk(
-    session: FileTransferSession,
-    chunkIndex: number,
-    signal?: AbortSignal
-  ): Promise<Uint8Array> {
+  async downloadFileChunk(session: FileTransferSession, chunkIndex: number, signal?: AbortSignal): Promise<Uint8Array> {
     return this.localFiles.downloadChunk(session, chunkIndex, signal);
   }
 
