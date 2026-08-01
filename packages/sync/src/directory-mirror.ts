@@ -14,6 +14,7 @@ import {
 } from "./mirror-errors.js";
 import {
   authorityDocumentHash,
+  authorityFileHash,
   authorityManifestDigest,
   frontmatterPatch,
   mirrorLocalIssue,
@@ -342,8 +343,19 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       );
     }
     if (
+      this.selectiveSync.excluded_folders.length > 0
+      || this.selectiveSync.file_classes.length !== 5
+    ) {
+      throw new SyncError(
+        "promotion_incomplete_file_projection",
+        "Moving the source of truth requires every collection file class with no excluded folders."
+      );
+    }
+    if (
       (state.pending?.length ?? 0) > 0
+      || (state.pending_files?.length ?? 0) > 0
       || Object.keys(state.conflicts ?? {}).length > 0
+      || Object.keys(state.file_conflicts ?? {}).length > 0
       || Object.keys(state.local_issues ?? {}).length > 0
     ) {
       throw new SyncError(
@@ -367,6 +379,23 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         `Synchronize unmanaged Markdown before promotion: ${unmanaged.join(", ")}.`
       );
     }
+    if (!this.fileSystem.listBinary) {
+      throw new SyncError(
+        "promotion_file_scan_unavailable",
+        "Moving the source of truth requires binary file enumeration."
+      );
+    }
+    const managedFiles = new Set(Object.values(state.files ?? {}).map((entry) => entry.file.path));
+    const unmanagedFiles = (await this.fileSystem.listBinary(new Set([
+      ...resourcePaths,
+      ...managedPaths
+    ]))).filter((path) => !managedFiles.has(path));
+    if (unmanagedFiles.length > 0) {
+      throw new SyncError(
+        "promotion_unmanaged_files",
+        `Synchronize unmanaged files before moving the source of truth: ${unmanagedFiles.join(", ")}.`
+      );
+    }
     return {
       cursor: state.cursor,
       digest: authorityManifestDigest([
@@ -381,6 +410,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           path: entry.path,
           identity: recordId,
           document_hash: authorityDocumentHash(entry.hash)
+        })),
+        ...Object.values(state.files ?? {}).map(({ file }) => ({
+          kind: "file" as const,
+          path: file.path,
+          identity: file.file_id,
+          document_hash: authorityFileHash(file)
         }))
       ])
     };

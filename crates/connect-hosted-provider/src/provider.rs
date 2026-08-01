@@ -8,16 +8,17 @@ use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
-    authority_manifest_digest as snapshot_manifest_digest, AuthorityImportManifest,
-    AuthorityImportRecord, AuthorityImportRecordPage, AuthoritySnapshotRecord, CollectionChange,
-    CollectionChangesPage, CollectionContractDescriptor, CollectionDescription,
-    CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice, ContractSetupMode,
-    FileAction, FileCapability, FileScope, GrantSummary, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncConflict, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
-    SyncMutation, SyncMutationError, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
-    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
-    TypePackProvision, AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION,
-    FILE_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
+    authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
+    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
+    CollectionDescription, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
+    ContractSetupMode, FileAction, FileCapability, FileScope, GrantSummary, SyncChange,
+    SyncChangesPage, SyncCollectionResources, SyncConflict, SyncFileSnapshotPage,
+    SyncFileSnapshotPageKind, SyncMutation, SyncMutationError, SyncMutationOperation,
+    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument, SyncSession,
+    SyncSnapshotPage, SyncSnapshotRecord, TypePackProvision, AUTHORITY_PROOF_DOMAIN,
+    AUTHORITY_PROOF_VERSION, CONTROL_PROTOCOL_VERSION, FILE_PROTOCOL_VERSION,
+    SYNC_PROTOCOL_VERSION,
 };
 use mdbase_connect_runtime::contract_scope::{ContractScope, ContractSelector};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -41,6 +42,7 @@ use crate::{
     workspace::{StoredDocument, WorkingSet},
 };
 
+mod authority_import_files;
 mod authority_imports;
 mod authority_snapshots;
 mod authority_transfers;

@@ -1,4 +1,12 @@
+use super::files::{classify_media, validate_content_digest, validate_media_type};
 use super::*;
+use mdbase_connect_protocol::CollectionFileDescriptor;
+
+#[derive(Debug)]
+struct AuthorityImportBlobCleanup {
+    staging_object_key: String,
+    multipart_upload_id: Option<String>,
+}
 
 impl HostedProvider {
     pub async fn prepare_authority_import(
@@ -180,6 +188,40 @@ impl HostedProvider {
                 ));
             }
         }
+        if manifest.file_count != manifest.files.len() as u64 {
+            return Err(ApiError::bad_request(
+                "invalid_authority_import_manifest",
+                "Authority import file count does not match its descriptors.",
+            ));
+        }
+        let mut file_ids = BTreeSet::new();
+        let mut file_paths = BTreeSet::new();
+        let mut file_bytes = 0_u64;
+        for file in &manifest.files {
+            validate_hosted_file_path(&file.path)?;
+            validate_content_digest(&file.content_digest)?;
+            validate_media_type(file.media_type.as_deref())?;
+            let path_key = portable_file_path_key(&file.path);
+            file_bytes = file_bytes.checked_add(file.size).ok_or_else(|| {
+                ApiError::quota(
+                    "file_quota_exceeded",
+                    "Authority import file size overflowed.",
+                )
+            })?;
+            if file.file_id.is_nil()
+                || file.revision.is_empty()
+                || file.media_class != classify_media(&file.path).0
+                || chrono::DateTime::parse_from_rfc3339(&file.modified_at).is_err()
+                || !file_ids.insert(file.file_id)
+                || !file_paths.insert(path_key)
+                || paths.contains(file.path.as_str())
+            {
+                return Err(ApiError::bad_request(
+                    "invalid_authority_import_manifest",
+                    "Authority import file descriptors are invalid or duplicated.",
+                ));
+            }
+        }
         if !manifest
             .resources
             .documents
@@ -213,6 +255,22 @@ impl HostedProvider {
                 "Authority import exceeds the collection record quota.",
             ));
         }
+        if manifest.file_count > number(row.get::<i64, _>("max_files"), "file quota")?
+            || file_bytes > number(row.get::<i64, _>("max_file_bytes"), "file byte quota")?
+            || file_bytes
+                > number(
+                    row.get::<i64, _>("max_stored_file_bytes"),
+                    "stored file byte quota",
+                )?
+            || manifest.files.iter().any(|file| {
+                file.size > u64::try_from(row.get::<i64, _>("max_single_file_bytes")).unwrap_or(0)
+            })
+        {
+            return Err(ApiError::quota(
+                "file_quota_exceeded",
+                "Authority import exceeds a collection file quota.",
+            ));
+        }
         let collection_id = row.get::<Uuid, _>("collection_id");
         let wrapped: Vec<u8> = row.get("wrapped_data_key");
         let data_key = self
@@ -220,16 +278,27 @@ impl HostedProvider {
             .unwrap_data_key(&wrapped, &collection_key_aad(collection_id))?;
         let previous_digest: Option<String> = row.get("manifest_digest");
         let previous_revision: Option<String> = row.get("source_revision");
-        if previous_digest.as_deref() != Some(&manifest.manifest_digest)
-            || previous_revision.as_deref() != Some(&manifest.source_revision)
-        {
+        let manifest_changed = previous_digest.as_deref() != Some(&manifest.manifest_digest)
+            || previous_revision.as_deref() != Some(&manifest.source_revision);
+        let abandoned_files = if manifest_changed {
+            let abandoned = authority_import_blob_cleanup(&mut transaction, import_id).await?;
+            enqueue_authority_import_blob_cleanup(&mut transaction, import_id).await?;
             sqlx::query(
                 "DELETE FROM hosted_provider_authority_import_records WHERE import_id = $1",
             )
             .bind(import_id)
             .execute(&mut *transaction)
             .await?;
-        }
+            sqlx::query(
+                "DELETE FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1",
+            )
+            .bind(import_id)
+            .execute(&mut *transaction)
+            .await?;
+            abandoned
+        } else {
+            Vec::new()
+        };
         let ciphertext = self.crypto.encrypt_json(
             &data_key,
             &manifest,
@@ -239,7 +308,7 @@ impl HostedProvider {
             r#"UPDATE hosted_provider_authority_imports
                SET manifest_ciphertext = $2, manifest_digest = $3,
                    source_revision = $4, source_head = $5,
-                   expected_record_count = $6, state = 'receiving'
+                   expected_record_count = $6, expected_file_count = $7, state = 'receiving'
                WHERE id = $1
                RETURNING id, collection_id, next_authority_epoch, state,
                          manifest_digest, source_revision, source_head, expires_at"#,
@@ -250,10 +319,12 @@ impl HostedProvider {
         .bind(&manifest.source_revision)
         .bind(to_i64(manifest.source_head, "source head")?)
         .bind(to_i64(manifest.record_count, "record count")?)
+        .bind(to_i64(manifest.file_count, "file count")?)
         .fetch_one(&mut *transaction)
         .await?;
         let result = provider_authority_import(&saved)?;
         transaction.commit().await?;
+        self.abort_authority_import_multipart(abandoned_files).await;
         Ok(result)
     }
 
@@ -415,6 +486,56 @@ impl HostedProvider {
                 Ok(item)
             })
             .collect::<ApiResult<Vec<_>>>()?;
+        let staged_files = sqlx::query(
+            r#"SELECT id, file_id, intent_ciphertext, committed_object_key
+               FROM hosted_provider_authority_import_file_transfers
+               WHERE import_id = $1 AND state = 'committed'
+               ORDER BY created_at DESC"#,
+        )
+        .bind(import_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        let all_staged_object_keys = staged_files
+            .iter()
+            .map(|row| row.get::<String, _>("committed_object_key"))
+            .collect::<BTreeSet<_>>();
+        let mut uploaded_files = BTreeMap::<Uuid, (CollectionFileDescriptor, String)>::new();
+        for staged_file in staged_files {
+            let file_id: Uuid = staged_file.get("file_id");
+            let descriptor: CollectionFileDescriptor = self.crypto.decrypt_json(
+                &data_key,
+                staged_file.get("intent_ciphertext"),
+                &authority_import_file_intent_aad(staged_file.get("id")),
+            )?;
+            if manifest
+                .files
+                .iter()
+                .any(|declared| declared.file_id == file_id && declared == &descriptor)
+            {
+                uploaded_files
+                    .entry(file_id)
+                    .or_insert((descriptor, staged_file.get("committed_object_key")));
+            }
+        }
+        if manifest.files.iter().any(|file| {
+            uploaded_files
+                .get(&file.file_id)
+                .is_none_or(|(uploaded, _)| uploaded != file)
+        }) || uploaded_files.len() < manifest.files.len()
+        {
+            return Err(ApiError::conflict(
+                "authority_import_incomplete",
+                "Not every authority snapshot file has been uploaded and verified.",
+            ));
+        }
+        for file in &manifest.files {
+            let (_, object_key) = uploaded_files
+                .get(&file.file_id)
+                .expect("file upload was checked");
+            self.blob_store
+                .verify_object(object_key, file.size, &file.content_digest)
+                .await?;
+        }
         let workspace = WorkingSet::materialize(
             manifest
                 .resources
@@ -428,7 +549,26 @@ impl HostedProvider {
             }),
         )?;
         let records = canonicalize_imported_snapshot(&workspace, &manifest, &uploaded_records)?;
-        if snapshot_manifest_digest(&manifest.resources.documents, &records)
+        let mut physical_paths = manifest
+            .resources
+            .documents
+            .iter()
+            .map(|resource| portable_file_path_key(&resource.path))
+            .collect::<BTreeSet<_>>();
+        if records
+            .iter()
+            .any(|record| !physical_paths.insert(portable_file_path_key(&record.record.path)))
+            || manifest
+                .files
+                .iter()
+                .any(|file| !physical_paths.insert(portable_file_path_key(&file.path)))
+        {
+            return Err(ApiError::conflict(
+                "authority_import_path_conflict",
+                "Authority import records, resources, and files must use distinct portable paths.",
+            ));
+        }
+        if snapshot_manifest_digest(&manifest.resources.documents, &records, &manifest.files)
             != manifest.manifest_digest
         {
             return Err(ApiError::conflict(
@@ -454,6 +594,14 @@ impl HostedProvider {
                     )
                 })
         })?;
+        let imported_file_bytes = manifest.files.iter().try_fold(0_u64, |total, file| {
+            total.checked_add(file.size).ok_or_else(|| {
+                ApiError::quota(
+                    "file_quota_exceeded",
+                    "Authority import file size overflowed.",
+                )
+            })
+        })?;
         let max_content_bytes = number(row.get::<i64, _>("max_content_bytes"), "content quota")?;
         if content_bytes > max_content_bytes {
             return Err(ApiError::quota(
@@ -477,6 +625,67 @@ impl HostedProvider {
             .bind(collection_id)
             .execute(&mut *transaction)
             .await?;
+        let old_file_objects = sqlx::query_scalar::<_, String>(
+            r#"SELECT object_key FROM hosted_provider_files WHERE collection_id = $1
+               UNION
+               SELECT object_key FROM hosted_provider_file_versions WHERE collection_id = $1"#,
+        )
+        .bind(collection_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        sqlx::query("DELETE FROM hosted_provider_file_changes WHERE collection_id = $1")
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DELETE FROM hosted_provider_file_versions WHERE collection_id = $1")
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DELETE FROM hosted_provider_files WHERE collection_id = $1")
+            .bind(collection_id)
+            .execute(&mut *transaction)
+            .await?;
+        let imported_object_keys = uploaded_files
+            .values()
+            .map(|(_, object_key)| object_key.as_str())
+            .collect::<BTreeSet<_>>();
+        for object_key in &imported_object_keys {
+            sqlx::query("DELETE FROM hosted_provider_blob_deletions WHERE object_key = $1")
+                .bind(object_key)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        for object_key in old_file_objects {
+            if imported_object_keys.contains(object_key.as_str()) {
+                continue;
+            }
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_blob_deletions (object_key, reason)
+                   VALUES ($1, 'authority import replaced file') ON CONFLICT DO NOTHING"#,
+            )
+            .bind(&object_key)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        for object_key in all_staged_object_keys {
+            if imported_object_keys.contains(object_key.as_str()) {
+                continue;
+            }
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_blob_deletions (object_key, reason)
+                   VALUES ($1, 'unused authority import file') ON CONFLICT DO NOTHING"#,
+            )
+            .bind(&object_key)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "DELETE FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1 AND committed_object_key = $2",
+            )
+            .bind(import_id)
+            .bind(&object_key)
+            .execute(&mut *transaction)
+            .await?;
+        }
         for resource in &manifest.resources.documents {
             sqlx::query(
                 r#"INSERT INTO hosted_provider_resources
@@ -495,7 +704,7 @@ impl HostedProvider {
             .execute(&mut *transaction)
             .await?;
         }
-        let initial_sequence = (!records.is_empty()) as u64;
+        let initial_sequence = (!records.is_empty() || !manifest.files.is_empty()) as u64;
         for item in &records {
             persist_live_record(
                 &mut transaction,
@@ -508,6 +717,53 @@ impl HostedProvider {
             )
             .await?;
         }
+        for file in &manifest.files {
+            let (_, object_key) = uploaded_files
+                .get(&file.file_id)
+                .expect("file upload was checked");
+            let payload = super::files::payload_from_descriptor(file);
+            let current_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                &payload,
+                &current_file_aad(collection_id, file.file_id, initial_sequence),
+            )?;
+            let version_ciphertext = self.crypto.encrypt_json(
+                &data_key,
+                &payload,
+                &file_version_aad(collection_id, file.file_id, initial_sequence),
+            )?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_files
+                     (collection_id, file_id, path_token, revision, size, object_key,
+                      payload_ciphertext, sequence)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            )
+            .bind(collection_id)
+            .bind(file.file_id)
+            .bind(path_token(&data_key, &portable_file_path_key(&file.path)))
+            .bind(&file.revision)
+            .bind(to_i64(file.size, "file size")?)
+            .bind(object_key)
+            .bind(current_ciphertext)
+            .bind(to_i64(initial_sequence, "collection sequence")?)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                r#"INSERT INTO hosted_provider_file_versions
+                     (collection_id, file_id, sequence, revision, size, object_key,
+                      payload_ciphertext, deleted)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, false)"#,
+            )
+            .bind(collection_id)
+            .bind(file.file_id)
+            .bind(to_i64(initial_sequence, "collection sequence")?)
+            .bind(&file.revision)
+            .bind(to_i64(file.size, "file size")?)
+            .bind(object_key)
+            .bind(version_ciphertext)
+            .execute(&mut *transaction)
+            .await?;
+        }
         let resources_ciphertext = self.crypto.encrypt_json(
             &data_key,
             &manifest.resources,
@@ -517,7 +773,9 @@ impl HostedProvider {
             r#"UPDATE hosted_provider_collections
                SET spec_version = $2, resource_revision = $3,
                    resources_ciphertext = $4, head = $5, retained_after = 0,
-                   record_count = $6, content_bytes = $7, updated_at = now()
+                   record_count = $6, content_bytes = $7,
+                   file_count = $8, file_bytes = $9, stored_file_bytes = $9,
+                   updated_at = now()
                WHERE id = $1 AND state = 'importing'"#,
         )
         .bind(collection_id)
@@ -527,6 +785,8 @@ impl HostedProvider {
         .bind(to_i64(initial_sequence, "collection head")?)
         .bind(to_i64(records.len() as u64, "record count")?)
         .bind(to_i64(content_bytes, "content size")?)
+        .bind(to_i64(manifest.files.len() as u64, "file count")?)
+        .bind(to_i64(imported_file_bytes, "file bytes")?)
         .execute(&mut *transaction)
         .await?;
         let saved = sqlx::query(
@@ -630,6 +890,8 @@ impl HostedProvider {
             state: ProviderAuthorityImportState::Aborted,
             ..provider_authority_import(&row)?
         };
+        let abandoned_files = authority_import_blob_cleanup(&mut transaction, import_id).await?;
+        enqueue_authority_import_blob_cleanup(&mut transaction, import_id).await?;
         let collection_id = row.get::<Uuid, _>("collection_id");
         if row.get::<Option<String>, _>("restore_state").as_deref() == Some("transferred") {
             sqlx::query(
@@ -654,6 +916,7 @@ impl HostedProvider {
             .await?;
         }
         transaction.commit().await?;
+        self.abort_authority_import_multipart(abandoned_files).await;
         self.working_sets.lock().await.remove(&result.collection_id);
         Ok(result)
     }
@@ -671,8 +934,20 @@ impl HostedProvider {
             .iter()
             .map(|row| row.get::<Uuid, _>("collection_id"))
             .collect::<Vec<_>>();
+        let abandoned_files = sqlx::query(
+            r#"SELECT transfer.staging_object_key, transfer.multipart_upload_id
+               FROM hosted_provider_authority_import_file_transfers transfer
+               JOIN hosted_provider_authority_imports import ON import.id = transfer.import_id
+               WHERE import.state IN ('receiving', 'uploaded') AND import.expires_at <= now()"#,
+        )
+        .fetch_all(&mut *transaction)
+        .await?
+        .into_iter()
+        .map(authority_import_blob_cleanup_row)
+        .collect::<Vec<_>>();
         let recovered = recover_expired_authority_imports_in(&mut transaction).await?;
         transaction.commit().await?;
+        self.abort_authority_import_multipart(abandoned_files).await;
         if recovered > 0 {
             let mut working_sets = self.working_sets.lock().await;
             for collection_id in collection_ids {
@@ -681,4 +956,67 @@ impl HostedProvider {
         }
         Ok(recovered)
     }
+
+    async fn abort_authority_import_multipart(&self, cleanups: Vec<AuthorityImportBlobCleanup>) {
+        for cleanup in cleanups {
+            let Some(upload_id) = cleanup.multipart_upload_id else {
+                continue;
+            };
+            if let Err(error) = self
+                .blob_store
+                .abort_multipart(&cleanup.staging_object_key, &upload_id)
+                .await
+            {
+                tracing::warn!(%error, "could not abort abandoned authority import multipart upload");
+            }
+        }
+    }
+}
+
+async fn authority_import_blob_cleanup(
+    transaction: &mut Transaction<'_, Postgres>,
+    import_id: Uuid,
+) -> ApiResult<Vec<AuthorityImportBlobCleanup>> {
+    Ok(sqlx::query(
+        r#"SELECT staging_object_key, multipart_upload_id
+           FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1"#,
+    )
+    .bind(import_id)
+    .fetch_all(&mut **transaction)
+    .await?
+    .into_iter()
+    .map(authority_import_blob_cleanup_row)
+    .collect())
+}
+
+fn authority_import_blob_cleanup_row(row: PgRow) -> AuthorityImportBlobCleanup {
+    AuthorityImportBlobCleanup {
+        staging_object_key: row.get("staging_object_key"),
+        multipart_upload_id: row.get("multipart_upload_id"),
+    }
+}
+
+async fn enqueue_authority_import_blob_cleanup(
+    transaction: &mut Transaction<'_, Postgres>,
+    import_id: Uuid,
+) -> ApiResult<()> {
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
+           SELECT staging_object_key, expected_size, 'abandoned authority import staging object'
+           FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(import_id)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
+           SELECT committed_object_key, expected_size, 'abandoned authority import object'
+           FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(import_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }

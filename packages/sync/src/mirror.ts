@@ -6,6 +6,7 @@ export {
   WritableMirrorRejectedError
 } from "./mirror-errors.js";
 export {
+  authorityFileHash,
   authorityManifestDigest,
   recordMarkdownDocument
 } from "./mirror-format.js";

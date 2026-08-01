@@ -102,6 +102,13 @@ export interface OpenFileUploadRequest {
   if_revision?: string;
 }
 
+export interface OpenAuthorityImportFileUploadRequest {
+  protocol_version: 1;
+  type: "open_authority_import_file_upload";
+  transfer_id: string;
+  file_id: string;
+}
+
 export interface OpenFileDownloadRequest {
   protocol_version: 1;
   type: "open_file_download";

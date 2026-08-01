@@ -143,7 +143,11 @@ impl AgentState {
                     return Err(error);
                 }
             };
-            if let Err(error) = cloud.upload_authority_snapshot(&capability, &staged).await {
+            let collection_root = std::path::PathBuf::from(self.registry.get(collection_id)?.path);
+            if let Err(error) = cloud
+                .upload_authority_snapshot(&capability, &staged, &collection_root)
+                .await
+            {
                 let _ = cloud.cancel_remote_authority_transfer(transfer_id).await;
                 return Err(error);
             }
@@ -158,7 +162,10 @@ impl AgentState {
                 || fenced.manifest_digest != staged.manifest_digest
                 || fenced.source_head != staged.source_head
             {
-                if let Err(error) = cloud.upload_authority_snapshot(&capability, &fenced).await {
+                if let Err(error) = cloud
+                    .upload_authority_snapshot(&capability, &fenced, &collection_root)
+                    .await
+                {
                     return self
                         .cancel_fenced_transfer(cloud, collection_id, transfer_id, error)
                         .await;

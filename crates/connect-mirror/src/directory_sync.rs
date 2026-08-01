@@ -206,6 +206,27 @@ impl DirectoryMirror {
                 "Synchronize this folder before moving authority.",
             )
         })?;
+        let required_file_classes = HashSet::from([
+            FileMediaClass::Image,
+            FileMediaClass::Audio,
+            FileMediaClass::Video,
+            FileMediaClass::Pdf,
+            FileMediaClass::Other,
+        ]);
+        if !state.sync_policy.excluded_folders.is_empty()
+            || state
+                .sync_policy
+                .file_classes
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                != required_file_classes
+        {
+            return Err(MirrorError::new(
+                "promotion_incomplete_file_projection",
+                "Moving authority requires every collection file class with no excluded folders.",
+            ));
+        }
         if !state.pending.is_empty()
             || !state.conflicts.is_empty()
             || !state.local_issues.is_empty()
@@ -233,6 +254,27 @@ impl DirectoryMirror {
                 format!(
                     "Synchronize unmanaged Markdown before moving authority: {}.",
                     unmanaged.join(", ")
+                ),
+            ));
+        }
+        let managed_files = state
+            .files
+            .values()
+            .map(|entry| entry.file.path.clone())
+            .chain(state.resources.values().map(|entry| entry.path.clone()))
+            .chain(state.records.values().map(|entry| entry.path.clone()))
+            .collect::<HashSet<_>>();
+        let unmanaged_files = self
+            .list_binary_files()?
+            .into_iter()
+            .filter(|path| !managed_files.contains(path))
+            .collect::<Vec<_>>();
+        if !unmanaged_files.is_empty() {
+            return Err(MirrorError::new(
+                "promotion_unmanaged_files",
+                format!(
+                    "Synchronize unmanaged files before moving authority: {}.",
+                    unmanaged_files.join(", ")
                 ),
             ));
         }
@@ -271,7 +313,15 @@ impl DirectoryMirror {
             .collect::<Result<Vec<_>, MirrorError>>()?;
         Ok(AuthorityPromotionManifest {
             cursor: state.cursor,
-            digest: authority_manifest_digest(&resource_documents, &records),
+            digest: authority_manifest_digest(
+                &resource_documents,
+                &records,
+                &state
+                    .files
+                    .values()
+                    .map(|entry| entry.file.clone())
+                    .collect::<Vec<_>>(),
+            ),
         })
     }
 

@@ -144,10 +144,14 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
         "---\ntitle: One\n---\nOriginal body.\n",
     )
     .unwrap();
+    fs::create_dir_all(root.join("images")).unwrap();
+    fs::write(root.join("images/photo.png"), b"first image bytes").unwrap();
 
     let first = registry.authority_snapshot(collection.id).unwrap();
     assert_eq!(first.collection_id, collection.id);
     assert_eq!(first.records.len(), 1);
+    assert_eq!(first.files.len(), 1);
+    assert_eq!(first.files[0].path, "images/photo.png");
     assert_eq!(first.resources.documents[0].path, "mdbase.yaml");
     assert_eq!(first.manifest_digest.len(), 64);
     let record_id = first.records[0].record.record_id;
@@ -156,16 +160,26 @@ fn authority_transfer_fence_is_durable_exclusive_and_idempotent() {
     let renamed = registry.authority_snapshot(collection.id).unwrap();
     assert_eq!(renamed.records[0].record.record_id, record_id);
     assert_eq!(renamed.records[0].record.path, "renamed.md");
+    assert_eq!(renamed.files[0].file_id, first.files[0].file_id);
     assert_eq!(
         renamed.records[0].document,
         fs::read_to_string(root.join("renamed.md")).unwrap()
     );
 
+    fs::write(root.join("images/photo.png"), b"replacement image bytes").unwrap();
+    let replaced = registry.authority_snapshot(collection.id).unwrap();
+    assert_eq!(replaced.files[0].file_id, first.files[0].file_id);
+    assert_ne!(
+        replaced.files[0].content_digest,
+        first.files[0].content_digest
+    );
+    assert_ne!(replaced.manifest_digest, renamed.manifest_digest);
+
     let transfer_id = Uuid::new_v4();
     let fenced = registry
         .fence_authority(collection.id, transfer_id)
         .unwrap();
-    assert_eq!(fenced.manifest_digest, renamed.manifest_digest);
+    assert_eq!(fenced.manifest_digest, replaced.manifest_digest);
     assert!(registry
         .operation(collection.id, "describe", &json!({}))
         .is_ok());

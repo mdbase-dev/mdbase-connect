@@ -4,12 +4,14 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type {
   AuthorityImportRecord,
   AuthorityImportSnapshot,
+  CollectionFileDescriptor,
   CollectionContractDescriptor,
   SyncResourceDocument
 } from "@mdbase-dev/connect-protocol";
 import { AuthorityAdoptionError } from "./adoption-errors.js";
 import { requiredUuid } from "./adoption-values.js";
-import { authorityManifestDigest } from "./mirror-format.js";
+import { classifyFileMediaClass, validateCollectionFileDescriptor } from "./mirror-files.js";
+import { authorityFileHash, authorityManifestDigest } from "./mirror-format.js";
 
 const utf8 = new TextEncoder();
 
@@ -31,6 +33,8 @@ export interface BuildPortableAuthoritySnapshotInput {
   specVersion: string;
   resources: PortableAuthorityResource[];
   records: PortableAuthorityRecord[];
+  /** File descriptors whose bytes are supplied to uploadSnapshot via fileSource. */
+  files?: CollectionFileDescriptor[];
   types?: AuthorityImportSnapshot["resources"]["types"];
   contracts?: CollectionContractDescriptor[];
 }
@@ -85,12 +89,36 @@ export function buildPortableAuthoritySnapshot(
       document: record.document
     };
   }).sort((left, right) => compareUtf8(left.path, right.path));
+  const fileIds = new Set<string>();
+  const files = (input.files ?? []).map((file): CollectionFileDescriptor => {
+    const path = portablePath(file.path);
+    if (!paths.add(path)) duplicatePath(path);
+    const fileId = requiredUuid(file.file_id, `File ID for ${path}`);
+    if (!fileIds.add(fileId)) {
+      throw new AuthorityAdoptionError(
+        "invalid_authority_snapshot",
+        `Collection snapshot contains file ID more than once: ${fileId}`
+      );
+    }
+    validateFileDescriptor(file, path);
+    return { ...file, file_id: fileId, path };
+  }).sort((left, right) => compareUtf8(left.path, right.path));
   const resourceRevision = lengthPrefixedDigest(
     resources.flatMap(({ path, revision }) => [path, revision])
   );
   const sourceRevision = lengthPrefixedDigest([
     ...resources.flatMap(({ path, revision }) => ["resource", path, revision]),
-    ...records.flatMap((record) => ["record", record.path, documentRevision(record.document)])
+    ...records.flatMap((record) => ["record", record.path, documentRevision(record.document)]),
+    ...files.flatMap((file) => [
+      "file",
+      file.path,
+      file.file_id,
+      file.revision,
+      file.content_digest,
+      String(file.size),
+      file.media_type ?? "",
+      file.media_class
+    ])
   ]);
   const manifestDigest = authorityManifestDigest([
     ...resources.map(({ path, document }) => ({
@@ -104,6 +132,12 @@ export function buildPortableAuthoritySnapshot(
       path: record.path,
       identity: record.record_id,
       document_hash: bytesToHex(sha256(utf8.encode(record.document)))
+    })),
+    ...files.map((file) => ({
+      kind: "file" as const,
+      path: file.path,
+      identity: file.file_id,
+      document_hash: authorityFileHash(file)
     }))
   ]);
   return {
@@ -119,8 +153,26 @@ export function buildPortableAuthoritySnapshot(
       contracts: input.contracts ?? [],
       documents: resources
     },
-    records
+    records,
+    files
   };
+}
+
+function validateFileDescriptor(file: CollectionFileDescriptor, path: string): void {
+  try {
+    validateCollectionFileDescriptor({ ...file, path });
+  } catch {
+    throw new AuthorityAdoptionError(
+      "invalid_authority_snapshot",
+      `File descriptor is invalid for ${path}.`
+    );
+  }
+  if (file.media_class !== classifyFileMediaClass(path)) {
+    throw new AuthorityAdoptionError(
+      "invalid_authority_snapshot",
+      `File media class does not match its path for ${path}.`
+    );
+  }
 }
 
 /** Stable UUIDv5 identity for a pre-network record path. */
@@ -194,4 +246,3 @@ function duplicatePath(path: string): never {
 function uuidBytes(value: string): Uint8Array {
   return Uint8Array.from(value.replaceAll("-", "").match(/../g)!.map((byte) => Number.parseInt(byte, 16)));
 }
-

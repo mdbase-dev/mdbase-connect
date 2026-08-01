@@ -1,4 +1,5 @@
 use super::*;
+use mdbase_connect_protocol::CollectionFileDescriptor;
 pub(super) async fn authority_import_row(
     transaction: &mut Transaction<'_, Postgres>,
     import_id: Uuid,
@@ -12,6 +13,8 @@ pub(super) async fn authority_import_row(
                   import.expires_at,
                   collection.wrapped_data_key, collection.max_records,
                   collection.max_content_bytes, collection.max_document_bytes,
+                  collection.max_files, collection.max_file_bytes,
+                  collection.max_stored_file_bytes, collection.max_single_file_bytes,
                   collection.state AS collection_state
            FROM hosted_provider_authority_imports import
            JOIN hosted_provider_collections collection ON collection.id = import.collection_id
@@ -106,6 +109,18 @@ pub(super) async fn recover_expired_authority_imports_in(
     .fetch_all(&mut **transaction)
     .await?;
     for row in &expired {
+        sqlx::query(
+            r#"INSERT INTO hosted_provider_blob_deletions (object_key, byte_length, reason)
+               SELECT staging_object_key, expected_size, 'expired authority import staging object'
+               FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1
+               UNION ALL
+               SELECT committed_object_key, expected_size, 'expired authority import object'
+               FROM hosted_provider_authority_import_file_transfers WHERE import_id = $1
+               ON CONFLICT DO NOTHING"#,
+        )
+        .bind(row.get::<Uuid, _>("id"))
+        .execute(&mut **transaction)
+        .await?;
         if row.get::<Option<String>, _>("restore_state").as_deref() == Some("transferred") {
             sqlx::query(
                 r#"UPDATE hosted_provider_collections
@@ -264,6 +279,7 @@ pub(super) async fn recover_expired_authority_transfers_in(
 pub(super) fn authority_manifest_digest(
     resources: Vec<(String, String)>,
     records: BTreeMap<Uuid, PersistedRecord>,
+    files: Vec<CollectionFileDescriptor>,
 ) -> String {
     let mut entries = BTreeMap::<(String, String), (String, String)>::new();
     for (path, document) in resources {
@@ -281,6 +297,12 @@ pub(super) fn authority_manifest_digest(
             ),
         );
     }
+    for file in files {
+        entries.insert(
+            ("file".to_string(), file.path.clone()),
+            (file.file_id.to_string(), authority_file_hash(&file)),
+        );
+    }
     authority_manifest_digest_from_hashes(entries)
 }
 
@@ -288,7 +310,7 @@ pub(super) fn authority_manifest_digest_from_hashes(
     entries: BTreeMap<(String, String), (String, String)>,
 ) -> String {
     let mut manifest = Sha256::new();
-    manifest.update(b"mdbase-authority-manifest-v1\n");
+    manifest.update(b"mdbase-authority-manifest-v2\n");
     for ((kind, path), (identity, document_hash)) in entries {
         manifest.update(kind.as_bytes());
         manifest.update(b"\0");
@@ -300,6 +322,27 @@ pub(super) fn authority_manifest_digest_from_hashes(
         manifest.update(b"\n");
     }
     hex_digest(&manifest.finalize())
+}
+
+pub(super) async fn load_authority_files(
+    transaction: &mut Transaction<'_, Postgres>,
+    crypto: &ProviderCrypto,
+    data_key: &[u8; 32],
+    collection_id: Uuid,
+) -> ApiResult<Vec<CollectionFileDescriptor>> {
+    let rows = sqlx::query(
+        r#"SELECT file_id, revision, size, object_key, payload_ciphertext, sequence
+           FROM hosted_provider_files WHERE collection_id = $1"#,
+    )
+    .bind(collection_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    rows.iter()
+        .map(|row| {
+            super::files::decode_current_file(crypto, data_key, collection_id, row)
+                .map(|(file, _, _, _)| file)
+        })
+        .collect()
 }
 
 pub(super) fn sha256_hex(value: &[u8]) -> String {

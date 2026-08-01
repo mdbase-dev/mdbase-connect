@@ -483,4 +483,60 @@ impl DirectoryMirror {
         paths.sort();
         Ok(paths)
     }
+
+    pub(super) fn list_binary_files(&self) -> Result<Vec<String>, MirrorError> {
+        let mut paths = Vec::new();
+        for entry in WalkDir::new(&self.root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                if entry.depth() == 0 {
+                    return true;
+                }
+                if entry.file_type().is_symlink() {
+                    return false;
+                }
+                let name = entry.file_name().to_string_lossy();
+                !name.starts_with('.')
+                    && ![
+                        ".mdbase",
+                        ".git",
+                        "node_modules",
+                        "_contracts",
+                        "_schemas",
+                        "_types",
+                        "_views",
+                    ]
+                    .into_iter()
+                    .any(|reserved| name.eq_ignore_ascii_case(reserved))
+            })
+        {
+            let entry = entry.map_err(|error| {
+                MirrorError::new(
+                    "mirror_io_failed",
+                    format!("Could not scan mirror: {error}"),
+                )
+            })?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let relative = entry
+                .path()
+                .strip_prefix(&self.root)
+                .map_err(|_| {
+                    MirrorError::new(
+                        "mirror_path_escape",
+                        "Mirror scan escaped its configured directory.",
+                    )
+                })?
+                .to_string_lossy()
+                .replace('\\', "/");
+            if self.path_selected(&relative) && validate_visible_file_path(&relative, false).is_ok()
+            {
+                paths.push(relative);
+            }
+        }
+        paths.sort();
+        Ok(paths)
+    }
 }

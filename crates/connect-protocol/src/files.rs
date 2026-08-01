@@ -157,6 +157,21 @@ pub struct OpenFileUploadRequest {
     pub if_revision: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenAuthorityImportFileUploadRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: OpenAuthorityImportFileUploadRequestKind,
+    pub transfer_id: Uuid,
+    pub file_id: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAuthorityImportFileUploadRequestKind {
+    OpenAuthorityImportFileUpload,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenFileUploadRequestKind {

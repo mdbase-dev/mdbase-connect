@@ -25,8 +25,10 @@ export function authorityImportCapability(
     return url.href;
   };
   return {
+    import_id: transferId,
     manifest_url: endpoint("manifest"),
     records_url: endpoint("records"),
+    files_url: endpoint("files"),
     finalize_url: endpoint("finalize"),
     access_token: accessToken
   };

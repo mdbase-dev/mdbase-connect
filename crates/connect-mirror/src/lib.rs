@@ -5,7 +5,7 @@ use mdbase::frontmatter::parser::{
     is_parse_error, json_to_yaml_mapping, parse_document, yaml_mapping_to_json,
 };
 use mdbase_connect_protocol::{
-    authority_manifest_digest, AuthoritySnapshotRecord, CollectionFileDescriptor,
+    authority_manifest_digest, AuthoritySnapshotRecord, CollectionFileDescriptor, FileMediaClass,
     FileTransferDirection, FileTransferProtection, FileTransferSession, FileTransferStatus,
     FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue, MirrorResolution,
     MirrorState as MirrorStatusState, OpenFileDownloadRequest, OpenFileDownloadRequestKind,
@@ -39,6 +39,7 @@ mod filesystem;
 mod transport;
 
 pub use directory_files::validate_selective_sync_policy;
+use directory_files::validate_visible_file_path;
 
 pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
 pub use transport::{HttpSyncTransport, SyncTransport};

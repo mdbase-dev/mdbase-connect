@@ -307,7 +307,7 @@ impl DirectoryMirror {
     }
 }
 
-fn validate_visible_file_path(relative: &str, folder: bool) -> Result<(), MirrorError> {
+pub(super) fn validate_visible_file_path(relative: &str, folder: bool) -> Result<(), MirrorError> {
     validate_portable_mirror_path(relative)
         .map_err(|error| MirrorError::new("invalid_file_path", error))?;
     let components = relative.split('/').collect::<Vec<_>>();

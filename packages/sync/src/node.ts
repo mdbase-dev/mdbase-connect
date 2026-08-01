@@ -34,6 +34,7 @@ import {
 } from "./mirror.js";
 
 export {
+  authorityFileHash,
   authorityManifestDigest,
   MemoryMirrorBlobStore,
   MemoryMirrorLease,

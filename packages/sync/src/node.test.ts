@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryAuthority } from "./index.js";
 import { documentRevision } from "./mirror-format.js";
 import {
+  authorityFileHash,
   authorityManifestDigest,
   DirectoryMirror,
   MemoryMirrorLease,
@@ -22,6 +24,11 @@ function deviceState(): DirectoryMirrorOptions {
     lease: new MemoryMirrorLease()
   };
 }
+
+const fullFileSync = {
+  file_classes: ["image", "audio", "video", "pdf", "other"] as const,
+  excluded_folders: [] as string[]
+};
 
 class MemoryMirrorFileSystem implements MirrorFileSystem {
   readonly files = new Map<string, string>();
@@ -42,6 +49,34 @@ class MemoryMirrorFileSystem implements MirrorFileSystem {
     return [...this.files.keys()]
       .filter((path) => path.endsWith(".md") && !excluded.has(path))
       .sort();
+  }
+
+  async listBinary(excluded: ReadonlySet<string>): Promise<string[]> {
+    return [...this.files.keys()]
+      .filter((path) => !path.endsWith(".md") && !excluded.has(path))
+      .sort();
+  }
+
+  async inspectBinary(path: string) {
+    const value = this.files.get(path);
+    if (value === undefined) return null;
+    const bytes = new TextEncoder().encode(value);
+    return {
+      size: bytes.byteLength,
+      content_digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` as const
+    };
+  }
+
+  async readBinary(path: string): Promise<AsyncIterable<Uint8Array> | null> {
+    const value = this.files.get(path);
+    if (value === undefined) return null;
+    return (async function* () { yield new TextEncoder().encode(value); })();
+  }
+
+  async writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void> {
+    const chunks: number[] = [];
+    for await (const chunk of source) chunks.push(...chunk);
+    this.files.set(path, new TextDecoder().decode(new Uint8Array(chunks)));
   }
 }
 
@@ -213,7 +248,7 @@ describe("receive-only Markdown mirror", () => {
 });
 
 describe("writable Markdown mirror", () => {
-  it("builds a stable content-only authority manifest", async () => {
+  it("builds a stable canonical authority manifest", async () => {
     expect(authorityManifestDigest([
       {
         kind: "resource",
@@ -227,7 +262,7 @@ describe("writable Markdown mirror", () => {
         identity: "01911111-1111-7111-8111-111111111111",
         document_hash: "00".repeat(32)
       }
-    ])).toBe("5f4d35b7381929c7a60d2c45ff310899d9b4c0d891a2ada573fb6dc10fc8c51a");
+    ])).toBe("729589d937fa3c4c43b41a3ecb003c26787770a5d40f7c2fd2b1d8ded1a51c98");
 
     expect(authorityManifestDigest([
       {
@@ -242,7 +277,25 @@ describe("writable Markdown mirror", () => {
         identity: "01922222-2222-7222-8222-222222222222",
         document_hash: "bb".repeat(32)
       }
-    ])).toBe("b0bb3266ca6b5a833700ca04dfb3e918b405293d1b3e4a54f48e596c4c88fdb2");
+    ])).toBe("26d4e8989355717c3e6781c970eedecc7afe09cc08ce16d79568aba9fe3957f5");
+
+    const fileHash = authorityFileHash({
+      file_id: "01933333-3333-7333-8333-333333333333",
+      path: "images/a.png",
+      revision: "file:fixture",
+      content_digest: `sha256:${"11".repeat(32)}`,
+      size: 9,
+      media_type: "image/png",
+      media_class: "image",
+      modified_at: "2026-08-01T00:00:00.000Z"
+    });
+    expect(fileHash).toBe("e6103240352c525d69c02c125a92b212fb5e026ec70fbd126afe203f5385dd05");
+    expect(authorityManifestDigest([{
+      kind: "file",
+      path: "images/a.png",
+      identity: "01933333-3333-7333-8333-333333333333",
+      document_hash: fileHash
+    }])).toBe("a70c97aff8c2de2ade687415b98b5d0666edcb4f0fe0c4c0fc1c303650c9d09a");
 
     const hosted = new MemoryAuthority({
       resources: {
@@ -276,7 +329,8 @@ describe("writable Markdown mirror", () => {
       {
         stateStore: new MemoryMirrorStateStore(),
         fileSystem,
-        lease: new MemoryMirrorLease()
+        lease: new MemoryMirrorLease(),
+        selectiveSync: fullFileSync
       }
     );
     await mirror.sync();
@@ -315,7 +369,8 @@ describe("writable Markdown mirror", () => {
       {
         stateStore: new MemoryMirrorStateStore(),
         fileSystem,
-        lease: new MemoryMirrorLease()
+        lease: new MemoryMirrorLease(),
+        selectiveSync: fullFileSync
       }
     );
     await writable.sync();

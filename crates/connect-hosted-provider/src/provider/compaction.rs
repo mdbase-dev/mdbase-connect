@@ -206,12 +206,49 @@ impl HostedProvider {
         let mut deleted = 0;
         for row in rows {
             let key: String = row.get("object_key");
+            let mut transaction = self.pool.begin().await?;
+            let claimed = sqlx::query_scalar::<_, String>(
+                "SELECT object_key FROM hosted_provider_blob_deletions WHERE object_key = $1 FOR UPDATE",
+            )
+            .bind(&key)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            if claimed.is_none() {
+                transaction.commit().await?;
+                continue;
+            }
+            let referenced: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                     SELECT 1 FROM hosted_provider_files WHERE object_key = $1
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_file_versions WHERE object_key = $1
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_file_changes
+                       WHERE before_object_key = $1 OR after_object_key = $1
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_authority_import_file_transfers
+                       WHERE staging_object_key = $1 OR committed_object_key = $1
+                   )"#,
+            )
+            .bind(&key)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if referenced {
+                sqlx::query("DELETE FROM hosted_provider_blob_deletions WHERE object_key = $1")
+                    .bind(&key)
+                    .execute(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                tracing::warn!("removed a referenced hosted blob from the deletion queue");
+                continue;
+            }
             match self.blob_store.delete(&key).await {
                 Ok(()) => {
                     sqlx::query("DELETE FROM hosted_provider_blob_deletions WHERE object_key = $1")
                         .bind(&key)
-                        .execute(&self.pool)
+                        .execute(&mut *transaction)
                         .await?;
+                    transaction.commit().await?;
                     deleted += 1;
                 }
                 Err(error) => {
@@ -221,8 +258,9 @@ impl HostedProvider {
                            WHERE object_key = $1"#,
                     )
                     .bind(&key)
-                    .execute(&self.pool)
+                    .execute(&mut *transaction)
                     .await?;
+                    transaction.commit().await?;
                     return Err(error);
                 }
             }

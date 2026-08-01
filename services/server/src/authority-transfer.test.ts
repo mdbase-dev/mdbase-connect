@@ -528,8 +528,10 @@ describe("local-to-hosted authority transfer", () => {
       authority_epoch: 2
     });
     expect(begun.json().import).toMatchObject({
+      import_id: expect.any(String),
       manifest_url: expect.stringContaining("/v1/authority-imports/"),
       records_url: expect.stringContaining("/v1/authority-imports/"),
+      files_url: expect.stringContaining("/v1/authority-imports/"),
       finalize_url: expect.stringContaining("/v1/authority-imports/")
     });
     const transferId = begun.json().transfer.id as string;

@@ -207,7 +207,21 @@ async fn conflicted_mutation_can_choose_remote_then_local() {
 #[tokio::test]
 async fn promotion_manifest_is_stable_and_refuses_unmanaged_markdown() {
     let source = record("tasks/a.md", "A");
-    let (_temporary, mirror, _authority) = harness(SyncReplicaMode::ReadWrite, vec![source]);
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadWrite, vec![source]);
+    let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(
+        authority,
+        SelectiveSyncPolicy {
+            file_classes: vec![
+                FileMediaClass::Image,
+                FileMediaClass::Audio,
+                FileMediaClass::Video,
+                FileMediaClass::Pdf,
+                FileMediaClass::Other,
+            ],
+            excluded_folders: Vec::new(),
+        },
+    );
     mirror.sync().await.unwrap();
     let first = mirror.authority_promotion_manifest().unwrap();
     let second = mirror.authority_promotion_manifest().unwrap();

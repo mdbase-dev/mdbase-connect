@@ -74,6 +74,8 @@ pub enum ConnectError {
     #[error("Collection failed to open: {0}")]
     CollectionOpen(String),
     #[error("{message}")]
+    CloudProblem { code: String, message: String },
+    #[error("{message}")]
     CollectionInvalid {
         code: String,
         message: String,
@@ -161,6 +163,7 @@ impl ConnectError {
             Self::Mirror { code, .. } => code.as_str(),
             Self::Serialization(_) => "serialization_failed",
             Self::Cloud(_) => "cloud_control_failed",
+            Self::CloudProblem { code, .. } => code.as_str(),
             Self::File { code, .. } => code.as_str(),
             Self::InvalidTimer(_) => "invalid_timer_request",
             Self::TimerRuntime(_) => "timer_runtime_failed",

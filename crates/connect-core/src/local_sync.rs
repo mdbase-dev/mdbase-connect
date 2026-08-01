@@ -1,10 +1,11 @@
 use crate::{CollectionRegistry, ConnectError};
 use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
-    authority_manifest_digest, AuthoritySnapshot, AuthoritySnapshotRecord, SyncChange,
-    SyncChangesPage, SyncCollectionResources, SyncConflict, SyncFileSnapshotPage,
-    SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
-    SyncReplicaMode, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
+    authority_manifest_digest, AuthoritySnapshot, AuthoritySnapshotRecord,
+    CollectionFileDescriptor, SyncChange, SyncChangesPage, SyncCollectionResources, SyncConflict,
+    SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation, SyncMutationOperation,
+    SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncSession, SyncSnapshotPage,
+    SyncSnapshotRecord, CONTROL_PROTOCOL_VERSION,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -221,6 +222,7 @@ impl LocalSyncStore {
         collection_id: Uuid,
         snapshot: &CollectionSnapshot,
         resources: SyncCollectionResources,
+        files: Vec<CollectionFileDescriptor>,
     ) -> Result<AuthoritySnapshot, ConnectError> {
         let connection = self.connection()?;
         let state = required_collection_state(&connection, collection_id)?;
@@ -244,7 +246,7 @@ impl LocalSyncStore {
                 })
             })
             .collect::<Result<Vec<_>, ConnectError>>()?;
-        let manifest_digest = authority_manifest_digest(&resources.documents, &records);
+        let manifest_digest = authority_manifest_digest(&resources.documents, &records, &files);
         Ok(AuthoritySnapshot {
             protocol_version: CONTROL_PROTOCOL_VERSION,
             collection_id,
@@ -253,6 +255,7 @@ impl LocalSyncStore {
             manifest_digest,
             resources,
             records,
+            files,
         })
     }
 

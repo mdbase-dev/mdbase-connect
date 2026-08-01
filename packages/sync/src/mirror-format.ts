@@ -1,7 +1,11 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse, stringify } from "yaml";
-import type { JsonObject, SyncRecord } from "@mdbase-dev/connect-protocol";
+import type {
+  CollectionFileDescriptor,
+  JsonObject,
+  SyncRecord
+} from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import type { MirrorLocalIssue } from "./mirror-state.js";
 
@@ -137,12 +141,12 @@ export function frontmatterPatch(before: JsonObject, after: JsonObject): JsonObj
 }
 
 export function authorityManifestDigest(entries: Array<{
-  kind: "record" | "resource";
+  kind: "file" | "record" | "resource";
   path: string;
   identity: string;
   document_hash: string;
 }>): string {
-  const manifest = sha256.create().update(utf8.encode("mdbase-authority-manifest-v1\n"));
+  const manifest = sha256.create().update(utf8.encode("mdbase-authority-manifest-v2\n"));
   for (const entry of [...entries].sort((left, right) => {
     if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
     return compareBytes(utf8.encode(left.path), utf8.encode(right.path));
@@ -157,6 +161,21 @@ export function authorityManifestDigest(entries: Array<{
     manifest.update(Uint8Array.of(10));
   }
   return bytesToHex(manifest.digest());
+}
+
+export function authorityFileHash(file: CollectionFileDescriptor): string {
+  const hash = sha256.create();
+  for (const value of [
+    "mdbase-authority-file-v1",
+    file.content_digest,
+    String(file.size),
+    file.media_type ?? "",
+    file.media_class
+  ]) {
+    hash.update(utf8.encode(value));
+    hash.update(Uint8Array.of(0));
+  }
+  return bytesToHex(hash.digest());
 }
 
 export function authorityDocumentHash(revision: string): string {

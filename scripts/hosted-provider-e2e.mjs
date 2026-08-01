@@ -70,6 +70,7 @@ const {
   DirectoryMirror,
   MirrorDivergenceError,
   WritableDirectoryMirror,
+  authorityFileHash,
   authorityManifestDigest
 } = await import("../packages/sync/dist/node.js");
 const {
@@ -1681,7 +1682,13 @@ schema:
   const authorityMirror = new WritableDirectoryMirror(
     authorityMirrorRoot,
     authorityReplicaId,
-    authorityTransport
+    authorityTransport,
+    {
+      selectiveSync: {
+        file_classes: ["image", "audio", "video", "pdf", "other"],
+        excluded_folders: []
+      }
+    }
   );
   await authorityMirror.sync();
   assert.equal(
@@ -2514,7 +2521,8 @@ async function authorityPromotionCliE2E(
   let daemon = await startConnectDaemon(profile, controlUrl, connector.token);
   const mirror = await connectCommand(profile, [
     "mirror", "add", collectionId, mirrorDirectory,
-    "--two-way", "--name", "Promotion mirror"
+    "--two-way", "--name", "Promotion mirror",
+    "--files", "images,audio,videos,pdfs,other"
   ]);
   assert.equal(mirror.collection_id, collectionId);
   assert.equal(mirror.state, "up_to_date");
@@ -2743,6 +2751,7 @@ async function localAuthorityImportE2E(
       assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body));
     }
   }
+  await uploadAuthorityImportFiles(begun.body.import, snapshot.files);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const finalized = await absoluteRequest(begun.body.import.finalize_url, {
       method: "POST",
@@ -2843,6 +2852,15 @@ async function localAuthorityImportE2E(
   assert.ok(importedResources.some(
     (resource) => resource.kind === "view" && resource.path === "views/imported.base"
   ));
+  const importedFilePage = await importedTransport.fileSnapshot(importedSession.snapshot_id);
+  assert.equal(importedFilePage.files.length, snapshot.files.length);
+  const importedFile = importedFilePage.files[0];
+  assert.deepEqual(importedFile, snapshot.files[0].descriptor);
+  const importedFileChunks = [];
+  for await (const chunk of importedTransport.downloadFile(importedFile)) {
+    importedFileChunks.push(chunk);
+  }
+  assert.deepEqual(Buffer.concat(importedFileChunks), snapshot.files[0].bytes);
 
   const resumed = await rawRequest(
     controlUrl,
@@ -3113,6 +3131,21 @@ function localAuthoritySnapshot(collectionId, recordCount) {
       document
     };
   });
+  const importedBytes = Buffer.alloc(8 * 1024 * 1024 + 113, 0x5a);
+  const importedFile = {
+    descriptor: {
+      file_id: crypto.randomUUID(),
+      path: "images/imported.png",
+      revision: "file:imported:1",
+      content_digest: `sha256:${sha256Hex(importedBytes)}`,
+      size: importedBytes.length,
+      media_type: "image/png",
+      media_class: "image",
+      modified_at: "2026-08-01T00:00:00.000Z"
+    },
+    bytes: importedBytes
+  };
+  const files = [importedFile];
   const resourceRevision = lengthPrefixedDigest(
     resources.flatMap((resource) => [resource.path, resource.revision])
   );
@@ -3126,6 +3159,16 @@ function localAuthoritySnapshot(collectionId, recordCount) {
       "record",
       record.path,
       `sha256:${sha256Hex(record.document)}`
+    ]),
+    ...files.flatMap(({ descriptor: file }) => [
+      "file",
+      file.path,
+      file.file_id,
+      file.revision,
+      file.content_digest,
+      String(file.size),
+      file.media_type ?? "",
+      file.media_class
     ])
   ]);
   const manifestDigest = authorityManifestDigest([
@@ -3140,6 +3183,12 @@ function localAuthoritySnapshot(collectionId, recordCount) {
       path: record.path,
       identity: record.record_id,
       document_hash: sha256Hex(record.document)
+    })),
+    ...files.map(({ descriptor: file }) => ({
+      kind: "file",
+      path: file.path,
+      identity: file.file_id,
+      document_hash: authorityFileHash(file)
     }))
   ]);
   return {
@@ -3156,10 +3205,81 @@ function localAuthoritySnapshot(collectionId, recordCount) {
         contracts: [],
         documents: resources
       },
-      record_count: recordCount
+      record_count: recordCount,
+      file_count: files.length,
+      files: files.map(({ descriptor }) => descriptor)
     },
-    records
+    records,
+    files
   };
+}
+
+async function uploadAuthorityImportFiles(capability, files) {
+  for (const { descriptor, bytes } of files) {
+    const transferId = crypto.randomUUID();
+    const opened = await absoluteRequest(`${capability.files_url}/uploads`, {
+      method: "POST",
+      token: capability.access_token,
+      body: {
+        protocol_version: 1,
+        type: "open_authority_import_file_upload",
+        transfer_id: transferId,
+        file_id: descriptor.file_id
+      }
+    });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    const partSize = opened.body.strategy.kind === "object_put"
+      ? Math.max(1, descriptor.size)
+      : opened.body.strategy.part_size;
+    const partCount = opened.body.strategy.kind === "object_put"
+      ? 1
+      : Math.ceil(descriptor.size / partSize);
+    const parts = [];
+    for (let index = 0; index < partCount; index += 1) {
+      const offset = index * partSize;
+      const partBytes = bytes.subarray(offset, Math.min(bytes.length, offset + partSize));
+      const prepared = await absoluteRequest(
+        `${capability.files_url}/uploads/${transferId}/parts`,
+        {
+          method: "POST",
+          token: capability.access_token,
+          body: {
+            protocol_version: 1,
+            type: "prepare_file_upload_part",
+            transfer_id: transferId,
+            part_number: index + 1,
+            content_length: partBytes.length
+          }
+        }
+      );
+      assert.equal(prepared.status, 200, JSON.stringify(prepared.body));
+      const uploaded = await fetch(prepared.body.url, {
+        method: prepared.body.method,
+        headers: prepared.body.headers,
+        body: partBytes,
+        redirect: "error"
+      });
+      assert.equal(uploaded.status, 200);
+      if (opened.body.strategy.kind === "object_multipart") {
+        assert.ok(uploaded.headers.get("etag"));
+        parts.push({ part_number: index + 1, etag: uploaded.headers.get("etag") });
+      }
+    }
+    const commitBody = {
+      protocol_version: 1,
+      type: "commit_file_upload",
+      transfer_id: transferId,
+      ...(parts.length > 0 ? { parts } : {})
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const committed = await absoluteRequest(
+        `${capability.files_url}/uploads/${transferId}/commit`,
+        { method: "POST", token: capability.access_token, body: commitBody }
+      );
+      assert.equal(committed.status, 200, JSON.stringify(committed.body));
+      assert.deepEqual(committed.body.file, descriptor);
+    }
+  }
 }
 
 function lengthPrefixedDigest(values) {

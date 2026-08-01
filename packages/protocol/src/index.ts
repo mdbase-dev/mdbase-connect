@@ -436,6 +436,7 @@ export interface AuthoritySnapshot<Frontmatter extends JsonObject = JsonObject> 
   manifest_digest: string;
   resources: SyncCollectionResources;
   records: Array<AuthoritySnapshotRecord<Frontmatter>>;
+  files: CollectionFileDescriptor[];
 }
 
 export interface AuthorityImportManifest {
@@ -446,6 +447,8 @@ export interface AuthorityImportManifest {
   manifest_digest: string;
   resources: SyncCollectionResources;
   record_count: number;
+  file_count: number;
+  files: CollectionFileDescriptor[];
 }
 
 export interface AuthorityImportRecord {
@@ -462,6 +465,7 @@ export interface AuthorityImportSnapshot {
   manifest_digest: string;
   resources: SyncCollectionResources;
   records: AuthorityImportRecord[];
+  files: CollectionFileDescriptor[];
 }
 
 export interface AuthorityImportRecordPage {

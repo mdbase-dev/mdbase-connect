@@ -155,6 +155,8 @@ pub struct AuthoritySnapshot {
     pub manifest_digest: String,
     pub resources: SyncCollectionResources,
     pub records: Vec<AuthoritySnapshotRecord>,
+    #[serde(default)]
+    pub files: Vec<CollectionFileDescriptor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +168,10 @@ pub struct AuthorityImportManifest {
     pub manifest_digest: String,
     pub resources: SyncCollectionResources,
     pub record_count: u64,
+    #[serde(default)]
+    pub file_count: u64,
+    #[serde(default)]
+    pub files: Vec<CollectionFileDescriptor>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +191,7 @@ pub struct AuthorityImportRecordPage {
 pub fn authority_manifest_digest(
     resources: &[SyncResourceDocument],
     records: &[AuthoritySnapshotRecord],
+    files: &[CollectionFileDescriptor],
 ) -> String {
     let mut entries = BTreeMap::<(&str, &str), (String, String)>::new();
     for resource in resources {
@@ -205,8 +212,14 @@ pub fn authority_manifest_digest(
             ),
         );
     }
+    for file in files {
+        entries.insert(
+            ("file", file.path.as_str()),
+            (file.file_id.to_string(), authority_file_hash(file)),
+        );
+    }
     let mut manifest = Sha256::new();
-    manifest.update(b"mdbase-authority-manifest-v1\n");
+    manifest.update(b"mdbase-authority-manifest-v2\n");
     for ((kind, path), (identity, document_hash)) in entries {
         manifest.update(kind.as_bytes());
         manifest.update(b"\0");
@@ -218,6 +231,27 @@ pub fn authority_manifest_digest(
         manifest.update(b"\n");
     }
     hex_digest(&manifest.finalize())
+}
+
+pub fn authority_file_hash(file: &CollectionFileDescriptor) -> String {
+    let media_class = match file.media_class {
+        FileMediaClass::Image => "image",
+        FileMediaClass::Audio => "audio",
+        FileMediaClass::Video => "video",
+        FileMediaClass::Pdf => "pdf",
+        FileMediaClass::Other => "other",
+    };
+    let mut hash = Sha256::new();
+    hash.update(b"mdbase-authority-file-v1\0");
+    hash.update(file.content_digest.as_bytes());
+    hash.update(b"\0");
+    hash.update(file.size.to_string().as_bytes());
+    hash.update(b"\0");
+    hash.update(file.media_type.as_deref().unwrap_or_default().as_bytes());
+    hash.update(b"\0");
+    hash.update(media_class.as_bytes());
+    hash.update(b"\0");
+    hex_digest(&hash.finalize())
 }
 
 fn hex_digest(value: &[u8]) -> String {

@@ -136,8 +136,10 @@ describe("portable local collection adoption", () => {
       status: "ready",
       adoption: { id: adoptionId, state: "prepared" },
       import: {
+        import_id: adoptionId,
         manifest_url: `https://provider.example/v1/authority-imports/${adoptionId}/manifest`,
         records_url: `https://provider.example/v1/authority-imports/${adoptionId}/records`,
+        files_url: `https://provider.example/v1/authority-imports/${adoptionId}/files`,
         finalize_url: `https://provider.example/v1/authority-imports/${adoptionId}/finalize`
       }
     });

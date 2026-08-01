@@ -17,10 +17,10 @@ const SINGLE_PUT_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct HostedFilePayload {
     pub(super) path: String,
-    content_digest: String,
-    media_type: Option<String>,
-    media_class: FileMediaClass,
-    modified_at: String,
+    pub(super) content_digest: String,
+    pub(super) media_type: Option<String>,
+    pub(super) media_class: FileMediaClass,
+    pub(super) modified_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +74,7 @@ mod list_download;
 mod persistence;
 mod upload;
 
-fn decode_current_file(
+pub(super) fn decode_current_file(
     crypto: &ProviderCrypto,
     data_key: &[u8; 32],
     collection_id: Uuid,
@@ -199,7 +199,7 @@ fn download_session(transfer: &HostedDownloadTransfer, part_size: u64) -> FileTr
     }
 }
 
-fn payload_from_descriptor(file: &CollectionFileDescriptor) -> HostedFilePayload {
+pub(super) fn payload_from_descriptor(file: &CollectionFileDescriptor) -> HostedFilePayload {
     HostedFilePayload {
         path: file.path.clone(),
         content_digest: file.content_digest.clone(),
@@ -353,11 +353,11 @@ fn validate_hosted_folder_path(path: &str) -> ApiResult<()> {
     validate_hosted_file_path(&format!("{path}/placeholder.bin"))
 }
 
-fn validate_content_digest(value: &str) -> ApiResult<()> {
+pub(super) fn validate_content_digest(value: &str) -> ApiResult<()> {
     crate::blob_store::parse_sha256_digest(value).map(|_| ())
 }
 
-fn validate_media_type(value: Option<&str>) -> ApiResult<()> {
+pub(super) fn validate_media_type(value: Option<&str>) -> ApiResult<()> {
     if value.is_some_and(|value| {
         value.trim().is_empty() || value.len() > 255 || value.contains(['\r', '\n'])
     }) {
@@ -370,7 +370,7 @@ fn validate_media_type(value: Option<&str>) -> ApiResult<()> {
     }
 }
 
-fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
+pub(super) fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
     let extension = path.rsplit_once('.').map_or("", |(_, extension)| extension);
     let (class, media_type) = match extension.to_ascii_lowercase().as_str() {
         "avif" => (FileMediaClass::Image, "image/avif"),

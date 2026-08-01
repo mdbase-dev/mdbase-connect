@@ -74,6 +74,10 @@ pub(super) fn authority_import_record_aad(import_id: Uuid, record_id: Uuid) -> V
     aad(("authority_import_record", import_id, record_id))
 }
 
+pub(super) fn authority_import_file_intent_aad(transfer_id: Uuid) -> Vec<u8> {
+    aad(("authority_import_file_intent", transfer_id))
+}
+
 pub(super) fn aad(value: impl Serialize) -> Vec<u8> {
     serde_json::to_vec(&value).expect("hosted ciphertext identity serializes")
 }

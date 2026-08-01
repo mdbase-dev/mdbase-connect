@@ -96,7 +96,9 @@ impl HostedProvider {
                 .await?;
         let records =
             load_records(&mut transaction, &self.crypto, &data_key, collection_id).await?;
-        let manifest_digest = authority_manifest_digest(resources, records);
+        let files =
+            load_authority_files(&mut transaction, &self.crypto, &data_key, collection_id).await?;
+        let manifest_digest = authority_manifest_digest(resources, records, files);
         let expires_at = Utc::now()
             + chrono::Duration::seconds(to_i64(input.ttl_seconds, "authority transfer lifetime")?);
         sqlx::query(

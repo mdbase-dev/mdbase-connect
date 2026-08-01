@@ -1,4 +1,5 @@
 use super::*;
+use mdbase_connect_protocol::CollectionFileDescriptor;
 use serde_json::Map;
 
 #[test]
@@ -37,7 +38,34 @@ fn authority_manifest_matches_the_node_promotion_fixture() {
     ]);
     assert_eq!(
         authority_manifest_digest_from_hashes(entries),
-        "5f4d35b7381929c7a60d2c45ff310899d9b4c0d891a2ada573fb6dc10fc8c51a"
+        "729589d937fa3c4c43b41a3ecb003c26787770a5d40f7c2fd2b1d8ded1a51c98"
+    );
+}
+
+#[test]
+fn authority_file_manifest_matches_the_node_promotion_fixture() {
+    let file = CollectionFileDescriptor {
+        file_id: Uuid::parse_str("01933333-3333-7333-8333-333333333333").unwrap(),
+        path: "images/a.png".to_string(),
+        revision: "file:fixture".to_string(),
+        content_digest: format!("sha256:{}", "11".repeat(32)),
+        size: 9,
+        media_type: Some("image/png".to_string()),
+        media_class: mdbase_connect_protocol::FileMediaClass::Image,
+        modified_at: "2026-08-01T00:00:00.000Z".to_string(),
+    };
+    let file_hash = authority_file_hash(&file);
+    assert_eq!(
+        file_hash,
+        "e6103240352c525d69c02c125a92b212fb5e026ec70fbd126afe203f5385dd05"
+    );
+    let entries = BTreeMap::from([(
+        ("file".to_string(), file.path),
+        (file.file_id.to_string(), file_hash),
+    )]);
+    assert_eq!(
+        authority_manifest_digest_from_hashes(entries),
+        "a70c97aff8c2de2ade687415b98b5d0666edcb4f0fe0c4c0fc1c303650c9d09a"
     );
 }
 
@@ -112,6 +140,8 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
             documents,
         },
         record_count: 2,
+        file_count: 0,
+        files: Vec::new(),
     };
     let records = canonicalize_imported_snapshot(
         &workspace,

@@ -15,12 +15,13 @@ use mdbase_connect_protocol::{
     AuthorityImportRecordPage, CommitFileUploadReceipt, CommitFileUploadRequest,
     ContractSetupChoice, DeleteFileReceipt, DeleteFileRequest, FileTransferSession,
     FileTransferStatus, GrantSummary, ListFilesPage, ListFilesRequest, ListFilesRequestKind,
-    MoveFileReceipt, MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
-    OperationRequest, OperationResponse, PrepareFileDownloadPartRequest,
-    PrepareFileUploadPartRequest, PreparedFilePart, SyncChangesPage, SyncFileSnapshotPage,
-    SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,
-    AUTHORITY_PROOF_NONCE_HEADER, AUTHORITY_PROOF_SIGNATURE_HEADER,
-    AUTHORITY_PROOF_TIMESTAMP_HEADER, AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
+    MoveFileReceipt, MoveFileRequest, OpenAuthorityImportFileUploadRequest,
+    OpenFileDownloadRequest, OpenFileUploadRequest, OperationRequest, OperationResponse,
+    PrepareFileDownloadPartRequest, PrepareFileUploadPartRequest, PreparedFilePart,
+    SyncChangesPage, SyncFileSnapshotPage, SyncMutation, SyncMutationReceipt, SyncSession,
+    SyncSnapshotPage, TypePackProvision, AUTHORITY_PROOF_NONCE_HEADER,
+    AUTHORITY_PROOF_SIGNATURE_HEADER, AUTHORITY_PROOF_TIMESTAMP_HEADER,
+    AUTHORITY_PROOF_VERSION_HEADER, CONTROL_PROTOCOL_VERSION,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -273,6 +274,18 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/v1/authority-imports/{import_id}/records",
             put(put_authority_import_records),
+        )
+        .route(
+            "/v1/authority-imports/{import_id}/files/uploads",
+            post(open_authority_import_file_upload),
+        )
+        .route(
+            "/v1/authority-imports/{import_id}/files/uploads/{transfer_id}/parts",
+            post(prepare_authority_import_file_part),
+        )
+        .route(
+            "/v1/authority-imports/{import_id}/files/uploads/{transfer_id}/commit",
+            post(commit_authority_import_file_upload),
         )
         .route(
             "/v1/authority-imports/{import_id}/finalize",
@@ -609,6 +622,60 @@ async fn put_authority_import_records(
     Ok(Json(serde_json::to_value(import).map_err(|error| {
         ApiError::internal(format!("Authority import could not serialize: {error}"))
     })?))
+}
+
+async fn open_authority_import_file_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(import_id): Path<Uuid>,
+    Json(request): Json<OpenAuthorityImportFileUploadRequest>,
+) -> ApiResult<Json<FileTransferSession>> {
+    Ok(Json(
+        state
+            .provider
+            .open_authority_import_file_upload(import_id, bearer(&headers)?, request)
+            .await?,
+    ))
+}
+
+async fn prepare_authority_import_file_part(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((import_id, transfer_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<PrepareFileUploadPartRequest>,
+) -> ApiResult<Json<PreparedFilePart>> {
+    if request.transfer_id != transfer_id {
+        return Err(ApiError::bad_request(
+            "file_transfer_mismatch",
+            "Transfer path and body differ.",
+        ));
+    }
+    Ok(Json(
+        state
+            .provider
+            .prepare_authority_import_file_part(import_id, bearer(&headers)?, request)
+            .await?,
+    ))
+}
+
+async fn commit_authority_import_file_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((import_id, transfer_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<CommitFileUploadRequest>,
+) -> ApiResult<Json<CommitFileUploadReceipt>> {
+    if request.transfer_id != transfer_id {
+        return Err(ApiError::bad_request(
+            "file_transfer_mismatch",
+            "Transfer path and body differ.",
+        ));
+    }
+    Ok(Json(
+        state
+            .provider
+            .commit_authority_import_file_upload(import_id, bearer(&headers)?, request)
+            .await?,
+    ))
 }
 
 async fn finalize_authority_import(
