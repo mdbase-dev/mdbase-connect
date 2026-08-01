@@ -18,6 +18,7 @@ import type {
 } from "@mdbase/connect-protocol";
 import { describe, expect, it } from "vitest";
 import { documentRevision } from "./mirror-format.js";
+import { pathSelected } from "./mirror-files.js";
 import {
   DirectoryMirror,
   MemoryMirrorBlobStore,
@@ -445,11 +446,11 @@ describe("portable collection file mirror", () => {
     const hiddenBytes = utf8.encode("hidden");
     const neighborBytes = utf8.encode("neighbor");
     transport.records = [
-      record("record-hidden", "Archive/note.md", "hidden note"),
+      record("record-hidden", "archive/note.md", "hidden note"),
       record("record-neighbor", "Archive 2/note.md", "neighbor note")
     ];
     transport.files = [
-      file("00000000-0000-4000-8000-000000000012", "Archive/photo.png", hiddenBytes),
+      file("00000000-0000-4000-8000-000000000012", "archive/photo.png", hiddenBytes),
       file("00000000-0000-4000-8000-000000000013", "Archive 2/photo.png", neighborBytes)
     ];
     for (const descriptor of transport.files) {
@@ -464,10 +465,20 @@ describe("portable collection file mirror", () => {
 
     await target.sync();
 
-    expect(fileSystem.files.has("Archive/note.md")).toBe(false);
-    expect(fileSystem.files.has("Archive/photo.png")).toBe(false);
+    expect(fileSystem.files.has("archive/note.md")).toBe(false);
+    expect(fileSystem.files.has("archive/photo.png")).toBe(false);
     expect(text.decode(fileSystem.files.get("Archive 2/note.md"))).toBe("neighbor note");
     expect(fileSystem.files.get("Archive 2/photo.png")).toEqual(neighborBytes);
+  });
+
+  it("matches excluded folders by portable Unicode identity", () => {
+    const policy = {
+      file_classes: ["image" as const],
+      excluded_folders: ["Privat\u00e9"]
+    };
+
+    expect(pathSelected(policy, "PRIVAT\u0065\u0301/photo.png")).toBe(false);
+    expect(pathSelected(policy, "Privat\u00e9 2/photo.png")).toBe(true);
   });
 
   it("reconciles policy changes without deleting authority data", async () => {

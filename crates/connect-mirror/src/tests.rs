@@ -613,7 +613,7 @@ async fn excluded_folders_omit_markdown_and_files_without_prefix_matches() {
     );
     let policy = SelectiveSyncPolicy {
         file_classes: vec![FileMediaClass::Image],
-        excluded_folders: vec!["private".to_string()],
+        excluded_folders: vec!["Private".to_string()],
     };
     let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(authority, policy);
 
@@ -630,6 +630,31 @@ async fn excluded_folders_omit_markdown_and_files_without_prefix_matches() {
     let state = mirror.read_state().unwrap().unwrap();
     assert_eq!(state.records.len(), 2);
     assert_eq!(state.files.len(), 1);
+}
+
+#[tokio::test]
+async fn excluded_folders_use_portable_unicode_identity() {
+    let replica_id = Uuid::new_v4();
+    let excluded_path = "privat\u{65}\u{301}/hidden.md";
+    let authority = FakeAuthority::new(
+        replica_id,
+        SyncReplicaMode::ReadOnly,
+        vec![
+            record("visible/kept.md", "Kept"),
+            record(excluded_path, "Hidden"),
+        ],
+    );
+    let policy = SelectiveSyncPolicy {
+        file_classes: Vec::new(),
+        excluded_folders: vec!["Privat\u{e9}".to_string()],
+    };
+    let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(authority, policy);
+
+    mirror.sync().await.unwrap();
+
+    assert!(mirror.root().join("visible/kept.md").exists());
+    assert!(!mirror.root().join(excluded_path).exists());
+    assert_eq!(mirror.read_state().unwrap().unwrap().records.len(), 1);
 }
 
 #[tokio::test]

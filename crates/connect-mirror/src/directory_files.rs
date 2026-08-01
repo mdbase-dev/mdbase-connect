@@ -41,10 +41,16 @@ pub fn validate_selective_sync_policy(policy: &SelectiveSyncPolicy) -> Result<()
 
 impl DirectoryMirror {
     pub(super) fn path_selected(&self, path: &str) -> bool {
+        let Ok(path_key) = portable_mirror_path_key(path) else {
+            return false;
+        };
         !self.sync_policy.excluded_folders.iter().any(|folder| {
-            path == folder
-                || path
-                    .strip_prefix(folder)
+            let Ok(folder_key) = portable_mirror_path_key(folder) else {
+                return true;
+            };
+            path_key == folder_key
+                || path_key
+                    .strip_prefix(&folder_key)
                     .is_some_and(|suffix| suffix.starts_with('/'))
         })
     }

@@ -75,9 +75,11 @@ export function normalizeSelectiveSyncPolicy(
 }
 
 export function pathSelected(policy: SelectiveSyncPolicy, path: string): boolean {
-  return !policy.excluded_folders.some(
-    (folder) => path === folder || path.startsWith(`${folder}/`)
-  );
+  const pathKey = portableMirrorPathKey(path);
+  return !policy.excluded_folders.some((folder) => {
+    const folderKey = portableMirrorPathKey(folder);
+    return pathKey === folderKey || pathKey.startsWith(`${folderKey}/`);
+  });
 }
 
 export function fileSelected(
