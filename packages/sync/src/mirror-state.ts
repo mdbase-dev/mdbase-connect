@@ -38,6 +38,42 @@ export interface PendingMirrorMutation {
   local_hash: string | null;
 }
 
+export type PendingMirrorFileMutation =
+  | {
+    operation: "upload";
+    transfer_id: string;
+    file_id?: string;
+    path: string;
+    base_revision?: string;
+    content_digest: `sha256:${string}`;
+    size: number;
+    media_type?: string;
+  }
+  | {
+    operation: "move";
+    mutation_id: string;
+    file_id: string;
+    from_path: string;
+    path: string;
+    base_revision: string;
+    content_digest: `sha256:${string}`;
+    size: number;
+  }
+  | {
+    operation: "delete";
+    mutation_id: string;
+    file_id: string;
+    path: string;
+    base_revision: string;
+  };
+
+export interface MirrorFileConflict {
+  file_id: string;
+  path: string;
+  code: string;
+  message: string;
+}
+
 export interface MirrorLocalIssue {
   path: string;
   code: "invalid_frontmatter";
@@ -61,7 +97,9 @@ export interface MirrorState {
   selective_sync?: SelectiveSyncPolicy;
   mode?: "read_only" | "read_write";
   pending?: PendingMirrorMutation[];
+  pending_files?: PendingMirrorFileMutation[];
   conflicts?: Record<string, SyncMutationReceipt>;
+  file_conflicts?: Record<string, MirrorFileConflict>;
   local_issues?: Record<string, StoredMirrorLocalIssue>;
   last_synced_at?: string;
 }
@@ -111,18 +149,24 @@ export interface MirrorFileSystem {
   inspectBinary(path: string): Promise<MirrorBinaryInfo | null>;
   /** Atomically install a fully-drained byte stream at path. */
   writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void>;
+  /** Writable-file adapters enumerate only eligible non-Markdown regular files. */
+  listBinary?(excluded: ReadonlySet<string>): Promise<string[]>;
+  /** Opens a fresh stream for a stable path snapshot. */
+  readBinary?(path: string): Promise<AsyncIterable<Uint8Array> | null>;
 }
 
 export interface MirrorStatus {
   state: "not_initialized" | "up_to_date" | "changes_waiting" | "attention";
   mode: "read_only" | "read_write";
   pending: number;
+  pending_files: number;
   conflicts: Array<{
     record_id: string;
     path: string | null;
     kind: "conflicted" | "rejected";
     message: string;
   }>;
+  file_conflicts: MirrorFileConflict[];
   local_issues: MirrorLocalIssue[];
   cursor: number | null;
   last_synced_at: string | null;
@@ -134,6 +178,7 @@ export interface MirrorInitializationPreview {
   upload_documents: number;
   unchanged_documents: number;
   download_files: number;
+  upload_files: number;
   unchanged_files: number;
   collisions: string[];
   local_issues: MirrorLocalIssue[];
@@ -242,7 +287,9 @@ export function normalizeMirrorState(
   state.files ??= {};
   state.selective_sync = normalizeSelectiveSyncPolicy(state.selective_sync);
   state.pending ??= [];
+  state.pending_files ??= [];
   state.conflicts ??= {};
+  state.file_conflicts ??= {};
   state.mode ??= "read_only";
   if (state.mode !== mode) {
     throw new SyncError(
@@ -277,6 +324,25 @@ export function normalizeMirrorState(
     }
   }
   for (const pending of state.pending) validatePortableMirrorPath(pending.local_path);
+  for (const pending of state.pending_files) {
+    validatePortableMirrorPath(pending.path);
+    if (pending.operation === "move") validatePortableMirrorPath(pending.from_path);
+    const operationId = pending.operation === "upload"
+      ? pending.transfer_id
+      : pending.mutation_id;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(operationId)) {
+      throw new Error();
+    }
+    if (pending.operation !== "delete" && (
+      !/^sha256:[0-9a-f]{64}$/u.test(pending.content_digest)
+      || !Number.isSafeInteger(pending.size)
+      || pending.size < 0
+    )) throw new Error();
+  }
+  for (const [key, conflict] of Object.entries(state.file_conflicts)) {
+    validatePortableMirrorPath(conflict.path);
+    if (conflict.file_id !== key || !conflict.code || !conflict.message) throw new Error();
+  }
   for (const [path, issue] of Object.entries(state.local_issues ?? {})) {
     validatePortableMirrorPath(path);
     validatePortableMirrorPath(issue.path);

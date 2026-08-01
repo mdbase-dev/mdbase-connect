@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -87,6 +87,42 @@ describe("Node collection file adapters", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes hidden and reserved trees from discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-files-"));
+    try {
+      await mkdir(join(root, ".obsidian"), { recursive: true });
+      await mkdir(join(root, "visible", ".cache"), { recursive: true });
+      await mkdir(join(root, "node_modules", "package"), { recursive: true });
+      await mkdir(join(root, "visible"), { recursive: true });
+      await writeFile(join(root, ".secret.bin"), "secret");
+      await writeFile(join(root, ".obsidian", "workspace.json"), "private");
+      await writeFile(join(root, "visible", ".cache", "thumb.png"), "private");
+      await writeFile(join(root, "node_modules", "package", "asset.bin"), "private");
+      await writeFile(join(root, "visible", "photo.png"), "visible");
+      await writeFile(join(root, "visible", "note.md"), "visible");
+      const fileSystem = new NodeMirrorFileSystem(root);
+
+      expect(await fileSystem.listBinary(new Set())).toEqual(["visible/photo.png"]);
+      expect(await fileSystem.listMarkdown(new Set())).toEqual(["visible/note.md"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to hash or stream hard-linked binary files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mdbase-node-files-"));
+    try {
+      await writeFile(join(root, "source.bin"), "shared bytes");
+      await link(join(root, "source.bin"), join(root, "alias.bin"));
+      const fileSystem = new NodeMirrorFileSystem(root);
+
+      await expect(fileSystem.inspectBinary("source.bin")).rejects.toMatchObject({ code: "invalid_path" });
+      await expect(fileSystem.readBinary("alias.bin")).rejects.toMatchObject({ code: "invalid_path" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

@@ -2,7 +2,13 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type {
   CollectionFileDescriptor,
+  CommitFileUploadReceipt,
+  DeleteFileReceipt,
+  DeleteFileRequest,
   JsonObject,
+  MoveFileReceipt,
+  MoveFileRequest,
+  OpenFileUploadRequest,
   SyncChange,
   SyncFileSnapshotPage,
   SyncMutation,
@@ -17,6 +23,7 @@ import {
   MemoryMirrorBlobStore,
   MemoryMirrorStateStore,
   MirrorDivergenceError,
+  WritableDirectoryMirror,
   type MirrorBlobStore,
   type MirrorFileSystem
 } from "./mirror.js";
@@ -47,6 +54,20 @@ class BinaryFileSystem implements MirrorFileSystem {
     return [...this.files.keys()]
       .filter((path) => path.endsWith(".md") && !excluded.has(path))
       .sort();
+  }
+
+  async listBinary(excluded: ReadonlySet<string>): Promise<string[]> {
+    return [...this.files.keys()]
+      .filter((path) => !path.endsWith(".md")
+        && !excluded.has(path)
+        && !path.split("/").some((component) => component.startsWith(".")))
+      .sort();
+  }
+
+  async readBinary(path: string): Promise<AsyncIterable<Uint8Array> | null> {
+    const value = this.files.get(path);
+    if (!value) return null;
+    return (async function* () { yield value.slice(); })();
   }
 
   async inspectBinary(path: string): Promise<{ size: number; content_digest: `sha256:${string}` } | null> {
@@ -116,6 +137,13 @@ class FileTransport implements SyncTransport {
   bytes = new Map<string, Uint8Array>();
   downloads = 0;
   chunkSize = 3;
+  mode: "read_only" | "read_write" = "read_only";
+  uploadCalls: OpenFileUploadRequest[] = [];
+  moveCalls: MoveFileRequest[] = [];
+  deleteCalls: DeleteFileRequest[] = [];
+  failAfterUploadCommit = false;
+  private fileSequence = 1;
+  private readonly uploadReceipts = new Map<string, CommitFileUploadReceipt>();
   private readonly snapshots = new Map<string, SnapshotContext>();
   private snapshotSequence = 0;
 
@@ -132,7 +160,7 @@ class FileTransport implements SyncTransport {
       session_id: `session-${snapshotId}`,
       replica_id: this.replicaId,
       collection_id: "00000000-0000-4000-8000-000000000002",
-      mode: "read_only",
+      mode: this.mode,
       scope_epoch: 1,
       retained_after: 0,
       head,
@@ -179,6 +207,96 @@ class FileTransport implements SyncTransport {
     }
   }
 
+  async uploadFile(
+    request: OpenFileUploadRequest,
+    source: AsyncIterable<Uint8Array>
+  ): Promise<CommitFileUploadReceipt> {
+    this.uploadCalls.push(structuredClone(request));
+    const replay = this.uploadReceipts.get(request.transfer_id);
+    if (replay) return structuredClone(replay);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of source) {
+      chunks.push(chunk.slice());
+      size += chunk.byteLength;
+    }
+    const value = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      value.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (size !== request.size || digest(value) !== request.content_digest) throw new Error("bad upload");
+    const current = this.files.find((candidate) => candidate.path === request.path);
+    if (current?.revision !== request.if_revision || (!current && request.if_revision)) {
+      throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
+    }
+    const descriptor = file(
+      current?.file_id ?? `01930000-0000-7000-8000-${String(this.fileSequence).padStart(12, "0")}`,
+      request.path,
+      value,
+      `file:${++this.fileSequence}`,
+      request.path.endsWith(".png") ? "image" : "other"
+    );
+    if (request.media_type) descriptor.media_type = request.media_type;
+    this.files = [...this.files.filter((candidate) => candidate.file_id !== descriptor.file_id), descriptor];
+    this.bytes.set(descriptor.file_id, value);
+    this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: descriptor });
+    const receipt: CommitFileUploadReceipt = {
+      protocol_version: 1,
+      type: "file_upload_committed",
+      transfer_id: request.transfer_id,
+      file: descriptor
+    };
+    this.uploadReceipts.set(request.transfer_id, structuredClone(receipt));
+    if (this.failAfterUploadCommit) {
+      this.failAfterUploadCommit = false;
+      throw new Error("connection dropped after commit");
+    }
+    return receipt;
+  }
+
+  async moveFile(request: MoveFileRequest): Promise<MoveFileReceipt> {
+    this.moveCalls.push(structuredClone(request));
+    const current = this.files.find((candidate) => candidate.file_id === request.file_id);
+    if (!current || current.path !== request.from_path || current.revision !== request.if_revision) {
+      throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
+    }
+    if (this.files.some((candidate) => candidate.file_id !== request.file_id && candidate.path === request.path)) {
+      throw Object.assign(new Error("path occupied"), { code: "path_occupied" });
+    }
+    const moved = { ...current, path: request.path, revision: `file:${++this.fileSequence}` };
+    this.files = this.files.map((candidate) => candidate.file_id === request.file_id ? moved : candidate);
+    this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: moved });
+    return { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
+  }
+
+  async deleteFile(request: DeleteFileRequest): Promise<DeleteFileReceipt> {
+    this.deleteCalls.push(structuredClone(request));
+    const current = this.files.find((candidate) => candidate.file_id === request.file_id);
+    if (!current || current.path !== request.path || current.revision !== request.if_revision) {
+      throw Object.assign(new Error("stale file revision"), { code: "stale_file_revision" });
+    }
+    const revision = `file:${++this.fileSequence}`;
+    this.files = this.files.filter((candidate) => candidate.file_id !== request.file_id);
+    this.bytes.delete(request.file_id);
+    this.events.push({
+      sequence: this.nextEventSequence(),
+      type: "file_remove",
+      file_id: request.file_id,
+      previous_path: request.path,
+      revision
+    });
+    return {
+      protocol_version: 1,
+      type: "file_deleted",
+      mutation_id: request.mutation_id,
+      file_id: request.file_id,
+      previous_path: request.path,
+      revision
+    };
+  }
+
   async changes(after: number) {
     const events = this.events.filter((event) => event.sequence > after);
     const head = this.events.at(-1)?.sequence ?? after;
@@ -201,6 +319,10 @@ class FileTransport implements SyncTransport {
     const snapshot = this.snapshots.get(id);
     if (!snapshot) throw new Error("expired test snapshot");
     return snapshot;
+  }
+
+  private nextEventSequence(): number {
+    return (this.events.at(-1)?.sequence ?? 0) + 1;
   }
 }
 
@@ -254,6 +376,25 @@ function mirror(
       stateStore,
       blobStore,
       selectiveSync
+    })
+  };
+}
+
+function writableMirror(
+  transport: FileTransport,
+  fileSystem = new BinaryFileSystem(),
+  stateStore = new MemoryMirrorStateStore(),
+  blobStore = new MemoryMirrorBlobStore()
+) {
+  transport.mode = "read_write";
+  return {
+    fileSystem,
+    stateStore,
+    mirror: new WritableDirectoryMirror(transport.replicaId, transport, {
+      fileSystem,
+      stateStore,
+      blobStore,
+      selectiveSync: { file_classes: ["image", "other"], excluded_folders: [] }
     })
   };
 }
@@ -500,5 +641,116 @@ describe("portable collection file mirror", () => {
 
     await target.sync();
     expect(fileSystem.files.get("empty.bin")).toEqual(bytes);
+  });
+
+  it("uploads replacements, preserves identity on moves, deletes, and adds files", async () => {
+    const transport = new FileTransport();
+    const originalBytes = utf8.encode("original");
+    const fileId = "00000000-0000-4000-8000-000000000030";
+    const original = file(fileId, "images/original.png", originalBytes);
+    transport.files = [original];
+    transport.bytes.set(fileId, originalBytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+
+    const replacement = utf8.encode("replacement");
+    fileSystem.files.set(original.path, replacement);
+    const writesAfterDownload = fileSystem.binaryWrites;
+    await target.sync();
+    expect(transport.uploadCalls.at(-1)?.if_revision).toBe(original.revision);
+    expect(transport.files[0]).toMatchObject({ file_id: fileId, content_digest: digest(replacement) });
+    expect(fileSystem.binaryWrites).toBe(writesAfterDownload);
+
+    fileSystem.files.delete(original.path);
+    fileSystem.files.set("images/renamed.png", replacement);
+    await target.sync();
+    expect(transport.moveCalls).toHaveLength(1);
+    expect(transport.moveCalls[0]).toMatchObject({
+      file_id: fileId,
+      from_path: original.path,
+      path: "images/renamed.png"
+    });
+    expect(transport.files[0]?.file_id).toBe(fileId);
+
+    fileSystem.files.delete("images/renamed.png");
+    await target.sync();
+    expect(transport.deleteCalls).toHaveLength(1);
+    expect(transport.files).toHaveLength(0);
+
+    const added = utf8.encode("brand new");
+    fileSystem.files.set("assets/new.bin", added);
+    await target.sync();
+    expect(transport.uploadCalls.at(-1)).toMatchObject({
+      path: "assets/new.bin",
+      content_digest: digest(added),
+      size: added.byteLength
+    });
+    expect((await stateStore.read())?.pending_files).toEqual([]);
+    expect((await target.status()).file_conflicts).toEqual([]);
+  });
+
+  it("replays an ambiguously committed upload and then sends a newer local edit", async () => {
+    const transport = new FileTransport();
+    const fileSystem = new BinaryFileSystem();
+    const stateStore = new MemoryMirrorStateStore();
+    const first = utf8.encode("first durable snapshot");
+    const second = utf8.encode("second live edit");
+    fileSystem.files.set("assets/retry.bin", first);
+    transport.failAfterUploadCommit = true;
+    const { mirror: target } = writableMirror(transport, fileSystem, stateStore);
+
+    await expect(target.sync()).rejects.toThrow("connection dropped after commit");
+    const pending = (await stateStore.read())?.pending_files?.[0];
+    expect(pending).toMatchObject({ operation: "upload", content_digest: digest(first) });
+    fileSystem.files.set("assets/retry.bin", second);
+
+    await target.sync();
+
+    expect(transport.uploadCalls).toHaveLength(3);
+    expect(transport.uploadCalls[1]?.transfer_id).toBe(transport.uploadCalls[0]?.transfer_id);
+    expect(transport.uploadCalls[2]?.transfer_id).not.toBe(transport.uploadCalls[0]?.transfer_id);
+    expect(transport.bytes.get(transport.files[0]!.file_id)).toEqual(second);
+    expect((await stateStore.read())?.pending_files).toEqual([]);
+    expect((await target.status()).state).toBe("up_to_date");
+  });
+
+  it("retains a stale writable file mutation and the user's bytes for resolution", async () => {
+    const transport = new FileTransport();
+    const authorityBytes = utf8.encode("authority");
+    const localBytes = utf8.encode("local");
+    const remoteBytes = utf8.encode("remote");
+    const fileId = "00000000-0000-4000-8000-000000000031";
+    const initial = file(fileId, "images/conflict.png", authorityBytes);
+    transport.files = [initial];
+    transport.bytes.set(fileId, authorityBytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    fileSystem.files.set(initial.path, localBytes);
+    const remote = file(fileId, initial.path, remoteBytes, "file:remote");
+    transport.files = [remote];
+    transport.bytes.set(fileId, remoteBytes);
+    transport.events.push({ sequence: 1, type: "file_put", file: remote });
+
+    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+
+    expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
+    expect((await stateStore.read())?.pending_files).toHaveLength(1);
+    expect(await target.status()).toMatchObject({
+      state: "attention",
+      pending_files: 1,
+      file_conflicts: [{ file_id: fileId, path: initial.path, code: "stale_file_revision" }]
+    });
+  });
+
+  it("does not discover hidden folders in writable file scans", async () => {
+    const transport = new FileTransport();
+    const fileSystem = new BinaryFileSystem();
+    fileSystem.files.set(".private/secret.png", utf8.encode("secret"));
+    fileSystem.files.set("images/visible.png", utf8.encode("visible"));
+    const { mirror: target } = writableMirror(transport, fileSystem);
+
+    await target.sync();
+
+    expect(transport.uploadCalls.map((request) => request.path)).toEqual(["images/visible.png"]);
   });
 });

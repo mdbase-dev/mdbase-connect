@@ -45,11 +45,12 @@ import {
   validateSnapshotResources,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import {
-  assertMirrorFilesUndiverged,
-  assertMirrorUndiverged
-} from "./mirror-integrity.js";
+import { assertMirrorUndiverged } from "./mirror-integrity.js";
 import { captureMirrorLocalChanges } from "./mirror-local-changes.js";
+import {
+  captureMirrorLocalFiles,
+  flushPendingMirrorFiles
+} from "./mirror-local-files.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import {
   assertNoPhysicalPathAliases,
@@ -60,9 +61,11 @@ import {
   ensureFileBlob,
   fileSelected,
   normalizeSelectiveSyncPolicy,
+  pathFileSelected,
   pathSelected,
   sameBinaryInfo,
   validateCollectionFileDescriptor,
+  validateVisibleCollectionPath,
   visitFileSnapshotPages
 } from "./mirror-files.js";
 import {
@@ -116,7 +119,12 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       return;
     }
     if (JSON.stringify(state.selective_sync) !== JSON.stringify(this.selectiveSync)) {
-      if (this.mode === "read_write" && (state.pending?.length ?? 0) > 0) {
+      if (this.mode === "read_write" && (
+        (state.pending?.length ?? 0) > 0
+        || (state.pending_files?.length ?? 0) > 0
+        || Object.keys(state.conflicts ?? {}).length > 0
+        || Object.keys(state.file_conflicts ?? {}).length > 0
+      )) {
         throw new SyncError(
           "selective_sync_pending_changes",
           "Upload pending Markdown changes before changing selective sync."
@@ -127,9 +135,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
     }
     if (this.mode === "read_write") {
       await this.flushPending(state);
-      await assertMirrorFilesUndiverged(state, this.fileSystem);
+      await this.flushPendingFiles(state);
       await this.captureLocalChanges(state);
       await this.flushPending(state);
+      await this.flushPendingFiles(state);
     } else {
       await assertMirrorUndiverged(
         state,
@@ -254,7 +263,9 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         state: "not_initialized",
         mode: this.mode,
         pending: 0,
+        pending_files: 0,
         conflicts: [],
+        file_conflicts: [],
         local_issues: [],
         cursor: null,
         last_synced_at: null
@@ -284,15 +295,20 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       .map(({ path, code, message }) => ({ path, code, message }))
       .sort((left, right) => left.path.localeCompare(right.path));
     const pending = state.pending?.length ?? 0;
+    const pendingFiles = state.pending_files?.length ?? 0;
+    const fileConflicts = Object.values(state.file_conflicts ?? {})
+      .sort((left, right) => left.path.localeCompare(right.path));
     return {
-      state: conflicts.length || localIssues.length
+      state: conflicts.length || fileConflicts.length || localIssues.length
         ? "attention"
-        : pending
+        : pending || pendingFiles
           ? "changes_waiting"
           : "up_to_date",
       mode: this.mode,
-      pending,
+      pending: pending + pendingFiles,
+      pending_files: pendingFiles,
       conflicts,
+      file_conflicts: fileConflicts,
       local_issues: localIssues,
       cursor: state.cursor,
       last_synced_at: state.last_synced_at ?? null
@@ -375,6 +391,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         upload_documents: 0,
         unchanged_documents: 0,
         download_files: 0,
+        upload_files: 0,
         unchanged_files: 0,
         collisions: [],
         local_issues: []
@@ -414,6 +431,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       }
     });
     let downloadFiles = 0;
+    let uploadFiles = 0;
     let unchangedFiles = 0;
     await visitFileSnapshotPages(this.transport, session, async (files) => {
       for (const file of files) {
@@ -446,6 +464,19 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
           localIssues.push(issue);
         }
       }
+      if (this.fileSystem.listBinary) {
+        const excluded = new Set([
+          ...resources.map((resource) => resource.path),
+          ...remotePaths
+        ]);
+        const localFiles = (await this.fileSystem.listBinary(excluded))
+          .filter((path) => pathFileSelected(this.selectiveSync, path));
+        for (const path of localFiles) {
+          validateVisibleCollectionPath(path, false);
+          if (!remotePaths.has(path)) uploadFiles += 1;
+        }
+        assertNoPhysicalPathAliases([...remotePaths, ...localRecords, ...localFiles]);
+      }
     }
     return {
       already_initialized: false,
@@ -453,6 +484,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       upload_documents: uploadDocuments,
       unchanged_documents: unchangedDocuments,
       download_files: downloadFiles,
+      upload_files: uploadFiles,
       unchanged_files: unchangedFiles,
       collisions,
       local_issues: localIssues.sort((left, right) => left.path.localeCompare(right.path))
@@ -661,6 +693,9 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   private async captureLocalChanges(state: MirrorState): Promise<void> {
+    const pendingBefore = state.pending!.length;
+    const pendingFilesBefore = state.pending_files!.length;
+    const localIssuesBefore = JSON.stringify(state.local_issues ?? {});
     const { pending, localIssues } = await captureMirrorLocalChanges({
       replicaId: this.replicaId,
       state,
@@ -670,10 +705,30 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
       pathSelected: (path) => pathSelected(this.selectiveSync, path)
     });
     state.local_issues = localIssues;
-    if (pending.length) {
-      state.pending!.push(...pending);
+    state.pending!.push(...pending);
+    await captureMirrorLocalFiles({
+      state,
+      fileSystem: this.fileSystem,
+      blobStore: this.blobStore,
+      selectiveSync: this.selectiveSync,
+      runtime: this.runtime
+    });
+    if (
+      state.pending!.length !== pendingBefore
+      || state.pending_files!.length !== pendingFilesBefore
+      || JSON.stringify(state.local_issues ?? {}) !== localIssuesBefore
+    ) {
       await this.writeState(state);
     }
+  }
+
+  private async flushPendingFiles(state: MirrorState): Promise<void> {
+    await flushPendingMirrorFiles(
+      state,
+      this.transport,
+      this.blobStore,
+      () => this.writeState(state)
+    );
   }
 
   private async flushPending(state: MirrorState): Promise<void> {

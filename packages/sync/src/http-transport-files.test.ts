@@ -179,4 +179,169 @@ describe("hosted sync file data plane", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("streams a multipart writable snapshot directly to R2 and commits its ETags", async () => {
+    const transferId = "01940000-0000-7000-8000-000000000001";
+    const uploaded: Uint8Array[] = [];
+    const controlBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://r2.example/upload")) {
+        expect(new Headers(init?.headers).get("authorization")).toBeNull();
+        uploaded.push(new Uint8Array(await (init?.body as Blob).arrayBuffer()));
+        return new Response(null, { status: 200, headers: { etag: `etag-${uploaded.length}` } });
+      }
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (body) controlBodies.push(body);
+      if (url.endsWith("/files/uploads")) {
+        return Response.json({
+          protocol_version: 1,
+          type: "file_transfer",
+          transfer_id: transferId,
+          direction: "upload",
+          protection: "transport_tls",
+          strategy: { kind: "object_multipart", part_size: 3 },
+          total_size: bytes.byteLength,
+          expires_at: "2026-08-01T01:00:00.000Z",
+          received: []
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/parts`)) {
+        const index = body.part_number - 1;
+        const length = Math.min(3, bytes.byteLength - index * 3);
+        return Response.json({
+          protocol_version: 1,
+          type: "file_part",
+          transfer_id: transferId,
+          part_index: index,
+          offset: index * 3,
+          content_length: length,
+          method: "PUT",
+          url: `https://r2.example/upload?part=${index}`,
+          headers: { authorization: "must-not-forward", "content-length": String(length) },
+          expires_at: "2026-08-01T01:00:00.000Z"
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/commit`)) {
+        expect(body.parts).toEqual([
+          { part_number: 1, etag: "etag-1" },
+          { part_number: 2, etag: "etag-2" },
+          { part_number: 3, etag: "etag-3" }
+        ]);
+        return Response.json({
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: transferId,
+          file: descriptor
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const transport = new HttpSyncTransport(
+      `https://connect.example/v1/authorities/${authorityId}/sync`,
+      "replica-token"
+    );
+    const source = (async function* () {
+      yield bytes.slice(0, 2);
+      yield bytes.slice(2, 7);
+      yield bytes.slice(7);
+    })();
+
+    const receipt = await transport.uploadFile({
+      protocol_version: 1,
+      type: "open_file_upload",
+      transfer_id: transferId,
+      path: descriptor.path,
+      size: bytes.byteLength,
+      content_digest: descriptor.content_digest,
+      media_type: descriptor.media_type
+    }, source);
+
+    expect(receipt.file).toEqual(descriptor);
+    expect(new Uint8Array(uploaded.flatMap((part) => [...part]))).toEqual(bytes);
+    expect(JSON.stringify(controlBodies)).not.toContain("R2-bytes");
+  });
+
+  it("recovers an ambiguous committed multipart upload without reading or re-uploading bytes", async () => {
+    const transferId = "01940000-0000-7000-8000-000000000002";
+    let committed = false;
+    let controlCommits = 0;
+    let objectPuts = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://r2.example/upload")) {
+        objectPuts += 1;
+        return new Response(null, { status: 200, headers: { etag: `etag-${objectPuts}` } });
+      }
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (url.endsWith("/files/uploads")) {
+        return Response.json({
+          protocol_version: 1,
+          type: "file_transfer",
+          transfer_id: transferId,
+          direction: "upload",
+          protection: "transport_tls",
+          strategy: { kind: "object_multipart", part_size: 3 },
+          total_size: bytes.byteLength,
+          expires_at: "2026-08-01T01:00:00.000Z",
+          received: committed ? [0, 1, 2] : []
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/parts`)) {
+        const index = body.part_number - 1;
+        return Response.json({
+          protocol_version: 1,
+          type: "file_part",
+          transfer_id: transferId,
+          part_index: index,
+          offset: index * 3,
+          content_length: Math.min(3, bytes.byteLength - index * 3),
+          method: "PUT",
+          url: `https://r2.example/upload?part=${index}`,
+          headers: {},
+          expires_at: "2026-08-01T01:00:00.000Z"
+        });
+      }
+      if (url.endsWith(`/uploads/${transferId}/commit`)) {
+        controlCommits += 1;
+        if (!committed) {
+          committed = true;
+          throw new TypeError("connection reset after commit");
+        }
+        expect(body.parts).toEqual([]);
+        return Response.json({
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: transferId,
+          file: descriptor
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const transport = new HttpSyncTransport(
+      `https://connect.example/v1/authorities/${authorityId}/sync`,
+      "replica-token"
+    );
+    const request = {
+      protocol_version: 1 as const,
+      type: "open_file_upload" as const,
+      transfer_id: transferId,
+      path: descriptor.path,
+      size: bytes.byteLength,
+      content_digest: descriptor.content_digest
+    };
+    await expect(transport.uploadFile(request, (async function* () { yield bytes; })()))
+      .rejects.toThrow("connection reset after commit");
+    let sourceRead = false;
+    const receipt = await transport.uploadFile(request, (async function* () {
+      sourceRead = true;
+      yield bytes;
+    })());
+
+    expect(receipt.file).toEqual(descriptor);
+    expect(sourceRead).toBe(false);
+    expect(objectPuts).toBe(3);
+    expect(controlCommits).toBe(2);
+  });
 });

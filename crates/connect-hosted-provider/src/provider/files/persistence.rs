@@ -113,32 +113,44 @@ impl HostedProvider {
         &self,
         transfer: &HostedFileTransfer,
     ) -> ApiResult<FileTransferSession> {
-        let received = match transfer.strategy.as_str() {
-            "object_put" => {
-                if self
-                    .blob_store
-                    .object_exists(&transfer.staging_object_key)
-                    .await?
-                {
-                    vec![0]
-                } else {
-                    Vec::new()
+        let received = if transfer.state == "committed" {
+            (0..upload_part_count(transfer, self.blob_store.part_size())).collect()
+        } else if transfer.state == "completing" && transfer.strategy == "object_multipart" {
+            transfer
+                .completion_parts
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|part| u64::from(part.part_number - 1))
+                .collect()
+        } else {
+            match transfer.strategy.as_str() {
+                "object_put" => {
+                    if self
+                        .blob_store
+                        .object_exists(&transfer.staging_object_key)
+                        .await?
+                    {
+                        vec![0]
+                    } else {
+                        Vec::new()
+                    }
                 }
+                "object_multipart" => {
+                    self.blob_store
+                        .list_multipart_parts(
+                            &transfer.staging_object_key,
+                            transfer.multipart_upload_id.as_deref().ok_or_else(|| {
+                                ApiError::internal("Multipart upload ID is missing.")
+                            })?,
+                        )
+                        .await?
+                        .into_iter()
+                        .map(|part| (part.part_number - 1) as u64)
+                        .collect()
+                }
+                _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
             }
-            "object_multipart" => self
-                .blob_store
-                .list_multipart_parts(
-                    &transfer.staging_object_key,
-                    transfer
-                        .multipart_upload_id
-                        .as_deref()
-                        .ok_or_else(|| ApiError::internal("Multipart upload ID is missing."))?,
-                )
-                .await?
-                .into_iter()
-                .map(|part| (part.part_number - 1) as u64)
-                .collect(),
-            _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
         };
         Ok(FileTransferSession {
             protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,

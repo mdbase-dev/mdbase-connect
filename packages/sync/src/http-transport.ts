@@ -1,8 +1,15 @@
 import type {
   CollectionFileDescriptor,
+  CommitFileUploadReceipt,
+  DeleteFileReceipt,
+  DeleteFileRequest,
   FileTransferSession,
   JsonObject,
+  MoveFileReceipt,
+  MoveFileRequest,
+  OpenFileUploadRequest,
   PreparedFilePart,
+  UploadedFilePart,
   SyncChangesPage,
   SyncMutation,
   SyncMutationReceipt,
@@ -134,6 +141,111 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
         .catch(() => undefined);
     }
   }
+  async uploadFile(
+    request: OpenFileUploadRequest,
+    source: AsyncIterable<Uint8Array>
+  ): Promise<CommitFileUploadReceipt> {
+    const session = await this.fileRequest<FileTransferSession>("POST", "uploads", request);
+    if (
+      session.protocol_version !== 1
+      || session.type !== "file_transfer"
+      || session.transfer_id !== request.transfer_id
+      || session.direction !== "upload"
+      || session.protection !== "transport_tls"
+      || session.total_size !== request.size
+      || !["object_put", "object_multipart"].includes(session.strategy.kind)
+    ) throw new SyncError("invalid_sync_response", "Authority returned an incompatible file upload session.");
+    const partSize = session.strategy.kind === "object_multipart"
+      ? session.strategy.part_size
+      : Math.max(1, request.size);
+    if (!Number.isSafeInteger(partSize) || partSize <= 0) {
+      throw new SyncError("invalid_sync_response", "Authority returned an invalid upload part size.");
+    }
+    const reader = new BinaryPartReader(source);
+    const count = Math.max(1, Math.ceil(request.size / partSize));
+    if (
+      session.received.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= count)
+      || new Set(session.received).size !== session.received.length
+    ) throw new SyncError("invalid_sync_response", "Authority returned invalid upload progress.");
+    if (session.received.length === count) {
+      try {
+        return await this.commitUpload(request.transfer_id, []);
+      } catch (error) {
+        // A complete object PUT needs no ETags and should have committed. For
+        // multipart, all R2 parts may exist while this process does not know
+        // their ETags; upload them again below to recover a complete manifest.
+        if (!(error instanceof SyncError)
+          || error.code !== "file_upload_incomplete"
+          || session.strategy.kind !== "object_multipart") throw error;
+      }
+    }
+    const parts: UploadedFilePart[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * partSize;
+      const length = Math.min(partSize, Math.max(0, request.size - offset));
+      const bytes = await reader.read(length);
+      const prepared = await this.fileRequest<PreparedFilePart>(
+        "POST",
+        `uploads/${encodeURIComponent(request.transfer_id)}/parts`,
+        {
+          protocol_version: 1,
+          type: "prepare_file_upload_part",
+          transfer_id: request.transfer_id,
+          part_number: index + 1,
+          content_length: length
+        }
+      );
+      validatePreparedUpload(prepared, request.transfer_id, index, offset, length);
+      const response = await fetch(prepared.url, {
+        method: "PUT",
+        headers: safeObjectHeaders(prepared.headers),
+        body: new Blob([new Uint8Array(bytes)]),
+        redirect: "manual"
+      });
+      if (!response.ok || response.type === "opaqueredirect") {
+        throw new SyncError("file_upload_failed", `Object storage returned HTTP ${response.status}.`);
+      }
+      if (session.strategy.kind === "object_multipart") {
+        const etag = response.headers.get("etag");
+        if (!etag) throw new SyncError("invalid_sync_response", "Object storage omitted a multipart ETag.");
+        parts.push({ part_number: index + 1, etag });
+      }
+    }
+    await reader.expectEnd();
+    return this.commitUpload(request.transfer_id, parts);
+  }
+  private async commitUpload(
+    transferId: string,
+    parts: UploadedFilePart[]
+  ): Promise<CommitFileUploadReceipt> {
+    const receipt = await this.fileRequest<CommitFileUploadReceipt>("POST", `uploads/${encodeURIComponent(transferId)}/commit`, {
+      protocol_version: 1,
+      type: "commit_file_upload",
+      transfer_id: transferId,
+      parts
+    });
+    if (receipt.protocol_version !== 1 || receipt.type !== "file_upload_committed" || receipt.transfer_id !== transferId) {
+      throw new SyncError("invalid_sync_response", "Authority returned an invalid file upload receipt.");
+    }
+    return receipt;
+  }
+  async moveFile(request: MoveFileRequest): Promise<MoveFileReceipt> {
+    const receipt = await this.fileRequest<MoveFileReceipt>("POST", `${encodeURIComponent(request.file_id)}/move`, request);
+    if (receipt.protocol_version !== 1 || receipt.type !== "file_moved" || receipt.mutation_id !== request.mutation_id) {
+      throw new SyncError("invalid_sync_response", "Authority returned an invalid file move receipt.");
+    }
+    return receipt;
+  }
+  async deleteFile(request: DeleteFileRequest): Promise<DeleteFileReceipt> {
+    const receipt = await this.fileRequest<DeleteFileReceipt>("POST", `${encodeURIComponent(request.file_id)}/delete`, request);
+    if (
+      receipt.protocol_version !== 1
+      || receipt.type !== "file_deleted"
+      || receipt.mutation_id !== request.mutation_id
+      || receipt.file_id !== request.file_id
+    ) throw new SyncError("invalid_sync_response", "Authority returned an invalid file delete receipt.");
+    return receipt;
+  }
   changes(after: number, limit = 200): Promise<SyncChangesPage<Frontmatter>> {
     return this.request("GET", `changes?${new URLSearchParams({ after: String(after), limit: String(limit) })}`);
   }
@@ -152,6 +264,7 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
   private async requestAt<Result>(baseUrl: string, method: string, path: string, body?: unknown): Promise<Result> {
     const response = await fetch(`${baseUrl}/${path}`, {
       method,
+      redirect: "error",
       headers: {
         authorization: `Bearer ${this.replicaToken}`,
         ...(body === undefined ? {} : { "content-type": "application/json" })
@@ -161,6 +274,45 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
     const value = await response.json();
     if (!response.ok) throw new SyncError(value?.error?.code ?? "sync_failed", value?.error?.message ?? "Sync request failed.");
     return value as Result;
+  }
+}
+
+class BinaryPartReader {
+  private readonly iterator: AsyncIterator<Uint8Array>;
+  private remainder = new Uint8Array();
+
+  constructor(source: AsyncIterable<Uint8Array>) {
+    this.iterator = source[Symbol.asyncIterator]();
+  }
+
+  async read(length: number): Promise<Uint8Array> {
+    const output = new Uint8Array(length);
+    let offset = 0;
+    while (offset < length) {
+      if (this.remainder.byteLength === 0) {
+        const next = await this.iterator.next();
+        if (next.done) throw new SyncError("pending_file_snapshot_corrupt", "Pending file bytes ended early.");
+        if (!(next.value instanceof Uint8Array)) throw new SyncError("pending_file_snapshot_corrupt", "Pending file bytes are invalid.");
+        this.remainder = new Uint8Array(next.value);
+        if (this.remainder.byteLength === 0) continue;
+      }
+      const count = Math.min(length - offset, this.remainder.byteLength);
+      output.set(this.remainder.subarray(0, count), offset);
+      offset += count;
+      this.remainder = this.remainder.slice(count);
+    }
+    return output;
+  }
+
+  async expectEnd(): Promise<void> {
+    if (this.remainder.byteLength > 0) throw new SyncError("pending_file_snapshot_corrupt", "Pending file bytes are oversized.");
+    while (true) {
+      const next = await this.iterator.next();
+      if (next.done) return;
+      if (!(next.value instanceof Uint8Array) || next.value.byteLength > 0) {
+        throw new SyncError("pending_file_snapshot_corrupt", "Pending file bytes are oversized.");
+      }
+    }
   }
 }
 
@@ -197,10 +349,38 @@ function validatePreparedDownload(
   }
 }
 
+function validatePreparedUpload(
+  part: PreparedFilePart,
+  transferId: string,
+  partIndex: number,
+  offset: number,
+  contentLength: number
+): void {
+  let url: URL;
+  try {
+    url = new URL(part.url);
+  } catch {
+    throw new SyncError("invalid_sync_response", "Authority returned an invalid object URL.");
+  }
+  if (
+    part.protocol_version !== 1
+    || part.type !== "file_part"
+    || part.transfer_id !== transferId
+    || part.part_index !== partIndex
+    || part.offset !== offset
+    || part.content_length !== contentLength
+    || part.method.toUpperCase() !== "PUT"
+    || !secureHttpEndpoint(url)
+    || url.username
+    || url.password
+    || !url.hostname
+  ) throw new SyncError("invalid_sync_response", "Authority returned an invalid prepared upload part.");
+}
+
 function safeObjectHeaders(headers: Record<string, string>): Headers {
   const result = new Headers();
   for (const [name, value] of Object.entries(headers)) {
-    if (["host", "content-length"].includes(name.toLowerCase())) continue;
+    if (["authorization", "cookie", "host", "proxy-authorization", "content-length"].includes(name.toLowerCase())) continue;
     result.set(name, value);
   }
   return result;

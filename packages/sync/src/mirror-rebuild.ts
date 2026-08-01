@@ -94,7 +94,9 @@ export async function rebuildMirror<Frontmatter extends JsonObject>(
     selective_sync: selectiveSync,
     mode,
     pending: [],
+    pending_files: [],
     conflicts: {},
+    file_conflicts: {},
     local_issues: {}
   };
   const priorManagedByPhysicalPath = new Map<string, MirrorEntry>();

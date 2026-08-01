@@ -274,12 +274,31 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     const files: string[] = [];
     const visit = async (directory: string): Promise<void> => {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (entry.name === ".mdbase") continue;
+        if (hiddenOrReservedMirrorEntry(entry.name)) continue;
         const path = join(directory, entry.name);
         if (entry.isDirectory()) await visit(path);
         else if (entry.isFile() && entry.name.endsWith(".md")) {
           const pathValue = relative(root, path).split(sep).join("/");
           if (!excluded.has(pathValue)) files.push(pathValue);
+        }
+      }
+    };
+    await visit(root);
+    files.sort();
+    return files;
+  }
+
+  async listBinary(excluded: ReadonlySet<string>): Promise<string[]> {
+    const root = await realpath(this.root);
+    const files: string[] = [];
+    const visit = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (hiddenOrReservedMirrorEntry(entry.name)) continue;
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) await visit(path);
+        else if (entry.isFile() && !entry.name.toLowerCase().endsWith(".md")) {
+          const value = relative(root, path).split(sep).join("/");
+          if (!excluded.has(value)) files.push(value);
         }
       }
     };
@@ -299,7 +318,9 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     }
     try {
       const metadata = await input.stat();
-      if (!metadata.isFile()) throw new SyncError("invalid_path", "Mirror output is not a regular file.");
+      if (!metadata.isFile() || metadata.nlink !== 1) {
+        throw new SyncError("invalid_path", "Mirror output must be one regular, non-hard-linked file.");
+      }
       const hash = createHash("sha256");
       const buffer = new Uint8Array(64 * 1024);
       let size = 0;
@@ -313,6 +334,34 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     } finally {
       await input.close();
     }
+  }
+
+  async readBinary(path: string): Promise<AsyncIterable<Uint8Array> | null> {
+    const target = await this.safePath(path);
+    let input;
+    try {
+      input = await open(target, "r");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    const metadata = await input.stat();
+    if (!metadata.isFile() || metadata.nlink !== 1) {
+      await input.close();
+      throw new SyncError("invalid_path", "Mirror input must be one regular, non-hard-linked file.");
+    }
+    return (async function* (): AsyncGenerator<Uint8Array> {
+      try {
+        const buffer = new Uint8Array(64 * 1024);
+        while (true) {
+          const { bytesRead } = await input.read(buffer, 0, buffer.byteLength);
+          if (bytesRead === 0) return;
+          yield buffer.slice(0, bytesRead);
+        }
+      } finally {
+        await input.close();
+      }
+    })();
   }
 
   async writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void> {
@@ -365,6 +414,11 @@ export class NodeMirrorFileSystem implements MirrorFileSystem {
     }
     return path;
   }
+}
+
+function hiddenOrReservedMirrorEntry(name: string): boolean {
+  return name.startsWith(".")
+    || ["node_modules", "_contracts", "_schemas", "_types", "_views"].includes(name.toLowerCase());
 }
 
 export class NodeMirrorBlobStore implements MirrorBlobStore {

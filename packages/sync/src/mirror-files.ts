@@ -87,6 +87,19 @@ export function fileSelected(
   return policy.file_classes.includes(file.media_class) && pathSelected(policy, file.path);
 }
 
+export function classifyFileMediaClass(path: string): FileMediaClass {
+  const extension = path.includes(".") ? path.slice(path.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)) return "image";
+  if (["flac", "m4a", "mp3", "oga", "ogg", "opus", "wav"].includes(extension)) return "audio";
+  if (["3gp", "mkv", "mov", "mp4", "webm"].includes(extension)) return "video";
+  if (extension === "pdf") return "pdf";
+  return "other";
+}
+
+export function pathFileSelected(policy: SelectiveSyncPolicy, path: string): boolean {
+  return policy.file_classes.includes(classifyFileMediaClass(path)) && pathSelected(policy, path);
+}
+
 export function validateCollectionFileDescriptor(file: CollectionFileDescriptor): void {
   validateVisibleCollectionPath(file.path, false);
   if (
@@ -197,6 +210,30 @@ export async function* verifiedFileBytes(
       "file_integrity_failed",
       `Downloaded bytes for ${file.path} failed integrity verification.`
     );
+  }
+}
+
+export async function* verifiedBinaryBytes(
+  source: AsyncIterable<Uint8Array>,
+  expected: MirrorBinaryInfo,
+  path: string
+): AsyncGenerator<Uint8Array> {
+  const hash = sha256.create();
+  let size = 0;
+  for await (const chunk of source) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new SyncError("file_integrity_failed", `Local bytes for ${path} are invalid.`);
+    }
+    if (chunk.byteLength === 0) continue;
+    size += chunk.byteLength;
+    if (!Number.isSafeInteger(size) || size > expected.size) {
+      throw new SyncError("pending_local_changed", `Local file ${path} changed while being staged.`);
+    }
+    hash.update(chunk);
+    yield chunk;
+  }
+  if (size !== expected.size || `sha256:${bytesToHex(hash.digest())}` !== expected.content_digest) {
+    throw new SyncError("pending_local_changed", `Local file ${path} changed while being staged.`);
   }
 }
 
