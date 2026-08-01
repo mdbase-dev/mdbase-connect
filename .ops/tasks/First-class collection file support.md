@@ -1,11 +1,11 @@
 ---
 title: First-class collection file support
-status: in_progress
+status: done
 priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T16:14:00+10:00
+updated_at: 2026-08-01T19:41:11+10:00
 type: task
 ---
 
@@ -300,8 +300,54 @@ budgets pass.
 
 ## Handoff
 
-Work is active. Direct framed transfer is complete; next route the same control
-and binary frames opaquely through the cloud relay without JSON/base64 payloads.
-Then materialize file manifests and immutable content in mirrors with
-independent selective-sync policy. Follow with move/delete APIs,
-authority-transfer coverage, recovery/fault injection, and desktop settings.
+Implementation is complete on two clean, incremental branches:
+
+- `mdbase-connect` worktree
+  `/home/calluma/projects/mdbase-connect-file-support`, branch
+  `agent/file-support`, head `987ee3e`;
+- `mdbase-cloud-ops` worktree
+  `/home/calluma/projects/mdbase-cloud-ops-file-support`, branch
+  `agent/file-support-infra`, head `11985cd`.
+
+The final architecture has no dedicated attachments root. Visible safe files
+keep collection-relative paths; dot-prefixed and managed paths are always out
+of scope, before optional media-class and folder selection. Applications use
+the storage-neutral `connection.files` facade. Local direct and relay traffic
+uses independently encrypted bounded binary frames. Hosted file identity,
+versions, intent, progress, receipts, changes, quotas, retention, import state,
+and record-held attachment references are transactional Render/PostgreSQL
+data. Actual immutable bytes exist only in Cloudflare R2 under opaque keys.
+
+Hosted single PUT, multipart upload, pinned range download, authority import,
+garbage collection, and authority transfer all use that split. Multipart
+sessions recover ordered R2 part receipts, so a restarted browser, mirror, or
+Rust agent skips already uploaded ranges instead of retransmitting them. R2
+completion is never a collection commit: the provider rechecks state and
+authorization, streams the whole object through exact size and SHA-256
+verification, promotes it to an immutable key, and commits PostgreSQL metadata.
+Abandoned staging and committed import objects are durably queued for
+reference-safe deletion; infrastructure docs prescribe scoped CORS and R2
+lifecycle backstops that never age-delete committed blobs.
+
+Final verification passes:
+
+- `cargo test --workspace` and strict workspace Clippy;
+- the complete `pnpm test` matrix and workspace typechecking under Node 24;
+- architecture, generated-problem, mobile bundle, release-readiness,
+  dependency-audit, package-audit, and package-consumer checks;
+- the dedicated live PostgreSQL + S3-compatible file E2E, including multipart
+  restart, lifecycle replay, exact download, retained-version GC, and SDK use;
+- the provider E2E through both local-authority transfer and portable-authority
+  adoption, including an 8 MiB multipart file, R2 receipt recovery, activation,
+  snapshot verification, and byte-for-byte download.
+
+The provider E2E later fails in its existing portal-browser phase because the
+local `/login` flow redirects to
+`https://editor.mdbase.dev/connect?server=<local>` instead of the local test
+dashboard. The file/import phases complete before that point, and no file
+change touches the login route. Keep this separate from file support when
+triaging.
+
+No Render service was mutated. The branches contain the required environment,
+quota, CORS, lifecycle, and cleanup definitions; deployment should follow the
+normal reviewed infrastructure rollout.
