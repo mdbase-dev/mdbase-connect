@@ -148,7 +148,9 @@ Connect protocol 1 exposes these grantable operations:
 mdbase operations retain the canonical `{ valid, result, diagnostics }`
 envelope. Reads and successful writes carry opaque revisions. Mutations accept
 `if_revision`, which allows clients to prevent lost updates without knowing
-how a provider constructs its revision token.
+how a provider constructs its revision token. The public TypeScript SDK unwraps
+valid envelopes into typed `ConnectOutcome` values and converts invalid
+envelopes into recovery-oriented problems while preserving their diagnostics.
 
 An application manifest may require exact data-contract versions. These
 requirements determine collection compatibility and provisioning. Access is
