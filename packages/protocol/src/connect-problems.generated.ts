@@ -97,7 +97,9 @@ export interface ConnectProblemBase {
 }
 
 export interface ConnectProblemDetailsByCode {
-  "access_denied": undefined;
+  "access_denied": {
+  "return_to"?: string;
+};
   "access_paused": undefined;
   "approval_window_blocked": {
   "user_code": string;
@@ -214,7 +216,7 @@ export interface ConnectProblemByCode {
     code: "access_denied";
     category: "authorization";
     recovery: "reauthorize";
-    details?: never;
+    details?: ConnectProblemDetailsByCode["access_denied"];
   };
   "access_paused": ConnectProblemBase & {
     code: "access_paused";
@@ -706,6 +708,15 @@ type ConnectProblemDetailSchema = {
 };
 
 const CONNECT_PROBLEM_DETAIL_SCHEMAS: Readonly<Record<string, ConnectProblemDetailSchema>> = {
+  "access_denied": {
+    "type": "object",
+    "required": [],
+    "properties": {
+      "return_to": {
+        "type": "string"
+      }
+    }
+  },
   "approval_window_blocked": {
     "type": "object",
     "required": [
@@ -898,9 +909,14 @@ export function isConnectProblem(value: unknown): value is ConnectProblem {
   if (typeof candidate.code !== "string" || !isConnectProblemCode(candidate.code) || candidate.server_code !== undefined) return false;
   const definition = CONNECT_PROBLEM_CATALOG[candidate.code];
   const detailsSchema = CONNECT_PROBLEM_DETAIL_SCHEMAS[candidate.code];
+  const detailsMatch = detailsSchema === undefined
+    ? candidate.details === undefined
+    : candidate.details === undefined
+      ? (detailsSchema.required?.length ?? 0) === 0
+      : matchesDetailSchema(candidate.details, detailsSchema);
   return candidate.category === definition.category
     && candidate.recovery === definition.recovery
-    && (detailsSchema === undefined ? candidate.details === undefined : matchesDetailSchema(candidate.details, detailsSchema));
+    && detailsMatch;
 }
 
 function matchesDetailSchema(value: unknown, schema: ConnectProblemDetailSchema): boolean {
@@ -927,28 +943,29 @@ export function normalizeConnectProblem(
   message: string,
   options: { details?: unknown; operation_outcome?: ConnectOperationOutcome; trace_id?: string } = {}
 ): ConnectProblem {
-  if (!isConnectProblemCode(serverCode)) {
-    return {
+  if (isConnectProblemCode(serverCode)) {
+    const definition = CONNECT_PROBLEM_CATALOG[serverCode];
+    const candidate = {
       problem_version: CONNECT_PROBLEM_VERSION,
-      code: "unknown",
-      server_code: serverCode,
-      category: "unknown",
-      recovery: "none",
+      code: serverCode,
+      category: definition.category,
+      recovery: definition.recovery,
       message,
       ...(options.details === undefined ? {} : { details: options.details }),
       ...(options.operation_outcome === undefined ? {} : { operation_outcome: options.operation_outcome }),
       ...(options.trace_id === undefined ? {} : { trace_id: options.trace_id })
     };
+    if (isConnectProblem(candidate)) return candidate;
   }
-  const definition = CONNECT_PROBLEM_CATALOG[serverCode];
   return {
     problem_version: CONNECT_PROBLEM_VERSION,
-    code: serverCode,
-    category: definition.category,
-    recovery: definition.recovery,
+    code: "unknown",
+    server_code: serverCode,
+    category: "unknown",
+    recovery: "none",
     message,
     ...(options.details === undefined ? {} : { details: options.details }),
     ...(options.operation_outcome === undefined ? {} : { operation_outcome: options.operation_outcome }),
     ...(options.trace_id === undefined ? {} : { trace_id: options.trace_id })
-  } as ConnectProblem;
+  };
 }

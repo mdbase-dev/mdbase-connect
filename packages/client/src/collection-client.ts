@@ -28,16 +28,17 @@ import {
 } from "./errors.js";
 import {
   COLLECTION_CHANGES_PROBLEM_CODES,
+  COLLECTION_DESCRIPTION_PROBLEM_CODES,
   COLLECTION_MUTATION_PROBLEM_CODES,
   COLLECTION_QUERY_PROBLEM_CODES,
   COLLECTION_READ_PROBLEM_CODES,
   COLLECTION_TYPE_PROBLEM_CODES,
   ALL_CONNECT_PROBLEM_CODES,
-  COMMON_OPERATION_PROBLEM_CODES,
   captureConnectOutcome,
   connectFailure,
   connectSuccess,
   type CollectionChangesProblemCode,
+  type CollectionDescriptionProblemCode,
   type CollectionMutationProblemCode,
   type CollectionQueryProblemCode,
   type CollectionReadProblemCode,
@@ -92,8 +93,8 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     );
   }
 
-  describe(): Promise<ConnectOutcome<CollectionDescription, CommonOperationProblemCode>> {
-    return this.rawOperation("describe", {}, COMMON_OPERATION_PROBLEM_CODES);
+  describe(): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
+    return this.rawOperation("describe", {}, COLLECTION_DESCRIPTION_PROBLEM_CODES);
   }
 
   changes(

@@ -71,6 +71,12 @@ pub enum ConnectError {
     CollectionInit(String),
     #[error("Collection failed to open: {0}")]
     CollectionOpen(String),
+    #[error("{message}")]
+    CollectionInvalid {
+        code: String,
+        message: String,
+        diagnostics: Vec<Value>,
+    },
     #[error("Collection identity {collection_id} is already registered at {existing_path}")]
     DuplicateCollectionIdentity {
         collection_id: Uuid,
@@ -131,6 +137,7 @@ impl ConnectError {
             Self::CollectionNotFound(_) => "collection_not_found",
             Self::CollectionInit(_) => "collection_init_failed",
             Self::CollectionOpen(_) => "collection_open_failed",
+            Self::CollectionInvalid { code, .. } => code.as_str(),
             Self::DuplicateCollectionIdentity { .. } => "duplicate_collection_identity",
             Self::MirrorCannotRegister { .. } => "mirror_cannot_register",
             Self::InvalidMirrorMarker(_) => "invalid_mirror_marker",
@@ -155,6 +162,69 @@ impl ConnectError {
             Self::Provider(_) => "collection_provider_failed",
         }
     }
+
+    pub(crate) fn invalid_collection(diagnostics: Vec<mdbase::v03::Diagnostic>) -> Self {
+        let message = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.severity == "error")
+            .or_else(|| diagnostics.first())
+            .map(|diagnostic| diagnostic.message.clone())
+            .unwrap_or_else(|| "The collection is invalid.".to_string());
+        let type_registry_invalid = diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .path
+                .as_deref()
+                .is_some_and(|path| path != "mdbase.yaml")
+                || matches!(
+                    diagnostic.code.as_str(),
+                    "duplicate_type"
+                        | "invalid_contract_definition"
+                        | "invalid_data_contract"
+                        | "invalid_type_definition"
+                        | "invalid_type_path"
+                )
+        });
+        let configuration_invalid = diagnostics.iter().any(|diagnostic| {
+            diagnostic.path.as_deref() == Some("mdbase.yaml")
+                || matches!(
+                    diagnostic.code.as_str(),
+                    "invalid_config"
+                        | "invalid_configuration"
+                        | "missing_config"
+                        | "missing_spec_version"
+                        | "unsupported_version"
+                )
+        });
+        let code = if type_registry_invalid {
+            "collection_type_registry_invalid"
+        } else if configuration_invalid {
+            "collection_configuration_invalid"
+        } else {
+            "collection_invalid"
+        };
+        Self::CollectionInvalid {
+            code: code.to_string(),
+            message,
+            diagnostics: diagnostics
+                .into_iter()
+                .filter_map(|diagnostic| serde_json::to_value(diagnostic).ok())
+                .collect(),
+        }
+    }
+}
+
+fn classify_collection_error(registered: &CollectionSummary, error: ConnectError) -> ConnectError {
+    if matches!(
+        error,
+        ConnectError::Provider(mdbase::runtime::ProviderError::CollectionOpen(_))
+    ) && registered.spec_version.starts_with("0.3")
+    {
+        let report = mdbase::v03::inspect_collection(Path::new(&registered.path));
+        if !report.valid {
+            return ConnectError::invalid_collection(report.diagnostics);
+        }
+    }
+    error
 }
 
 pub fn default_state_dir() -> Result<PathBuf, ConnectError> {

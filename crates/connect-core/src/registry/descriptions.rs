@@ -4,7 +4,9 @@ impl CollectionRegistry {
     pub fn describe(&self, id: Uuid) -> Result<CollectionDescription, ConnectError> {
         let registered = self.get(id)?;
         let provider = self.provider_for(&registered)?;
-        provider.with_collection_read(|collection| self.describe_loaded(&registered, collection))
+        provider
+            .with_collection_read(|collection| self.describe_loaded(&registered, collection))
+            .map_err(|error| classify_collection_error(&registered, error))
     }
 
     pub(super) fn describe_loaded(
@@ -18,12 +20,7 @@ impl CollectionRegistry {
         if collection.spec_profile() == SpecProfile::V03 {
             let report = mdbase::v03::inspect_collection(Path::new(&registered.path));
             if !report.valid {
-                let message = report
-                    .diagnostics
-                    .first()
-                    .map(|diagnostic| diagnostic.message.clone())
-                    .unwrap_or_else(|| "Collection type metadata is invalid".to_string());
-                return Err(ConnectError::CollectionOpen(message));
+                return Err(ConnectError::invalid_collection(report.diagnostics));
             }
             configuration = report.config.as_ref().and_then(portable_configuration);
             for type_file in report.types {

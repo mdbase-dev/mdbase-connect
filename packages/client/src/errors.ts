@@ -133,10 +133,31 @@ export function serverConnectError(
 
 export function operationProblem<Result>(
   envelope: MdbaseOperationEnvelope<Result>
-): KnownConnectProblem<"operation_invalid"> {
+): KnownConnectProblem<
+  | "collection_configuration_invalid"
+  | "collection_invalid"
+  | "collection_type_registry_invalid"
+  | "collection_version_unsupported"
+  | "operation_invalid"
+> {
+  const code = diagnosticProblemCode(envelope.diagnostics);
+  const message = diagnosticMessage(envelope.diagnostics);
+  if (code === "collection_version_unsupported") {
+    const versions = diagnosticVersions(envelope.diagnostics);
+    return connectProblem(code, message, {
+      operationOutcome: "rejected",
+      details: versions
+    });
+  }
+  if (code !== "operation_invalid") {
+    return connectProblem(code, message, {
+      operationOutcome: "rejected",
+      details: { diagnostics: envelope.diagnostics }
+    });
+  }
   return connectProblem(
-    "operation_invalid",
-    diagnosticMessage(envelope.diagnostics),
+    code,
+    message,
     {
       operationOutcome: "rejected",
       details: {
@@ -145,6 +166,54 @@ export function operationProblem<Result>(
       }
     }
   );
+}
+
+function diagnosticProblemCode(diagnostics: MdbaseDiagnostic[]):
+  | "collection_configuration_invalid"
+  | "collection_invalid"
+  | "collection_type_registry_invalid"
+  | "collection_version_unsupported"
+  | "operation_invalid" {
+  const codes = new Set(
+    diagnostics
+      .filter((diagnostic) => diagnostic.severity === "error")
+      .map((diagnostic) => diagnostic.code)
+  );
+  if (["migration_required", "migration_lossy", "unsupported_version"]
+    .some((code) => codes.has(code))) return "collection_version_unsupported";
+  if (["invalid_config", "invalid_configuration", "missing_config", "missing_spec_version"]
+    .some((code) => codes.has(code))) return "collection_configuration_invalid";
+  if ([
+    "duplicate_type",
+    "invalid_contract_definition",
+    "invalid_data_contract",
+    "invalid_type_definition",
+    "invalid_type_path"
+  ].some((code) => codes.has(code))) return "collection_type_registry_invalid";
+  if (["collection_invalid", "collection_open_failed"]
+    .some((code) => codes.has(code))) return "collection_invalid";
+  return "operation_invalid";
+}
+
+function diagnosticVersions(diagnostics: MdbaseDiagnostic[]): {
+  current_version: string;
+  required_version: string;
+} {
+  const source = diagnostics
+    .map((diagnostic) => diagnostic.details)
+    .find((details): details is Record<string, unknown> => isRecord(details));
+  return {
+    current_version: typeof source?.current_version === "string"
+      ? source.current_version
+      : "0.2.x",
+    required_version: typeof source?.required_version === "string"
+      ? source.required_version
+      : "0.3.0"
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** True only when repeating an operation is safe without asking the user. */

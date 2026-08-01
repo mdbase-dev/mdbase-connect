@@ -96,11 +96,11 @@ import {
   connectSuccess,
   type AuthorizationProblemCode,
   type CollectionChangesProblemCode,
+  type CollectionDescriptionProblemCode,
   type CollectionMutationProblemCode,
   type CollectionQueryProblemCode,
   type CollectionReadProblemCode,
   type CollectionTypeProblemCode,
-  type CommonOperationProblemCode,
   type ConnectOutcome,
   type DirectAccessProblemCode,
   type NotificationProblemCode,
@@ -431,7 +431,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     this.transport.notifyStorageChanged();
   }
 
-  describe(): Promise<ConnectOutcome<CollectionDescription, CommonOperationProblemCode>> {
+  describe(): Promise<ConnectOutcome<CollectionDescription, CollectionDescriptionProblemCode>> {
     return this.collectionClient.describe();
   }
 

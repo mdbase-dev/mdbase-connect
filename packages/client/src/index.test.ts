@@ -19,7 +19,11 @@ import type {
   GrantEncryption,
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
-import { AUTHORITY_PROOF_HEADERS, isConnectProblem } from "@mdbase/connect-protocol";
+import {
+  AUTHORITY_PROOF_HEADERS,
+  isConnectProblem,
+  normalizeConnectProblem
+} from "@mdbase/connect-protocol";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -910,6 +914,15 @@ describe("actionable SDK errors", () => {
       message: "Connector offline.",
       operation_outcome: "maybe"
     })).toBe(false);
+    expect(normalizeConnectProblem(
+      "collection_version_unsupported",
+      "Upgrade required."
+    )).toMatchObject({ code: "unknown", server_code: "collection_version_unsupported" });
+    expect(normalizeConnectProblem(
+      "collection_version_unsupported",
+      "Upgrade required.",
+      { details: { current_version: "0.2.0", required_version: "0.3.0" } }
+    )).toMatchObject({ code: "collection_version_unsupported" });
   });
 
   it("normalizes registration network failures at the I/O boundary", async () => {
@@ -1000,13 +1013,78 @@ describe("actionable SDK errors", () => {
     }
   });
 
+  it("distinguishes legacy, invalid configuration, and invalid type-registry setup", async () => {
+    const envelopes = [
+      {
+        valid: false,
+        result: {},
+        diagnostics: [{
+          severity: "error" as const,
+          code: "migration_required",
+          message: "This write requires migrating the v0.2 collection.",
+          details: { current_version: "0.2.0", required_version: "0.3.0" }
+        }]
+      },
+      {
+        valid: false,
+        result: {},
+        diagnostics: [{
+          severity: "error" as const,
+          code: "invalid_config",
+          message: "spec_version must be a string.",
+          path: "mdbase.yaml"
+        }]
+      },
+      {
+        valid: false,
+        result: {},
+        diagnostics: [{
+          severity: "error" as const,
+          code: "invalid_type_definition",
+          message: "Type frontmatter is invalid.",
+          path: "_types/task.md"
+        }]
+      }
+    ];
+    const client = new MdbaseCollectionClient({
+      async operation<Result>() {
+        return envelopes.shift() as Result;
+      }
+    });
+
+    await expect(client.create({ path: "new.md", body: "" })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "collection_version_unsupported",
+        category: "compatibility",
+        recovery: "upgrade_collection",
+        operation_outcome: "rejected",
+        details: { current_version: "0.2.0", required_version: "0.3.0" }
+      }
+    });
+    await expect(client.validate()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "collection_configuration_invalid",
+        recovery: "repair_collection"
+      }
+    });
+    await expect(client.read({ path: "one.md" })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "collection_type_registry_invalid",
+        recovery: "repair_collection"
+      }
+    });
+  });
+
   it("normalizes server failures into transport-independent problems", async () => {
     const fixture = await encryptedConnection();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       error: {
         code: "connector_offline",
         message: "The connector is asleep.",
-        details: { computer: "Studio" }
+        details: { connector_name: "Studio" }
       }
     }), { status: 503, headers: { "content-type": "application/json" } }));
 
@@ -1016,7 +1094,7 @@ describe("actionable SDK errors", () => {
         code: "connector_offline",
         category: "availability",
         recovery: "retry",
-        details: { computer: "Studio" }
+        details: { connector_name: "Studio" }
       }
     });
   });
