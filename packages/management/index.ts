@@ -8,6 +8,59 @@ export interface AccountSession {
   current: boolean;
 }
 
+export interface AccountData {
+  user: { id: string; name: string; email: string | null; login: string | null };
+  authentication: {
+    managed: boolean;
+    current_provider: "google" | "github" | "password" | "tailscale" | "session";
+    available_providers: {
+      github: boolean;
+      google: boolean;
+      password: boolean;
+    };
+    identities: Array<{
+      provider: "github" | "google";
+      subject: string;
+      login: string | null;
+      email: string | null;
+      email_verified: boolean;
+      linked_at: string;
+      current: boolean;
+      removable: boolean;
+    }>;
+    password: {
+      configured: boolean;
+      email: string | null;
+      current: boolean;
+      change_available: boolean;
+    };
+  };
+  storage: {
+    status: "available" | "partial" | "unavailable";
+    total_content_bytes: number | null;
+    total_records: number | null;
+    collections: Array<{
+      id: string;
+      display_name: string;
+      usage: null | {
+        collection_id: string;
+        record_count: number;
+        content_bytes: number;
+        max_records: number;
+        max_content_bytes: number;
+        max_document_bytes: number;
+      };
+    }>;
+  };
+  deletion: {
+    available: boolean;
+    hosted_collections: number;
+    local_collections: number;
+    computers: number;
+    development_confirmation: boolean;
+  };
+}
+
 export interface CollectionContractDescriptor {
   id: string;
   version: string;
@@ -129,6 +182,66 @@ export class ConnectManagementClient {
 
   sessions(signal?: AbortSignal): Promise<{ sessions: AccountSession[] }> {
     return this.request("/v1/account/sessions", { signal });
+  }
+
+  account(signal?: AbortSignal): Promise<AccountData> {
+    return this.request("/v1/account", { signal });
+  }
+
+  githubAccountFlowUrl(purpose: "link" | "reauth_delete"): string {
+    const path = purpose === "link"
+      ? "/v1/account/identities/github/link"
+      : "/v1/account/reauth/github";
+    const url = new URL(path, this.baseUrl);
+    url.searchParams.set("return_to", "/account");
+    return url.href;
+  }
+
+  startGoogleAccountFlow(purpose: "link" | "reauth_delete"): Promise<{
+    client_id: string;
+    nonce: string;
+  }> {
+    const path = purpose === "link"
+      ? "/v1/account/identities/google/link"
+      : "/v1/account/reauth/google";
+    return this.request(`${path}?return_to=${encodeURIComponent("/account")}`);
+  }
+
+  completeGoogleAccountFlow(credential: string): Promise<{ redirect_to: string }> {
+    return this.request("/auth/google/callback", {
+      method: "POST",
+      headers: { "x-mdbase-auth": "google" },
+      body: JSON.stringify({ credential })
+    });
+  }
+
+  disconnectIdentity(provider: "github" | "google"): Promise<void> {
+    return this.request(`/v1/account/identities/${provider}`, { method: "DELETE" });
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    return this.request("/v1/account/password", {
+      method: "PATCH",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword
+      })
+    });
+  }
+
+  deleteAccount(input: {
+    confirmation: string;
+    currentPassword?: string;
+    reauthenticationToken?: string;
+  }): Promise<void> {
+    return this.request("/v1/account", {
+      method: "DELETE",
+      body: JSON.stringify({
+        confirmation: input.confirmation,
+        ...(input.currentPassword ? { current_password: input.currentPassword } : {}),
+        ...(input.reauthenticationToken ? { reauth_token: input.reauthenticationToken } : {})
+      })
+    });
   }
 
   createHostedCollection(displayName: string): Promise<void> {

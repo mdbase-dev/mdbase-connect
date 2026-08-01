@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import type { ManagementOverview } from "@mdbase/connect-management";
+import type { AccountData, ManagementOverview } from "@mdbase/connect-management";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectApp } from "./ConnectApp";
@@ -10,10 +10,13 @@ beforeEach(() => {
   localStorage.clear();
   history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=collection");
   overview = overviewFixture();
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
     if (path === "/v1/account/sessions") {
       return Response.json({ sessions: [] });
+    }
+    if (path === "/v1/account") {
+      return Response.json(init?.method === "DELETE" ? { ok: true } : accountFixture());
     }
     return Response.json(overview);
   }));
@@ -133,6 +136,25 @@ describe("ConnectApp", () => {
     expect(screen.getByText(/Waiting for the hosted authority to confirm revocation/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
+
+  it("keeps hosted storage, sign-in methods, and account deletion in the editor", async () => {
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+
+    await user.click(await screen.findByRole("button", { name: "Open account and sessions" }));
+    expect(await screen.findByRole("heading", { name: "Hosted storage" })).toBeInTheDocument();
+    expect(screen.getByText("4 KB")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument();
+    expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete account…" }));
+    await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
+    await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
+
+    expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
+    expect(location.pathname).toBe("/connect/account-deleted");
+    expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
+  });
 });
 
 function overviewFixture(): ManagementOverview {
@@ -156,5 +178,47 @@ function secondCollection(): ManagementOverview["collections"][number] {
   return {
     id: "collection-two", connector_id: "computer", local_id: "local-two", connector_name: "Home computer",
     display_name: "Research notes", spec_version: "1", enabled: true, contracts: [], last_seen_at: new Date().toISOString()
+  };
+}
+
+function accountFixture(): AccountData {
+  return {
+    user: { id: "person", name: "Example Person", email: "person@example.com", login: null },
+    authentication: {
+      managed: true,
+      current_provider: "password",
+      available_providers: { github: false, google: false, password: true },
+      identities: [],
+      password: {
+        configured: true,
+        email: "person@example.com",
+        current: true,
+        change_available: true
+      }
+    },
+    storage: {
+      status: "available",
+      total_content_bytes: 4_096,
+      total_records: 2,
+      collections: [{
+        id: "hosted",
+        display_name: "Hosted research",
+        usage: {
+          collection_id: "hosted",
+          record_count: 2,
+          content_bytes: 4_096,
+          max_records: 100_000,
+          max_content_bytes: 1_073_741_824,
+          max_document_bytes: 2_097_152
+        }
+      }]
+    },
+    deletion: {
+      available: true,
+      hosted_collections: 1,
+      local_collections: 1,
+      computers: 1,
+      development_confirmation: true
+    }
   };
 }

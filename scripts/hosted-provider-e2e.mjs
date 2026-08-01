@@ -57,6 +57,7 @@ let controlApp;
 let controlDatabase;
 let manifestServer;
 let notificationCallbackServer;
+let editorServer;
 const WORK_ITEM_PROVISION = workItemTypePack({
   packId: "example.work-items",
   name: "Work items",
@@ -764,12 +765,16 @@ try {
   controlDatabase = await createDatabase("memory");
   const controlPort = await availablePort();
   const controlUrl = `http://127.0.0.1:${controlPort}`;
+  const localEditor = await startEditorServer();
+  editorServer = localEditor.server;
   ({ app: controlApp } = await buildApp({
     db: controlDatabase,
     devAuth: true,
     hostedCollections: true,
     hostedProvider: new HostedProviderClient({ url: provider.url, internalToken }),
     publicUrl: controlUrl,
+    editorOrigin: localEditor.origin,
+    managementOrigins: [localEditor.origin],
     portalDist: join(repoRoot, "apps", "portal", "dist"),
     allowInsecureManifests: true
   }));
@@ -2099,6 +2104,7 @@ schema:
     await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   }
   if (manifestServer) await new Promise((resolveClose) => manifestServer.close(resolveClose));
+  if (editorServer) await new Promise((resolveClose) => editorServer.close(resolveClose));
   if (controlApp) await controlApp.close();
   if (controlDatabase) await controlDatabase.end();
   for (const child of [...children]) await stopProvider(child);
@@ -2131,6 +2137,40 @@ schema:
 
 function phase(message) {
   process.stdout.write(`[provider-e2e] ${message}\n`);
+}
+
+async function startEditorServer() {
+  const root = join(repoRoot, "apps", "editor", "dist");
+  const server = createServer(async (request, response) => {
+    try {
+      const pathname = new URL(request.url ?? "/", "http://editor.test").pathname;
+      const asset = pathname.startsWith("/assets/") ? pathname.slice(1) : "index.html";
+      if (!/^(?:index\.html|assets\/[A-Za-z0-9_.-]+)$/u.test(asset)) {
+        response.writeHead(404).end();
+        return;
+      }
+      const contentType = asset.endsWith(".js")
+        ? "text/javascript"
+        : asset.endsWith(".css")
+          ? "text/css"
+          : asset.endsWith(".woff2")
+            ? "font/woff2"
+            : asset.endsWith(".woff")
+              ? "font/woff"
+              : "text/html";
+      response.setHeader("content-type", contentType);
+      response.end(await readFile(join(root, asset)));
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Editor server is unavailable");
+  return { server, origin: `http://127.0.0.1:${address.port}` };
 }
 
 async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory) {
@@ -2338,39 +2378,32 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     const page = await browser.newPage();
     await page.goto(`${controlUrl}/login`);
     await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("heading", { name: "Your connections." })).toBeVisible();
-    await page
-      .getByRole("navigation", { name: "mdbase connect navigation" })
-      .getByRole("link", { name: /^Hosted collections/ })
-      .click();
-    await expect(page.getByRole("heading", { name: "Collections hosted by mdbase." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Create hosted collection" }).click();
-    await expect(page.getByText(/Starts as a clean mdbase collection/)).toBeVisible();
-    await expect(page.getByText(/application-specific template/i)).toHaveCount(0);
+    await page.getByRole("button", { name: "New hosted collection" }).click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
-    await page.getByRole("button", { name: "Create collection" }).click();
-    const row = page.locator("article.hosted-row").filter({ hasText: "Browser E2E collection" });
-    await expect(row).toBeVisible();
-    await expect(row).toContainText("Main copy hosted by mdbase");
-
-    const dashboard = await page.evaluate(async () => {
-      const response = await fetch("/v1/me");
-      return response.json();
+    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await page.getByRole("button", { name: "All collections" }).click();
+    const row = page.locator(".connect-collection-row").filter({
+      hasText: "Browser E2E collection"
     });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText("Hosted by mdbase");
+
+    const dashboard = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/me`, { credentials: "include" });
+      return response.json();
+    }, controlUrl);
     const collectionId = dashboard.hosted_collections.find(
       (collection) => collection.display_name === "Browser E2E collection"
     ).id;
-    await expect(row.getByRole("link", { name: "Open in editor" }))
-      .toHaveAttribute(
-        "href",
-        `https://editor.mdbase.dev/?collection=${collectionId}`
-      );
-    await row.getByRole("button", { name: "Sync a folder" }).click();
-    await expect(row.getByRole("link", { name: "Open mdbase connect" }))
+    const editorUrl = new URL("/", page.url());
+    editorUrl.searchParams.set("collection", collectionId);
+    editorUrl.searchParams.set("server", controlUrl);
+    await expect(row.getByRole("link", { name: "Open", exact: true }))
+      .toHaveAttribute("href", editorUrl.href);
+    await expect(row.getByRole("link", { name: "Sync folder" }))
       .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
-    await expect(row).toContainText("Choose the folder in mdbase connect");
-    await expect(row).not.toContainText("mdbase-mirror connect");
 
     const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
     connector = spawn(process.execPath, [
@@ -2419,51 +2452,55 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     );
     assert.equal(browserStatus.state, "up_to_date");
 
-    await page.goto(`${controlUrl}/hosted-collections`);
-    const connectedRow = page.locator("article.hosted-row").filter({
+    await page.goto(controlUrl);
+    await page.getByRole("button", { name: "All collections" }).click();
+    const connectedRow = page.locator(".connect-collection-row").filter({
       hasText: "Browser E2E collection"
     });
-    await connectedRow.getByText("Manage synced folders").click();
+    await connectedRow.getByText("Synced folders", { exact: true }).click();
     await expect(connectedRow).toContainText("Browser writable mirror");
-    await expect(connectedRow).toContainText("Edits sync both ways · up to date");
-    page.once("dialog", (dialog) => dialog.accept());
+    await expect(connectedRow).toContainText("Two-way sync");
+    await page.evaluate(() => {
+      window.confirm = () => true;
+      window.prompt = () => "Browser renamed collection";
+    });
     await connectedRow.getByRole("button", { name: "Revoke" }).click();
-    await expect(connectedRow).not.toContainText(
-      "Browser writable mirror",
-      { timeout: 20_000 }
-    );
+    await expect(connectedRow.getByText("Browser writable mirror")).toHaveCount(0, {
+      timeout: 20_000
+    });
 
     await connectedRow.getByRole("button", { name: "Rename" }).click();
-    await connectedRow.getByLabel("Collection name").fill("Browser renamed collection");
-    await connectedRow.getByRole("button", { name: "Save" }).click();
-    const renamedRow = page.locator("article.hosted-row").filter({ hasText: "Browser renamed collection" });
-    await expect(renamedRow).toBeVisible();
-    page.once("dialog", (dialog) => dialog.accept());
+    const renamedRow = page.locator(".connect-collection-row").filter({
+      hasText: "Browser renamed collection"
+    });
+    await expect(renamedRow).toBeVisible({ timeout: 20_000 });
     await renamedRow.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0, {
+      timeout: 20_000
+    });
 
-    await page.getByRole("button", { name: "Create hosted collection" }).click();
+    await page.getByRole("button", { name: "New hosted collection" }).click();
     await page.getByLabel("Collection name").fill("Account deletion collection");
-    await page.getByRole("button", { name: "Create collection" }).click();
-    const deletionCollection = page.locator("article.hosted-row").filter({
+    await page.getByRole("button", { name: "Create", exact: true }).click();
+    const deletionCollection = page.locator(".connect-collection-row").filter({
       hasText: "Account deletion collection"
     });
     await expect(deletionCollection).toBeVisible();
-    const deletionDashboard = await page.evaluate(async () => {
-      const response = await fetch("/v1/me");
+    const deletionDashboard = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/me`, { credentials: "include" });
       return response.json();
-    });
+    }, controlUrl);
     const deletionCollectionId = deletionDashboard.hosted_collections.find(
       (collection) => collection.display_name === "Account deletion collection"
     ).id;
 
-    await page.goto(`${controlUrl}/account`);
-    await expect(page.getByRole("heading", { name: "Account and storage." })).toBeVisible();
+    await page.getByRole("button", { name: "Account & sessions" }).click();
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
     await expect(page.getByText("Account deletion collection", { exact: true })).toBeVisible();
-    const account = await page.evaluate(async () => {
-      const response = await fetch("/v1/account");
+    const account = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/account`, { credentials: "include" });
       return response.json();
-    });
+    }, controlUrl);
     const accountCollection = account.storage.collections.find(
       (collection) => collection.id === deletionCollectionId
     );
@@ -2478,7 +2515,7 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     )).toBeVisible();
     await page.getByLabel("Type DELETE to confirm").fill("DELETE");
     await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(`${controlUrl}/account-deleted`);
+    await expect(page).toHaveURL(/\/connect\/account-deleted$/);
     await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
       .toBeVisible();
     assert.equal(

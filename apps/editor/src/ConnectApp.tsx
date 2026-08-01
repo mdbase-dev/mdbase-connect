@@ -1,7 +1,6 @@
 import {
   ConnectManagementClient,
   ManagementApiError,
-  type AccountSession,
   type HostedCollection,
   type ManagementOverview
 } from "@mdbase/connect-management";
@@ -11,11 +10,11 @@ import {
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import { MdbaseMark } from "./Brand";
 import { EditorRail } from "./EditorRail";
 import {
   BracketsCurlyIcon as Braces,
-  CheckIcon as Check,
   GearSixIcon as Settings,
   InfoIcon as Info,
   NotebookIcon as Notebook,
@@ -42,13 +41,15 @@ const allOperations = [
 ];
 
 export function ConnectApp() {
+  const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/connect/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
   const [data, setData] = useState<ManagementOverview>();
-  const [sessions, setSessions] = useState<AccountSession[]>();
+  const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    if (accountDeleted) return;
     try {
       const next = await management.overview(signal);
       setData(next);
@@ -65,7 +66,7 @@ export function ConnectApp() {
       }
       setError(errorMessage(reason));
     }
-  }, []);
+  }, [accountDeleted]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -135,6 +136,7 @@ export function ConnectApp() {
     }
   }, [data, requestedCollectionId, selectedCollectionId, view]);
 
+  if (accountDeleted) return <DeletedAccount client={management} />;
   if (!data) return <ConnectLoading error={error} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
@@ -193,7 +195,7 @@ export function ConnectApp() {
       {activeView === "collections" && <Collections data={data} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
-      {activeView === "account" && <Account data={data} sessions={sessions} busy={busy} perform={perform} />}
+      {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
     </main>
   </div>;
 }
@@ -433,34 +435,6 @@ function Computers({ data, busy, perform }: {
   </Page>;
 }
 
-function Account({ data, sessions, busy, perform }: {
-  data: ManagementOverview;
-  sessions?: AccountSession[];
-  busy: string;
-  perform(id: string, action: () => Promise<void>): Promise<void>;
-}) {
-  const otherSessions = sessions?.filter((session) => !session.current) ?? [];
-  return <Page title="Account" intro="Authentication belongs to Connect. Collection access remains separately granted to the editor.">
-    <section>
-      <SectionTitle title="Identity" />
-      <dl className="connect-account-details"><div><dt>Name</dt><dd>{data.user.name}</dd></div><div><dt>Identity</dt><dd>{identityLabel(data.user)}</dd></div><div><dt>Authentication</dt><dd>{authenticationLabel(data.authentication.provider)}</dd></div><div><dt>Registration</dt><dd>{registrationLabel(data.authentication.registration)}</dd></div></dl>
-    </section>
-    {data.authentication.provider !== "tailscale" && <section>
-      <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy === "sessions-others"} onClick={() => void perform("sessions-others", () => management.revokeOtherSessions())}>Sign out other sessions</button>} />
-      {!sessions && <p className="connect-muted">Checking active sessions…</p>}
-      {sessions?.map((session) => <div className="connect-row" key={session.id}>
-        <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small></div>
-        <span>{session.provider}</span>
-        {session.current ? <span className="connect-current"><Check aria-hidden="true" />Current</span> : <button className="danger" disabled={busy === `session-${session.id}`} onClick={() => void perform(`session-${session.id}`, () => management.revokeSession(session.id))}>Sign out</button>}
-      </div>)}
-      <button className="connect-sign-out" onClick={() => void perform("logout", async () => {
-        await management.logout();
-        location.href = new URL("/login", management.baseUrl).href;
-      })}>Sign out of this browser</button>
-    </section>}
-  </Page>;
-}
-
 interface CollectionRowBase {
   id: string;
   name: string;
@@ -611,20 +585,6 @@ function identityLabel(user: ManagementOverview["user"]): string {
 
 function host(value: string): string {
   try { return new URL(value).host; } catch { return value; }
-}
-
-function authenticationLabel(provider: ManagementOverview["authentication"]["provider"]): string {
-  if (provider === "google") return "Google";
-  if (provider === "github") return "GitHub";
-  if (provider === "tailscale") return "Tailscale identity";
-  if (provider === "password") return "Email and password";
-  return "Development session";
-}
-
-function registrationLabel(registration: ManagementOverview["authentication"]["registration"]): string {
-  if (registration === "open") return "Open";
-  if (registration === "invite") return "Invitation only";
-  return "Closed";
 }
 
 function relativeTime(value: string): string {

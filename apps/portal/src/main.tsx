@@ -45,10 +45,23 @@ function EditorRedirect() {
   React.useEffect(() => {
     void fetch("/v1/ui-configuration")
       .then(async (response) => response.ok ? await response.json() as { editor_url?: string | null } : {})
-      .then((configuration) => location.replace(configuration.editor_url ?? editorConnectUrl()))
+      .then((configuration) => location.replace(editorRedirectTarget(configuration.editor_url ?? editorConnectUrl())))
       .catch(() => location.replace(editorConnectUrl()));
   }, []);
   return <main className="portal-redirect" aria-live="polite">Opening mdbase Connect in the editor…</main>;
+}
+
+export function editorRedirectTarget(configuredTarget: string): string {
+  const target = new URL(configuredTarget, location.origin);
+  if (location.pathname !== "/account") return target.href;
+  target.pathname = "/connect/account";
+  const linked = new URLSearchParams(location.search).get("linked");
+  if (linked === "github" || linked === "google") target.searchParams.set("linked", linked);
+  const deletionToken = new URLSearchParams(location.hash.slice(1)).get("delete_token");
+  if (deletionToken && /^act_[A-Za-z0-9_-]+$/.test(deletionToken)) {
+    target.hash = `delete_token=${encodeURIComponent(deletionToken)}`;
+  }
+  return target.href;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><Portal /></React.StrictMode>);

@@ -250,6 +250,14 @@
   font-size: 9px;
 }
 
+.connect-section-title > p {
+  flex: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+
 .connect-section-title button,
 .connect-row-actions button,
 .connect-row-actions a,
@@ -580,6 +588,215 @@ button.danger:disabled {
   color: var(--danger);
 }
 
+.connect-account-message {
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  font-size: 0.8rem;
+}
+
+.connect-account-message.error {
+  border-color: var(--color-warning-border);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.connect-account-message.success {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.connect-account-list {
+  border-top: 1px solid var(--line);
+}
+
+.connect-account-row {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-account-row > div:first-child,
+.connect-account-row-main > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.connect-account-row strong { font-size: 12px; }
+.connect-account-row small { color: var(--muted); font-size: 10px; }
+.connect-account-row > span { color: var(--muted); font-size: 11px; text-align: right; }
+
+.connect-account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.connect-account-action,
+.connect-account-danger {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--accent-strong);
+  background: var(--white);
+  text-decoration: none;
+  font-size: 0.78rem;
+}
+
+.connect-account-action:hover { background: var(--hover); }
+.connect-account-danger { margin-top: 18px; color: var(--danger); }
+.connect-account-danger:disabled,
+.connect-account-action:disabled { opacity: 0.45; }
+
+.connect-account-row-stack {
+  display: block;
+  padding: 0;
+}
+
+.connect-account-row-main {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 13px 4px;
+}
+
+.connect-account-form {
+  max-width: 560px;
+  display: grid;
+  gap: 14px;
+  padding: 4px 4px 22px;
+}
+
+.connect-account-form label,
+.connect-account-reauthentication label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.connect-account-form input,
+.connect-account-reauthentication input {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--white);
+  font: inherit;
+  font-weight: 400;
+}
+
+.connect-storage-row {
+  grid-template-columns: minmax(190px, 1fr) minmax(112px, 190px);
+}
+
+.connect-storage-progress {
+  height: 4px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.connect-storage-progress span {
+  height: 100%;
+  min-width: 1px;
+  display: block;
+  background: var(--accent);
+}
+
+.connect-danger-section {
+  padding-top: 4px;
+}
+
+.connect-danger-section .connect-section-title {
+  border-bottom-color: color-mix(in oklch, var(--danger) 35%, var(--line));
+}
+
+.connect-deletion-effects {
+  padding: 14px;
+  border: 1px solid color-mix(in oklch, var(--danger) 28%, var(--line));
+  border-radius: 5px;
+  background: var(--danger-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.connect-deletion-effects p { margin: 0; }
+.connect-deletion-effects ul { margin: 8px 0; padding-left: 20px; }
+
+.connect-account-reauthentication {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.connect-google-provider {
+  position: relative;
+  width: min(100%, 400px);
+  min-height: 40px;
+}
+
+.connect-google-provider.busy { opacity: 0.55; pointer-events: none; }
+.connect-google-button,
+.connect-google-button > div { width: 100%; min-height: 40px; }
+
+.connect-provider-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--muted);
+  background: var(--white);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+}
+
+.connect-deleted-account {
+  width: 100%;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--canvas);
+}
+
+.connect-deleted-account > div {
+  width: min(520px, 100%);
+  padding: 42px;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+
+.connect-deleted-account p {
+  margin: 0 0 10px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.connect-deleted-account h1 { margin: 0; font-size: 27px; }
+.connect-deleted-account span { display: block; margin: 14px 0 26px; color: var(--muted); line-height: 1.5; }
+
 .connect-empty {
   min-height: 120px;
   display: flex;
@@ -835,6 +1052,20 @@ button.danger:disabled {
     align-content: center;
     gap: 2px;
   }
+
+  .connect-section-title > p {
+    flex-basis: 100%;
+    text-align: left;
+  }
+
+  .connect-account-row,
+  .connect-storage-row,
+  .connect-account-row-main {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .connect-account-actions { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
