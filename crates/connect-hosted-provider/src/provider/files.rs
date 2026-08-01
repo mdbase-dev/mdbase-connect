@@ -196,6 +196,7 @@ fn download_session(transfer: &HostedDownloadTransfer, part_size: u64) -> FileTr
         total_size: transfer.size,
         expires_at: transfer.expires_at.to_rfc3339(),
         received: Vec::new(),
+        uploaded_parts: Vec::new(),
     }
 }
 

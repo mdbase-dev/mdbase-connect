@@ -150,7 +150,11 @@ test("file transfer control messages are bounded and resumable", () => {
   assert.equal(validateSession({
     ...session,
     protection: "transport_tls",
-    strategy: { kind: "object_multipart", part_size: 8388608 }
+    strategy: { kind: "object_multipart", part_size: 8388608 },
+    uploaded_parts: [
+      { part_number: 1, etag: "\"opaque-r2-etag-1\"" },
+      { part_number: 3, etag: "\"opaque-r2-etag-3\"" }
+    ]
   }), true, JSON.stringify(validateSession.errors));
   assert.equal(validateSession({
     ...session,

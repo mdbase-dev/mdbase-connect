@@ -163,6 +163,8 @@ export interface FileTransferSession {
   total_size: number;
   expires_at: string;
   received: number[];
+  /** R2/S3 part receipts for bandwidth-efficient multipart resume. */
+  uploaded_parts?: UploadedFilePart[];
 }
 
 export interface FileTransferStatus {

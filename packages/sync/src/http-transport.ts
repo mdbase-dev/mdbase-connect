@@ -167,23 +167,33 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
       session.received.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= count)
       || new Set(session.received).size !== session.received.length
     ) throw new SyncError("invalid_sync_response", "Authority returned invalid upload progress.");
+    const uploadedParts = session.uploaded_parts ?? [];
+    if (
+      !Array.isArray(uploadedParts)
+      || uploadedParts.some((part, index) =>
+        !Number.isSafeInteger(part?.part_number)
+        || part.part_number < 1
+        || part.part_number > count
+        || typeof part.etag !== "string"
+        || part.etag.length === 0
+        || part.etag.length > 255
+        || (index > 0 && uploadedParts[index - 1]!.part_number >= part.part_number))
+      || (session.strategy.kind === "object_multipart"
+        ? uploadedParts.length !== session.received.length
+          || uploadedParts.some((part, index) => part.part_number - 1 !== session.received[index])
+        : uploadedParts.length !== 0)
+    ) throw new SyncError("invalid_sync_response", "Authority returned invalid uploaded part receipts.");
     if (session.received.length === count) {
-      try {
-        return await this.commitUpload(request.transfer_id, []);
-      } catch (error) {
-        // A complete object PUT needs no ETags and should have committed. For
-        // multipart, all R2 parts may exist while this process does not know
-        // their ETags; upload them again below to recover a complete manifest.
-        if (!(error instanceof SyncError)
-          || error.code !== "file_upload_incomplete"
-          || session.strategy.kind !== "object_multipart") throw error;
-      }
+      return this.commitUpload(request.transfer_id, uploadedParts);
     }
-    const parts: UploadedFilePart[] = [];
+    const received = new Set(session.received);
+    const parts: Array<UploadedFilePart | undefined> = Array(count);
+    for (const part of uploadedParts) parts[part.part_number - 1] = part;
     for (let index = 0; index < count; index += 1) {
       const offset = index * partSize;
       const length = Math.min(partSize, Math.max(0, request.size - offset));
       const bytes = await reader.read(length);
+      if (received.has(index)) continue;
       const prepared = await this.fileRequest<PreparedFilePart>(
         "POST",
         `uploads/${encodeURIComponent(request.transfer_id)}/parts`,
@@ -208,11 +218,14 @@ export class HttpSyncTransport<Frontmatter extends JsonObject = JsonObject> impl
       if (session.strategy.kind === "object_multipart") {
         const etag = response.headers.get("etag");
         if (!etag) throw new SyncError("invalid_sync_response", "Object storage omitted a multipart ETag.");
-        parts.push({ part_number: index + 1, etag });
+        parts[index] = { part_number: index + 1, etag };
       }
     }
     await reader.expectEnd();
-    return this.commitUpload(request.transfer_id, parts);
+    return this.commitUpload(
+      request.transfer_id,
+      parts.filter((part): part is UploadedFilePart => part !== undefined)
+    );
   }
   private async commitUpload(
     transferId: string,

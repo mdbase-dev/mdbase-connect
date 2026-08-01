@@ -258,6 +258,7 @@ pub(super) fn download_session(transfer: &DownloadTransfer) -> FileTransferSessi
             .expires_at
             .to_rfc3339_opts(SecondsFormat::Millis, true),
         received: Vec::new(),
+        uploaded_parts: Vec::new(),
     }
 }
 

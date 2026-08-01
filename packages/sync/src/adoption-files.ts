@@ -89,16 +89,32 @@ export async function uploadAuthorityImportFile(
   if (partCount > MAX_FILE_PARTS) {
     throw invalidResponse("Authority import returned too many file parts.");
   }
+  const received = new Set(session.received);
+  const uploadedParts = new Map(
+    (session.uploaded_parts ?? []).map((part) => [part.part_number - 1, part])
+  );
   if (session.received.length === partCount) {
-    const committed = await tryCommit(request, capability, file, transferId, [], options.signal);
+    const committed = await tryCommit(
+      request,
+      capability,
+      file,
+      transferId,
+      [...uploadedParts.values()],
+      options.signal
+    );
     if (committed) return;
   }
-  const parts: UploadedFilePart[] = [];
-  let transferredBytes = 0;
+  const parts: Array<UploadedFilePart | undefined> = Array(partCount);
+  for (const [partIndex, part] of uploadedParts) parts[partIndex] = part;
+  let transferredBytes = [...received].reduce(
+    (total, index) => total + Math.min(partSize, Math.max(0, file.size - index * partSize)),
+    0
+  );
   for (let partIndex = 0; partIndex < partCount; partIndex += 1) {
     throwIfAborted(options.signal);
     const offset = partIndex * partSize;
     const contentLength = Math.min(partSize, Math.max(0, file.size - offset));
+    if (received.has(partIndex)) continue;
     const prepared = await importJson<PreparedFilePart>(
       request,
       `${capability.files_url}/uploads/${encodeURIComponent(transferId)}/parts`,
@@ -122,12 +138,13 @@ export async function uploadAuthorityImportFile(
     if (session.strategy.kind === "object_multipart") {
       const etag = response.headers?.etag;
       if (!etag) throw invalidResponse("Object storage omitted a multipart ETag.");
-      parts.push({ part_number: partIndex + 1, etag });
+      parts[partIndex] = { part_number: partIndex + 1, etag };
     }
     transferredBytes += contentLength;
     options.onFileProgress?.({ file, transferredBytes, totalBytes: file.size });
   }
-  if (!await tryCommit(request, capability, file, transferId, parts, options.signal)) {
+  const completionParts = parts.filter((part): part is UploadedFilePart => part !== undefined);
+  if (!await tryCommit(request, capability, file, transferId, completionParts, options.signal)) {
     throw new AuthorityAdoptionError(
       "authority_adoption_file_upload_incomplete",
       `Connect could not commit ${file.path}.`
@@ -306,6 +323,22 @@ function validateSession(session: FileTransferSession, transferId: string, size:
     new Set(session.received).size !== session.received.length
     || session.received.some((part) => !Number.isSafeInteger(part) || part < 0 || part >= partCount)
   ) throw invalidResponse("Connect returned invalid authority import file progress.");
+  const uploadedParts = session.uploaded_parts ?? [];
+  if (
+    !Array.isArray(uploadedParts)
+    || uploadedParts.some((part, index) =>
+      !Number.isSafeInteger(part?.part_number)
+      || part.part_number < 1
+      || part.part_number > partCount
+      || typeof part.etag !== "string"
+      || part.etag.length === 0
+      || part.etag.length > 255
+      || (index > 0 && uploadedParts[index - 1]!.part_number >= part.part_number))
+    || (strategy.kind === "object_multipart"
+      ? uploadedParts.length !== session.received.length
+        || uploadedParts.some((part, index) => part.part_number - 1 !== session.received[index])
+      : uploadedParts.length !== 0)
+  ) throw invalidResponse("Connect returned invalid authority import part receipts.");
 }
 
 function validatePreparedPart(

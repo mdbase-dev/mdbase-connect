@@ -207,7 +207,24 @@ async function upload(url, collectionId, token, path, bytes) {
     });
     const response = await fetch(prepared.url, { method: prepared.method, headers: prepared.headers, body: chunk });
     assert.ok(response.ok, await response.text());
-    if (open.strategy.kind === "object_multipart") parts.push({ part_number: number, etag: response.headers.get("etag") });
+    if (open.strategy.kind === "object_multipart") {
+      if (number === 1) {
+        const resumed = await json(
+          url,
+          `/v1/authorities/${collectionId}/files/uploads`,
+          token,
+          body
+        );
+        assert.deepEqual(resumed.received, [0]);
+        assert.deepEqual(resumed.uploaded_parts, [{
+          part_number: 1,
+          etag: response.headers.get("etag")
+        }]);
+        parts.push(...resumed.uploaded_parts);
+      } else {
+        parts.push({ part_number: number, etag: response.headers.get("etag") });
+      }
+    }
     if (bytes.length === 0) break;
   }
   const receipt = await json(url, `/v1/authorities/${collectionId}/files/uploads/${transferId}/commit`, token,

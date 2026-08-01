@@ -3262,7 +3262,29 @@ async function uploadAuthorityImportFiles(capability, files) {
       assert.equal(uploaded.status, 200);
       if (opened.body.strategy.kind === "object_multipart") {
         assert.ok(uploaded.headers.get("etag"));
-        parts.push({ part_number: index + 1, etag: uploaded.headers.get("etag") });
+        if (index === 0) {
+          // Simulate a process restart: discard the browser-observed ETag and
+          // recover the durable multipart receipt from R2 through the session.
+          const resumed = await absoluteRequest(`${capability.files_url}/uploads`, {
+            method: "POST",
+            token: capability.access_token,
+            body: {
+              protocol_version: 1,
+              type: "open_authority_import_file_upload",
+              transfer_id: transferId,
+              file_id: descriptor.file_id
+            }
+          });
+          assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+          assert.deepEqual(resumed.body.received, [0]);
+          assert.deepEqual(resumed.body.uploaded_parts, [{
+            part_number: 1,
+            etag: uploaded.headers.get("etag")
+          }]);
+          parts.push(...resumed.body.uploaded_parts);
+        } else {
+          parts.push({ part_number: index + 1, etag: uploaded.headers.get("etag") });
+        }
       }
     }
     const commitBody = {

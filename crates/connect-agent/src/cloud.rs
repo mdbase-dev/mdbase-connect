@@ -281,9 +281,38 @@ impl CloudControlClient {
             .iter()
             .copied()
             .collect::<std::collections::BTreeSet<_>>();
+        let uploaded_parts = session
+            .uploaded_parts
+            .iter()
+            .map(|part| {
+                if part.part_number == 0 || part.etag.is_empty() || part.etag.len() > 255 {
+                    return Err(ConnectError::Cloud(
+                        "Hosted import returned invalid file upload progress.".to_string(),
+                    ));
+                }
+                Ok((u64::from(part.part_number - 1), part.clone()))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
         if received.len() != session.received.len()
             || received.iter().any(|index| *index >= part_count)
             || part_count > u64::from(u16::MAX)
+            || session
+                .uploaded_parts
+                .windows(2)
+                .any(|parts| parts[0].part_number >= parts[1].part_number)
+            || (matches!(
+                session.strategy,
+                FileTransferStrategy::ObjectMultipart { .. }
+            ) && (uploaded_parts.len() != received.len()
+                || uploaded_parts
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    != received))
+            || (!matches!(
+                session.strategy,
+                FileTransferStrategy::ObjectMultipart { .. }
+            ) && !uploaded_parts.is_empty())
         {
             return Err(ConnectError::Cloud(
                 "Hosted import returned invalid file upload progress.".to_string(),
@@ -291,7 +320,11 @@ impl CloudControlClient {
         }
         if session.received.len() as u64 == part_count {
             let replay = self
-                .commit_authority_file(capability, transfer_id, Vec::new())
+                .commit_authority_file(
+                    capability,
+                    transfer_id,
+                    uploaded_parts.values().cloned().collect(),
+                )
                 .await;
             match replay {
                 Ok(receipt) => {
@@ -318,12 +351,15 @@ impl CloudControlClient {
                 file.path
             ))
         })?;
-        let mut parts = Vec::new();
+        let mut parts = uploaded_parts;
         for index in 0..part_count {
             let offset = index
                 .checked_mul(part_size)
                 .ok_or_else(|| ConnectError::Cloud("File upload offset overflowed.".to_string()))?;
             let length = file.size.saturating_sub(offset).min(part_size);
+            if received.contains(&index) {
+                continue;
+            }
             source.seek(std::io::SeekFrom::Start(offset)).await?;
             let mut bytes = vec![
                 0_u8;
@@ -383,14 +419,17 @@ impl CloudControlClient {
                     .ok_or_else(|| {
                         ConnectError::Cloud("R2 multipart upload omitted an ETag.".to_string())
                     })?;
-                parts.push(UploadedFilePart {
-                    part_number: u16::try_from(index + 1).unwrap(),
-                    etag: etag.to_string(),
-                });
+                parts.insert(
+                    index,
+                    UploadedFilePart {
+                        part_number: u16::try_from(index + 1).unwrap(),
+                        etag: etag.to_string(),
+                    },
+                );
             }
         }
         let receipt = self
-            .commit_authority_file(capability, transfer_id, parts)
+            .commit_authority_file(capability, transfer_id, parts.into_values().collect())
             .await?;
         if receipt.transfer_id != transfer_id || receipt.file != *file {
             return Err(ConnectError::Cloud(

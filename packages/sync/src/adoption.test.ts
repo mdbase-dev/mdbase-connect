@@ -153,7 +153,7 @@ describe("AuthorityAdoptionClient", () => {
     expect(error.sourceMustRemainFenced).toBe(true);
   });
 
-  it("uploads portable file bytes directly to a presigned object URL", async () => {
+  it("resumes portable multipart files directly through presigned R2 parts", async () => {
     const content = new TextEncoder().encode("binary payload");
     const file = {
       file_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -177,6 +177,7 @@ describe("AuthorityAdoptionClient", () => {
       files: [file]
     });
     const requests: AuthorityAdoptionRequest[] = [];
+    const uploadedPartIndexes: number[] = [];
     const client = new AuthorityAdoptionClient({
       now: () => now,
       request: async (request) => {
@@ -190,37 +191,50 @@ describe("AuthorityAdoptionClient", () => {
             transfer_id: (request.body as { transfer_id: string }).transfer_id,
             direction: "upload",
             protection: "transport_tls",
-            strategy: { kind: "object_put" },
+            strategy: { kind: "object_multipart", part_size: 5 },
             total_size: content.byteLength,
             expires_at: "2026-07-27T00:30:00Z",
-            received: []
+            received: [1],
+            uploaded_parts: [{ part_number: 2, etag: "etag-existing" }]
           }
         };
         if (pathname.endsWith("/parts")) {
-          const body = request.body as { transfer_id: string };
+          const body = request.body as { transfer_id: string; part_number: number };
+          const partIndex = body.part_number - 1;
+          const offset = partIndex * 5;
+          const contentLength = Math.min(5, content.byteLength - offset);
           return {
             status: 200,
             body: {
               protocol_version: 1,
               type: "file_part",
               transfer_id: body.transfer_id,
-              part_index: 0,
-              offset: 0,
-              content_length: content.byteLength,
+              part_index: partIndex,
+              offset,
+              content_length: contentLength,
               method: "PUT",
-              url: "https://r2.example/upload?signature=secret",
+              url: `https://r2.example/upload?part=${partIndex}&signature=secret`,
               headers: { "content-type": "application/octet-stream" },
               expires_at: "2026-07-27T00:10:00Z"
             }
           };
         }
         if (request.url.startsWith("https://r2.example/")) {
+          const partIndex = Number(new URL(request.url).searchParams.get("part"));
+          uploadedPartIndexes.push(partIndex);
           expect(request.rawBody).toBe(true);
           expect(request.headers?.authorization).toBeUndefined();
-          expect(new Uint8Array(await (request.body as Blob).arrayBuffer())).toEqual(content);
-          return { status: 200, body: {}, headers: { etag: "ignored-for-put" } };
+          expect(new Uint8Array(await (request.body as Blob).arrayBuffer())).toEqual(
+            content.slice(partIndex * 5, partIndex * 5 + 5)
+          );
+          return { status: 200, body: {}, headers: { etag: `etag-${partIndex}` } };
         }
         if (pathname.endsWith("/commit")) {
+          expect((request.body as { parts: unknown[] }).parts).toEqual([
+            { part_number: 1, etag: "etag-0" },
+            { part_number: 2, etag: "etag-existing" },
+            { part_number: 3, etag: "etag-2" }
+          ]);
           return {
             status: 200,
             body: {
@@ -243,6 +257,7 @@ describe("AuthorityAdoptionClient", () => {
       files: [file]
     });
     expect(requests.map((request) => new URL(request.url).hostname)).toContain("r2.example");
+    expect(uploadedPartIndexes).toEqual([0, 2]);
   });
 
   it("rejects an import capability redirected away from the provider endpoint", async () => {

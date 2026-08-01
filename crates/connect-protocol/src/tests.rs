@@ -254,6 +254,7 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         total_size: 3_145_729,
         expires_at: "2026-08-01T02:13:04Z".to_string(),
         received: vec![0, 2],
+        uploaded_parts: Vec::new(),
     };
     assert_file_schema(
         "/$defs/transferSession",

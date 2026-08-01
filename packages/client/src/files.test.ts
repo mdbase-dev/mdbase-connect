@@ -107,6 +107,55 @@ describe("MdbaseFileClient", () => {
     ]);
   });
 
+  it("resumes multipart uploads from authority-returned R2 part receipts", async () => {
+    const content = Uint8Array.from({ length: 17 }, (_, index) => index);
+    const preparedParts: number[] = [];
+    const client = fileClient(async (_method, path, input) => {
+      if (path === "uploads") {
+        return {
+          ...uploadSession(input.transfer_id, { kind: "object_multipart", part_size: 8 }, content.length),
+          received: [1],
+          uploaded_parts: [{ part_number: 2, etag: "etag-existing" }]
+        };
+      }
+      if (path?.endsWith("/parts")) {
+        const index = input.part_number - 1;
+        preparedParts.push(index);
+        return prepared(
+          input.transfer_id,
+          index,
+          index * 8,
+          Math.min(8, content.length - index * 8),
+          "PUT",
+          `https://r2.example/upload/${index}`
+        );
+      }
+      if (path?.endsWith("/commit")) {
+        expect(input.parts).toEqual([
+          { part_number: 1, etag: "etag-0" },
+          { part_number: 2, etag: "etag-existing" },
+          { part_number: 3, etag: "etag-2" }
+        ]);
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: descriptor("resumed.bin", content)
+        };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      const index = Number(String(request).split("/").at(-1));
+      return new Response(undefined, { status: 200, headers: { etag: `etag-${index}` } });
+    });
+
+    await expect(client.upload("resumed.bin", content)).resolves.toMatchObject({
+      path: "resumed.bin"
+    });
+    expect(preparedParts.sort()).toEqual([0, 2]);
+  });
+
   it("reassembles revision-pinned ranges in order and verifies the digest", async () => {
     const content = bytes("ordered range download");
     const file = descriptor("Assets/download.bin", content);

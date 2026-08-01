@@ -93,5 +93,6 @@ pub(super) fn upload_session(transfer: &UploadTransfer, received: Vec<u64>) -> F
             .expires_at
             .to_rfc3339_opts(SecondsFormat::Millis, true),
         received,
+        uploaded_parts: Vec::new(),
     }
 }

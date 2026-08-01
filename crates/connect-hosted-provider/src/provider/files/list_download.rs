@@ -214,6 +214,7 @@ impl HostedProvider {
             total_size: descriptor.size,
             expires_at: expires_at.to_rfc3339(),
             received: Vec::new(),
+            uploaded_parts: Vec::new(),
         })
     }
 

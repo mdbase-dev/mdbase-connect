@@ -310,6 +310,10 @@ pub struct FileTransferSession {
     pub total_size: u64,
     pub expires_at: String,
     pub received: Vec<u64>,
+    /// Object-store part receipts that let a restarted uploader resume without
+    /// retransmitting parts. Empty for framed transfers and single PUTs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub uploaded_parts: Vec<UploadedFilePart>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

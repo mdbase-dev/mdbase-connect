@@ -384,13 +384,42 @@ impl HostedProvider {
         &self,
         transfer: &ImportFileTransfer,
     ) -> ApiResult<FileTransferSession> {
+        let uploaded_parts = if transfer.strategy == "object_multipart" {
+            if matches!(transfer.state.as_str(), "completing" | "committed") {
+                transfer.completion_parts.clone().unwrap_or_default()
+            } else {
+                self.blob_store
+                    .list_multipart_parts(
+                        &transfer.staging_object_key,
+                        transfer
+                            .multipart_upload_id
+                            .as_deref()
+                            .ok_or_else(|| ApiError::internal("Multipart upload ID is missing."))?,
+                    )
+                    .await?
+                    .into_iter()
+                    .map(|part| {
+                        if part.etag.is_empty() || part.etag.len() > 255 {
+                            return Err(ApiError::internal(
+                                "Stored multipart part ETag is invalid.",
+                            ));
+                        }
+                        Ok(UploadedFilePart {
+                            part_number: u16::try_from(part.part_number).map_err(|_| {
+                                ApiError::internal("Stored multipart part number is invalid.")
+                            })?,
+                            etag: part.etag,
+                        })
+                    })
+                    .collect::<ApiResult<Vec<_>>>()?
+            }
+        } else {
+            Vec::new()
+        };
         let received = if transfer.state == "committed" {
             (0..import_part_count(transfer, self.blob_store.part_size())).collect()
-        } else if transfer.state == "completing" && transfer.strategy == "object_multipart" {
-            transfer
-                .completion_parts
-                .as_deref()
-                .unwrap_or_default()
+        } else if transfer.strategy == "object_multipart" {
+            uploaded_parts
                 .iter()
                 .map(|part| u64::from(part.part_number - 1))
                 .collect()
@@ -405,18 +434,7 @@ impl HostedProvider {
                 Vec::new()
             }
         } else {
-            self.blob_store
-                .list_multipart_parts(
-                    &transfer.staging_object_key,
-                    transfer
-                        .multipart_upload_id
-                        .as_deref()
-                        .ok_or_else(|| ApiError::internal("Multipart upload ID is missing."))?,
-                )
-                .await?
-                .into_iter()
-                .map(|part| (part.part_number - 1) as u64)
-                .collect()
+            unreachable!("multipart progress handled above")
         };
         Ok(FileTransferSession {
             protocol_version: FILE_PROTOCOL_VERSION,
@@ -434,6 +452,7 @@ impl HostedProvider {
             total_size: transfer.expected_size,
             expires_at: transfer.expires_at.to_rfc3339(),
             received,
+            uploaded_parts,
         })
     }
 

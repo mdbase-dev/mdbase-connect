@@ -178,25 +178,28 @@ export class MdbaseFileClient {
         ? 1
         : Math.ceil(blob.size / partSize);
       if (!framed && session.received.length === partCount) {
-        const replay = await this.tryReplayUploadCommit(transferId, options.signal);
+        const replay = await this.tryReplayUploadCommit(
+          transferId,
+          session.strategy.kind === "object_multipart" ? session.uploaded_parts : undefined,
+          options.signal
+        );
         if (replay) {
           committed = true;
           return replay.file;
         }
       }
-      const received = new Set(
-        framed || session.strategy.kind === "object_put" ? session.received : []
+      const received = new Set(session.received);
+      const uploadedParts = new Map(
+        (session.uploaded_parts ?? []).map((part) => [part.part_number - 1, part])
       );
-      let transferredBytes = framed || session.strategy.kind === "object_put"
-        ? [...received].reduce(
-          (total, index) => total + chunkLength(blob.size, partSize, index),
-          0
-        )
-        : 0;
+      let transferredBytes = [...received].reduce(
+        (total, index) => total + chunkLength(blob.size, partSize, index),
+        0
+      );
       const parts = await mapConcurrent(partCount, concurrency, async (partIndex) => {
         const offset = partIndex * partSize;
         const length = Math.min(partSize, Math.max(0, blob.size - offset));
-        if (received.has(partIndex)) return null;
+        if (received.has(partIndex)) return uploadedParts.get(partIndex) ?? null;
         const part = blob.slice(offset, offset + length);
         const uploaded = framed
           ? await retryChunk(
@@ -465,10 +468,11 @@ export class MdbaseFileClient {
 
   private async tryReplayUploadCommit(
     transferId: string,
+    parts: UploadedFilePart[] | undefined,
     signal?: AbortSignal
   ): Promise<CommitFileUploadReceipt | null> {
     try {
-      return await this.commitUpload(transferId, undefined, signal);
+      return await this.commitUpload(transferId, parts, signal);
     } catch (error) {
       if (error instanceof MdbaseConnectError && error.code === "file_upload_incomplete") {
         return null;
@@ -636,6 +640,24 @@ function requireTransferSession(
       || session.received.some((index) =>
         !Number.isSafeInteger(index) || index < 0 || index >= partCount)) {
     throw connectError("invalid_operation_response", "The authority returned invalid transfer progress.");
+  }
+  const uploadedParts = session.uploaded_parts ?? [];
+  if (
+    !Array.isArray(uploadedParts)
+    || uploadedParts.some((part, index) =>
+      !Number.isSafeInteger(part?.part_number)
+      || part.part_number < 1
+      || part.part_number > partCount
+      || typeof part.etag !== "string"
+      || part.etag.length === 0
+      || part.etag.length > 255
+      || (index > 0 && uploadedParts[index - 1]!.part_number >= part.part_number))
+    || (session.strategy.kind === "object_multipart"
+      ? uploadedParts.length !== session.received.length
+        || uploadedParts.some((part, index) => part.part_number - 1 !== session.received[index])
+      : uploadedParts.length !== 0)
+  ) {
+    throw connectError("invalid_operation_response", "The authority returned invalid uploaded part receipts.");
   }
 }
 

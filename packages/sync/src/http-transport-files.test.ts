@@ -284,7 +284,12 @@ describe("hosted sync file data plane", () => {
           strategy: { kind: "object_multipart", part_size: 3 },
           total_size: bytes.byteLength,
           expires_at: "2026-08-01T01:00:00.000Z",
-          received: committed ? [0, 1, 2] : []
+          received: committed ? [0, 1, 2] : [],
+          uploaded_parts: committed ? [
+            { part_number: 1, etag: "etag-1" },
+            { part_number: 2, etag: "etag-2" },
+            { part_number: 3, etag: "etag-3" }
+          ] : []
         });
       }
       if (url.endsWith(`/uploads/${transferId}/parts`)) {
@@ -308,7 +313,11 @@ describe("hosted sync file data plane", () => {
           committed = true;
           throw new TypeError("connection reset after commit");
         }
-        expect(body.parts).toEqual([]);
+        expect(body.parts).toEqual([
+          { part_number: 1, etag: "etag-1" },
+          { part_number: 2, etag: "etag-2" },
+          { part_number: 3, etag: "etag-3" }
+        ]);
         return Response.json({
           protocol_version: 1,
           type: "file_upload_committed",
