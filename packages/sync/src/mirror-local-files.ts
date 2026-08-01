@@ -1,4 +1,4 @@
-import type { SelectiveSyncPolicy } from "@mdbase/connect-protocol";
+import type { SelectiveSyncPolicy } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import {
   pathFileSelected,

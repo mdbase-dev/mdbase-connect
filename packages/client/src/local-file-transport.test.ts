@@ -2,8 +2,8 @@ import type {
   FileFrameHeader,
   FileTransferSession,
   GrantEncryption
-} from "@mdbase/connect-protocol";
-import { decodeFileFrame } from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
+import { decodeFileFrame } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryGrantKeyStore,

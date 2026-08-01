@@ -1,4 +1,4 @@
-import type { CollectionFileDescriptor } from "@mdbase/connect-protocol";
+import type { CollectionFileDescriptor } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpSyncTransport } from "./http-transport.js";
 

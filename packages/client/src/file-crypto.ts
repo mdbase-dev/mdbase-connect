@@ -6,7 +6,7 @@ import {
   type FileFrameHeader,
   type FileFrameKind,
   type FileTransferDirection
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   RelayCryptoError,
   deriveP256SharedSecret,

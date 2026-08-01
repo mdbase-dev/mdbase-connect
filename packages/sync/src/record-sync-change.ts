@@ -1,4 +1,4 @@
-import type { JsonObject, SyncChange } from "@mdbase/connect-protocol";
+import type { JsonObject, SyncChange } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 
 export type RecordSyncChange<Frontmatter extends JsonObject = JsonObject> = Extract<

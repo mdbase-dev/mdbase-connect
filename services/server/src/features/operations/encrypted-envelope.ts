@@ -2,11 +2,11 @@ import type {
   EncryptedRelayOperation,
   EncryptedRelayOperationRequest,
   GrantEncryption
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 

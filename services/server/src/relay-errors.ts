@@ -1,5 +1,5 @@
-import type { ConnectProblem } from "@mdbase/connect-protocol";
-import { normalizeConnectProblem } from "@mdbase/connect-protocol";
+import type { ConnectProblem } from "@mdbase-dev/connect-protocol";
+import { normalizeConnectProblem } from "@mdbase-dev/connect-protocol";
 
 export class RelayUnavailableError extends Error {
   constructor() {

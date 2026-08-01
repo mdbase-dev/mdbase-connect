@@ -4,12 +4,12 @@ import type {
   FileFrame,
   GrantEncryption,
   RelayFileFrame
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   decodeFileFrame,
   MAX_FILE_FRAME_BYTES,
   RELAY_FILE_PROTOCOL_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";

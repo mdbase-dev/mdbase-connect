@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SyncChange } from "@mdbase/connect-protocol";
+import type { SyncChange } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
 import { assertRecordSyncChanges } from "./record-sync-change.js";
 

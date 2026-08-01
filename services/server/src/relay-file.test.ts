@@ -2,7 +2,7 @@ import {
   decodeRelayFileFrame,
   encodeRelayFileFrame,
   type RelayFileFrame
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   RelayFileBridge,

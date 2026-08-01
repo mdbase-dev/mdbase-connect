@@ -2,14 +2,14 @@ import type {
   EncryptedRelayOperationRequest,
   FileFrameHeader,
   GrantEncryption
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   encodeFileFrame,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   FILE_TRANSFER_PROTOCOL_VERSION,
   MAX_FILE_FRAME_BYTES,
   RELAY_ENCRYPTION_SUITE
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";

@@ -1,4 +1,4 @@
-import type { FileTransferSession } from "@mdbase/connect-protocol";
+import type { FileTransferSession } from "@mdbase-dev/connect-protocol";
 import type { GrantKeyStore } from "./crypto.js";
 import { connectError } from "./errors.js";
 import {

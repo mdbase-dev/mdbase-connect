@@ -5,7 +5,7 @@ import {
   encodeFileFrame,
   type FileFrameHeader,
   type GrantEncryption
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { MemoryGrantKeyStore, deriveP256SharedSecret } from "./crypto.js";
 import {
   FileTransferCryptoError,

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   CollectionFileDescriptor,
   FileCapability
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "./errors.js";
 import {

@@ -1,10 +1,10 @@
-import type { RelayFileFrame } from "@mdbase/connect-protocol";
+import type { RelayFileFrame } from "@mdbase-dev/connect-protocol";
 import {
   decodeRelayFileFrame,
   encodeRelayFileFrame,
   FILE_RELAY_CAPABILITY,
   normalizeConnectProblem
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import type { RawData, WebSocket } from "ws";
 import type {
   RelayBroker,

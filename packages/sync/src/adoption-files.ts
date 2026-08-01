@@ -4,7 +4,7 @@ import type {
   FileTransferSession,
   PreparedFilePart,
   UploadedFilePart
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { sha1 } from "@noble/hashes/legacy.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";

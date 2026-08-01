@@ -8,8 +8,8 @@ import type {
   MoveFileReceipt,
   PreparedFilePart,
   UploadedFilePart
-} from "@mdbase/connect-protocol";
-import { FILE_PROTOCOL_VERSION } from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
+import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import { MdbaseConnectError, connectError } from "./errors.js";
 import { IncrementalSha256 } from "./file-sha256.js";
 import { BinaryPartReader } from "./file-stream-source.js";

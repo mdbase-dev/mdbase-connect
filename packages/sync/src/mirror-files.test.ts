@@ -15,7 +15,7 @@ import type {
   SyncRecord,
   SyncSession,
   SyncSnapshotRecord
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { describe, expect, it } from "vitest";
 import { documentRevision } from "./mirror-format.js";
 import { pathSelected } from "./mirror-files.js";

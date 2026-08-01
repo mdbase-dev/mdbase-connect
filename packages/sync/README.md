@@ -227,7 +227,7 @@ replays its own authority event.
 
 ## Portable authority adoption
 
-`@mdbase/connect-sync/adoption` can move a portable collection snapshot into a
+`@mdbase-dev/connect-sync/adoption` can move a portable collection snapshot into a
 hosted authority without routing binary bytes through the Connect control
 service. Include file descriptors in the snapshot and resolve their bytes
 lazily with `fileSource`:
@@ -236,7 +236,7 @@ lazily with `fileSource`:
 import {
   AuthorityAdoptionClient,
   buildPortableAuthoritySnapshot
-} from "@mdbase/connect-sync/adoption";
+} from "@mdbase-dev/connect-sync/adoption";
 
 const snapshot = buildPortableAuthoritySnapshot({
   collectionId,

@@ -6,7 +6,7 @@ import type {
   SelectiveSyncPolicy,
   SyncFileSnapshotPage,
   SyncSession
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import { portableMirrorPathKey, validatePortableMirrorPath } from "./portable-path.js";
 import { SyncError } from "./sync-error.js";
 import type { MirrorBlobStore, MirrorBinaryInfo } from "./mirror-file-types.js";

@@ -4,12 +4,12 @@ import type {
   EncryptedRelayOperationResponse,
   FileFrameHeader,
   FileTransferSession
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   decodeFileFrame,
   FILE_PROTOCOL_VERSION,
   FILE_TRANSFER_PROTOCOL_VERSION
-} from "@mdbase/connect-protocol";
+} from "@mdbase-dev/connect-protocol";
 import {
   decryptRelayResponse,
   encryptRelayRequest,
