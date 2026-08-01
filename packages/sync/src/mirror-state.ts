@@ -48,6 +48,8 @@ export type PendingMirrorFileMutation =
     content_digest: `sha256:${string}`;
     size: number;
     media_type?: string;
+    /** Set only while a conflict resolution waits for an earlier move receipt. */
+    after_mutation_id?: string;
   }
   | {
     operation: "move";
@@ -338,6 +340,10 @@ export function normalizeMirrorState(
       || !Number.isSafeInteger(pending.size)
       || pending.size < 0
     )) throw new Error();
+    if (pending.operation === "upload" && pending.after_mutation_id !== undefined
+      && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(pending.after_mutation_id)) {
+      throw new Error();
+    }
   }
   for (const [key, conflict] of Object.entries(state.file_conflicts)) {
     validatePortableMirrorPath(conflict.path);

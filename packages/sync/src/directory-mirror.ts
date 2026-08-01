@@ -1,4 +1,5 @@
 import type {
+  CollectionFileDescriptor,
   JsonObject,
   SelectiveSyncPolicy,
   SyncChange,
@@ -37,6 +38,7 @@ import {
   type MirrorState,
   type MirrorStateStore,
   type MirrorStatus,
+  type PendingMirrorFileMutation,
   type PendingMirrorMutation
 } from "./mirror-state.js";
 import {
@@ -54,6 +56,7 @@ import {
 import { MirrorMaterializer } from "./mirror-materializer.js";
 import {
   assertNoPhysicalPathAliases,
+  physicalMirrorPathKey,
   preflightChangePhysicalPaths
 } from "./mirror-physical-path.js";
 import { openMirrorSnapshot, rebuildMirror } from "./mirror-rebuild.js";
@@ -511,6 +514,145 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   async resolveConflict(recordId: string, resolution: "local" | "remote"): Promise<void> {
     await this.lease.runExclusive(() => this.resolveConflictUnlocked(recordId, resolution));
+  }
+
+  async resolveFileConflict(fileId: string, resolution: "local" | "remote"): Promise<void> {
+    await this.lease.runExclusive(() => this.resolveFileConflictUnlocked(fileId, resolution));
+  }
+
+  private async resolveFileConflictUnlocked(
+    fileId: string,
+    resolution: "local" | "remote"
+  ): Promise<void> {
+    if (this.mode !== "read_write") {
+      throw new SyncError("mirror_read_only", "Receive-only mirrors do not contain writable file conflicts.");
+    }
+    const state = await this.readState();
+    const conflict = state?.file_conflicts?.[fileId];
+    if (!state || !conflict) {
+      throw new SyncError("mirror_file_conflict_not_found", "Writable file conflict was not found.");
+    }
+    const pending = (state.pending_files ?? []).filter((item) =>
+      item.operation === "upload" && !item.file_id
+        ? `new:${item.path}` === fileId
+        : item.file_id === fileId
+    );
+    if (pending.length !== 1) {
+      throw new SyncError("invalid_mirror_state", "Writable file conflict has no unique pending mutation.");
+    }
+    const source = pending[0]!;
+    const authorityFiles = await this.currentAuthorityFiles();
+    const currentById = fileId.startsWith("new:")
+      ? undefined
+      : authorityFiles.find((file) => file.file_id === fileId);
+    const currentAtPath = authorityFiles.find((file) =>
+      physicalMirrorPathKey(file.path) === physicalMirrorPathKey(source.path)
+    );
+    const current = currentById ?? currentAtPath;
+    state.pending_files = state.pending_files!.filter((item) => item !== source);
+
+    if (resolution === "remote") {
+      const localPaths = new Set([source.path]);
+      if (source.operation === "move") localPaths.add(source.from_path);
+      const prior = source.operation === "upload" && !source.file_id
+        ? undefined
+        : state.files?.[source.file_id!]?.file;
+      if (prior) localPaths.add(prior.path);
+      for (const path of localPaths) {
+        if (await this.fileSystem.inspectBinary(path) !== null) await this.fileSystem.remove(path);
+      }
+      if (current && fileSelected(this.selectiveSync, current)) {
+        if (!this.blobStore) throw new SyncError("file_storage_unavailable", "File conflict resolution requires a blob store.");
+        await ensureFileBlob(this.transport, this.blobStore, current);
+        await this.materializer.putFile(state, current);
+      } else if (prior) {
+        delete state.files![prior.file_id];
+      }
+    } else {
+      this.queueLocalFileResolution(state, source, currentById, currentAtPath);
+    }
+    delete state.file_conflicts![fileId];
+    await this.writeState(state);
+  }
+
+  private queueLocalFileResolution(
+    state: MirrorState,
+    source: PendingMirrorFileMutation,
+    currentById: CollectionFileDescriptor | undefined,
+    currentAtPath: CollectionFileDescriptor | undefined
+  ): void {
+    if (currentById && currentAtPath && currentById.file_id !== currentAtPath.file_id) {
+      throw new SyncError(
+        "file_resolution_ambiguous",
+        "The authority changed this file and another file now occupies the local destination."
+      );
+    }
+    const current = currentById ?? currentAtPath;
+    if (current) state.files![current.file_id] = { file: current };
+    else if (source.operation !== "upload" || source.file_id) delete state.files![source.file_id!];
+    if (source.operation === "delete") {
+      if (!current) return;
+      state.pending_files!.push({
+        operation: "delete",
+        mutation_id: this.runtime.randomId(),
+        file_id: current.file_id,
+        path: current.path,
+        base_revision: current.revision
+      });
+      return;
+    }
+    if (source.operation === "move") {
+      if (!current) {
+        throw new SyncError(
+          "file_resolution_source_missing",
+          "The authority deleted this file; restore it as a new file to keep the local bytes."
+        );
+      }
+      state.pending_files!.push({
+        ...source,
+        mutation_id: this.runtime.randomId(),
+        file_id: current.file_id,
+        from_path: current.path,
+        base_revision: current.revision
+      });
+      return;
+    }
+    if (!current || current.path === source.path) {
+      state.pending_files!.push({
+        ...source,
+        transfer_id: this.runtime.randomId(),
+        ...(current
+          ? { file_id: current.file_id, base_revision: current.revision }
+          : { file_id: undefined, base_revision: undefined })
+      });
+      return;
+    }
+    const mutationId = this.runtime.randomId();
+    state.pending_files!.push({
+      operation: "move",
+      mutation_id: mutationId,
+      file_id: current.file_id,
+      from_path: current.path,
+      path: source.path,
+      base_revision: current.revision,
+      content_digest: current.content_digest,
+      size: current.size
+    }, {
+      ...source,
+      transfer_id: this.runtime.randomId(),
+      file_id: current.file_id,
+      base_revision: current.revision,
+      after_mutation_id: mutationId
+    });
+  }
+
+  private async currentAuthorityFiles(): Promise<CollectionFileDescriptor[]> {
+    const session = await openMirrorSnapshot(this.replicaId, this.transport, this.mode);
+    const files: CollectionFileDescriptor[] = [];
+    await visitFileSnapshotPages(this.transport, session, async (page) => {
+      files.push(...page);
+    });
+    return files;
   }
 
   private async resolveConflictUnlocked(

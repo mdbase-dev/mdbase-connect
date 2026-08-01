@@ -137,6 +137,9 @@ export async function flushPendingMirrorFiles(
     const pending = state.pending_files![0]!;
     try {
       if (pending.operation === "upload") {
+        if (pending.after_mutation_id) {
+          throw new SyncError("invalid_mirror_state", "A file upload's prerequisite mutation is missing.");
+        }
         if (!transport.uploadFile) throw writableFileTransportUnavailable("upload");
         const receipt = await transport.uploadFile({
           protocol_version: 1,
@@ -174,6 +177,13 @@ export async function flushPendingMirrorFiles(
           throw new SyncError("invalid_sync_response", "Authority returned an invalid file move receipt.");
         }
         state.files![pending.file_id] = { file: receipt.file };
+        for (const later of state.pending_files!) {
+          if (later.operation === "upload" && later.after_mutation_id === pending.mutation_id) {
+            later.file_id = receipt.file.file_id;
+            later.base_revision = receipt.file.revision;
+            delete later.after_mutation_id;
+          }
+        }
       } else {
         if (!transport.deleteFile) throw writableFileTransportUnavailable("delete");
         const receipt = await transport.deleteFile({

@@ -135,6 +135,7 @@ class FileTransport implements SyncTransport {
   files: CollectionFileDescriptor[] = [];
   events: SyncChange[] = [];
   bytes = new Map<string, Uint8Array>();
+  revisionBytes = new Map<string, Uint8Array>();
   downloads = 0;
   chunkSize = 3;
   mode: "read_only" | "read_write" = "read_only";
@@ -200,7 +201,7 @@ class FileTransport implements SyncTransport {
 
   async *downloadFile(file: CollectionFileDescriptor): AsyncGenerator<Uint8Array> {
     this.downloads += 1;
-    const value = this.bytes.get(file.file_id);
+    const value = this.revisionBytes.get(`${file.file_id}:${file.revision}`) ?? this.bytes.get(file.file_id);
     if (!value) throw new Error("missing test object");
     for (let offset = 0; offset < value.byteLength; offset += this.chunkSize) {
       yield value.slice(offset, offset + this.chunkSize);
@@ -241,6 +242,7 @@ class FileTransport implements SyncTransport {
     if (request.media_type) descriptor.media_type = request.media_type;
     this.files = [...this.files.filter((candidate) => candidate.file_id !== descriptor.file_id), descriptor];
     this.bytes.set(descriptor.file_id, value);
+    this.revisionBytes.set(`${descriptor.file_id}:${descriptor.revision}`, value);
     this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: descriptor });
     const receipt: CommitFileUploadReceipt = {
       protocol_version: 1,
@@ -267,6 +269,8 @@ class FileTransport implements SyncTransport {
     }
     const moved = { ...current, path: request.path, revision: `file:${++this.fileSequence}` };
     this.files = this.files.map((candidate) => candidate.file_id === request.file_id ? moved : candidate);
+    const value = this.bytes.get(request.file_id);
+    if (value) this.revisionBytes.set(`${request.file_id}:${moved.revision}`, value);
     this.events.push({ sequence: this.nextEventSequence(), type: "file_put", file: moved });
     return { protocol_version: 1, type: "file_moved", mutation_id: request.mutation_id, file: moved };
   }
@@ -729,6 +733,7 @@ describe("portable collection file mirror", () => {
     const remote = file(fileId, initial.path, remoteBytes, "file:remote");
     transport.files = [remote];
     transport.bytes.set(fileId, remoteBytes);
+    transport.revisionBytes.set(`${fileId}:${remote.revision}`, remoteBytes);
     transport.events.push({ sequence: 1, type: "file_put", file: remote });
 
     await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
@@ -740,6 +745,81 @@ describe("portable collection file mirror", () => {
       pending_files: 1,
       file_conflicts: [{ file_id: fileId, path: initial.path, code: "stale_file_revision" }]
     });
+
+    await target.resolveFileConflict(fileId, "remote");
+    expect(fileSystem.files.get(initial.path)).toEqual(remoteBytes);
+    expect((await target.status()).file_conflicts).toEqual([]);
+  });
+
+  it("rebases a local file-conflict resolution onto the latest authority revision", async () => {
+    const transport = new FileTransport();
+    const initialBytes = utf8.encode("initial");
+    const localBytes = utf8.encode("keep local");
+    const remoteBytes = utf8.encode("remote concurrent edit");
+    const fileId = "00000000-0000-4000-8000-000000000032";
+    const initial = file(fileId, "images/rebase.png", initialBytes);
+    transport.files = [initial];
+    transport.bytes.set(fileId, initialBytes);
+    transport.revisionBytes.set(`${fileId}:${initial.revision}`, initialBytes);
+    const { mirror: target, fileSystem } = writableMirror(transport);
+    await target.sync();
+    fileSystem.files.set(initial.path, localBytes);
+    const remote = file(fileId, initial.path, remoteBytes, "file:remote-concurrent");
+    transport.files = [remote];
+    transport.bytes.set(fileId, remoteBytes);
+    transport.revisionBytes.set(`${fileId}:${remote.revision}`, remoteBytes);
+    transport.events.push({ sequence: 1, type: "file_put", file: remote });
+    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+
+    const failedTransfer = transport.uploadCalls.at(-1)!.transfer_id;
+    await target.resolveFileConflict(fileId, "local");
+    await target.sync();
+
+    expect(transport.uploadCalls.at(-1)).toMatchObject({
+      if_revision: remote.revision,
+      content_digest: digest(localBytes)
+    });
+    expect(transport.uploadCalls.at(-1)!.transfer_id).not.toBe(failedTransfer);
+    expect(transport.bytes.get(fileId)).toEqual(localBytes);
+    expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
+    expect((await target.status()).state).toBe("up_to_date");
+  });
+
+  it("orders a local resolution after a concurrent remote move", async () => {
+    const transport = new FileTransport();
+    const initialBytes = utf8.encode("initial move bytes");
+    const localBytes = utf8.encode("local replacement after move");
+    const fileId = "00000000-0000-4000-8000-000000000033";
+    const initial = file(fileId, "images/local-name.png", initialBytes);
+    transport.files = [initial];
+    transport.bytes.set(fileId, initialBytes);
+    transport.revisionBytes.set(`${fileId}:${initial.revision}`, initialBytes);
+    const { mirror: target, fileSystem, stateStore } = writableMirror(transport);
+    await target.sync();
+    fileSystem.files.set(initial.path, localBytes);
+    const movedRemote = file(fileId, "images/remote-name.png", initialBytes, "file:remote-move");
+    transport.files = [movedRemote];
+    transport.revisionBytes.set(`${fileId}:${movedRemote.revision}`, initialBytes);
+    transport.events.push({ sequence: 1, type: "file_put", file: movedRemote });
+    await expect(target.sync()).rejects.toMatchObject({ code: "stale_file_revision" });
+
+    await target.resolveFileConflict(fileId, "local");
+    const resolvedQueue = (await stateStore.read())!.pending_files!;
+    expect(resolvedQueue.map((pending) => pending.operation)).toEqual(["move", "upload"]);
+    expect(resolvedQueue[1]).toMatchObject({
+      after_mutation_id: (resolvedQueue[0] as { mutation_id: string }).mutation_id
+    });
+    await target.sync();
+
+    expect(transport.moveCalls.at(-1)).toMatchObject({
+      from_path: movedRemote.path,
+      path: initial.path,
+      if_revision: movedRemote.revision
+    });
+    expect(transport.uploadCalls.at(-1)?.if_revision).toMatch(/^file:\d+$/u);
+    expect(transport.uploadCalls.at(-1)?.if_revision).not.toBe(movedRemote.revision);
+    expect(transport.files[0]).toMatchObject({ path: initial.path, content_digest: digest(localBytes) });
+    expect(fileSystem.files.get(initial.path)).toEqual(localBytes);
   });
 
   it("does not discover hidden folders in writable file scans", async () => {
