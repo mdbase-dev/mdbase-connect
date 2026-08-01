@@ -1,4 +1,8 @@
 use super::*;
+use mdbase_connect_protocol::{
+    CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
+    PrepareFileUploadPartRequest, PreparedFilePart,
+};
 use serde::de::DeserializeOwned;
 
 pub(super) fn file_routes() -> Router<AppState> {

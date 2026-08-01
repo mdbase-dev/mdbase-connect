@@ -11,6 +11,14 @@ struct StoredFileMutation {
     receipt_ciphertext: Vec<u8>,
 }
 
+struct FileMutationIdentity<'a> {
+    data_key: &'a [u8; 32],
+    collection_id: Uuid,
+    replica_id: Uuid,
+    kind: &'static str,
+    mutation_id: Uuid,
+}
+
 impl HostedProvider {
     pub async fn move_file(
         &self,
@@ -59,14 +67,17 @@ impl HostedProvider {
         )?;
         let collection = lock_file_collection(&mut transaction, collection_id).await?;
         let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let mutation = FileMutationIdentity {
+            data_key: &data_key,
+            collection_id,
+            replica_id: replica.id,
+            kind: "move",
+            mutation_id: request.mutation_id,
+        };
         if let Some(receipt) = self
             .replay_file_mutation::<MoveFileRequest, MoveFileReceipt>(
                 &mut transaction,
-                &data_key,
-                collection_id,
-                replica.id,
-                "move",
-                request.mutation_id,
+                &mutation,
                 &request,
             )
             .await?
@@ -96,17 +107,8 @@ impl HostedProvider {
                 mutation_id: request.mutation_id,
                 file: current,
             };
-            self.persist_file_mutation(
-                &mut transaction,
-                &data_key,
-                collection_id,
-                replica.id,
-                "move",
-                request.mutation_id,
-                &request,
-                &receipt,
-            )
-            .await?;
+            self.persist_file_mutation(&mut transaction, &mutation, &request, &receipt)
+                .await?;
             transaction.commit().await?;
             return Ok(receipt);
         }
@@ -170,14 +172,16 @@ impl HostedProvider {
         .await?;
         insert_file_version(
             &mut transaction,
-            collection_id,
-            request.file_id,
-            sequence,
-            &revision,
-            current.size,
-            Some(&object_key),
-            Some(version_ciphertext),
-            false,
+            FileVersionInsert {
+                collection_id,
+                file_id: request.file_id,
+                sequence,
+                revision: &revision,
+                size: current.size,
+                object_key: Some(&object_key),
+                payload_ciphertext: Some(version_ciphertext),
+                deleted: false,
+            },
         )
         .await?;
         insert_file_change(
@@ -198,17 +202,8 @@ impl HostedProvider {
             mutation_id: request.mutation_id,
             file: moved,
         };
-        self.persist_file_mutation(
-            &mut transaction,
-            &data_key,
-            collection_id,
-            replica.id,
-            "move",
-            request.mutation_id,
-            &request,
-            &receipt,
-        )
-        .await?;
+        self.persist_file_mutation(&mut transaction, &mutation, &request, &receipt)
+            .await?;
         transaction.commit().await?;
         Ok(receipt)
     }
@@ -241,14 +236,17 @@ impl HostedProvider {
         )?;
         let collection = lock_file_collection(&mut transaction, collection_id).await?;
         let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let mutation = FileMutationIdentity {
+            data_key: &data_key,
+            collection_id,
+            replica_id: replica.id,
+            kind: "delete",
+            mutation_id: request.mutation_id,
+        };
         if let Some(receipt) = self
             .replay_file_mutation::<DeleteFileRequest, DeleteFileReceipt>(
                 &mut transaction,
-                &data_key,
-                collection_id,
-                replica.id,
-                "delete",
-                request.mutation_id,
+                &mutation,
                 &request,
             )
             .await?
@@ -285,14 +283,16 @@ impl HostedProvider {
             .await?;
         insert_file_version(
             &mut transaction,
-            collection_id,
-            request.file_id,
-            sequence,
-            &revision,
-            0,
-            None,
-            None,
-            true,
+            FileVersionInsert {
+                collection_id,
+                file_id: request.file_id,
+                sequence,
+                revision: &revision,
+                size: 0,
+                object_key: None,
+                payload_ciphertext: None,
+                deleted: true,
+            },
         )
         .await?;
         insert_file_change(
@@ -331,17 +331,8 @@ impl HostedProvider {
             previous_path: request.path.clone(),
             revision,
         };
-        self.persist_file_mutation(
-            &mut transaction,
-            &data_key,
-            collection_id,
-            replica.id,
-            "delete",
-            request.mutation_id,
-            &request,
-            &receipt,
-        )
-        .await?;
+        self.persist_file_mutation(&mut transaction, &mutation, &request, &receipt)
+            .await?;
         transaction.commit().await?;
         Ok(receipt)
     }
@@ -349,11 +340,7 @@ impl HostedProvider {
     async fn replay_file_mutation<Request, Receipt>(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
-        data_key: &[u8; 32],
-        collection_id: Uuid,
-        replica_id: Uuid,
-        kind: &str,
-        mutation_id: Uuid,
+        mutation: &FileMutationIdentity<'_>,
         request: &Request,
     ) -> ApiResult<Option<Receipt>>
     where
@@ -364,7 +351,7 @@ impl HostedProvider {
             r#"SELECT collection_id, replica_id, kind, request_ciphertext, receipt_ciphertext
                FROM hosted_provider_file_mutations WHERE mutation_id = $1"#,
         )
-        .bind(mutation_id)
+        .bind(mutation.mutation_id)
         .fetch_optional(&mut **transaction)
         .await?;
         let Some(row) = row else {
@@ -377,25 +364,25 @@ impl HostedProvider {
             request_ciphertext: row.get("request_ciphertext"),
             receipt_ciphertext: row.get("receipt_ciphertext"),
         };
-        if stored.collection_id != collection_id
-            || stored.replica_id != replica_id
-            || stored.kind != kind
+        if stored.collection_id != mutation.collection_id
+            || stored.replica_id != mutation.replica_id
+            || stored.kind != mutation.kind
         {
             return Err(file_mutation_conflict());
         }
         let stored_request: Request = self.crypto.decrypt_json(
-            data_key,
+            mutation.data_key,
             &stored.request_ciphertext,
-            &file_mutation_request_aad(mutation_id),
+            &file_mutation_request_aad(mutation.mutation_id),
         )?;
         if &stored_request != request {
             return Err(file_mutation_conflict());
         }
         self.crypto
             .decrypt_json(
-                data_key,
+                mutation.data_key,
                 &stored.receipt_ciphertext,
-                &file_mutation_receipt_aad(mutation_id),
+                &file_mutation_receipt_aad(mutation.mutation_id),
             )
             .map(Some)
     }
@@ -403,11 +390,7 @@ impl HostedProvider {
     async fn persist_file_mutation<Request, Receipt>(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
-        data_key: &[u8; 32],
-        collection_id: Uuid,
-        replica_id: Uuid,
-        kind: &str,
-        mutation_id: Uuid,
+        mutation: &FileMutationIdentity<'_>,
         request: &Request,
         receipt: &Receipt,
     ) -> ApiResult<()>
@@ -415,22 +398,26 @@ impl HostedProvider {
         Request: Serialize,
         Receipt: Serialize,
     {
-        let request_ciphertext =
-            self.crypto
-                .encrypt_json(data_key, request, &file_mutation_request_aad(mutation_id))?;
-        let receipt_ciphertext =
-            self.crypto
-                .encrypt_json(data_key, receipt, &file_mutation_receipt_aad(mutation_id))?;
+        let request_ciphertext = self.crypto.encrypt_json(
+            mutation.data_key,
+            request,
+            &file_mutation_request_aad(mutation.mutation_id),
+        )?;
+        let receipt_ciphertext = self.crypto.encrypt_json(
+            mutation.data_key,
+            receipt,
+            &file_mutation_receipt_aad(mutation.mutation_id),
+        )?;
         sqlx::query(
             r#"INSERT INTO hosted_provider_file_mutations
                  (mutation_id, collection_id, replica_id, kind,
                   request_ciphertext, receipt_ciphertext)
                VALUES ($1, $2, $3, $4, $5, $6)"#,
         )
-        .bind(mutation_id)
-        .bind(collection_id)
-        .bind(replica_id)
-        .bind(kind)
+        .bind(mutation.mutation_id)
+        .bind(mutation.collection_id)
+        .bind(mutation.replica_id)
+        .bind(mutation.kind)
         .bind(request_ciphertext)
         .bind(receipt_ciphertext)
         .execute(&mut **transaction)
@@ -520,16 +507,20 @@ fn require_lifecycle_source(
     Ok(())
 }
 
-async fn insert_file_version(
-    transaction: &mut Transaction<'_, Postgres>,
+struct FileVersionInsert<'a> {
     collection_id: Uuid,
     file_id: Uuid,
     sequence: u64,
-    revision: &str,
+    revision: &'a str,
     size: u64,
-    object_key: Option<&str>,
+    object_key: Option<&'a str>,
     payload_ciphertext: Option<Vec<u8>>,
     deleted: bool,
+}
+
+async fn insert_file_version(
+    transaction: &mut Transaction<'_, Postgres>,
+    version: FileVersionInsert<'_>,
 ) -> ApiResult<()> {
     sqlx::query(
         r#"INSERT INTO hosted_provider_file_versions
@@ -537,14 +528,18 @@ async fn insert_file_version(
               payload_ciphertext, deleted)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
     )
-    .bind(collection_id)
-    .bind(file_id)
-    .bind(to_i64(sequence, "collection sequence")?)
-    .bind(revision)
-    .bind((!deleted).then(|| to_i64(size, "file size")).transpose()?)
-    .bind(object_key)
-    .bind(payload_ciphertext)
-    .bind(deleted)
+    .bind(version.collection_id)
+    .bind(version.file_id)
+    .bind(to_i64(version.sequence, "collection sequence")?)
+    .bind(version.revision)
+    .bind(
+        (!version.deleted)
+            .then(|| to_i64(version.size, "file size"))
+            .transpose()?,
+    )
+    .bind(version.object_key)
+    .bind(version.payload_ciphertext)
+    .bind(version.deleted)
     .execute(&mut **transaction)
     .await?;
     Ok(())

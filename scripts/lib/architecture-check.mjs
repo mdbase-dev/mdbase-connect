@@ -19,6 +19,10 @@ function isTestFile(file) {
   );
 }
 
+function isGeneratedFile(file) {
+  return /\.generated\.[^.]+$/.test(file);
+}
+
 function lineCount(source) {
   if (source.length === 0) return 0;
   const lines = source.split(/\r?\n/);
@@ -198,7 +202,7 @@ export async function evaluateArchitecture(root, budgets) {
   }
 
   const measured = new Map();
-  for (const file of productionFiles) {
+  for (const file of productionFiles.filter((file) => !isGeneratedFile(relativePath(root, file)))) {
     const relative = relativePath(root, file);
     const lines = lineCount(await readFile(file, "utf8"));
     measured.set(relative, lines);

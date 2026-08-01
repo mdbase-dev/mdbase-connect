@@ -21,6 +21,8 @@ mod lifecycle;
 use download::{download_staging_path, download_transfer_status, required_download};
 mod routing;
 use routing::{transfer_direction, transfer_exists, upload_session};
+mod security;
+use security::{set_owner_only_directory, set_owner_only_file};
 
 const STAGING_DIRECTORY: &str = ".mdbase/file-staging";
 const TRANSFER_LIFETIME_HOURS: i64 = 24;
@@ -966,30 +968,6 @@ fn sync_parent(path: &Path) -> Result<(), ConnectError> {
     if let Some(parent) = path.parent() {
         File::open(parent)?.sync_all()?;
     }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_owner_only_directory(path: &Path) -> Result<(), ConnectError> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_owner_only_directory(_path: &Path) -> Result<(), ConnectError> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_owner_only_file(path: &Path) -> Result<(), ConnectError> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_owner_only_file(_path: &Path) -> Result<(), ConnectError> {
     Ok(())
 }
 

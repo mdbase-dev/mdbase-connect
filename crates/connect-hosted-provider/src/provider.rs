@@ -42,6 +42,7 @@ use crate::{
     workspace::{StoredDocument, WorkingSet},
 };
 
+mod authority_import_cleanup;
 mod authority_import_files;
 mod authority_imports;
 mod authority_snapshots;

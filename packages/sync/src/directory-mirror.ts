@@ -13,9 +13,6 @@ import {
   WritableMirrorRejectedError
 } from "./mirror-errors.js";
 import {
-  authorityDocumentHash,
-  authorityFileHash,
-  authorityManifestDigest,
   frontmatterPatch,
   mirrorLocalIssue,
   parseMarkdown,
@@ -55,6 +52,7 @@ import {
   flushPendingMirrorFiles
 } from "./mirror-local-files.js";
 import { MirrorMaterializer } from "./mirror-materializer.js";
+import { buildAuthorityPromotionManifest } from "./mirror-promotion.js";
 import {
   assertNoPhysicalPathAliases,
   physicalMirrorPathKey,
@@ -342,83 +340,13 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         "Synchronize this folder before moving the source of truth."
       );
     }
-    if (
-      this.selectiveSync.excluded_folders.length > 0
-      || this.selectiveSync.file_classes.length !== 5
-    ) {
-      throw new SyncError(
-        "promotion_incomplete_file_projection",
-        "Moving the source of truth requires every collection file class with no excluded folders."
-      );
-    }
-    if (
-      (state.pending?.length ?? 0) > 0
-      || (state.pending_files?.length ?? 0) > 0
-      || Object.keys(state.conflicts ?? {}).length > 0
-      || Object.keys(state.file_conflicts ?? {}).length > 0
-      || Object.keys(state.local_issues ?? {}).length > 0
-    ) {
-      throw new SyncError(
-        "promotion_not_converged",
-        "Upload or resolve every local change before moving the source of truth."
-      );
-    }
-    await assertMirrorUndiverged(
+    return buildAuthorityPromotionManifest({
       state,
-      await this.currentRecordPathPolicy(state),
-      this.fileSystem,
-      this.runtime.digest
-    );
-    const resourcePaths = new Set(Object.keys(state.resources ?? {}));
-    const managedPaths = new Set(Object.values(state.records).map((entry) => entry.path));
-    const unmanaged = (await this.fileSystem.listMarkdown(resourcePaths))
-      .filter((path) => !managedPaths.has(path));
-    if (unmanaged.length > 0) {
-      throw new SyncError(
-        "promotion_unmanaged_files",
-        `Synchronize unmanaged Markdown before promotion: ${unmanaged.join(", ")}.`
-      );
-    }
-    if (!this.fileSystem.listBinary) {
-      throw new SyncError(
-        "promotion_file_scan_unavailable",
-        "Moving the source of truth requires binary file enumeration."
-      );
-    }
-    const managedFiles = new Set(Object.values(state.files ?? {}).map((entry) => entry.file.path));
-    const unmanagedFiles = (await this.fileSystem.listBinary(new Set([
-      ...resourcePaths,
-      ...managedPaths
-    ]))).filter((path) => !managedFiles.has(path));
-    if (unmanagedFiles.length > 0) {
-      throw new SyncError(
-        "promotion_unmanaged_files",
-        `Synchronize unmanaged files before moving the source of truth: ${unmanagedFiles.join(", ")}.`
-      );
-    }
-    return {
-      cursor: state.cursor,
-      digest: authorityManifestDigest([
-        ...Object.entries(state.resources ?? {}).map(([path, entry]) => ({
-          kind: "resource" as const,
-          path,
-          identity: "",
-          document_hash: authorityDocumentHash(entry.hash)
-        })),
-        ...Object.entries(state.records).map(([recordId, entry]) => ({
-          kind: "record" as const,
-          path: entry.path,
-          identity: recordId,
-          document_hash: authorityDocumentHash(entry.hash)
-        })),
-        ...Object.values(state.files ?? {}).map(({ file }) => ({
-          kind: "file" as const,
-          path: file.path,
-          identity: file.file_id,
-          document_hash: authorityFileHash(file)
-        }))
-      ])
-    };
+      selectiveSync: this.selectiveSync,
+      fileSystem: this.fileSystem,
+      pathPolicy: await this.currentRecordPathPolicy(state),
+      digest: this.runtime.digest
+    });
   }
 
   async previewInitialization(): Promise<MirrorInitializationPreview> {

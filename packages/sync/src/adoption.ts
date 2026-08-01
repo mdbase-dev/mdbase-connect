@@ -3,21 +3,15 @@ import type {
   AuthorityImportRecord,
   AuthorityImportRecordPage,
   AuthorityImportSnapshot,
-  CollectionFileDescriptor,
-  CommitFileUploadReceipt,
-  FileTransferSession,
-  PreparedFilePart,
-  UploadedFilePart
+  CollectionFileDescriptor
 } from "@mdbase-dev/connect-protocol";
-import { sha1 } from "@noble/hashes/legacy.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   AuthorityAdoptionError,
   AuthorityAdoptionOutcomeUnknownError
 } from "./adoption-errors.js";
 import { UUID, requiredUuid } from "./adoption-values.js";
 import { SyncError } from "./sync-error.js";
+import { uploadAuthorityImportFile } from "./adoption-files.js";
 import {
   canonicalConnectOrigin,
   type MirrorEnrollmentSession
@@ -192,7 +186,6 @@ const DEFAULT_POLL_INTERVAL_MS = 1_500;
 const MAX_ADOPTION_TTL_MS = 24 * 60 * 60 * 1_000;
 const MAX_PAGE_RECORDS = 200;
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
-const MAX_FILE_PARTS = 10_000;
 const utf8 = new TextEncoder();
 
 /**
@@ -445,7 +438,7 @@ export class AuthorityAdoptionClient {
         );
       }
       const source = await options.fileSource(file);
-      await this.uploadFile(prepared.import, file, source, options);
+      await uploadAuthorityImportFile(this.request, prepared.import, file, source, options);
     }
     await this.importRequest(
       prepared.import.finalize_url,
@@ -546,195 +539,6 @@ export class AuthorityAdoptionClient {
     };
   }
 
-  private async uploadFile(
-    capability: AuthorityImportCapability,
-    file: CollectionFileDescriptor,
-    source: AuthorityImportFileSource,
-    options: UploadAuthoritySnapshotOptions
-  ): Promise<void> {
-    const blob = authorityFileBlob(source, file.media_type);
-    if (blob.size !== file.size || await blobDigest(blob, options.signal) !== file.content_digest) {
-      throw new AuthorityAdoptionError(
-        "authority_adoption_file_changed",
-        `File bytes no longer match the fenced snapshot for ${file.path}.`
-      );
-    }
-    const transferId = authorityImportTransferId(capability.import_id, file);
-    const session = await this.importJson<FileTransferSession>(
-      `${capability.files_url}/uploads`,
-      "POST",
-      capability.access_token,
-      {
-        protocol_version: 1,
-        type: "open_authority_import_file_upload",
-        transfer_id: transferId,
-        file_id: file.file_id
-      },
-      options.signal
-    );
-    validateImportFileSession(session, transferId, file.size);
-    if (session.strategy.kind !== "object_put" && session.strategy.kind !== "object_multipart") {
-      throw invalidResponse("Connect returned an incompatible authority import file strategy.");
-    }
-    const partSize = session.strategy.kind === "object_put"
-      ? Math.max(1, file.size)
-      : session.strategy.part_size;
-    const partCount = session.strategy.kind === "object_put"
-      ? 1
-      : Math.ceil(file.size / partSize);
-    if (partCount > MAX_FILE_PARTS) {
-      throw invalidResponse("Authority import returned too many file parts.");
-    }
-    if (session.received.length === partCount) {
-      const committed = await this.tryCommitImportFile(capability, file, transferId, [], options.signal);
-      if (committed) return;
-    }
-    const parts: UploadedFilePart[] = [];
-    let transferredBytes = 0;
-    for (let partIndex = 0; partIndex < partCount; partIndex += 1) {
-      throwIfAborted(options.signal);
-      const offset = partIndex * partSize;
-      const contentLength = Math.min(partSize, Math.max(0, file.size - offset));
-      const prepared = await this.importJson<PreparedFilePart>(
-        `${capability.files_url}/uploads/${encodeURIComponent(transferId)}/parts`,
-        "POST",
-        capability.access_token,
-        {
-          protocol_version: 1,
-          type: "prepare_file_upload_part",
-          transfer_id: transferId,
-          part_number: partIndex + 1,
-          content_length: contentLength
-        },
-        options.signal
-      );
-      validatePreparedImportPart(prepared, transferId, partIndex, offset, contentLength);
-      const response = await this.objectRequest(
-        prepared,
-        blob.slice(offset, offset + contentLength),
-        options.signal
-      );
-      if (session.strategy.kind === "object_multipart") {
-        const etag = response.headers?.etag;
-        if (!etag) throw invalidResponse("Object storage omitted a multipart ETag.");
-        parts.push({ part_number: partIndex + 1, etag });
-      }
-      transferredBytes += contentLength;
-      options.onFileProgress?.({ file, transferredBytes, totalBytes: file.size });
-    }
-    const committed = await this.tryCommitImportFile(
-      capability,
-      file,
-      transferId,
-      parts,
-      options.signal
-    );
-    if (!committed) {
-      throw new AuthorityAdoptionError(
-        "authority_adoption_file_upload_incomplete",
-        `Connect could not commit ${file.path}.`
-      );
-    }
-  }
-
-  private async tryCommitImportFile(
-    capability: AuthorityImportCapability,
-    file: CollectionFileDescriptor,
-    transferId: string,
-    parts: UploadedFilePart[],
-    signal?: AbortSignal
-  ): Promise<boolean> {
-    try {
-      const receipt = await this.importJson<CommitFileUploadReceipt>(
-        `${capability.files_url}/uploads/${encodeURIComponent(transferId)}/commit`,
-        "POST",
-        capability.access_token,
-        {
-          protocol_version: 1,
-          type: "commit_file_upload",
-          transfer_id: transferId,
-          ...(parts.length > 0 ? { parts } : {})
-        },
-        signal
-      );
-      if (
-        receipt.protocol_version !== 1
-        || receipt.type !== "file_upload_committed"
-        || receipt.transfer_id !== transferId
-        || !sameFileDescriptor(receipt.file, file)
-      ) {
-        throw invalidResponse("Connect returned an invalid authority import file receipt.");
-      }
-      return true;
-    } catch (error) {
-      if (
-        parts.length === 0
-        && error instanceof AuthorityAdoptionError
-        && error.code === "file_upload_incomplete"
-      ) return false;
-      throw error;
-    }
-  }
-
-  private async importJson<Result>(
-    url: string,
-    method: "POST" | "PUT",
-    accessToken: string,
-    body: unknown,
-    signal?: AbortSignal
-  ): Promise<Result> {
-    let response: AuthorityAdoptionResponse;
-    try {
-      response = await this.request({
-        url,
-        method,
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-          "content-type": "application/json"
-        },
-        body,
-        ...(signal ? { signal } : {})
-      });
-    } catch {
-      throwIfAborted(signal);
-      throw unreachableError();
-    }
-    if (response.status < 200 || response.status >= 300) {
-      throw adoptionResponseError(response);
-    }
-    return response.body as Result;
-  }
-
-  private async objectRequest(
-    prepared: PreparedFilePart,
-    body: Blob,
-    signal?: AbortSignal
-  ): Promise<AuthorityAdoptionResponse> {
-    validatePreparedObjectUrl(prepared.url);
-    const headers = safePreparedHeaders(prepared.headers);
-    let response: AuthorityAdoptionResponse;
-    try {
-      response = await this.request({
-        url: prepared.url,
-        method: "PUT",
-        headers,
-        body,
-        rawBody: true,
-        ...(signal ? { signal } : {})
-      });
-    } catch {
-      throwIfAborted(signal);
-      throw unreachableError();
-    }
-    if (response.status < 200 || response.status >= 300) {
-      throw new AuthorityAdoptionError(
-        "authority_adoption_object_upload_failed",
-        "Object storage rejected an authority import file part.",
-        response.status
-      );
-    }
-    return response;
-  }
 
   private async uploadPage(
     capability: AuthorityImportCapability,
@@ -902,152 +706,6 @@ function validateSnapshot(
       "Authority snapshot does not belong to this adoption."
     );
   }
-}
-
-function authorityFileBlob(source: AuthorityImportFileSource, mediaType?: string): Blob {
-  if (source instanceof Blob) return source;
-  if (source instanceof ArrayBuffer) return new Blob([source], { type: mediaType });
-  const bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength).slice();
-  return new Blob([bytes], { type: mediaType });
-}
-
-async function blobDigest(blob: Blob, signal?: AbortSignal): Promise<`sha256:${string}`> {
-  const digest = sha256.create();
-  const reader = blob.stream().getReader();
-  try {
-    while (true) {
-      throwIfAborted(signal);
-      const result = await reader.read();
-      if (result.done) break;
-      digest.update(result.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return `sha256:${bytesToHex(digest.digest())}`;
-}
-
-function authorityImportTransferId(importId: string, file: CollectionFileDescriptor): string {
-  const namespace = uuidBytes(importId);
-  const name = utf8.encode(
-    `mdbase-authority-import-file-v1\0${file.file_id}\0${file.revision}\0${file.content_digest}`
-  );
-  const digest = sha1(new Uint8Array([...namespace, ...name])).slice(0, 16);
-  digest[6] = (digest[6]! & 0x0f) | 0x50;
-  digest[8] = (digest[8]! & 0x3f) | 0x80;
-  const hex = bytesToHex(digest);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-`
-    + `${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function uuidBytes(value: string): Uint8Array {
-  if (!UUID.test(value)) throw invalidResponse("Authority import ID is invalid.");
-  return Uint8Array.from(
-    value.replaceAll("-", "").match(/../g)!.map((byte) => Number.parseInt(byte, 16))
-  );
-}
-
-function validateImportFileSession(
-  session: FileTransferSession,
-  transferId: string,
-  size: number
-): void {
-  const strategy = session?.strategy;
-  if (
-    session?.protocol_version !== 1
-    || session.type !== "file_transfer"
-    || session.transfer_id !== transferId
-    || session.direction !== "upload"
-    || session.protection !== "transport_tls"
-    || session.total_size !== size
-    || !Array.isArray(session.received)
-    || !strategy
-    || !["object_put", "object_multipart"].includes(strategy.kind)
-    || (strategy.kind === "object_multipart"
-      && (!Number.isSafeInteger(strategy.part_size) || strategy.part_size <= 0))
-  ) {
-    throw invalidResponse("Connect returned an invalid authority import file session.");
-  }
-  if (strategy.kind !== "object_put" && strategy.kind !== "object_multipart") {
-    throw invalidResponse("Connect returned an invalid authority import file strategy.");
-  }
-  const partSize = strategy.kind === "object_put" ? Math.max(1, size) : strategy.part_size;
-  const partCount = strategy.kind === "object_put" ? 1 : Math.ceil(size / partSize);
-  const received = new Set(session.received);
-  if (
-    received.size !== session.received.length
-    || session.received.some((part) => !Number.isSafeInteger(part) || part < 0 || part >= partCount)
-  ) {
-    throw invalidResponse("Connect returned invalid authority import file progress.");
-  }
-}
-
-function validatePreparedImportPart(
-  part: PreparedFilePart,
-  transferId: string,
-  partIndex: number,
-  offset: number,
-  contentLength: number
-): void {
-  if (
-    part?.protocol_version !== 1
-    || part.type !== "file_part"
-    || part.transfer_id !== transferId
-    || part.part_index !== partIndex
-    || part.offset !== offset
-    || part.content_length !== contentLength
-    || part.method.toUpperCase() !== "PUT"
-    || !Number.isFinite(Date.parse(part.expires_at))
-    || !isRecord(part.headers)
-  ) {
-    throw invalidResponse("Connect returned an invalid prepared authority import file part.");
-  }
-}
-
-function validatePreparedObjectUrl(value: string): void {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw invalidResponse("Connect returned an invalid object storage URL.");
-  }
-  if (
-    (url.protocol !== "https:"
-      && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname)))
-    || url.username
-    || url.password
-    || url.hash
-  ) {
-    throw invalidResponse("Connect returned an unsafe object storage URL.");
-  }
-}
-
-function safePreparedHeaders(input: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {};
-  for (const [name, value] of Object.entries(input)) {
-    if (["authorization", "cookie", "host", "proxy-authorization"].includes(name.toLowerCase())) {
-      throw invalidResponse("Connect returned unsafe object storage headers.");
-    }
-    if (/\r|\n/.test(name) || /\r|\n/.test(value)) {
-      throw invalidResponse("Connect returned invalid object storage headers.");
-    }
-    headers[name] = value;
-  }
-  return headers;
-}
-
-function sameFileDescriptor(
-  left: CollectionFileDescriptor,
-  right: CollectionFileDescriptor
-): boolean {
-  return left.file_id === right.file_id
-    && left.path === right.path
-    && left.revision === right.revision
-    && left.content_digest === right.content_digest
-    && left.size === right.size
-    && left.media_type === right.media_type
-    && left.media_class === right.media_class
-    && left.modified_at === right.modified_at;
 }
 
 function parseExchange(

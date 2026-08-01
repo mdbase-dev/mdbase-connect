@@ -46,6 +46,17 @@ test("rejects production files that exceed their explicit budget", async (t) => 
   ]);
 });
 
+test("does not apply hand-maintained file budgets to generated sources", async (t) => {
+  const root = await fixture({
+    "packages/example/src/catalog.generated.ts": "one\ntwo\nthree\nfour\n"
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await evaluateArchitecture(root, strictBudget);
+
+  assert.deepEqual(result.failures, []);
+});
+
 test("rejects relative source cycles including JavaScript extension mapping", async (t) => {
   const root = await fixture({
     "services/example/src/a.ts": "export { b } from './b.js';\n",
