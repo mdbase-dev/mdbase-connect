@@ -21,21 +21,29 @@ const executable = resolve(
 );
 const run = promisify(execFile);
 await run("pnpm", ["--filter", "mdbase-editor", "build"], { cwd: repoRoot });
-const editor = await startEditorServer();
-const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-desktop-docker-"));
-const pairingData = join(scratch, "pairing-profile");
-const connectedData = join(scratch, "connected-profile");
-const collectionPath = join(scratch, "fixture-collection");
-const loopbackPort = await availablePort();
-const environment = await startConnectTestEnvironment({
-  allowLocalApps: true,
-  editorOrigin: editor.origin
-});
+let editor;
+let scratch;
+let pairingData;
+let connectedData;
+let collectionPath;
+let loopbackPort;
+let environment;
 let pairingApp;
 let connectedApp;
 let portalBrowser;
 
 try {
+  editor = await startEditorServer();
+  scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-desktop-docker-"));
+  pairingData = join(scratch, "pairing-profile");
+  connectedData = join(scratch, "connected-profile");
+  collectionPath = join(scratch, "fixture-collection");
+  loopbackPort = await availablePort();
+  environment = await startConnectTestEnvironment({
+    allowLocalApps: true,
+    editorOrigin: editor.origin
+  });
+
   phase("pairing an isolated Electron profile with the Docker server");
   pairingApp = await launchDesktop(pairingData);
   await pairingApp.evaluate(({ app, shell }) => {
@@ -325,10 +333,10 @@ try {
 
   process.stdout.write("Docker-backed Electron end-to-end path passed\n");
 } catch (error) {
-  await environment.compose(["logs", "--no-color"]).catch(() => {});
+  await environment?.compose(["logs", "--no-color"]).catch(() => {});
   throw error;
 } finally {
-  for (const userData of [pairingData, connectedData]) {
+  for (const userData of [pairingData, connectedData].filter(Boolean)) {
     await run(executable, [
       "--state-dir",
       resolve(userData, "connect-home"),
@@ -340,9 +348,11 @@ try {
   await connectedApp?.close().catch(() => {});
   await pairingApp?.close().catch(() => {});
   await portalBrowser?.close().catch(() => {});
-  await environment.close().catch(() => {});
-  await new Promise((resolveClose) => editor.server.close(resolveClose));
-  await rm(scratch, { recursive: true, force: true });
+  await environment?.close().catch(() => {});
+  if (editor) {
+    await new Promise((resolveClose) => editor.server.close(resolveClose));
+  }
+  if (scratch) await rm(scratch, { recursive: true, force: true });
 }
 
 async function startEditorServer() {
