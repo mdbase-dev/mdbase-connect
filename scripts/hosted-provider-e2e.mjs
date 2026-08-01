@@ -78,7 +78,11 @@ const {
   MirrorEnrollmentClient
 } = await import("../packages/sync/dist/enrollment.js");
 const { mirrorProfileDirectory } = await import("../packages/sync/dist/device.js");
-const { MdbaseConnect, MemoryGrantKeyStore } = await import("../packages/client/dist/index.js");
+const {
+  MdbaseConnect,
+  MemoryGrantKeyStore,
+  unwrapConnectOutcome
+} = await import("../packages/client/dist/index.js");
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const { HostedProviderClient } = await import("../services/server/dist/hosted-provider.js");
@@ -926,7 +930,9 @@ try {
       emptyCookie,
       inlineManifest.origin
     );
-    const { connection: inlineConnection } = await inlineSdk.completeAuthorization(inlineCallback);
+    const { connection: inlineConnection } = unwrapConnectOutcome(
+      await inlineSdk.completeAuthorization(inlineCallback)
+    );
     const inlineToken = inlineStorage.token();
     assert.equal(
       inlineToken.authority.syncUrl,
@@ -942,9 +948,11 @@ try {
       headers.set("origin", inlineManifest.origin);
       return inlineOriginalFetch(input, { ...init, headers });
     };
-    const inlineDescription = await inlineConnection.describe().finally(() => {
-      globalThis.fetch = inlineOriginalFetch;
-    });
+    const inlineDescription = unwrapConnectOutcome(
+      await inlineConnection.describe().finally(() => {
+        globalThis.fetch = inlineOriginalFetch;
+      })
+    );
     assert.equal(inlineDescription.contracts[0]?.id, "workout.record");
   } finally {
     await new Promise((resolveClose) => inlineManifest.server.close(resolveClose));
@@ -986,7 +994,9 @@ try {
     genericCollectionId,
     manifest.origin
   );
-  const { connection: hostedConnection } = await hostedSdk.completeAuthorization(callbackUrl);
+  const { connection: hostedConnection } = unwrapConnectOutcome(
+    await hostedSdk.completeAuthorization(callbackUrl)
+  );
   const storedHostedToken = storage.token();
   assert.equal(
     storedHostedToken.authority.syncUrl,
@@ -1009,91 +1019,90 @@ try {
   assert.equal(appSync.replica_id, appReplicaId);
   providerOrigin = "https://evil.example";
   await assert.rejects(() => hostedSync.transport.openSession());
-  await assert.rejects(() => hostedConnection.query());
+  await assert.rejects(async () => unwrapConnectOutcome(await hostedConnection.query()));
   providerOrigin = manifest.origin;
-  const description = await hostedConnection.describe();
+  const description = unwrapConnectOutcome(await hostedConnection.describe());
   assert.equal(description.display_name, "Hosted writing");
   assert.deepEqual(description.contracts, []);
-  const sdkCreated = await hostedConnection.create({
+  const sdkCreated = unwrapConnectOutcome(await hostedConnection.create({
     path: "Draft.md",
     frontmatter: { title: "Created through hosted SDK" },
     body: "Generic mdbase Markdown."
-  });
-  assert.equal(sdkCreated.valid, true);
-  assert.deepEqual(sdkCreated.result.types, []);
-  assert.deepEqual(sdkCreated.result.frontmatter, {
+  }));
+  assert.equal(sdkCreated.path, "Draft.md");
+  assert.deepEqual(sdkCreated.types, []);
+  assert.deepEqual(sdkCreated.frontmatter, {
     title: "Created through hosted SDK"
   });
-  assert.deepEqual(sdkCreated.result.effective_frontmatter, {
+  assert.deepEqual(sdkCreated.effective_frontmatter, {
     title: "Created through hosted SDK"
   });
-  assert.equal(sdkCreated.result.body, "Generic mdbase Markdown.\n");
-  assert.equal(sdkCreated.result.file.name, "Draft.md");
-  const sdkUpdated = await hostedConnection.update({
+  assert.equal(sdkCreated.body, "Generic mdbase Markdown.\n");
+  assert.equal(sdkCreated.file.name, "Draft.md");
+  const sdkUpdated = unwrapConnectOutcome(await hostedConnection.update({
     path: "Draft.md",
     patch: { title: "Updated through hosted SDK" },
-    if_revision: sdkCreated.result.revision
-  });
-  assert.equal(sdkUpdated.valid, true);
-  assert.equal(sdkUpdated.result.frontmatter.title, "Updated through hosted SDK");
+    if_revision: sdkCreated.revision
+  }));
+  assert.equal(sdkUpdated.frontmatter.title, "Updated through hosted SDK");
   assert.equal(
-    sdkUpdated.result.effective_frontmatter.title,
+    sdkUpdated.effective_frontmatter.title,
     "Updated through hosted SDK"
   );
-  assert.equal(sdkUpdated.result.file.name, "Draft.md");
-  const sdkRenamed = await hostedConnection.rename({
+  assert.equal(sdkUpdated.file.name, "Draft.md");
+  const sdkRenamed = unwrapConnectOutcome(await hostedConnection.rename({
     from: "Draft.md",
     to: "Writing/Draft.md",
-    if_revision: sdkUpdated.result.revision
-  });
-  assert.equal(sdkRenamed.valid, true);
-  assert.equal(sdkRenamed.result.path, "Writing/Draft.md");
-  assert.equal(sdkRenamed.result.frontmatter.title, "Updated through hosted SDK");
-  assert.equal(sdkRenamed.result.file.folder, "Writing");
-  const defaultQuery = await hostedConnection.query();
-  assert.equal(defaultQuery.result.results[0].path, "Writing/Draft.md");
+    if_revision: sdkUpdated.revision
+  }));
+  assert.equal(sdkRenamed.path, "Writing/Draft.md");
+  assert.equal(sdkRenamed.frontmatter.title, "Updated through hosted SDK");
+  assert.equal(sdkRenamed.file.folder, "Writing");
+  const defaultQuery = unwrapConnectOutcome(await hostedConnection.query());
+  assert.equal(defaultQuery.results[0].path, "Writing/Draft.md");
   assert.equal(
-    defaultQuery.result.results[0].effective_frontmatter.title,
+    defaultQuery.results[0].effective_frontmatter.title,
     "Updated through hosted SDK"
   );
-  assert.equal(defaultQuery.result.results[0].frontmatter, undefined);
-  assert.equal(defaultQuery.result.results[0].file.path, "Writing/Draft.md");
-  const bothQuery = await hostedConnection.query({ frontmatter_mode: "both" });
+  assert.equal(defaultQuery.results[0].frontmatter, undefined);
+  assert.equal(defaultQuery.results[0].file.path, "Writing/Draft.md");
+  const bothQuery = unwrapConnectOutcome(
+    await hostedConnection.query({ frontmatter_mode: "both" })
+  );
   assert.equal(
-    bothQuery.result.results[0].frontmatter.title,
+    bothQuery.results[0].frontmatter.title,
     "Updated through hosted SDK"
   );
   assert.equal(
-    bothQuery.result.results[0].effective_frontmatter.title,
+    bothQuery.results[0].effective_frontmatter.title,
     "Updated through hosted SDK"
   );
-  const sdkBodyOnly = await hostedConnection.create({
+  const sdkBodyOnly = unwrapConnectOutcome(await hostedConnection.create({
     path: "Plain.md",
     body: "# Hosted plain Markdown",
     include_document: true
-  });
-  assert.equal(sdkBodyOnly.valid, true);
-  assert.deepEqual(sdkBodyOnly.result.frontmatter, {});
-  assert.deepEqual(sdkBodyOnly.result.effective_frontmatter, {});
-  assert.equal(sdkBodyOnly.result.body, "# Hosted plain Markdown");
-  assert.equal(sdkBodyOnly.result.document, "# Hosted plain Markdown");
-  const sdkBodyOnlyUpdated = await hostedConnection.update({
+  }));
+  assert.deepEqual(sdkBodyOnly.frontmatter, {});
+  assert.deepEqual(sdkBodyOnly.effective_frontmatter, {});
+  assert.equal(sdkBodyOnly.body, "# Hosted plain Markdown");
+  assert.equal(sdkBodyOnly.document, "# Hosted plain Markdown");
+  const sdkBodyOnlyUpdated = unwrapConnectOutcome(await hostedConnection.update({
     path: "Plain.md",
     patch: {},
     body: "# Hosted plain Markdown\n\nUpdated.",
-    if_revision: sdkBodyOnly.result.revision,
+    if_revision: sdkBodyOnly.revision,
     include_document: true
-  });
-  assert.deepEqual(sdkBodyOnlyUpdated.result.frontmatter, {});
+  }));
+  assert.deepEqual(sdkBodyOnlyUpdated.frontmatter, {});
   assert.equal(
-    sdkBodyOnlyUpdated.result.document,
+    sdkBodyOnlyUpdated.document,
     "# Hosted plain Markdown\n\nUpdated."
   );
-  assert.equal((await hostedConnection.delete({
+  assert.equal(unwrapConnectOutcome(await hostedConnection.delete({
     path: "Plain.md",
-    if_revision: sdkBodyOnlyUpdated.result.revision
-  })).valid, true);
-  const viewType = await hostedConnection.createType({
+    if_revision: sdkBodyOnlyUpdated.revision
+  })).deleted, true);
+  const viewType = unwrapConnectOutcome(await hostedConnection.createType({
     document: `---
 kind: mdbase.type
 name: view
@@ -1107,9 +1116,9 @@ schema:
     type: object
 ---
 `
-  });
-  assert.equal(viewType.valid, true);
-  const viewRecord = await hostedConnection.create({
+  }));
+  assert.equal(viewType.name, "view");
+  const viewRecord = unwrapConnectOutcome(await hostedConnection.create({
     path: "Views/writing.md",
     frontmatter: {
       type: "view",
@@ -1129,36 +1138,34 @@ schema:
         select: ["title", "projection.display_title"]
       }]
     }
-  });
-  assert.equal(viewRecord.valid, true);
-  const listedViews = await hostedConnection.listViews();
-  assert.equal(listedViews.valid, true);
-  assert.equal(listedViews.result.views[0].views[0].id, "all");
-  assert.deepEqual(listedViews.result.views[0].views[0].properties[1], {
+  }));
+  assert.equal(viewRecord.path, "Views/writing.md");
+  const listedViews = unwrapConnectOutcome(await hostedConnection.listViews());
+  assert.equal(listedViews.views[0].views[0].id, "all");
+  assert.deepEqual(listedViews.views[0].views[0].properties[1], {
     key: "display_title",
     label: "Display title"
   });
-  const executedView = await hostedConnection.executeView({
+  const executedView = unwrapConnectOutcome(await hostedConnection.executeView({
     path: "Views/writing.md",
     view: "all"
-  });
-  assert.equal(executedView.valid, true);
+  }));
   assert.deepEqual(
-    executedView.result.results.map((record) => record.path),
+    executedView.results.map((record) => record.path),
     ["Writing/Draft.md"]
   );
   assert.equal(
-    executedView.result.results[0].values.display_title,
+    executedView.results[0].values.display_title,
     "Updated through hosted SDK!"
   );
-  assert.equal((await hostedConnection.delete({
+  assert.equal(unwrapConnectOutcome(await hostedConnection.delete({
     path: "Views/writing.md",
-    if_revision: viewRecord.result.revision
-  })).valid, true);
-  assert.equal((await hostedConnection.delete({
+    if_revision: viewRecord.revision
+  })).deleted, true);
+  assert.equal(unwrapConnectOutcome(await hostedConnection.delete({
     path: "Writing/Draft.md",
-    if_revision: sdkRenamed.result.revision
-  })).valid, true);
+    if_revision: sdkRenamed.revision
+  })).deleted, true);
   const sync = hostedConnection.sync();
   assert.ok(sync);
   const offline = new OfflineReplica(sync.transport, store(sync.replicaId));
@@ -1205,11 +1212,11 @@ schema:
     body: { operations: ["describe", "read", "query"] }
   });
   await assert.rejects(
-    () => hostedConnection.create({
+    async () => unwrapConnectOutcome(await hostedConnection.create({
       path: "permission-expansion.md",
       frontmatter: { title: "Must not exist" }
-    }),
-    (error) => error?.code === "insufficient_access"
+    })),
+    (error) => error?.problem?.code === "insufficient_access"
   );
   await assert.rejects(
     () => hostedSync.transport.changes(0, 10),
@@ -1217,8 +1224,8 @@ schema:
   );
   await controlRequest(controlUrl, `/v1/grants/${hostedGrant.id}`, cookie, { method: "DELETE" });
   await assert.rejects(
-    () => hostedConnection.query(),
-    (error) => error?.code === "invalid_grant"
+    async () => unwrapConnectOutcome(await hostedConnection.query()),
+    (error) => error?.problem?.code === "invalid_grant"
   );
   globalThis.fetch = originalFetch;
 
@@ -2160,22 +2167,23 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;
       }
-    }).then(async ({ connection }) => {
-      const created = await connection.create({
+    }).then(async (authorizationOutcome) => {
+      const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
+      const created = MdbaseConnect.unwrapConnectOutcome(await connection.create({
         path: "portable-hosted-e2e.md",
         frontmatter: { title: "Created from a downloaded file" },
         body: "Direct to the hosted provider."
-      });
-      const description = await connection.describe();
-      const records = await connection.query({
+      }));
+      const description = MdbaseConnect.unwrapConnectOutcome(await connection.describe());
+      const records = MdbaseConnect.unwrapConnectOutcome(await connection.query({
         where: 'file.path == "portable-hosted-e2e.md"'
-      });
+      }));
       globalThis.portableHarness.result = {
         route: connection.route,
         collectionId: connection.collectionId,
         displayName: description.display_name,
-        created: created.valid,
-        records: records.result.results.length,
+        created: created.path === "portable-hosted-e2e.md",
+        records: records.results.length,
         syncAvailable: connection.sync() !== null,
         connections: manager.connections().length
       };
