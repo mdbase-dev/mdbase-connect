@@ -18,7 +18,9 @@ import {
 
 const CONNECTOR_FILE_TIMEOUT_MS = 30_000;
 const BROKER_FILE_TIMEOUT_MS = CONNECTOR_FILE_TIMEOUT_MS + 1_000;
-const MAX_PENDING_FILE_REQUESTS = 16;
+const MAX_PENDING_FILE_REQUESTS_PER_GRANT = 8;
+const MAX_PENDING_FILE_REQUESTS_PER_CONNECTOR = 16;
+const MAX_PENDING_FILE_REQUESTS_PROCESS = 256;
 
 interface RelayFileSession {
   generation: string;
@@ -31,6 +33,8 @@ interface PendingFileRequest {
   reject(error: Error): void;
   timer: NodeJS.Timeout;
   socket: WebSocket;
+  connectorId: string;
+  grantId: string;
   request: RelayFileFrame;
 }
 
@@ -136,7 +140,7 @@ export class RelayFileBridge {
       );
     }
     try {
-      const response = await this.send(session.socket, request);
+      const response = await this.send(connectorId, session.socket, request);
       return { version: 1, ok: true, value: encodeRelayFileFrame(response) };
     } catch (error) {
       if (error instanceof RelayUnavailableError) {
@@ -192,7 +196,11 @@ export class RelayFileBridge {
     this.pending.clear();
   }
 
-  private send(socket: WebSocket, request: RelayFileFrame): Promise<RelayFileFrame> {
+  private send(
+    connectorId: string,
+    socket: WebSocket,
+    request: RelayFileFrame
+  ): Promise<RelayFileFrame> {
     const requestId = request.header.request_id;
     if (this.pending.has(requestId)) {
       return Promise.reject(new ConnectorOperationError(
@@ -200,10 +208,31 @@ export class RelayFileBridge {
         "The file relay request ID is already in use."
       ));
     }
-    if (this.pending.size >= MAX_PENDING_FILE_REQUESTS) {
+    const connectorPending = countPending(
+      this.pending.values(),
+      (pending) => pending.connectorId === connectorId
+    );
+    const grantPending = countPending(
+      this.pending.values(),
+      (pending) => pending.connectorId === connectorId
+        && pending.grantId === request.header.grant_id
+    );
+    if (grantPending >= MAX_PENDING_FILE_REQUESTS_PER_GRANT) {
       return Promise.reject(new ConnectorOperationError(
-        "connector_busy",
+        "rate_limited",
+        "This grant is already processing its maximum number of file chunks."
+      ));
+    }
+    if (connectorPending >= MAX_PENDING_FILE_REQUESTS_PER_CONNECTOR) {
+      return Promise.reject(new ConnectorOperationError(
+        "rate_limited",
         "The connector is already processing its maximum number of file chunks."
+      ));
+    }
+    if (this.pending.size >= MAX_PENDING_FILE_REQUESTS_PROCESS) {
+      return Promise.reject(new ConnectorOperationError(
+        "rate_limited",
+        "The file relay is temporarily at capacity."
       ));
     }
     return new Promise((resolve, reject) => {
@@ -214,7 +243,15 @@ export class RelayFileBridge {
           "The connector file operation timed out."
         ));
       }, CONNECTOR_FILE_TIMEOUT_MS);
-      this.pending.set(requestId, { resolve, reject, timer, socket, request });
+      this.pending.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        socket,
+        connectorId,
+        grantId: request.header.grant_id,
+        request
+      });
       try {
         socket.send(encodeRelayFileFrame(request), { binary: true }, (error) => {
           if (error) this.reject(requestId, new RelayUnavailableError());
@@ -238,6 +275,17 @@ export class RelayFileBridge {
     if (!generation || generation === "0") throw new RelayUnavailableError();
     return generation;
   }
+}
+
+function countPending(
+  pending: IterableIterator<PendingFileRequest>,
+  matches: (request: PendingFileRequest) => boolean
+): number {
+  let count = 0;
+  for (const request of pending) {
+    if (matches(request)) count += 1;
+  }
+  return count;
 }
 
 function matchesFileResponse(request: RelayFileFrame, response: RelayFileFrame): boolean {
