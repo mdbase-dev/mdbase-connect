@@ -29,6 +29,8 @@ if (!Number.isInteger(loopbackPort) || loopbackPort < 1 || loopbackPort > 65_535
   throw new Error("MDBASE_CONNECT_E2E_LOOPBACK_PORT must be a valid TCP port");
 }
 const loopbackUrl = `http://127.0.0.1:${loopbackPort}`;
+const serverPort = await availableTcpPort();
+const serverUrl = `http://127.0.0.1:${serverPort}`;
 const { buildApp } = await import("../services/server/dist/app.js");
 const { createDatabase } = await import("../services/server/dist/db.js");
 const database = await createDatabase("memory");
@@ -37,12 +39,12 @@ const { app } = await buildApp({
   devAuth: true,
   allowInsecureManifests: true,
   portalDist: join(repoRoot, "apps", "portal", "dist"),
-  publicUrl: "http://127.0.0.1"
+  publicUrl: serverUrl
 });
-await app.listen({ host: "127.0.0.1", port: 0 });
+await app.listen({ host: "127.0.0.1", port: serverPort });
 const serverAddress = app.server.address();
 if (!serverAddress || typeof serverAddress === "string") throw new Error("Server did not open a TCP port");
-const serverUrl = `http://127.0.0.1:${serverAddress.port}`;
+if (serverAddress.port !== serverPort) throw new Error("Server did not bind the reserved TCP port");
 const scratch = await mkdtemp(join(tmpdir(), "mdbase-connect-e2e-"));
 const stateDir = join(scratch, "state");
 const collectionPath = join(scratch, "workouts");
@@ -105,9 +107,23 @@ try {
     url: serverUrl
   }]);
   onboardingPage = await onboardingContext.newPage();
-  await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
+  const onboardingErrors = [];
+  onboardingPage.on("console", (message) => {
+    if (message.type() === "error") onboardingErrors.push(message.text());
+  });
+  onboardingPage.on("pageerror", (error) => onboardingErrors.push(error.message));
+  const onboardingResponse = await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
   const localFolder = onboardingPage.getByRole("link", { name: "Use a local folder" });
-  await localFolder.waitFor({ state: "visible" });
+  try {
+    await localFolder.waitFor({ state: "visible" });
+  } catch (error) {
+    const body = (await onboardingPage.locator("body").innerText()).slice(0, 2_000);
+    throw new Error(
+      `Authorization onboarding did not render (HTTP ${onboardingResponse?.status() ?? "unknown"}). ` +
+      `Browser errors: ${onboardingErrors.join(" | ") || "none"}. Body: ${body}`,
+      { cause: error }
+    );
+  }
   const expectedDeepLink = `mdbase-connect://authorize?request_id=${authorizationId}`;
   if (await localFolder.getAttribute("href") !== expectedDeepLink) {
     throw new Error("The onboarding handoff did not preserve the authorization request ID");
@@ -754,9 +770,14 @@ implements:
       throw new Error("Browser SDK did not discover the direct connector");
     }
     const sdkQuery = unwrapConnectOutcome(await connection.query({ limit: 1_100 }));
-    if (sdkQuery.results.length !== 1_000
-        || connection.route !== "direct") {
-      throw new Error("Browser SDK did not complete the 1,000-record query directly");
+    if (sdkQuery.results.length !== 1_000 || connection.route !== "direct") {
+      throw new Error(
+        "Browser SDK did not complete the 1,000-record query directly: " +
+        JSON.stringify({
+          records: sdkQuery.results.length,
+          route: connection.route
+        })
+      );
     }
   } finally {
     globalThis.fetch = browserFetch;
@@ -1318,7 +1339,7 @@ async function rawOperation(collectionId, operation, accessToken, input) {
   if (decrypted.ok) {
     return syntheticResponse(200, { ok: true, result: decrypted.result });
   }
-  const denied = decrypted.problem.code === "access_paused" || decrypted.problem.code === "access_denied";
+    const denied = decrypted.problem.code === "access_paused" || decrypted.problem.code === "access_denied";
   return syntheticResponse(denied ? 403 : 502, { error: decrypted.problem });
 }
 
