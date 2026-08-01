@@ -1401,6 +1401,246 @@
           "const": 1
         },
         "code": {
+          "const": "file_changed_during_move"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "refresh"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "file_changed_during_read"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "refresh"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "file_move_failed"
+        },
+        "category": {
+          "const": "internal"
+        },
+        "recovery": {
+          "const": "contact_support"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "file_mutation_conflict"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "resolve_conflict"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "file_not_found"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "refresh"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "file_source_mismatch"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "refresh"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "hosted_provider_unavailable"
         },
         "category": {
@@ -1672,6 +1912,46 @@
         },
         "code": {
           "const": "invalid_loopback_url"
+        },
+        "category": {
+          "const": "validation"
+        },
+        "recovery": {
+          "const": "fix_request"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "invalid_mutation_id"
         },
         "category": {
           "const": "validation"
@@ -2688,6 +2968,46 @@
           "const": 1
         },
         "code": {
+          "const": "path_occupied"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "resolve_conflict"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "pending_mutation_unresolved"
         },
         "category": {
@@ -2858,6 +3178,46 @@
           "const": 1
         },
         "code": {
+          "const": "reference_updates_unsupported"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "fix_request"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "relay_authorization_expired"
         },
         "category": {
@@ -2985,6 +3345,46 @@
         },
         "recovery": {
           "const": "reauthorize"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "stale_file_revision"
+        },
+        "category": {
+          "const": "conflict"
+        },
+        "recovery": {
+          "const": "refresh"
         },
         "message": {
           "type": "string",
@@ -3265,6 +3665,46 @@
         },
         "recovery": {
           "const": "choose_collection"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "unsafe_file_path"
+        },
+        "category": {
+          "const": "validation"
+        },
+        "recovery": {
+          "const": "fix_request"
         },
         "message": {
           "type": "string",

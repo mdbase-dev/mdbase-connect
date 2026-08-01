@@ -144,6 +144,12 @@
     "encrypted_relay_rejected": { "category": "authorization", "recovery": "reauthorize" },
     "encryption_required": { "category": "authorization", "recovery": "reauthorize" },
     "expired_token": { "category": "authorization", "recovery": "reauthorize" },
+    "file_changed_during_move": { "category": "conflict", "recovery": "refresh" },
+    "file_changed_during_read": { "category": "conflict", "recovery": "refresh" },
+    "file_move_failed": { "category": "internal", "recovery": "contact_support" },
+    "file_mutation_conflict": { "category": "conflict", "recovery": "resolve_conflict" },
+    "file_not_found": { "category": "conflict", "recovery": "refresh" },
+    "file_source_mismatch": { "category": "conflict", "recovery": "refresh" },
     "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },
     "insufficient_access": {
       "category": "authorization",
@@ -162,6 +168,7 @@
     "invalid_device_authorization_response": { "category": "integrity", "recovery": "contact_support" },
     "invalid_encrypted_response": { "category": "integrity", "recovery": "contact_support" },
     "invalid_loopback_url": { "category": "validation", "recovery": "fix_request" },
+    "invalid_mutation_id": { "category": "validation", "recovery": "fix_request" },
     "invalid_operation_response": { "category": "integrity", "recovery": "contact_support" },
     "invalid_path": { "category": "validation", "recovery": "fix_request" },
     "invalid_preflight": { "category": "conflict", "recovery": "refresh" },
@@ -196,6 +203,7 @@
       }
     },
     "operation_outcome_unknown": { "category": "conflict", "recovery": "resolve_outcome" },
+    "path_occupied": { "category": "conflict", "recovery": "resolve_conflict" },
     "pending_mutation_unresolved": { "category": "conflict", "recovery": "resolve_outcome" },
     "query_snapshot_changed": { "category": "conflict", "recovery": "refresh" },
     "rate_limited": {
@@ -209,10 +217,12 @@
       }
     },
     "redirect_uri_required": { "category": "validation", "recovery": "fix_request" },
+    "reference_updates_unsupported": { "category": "compatibility", "recovery": "fix_request" },
     "relay_authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
     "relay_unavailable": { "category": "availability", "recovery": "retry" },
     "sandbox_unsupported": { "category": "compatibility", "recovery": "fix_request" },
     "scope_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "stale_file_revision": { "category": "conflict", "recovery": "refresh" },
     "storage_required": { "category": "compatibility", "recovery": "none" },
     "sync_failed": { "category": "availability", "recovery": "retry" },
     "temporarily_unavailable": { "category": "availability", "recovery": "retry" },
@@ -220,6 +230,7 @@
     "token_exchange_failed": { "category": "availability", "recovery": "retry" },
     "type_pack_provision_failed": { "category": "validation", "recovery": "repair_collection" },
     "unknown_collection": { "category": "selection", "recovery": "choose_collection" },
+    "unsafe_file_path": { "category": "validation", "recovery": "fix_request" },
     "unsupported_encryption": { "category": "compatibility", "recovery": "upgrade_application" },
     "unsupported_operation": { "category": "compatibility", "recovery": "fix_request" }
   }

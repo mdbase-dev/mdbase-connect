@@ -34,6 +34,12 @@ export const CONNECT_PROBLEM_CATALOG = {
   "encrypted_relay_rejected": { category: "authorization", recovery: "reauthorize" },
   "encryption_required": { category: "authorization", recovery: "reauthorize" },
   "expired_token": { category: "authorization", recovery: "reauthorize" },
+  "file_changed_during_move": { category: "conflict", recovery: "refresh" },
+  "file_changed_during_read": { category: "conflict", recovery: "refresh" },
+  "file_move_failed": { category: "internal", recovery: "contact_support" },
+  "file_mutation_conflict": { category: "conflict", recovery: "resolve_conflict" },
+  "file_not_found": { category: "conflict", recovery: "refresh" },
+  "file_source_mismatch": { category: "conflict", recovery: "refresh" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
   "invalid_application_manifest": { category: "validation", recovery: "fix_request" },
@@ -41,6 +47,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "invalid_device_authorization_response": { category: "integrity", recovery: "contact_support" },
   "invalid_encrypted_response": { category: "integrity", recovery: "contact_support" },
   "invalid_loopback_url": { category: "validation", recovery: "fix_request" },
+  "invalid_mutation_id": { category: "validation", recovery: "fix_request" },
   "invalid_operation_response": { category: "integrity", recovery: "contact_support" },
   "invalid_path": { category: "validation", recovery: "fix_request" },
   "invalid_preflight": { category: "conflict", recovery: "refresh" },
@@ -65,14 +72,17 @@ export const CONNECT_PROBLEM_CATALOG = {
   "operation_failed": { category: "internal", recovery: "contact_support" },
   "operation_invalid": { category: "validation", recovery: "fix_request" },
   "operation_outcome_unknown": { category: "conflict", recovery: "resolve_outcome" },
+  "path_occupied": { category: "conflict", recovery: "resolve_conflict" },
   "pending_mutation_unresolved": { category: "conflict", recovery: "resolve_outcome" },
   "query_snapshot_changed": { category: "conflict", recovery: "refresh" },
   "rate_limited": { category: "availability", recovery: "retry" },
   "redirect_uri_required": { category: "validation", recovery: "fix_request" },
+  "reference_updates_unsupported": { category: "compatibility", recovery: "fix_request" },
   "relay_authorization_expired": { category: "authorization", recovery: "reauthorize" },
   "relay_unavailable": { category: "availability", recovery: "retry" },
   "sandbox_unsupported": { category: "compatibility", recovery: "fix_request" },
   "scope_denied": { category: "authorization", recovery: "reauthorize" },
+  "stale_file_revision": { category: "conflict", recovery: "refresh" },
   "storage_required": { category: "compatibility", recovery: "none" },
   "sync_failed": { category: "availability", recovery: "retry" },
   "temporarily_unavailable": { category: "availability", recovery: "retry" },
@@ -80,6 +90,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "token_exchange_failed": { category: "availability", recovery: "retry" },
   "type_pack_provision_failed": { category: "validation", recovery: "repair_collection" },
   "unknown_collection": { category: "selection", recovery: "choose_collection" },
+  "unsafe_file_path": { category: "validation", recovery: "fix_request" },
   "unsupported_encryption": { category: "compatibility", recovery: "upgrade_application" },
   "unsupported_operation": { category: "compatibility", recovery: "fix_request" }
 } as const;
@@ -152,6 +163,12 @@ export interface ConnectProblemDetailsByCode {
   "encrypted_relay_rejected": undefined;
   "encryption_required": undefined;
   "expired_token": undefined;
+  "file_changed_during_move": undefined;
+  "file_changed_during_read": undefined;
+  "file_move_failed": undefined;
+  "file_mutation_conflict": undefined;
+  "file_not_found": undefined;
+  "file_source_mismatch": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
@@ -163,6 +180,7 @@ export interface ConnectProblemDetailsByCode {
   "invalid_device_authorization_response": undefined;
   "invalid_encrypted_response": undefined;
   "invalid_loopback_url": undefined;
+  "invalid_mutation_id": undefined;
   "invalid_operation_response": undefined;
   "invalid_path": undefined;
   "invalid_preflight": undefined;
@@ -190,16 +208,19 @@ export interface ConnectProblemDetailsByCode {
   "partial_result"?: unknown;
 };
   "operation_outcome_unknown": undefined;
+  "path_occupied": undefined;
   "pending_mutation_unresolved": undefined;
   "query_snapshot_changed": undefined;
   "rate_limited": {
   "retry_after_ms"?: number;
 };
   "redirect_uri_required": undefined;
+  "reference_updates_unsupported": undefined;
   "relay_authorization_expired": undefined;
   "relay_unavailable": undefined;
   "sandbox_unsupported": undefined;
   "scope_denied": undefined;
+  "stale_file_revision": undefined;
   "storage_required": undefined;
   "sync_failed": undefined;
   "temporarily_unavailable": undefined;
@@ -207,6 +228,7 @@ export interface ConnectProblemDetailsByCode {
   "token_exchange_failed": undefined;
   "type_pack_provision_failed": undefined;
   "unknown_collection": undefined;
+  "unsafe_file_path": undefined;
   "unsupported_encryption": undefined;
   "unsupported_operation": undefined;
 }
@@ -398,6 +420,42 @@ export interface ConnectProblemByCode {
     recovery: "reauthorize";
     details?: never;
   };
+  "file_changed_during_move": ConnectProblemBase & {
+    code: "file_changed_during_move";
+    category: "conflict";
+    recovery: "refresh";
+    details?: never;
+  };
+  "file_changed_during_read": ConnectProblemBase & {
+    code: "file_changed_during_read";
+    category: "conflict";
+    recovery: "refresh";
+    details?: never;
+  };
+  "file_move_failed": ConnectProblemBase & {
+    code: "file_move_failed";
+    category: "internal";
+    recovery: "contact_support";
+    details?: never;
+  };
+  "file_mutation_conflict": ConnectProblemBase & {
+    code: "file_mutation_conflict";
+    category: "conflict";
+    recovery: "resolve_conflict";
+    details?: never;
+  };
+  "file_not_found": ConnectProblemBase & {
+    code: "file_not_found";
+    category: "conflict";
+    recovery: "refresh";
+    details?: never;
+  };
+  "file_source_mismatch": ConnectProblemBase & {
+    code: "file_source_mismatch";
+    category: "conflict";
+    recovery: "refresh";
+    details?: never;
+  };
   "hosted_provider_unavailable": ConnectProblemBase & {
     code: "hosted_provider_unavailable";
     category: "availability";
@@ -436,6 +494,12 @@ export interface ConnectProblemByCode {
   };
   "invalid_loopback_url": ConnectProblemBase & {
     code: "invalid_loopback_url";
+    category: "validation";
+    recovery: "fix_request";
+    details?: never;
+  };
+  "invalid_mutation_id": ConnectProblemBase & {
+    code: "invalid_mutation_id";
     category: "validation";
     recovery: "fix_request";
     details?: never;
@@ -584,6 +648,12 @@ export interface ConnectProblemByCode {
     recovery: "resolve_outcome";
     details?: never;
   };
+  "path_occupied": ConnectProblemBase & {
+    code: "path_occupied";
+    category: "conflict";
+    recovery: "resolve_conflict";
+    details?: never;
+  };
   "pending_mutation_unresolved": ConnectProblemBase & {
     code: "pending_mutation_unresolved";
     category: "conflict";
@@ -605,6 +675,12 @@ export interface ConnectProblemByCode {
   "redirect_uri_required": ConnectProblemBase & {
     code: "redirect_uri_required";
     category: "validation";
+    recovery: "fix_request";
+    details?: never;
+  };
+  "reference_updates_unsupported": ConnectProblemBase & {
+    code: "reference_updates_unsupported";
+    category: "compatibility";
     recovery: "fix_request";
     details?: never;
   };
@@ -630,6 +706,12 @@ export interface ConnectProblemByCode {
     code: "scope_denied";
     category: "authorization";
     recovery: "reauthorize";
+    details?: never;
+  };
+  "stale_file_revision": ConnectProblemBase & {
+    code: "stale_file_revision";
+    category: "conflict";
+    recovery: "refresh";
     details?: never;
   };
   "storage_required": ConnectProblemBase & {
@@ -672,6 +754,12 @@ export interface ConnectProblemByCode {
     code: "unknown_collection";
     category: "selection";
     recovery: "choose_collection";
+    details?: never;
+  };
+  "unsafe_file_path": ConnectProblemBase & {
+    code: "unsafe_file_path";
+    category: "validation";
+    recovery: "fix_request";
     details?: never;
   };
   "unsupported_encryption": ConnectProblemBase & {
