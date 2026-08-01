@@ -1003,6 +1003,35 @@ async fn interrupted_file_rebuild_resumes_from_verified_content_cache() {
     assert!(!mirror.rebuild_plan_file().exists());
 }
 
+#[tokio::test]
+async fn successful_sync_prunes_only_unreferenced_complete_file_blobs() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let file = authority.put_file(
+        "assets/retained.png",
+        b"retained cache bytes",
+        FileMediaClass::Image,
+    );
+    let policy = SelectiveSyncPolicy {
+        file_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, _authority) = custom_harness_with_selective_sync(authority, policy);
+    mirror.sync().await.unwrap();
+    let cache = mirror.state_file.parent().unwrap().join("file-blobs");
+    let retained = cache.join(file.content_digest.strip_prefix("sha256:").unwrap());
+    let stale = cache.join("00".repeat(32));
+    let incomplete = cache.join(format!("{}.download.tmp", "11".repeat(32)));
+    fs::write(&stale, b"unreferenced").unwrap();
+    fs::write(&incomplete, b"incomplete").unwrap();
+
+    mirror.sync().await.unwrap();
+
+    assert!(retained.exists());
+    assert!(!stale.exists());
+    assert!(incomplete.exists(), "pruning ignores non-blob work files");
+}
+
 #[test]
 fn selective_sync_policy_rejects_hidden_reserved_and_ambiguous_preferences() {
     for policy in [

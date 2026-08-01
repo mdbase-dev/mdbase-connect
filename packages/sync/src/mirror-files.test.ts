@@ -122,6 +122,12 @@ class CorruptibleBlobStore implements MirrorBlobStore {
   async remove(contentDigest: `sha256:${string}`): Promise<void> {
     this.blobs.delete(contentDigest);
   }
+
+  async prune(retained: ReadonlySet<`sha256:${string}`>): Promise<void> {
+    for (const digest of this.blobs.keys()) {
+      if (!retained.has(digest as `sha256:${string}`)) this.blobs.delete(digest);
+    }
+  }
 }
 
 interface SnapshotContext {
@@ -556,6 +562,8 @@ describe("portable collection file mirror", () => {
     transport.bytes.set(descriptor.file_id, bytes);
     const blobStore = new CorruptibleBlobStore();
     blobStore.blobs.set(descriptor.content_digest, utf8.encode("bad cache"));
+    const staleDigest = `sha256:${"00".repeat(32)}` as const;
+    blobStore.blobs.set(staleDigest, utf8.encode("unreferenced cache"));
     const { mirror: target, fileSystem } = mirror(
       transport,
       new BinaryFileSystem(),
@@ -567,6 +575,7 @@ describe("portable collection file mirror", () => {
     await target.sync();
 
     expect(transport.downloads).toBe(1);
+    expect([...blobStore.blobs.keys()]).toEqual([descriptor.content_digest]);
     expect(blobStore.blobs.get(descriptor.content_digest)).toEqual(bytes);
     expect(fileSystem.files.get(descriptor.path)).toEqual(bytes);
   });

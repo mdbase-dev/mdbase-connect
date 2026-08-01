@@ -483,13 +483,33 @@ export class NodeMirrorBlobStore implements MirrorBlobStore {
     await unlinkOptional(await this.path(contentDigest));
   }
 
+  async prune(retained: ReadonlySet<`sha256:${string}`>): Promise<void> {
+    const directory = await this.directory();
+    const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    });
+    for (const entry of entries) {
+      if (
+        !entry.isFile()
+        || !/^[0-9a-f]{64}$/u.test(entry.name)
+        || retained.has(`sha256:${entry.name}`)
+      ) continue;
+      await unlinkOptional(join(directory, entry.name));
+    }
+  }
+
   private async path(contentDigest: string): Promise<string> {
     if (!/^sha256:[0-9a-f]{64}$/u.test(contentDigest)) {
       throw new SyncError("invalid_file_digest", "Collection file digest is invalid.");
     }
+    return join(await this.directory(), contentDigest.slice("sha256:".length));
+  }
+
+  private async directory(): Promise<string> {
     this.directoryPromise ??= mirrorDeviceDirectory(this.root, this.stateRoot)
       .then((path) => join(path, "file-blobs"));
-    return join(await this.directoryPromise, contentDigest.slice("sha256:".length));
+    return this.directoryPromise;
   }
 }
 

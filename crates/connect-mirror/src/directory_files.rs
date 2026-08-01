@@ -311,6 +311,70 @@ impl DirectoryMirror {
         })?;
         Ok(parent.join("file-blobs").join(digest))
     }
+
+    pub(super) fn prune_file_cache(&self) -> Result<(), MirrorError> {
+        let mut retained = BTreeSet::new();
+        if let Some(state) = self.read_state()? {
+            retained.extend(state.files.values().filter_map(|entry| {
+                entry
+                    .file
+                    .content_digest
+                    .strip_prefix("sha256:")
+                    .map(str::to_string)
+            }));
+        }
+        if let Some(plan) = self.read_rebuild_plan()? {
+            retained.extend(plan.files.iter().filter_map(|file| {
+                file.content_digest
+                    .strip_prefix("sha256:")
+                    .map(str::to_string)
+            }));
+            if let Some(prior) = plan.prior {
+                retained.extend(prior.files.values().filter_map(|entry| {
+                    entry
+                        .file
+                        .content_digest
+                        .strip_prefix("sha256:")
+                        .map(str::to_string)
+                }));
+            }
+        }
+        let parent = self.state_file.parent().ok_or_else(|| {
+            MirrorError::new("invalid_mirror_state_path", "Mirror state path is invalid.")
+        })?;
+        let cache = parent.join("file-blobs");
+        let entries = match fs::read_dir(&cache) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(MirrorError::io("Could not inspect", &cache, error)),
+        };
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| MirrorError::io("Could not inspect", &cache, error))?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name.len() != 64
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                || retained.contains(name)
+            {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .map_err(|error| MirrorError::io("Could not inspect", &entry.path(), error))?;
+            if !file_type.is_file() || file_type.is_symlink() {
+                continue;
+            }
+            fs::remove_file(entry.path()).map_err(|error| {
+                MirrorError::io("Could not prune mirror file cache", &entry.path(), error)
+            })?;
+        }
+        Ok(())
+    }
 }
 
 pub(super) fn validate_visible_file_path(relative: &str, folder: bool) -> Result<(), MirrorError> {

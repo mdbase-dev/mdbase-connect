@@ -257,6 +257,12 @@ export class MemoryMirrorBlobStore implements MirrorBlobStore {
   async remove(contentDigest: `sha256:${string}`): Promise<void> {
     this.blobs.delete(contentDigest);
   }
+
+  async prune(retained: ReadonlySet<`sha256:${string}`>): Promise<void> {
+    for (const digest of this.blobs.keys()) {
+      if (!retained.has(digest as `sha256:${string}`)) this.blobs.delete(digest);
+    }
+  }
 }
 
 /** In-process lease for filesystem-neutral adapters and deterministic tests. */

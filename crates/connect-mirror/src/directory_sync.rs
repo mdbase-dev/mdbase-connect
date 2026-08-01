@@ -3,7 +3,8 @@ use super::*;
 impl DirectoryMirror {
     pub async fn sync(&self) -> Result<(), MirrorError> {
         let _lease = MirrorLease::acquire(&self.lock_file)?;
-        self.sync_unlocked().await
+        self.sync_unlocked().await?;
+        self.prune_file_cache()
     }
 
     pub(super) async fn sync_unlocked(&self) -> Result<(), MirrorError> {

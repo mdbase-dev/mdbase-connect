@@ -80,6 +80,13 @@ describe("Node collection file adapters", () => {
 
       expect(await blobStore.has(contentDigest)).toBe(true);
       expect(await collect(blobStore.read(contentDigest))).toEqual(bytes);
+      const staleDigest = `sha256:${"00".repeat(32)}` as const;
+      await blobStore.write(staleDigest, (async function* () {
+        yield new Uint8Array([1, 2, 3]);
+      })());
+      await blobStore.prune(new Set([contentDigest]));
+      expect(await blobStore.has(contentDigest)).toBe(true);
+      expect(await blobStore.has(staleDigest)).toBe(false);
       expect(await readdir(root)).toEqual([]);
       expect((await readdir(stateRoot, { recursive: true })).some((name) =>
         String(name).includes(contentDigest.slice("sha256:".length))

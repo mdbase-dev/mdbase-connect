@@ -107,7 +107,10 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
   }
 
   async sync(): Promise<void> {
-    await this.lease.runExclusive(() => this.syncUnlocked());
+    await this.lease.runExclusive(async () => {
+      await this.syncUnlocked();
+      await this.pruneFileBlobs();
+    });
   }
 
   private async syncUnlocked(): Promise<void> {
@@ -928,6 +931,20 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
 
   private async writeState(state: MirrorState): Promise<void> {
     await this.stateStore.write(state);
+  }
+
+  private async pruneFileBlobs(): Promise<void> {
+    if (!this.blobStore) return;
+    const state = await this.readState();
+    if (!state) return;
+    const retained = new Set<`sha256:${string}`>();
+    for (const entry of Object.values(state.files ?? {})) {
+      retained.add(entry.file.content_digest);
+    }
+    for (const pending of state.pending_files ?? []) {
+      if ("content_digest" in pending) retained.add(pending.content_digest);
+    }
+    await this.blobStore.prune(retained);
   }
 
   private reportProgress(progress: MirrorProgress): void {

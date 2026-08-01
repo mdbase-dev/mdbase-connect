@@ -11,4 +11,6 @@ export interface MirrorBlobStore {
   /** Atomic: a failed or partially consumed source must not become visible. */
   write(contentDigest: `sha256:${string}`, source: AsyncIterable<Uint8Array>): Promise<void>;
   remove(contentDigest: `sha256:${string}`): Promise<void>;
+  /** Remove complete cached blobs not referenced by durable mirror state. */
+  prune(retained: ReadonlySet<`sha256:${string}`>): Promise<void>;
 }
