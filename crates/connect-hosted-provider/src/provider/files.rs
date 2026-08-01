@@ -90,6 +90,7 @@ impl From<&HostedFileTransfer> for HostedUploadCleanup {
 
 mod lifecycle;
 mod list_download;
+mod maintenance;
 mod persistence;
 mod upload;
 

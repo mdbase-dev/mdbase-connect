@@ -119,7 +119,10 @@ Each provider process also runs idempotent retention maintenance. It compacts
 collections past `MDBASE_CONNECT_HOSTED_RETAIN_CHANGES`; a replica older than
 that boundary takes the ordinary snapshot-reset path instead of pinning an
 unbounded log. `MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS` controls the
-scan interval.
+scan interval. The same bounded, multi-instance-safe pass expires abandoned
+ordinary file transfers. It persists object-deletion intent before contacting
+R2, resumes interrupted multipart cleanup, and drains deletions only after
+rechecking that no durable file metadata references the object.
 
 ## Mirrors and authority transfer
 

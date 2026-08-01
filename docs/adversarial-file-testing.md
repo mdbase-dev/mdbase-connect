@@ -24,7 +24,8 @@ components are kept under its `support/` directory:
 
 - `ControlledBlobStore` models objects and offers one-shot checkpoints before
   and after a copy becomes visible. A before-publish checkpoint can reproduce a
-  copy that completes after cancellation cleanup.
+  copy that completes after cancellation cleanup, and injected deletion
+  failures verify that cleanup intent survives an object-store outage.
 - `FileLifecycleFixture` creates an isolated collection and writer and exposes
   only lifecycle-level setup operations.
 - scheduling helpers observe PostgreSQL lock state instead of relying on
@@ -36,6 +37,11 @@ components are kept under its `support/` directory:
 Scenarios run serially because table locks are intentionally global, but each
 uses a fresh collection and object namespace. Provider calls themselves run on
 the normal multi-threaded runtime and separate database connections.
+
+The matrix also schedules periodic maintenance against active finalization,
+late object publication, and abandoned open transfers. These cases prove both
+possible winners: maintenance reclaims an unowned upload, while a commit holding
+the transfer row remains authoritative and is skipped without cleanup.
 
 ## Adding a scenario
 

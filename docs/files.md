@@ -285,6 +285,14 @@ Records and required structural resources are not affected by file media
 toggles. Changing a materialization policy has its own revision and reconciles
 the file projection without granting new application authority.
 
+Excluded folders use the same case-folded, Unicode-normalized portable path
+identity as collision checks. A folder therefore remains excluded on every
+supported filesystem, independent of the current device's case sensitivity.
+After a successful durable mirror checkpoint, the device-local
+content-addressed blob cache removes complete blobs not referenced by current
+files, pending file mutations, or recovery state. Interrupted work files are
+not treated as complete cache entries.
+
 Authority transfer includes the pinned file manifest and independently
 resumable blobs. The final authority manifest covers file IDs, paths, revisions,
 digests, and sizes. Activation cannot occur until the target has verified every
