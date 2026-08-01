@@ -488,19 +488,25 @@ describe("MdbaseFileClient", () => {
     expect(objectFetch).not.toHaveBeenCalled();
   });
 
-  it("downloads encrypted frames concurrently, reorders them, and verifies integrity", async () => {
+  it("streams encrypted frames in order with one negotiated part in memory", async () => {
     const content = bytes("framed chunks stay ordered");
     const file = descriptor("framed.bin", content);
+    let active = 0;
+    let maximumActive = 0;
     const framed: MdbaseFramedFileTransport = {
       async uploadChunk() {
         throw new Error("unexpected upload");
       },
       async downloadChunk(session, index) {
-        await new Promise((resolve) => setTimeout(resolve, (4 - index) * 2));
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 2));
         const size = session.strategy.kind === "framed_chunks"
           ? session.strategy.chunk_size
           : 0;
-        return content.slice(index * size, Math.min(content.length, (index + 1) * size));
+        const chunk = content.slice(index * size, Math.min(content.length, (index + 1) * size));
+        active -= 1;
+        return chunk;
       }
     };
     const client = fileClient(async (method, path, input) => {
@@ -512,6 +518,22 @@ describe("MdbaseFileClient", () => {
     }, framed);
 
     await expect(client.downloadBytes(file, { concurrency: 4 })).resolves.toEqual(content);
+    expect(maximumActive).toBe(1);
+  });
+
+  it("requires the streaming API for downloads above the bounded convenience limit", async () => {
+    const request = vi.fn();
+    const client = fileClient(request);
+    const file = {
+      ...descriptor("large.bin", bytes("placeholder")),
+      size: 64 * 1024 * 1024 + 1
+    };
+
+    await expect(client.download(file)).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("downloadStream()")
+    });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("fails closed when an authority negotiates frames without a framed transport", async () => {

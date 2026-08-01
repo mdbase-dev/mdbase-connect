@@ -17,6 +17,7 @@ const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const MAX_OBJECT_ATTEMPTS = 3;
+const MAX_BUFFERED_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export type MdbaseFileSource = Blob | ArrayBuffer | ArrayBufferView;
@@ -253,87 +254,121 @@ export class MdbaseFileClient {
     file: CollectionFileDescriptor,
     options: MdbaseFileDownloadOptions = {}
   ): Promise<Blob> {
-    this.requireAction("read");
-    const concurrency = validConcurrency(options.concurrency);
-    const transferId = crypto.randomUUID();
-    try {
-      const session = await this.request<FileTransferSession>(
-        "POST",
-        "downloads",
-        {
-          protocol_version: FILE_PROTOCOL_VERSION,
-          type: "open_file_download",
-          transfer_id: transferId,
-          file_id: file.file_id,
-          revision: file.revision
-        },
-        options.signal
+    if (file.size > MAX_BUFFERED_DOWNLOAD_BYTES) {
+      throw connectError(
+        "invalid_request",
+        `download() buffers at most ${MAX_BUFFERED_DOWNLOAD_BYTES} bytes; use downloadStream() for larger files.`
       );
+    }
+    const stream = await this.downloadStream(file, options);
+    const chunks: Uint8Array[] = [];
+    const reader = stream.getReader();
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      chunks.push(result.value);
+    }
+    return new Blob(chunks.map((chunk) => {
+      const copy = new Uint8Array(chunk.byteLength);
+      copy.set(chunk);
+      return copy.buffer;
+    }), { type: file.media_type ?? "" });
+  }
+
+  /** Download and verify a file with memory bounded to one negotiated part. */
+  async downloadStream(
+    file: CollectionFileDescriptor,
+    options: MdbaseFileDownloadOptions = {}
+  ): Promise<ReadableStream<Uint8Array>> {
+    this.requireAction("read");
+    validConcurrency(options.concurrency);
+    const transferId = crypto.randomUUID();
+    let session: FileTransferSession;
+    try {
+      session = await this.request<FileTransferSession>("POST", "downloads", {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        type: "open_file_download",
+        transfer_id: transferId,
+        file_id: file.file_id,
+        revision: file.revision
+      }, options.signal);
       requireTransferSession(session, transferId, "download");
-      if (
-        session.total_size !== file.size
-        || (session.strategy.kind !== "object_ranges"
-          && session.strategy.kind !== "framed_chunks")
-      ) {
+      if (session.total_size !== file.size
+          || session.strategy.kind !== "object_ranges"
+            && session.strategy.kind !== "framed_chunks") {
         throw connectError("invalid_operation_response", "The authority returned an incompatible download session.");
       }
-      const framed = session.strategy.kind === "framed_chunks";
-      if (framed && !this.framed) {
+      if (session.strategy.kind === "framed_chunks" && !this.framed) {
         throw connectError("invalid_operation_response", "Encrypted file chunk delivery is unavailable.");
       }
-      const partSize = session.strategy.kind === "framed_chunks"
-        ? session.strategy.chunk_size
-        : session.strategy.part_size;
-      const partCount = Math.ceil(file.size / partSize);
-      let transferredBytes = 0;
-      const chunks = await mapConcurrent(partCount, concurrency, async (partIndex) => {
-        const offset = partIndex * partSize;
-        const length = Math.min(partSize, file.size - offset);
-        const chunk = framed
-          ? await retryChunk(
-            () => this.framed!.downloadChunk(session, partIndex, options.signal),
-            options.signal
-          )
-          : await this.downloadPart(
-            transferId,
-            partIndex,
-            offset,
-            length,
-            options.signal
-          );
-        if (chunk.byteLength !== length) {
-          throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
-        }
-        transferredBytes += chunk.byteLength;
-        options.onProgress?.({
-          phase: "downloading",
-          transferredBytes,
-          totalBytes: file.size
-        });
-        return chunk;
-      });
-      const hash = new IncrementalSha256();
-      let receivedBytes = 0;
-      for (const chunk of chunks) {
-        hash.update(chunk);
-        receivedBytes += chunk.byteLength;
-      }
+    } catch (error) {
+      await this.abort(transferId);
+      throw normalizeFileError(error);
+    }
+
+    const partSize = session.strategy.kind === "framed_chunks"
+      ? session.strategy.chunk_size
+      : session.strategy.part_size;
+    const partCount = Math.ceil(file.size / partSize);
+    const hash = new IncrementalSha256();
+    let partIndex = 0;
+    let receivedBytes = 0;
+    let closed = false;
+    const finish = async () => {
+      if (closed) return;
+      closed = true;
+      await this.abort(transferId);
+    };
+    const verify = () => {
       if (receivedBytes !== file.size || `sha256:${hash.digestHex()}` !== file.content_digest) {
         throw connectError("invalid_operation_response", "Downloaded file bytes failed integrity verification.");
       }
-      return new Blob(
-        chunks.map((chunk) => {
-          const copy = new Uint8Array(chunk.byteLength);
-          copy.set(chunk);
-          return copy.buffer;
-        }),
-        { type: file.media_type ?? "" }
-      );
-    } catch (error) {
-      throw normalizeFileError(error);
-    } finally {
-      await this.abort(transferId);
-    }
+    };
+
+    return new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        try {
+          throwIfAborted(options.signal);
+          if (partIndex >= partCount) {
+            verify();
+            await finish();
+            controller.close();
+            return;
+          }
+          const offset = partIndex * partSize;
+          const length = Math.min(partSize, file.size - offset);
+          const chunk = session.strategy.kind === "framed_chunks"
+            ? await retryChunk(
+              () => this.framed!.downloadChunk(session, partIndex, options.signal),
+              options.signal
+            )
+            : await this.downloadPart(transferId, partIndex, offset, length, options.signal);
+          if (chunk.byteLength !== length) {
+            throw connectError("invalid_operation_response", "A file chunk had the wrong byte length.");
+          }
+          hash.update(chunk);
+          receivedBytes += chunk.byteLength;
+          partIndex += 1;
+          options.onProgress?.({
+            phase: "downloading",
+            transferredBytes: receivedBytes,
+            totalBytes: file.size
+          });
+          if (partIndex === partCount) {
+            verify();
+          }
+          controller.enqueue(chunk);
+          if (partIndex === partCount) {
+            await finish();
+            controller.close();
+          }
+        } catch (error) {
+          await finish();
+          controller.error(normalizeFileError(error));
+        }
+      },
+      cancel: finish
+    });
   }
 
   async downloadBytes(

@@ -429,13 +429,17 @@ const saved = await connection.files.upload("Photos/image.jpg", browserFile, {
 });
 
 for await (const file of connection.files.list({ folder: "Photos" })) {
-  const blob = await connection.files.download(file);
-  console.log(file.file_id, file.path, blob.size);
+  const stream = await connection.files.downloadStream(file);
+  await stream.pipeTo(destination);
 }
 
 const moved = await connection.files.move(saved, "Archive/image.jpg");
 await connection.files.delete(moved);
 ```
+
+`download()` and `downloadBytes()` are convenient for values up to 64 MiB.
+Use `downloadStream()` for larger files; it verifies the pinned revision while
+holding at most one negotiated part in memory.
 
 Both lifecycle methods are optimistic and use the descriptor revision by
 default. Pass a stable `mutationId` when retrying after an ambiguous network

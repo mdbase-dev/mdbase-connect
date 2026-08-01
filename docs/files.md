@@ -323,8 +323,8 @@ const stored = await connection.files.upload(
 );
 
 for await (const file of connection.files.list({ folder: "Photos" })) {
-  const blob = await connection.files.download(file, { signal, onProgress });
-  image.src = URL.createObjectURL(blob);
+  const stream = await connection.files.downloadStream(file, { signal, onProgress });
+  await stream.pipeTo(destination);
 }
 
 const moved = await connection.files.move(stored, "Archive/image.jpg");
@@ -357,8 +357,11 @@ application contract or a future generic record-link API; it is not part of
 the current client surface.
 
 The hosted implementation already owns transport negotiation, incremental
-hashing, single versus multipart R2 delivery, bounded concurrent range reads,
+hashing, single versus multipart R2 delivery, bounded sequential range reads,
 retry, receipts, progress, abort cleanup, and exact download verification.
+`download()` and `downloadBytes()` are convenience methods capped at 64 MiB;
+larger downloads use `downloadStream()` so memory remains bounded to one
+negotiated part.
 Local and relayed authorities use the same facade with encrypted MDBF chunks.
 Stable file IDs remain the machine identity; returned paths remain suitable for
 human-readable Markdown links. Link resolution delegates to authority-owned
