@@ -16,7 +16,11 @@ import {
   signAuthorityRequest,
   type GrantKeyStore
 } from "./crypto.js";
-import { MdbaseConnectError } from "./errors.js";
+import {
+  MdbaseConnectError,
+  connectError,
+  serverConnectError
+} from "./errors.js";
 import type {
   OperationAttempt,
   PendingMutation,
@@ -164,10 +168,9 @@ export class ConnectionTransport {
   ): Promise<Result> {
     const pending = this.pendingMutation();
     if (!pending) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "no_pending_mutation",
-        "There is no interrupted mutation to resume.",
-        { recovery: "none" }
+        "There is no interrupted mutation to resume."
       );
     }
     return this.performOperation<Result>(pending.operation, input, options);
@@ -180,22 +183,20 @@ export class ConnectionTransport {
   ): Promise<Result> {
     throwIfCancelled(options.signal);
     let token = this.currentToken();
-    if (!token) throw new MdbaseConnectError("not_authorized", "Connect this application before accessing a collection.");
+    if (!token) throw connectError("not_authorized", "Connect this application before accessing a collection.");
     if (!token.operations.includes(operation)) {
-      throw new MdbaseConnectError("insufficient_access", `This connection does not allow ${operation}.`, {
-        requiresAuthorization: true,
-        recovery: "reauthorize",
+      throw connectError("insufficient_access", `This connection does not allow ${operation}.`, {
         details: {
-          requiredOperations: [operation],
-          grantedOperations: [...token.operations],
-          missingOperations: [operation]
+          required_operations: [operation],
+          granted_operations: [...token.operations],
+          missing_operations: [operation]
         }
       });
     }
     let tryDirect = await this.shouldAttemptDirect(token);
     if (!tryDirect) {
       token = await this.authorizedToken();
-      if (!token) throw new MdbaseConnectError("not_authorized", "Reconnect this application to continue.");
+      if (!token) throw connectError("not_authorized", "Reconnect this application to continue.");
     }
     let attempt: OperationAttempt;
     try {
@@ -210,9 +211,10 @@ export class ConnectionTransport {
       if (attempt.pendingMutation
           && (attempt.directDeliveryUncertain
             || (attempt.encryptedRequest && attempt.resumingMutation))) {
-        throw new MdbaseConnectError(
+        throw connectError(
           "direct_outcome_unknown",
-          "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change."
+          "The direct operation may have completed, but its encrypted grant changed before the response could be recovered. Refresh before making another change.",
+          { operationOutcome: "unknown" }
         );
       }
       if (attempt.pendingMutation) this.clearPendingMutation();
@@ -244,7 +246,7 @@ export class ConnectionTransport {
     if (attempt.encryptedRequest) {
       const encryptedResponse = body?.envelope as EncryptedRelayOperationResponse | undefined;
       if (!encryptedResponse || !token.encryption || !token.grantId || !token.keyHandle) {
-        throw new MdbaseConnectError(
+        throw connectError(
           "invalid_encrypted_response",
           "The relay did not return an encrypted connector response."
         );
@@ -258,16 +260,20 @@ export class ConnectionTransport {
           encryptedResponse
         );
         if (attempt.pendingMutation) this.clearPendingMutation();
-        if (!decrypted.ok) throw new MdbaseConnectError(decrypted.error.code, decrypted.error.message);
+        if (!decrypted.ok) throw serverConnectError(
+          decrypted.error.code,
+          decrypted.error.message,
+          { operationOutcome: "rejected" }
+        );
         return decrypted.result;
       } catch (error) {
         if (error instanceof MdbaseConnectError) throw error;
-        if (error instanceof RelayCryptoError) throw new MdbaseConnectError(error.code, error.message);
+        if (error instanceof RelayCryptoError) throw serverConnectError(error.code, error.message);
         throw error;
       }
     }
     if (body?.protocol_version !== 1 || body?.request_id !== attempt.requestId) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "invalid_operation_response",
         "The collection authority returned a response for a different protocol request."
       );
@@ -287,7 +293,7 @@ export class ConnectionTransport {
     if (!token?.authority
         || token.collectionId !== collectionId
         || token.authority.replicaId !== replicaId) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "authority_authorization_changed",
         "Reconnect this collection authority before synchronizing."
       );
@@ -298,7 +304,7 @@ export class ConnectionTransport {
       if (!token.authority
           || token.collectionId !== collectionId
           || token.authority.replicaId !== replicaId) {
-        throw new MdbaseConnectError(
+        throw connectError(
           "authority_authorization_changed",
           "Reconnect this collection authority before synchronizing."
         );
@@ -317,7 +323,7 @@ export class ConnectionTransport {
     input?: unknown
   ): Promise<Response> {
     if (!token.authority) {
-      throw new MdbaseConnectError("not_remote_authority", "This authorization has no remote authority endpoint.");
+      throw connectError("not_remote_authority", "This authorization has no remote authority endpoint.");
     }
     const url = `${token.authority.syncUrl}/${path}`;
     const body = input === undefined ? undefined : JSON.stringify(input);
@@ -361,7 +367,7 @@ export class ConnectionTransport {
             || pending.keyId !== token.encryption?.key_id
             || pending.operation !== operation
             || pending.inputFingerprint !== inputFingerprint) {
-          throw new MdbaseConnectError(
+          throw connectError(
             "pending_mutation_unresolved",
             "A previous write still has an unknown outcome. Retry that exact write before making another change."
           );
@@ -373,13 +379,13 @@ export class ConnectionTransport {
     }
     if (token.encryption && !token.authority) {
       if (!token.grantId || !token.keyHandle) {
-        throw new MdbaseConnectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
+        throw connectError("missing_grant_key", "Reconnect this application to restore encrypted access.");
       }
       try {
         if (pendingMutation) {
           if (pending) {
             if (!pending.envelope) {
-              throw new MdbaseConnectError(
+              throw connectError(
                 "pending_mutation_unresolved",
                 "The pending write belongs to a different transport. Reconnect before retrying it."
               );
@@ -415,7 +421,7 @@ export class ConnectionTransport {
           );
         }
       } catch (error) {
-        if (error instanceof RelayCryptoError) throw new MdbaseConnectError(error.code, error.message);
+        if (error instanceof RelayCryptoError) throw serverConnectError(error.code, error.message);
         throw error;
       }
       body = encryptedRequest;
@@ -717,7 +723,7 @@ export class ConnectionTransport {
     if (token.expiresAt > Date.now() + 30_000) return token;
     if (!token.refreshToken || (token.refreshExpiresAt ?? 0) <= Date.now()) {
       if (this.directCapable(token)) {
-        throw new MdbaseConnectError(
+        throw connectError(
           "relay_authorization_expired",
           "Direct access is still available on this computer, but using the relay requires reconnecting this application."
         );
@@ -739,10 +745,10 @@ export class ConnectionTransport {
   private async performRefresh(): Promise<StoredToken> {
     const current = this.currentToken();
     if (!current?.refreshToken) {
-      throw new MdbaseConnectError("not_authorized", "Reconnect this application to continue.");
+      throw connectError("not_authorized", "Reconnect this application to continue.");
     }
     if ((current.refreshExpiresAt ?? 0) <= Date.now()) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "relay_authorization_expired",
         "Direct access is still available on this computer, but using the relay requires reconnecting this application."
       );
@@ -794,7 +800,7 @@ export class ConnectionTransport {
   ): Promise<Record<string, string>> {
     if (!token.authority?.proofPublicKey) return {};
     if (!token.keyHandle) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "missing_grant_key",
         "Reconnect this application to restore remote authority request signing."
       );
@@ -814,7 +820,7 @@ export class ConnectionTransport {
       );
     } catch (error) {
       if (error instanceof RelayCryptoError) {
-        throw new MdbaseConnectError(error.code, error.message);
+        throw serverConnectError(error.code, error.message);
       }
       throw error;
     }
@@ -822,7 +828,7 @@ export class ConnectionTransport {
 
   private storeTokenResponse(body: any, clientId: string, keyHandle?: string): StoredToken {
     if (body.collection_id !== this.collectionId) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "collection_mismatch",
         "The refreshed authorization belongs to a different collection."
       );

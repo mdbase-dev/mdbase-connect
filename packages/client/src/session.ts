@@ -16,7 +16,7 @@ import type {
   MdbaseAuthorizationCapabilities,
   MdbaseConnectionInfo
 } from "./connection-types.js";
-import { MdbaseConnectError } from "./errors.js";
+import { connectError } from "./errors.js";
 import { DEFAULT_OPERATIONS } from "./internal-types.js";
 import { uniqueOperations } from "./operation-helpers.js";
 import type {
@@ -141,7 +141,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   ): MdbaseConnection<Frontmatter> {
     const connection = this.connect.connection(collectionId);
     if (!connection) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "unknown_collection",
         "This collection is not authorized for this application."
       );
@@ -176,7 +176,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     const selectedCollectionId = this.selection.selectedCollectionId();
     if (target === "selected" && !selectedCollectionId) {
-      throw new MdbaseConnectError("collection_not_selected", "Choose a collection before updating its access.");
+      throw connectError("collection_not_selected", "Choose a collection before updating its access.");
     }
     const targetCollectionId = typeof target === "object"
       ? target.collectionId
@@ -208,7 +208,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter> | { kind: "unchanged"; connection: MdbaseConnection<Frontmatter> }> {
     const current = this.snapshot;
     if (current.status !== "ready") {
-      throw new MdbaseConnectError("collection_not_ready", "Choose an authorized collection first.");
+      throw connectError("collection_not_ready", "Choose an authorized collection first.");
     }
     const required = uniqueOperations(requiredOperations);
     const capabilities = current.connection.authorizationCapabilities(required);
@@ -234,7 +234,7 @@ export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
     callbackUrl: string
   ): Promise<MdbaseConnection<Frontmatter>> {
     if (!isAuthorizationCallbackUrl(callbackUrl)) {
-      return Promise.reject(new MdbaseConnectError("invalid_callback", "This URL is not an authorization callback."));
+      return Promise.reject(connectError("invalid_callback", "This URL is not an authorization callback."));
     }
     if (this.callbackPromise) return this.callbackPromise;
     this.transactionDepth += 1;

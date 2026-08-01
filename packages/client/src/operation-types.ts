@@ -1,10 +1,10 @@
 import type {
   CollectionOperation,
+  ConnectProblem,
   JsonObject,
   QueryRecord,
   RecordDocument
 } from "@mdbase/connect-protocol";
-import type { MdbaseConnectError } from "./errors.js";
 
 export interface MdbaseDesiredTimer {
   /** Stable within the timer namespace. */
@@ -263,8 +263,8 @@ export interface WatchRetryOptions {
 export type WatchStatus =
   | { state: "connecting"; cursor?: number }
   | { state: "connected"; cursor: number; recovered: boolean }
-  | { state: "reconnecting"; cursor?: number; attempt: number; retryInMs: number; error: unknown }
-  | { state: "reset_required"; cursor: number; error: MdbaseConnectError };
+  | { state: "reconnecting"; cursor?: number; attempt: number; retryInMs: number; problem: ConnectProblem }
+  | { state: "reset_required"; cursor: number; problem: ConnectProblem<"change_cursor_reset"> };
 
 /** Provider-neutral operation transport used by the typed collection client. */
 export interface MdbaseCollectionTransport {

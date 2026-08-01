@@ -2,7 +2,7 @@ import {
   cleanAuthorizationParameters,
   isAuthorizationCallbackUrl
 } from "./authorization-url.js";
-import { MdbaseConnectError } from "./errors.js";
+import { connectError } from "./errors.js";
 
 export type MdbaseSelectionHistory = "push" | "replace";
 
@@ -107,14 +107,14 @@ export class MdbaseBrowserSelection implements MdbaseSessionSelection {
 
   private currentUrl(): URL {
     if (typeof location === "undefined") {
-      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
+      throw connectError("browser_required", "Browser selection requires a browser environment.");
     }
     return new URL(location.href);
   }
 
   private browserHistory(): History {
     if (typeof history === "undefined") {
-      throw new MdbaseConnectError("browser_required", "Browser selection requires a browser environment.");
+      throw connectError("browser_required", "Browser selection requires a browser environment.");
     }
     return history;
   }

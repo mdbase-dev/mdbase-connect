@@ -27,7 +27,21 @@
     "upgrade_connector"
   ],
   "codes": {
-    "approval_window_blocked": { "category": "authorization", "recovery": "reauthorize" },
+    "access_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "approval_window_blocked": {
+      "category": "authorization",
+      "recovery": "reauthorize",
+      "details": {
+        "required": ["user_code", "verification_uri", "verification_uri_complete", "expires_at", "interval_seconds"],
+        "properties": {
+          "user_code": { "type": "string" },
+          "verification_uri": { "type": "string" },
+          "verification_uri_complete": { "type": "string" },
+          "expires_at": { "type": "integer" },
+          "interval_seconds": { "type": "integer" }
+        }
+      }
+    },
     "authority_authorization_changed": { "category": "authorization", "recovery": "reauthorize" },
     "authorization_cancelled": { "category": "cancellation", "recovery": "none" },
     "authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
@@ -184,6 +198,7 @@
         }
       }
     },
+    "redirect_uri_required": { "category": "validation", "recovery": "fix_request" },
     "relay_authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
     "relay_unavailable": { "category": "availability", "recovery": "retry" },
     "sandbox_unsupported": { "category": "compatibility", "recovery": "fix_request" },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import type { CollectionDescription } from "@mdbase/connect-protocol";
+import { unwrapConnectOutcome } from "@mdbase/connect";
 import {
   DataContractDefinitionError,
   TypePackDefinitionError,
@@ -243,8 +244,8 @@ describe("developer sandbox", () => {
       records: [{ path: "seed.md", body: "# Seed" }]
     });
 
-    const seed = await client.read({ path: "seed.md" });
-    expect(seed.result).toMatchObject({
+    const seed = unwrapConnectOutcome(await client.read({ path: "seed.md" }));
+    expect(seed).toMatchObject({
       path: "seed.md",
       frontmatter: {},
       effective_frontmatter: {},
@@ -252,8 +253,8 @@ describe("developer sandbox", () => {
       types: []
     });
 
-    const created = await client.create({ path: "created.md", body: "# Created" });
-    expect(created.result.frontmatter).toEqual({});
+    const created = unwrapConnectOutcome(await client.create({ path: "created.md", body: "# Created" }));
+    expect(created.frontmatter).toEqual({});
     expect(transport.snapshot()).toEqual(expect.arrayContaining([
       expect.objectContaining({
         path: "created.md",
@@ -274,11 +275,10 @@ describe("developer sandbox", () => {
       }]
     });
 
-    const seed = await client.read({ path: "tasks/seed.md" });
-    expect(seed.valid).toBe(true);
-    expect(seed.result.effective_frontmatter.status).toBe("open");
-    expect(seed.result.frontmatter).not.toHaveProperty("status");
-    expect(seed.result).toEqual(expect.objectContaining({
+    const seed = unwrapConnectOutcome(await client.read({ path: "tasks/seed.md" }));
+    expect(seed.effective_frontmatter.status).toBe("open");
+    expect(seed.frontmatter).not.toHaveProperty("status");
+    expect(seed).toEqual(expect.objectContaining({
       path: "tasks/seed.md",
       revision: expect.any(String),
       types: ["task"],
@@ -291,33 +291,37 @@ describe("developer sandbox", () => {
       })
     }));
 
-    const created = await client.create({
+    const created = unwrapConnectOutcome(await client.create({
       type: "task",
       path: "tasks/new.md",
       frontmatter: { type: "task", title: "New" }
-    });
-    expect(created.valid).toBe(true);
-    const updated = await client.update({
+    }));
+    const updated = unwrapConnectOutcome(await client.update({
       path: "tasks/new.md",
       patch: { title: "Updated" },
-      if_revision: created.result.revision
-    });
-    expect(updated.valid).toBe(true);
-    expect(updated.result.frontmatter.title).toBe("Updated");
-    expect(updated.result.effective_frontmatter).toEqual({
+      if_revision: created.revision
+    }));
+    expect(updated.frontmatter.title).toBe("Updated");
+    expect(updated.effective_frontmatter).toEqual({
       type: "task",
       title: "Updated",
       status: "open"
     });
-    expect(updated.result.file.name).toBe("new.md");
+    expect(updated.file.name).toBe("new.md");
 
     const stale = await client.update({
       path: "tasks/new.md",
       patch: { title: "Stale" },
-      if_revision: created.result.revision
+      if_revision: created.revision
     });
-    expect(stale.valid).toBe(false);
-    expect(stale.diagnostics[0]?.code).toBe("concurrent_modification");
+    expect(stale).toMatchObject({
+      ok: false,
+      problem: {
+        code: "operation_invalid",
+        operation_outcome: "rejected",
+        details: { diagnostics: [{ code: "concurrent_modification" }] }
+      }
+    });
     expect(transport.snapshot().find((record) => record.path === "tasks/new.md")?.frontmatter.title)
       .toBe("Updated");
   });
@@ -331,25 +335,25 @@ describe("developer sandbox", () => {
         { path: "notes/a.md", types: ["note"], frontmatter: { type: "note", title: "Note" } }
       ]
     });
-    expect(await client.changes()).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
-    const page = await client.query({ types: ["task"], offset: 1, limit: 1 });
-    expect(page.result.results.map((record) => record.path)).toEqual(["tasks/b.md"]);
-    expect(page.result.results[0]).toHaveProperty("effective_frontmatter");
-    expect(page.result.results[0]?.file.path).toBe("tasks/b.md");
-    expect(page.result.results[0]).not.toHaveProperty("frontmatter");
-    expect(page.result.meta).toEqual({ total_count: 2, has_more: false });
-    const both = await client.query({ types: ["task"], limit: 1, frontmatter_mode: "both" });
-    expect(both.result.results[0]).toEqual(expect.objectContaining({
+    expect(unwrapConnectOutcome(await client.changes())).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
+    const page = unwrapConnectOutcome(await client.query({ types: ["task"], offset: 1, limit: 1 }));
+    expect(page.results.map((record) => record.path)).toEqual(["tasks/b.md"]);
+    expect(page.results[0]).toHaveProperty("effective_frontmatter");
+    expect(page.results[0]?.file.path).toBe("tasks/b.md");
+    expect(page.results[0]).not.toHaveProperty("frontmatter");
+    expect(page.meta).toEqual({ total_count: 2, has_more: false });
+    const both = unwrapConnectOutcome(await client.query({ types: ["task"], limit: 1, frontmatter_mode: "both" }));
+    expect(both.results[0]).toEqual(expect.objectContaining({
       frontmatter: expect.objectContaining({ title: "A" }),
       effective_frontmatter: expect.objectContaining({ title: "A" })
     }));
 
     await client.create({ path: "tasks/c.md", type: "task", frontmatter: { type: "task", title: "C" } });
     await client.create({ path: "tasks/d.md", type: "task", frontmatter: { type: "task", title: "D" } });
-    const first = await client.changes({ after: 0, limit: 1 });
+    const first = unwrapConnectOutcome(await client.changes({ after: 0, limit: 1 }));
     expect(first.events).toHaveLength(1);
     expect(first.has_more).toBe(true);
-    const second = await client.changes({ after: first.cursor, limit: 10 });
+    const second = unwrapConnectOutcome(await client.changes({ after: first.cursor, limit: 10 }));
     expect(second.events.map((event) => event.payload.path)).toEqual(["tasks/d.md"]);
   });
 
@@ -360,29 +364,29 @@ describe("developer sandbox", () => {
         { path: "ref.md", frontmatter: { title: "Ref" }, body: "See [[target]]." }
       ]
     });
-    const target = await client.read({ path: "target.md" });
+    const target = unwrapConnectOutcome(await client.read({ path: "target.md" }));
 
-    const rename = await client.preflightRename({
+    const rename = unwrapConnectOutcome(await client.preflightRename({
       from: "target.md",
       to: "Archive/target.md",
       update_refs: true,
-      if_revision: target.result.revision
-    });
-    expect(rename.result).toMatchObject({
+      if_revision: target.revision
+    }));
+    expect(rename).toMatchObject({
       dry_run: true,
       would_rename: true
     });
-    const deletion = await client.preflightDelete({
+    const deletion = unwrapConnectOutcome(await client.preflightDelete({
       path: "target.md",
-      if_revision: target.result.revision
-    });
-    expect(deletion.result).toMatchObject({
+      if_revision: target.revision
+    }));
+    expect(deletion).toMatchObject({
       deleted: false,
       dry_run: true,
       would_delete: true
     });
     expect(transport.snapshot().map((record) => record.path).sort()).toEqual(["ref.md", "target.md"]);
-    expect(await client.changes()).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
+    expect(unwrapConnectOutcome(await client.changes())).toEqual({ events: [], cursor: 0, has_more: false, reset: false });
   });
 
   it("preserves deleted record types in the canonical event field", async () => {
@@ -395,9 +399,8 @@ describe("developer sandbox", () => {
         }
       ]
     });
-    const deleted = await client.delete({ path: "tasks/deleted.md" });
-    expect(deleted.valid).toBe(true);
-    const changes = await client.changes({ after: 0 });
+    unwrapConnectOutcome(await client.delete({ path: "tasks/deleted.md" }));
+    const changes = unwrapConnectOutcome(await client.changes({ after: 0 }));
     expect(changes.events).toHaveLength(1);
     expect(changes.events[0]).toMatchObject({
       type: "mdbase.record.deleted",
@@ -408,11 +411,13 @@ describe("developer sandbox", () => {
 
   it("rejects semantic approximations and unsafe paths explicitly", async () => {
     const { client } = createSandbox();
-    await expect(client.query({ where: "status == 'open'" })).rejects.toMatchObject({
-      code: "sandbox_unsupported"
+    await expect(client.query({ where: "status == 'open'" })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "sandbox_unsupported" }
     });
-    await expect(client.create({ path: "../outside.md", frontmatter: {} })).rejects.toMatchObject({
-      code: "invalid_path"
+    await expect(client.create({ path: "../outside.md", frontmatter: {} })).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "invalid_path" }
     });
   });
 
@@ -420,8 +425,8 @@ describe("developer sandbox", () => {
     const { client, transport } = createSandbox({
       records: [{ path: "record.md", frontmatter: { nested: { value: 1 } } }]
     });
-    const read = await client.read({ path: "record.md" });
-    (read.result.frontmatter.nested as { value: number }).value = 2;
+    const read = unwrapConnectOutcome(await client.read({ path: "record.md" }));
+    (read.frontmatter.nested as { value: number }).value = 2;
     const snapshot = transport.snapshot();
     expect((snapshot[0]?.frontmatter.nested as { value: number }).value).toBe(1);
   });

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import {
   MdbaseCollectionClient,
-  MdbaseConnectError,
+  connectError,
   type MdbaseCollectionTransport
 } from "@mdbase/connect";
 import type {
@@ -251,7 +251,7 @@ implements MdbaseCollectionTransport {
       case "update": result = this.update(object); break;
       case "delete": result = this.delete(object); break;
       case "rename": result = this.rename(object); break;
-      default: throw new MdbaseConnectError("unsupported_operation", `Unsupported sandbox operation: ${operation}`);
+      default: throw connectError("unsupported_operation", `Unsupported sandbox operation: ${operation}`);
     }
     return clone(result) as Result;
   }
@@ -282,7 +282,7 @@ implements MdbaseCollectionTransport {
 
   private query(input: JsonObject): MdbaseOperationEnvelope<JsonObject> {
     if (input.where !== undefined || input.order_by !== undefined) {
-      throw new MdbaseConnectError(
+      throw connectError(
         "sandbox_unsupported",
         "The in-memory sandbox does not emulate CEL or ordering. Run this test against a real connector."
       );
@@ -683,7 +683,7 @@ function explicitTypes(frontmatter: JsonObject): string[] {
 
 function assertSafePath(path: string): void {
   if (!path || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..")) {
-    throw new MdbaseConnectError("invalid_path", `Unsafe sandbox path: ${path}`);
+    throw connectError("invalid_path", `Unsafe sandbox path: ${path}`);
   }
 }
 
@@ -695,14 +695,14 @@ function asObject(value: unknown): JsonObject {
 
 function string(value: unknown, field: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new MdbaseConnectError("invalid_request", `${field} must be a non-empty string.`);
+    throw connectError("invalid_request", `${field} must be a non-empty string.`);
   }
   return value;
 }
 
 function integer(value: unknown, field: string, minimum: number): number {
   if (!Number.isInteger(value) || Number(value) < minimum) {
-    throw new MdbaseConnectError("invalid_request", `${field} must be an integer of at least ${minimum}.`);
+    throw connectError("invalid_request", `${field} must be an integer of at least ${minimum}.`);
   }
   return Number(value);
 }

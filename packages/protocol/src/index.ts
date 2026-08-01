@@ -614,6 +614,7 @@ export interface ConnectorCollection {
 export type JsonObject = Record<string, unknown>;
 
 export interface MdbaseDiagnostic {
+  [key: string]: unknown;
   severity: "error" | "warning" | "info";
   code: string;
   message: string;

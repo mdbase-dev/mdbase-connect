@@ -1,103 +1,184 @@
-import type {
-  MdbaseDiagnostic,
-  MdbaseOperationEnvelope
+import {
+  CONNECT_PROBLEM_CATALOG,
+  CONNECT_PROBLEM_VERSION,
+  isConnectProblemCode,
+  type ConnectOperationOutcome,
+  type ConnectProblem,
+  type ConnectProblemCode,
+  type ConnectProblemDetailsByCode,
+  type KnownConnectProblem,
+  type MdbaseDiagnostic,
+  type MdbaseOperationEnvelope
 } from "@mdbase/connect-protocol";
 
-export type MdbaseRecoveryAction = "retry" | "reauthorize" | "refresh" | "resolve_outcome" | "fix_request" | "none";
-
-export interface MdbaseConnectErrorOptions {
+interface ProblemOptions {
+  operationOutcome?: ConnectOperationOutcome;
+  traceId?: string;
   status?: number;
-  retryable?: boolean;
-  requiresAuthorization?: boolean;
-  outcomeUnknown?: boolean;
-  recovery?: MdbaseRecoveryAction;
-  details?: unknown;
   cause?: unknown;
 }
 
-export class MdbaseConnectError extends Error {
-  readonly status?: number;
-  readonly retryable: boolean;
-  readonly requiresAuthorization: boolean;
-  readonly outcomeUnknown: boolean;
-  readonly recovery: MdbaseRecoveryAction;
-  readonly details?: unknown;
+type ProblemOptionsFor<Code extends ConnectProblemCode> =
+  ConnectProblemDetailsByCode[Code] extends undefined
+    ? ProblemOptions & { details?: never }
+    : {} extends ConnectProblemDetailsByCode[Code]
+      ? ProblemOptions & { details?: ConnectProblemDetailsByCode[Code] }
+      : ProblemOptions & { details: ConnectProblemDetailsByCode[Code] };
 
-  constructor(public readonly code: string, message: string, options: MdbaseConnectErrorOptions = {}) {
-    super(message);
-    this.name = "MdbaseConnectError";
-    const classification = classifyConnectError(code, options.status);
-    this.status = options.status;
-    this.retryable = options.retryable ?? classification.retryable;
-    this.requiresAuthorization = options.requiresAuthorization ?? classification.requiresAuthorization;
-    this.outcomeUnknown = options.outcomeUnknown ?? classification.outcomeUnknown;
-    this.recovery = options.recovery ?? classification.recovery;
-    this.details = options.details;
-    if (options.cause !== undefined) Object.defineProperty(this, "cause", { value: options.cause, configurable: true });
-  }
+type ProblemArguments<Code extends ConnectProblemCode> =
+  ConnectProblemDetailsByCode[Code] extends undefined
+    ? [options?: ProblemOptionsFor<Code>]
+    : {} extends ConnectProblemDetailsByCode[Code]
+      ? [options?: ProblemOptionsFor<Code>]
+      : [options: ProblemOptionsFor<Code>];
+
+export interface ConnectErrorContext {
+  status?: number;
+  cause?: unknown;
 }
 
-export class MdbaseOperationValidationError<Result = unknown> extends Error {
-  readonly code = "operation_invalid";
+/** Internal carrier used while adapting throwing transports into public outcomes. */
+export class MdbaseConnectError extends Error {
+  readonly code: ConnectProblem["code"];
+  readonly status?: number;
 
   constructor(
-    public readonly diagnostics: MdbaseDiagnostic[],
-    public readonly result: Result
+    public readonly problem: ConnectProblem,
+    context: ConnectErrorContext = {}
   ) {
-    super(diagnostics.filter((item) => item.severity === "error").map((item) => item.message).join(" ")
-      || diagnostics.map((item) => item.message).join(" ")
-      || "The collection rejected this operation.");
-    this.name = "MdbaseOperationValidationError";
+    super(problem.message, context.cause === undefined ? undefined : { cause: context.cause });
+    this.name = "MdbaseConnectError";
+    this.code = problem.code;
+    this.status = context.status;
+  }
+
+  get retryable(): boolean {
+    return this.problem.recovery === "retry"
+      && this.problem.operation_outcome !== "unknown";
+  }
+
+  get requiresAuthorization(): boolean {
+    return this.problem.category === "authorization";
+  }
+
+  get outcomeUnknown(): boolean {
+    return this.problem.operation_outcome === "unknown";
+  }
+
+  get recovery() {
+    return this.problem.recovery;
+  }
+
+  get details(): unknown {
+    return this.problem.details;
   }
 }
 
-/** Return a valid operation result or throw while preserving every diagnostic. */
-export function unwrapOperation<Result>(envelope: MdbaseOperationEnvelope<Result>): Result {
-  if (!envelope.valid) throw new MdbaseOperationValidationError(envelope.diagnostics, envelope.result);
-  return envelope.result;
+export function connectProblem<Code extends ConnectProblemCode>(
+  code: Code,
+  message: string,
+  ...[options = {} as ProblemOptionsFor<Code>]: ProblemArguments<Code>
+): KnownConnectProblem<Code> {
+  const definition = CONNECT_PROBLEM_CATALOG[code];
+  return {
+    problem_version: CONNECT_PROBLEM_VERSION,
+    code,
+    category: definition.category,
+    recovery: definition.recovery,
+    message,
+    ...(options.details === undefined ? {} : { details: options.details }),
+    ...(options.operationOutcome === undefined
+      ? {}
+      : { operation_outcome: options.operationOutcome }),
+    ...(options.traceId === undefined ? {} : { trace_id: options.traceId })
+  } as KnownConnectProblem<Code>;
 }
 
-/** True only when repeating a read/poll is safe without asking the user. */
+export function unknownConnectProblem(
+  serverCode: string,
+  message: string,
+  options: ProblemOptions & { details?: unknown } = {}
+): ConnectProblem {
+  return {
+    problem_version: CONNECT_PROBLEM_VERSION,
+    code: "unknown",
+    server_code: serverCode,
+    category: "unknown",
+    recovery: "none",
+    message,
+    ...(options.details === undefined ? {} : { details: options.details }),
+    ...(options.operationOutcome === undefined
+      ? {}
+      : { operation_outcome: options.operationOutcome }),
+    ...(options.traceId === undefined ? {} : { trace_id: options.traceId })
+  };
+}
+
+export function connectError<Code extends ConnectProblemCode>(
+  code: Code,
+  message: string,
+  ...args: ProblemArguments<Code>
+): MdbaseConnectError {
+  const options = args[0];
+  return new MdbaseConnectError(connectProblem(code, message, ...args), {
+    status: options?.status,
+    cause: options?.cause
+  });
+}
+
+export function serverConnectError(
+  serverCode: string,
+  message: string,
+  options: ProblemOptions & { details?: unknown; status?: number; cause?: unknown } = {}
+): MdbaseConnectError {
+  const { status, cause, ...problemOptions } = options;
+  if (!isConnectProblemCode(serverCode)) {
+    return new MdbaseConnectError(
+      unknownConnectProblem(serverCode, message, problemOptions),
+      { status, cause }
+    );
+  }
+  const definition = CONNECT_PROBLEM_CATALOG[serverCode];
+  return new MdbaseConnectError({
+    problem_version: CONNECT_PROBLEM_VERSION,
+    code: serverCode,
+    category: definition.category,
+    recovery: definition.recovery,
+    message,
+    ...(problemOptions.details === undefined ? {} : { details: problemOptions.details }),
+    ...(problemOptions.operationOutcome === undefined
+      ? {}
+      : { operation_outcome: problemOptions.operationOutcome }),
+    ...(problemOptions.traceId === undefined ? {} : { trace_id: problemOptions.traceId })
+  } as KnownConnectProblem, { status, cause });
+}
+
+export function operationProblem<Result>(
+  envelope: MdbaseOperationEnvelope<Result>
+): KnownConnectProblem<"operation_invalid"> {
+  return connectProblem(
+    "operation_invalid",
+    diagnosticMessage(envelope.diagnostics),
+    {
+      operationOutcome: "rejected",
+      details: {
+        diagnostics: envelope.diagnostics,
+        partial_result: envelope.result
+      }
+    }
+  );
+}
+
+/** True only when repeating an operation is safe without asking the user. */
 export function isRetryableConnectError(error: unknown): boolean {
-  if (error instanceof MdbaseConnectError) return error.retryable && !error.outcomeUnknown;
-  return error instanceof TypeError;
+  return error instanceof MdbaseConnectError && error.retryable;
 }
 
-function classifyConnectError(code: string, status?: number): Required<Pick<
-  MdbaseConnectErrorOptions,
-  "retryable" | "requiresAuthorization" | "outcomeUnknown" | "recovery"
->> {
-  const authorizationCodes = new Set([
-    "authorization_expired",
-    "direct_operation_rejected",
-    "encryption_required",
-    "insufficient_access",
-    "missing_grant_key",
-    "not_authorized",
-    "relay_authorization_expired"
-  ]);
-  const outcomeUnknown = code === "direct_outcome_unknown" || code === "pending_mutation_unresolved";
-  const requiresAuthorization = authorizationCodes.has(code) || status === 401;
-  const retryableCodes = new Set([
-    "connector_offline",
-    "discovery_failed",
-    "relay_unavailable",
-    "sync_failed",
-    "temporarily_unavailable",
-    "timeout"
-  ]);
-  const retryableStatus = status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500);
-  const retryable = !outcomeUnknown && !requiresAuthorization && (retryableCodes.has(code) || retryableStatus);
-  const recovery: MdbaseRecoveryAction = outcomeUnknown
-    ? "resolve_outcome"
-    : requiresAuthorization
-      ? "reauthorize"
-      : code === "change_cursor_reset"
-        ? "refresh"
-        : retryable
-          ? "retry"
-          : status !== undefined && status >= 400 && status < 500
-            ? "fix_request"
-            : "none";
-  return { retryable, requiresAuthorization, outcomeUnknown, recovery };
+function diagnosticMessage(diagnostics: MdbaseDiagnostic[]): string {
+  return diagnostics
+    .filter((item) => item.severity === "error")
+    .map((item) => item.message)
+    .join(" ")
+    || diagnostics.map((item) => item.message).join(" ")
+    || "The collection rejected this operation.";
 }
