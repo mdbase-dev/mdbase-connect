@@ -380,9 +380,20 @@ impl HostedProvider {
             return Err(completion_conflict());
         }
         self.finalize_upload_object(&transfer, &completion).await?;
-        let receipt = self
+        let receipt = match self
             .commit_verified_file(&transfer, token, request_origin)
-            .await?;
+            .await
+        {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                // A remote copy can finish after a concurrent cancellation has
+                // already cleaned both keys. Re-check durable ownership and
+                // compensate only for a terminal, uncommitted transfer. Never
+                // trade a possible orphan for deleting a committed object.
+                self.cleanup_after_failed_finalization(&transfer).await;
+                return Err(error);
+            }
+        };
         if let Err(error) = self.blob_store.delete(&transfer.staging_object_key).await {
             tracing::warn!(transfer_id = %transfer.id, %error, "could not remove committed file staging object");
         }
@@ -448,7 +459,7 @@ impl HostedProvider {
                 "A committed file upload cannot be aborted.",
             ));
         }
-        sqlx::query(
+        let updated = sqlx::query(
             r#"UPDATE hosted_provider_file_transfers
                SET state = 'aborted', updated_at = now()
                WHERE id = $1 AND state IN ('open', 'completing')"#,
@@ -456,7 +467,9 @@ impl HostedProvider {
         .bind(transfer.id)
         .execute(&self.pool)
         .await?;
-        self.cleanup_uncommitted_upload(&transfer).await;
+        if updated.rows_affected() == 1 {
+            self.cleanup_uncommitted_upload(&transfer).await;
+        }
         self.file_transfer_status(collection_id, token, transfer.id, request_origin)
             .await
     }
@@ -915,7 +928,7 @@ impl HostedProvider {
     }
 
     async fn expire_upload(&self, transfer: &HostedFileTransfer) -> ApiResult<()> {
-        sqlx::query(
+        let updated = sqlx::query(
             r#"UPDATE hosted_provider_file_transfers
                SET state = 'expired', updated_at = now()
                WHERE id = $1 AND state IN ('open', 'completing')"#,
@@ -923,8 +936,31 @@ impl HostedProvider {
         .bind(transfer.id)
         .execute(&self.pool)
         .await?;
-        self.cleanup_uncommitted_upload(transfer).await;
+        if updated.rows_affected() == 1 {
+            self.cleanup_uncommitted_upload(transfer).await;
+        }
         Ok(())
+    }
+
+    async fn cleanup_after_failed_finalization(&self, transfer: &HostedFileTransfer) {
+        let state = sqlx::query_scalar::<_, String>(
+            "SELECT state FROM hosted_provider_file_transfers WHERE id = $1",
+        )
+        .bind(transfer.id)
+        .fetch_optional(&self.pool)
+        .await;
+        match state {
+            Ok(Some(state)) if matches!(state.as_str(), "aborted" | "expired") => {
+                self.cleanup_uncommitted_upload(transfer).await;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                // Database uncertainty must favor retaining an object. The
+                // reconciliation path can remove an orphan; a deleted object
+                // referenced by committed metadata cannot be reconstructed.
+                tracing::warn!(transfer_id = %transfer.id, %error, "could not verify upload ownership after failed finalization");
+            }
+        }
     }
 
     async fn cleanup_uncommitted_upload(&self, transfer: &HostedFileTransfer) {

@@ -15,5 +15,5 @@ pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::{
     HostedProvider, NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
     ProviderAuthorityImport, ProviderAuthorityImportState, ProviderAuthorityTransfer,
-    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
+    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica, ReplicaPurpose,
 };
