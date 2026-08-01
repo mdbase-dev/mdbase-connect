@@ -185,18 +185,19 @@ export function registerConnectorHostedRoutes(
       const { replicaId } = z.object({
         replicaId: z.uuid()
       }).parse(request.params);
-      if (!await revokeHostedReplicaForUser(
+      const revocationStatus = await revokeHostedReplicaForUser(
         options,
         options.hostedReference,
         connector.user_id,
         replicaId
-      )) {
+      );
+      if (!revocationStatus) {
         return reply.code(404).send(apiError(
           "replica_not_found",
-          "Active mirror not found."
+          "Mirror not found."
         ));
       }
-      return { ok: true };
+      return { ok: true, revocation_status: revocationStatus };
     }
   );
 
@@ -299,17 +300,18 @@ export function registerConnectorHostedRoutes(
       const { grantId } = z.object({
         grantId: z.uuid()
       }).parse(request.params);
-      if (!await revokeHostedGrantForUser(
+      const revocationStatus = await revokeHostedGrantForUser(
         options,
         connector.user_id,
         grantId
-      )) {
+      );
+      if (!revocationStatus) {
         return reply.code(404).send(apiError(
           "grant_not_found",
-          "Active hosted grant not found."
+          "Hosted grant not found."
         ));
       }
-      return { ok: true };
+      return { ok: true, revocation_status: revocationStatus };
     }
   );
 }

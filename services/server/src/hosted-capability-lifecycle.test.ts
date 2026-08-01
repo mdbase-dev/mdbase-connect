@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "./db.js";
 import {
+  hostedGrantRevocationStatus,
+  hostedReplicaRevocationStatus,
   ProviderRevocationWorker,
   queueHostedGrantRevocation,
   queueHostedReplicaRevocation
@@ -13,6 +15,11 @@ afterEach(async () => database?.end());
 describe("hosted capability lifecycle", () => {
   it("revokes locally and durably queues provider cleanup in one transaction", async () => {
     const fixture = await capabilityFixture();
+    expect(await hostedGrantRevocationStatus(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId
+    )).toBe("active");
     const queued = await queueHostedGrantRevocation(
       fixture.db,
       fixture.userId,
@@ -47,6 +54,11 @@ describe("hosted capability lifecycle", () => {
     expect(state.rows[0].replica_revoked_at).toBeTruthy();
     expect(state.rows[0].access_revoked_at).toBeTruthy();
     expect(state.rows[0].refresh_revoked_at).toBeTruthy();
+    expect(await hostedGrantRevocationStatus(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId
+    )).toBe("revoking");
   });
 
   it("delivers queued revocation to both provider capability surfaces", async () => {
@@ -77,6 +89,11 @@ describe("hosted capability lifecycle", () => {
     );
     expect(job.rows[0].state).toBe("completed");
     expect(job.rows[0].completed_at).toBeTruthy();
+    expect(await hostedGrantRevocationStatus(
+      fixture.db,
+      fixture.userId,
+      fixture.grantId
+    )).toBe("revoked");
   });
 
   it("revokes mirror replicas durably without inventing a notification grant", async () => {
@@ -118,6 +135,8 @@ describe("hosted capability lifecycle", () => {
       [queued!.jobId]
     );
     expect(replica.rows[0].revoked_at).toBeTruthy();
+    expect(await hostedReplicaRevocationStatus(fixture.db, replicaId))
+      .toBe("revoked");
     expect(job.rows[0]).toMatchObject({
       state: "completed",
       grant_id: null

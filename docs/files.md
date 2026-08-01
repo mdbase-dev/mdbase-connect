@@ -110,8 +110,10 @@ The initial file scope modes are:
 
 Folder scopes are optional least-authority boundaries, not required storage
 roots. Read and write actions are reviewed separately. The authority rechecks
-the live grant at transfer creation, for every chunk, and at commit. Revocation
-invalidates active transfers immediately.
+the live grant at transfer creation, for every local chunk or hosted range, and
+at commit. Revocation rejects the next bounded request; a response already
+authorized and in flight may finish, and bytes already received cannot be
+recalled.
 
 Media classes support understandable sync selection and approval copy, but are
 not trusted content types. Extension classification, MIME declarations, and
@@ -132,8 +134,10 @@ transfers use independently authenticated indexed frames with a default of one
 MiB and a four MiB maximum. Hosted direct uploads use a presigned single PUT
 for small and empty objects, or presigned multipart parts for larger objects;
 R2 parts default to eight MiB because every non-final R2 part must be at least
-five MiB. Hosted downloads use presigned, revision-pinned ranges. Object-store
-parts are not MDBF frames and do not relax the smaller relay memory bound.
+five MiB. Hosted downloads use authenticated, revision-pinned range endpoints
+that recheck the live replica and grant before reading each bounded R2 range.
+Hosted range responses are not MDBF frames and do not relax the smaller relay
+memory bound.
 The client chooses the transfer UUID so opening a transfer is retry-safe. The
 durable transfer record contains that opaque ID, direction, grant binding, file
 intent, expected size, optional declared digest, base revision, accepted chunk

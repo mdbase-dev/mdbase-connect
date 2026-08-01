@@ -480,9 +480,10 @@ Connection state can be expressed in user terms:
 - action needed for a conflict;
 - sign-in or permission required.
 
-The cache contains no local filesystem path. Revoking the replica blocks future
-sync immediately; the user may then keep, export, or remove its local cached
-data according to application policy.
+The cache contains no local filesystem path. Revoking the replica blocks its
+next network operation; one already-authorized bounded response may finish.
+The user may then keep, export, or remove locally cached data according to
+application policy.
 
 ## Protocol routes
 

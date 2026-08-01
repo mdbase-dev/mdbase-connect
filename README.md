@@ -25,7 +25,8 @@ application-specific database.
   without opening an inbound port on your computer.
 - Work directly on the same computer when possible, with automatic fallback to
   an encrypted relay when needed.
-- Pause an application or revoke its access immediately.
+- Pause an application or immediately disable its Connect credentials; hosted
+  revocation remains visibly pending until the data authority confirms it.
 - Use your collections from MCP clients such as Claude and ChatGPT.
 - Mirror a hosted collection to a local folder for Markdown-based tools and
   backups.
@@ -119,7 +120,9 @@ an application an entire folder or account:
   relay can see routing metadata, operation timing, and payload sizes, but not
   record contents or operation results.
 - Hosted Markdown is encrypted at rest using per-collection data keys.
-- Pausing or revoking a grant is enforced immediately.
+- Pausing is enforced immediately. Revocation immediately disables
+  Connect-issued credentials; a hosted authority rechecks access before each
+  new operation or bounded file range and explicitly confirms completion.
 
 The MCP gateway is an authorized application endpoint: it decrypts responses
 in memory so it can return them to the MCP client, but does not persist record

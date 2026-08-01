@@ -49,7 +49,10 @@ import {
   collectionContractDescriptorSchema,
   contractSetupChoiceSchema
 } from "../../protocol-schemas.js";
-import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
+import {
+  hostedGrantRevocationStatus,
+  queueHostedGrantRevocation
+} from "../../hosted-capability-lifecycle.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, oauthError } from "../../platform/http-errors.js";
 import {
@@ -407,32 +410,53 @@ export function registerAuthorizationRoutes(
       connector_id: string | null;
       hosted_collection_id: string | null;
       hosted_replica_id: string | null;
+      revoked_at: string | null;
     }>(
-      `SELECT g.id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id FROM grants g
+      `SELECT g.id, col.connector_id, g.hosted_collection_id,
+              g.hosted_replica_id, g.revoked_at
+       FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL`,
+       WHERE g.id = $1 AND g.user_id = $2 AND g.activated_at IS NOT NULL`,
       [grantId, user.id]
     );
-    if (!active.rows[0]) return reply.code(404).send(apiError("grant_not_found", "Active grant not found."));
-    if (active.rows[0].hosted_replica_id) {
+    const grant = active.rows[0];
+    if (!grant) return reply.code(404).send(apiError("grant_not_found", "Grant not found."));
+    let revocationStatus: "revoking" | "revoked" = "revoked";
+    if (grant.hosted_replica_id) {
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const queued = await queueHostedGrantRevocation(
-        options.db,
-        user.id,
-        grantId,
-        "user_request"
-      );
-      if (!queued) {
-        return reply.code(404).send(apiError(
-          "grant_not_found",
-          "Active grant not found."
-        ));
+      if (!grant.revoked_at) {
+        const queued = await queueHostedGrantRevocation(
+          options.db,
+          user.id,
+          grantId,
+          "user_request"
+        );
+        if (!queued) {
+          return reply.code(409).send(apiError(
+            "revocation_conflict",
+            "Grant revocation changed concurrently. Retry the request."
+          ));
+        }
       }
       await options.drainProviderRevocations();
+      const current = await hostedGrantRevocationStatus(
+        options.db,
+        user.id,
+        grantId
+      );
+      if (current === "active" || current === null) {
+        return reply.code(409).send(apiError(
+          "revocation_conflict",
+          "Grant revocation did not enter a durable state."
+        ));
+      }
+      revocationStatus = current;
     } else {
+      if (grant.revoked_at) {
+        return { ok: true, revocation_status: "revoked" as const };
+      }
       await options.db.query(
         "UPDATE grants SET revoked_at = now() WHERE id = $1",
         [grantId]
@@ -446,9 +470,17 @@ export function registerAuthorizationRoutes(
         [grantId]
       );
     }
-    if (active.rows[0].connector_id) await relay.pushPolicy(active.rows[0].connector_id);
-    await audit(options.db, user.id, "grant.revoked", grantId, {});
-    return { ok: true };
+    if (grant.connector_id) await relay.pushPolicy(grant.connector_id);
+    await audit(
+      options.db,
+      user.id,
+      revocationStatus === "revoked"
+        ? "grant.revoked"
+        : "grant.revocation_requested",
+      grantId,
+      { revocation_status: revocationStatus }
+    );
+    return { ok: true, revocation_status: revocationStatus };
   });
 
   app.get("/oauth/authorize", async (request, reply) => {

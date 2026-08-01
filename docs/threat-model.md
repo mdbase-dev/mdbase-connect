@@ -51,7 +51,10 @@ authorized application has legitimately received it.
 
 Every grant identifies one application, one collection, an exact operation
 set, and an exact contract or full-collection scope. The current grant is
-rechecked immediately before the authority opens or mutates data. Application
+rechecked before each bounded authority operation and each hosted file range.
+Revocation cannot recall plaintext already received by an authorized
+application, and one already-authorized bounded response may finish.
+Application
 discovery or manifest updates cannot silently broaden an existing grant.
 
 Granting access is still a trust decision. Exact-origin binding prevents a

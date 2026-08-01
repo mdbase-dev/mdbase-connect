@@ -83,7 +83,7 @@ outcome, not an error.
 
 ## Review and revoke access
 
-Goal: make continuing access legible and revocation immediate.
+Goal: make continuing access and the exact revocation state legible.
 
 Group grants by application, then list each collection separately. Each row
 shows:
@@ -96,9 +96,11 @@ shows:
 - `Save` and `Revoke`.
 
 An application-level action may revoke every grant on the current computer.
-The confirmation names both the application and the boundary. Once confirmed,
-the local connector enforces revocation immediately, even if cloud policy is
-temporarily stale.
+The confirmation names both the application and the boundary. A local
+connector confirms revocation after enforcing it. Connect disables its hosted
+credentials locally first, shows `Revoking` while provider confirmation is
+pending, and shows `Revoked` only after the hosted data authority confirms it.
+Never turn a provider outage into a false success message.
 
 ## Pause remote access
 

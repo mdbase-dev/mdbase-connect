@@ -168,6 +168,7 @@ interface GrantSummary {
   operations: string[];
   scope: GrantScope;
   created_at: string;
+  revocation_status?: "active" | "revoking" | "revoked";
 }
 
 interface PendingAuthorization {
@@ -209,6 +210,7 @@ interface HostedReplicaSummary {
   mode: "read_only" | "read_write";
   allowed_types: string[];
   revoked_at: string | null;
+  revocation_status: "active" | "revoking" | "revoked";
   created_at: string;
   sync_status: {
     head: number;
@@ -374,8 +376,8 @@ interface Window {
       contractSetups?: ContractSetupRequestChoice[];
     }): Promise<{ ok: true }>;
     updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
-    revokeHostedGrant(grantId: string): Promise<unknown>;
-    revokeHostedReplica(replicaId: string): Promise<{ ok: true }>;
+    revokeHostedGrant(grantId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;
+    revokeHostedReplica(replicaId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;
     listMirrors(): Promise<DesktopMirrorSummary[]>;
     chooseMirrorFolder(): Promise<string | null>;
     connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;

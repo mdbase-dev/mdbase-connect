@@ -124,8 +124,9 @@ mdbase connect mirror configure <replica-id> \
 
 File snapshot and change metadata share the record cursor, while bytes travel
 through the separately resumable file data plane. Hosted files are downloaded
-from immutable, revision-pinned R2 objects and verified against their exact
-SHA-256 digest before materialization.
+through authenticated, revision-pinned ranges that recheck access before each
+bounded read, then verified against their exact SHA-256 digest before
+materialization.
 
 The portable runtime uses audited JavaScript SHA-256 and `crypto.randomUUID`.
 A host may inject `MirrorRuntime` to use an equivalent native primitive. The

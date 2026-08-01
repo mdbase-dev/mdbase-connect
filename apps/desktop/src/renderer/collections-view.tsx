@@ -386,7 +386,7 @@ function HostedCollectionRow({
   const [syncPolicy, setSyncPolicy] = useState<DesktopSelectiveSyncPolicy>(emptySelectiveSyncPolicy);
   const [promotionStarting, setPromotionStarting] = useState(false);
   const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
-  const activeReplicas = collection.replicas.filter((replica) => replica.revoked_at === null);
+  const activeReplicas = collection.replicas.filter((replica) => replica.revocation_status !== "revoked");
   const editorCollectionId = collection.authority_state === "active"
     ? collection.id
     : collection.authority_state === "transferred"
@@ -619,13 +619,15 @@ function HostedCollectionRow({
           <section className="collection-editor-section">
             <div><strong>Other synced folders</strong><small>Folders connected from another installation or through the command line.</small></div>
             <div className="replica-list">{activeReplicas.filter((replica) => replica.id !== mirror?.replica_id).map((replica) => (
-              <div key={replica.id}><span>{replica.name}</span><code>{replica.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code><small>{replica.sync_status?.last_seen_at ? `Seen ${relativeTime(replica.sync_status.last_seen_at)}` : "Not synchronized yet"}</small><button className="quiet-action danger" disabled={busy} onClick={() => {
+              <div key={replica.id}><span>{replica.name}</span><code>{replica.mode === "read_write" ? "edits sync both ways" : "downloads updates only"}</code><small>{replica.revocation_status === "revoking" ? "Waiting for hosted revocation confirmation" : replica.sync_status?.last_seen_at ? `Seen ${relativeTime(replica.sync_status.last_seen_at)}` : "Not synchronized yet"}</small><button className="quiet-action danger" onClick={() => {
                 if (!window.confirm(`Revoke ${replica.name}? Its local files will remain, but it will no longer synchronize.`)) return;
                 void onAct(async () => {
-                  await window.mdbaseConnect.revokeHostedReplica(replica.id);
-                  onNotice(`${replica.name} was revoked.`);
+                  const result = await window.mdbaseConnect.revokeHostedReplica(replica.id);
+                  onNotice(result.revocation_status === "revoking"
+                    ? `${replica.name} is disconnected here; hosted revocation confirmation is pending.`
+                    : `${replica.name} was revoked.`);
                 });
-              }}>Revoke</button></div>
+              }} disabled={busy || replica.revocation_status === "revoking"}>{replica.revocation_status === "revoking" ? "Revoking…" : "Revoke"}</button></div>
             ))}</div>
           </section>
         )}

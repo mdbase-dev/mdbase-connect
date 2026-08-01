@@ -467,14 +467,18 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
           <button className="quiet-action danger" disabled={busy} onClick={() => {
             if (!window.confirm(`Revoke all ${group.applicationName} collection access?`)) return;
             void onAct(async () => {
+              let providerConfirmationPending = false;
               for (const grant of group.grants) {
                 if (grant.collection_kind === "hosted") {
-                  await window.mdbaseConnect.revokeHostedGrant(grant.id);
+                  const result = await window.mdbaseConnect.revokeHostedGrant(grant.id);
+                  providerConfirmationPending ||= result.revocation_status === "revoking";
                 } else {
                   await window.mdbaseConnect.revokeGrant(grant.id);
                 }
               }
-              onNotice(`${group.applicationName} collection access was revoked.`);
+              onNotice(providerConfirmationPending
+                ? `${group.applicationName} access is disabled here; hosted revocation confirmation is pending.`
+                : `${group.applicationName} collection access was revoked.`);
             });
           }}>Revoke all access</button>
         </div>
@@ -786,6 +790,9 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
   const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
   useEffect(() => setOperations(grant.operations), [grant.operations]);
   const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
+  if (grant.revocation_status === "revoking") {
+    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">Hosted by mdbase</p><h3>{grant.collection_name}</h3><small>Access is disabled here. Waiting for the hosted authority to confirm revocation.</small></div><strong>Revoking…</strong></article>;
+  }
   return (
     <article className="grant-review">
       <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small>{grant.scope.contracts.length > 0 && <small>{scopeDescription(grant.scope.contracts)}</small>}</div>
@@ -798,9 +805,15 @@ function GrantEditor({ grant, busy, onAct, onNotice }: { grant: GrantSummary; bu
           <p>{grant.application_name} can use the selected actions on {grant.collection_name} until you revoke access.</p>
           <div className="decision-actions">
             <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => {
-              if (grant.collection_kind === "hosted") await window.mdbaseConnect.revokeHostedGrant(grant.id);
-              else await window.mdbaseConnect.revokeGrant(grant.id);
-              onNotice(`${grant.application_name} access was revoked.`);
+              if (grant.collection_kind === "hosted") {
+                const result = await window.mdbaseConnect.revokeHostedGrant(grant.id);
+                onNotice(result.revocation_status === "revoking"
+                  ? `${grant.application_name} access is disabled here; hosted revocation confirmation is pending.`
+                  : `${grant.application_name} access was revoked.`);
+              } else {
+                await window.mdbaseConnect.revokeGrant(grant.id);
+                onNotice(`${grant.application_name} access was revoked.`);
+              }
             }); }}>Revoke</button>
             <button className="button primary" disabled={busy || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
               if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });

@@ -141,6 +141,14 @@ export function registerAccountOverviewRoute(
     }
     const grants = await options.db.query(
       `SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
+              CASE
+                WHEN g.revoked_at IS NULL THEN 'active'
+                WHEN g.id IN (
+                  SELECT job.grant_id FROM provider_revocation_jobs job
+                  WHERE job.grant_id IS NOT NULL AND job.completed_at IS NULL
+                ) THEN 'revoking'
+                ELSE 'revoked'
+              END AS revocation_status,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,

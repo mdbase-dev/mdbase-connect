@@ -23,6 +23,55 @@ export interface QueuedReplicaRevocation {
   jobId: string;
 }
 
+export type HostedRevocationStatus = "active" | "revoking" | "revoked";
+
+export async function hostedGrantRevocationStatus(
+  db: DatabaseQueryable,
+  userId: string,
+  grantId: string
+): Promise<HostedRevocationStatus | null> {
+  const result = await db.query<{
+    revoked_at: string | null;
+    provider_pending: boolean;
+  }>(
+    `SELECT g.revoked_at,
+            g.id IN (
+              SELECT job.grant_id FROM provider_revocation_jobs job
+              WHERE job.grant_id IS NOT NULL AND job.completed_at IS NULL
+            ) AS provider_pending
+     FROM grants g
+     WHERE g.id = $1 AND g.user_id = $2 AND g.activated_at IS NOT NULL`,
+    [grantId, userId]
+  );
+  const grant = result.rows[0];
+  if (!grant) return null;
+  if (!grant.revoked_at) return "active";
+  return grant.provider_pending ? "revoking" : "revoked";
+}
+
+export async function hostedReplicaRevocationStatus(
+  db: DatabaseQueryable,
+  replicaId: string
+): Promise<HostedRevocationStatus | null> {
+  const result = await db.query<{
+    revoked_at: string | null;
+    provider_pending: boolean;
+  }>(
+    `SELECT replica.revoked_at,
+            replica.id IN (
+              SELECT job.replica_id FROM provider_revocation_jobs job
+              WHERE job.completed_at IS NULL
+            ) AS provider_pending
+     FROM hosted_replicas replica
+     WHERE replica.id = $1`,
+    [replicaId]
+  );
+  const replica = result.rows[0];
+  if (!replica) return null;
+  if (!replica.revoked_at) return "active";
+  return replica.provider_pending ? "revoking" : "revoked";
+}
+
 /**
  * Atomically makes a hosted capability unusable in Connect and records the
  * provider-side cleanup as durable work. Provider availability can no longer

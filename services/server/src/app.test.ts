@@ -1557,6 +1557,7 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${ownerToken}` }
     });
     expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toEqual({ ok: true, revocation_status: "revoked" });
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(exchanged.json().replica.id);
 
     const removed = await app.inject({
@@ -1571,6 +1572,7 @@ describe("mdbase connect server", () => {
   it("provisions and reconciles contract-free hosted application access as unrestricted", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
+    const revokeReplica = vi.fn<() => Promise<void>>();
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
@@ -1579,7 +1581,7 @@ describe("mdbase connect server", () => {
       deleteCollection: vi.fn(),
       registerReplica: vi.fn(),
       updateApplicationReplica: vi.fn(),
-      revokeReplica: vi.fn(),
+      revokeReplica,
       upsertNotificationGrant: vi.fn(),
       revokeNotificationGrant: vi.fn(),
       rotateReplicaToken: vi.fn(),
@@ -1767,12 +1769,40 @@ describe("mdbase connect server", () => {
       payload: { operations: ["describe", "query", "create", "sync"] }
     });
     expect(broadened.statusCode).toBe(400);
+    revokeReplica.mockRejectedValueOnce(new Error("provider unavailable"));
+    const pendingRevocation = await app.inject({
+      method: "DELETE",
+      url: `/v1/connectors/hosted/grants/${grantId}`,
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(pendingRevocation.statusCode).toBe(200);
+    expect(pendingRevocation.json()).toEqual({ ok: true, revocation_status: "revoking" });
+    const pendingControl = await app.inject({
+      method: "GET",
+      url: "/v1/connectors/hosted-control",
+      headers: { authorization: `Bearer ${connector.token}` }
+    });
+    expect(pendingControl.json().grants).toContainEqual(
+      expect.objectContaining({ id: grantId, revocation_status: "revoking" })
+    );
+    const pendingOverview = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie }
+    });
+    expect(pendingOverview.json().grants).toContainEqual(
+      expect.objectContaining({ id: grantId, revocation_status: "revoking" })
+    );
+    await db.query(
+      "UPDATE provider_revocation_jobs SET available_at = now() - interval '1 second'"
+    );
     const revoked = await app.inject({
       method: "DELETE",
       url: `/v1/connectors/hosted/grants/${grantId}`,
       headers: { authorization: `Bearer ${connector.token}` }
     });
     expect(revoked.statusCode).toBe(200);
+    expect(revoked.json()).toEqual({ ok: true, revocation_status: "revoked" });
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(provisioned.rows[0].id);
   });
 
