@@ -271,7 +271,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const folders = screen.getByRole("group", { name: "Folders" });
-    fireEvent.contextMenu(within(folders).getByRole("button", { name: /^Show notes in Projects,/ }), {
+    fireEvent.contextMenu(await within(folders).findByRole("button", { name: /^Show notes in Projects,/ }), {
       clientX: 60,
       clientY: 120
     });
@@ -280,7 +280,7 @@ describe("mdbase editor", () => {
     expect(within(menu).getByRole("menuitem", { name: "Copy path" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitem", { name: "New subfolder" }));
 
-    await user.type(screen.getByRole("textbox", { name: "Folder name" }), "Roadmap");
+    await user.type(await screen.findByRole("textbox", { name: "Folder name" }), "Roadmap");
     await user.type(screen.getByRole("textbox", { name: "First note" }), "Index");
     expect(screen.getByText("Projects/Roadmap/Index.md")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create folder" }));
