@@ -1,10 +1,11 @@
 use super::*;
 use crate::{discover_collection_files, CollectionFileCandidate, PhysicalFileIdentity};
 use chrono::{DateTime, SecondsFormat, Utc};
+use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass};
 use rusqlite::Transaction;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::Read;
 
@@ -39,25 +40,42 @@ impl CollectionRegistry {
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
             let snapshot = collection.snapshot()?;
-            let managed_paths = snapshot
-                .resources
-                .iter()
-                .map(|resource| resource.path.clone())
-                .chain(snapshot.records.iter().map(|record| record.path.clone()))
-                .collect::<BTreeSet<_>>();
-            let inventory = discover_collection_files(Path::new(&registered.path), &managed_paths)?;
-            let observed = inventory
-                .files
-                .iter()
-                .map(|candidate| {
-                    Ok(ObservedFile {
-                        candidate,
-                        content_digest: hash_verified_file(candidate)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, ConnectError>>()?;
-            self.reconcile_observed_files(id, &observed)
+            self.reconcile_files_loaded(&registered, &snapshot)
         })
+    }
+
+    pub(super) fn reconcile_files_loaded(
+        &self,
+        registered: &CollectionSummary,
+        snapshot: &CollectionSnapshot,
+    ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        self.reconcile_files_loaded_with_preferred(registered, snapshot, &HashMap::new())
+    }
+
+    pub(super) fn reconcile_files_loaded_with_preferred(
+        &self,
+        registered: &CollectionSummary,
+        snapshot: &CollectionSnapshot,
+        preferred_ids: &HashMap<String, Uuid>,
+    ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        let managed_paths = snapshot
+            .resources
+            .iter()
+            .map(|resource| resource.path.clone())
+            .chain(snapshot.records.iter().map(|record| record.path.clone()))
+            .collect::<BTreeSet<_>>();
+        let inventory = discover_collection_files(Path::new(&registered.path), &managed_paths)?;
+        let observed = inventory
+            .files
+            .iter()
+            .map(|candidate| {
+                Ok(ObservedFile {
+                    candidate,
+                    content_digest: hash_verified_file(candidate)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ConnectError>>()?;
+        self.reconcile_observed_files(registered.id, &observed, preferred_ids)
     }
 
     pub fn indexed_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
@@ -72,11 +90,12 @@ impl CollectionRegistry {
         &self,
         collection_id: Uuid,
         observed: &[ObservedFile<'_>],
+        preferred_ids: &HashMap<String, Uuid>,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let previous = read_indexed_files(&transaction, collection_id)?;
-        let assignments = assign_file_ids(&previous, observed);
+        let assignments = assign_file_ids(&previous, observed, preferred_ids);
         let mut after = BTreeMap::<Uuid, IndexedFile>::new();
 
         for (position, file) in observed.iter().enumerate() {
@@ -179,11 +198,22 @@ impl CollectionRegistry {
 fn assign_file_ids(
     previous: &BTreeMap<Uuid, IndexedFile>,
     observed: &[ObservedFile<'_>],
+    preferred_ids: &HashMap<String, Uuid>,
 ) -> BTreeMap<usize, Uuid> {
     let mut assignments = BTreeMap::new();
     let mut available = previous.keys().copied().collect::<BTreeSet<_>>();
 
     for (position, file) in observed.iter().enumerate() {
+        if let Some(file_id) = preferred_ids.get(&file.candidate.path_key) {
+            assignments.insert(position, *file_id);
+            available.remove(file_id);
+        }
+    }
+
+    for (position, file) in observed.iter().enumerate() {
+        if assignments.contains_key(&position) {
+            continue;
+        }
         if let Some((file_id, _)) = previous
             .iter()
             .find(|(_, prior)| prior.path_key == file.candidate.path_key)

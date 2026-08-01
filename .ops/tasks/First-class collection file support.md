@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:25:54+10:00
+updated_at: 2026-08-01T13:39:39+10:00
 type: task
 ---
 
@@ -159,7 +159,18 @@ content is never guessed. File metadata and its ordered change are committed in
 one SQLite transaction using the same collection sequence as records. Seven
 focused index tests and strict core Clippy pass.
 
+Local uploads now use a durable transfer journal and owner-only staging on the
+destination filesystem. Chunks may arrive out of order, retry idempotently, and
+resume after process restart; conflicting retries, invalid bounds, incomplete
+sets, stale revisions, unsafe destinations, changed handles, symlinked staging,
+and digest mismatches fail closed. Commit makes bytes visible with one atomic
+rename, publishes the indexed revision afterward, persists an idempotent
+receipt, and automatically completes a journaled commit after restart. Abort,
+expiry, zero-byte files, and lost-response replay are covered. Ten focused
+transfer tests, 72 total core tests, full-workspace checking, strict workspace
+Clippy, formatting, architecture budgets, and diff checks pass.
+
 ## Handoff
 
-Work is active. Add the crash-safe staging and immutable-blob store, then expose
-local file operations over the binary data plane.
+Work is active. Add download/range access and expose local file operations over
+the binary loopback and relay data plane, then materialize file sync.

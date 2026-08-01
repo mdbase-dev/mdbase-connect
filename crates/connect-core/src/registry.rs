@@ -34,6 +34,7 @@ mod collections;
 mod database;
 mod descriptions;
 mod encrypted_requests;
+mod file_transfers;
 mod files;
 mod grants;
 mod identity;

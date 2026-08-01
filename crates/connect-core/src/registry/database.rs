@@ -11,6 +11,7 @@ impl CollectionRegistry {
             providers: Arc::new(Mutex::new(HashMap::new())),
         };
         registry.migrate()?;
+        registry.recover_file_transfers()?;
         Ok(registry)
     }
 
@@ -135,6 +136,33 @@ impl CollectionRegistry {
                 PRIMARY KEY (collection_id, sequence),
                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS collection_file_transfers (
+                transfer_id TEXT PRIMARY KEY,
+                collection_id TEXT NOT NULL,
+                direction TEXT NOT NULL CHECK (direction IN ('upload', 'download')),
+                state TEXT NOT NULL CHECK (state IN ('open', 'committing', 'committed', 'aborted', 'expired')),
+                file_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                path_key TEXT NOT NULL,
+                expected_size INTEGER NOT NULL,
+                expected_digest TEXT NOT NULL,
+                media_type TEXT,
+                base_revision TEXT,
+                chunk_size INTEGER NOT NULL,
+                staging_path TEXT,
+                receipt TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS collection_file_transfer_chunks (
+                transfer_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                chunk_digest TEXT NOT NULL,
+                byte_length INTEGER NOT NULL,
+                PRIMARY KEY (transfer_id, chunk_index),
+                FOREIGN KEY (transfer_id) REFERENCES collection_file_transfers(transfer_id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS local_sync_replicas (
                 id TEXT PRIMARY KEY,
                 collection_id TEXT NOT NULL,
@@ -172,6 +200,8 @@ impl CollectionRegistry {
                 ON collection_file_changes(collection_id, sequence);
             CREATE INDEX IF NOT EXISTS collection_files_digest_idx
                 ON collection_files(collection_id, content_digest);
+            CREATE INDEX IF NOT EXISTS collection_file_transfers_collection_idx
+                ON collection_file_transfers(collection_id, state, expires_at);
             CREATE INDEX IF NOT EXISTS local_sync_snapshots_expiry_idx
                 ON local_sync_snapshots(expires_at);
             CREATE TABLE IF NOT EXISTS grant_crypto_state (

@@ -214,7 +214,7 @@ fn validated_excluded_folders(
         .collect()
 }
 
-fn excluded_directory(name: &str) -> bool {
+pub(crate) fn excluded_directory(name: &str) -> bool {
     hidden_name(name)
         || RESERVED_DIRECTORIES
             .iter()
@@ -233,11 +233,11 @@ fn nested_collection(directory: &Path) -> bool {
     fs::symlink_metadata(directory.join("mdbase.yaml")).is_ok_and(|metadata| metadata.is_file())
 }
 
-fn hidden_name(name: &str) -> bool {
+pub(crate) fn hidden_name(name: &str) -> bool {
     name.starts_with('.')
 }
 
-fn validate_portable_path(relative: &str) -> Result<(), String> {
+pub(crate) fn validate_portable_path(relative: &str) -> Result<(), String> {
     let path = CollectionPath::new(relative).map_err(|error| error.to_string())?;
     if path.as_str() != relative {
         return Err("path is not in canonical forward-slash form".to_string());
@@ -245,7 +245,7 @@ fn validate_portable_path(relative: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn portable_path_key(relative: &str) -> String {
+pub(crate) fn portable_path_key(relative: &str) -> String {
     relative
         .nfc()
         .flat_map(char::to_lowercase)
@@ -290,11 +290,11 @@ fn path_with_forward_slashes(path: &str) -> String {
     path.replace(std::path::MAIN_SEPARATOR, "/")
 }
 
-fn extension(path: &str) -> Option<&str> {
+pub(crate) fn extension(path: &str) -> Option<&str> {
     path.rsplit_once('.').map(|(_, extension)| extension)
 }
 
-fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
+pub(crate) fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
     let extension = extension(path).unwrap_or_default().to_ascii_lowercase();
     let (class, media_type) = match extension.as_str() {
         "avif" => (FileMediaClass::Image, "image/avif"),
