@@ -663,6 +663,8 @@ describe("platform-neutral directory mirror", () => {
       const transport: SyncTransport = {
         openSession: async () => { throw new Error("unused"); },
         snapshot: async () => { throw new Error("unused"); },
+        fileSnapshot: async () => { throw new Error("unused"); },
+        downloadFile: async function* () { throw new Error("unused"); },
         mutate: async () => { throw new Error("unused"); },
         changes: async () => ({
           protocol_version: 1,
@@ -984,6 +986,8 @@ describe("platform-neutral directory mirror", () => {
     const transport: SyncTransport = {
       openSession: async () => { throw new Error("unused"); },
       snapshot: async () => { throw new Error("unused"); },
+      fileSnapshot: async () => { throw new Error("unused"); },
+      downloadFile: async function* () { throw new Error("unused"); },
       mutate: async () => { throw new Error("unused"); },
       changes: async (after) => ({
         protocol_version: 1,

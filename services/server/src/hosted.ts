@@ -173,6 +173,7 @@ export class HostedAuthorityRegistry {
   }
 
   async transport(collectionId: string, replicaId: string): Promise<SyncTransport> {
+    const registry = this;
     return {
       openSession: async () => {
         await this.assertTransferReadAllowed(collectionId, replicaId);
@@ -184,6 +185,21 @@ export class HostedAuthorityRegistry {
           collectionId,
           (authority) => authority.transport(replicaId).snapshot(snapshotId, page)
         );
+      },
+      fileSnapshot: async (snapshotId, page) => {
+        await this.assertTransferReadAllowed(collectionId, replicaId);
+        return this.read(
+          collectionId,
+          (authority) => authority.transport(replicaId).fileSnapshot(snapshotId, page)
+        );
+      },
+      downloadFile: async function* (file) {
+        await registry.assertTransferReadAllowed(collectionId, replicaId);
+        const source = await registry.read(
+          collectionId,
+          (authority) => authority.transport(replicaId).downloadFile(file)
+        );
+        yield* source;
       },
       changes: async (after, limit) => {
         await this.assertTransferReadAllowed(collectionId, replicaId);

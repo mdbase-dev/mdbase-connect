@@ -47,7 +47,9 @@ vi.mock("./node.js", () => ({
         already_initialized: true,
         download_documents: 0,
         upload_documents: 0,
-        unchanged_documents: 0
+        unchanged_documents: 0,
+        download_files: 0,
+        unchanged_files: 0
       };
     }
     async sync() {

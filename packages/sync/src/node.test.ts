@@ -610,6 +610,7 @@ describe("writable Markdown mirror", () => {
       });
       const upstream = hosted.transport(replicaId);
       const rejecting = {
+        ...upstream,
         openSession: () => upstream.openSession(),
         snapshot: (snapshotId: string, page?: string) => upstream.snapshot(snapshotId, page),
         changes: (after: number, limit?: number) => upstream.changes(after, limit),
@@ -652,6 +653,7 @@ describe("writable Markdown mirror", () => {
       const upstream = hosted.transport(replicaId);
       let loseResponse = true;
       const unreliable = {
+        ...upstream,
         openSession: () => upstream.openSession(),
         snapshot: (snapshotId: string, page?: string) => upstream.snapshot(snapshotId, page),
         changes: (after: number, limit?: number) => upstream.changes(after, limit),
@@ -690,6 +692,7 @@ describe("writable Markdown mirror", () => {
     let mutationCalls = 0;
     let loseResponseAt = 95;
     const unreliable = {
+      ...upstream,
       openSession: () => upstream.openSession(),
       snapshot: (snapshotId: string, page?: string) => upstream.snapshot(snapshotId, page),
       changes: (after: number, limit?: number) => upstream.changes(after, limit),

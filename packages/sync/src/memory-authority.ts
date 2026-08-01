@@ -220,6 +220,24 @@ export class MemoryAuthority<Frontmatter extends JsonObject = JsonObject> {
     return {
       openSession: async () => this.openSession(replicaId),
       snapshot: async (snapshotId, page) => this.snapshot(replicaId, snapshotId, page),
+      fileSnapshot: async (snapshotId) => {
+        const snapshot = this.snapshots.get(snapshotId);
+        const replica = this.requireActiveReplica(replicaId);
+        if (!snapshot || snapshot.replicaId !== replicaId || snapshot.scopeEpoch !== replica.scopeEpoch) {
+          throw new SyncError("snapshot_expired", "The snapshot is unavailable; open a new sync session.");
+        }
+        return {
+          protocol_version: 1,
+          type: "file_snapshot_page",
+          snapshot_id: snapshot.id,
+          scope_epoch: snapshot.scopeEpoch,
+          cursor: snapshot.cursor,
+          files: []
+        };
+      },
+      downloadFile: async function* () {
+        throw new SyncError("file_not_found", "The in-memory authority has no collection files.");
+      },
       changes: async (after, limit) => this.changes(replicaId, after, limit),
       mutate: async (mutation) => this.mutate(replicaId, mutation)
     };

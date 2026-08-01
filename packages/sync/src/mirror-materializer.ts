@@ -1,14 +1,29 @@
-import type { JsonObject, SyncRecord } from "@mdbase-dev/connect-protocol";
+import type {
+  CollectionFileDescriptor,
+  JsonObject,
+  SyncRecord
+} from "@mdbase-dev/connect-protocol";
 import { MirrorDivergenceError } from "./mirror-errors.js";
+import { SyncError } from "./sync-error.js";
 import { recordMarkdownDocument } from "./mirror-format.js";
 import {
   loadMirrorRecordPathPolicy,
   validateRecordPath,
   type MirrorRecordPathPolicy
 } from "./mirror-path-policy.js";
-import { assertRecordPhysicalPathAvailable } from "./mirror-physical-path.js";
+import {
+  assertFilePhysicalPathAvailable,
+  assertRecordPhysicalPathAvailable,
+  physicalMirrorPathKey
+} from "./mirror-physical-path.js";
+import {
+  sameBinaryInfo,
+  validateCollectionFileDescriptor,
+  verifiedFileBytes
+} from "./mirror-files.js";
 import {
   type MirrorEntry,
+  type MirrorBlobStore,
   type MirrorFileSystem,
   type MirrorRuntime,
   type MirrorState
@@ -27,7 +42,8 @@ export class MirrorMaterializer {
   constructor(
     private readonly fileSystem: MirrorFileSystem,
     private readonly runtime: MirrorRuntime,
-    private readonly mode: "read_only" | "read_write"
+    private readonly mode: "read_only" | "read_write",
+    private readonly blobStore?: MirrorBlobStore
   ) {}
 
   async recordPathPolicy(state: MirrorState): Promise<MirrorRecordPathPolicy> {
@@ -55,7 +71,8 @@ export class MirrorMaterializer {
         record.path,
         record.record_id,
         Object.keys(state.resources ?? {}),
-        Object.entries(state.records)
+        Object.entries(state.records),
+        Object.entries(state.files ?? {})
       );
     }
     const document = materialized?.document ?? recordMarkdownDocument(record);
@@ -93,6 +110,78 @@ export class MirrorMaterializer {
         ? { record: withoutSnapshotDocument(record) }
         : {})
     };
+  }
+
+  async putFile(
+    state: MirrorState,
+    file: CollectionFileDescriptor,
+    managedState: MirrorState = state
+  ): Promise<void> {
+    validateCollectionFileDescriptor(file);
+    if (!this.blobStore) {
+      throw new SyncError(
+        "file_storage_unavailable",
+        "Selected collection files require a content-addressed blob store adapter."
+      );
+    }
+    assertFilePhysicalPathAvailable(file.path, file.file_id, state);
+    state.files ??= {};
+    const prior = managedState.files?.[file.file_id];
+    const target = await this.fileSystem.inspectBinary(file.path);
+    const targetPhysicalPath = physicalMirrorPathKey(file.path);
+    const managedFileAtTarget = Object.values(managedState.files ?? {}).find(
+      (entry) => physicalMirrorPathKey(entry.file.path) === targetPhysicalPath
+    );
+    const managedDocumentAtTarget = [
+      ...Object.values(managedState.resources ?? {}),
+      ...Object.values(managedState.records)
+    ].find((entry) => physicalMirrorPathKey(entry.path) === targetPhysicalPath);
+    const targetDocument = managedDocumentAtTarget
+      ? await this.fileSystem.read(file.path)
+      : null;
+    const targetBelongsToPrior = prior?.file.path === file.path
+      && sameBinaryInfo(target, prior.file);
+    const targetBelongsToManagedPath = managedFileAtTarget !== undefined
+      && sameBinaryInfo(target, managedFileAtTarget.file);
+    const targetBelongsToManagedDocument = managedDocumentAtTarget !== undefined
+      && targetDocument !== null
+      && this.runtime.digest(targetDocument) === managedDocumentAtTarget.hash;
+    if (
+      target !== null
+      && !sameBinaryInfo(target, file)
+      && !targetBelongsToPrior
+      && !targetBelongsToManagedPath
+      && !targetBelongsToManagedDocument
+    ) {
+      throw new MirrorDivergenceError(file.file_id, file.path);
+    }
+    if (prior && prior.file.path !== file.path) {
+      const priorInfo = await this.fileSystem.inspectBinary(prior.file.path);
+      if (priorInfo !== null && !sameBinaryInfo(priorInfo, prior.file)) {
+        throw new MirrorDivergenceError(file.file_id, prior.file.path);
+      }
+    }
+    if (!sameBinaryInfo(target, file)) {
+      await this.fileSystem.writeBinary(
+        file.path,
+        verifiedFileBytes(this.blobStore.read(file.content_digest), file)
+      );
+    }
+    if (prior && prior.file.path !== file.path) {
+      await this.fileSystem.remove(prior.file.path);
+    }
+    state.files[file.file_id] = { file };
+  }
+
+  async removeFile(state: MirrorState, fileId: string): Promise<void> {
+    const entry = state.files?.[fileId];
+    if (!entry) return;
+    const local = await this.fileSystem.inspectBinary(entry.file.path);
+    if (local !== null && !sameBinaryInfo(local, entry.file)) {
+      throw new MirrorDivergenceError(fileId, entry.file.path);
+    }
+    if (local !== null) await this.fileSystem.remove(entry.file.path);
+    delete state.files![fileId];
   }
 
   async remove(

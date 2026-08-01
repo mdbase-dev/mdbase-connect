@@ -1,6 +1,8 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type {
+  CollectionFileDescriptor,
+  SelectiveSyncPolicy,
   SyncMutation,
   SyncMutationReceipt,
   SyncRecord,
@@ -9,15 +11,25 @@ import type {
 import { SyncError } from "./sync-error.js";
 import { assertRecordSyncChange } from "./record-sync-change.js";
 import {
+  normalizeSelectiveSyncPolicy,
+  validateCollectionFileDescriptor
+} from "./mirror-files.js";
+import {
   portableMirrorPathKey,
   validatePortableMirrorPath
 } from "./portable-path.js";
+import type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
+export type { MirrorBinaryInfo, MirrorBlobStore } from "./mirror-file-types.js";
 
 export interface MirrorEntry {
   path: string;
   revision: string;
   hash: string;
   record?: SyncRecord;
+}
+
+export interface MirrorFileEntry {
+  file: CollectionFileDescriptor;
 }
 
 export interface PendingMirrorMutation {
@@ -45,6 +57,8 @@ export interface MirrorState {
   cursor: number;
   records: Record<string, MirrorEntry>;
   resources?: Record<string, MirrorEntry>;
+  files?: Record<string, MirrorFileEntry>;
+  selective_sync?: SelectiveSyncPolicy;
   mode?: "read_only" | "read_write";
   pending?: PendingMirrorMutation[];
   conflicts?: Record<string, SyncMutationReceipt>;
@@ -74,13 +88,16 @@ export interface MirrorRuntime {
 export interface DirectoryMirrorOptions {
   stateStore: MirrorStateStore;
   fileSystem: MirrorFileSystem;
+  /** Required when any non-Markdown file class is selected. */
+  blobStore?: MirrorBlobStore;
+  selectiveSync?: SelectiveSyncPolicy;
   lease?: MirrorLease;
   runtime?: MirrorRuntime;
   onProgress?: (progress: MirrorProgress) => void;
 }
 
 export interface MirrorProgress {
-  phase: "uploading" | "applying";
+  phase: "uploading" | "downloading" | "applying";
   completed: number;
   total: number | null;
   done: boolean;
@@ -91,6 +108,9 @@ export interface MirrorFileSystem {
   write(path: string, value: string): Promise<void>;
   remove(path: string): Promise<void>;
   listMarkdown(excluded: ReadonlySet<string>): Promise<string[]>;
+  inspectBinary(path: string): Promise<MirrorBinaryInfo | null>;
+  /** Atomically install a fully-drained byte stream at path. */
+  writeBinary(path: string, source: AsyncIterable<Uint8Array>): Promise<void>;
 }
 
 export interface MirrorStatus {
@@ -113,6 +133,8 @@ export interface MirrorInitializationPreview {
   download_documents: number;
   upload_documents: number;
   unchanged_documents: number;
+  download_files: number;
+  unchanged_files: number;
   collisions: string[];
   local_issues: MirrorLocalIssue[];
 }
@@ -150,6 +172,46 @@ export class MemoryMirrorStateStore implements MirrorStateStore {
   }
 }
 
+/** Deterministic test adapter; production mirrors should use persistent storage. */
+export class MemoryMirrorBlobStore implements MirrorBlobStore {
+  private readonly blobs = new Map<string, Uint8Array>();
+
+  async has(contentDigest: `sha256:${string}`): Promise<boolean> {
+    return this.blobs.has(contentDigest);
+  }
+
+  async *read(contentDigest: `sha256:${string}`): AsyncGenerator<Uint8Array> {
+    const value = this.blobs.get(contentDigest);
+    if (!value) throw new SyncError("file_blob_missing", "A staged collection file is unavailable.");
+    for (let offset = 0; offset < value.byteLength; offset += 64 * 1024) {
+      yield value.slice(offset, offset + 64 * 1024);
+    }
+  }
+
+  async write(
+    contentDigest: `sha256:${string}`,
+    source: AsyncIterable<Uint8Array>
+  ): Promise<void> {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of source) {
+      chunks.push(chunk.slice());
+      size += chunk.byteLength;
+    }
+    const value = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      value.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.blobs.set(contentDigest, value);
+  }
+
+  async remove(contentDigest: `sha256:${string}`): Promise<void> {
+    this.blobs.delete(contentDigest);
+  }
+}
+
 /** In-process lease for filesystem-neutral adapters and deterministic tests. */
 export class MemoryMirrorLease implements MirrorLease {
   private held = false;
@@ -177,6 +239,8 @@ export function normalizeMirrorState(
 ): MirrorState {
   if (state.protocol_version !== 1 || state.replica_id !== replicaId) throw new Error();
   state.resources ??= {};
+  state.files ??= {};
+  state.selective_sync = normalizeSelectiveSyncPolicy(state.selective_sync);
   state.pending ??= [];
   state.conflicts ??= {};
   state.mode ??= "read_only";
@@ -197,6 +261,11 @@ export function normalizeMirrorState(
     validatePortableMirrorPath(path);
     if (path !== entry.path) throw new Error();
     physicalPaths.push(portableMirrorPathKey(entry.path));
+  }
+  for (const [fileId, entry] of Object.entries(state.files)) {
+    validateCollectionFileDescriptor(entry.file);
+    if (entry.file.file_id !== fileId) throw new Error();
+    physicalPaths.push(portableMirrorPathKey(entry.file.path));
   }
   physicalPaths.sort();
   for (let index = 1; index < physicalPaths.length; index += 1) {

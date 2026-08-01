@@ -10,12 +10,16 @@ export {
   recordMarkdownDocument
 } from "./mirror-format.js";
 export {
+  MemoryMirrorBlobStore,
   MemoryMirrorLease,
   MemoryMirrorStateStore,
   portableMirrorRuntime,
   type AcquiredMirrorLease,
   type AuthorityPromotionManifest,
   type DirectoryMirrorOptions,
+  type MirrorBinaryInfo,
+  type MirrorBlobStore,
+  type MirrorFileEntry,
   type MirrorFileSystem,
   type MirrorInitializationPreview,
   type MirrorLease,

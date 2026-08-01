@@ -25,6 +25,7 @@ interface CaptureOptions {
   pathPolicy: MirrorRecordPathPolicy;
   fileSystem: MirrorFileSystem;
   runtime: MirrorRuntime;
+  pathSelected?: (path: string) => boolean;
 }
 
 interface CapturedLocalChanges {
@@ -37,7 +38,8 @@ export async function captureMirrorLocalChanges({
   state,
   pathPolicy,
   fileSystem,
-  runtime
+  runtime,
+  pathSelected = () => true
 }: CaptureOptions): Promise<CapturedLocalChanges> {
   const resourcePaths = new Set(Object.keys(state.resources ?? {}));
   for (const [path, entry] of Object.entries(state.resources ?? {})) {
@@ -49,8 +51,12 @@ export async function captureMirrorLocalChanges({
   const files = filterRecordPaths(
     await fileSystem.listMarkdown(resourcePaths),
     pathPolicy
-  );
-  assertNoPhysicalPathAliases([...resourcePaths, ...files]);
+  ).filter(pathSelected);
+  assertNoPhysicalPathAliases([
+    ...resourcePaths,
+    ...files,
+    ...Object.values(state.files ?? {}).map((entry) => entry.file.path)
+  ]);
   const managedPaths = new Map(
     Object.entries(state.records).map(([recordId, entry]) => [
       entry.path,

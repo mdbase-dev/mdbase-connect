@@ -7,6 +7,7 @@ import type {
   MirrorFileSystem,
   MirrorState
 } from "./mirror-state.js";
+import { sameBinaryInfo } from "./mirror-files.js";
 
 export async function assertMirrorUndiverged(
   state: MirrorState,
@@ -25,6 +26,24 @@ export async function assertMirrorUndiverged(
     const value = await fileSystem.read(entry.path);
     if (value === null || digest(value) !== entry.hash) {
       throw new MirrorDivergenceError(`resource:${path}`, entry.path);
+    }
+  }
+  for (const [fileId, entry] of Object.entries(state.files ?? {})) {
+    const value = await fileSystem.inspectBinary(entry.file.path);
+    if (!sameBinaryInfo(value, entry.file)) {
+      throw new MirrorDivergenceError(fileId, entry.file.path);
+    }
+  }
+}
+
+export async function assertMirrorFilesUndiverged(
+  state: MirrorState,
+  fileSystem: MirrorFileSystem
+): Promise<void> {
+  for (const [fileId, entry] of Object.entries(state.files ?? {})) {
+    const value = await fileSystem.inspectBinary(entry.file.path);
+    if (!sameBinaryInfo(value, entry.file)) {
+      throw new MirrorDivergenceError(fileId, entry.file.path);
     }
   }
 }
