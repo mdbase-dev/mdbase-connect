@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T15:15:00+10:00
+updated_at: 2026-08-01T15:40:00+10:00
 type: task
 ---
 
@@ -254,6 +254,20 @@ workspace suite. The public SDK itself is exercised against a real hosted
 provider, PostgreSQL, and an S3-compatible object store in
 `hosted-files-e2e.mjs`, confirming that metadata stays in PostgreSQL while file
 bytes travel directly to object storage.
+
+Local transfer intents are now owned by the exact grant ID. Every open,
+chunk, status, commit, and abort operation rechecks that owner, so transfer
+UUID knowledge cannot cross an application boundary. Local upload open is
+truly idempotent for an identical client-chosen transfer ID and rejects changed
+intent. Local downloads copy the exact indexed revision into an owner-only
+staging snapshot before returning a session; chunks can therefore resume after
+connector restart and cannot mix bytes if the user edits the live file during
+the download. Snapshot copying verifies the source handle, exact size, and
+SHA-256, while abort and expiry remove staged bytes. Thirteen focused transfer
+tests cover ownership, conflicting open, out-of-order upload, restart recovery,
+revision staleness, live-file mutation, expiry, symlinks, corruption, and
+zero-byte files; all 76 core tests, strict core Clippy, and architecture budgets
+pass.
 
 ## Handoff
 

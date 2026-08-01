@@ -140,6 +140,7 @@ impl CollectionRegistry {
             CREATE TABLE IF NOT EXISTS collection_file_transfers (
                 transfer_id TEXT PRIMARY KEY,
                 collection_id TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
                 direction TEXT NOT NULL CHECK (direction IN ('upload', 'download')),
                 state TEXT NOT NULL CHECK (state IN ('open', 'committing', 'committed', 'aborted', 'expired')),
                 file_id TEXT NOT NULL,
@@ -240,6 +241,7 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
             "ALTER TABLE grants ADD COLUMN file_capability TEXT",
             "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE collection_file_transfers ADD COLUMN owner_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'",
             "ALTER TABLE collections ADD COLUMN description TEXT",
             "ALTER TABLE grant_crypto_state ADD COLUMN reorder_floor TEXT",
             "ALTER TABLE grant_crypto_requests ADD COLUMN counter TEXT",

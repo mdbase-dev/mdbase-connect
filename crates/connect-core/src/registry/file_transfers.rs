@@ -8,39 +8,46 @@ use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadReceiptKind, FileTransferDirection,
     FileTransferProtection, FileTransferSession, FileTransferSessionKind, FileTransferState,
-    FileTransferStatus, FileTransferStatusKind, FileTransferStrategy, OpenFileUploadRequest,
-    DEFAULT_FILE_CHUNK_BYTES, FILE_PROTOCOL_VERSION, FILE_TRANSFER_PROTOCOL_VERSION,
+    FileTransferStatus, FileTransferStatusKind, FileTransferStrategy, OpenFileDownloadRequest,
+    OpenFileUploadRequest, DEFAULT_FILE_CHUNK_BYTES, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION,
 };
 use rusqlite::Transaction;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
+
+mod download;
+use download::{download_staging_path, download_transfer_status, required_download};
+mod routing;
+use routing::{transfer_direction, transfer_exists, upload_session};
 
 const STAGING_DIRECTORY: &str = ".mdbase/file-staging";
 const TRANSFER_LIFETIME_HOURS: i64 = 24;
 const MAX_WIRE_FILE_BYTES: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone)]
-struct UploadTransfer {
-    transfer_id: Uuid,
+pub(super) struct UploadTransfer {
+    pub(super) transfer_id: Uuid,
     collection_id: Uuid,
     state: String,
     file_id: Uuid,
     path: String,
     path_key: String,
-    expected_size: u64,
+    pub(super) expected_size: u64,
     expected_digest: String,
+    media_type: Option<String>,
     base_revision: Option<String>,
-    chunk_size: u32,
+    pub(super) chunk_size: u32,
     staging_name: String,
     receipt: Option<CommitFileUploadReceipt>,
-    expires_at: chrono::DateTime<Utc>,
+    pub(super) expires_at: chrono::DateTime<Utc>,
 }
 
 impl CollectionRegistry {
     pub(super) fn recover_file_transfers(&self) -> Result<(), ConnectError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT collection_id, transfer_id, state
+            "SELECT collection_id, transfer_id, direction, state
              FROM collection_file_transfers
              WHERE state = 'committing'
                 OR (state = 'open' AND expires_at <= ?1)
@@ -52,23 +59,29 @@ impl CollectionRegistry {
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
             ))
         })?;
         let pending = rows.collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         drop(connection);
-        for (collection_id, transfer_id, state) in pending {
+        for (collection_id, transfer_id, direction, state) in pending {
             let collection_id = parse_uuid(&collection_id, "collection")?;
             let transfer_id = parse_uuid(&transfer_id, "transfer")?;
             let registered = self.get(collection_id)?;
             if !Path::new(&registered.path).is_dir() {
                 continue;
             }
-            if state == "committing" {
-                self.commit_file_upload(collection_id, transfer_id)?;
-            } else {
-                let transfer = required_upload(&self.connection()?, collection_id, transfer_id)?;
+            if direction == "upload" && state == "committing" {
+                self.commit_file_upload_internal(collection_id, None, transfer_id)?;
+            } else if direction == "upload" {
+                let transfer =
+                    required_upload(&self.connection()?, collection_id, None, transfer_id)?;
                 self.expire_upload(&registered, &transfer)?;
+            } else {
+                let transfer =
+                    required_download(&self.connection()?, collection_id, None, transfer_id)?;
+                self.expire_download(&registered, &transfer)?;
             }
         }
         Ok(())
@@ -77,6 +90,7 @@ impl CollectionRegistry {
     pub fn open_file_upload(
         &self,
         id: Uuid,
+        owner_id: Uuid,
         request: &OpenFileUploadRequest,
     ) -> Result<FileTransferSession, ConnectError> {
         require_file_protocol(request.protocol_version)?;
@@ -107,20 +121,21 @@ impl CollectionRegistry {
             let snapshot = collection.snapshot()?;
             self.reconcile_files_loaded(&registered, &snapshot)?;
             validate_target_path(Path::new(&registered.path), &snapshot, &request.path)?;
-            self.create_upload_transfer(&registered, request)
+            self.create_upload_transfer(&registered, owner_id, request)
         })
     }
 
     pub fn put_file_upload_chunk(
         &self,
         id: Uuid,
+        owner_id: Uuid,
         transfer_id: Uuid,
         chunk_index: u64,
         bytes: &[u8],
     ) -> Result<FileTransferStatus, ConnectError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let transfer = required_upload(&transaction, id, transfer_id)?;
+        let transfer = required_upload(&transaction, id, Some(owner_id), transfer_id)?;
         if !ensure_transfer_open(&transaction, &transfer)? {
             transaction.commit()?;
             let registered = self.get(id)?;
@@ -189,23 +204,46 @@ impl CollectionRegistry {
     pub fn file_transfer_status(
         &self,
         id: Uuid,
+        owner_id: Uuid,
         transfer_id: Uuid,
     ) -> Result<FileTransferStatus, ConnectError> {
         let connection = self.connection()?;
-        let transfer = required_upload(&connection, id, transfer_id)?;
-        transfer_status(&connection, &transfer)
+        let direction = transfer_direction(&connection, id, owner_id, transfer_id)?;
+        if direction == "upload" {
+            transfer_status(
+                &connection,
+                &required_upload(&connection, id, Some(owner_id), transfer_id)?,
+            )
+        } else {
+            download_transfer_status(&required_download(
+                &connection,
+                id,
+                Some(owner_id),
+                transfer_id,
+            )?)
+        }
     }
 
     pub fn commit_file_upload(
         &self,
         id: Uuid,
+        owner_id: Uuid,
+        transfer_id: Uuid,
+    ) -> Result<CommitFileUploadReceipt, ConnectError> {
+        self.commit_file_upload_internal(id, Some(owner_id), transfer_id)
+    }
+
+    fn commit_file_upload_internal(
+        &self,
+        id: Uuid,
+        owner_id: Option<Uuid>,
         transfer_id: Uuid,
     ) -> Result<CommitFileUploadReceipt, ConnectError> {
         let registered = self.get(id)?;
         let provider = self.provider_for(&registered)?;
         provider.with_collection(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
-            let transfer = required_upload(&self.connection()?, id, transfer_id)?;
+            let transfer = required_upload(&self.connection()?, id, owner_id, transfer_id)?;
             if let Some(receipt) = transfer.receipt.clone() {
                 return Ok(receipt);
             }
@@ -295,31 +333,68 @@ impl CollectionRegistry {
     pub fn abort_file_transfer(
         &self,
         id: Uuid,
+        owner_id: Uuid,
         transfer_id: Uuid,
     ) -> Result<FileTransferStatus, ConnectError> {
-        let transfer = required_upload(&self.connection()?, id, transfer_id)?;
-        if transfer.state == "committed" {
+        let connection = self.connection()?;
+        let direction = transfer_direction(&connection, id, owner_id, transfer_id)?;
+        let (state, staging) = if direction == "upload" {
+            let transfer = required_upload(&connection, id, Some(owner_id), transfer_id)?;
+            let registered = self.get(id)?;
+            let staging = transfer_staging_path(Path::new(&registered.path), &transfer)?;
+            (transfer.state, staging)
+        } else {
+            let transfer = required_download(&connection, id, Some(owner_id), transfer_id)?;
+            let registered = self.get(id)?;
+            let staging = download_staging_path(Path::new(&registered.path), &transfer)?;
+            (transfer.state, staging)
+        };
+        if state == "committed" {
             return Err(file_error(
                 "transfer_already_committed",
                 "A committed file upload cannot be aborted.",
             ));
         }
-        let registered = self.get(id)?;
-        let staging = transfer_staging_path(Path::new(&registered.path), &transfer)?;
         remove_file_if_present(&staging)?;
-        self.connection()?.execute(
+        connection.execute(
             "UPDATE collection_file_transfers SET state = 'aborted'
-             WHERE transfer_id = ?1 AND state <> 'committed'",
-            [transfer_id.to_string()],
+             WHERE transfer_id = ?1 AND owner_id = ?2 AND state <> 'committed'",
+            params![transfer_id.to_string(), owner_id.to_string()],
         )?;
-        self.file_transfer_status(id, transfer_id)
+        self.file_transfer_status(id, owner_id, transfer_id)
     }
 
     fn create_upload_transfer(
         &self,
         registered: &CollectionSummary,
+        owner_id: Uuid,
         request: &OpenFileUploadRequest,
     ) -> Result<FileTransferSession, ConnectError> {
+        if transfer_exists(&self.connection()?, request.transfer_id)? {
+            let connection = self.connection()?;
+            let transfer = required_upload(
+                &connection,
+                registered.id,
+                Some(owner_id),
+                request.transfer_id,
+            )?;
+            if transfer.path != request.path
+                || transfer.expected_size != request.size
+                || transfer.expected_digest != request.content_digest
+                || transfer.base_revision != request.if_revision
+                || request
+                    .media_type
+                    .as_ref()
+                    .is_some_and(|value| transfer.media_type.as_ref() != Some(value))
+            {
+                return Err(file_error(
+                    "transfer_conflict",
+                    "This transfer ID was already opened with different upload intent.",
+                ));
+            }
+            let status = transfer_status(&connection, &transfer)?;
+            return Ok(upload_session(&transfer, status.received));
+        }
         let path_key = portable_path_key(&request.path);
         let current = self
             .indexed_files(registered.id)?
@@ -361,14 +436,15 @@ impl CollectionRegistry {
         let (_, inferred_media_type) = classify_media(&request.path);
         let inserted = self.connection()?.execute(
             "INSERT INTO collection_file_transfers
-               (transfer_id, collection_id, direction, state, file_id, path, path_key,
+               (transfer_id, collection_id, owner_id, direction, state, file_id, path, path_key,
                 expected_size, expected_digest, media_type, base_revision, chunk_size,
                 staging_path, created_at, expires_at)
-             VALUES (?1, ?2, 'upload', 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                     ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, 'upload', 'open', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                     ?12, ?13, ?14)",
             params![
                 transfer_id.to_string(),
                 registered.id.to_string(),
+                owner_id.to_string(),
                 file_id.to_string(),
                 request.path,
                 path_key,
@@ -386,19 +462,15 @@ impl CollectionRegistry {
             let _ = remove_file_if_present(&staging);
             return Err(error.into());
         }
-        Ok(FileTransferSession {
-            protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
-            message_type: FileTransferSessionKind::FileTransfer,
-            transfer_id,
-            direction: FileTransferDirection::Upload,
-            protection: FileTransferProtection::GrantAeadV1,
-            strategy: FileTransferStrategy::FramedChunks {
-                chunk_size: DEFAULT_FILE_CHUNK_BYTES,
-            },
-            total_size: request.size,
-            expires_at: expires_at.to_rfc3339_opts(SecondsFormat::Millis, true),
-            received: Vec::new(),
-        })
+        Ok(upload_session(
+            &required_upload(
+                &self.connection()?,
+                registered.id,
+                Some(owner_id),
+                transfer_id,
+            )?,
+            Vec::new(),
+        ))
     }
 
     fn expire_upload(
@@ -422,12 +494,13 @@ impl CollectionRegistry {
 fn required_upload(
     connection: &Connection,
     collection_id: Uuid,
+    owner_id: Option<Uuid>,
     transfer_id: Uuid,
 ) -> Result<UploadTransfer, ConnectError> {
     connection
         .query_row(
-            "SELECT state, file_id, path, path_key, expected_size, expected_digest,
-                    base_revision, chunk_size, staging_path, receipt, expires_at
+            "SELECT owner_id, state, file_id, path, path_key, expected_size, expected_digest,
+                    media_type, base_revision, chunk_size, staging_path, receipt, expires_at
              FROM collection_file_transfers
              WHERE transfer_id = ?1 AND collection_id = ?2 AND direction = 'upload'",
             params![transfer_id.to_string(), collection_id.to_string()],
@@ -437,13 +510,15 @@ fn required_upload(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, u64>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, u32>(7)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, u64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, String>(10)?,
+                    row.get::<_, u32>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, String>(12)?,
                 ))
             },
         )
@@ -451,18 +526,27 @@ fn required_upload(
         .ok_or_else(|| file_error("transfer_not_found", "The file upload was not found."))
         .and_then(
             |(
+                stored_owner_id,
                 state,
                 file_id,
                 path,
                 path_key,
                 expected_size,
                 expected_digest,
+                media_type,
                 base_revision,
                 chunk_size,
                 staging_name,
                 receipt,
                 expires_at,
             )| {
+                let stored_owner_id = parse_uuid(&stored_owner_id, "transfer owner")?;
+                if owner_id.is_some_and(|expected| expected != stored_owner_id) {
+                    return Err(file_error(
+                        "transfer_not_found",
+                        "The file upload was not found.",
+                    ));
+                }
                 Ok(UploadTransfer {
                     transfer_id,
                     collection_id,
@@ -472,6 +556,7 @@ fn required_upload(
                     path_key,
                     expected_size,
                     expected_digest,
+                    media_type,
                     base_revision,
                     chunk_size,
                     staging_name: staging_name.ok_or_else(|| {
