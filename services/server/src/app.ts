@@ -273,6 +273,7 @@ export async function buildApp(options: BuildOptions) {
   registerAccountManagementRoutes(app, {
     db: options.db,
     publicUrl,
+    managementOrigins: options.managementOrigins,
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
     developmentAuth: options.devAuth,

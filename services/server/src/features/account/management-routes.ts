@@ -30,6 +30,7 @@ import { clearSessionCookies } from "../../platform/session-cookies.js";
 interface AccountManagementRoutesOptions {
   db: DatabasePool;
   publicUrl: string;
+  managementOrigins?: string[];
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   developmentAuth?: boolean;
@@ -164,7 +165,7 @@ export function registerAccountManagementRoutes(
   app.patch("/v1/account/password", {
     config: { rateLimit: { max: 5, timeWindow: "15 minutes" } }
   }, async (request, reply) => {
-    requireSameOrigin(request, options.publicUrl);
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
     const settings = await options.authenticationPolicy.current();
@@ -188,7 +189,7 @@ export function registerAccountManagementRoutes(
   });
 
   app.delete("/v1/account/identities/:provider", async (request, reply) => {
-    requireSameOrigin(request, options.publicUrl);
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
     const { provider } = z.object({
@@ -212,7 +213,7 @@ export function registerAccountManagementRoutes(
   app.delete("/v1/account", {
     config: { rateLimit: { max: 5, timeWindow: "15 minutes" } }
   }, async (request, reply) => {
-    requireSameOrigin(request, options.publicUrl);
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(request, reply, options.db);
     if (!authenticated) return;
     const input = z.object({

@@ -101,7 +101,12 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         currentPassword: deletionPassword || undefined,
         reauthenticationToken: reauthenticationToken || undefined
       });
-      history.replaceState(null, "", "/connect/account-deleted");
+      const url = new URL(location.href);
+      url.pathname = "/connect/account-deleted";
+      url.searchParams.delete("collection");
+      url.searchParams.delete("linked");
+      url.hash = "";
+      history.replaceState(null, "", `${url.pathname}${url.search}`);
       onDeleted();
     } catch (reason) {
       setError(errorMessage(reason));

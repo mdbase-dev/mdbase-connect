@@ -8,6 +8,7 @@ import type { HostedProviderClient } from "./hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "https://connect.example";
+const editorOrigin = "https://editor.example";
 const oldPassword = "a correct old password";
 const newPassword = "a much better new password";
 
@@ -115,6 +116,29 @@ describe("account management", () => {
     })).statusCode).toBe(200);
     expect((await passwordLogin(app, first.email, oldPassword)).statusCode).toBe(401);
     expect((await passwordLogin(app, first.email, newPassword)).statusCode).toBe(200);
+  });
+
+  it("allows account mutations only from the server or an explicit management origin", async () => {
+    const { app, db } = await fixture({ managementOrigins: [editorOrigin] });
+    const account = await seedSession(db);
+    await seedPassword(db, account.userId, account.email, oldPassword);
+
+    const denied = await app.inject({
+      method: "PATCH",
+      url: "/v1/account/password",
+      headers: { cookie: account.cookie, origin: "https://evil.example" },
+      payload: { current_password: oldPassword, new_password: newPassword }
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("origin_denied");
+
+    const allowed = await app.inject({
+      method: "PATCH",
+      url: "/v1/account/password",
+      headers: { cookie: account.cookie, origin: editorOrigin },
+      payload: { current_password: oldPassword, new_password: newPassword }
+    });
+    expect(allowed.statusCode).toBe(200);
   });
 
   it("links an explicitly authenticated GitHub identity without creating or merging accounts", async () => {

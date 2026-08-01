@@ -2496,7 +2496,10 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
 
     await page.getByRole("button", { name: "Account & sessions" }).click();
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
-    await expect(page.getByText("Account deletion collection", { exact: true })).toBeVisible();
+    await expect(page.getByRole("main").getByText(
+      "Account deletion collection",
+      { exact: true }
+    )).toBeVisible();
     const account = await page.evaluate(async (server) => {
       const response = await fetch(`${server}/v1/account`, { credentials: "include" });
       return response.json();
@@ -2515,7 +2518,7 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     )).toBeVisible();
     await page.getByLabel("Type DELETE to confirm").fill("DELETE");
     await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(/\/connect\/account-deleted$/);
+    await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
     await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
       .toBeVisible();
     assert.equal(

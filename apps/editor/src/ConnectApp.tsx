@@ -117,7 +117,7 @@ export function ConnectApp() {
   const selectedCollectionId = selectedCollection?.id;
 
   useEffect(() => {
-    if (!data) return;
+    if (!data || accountDeleted) return;
     if (selectedCollectionId) {
       rememberCollection(selectedCollectionId);
       if (requestedCollectionId !== selectedCollectionId) {
@@ -134,7 +134,7 @@ export function ConnectApp() {
       history.replaceState(null, "", `${url.pathname}${url.search}`);
       setView("collections");
     }
-  }, [data, requestedCollectionId, selectedCollectionId, view]);
+  }, [accountDeleted, data, requestedCollectionId, selectedCollectionId, view]);
 
   if (accountDeleted) return <DeletedAccount client={management} />;
   if (!data) return <ConnectLoading error={error} />;
