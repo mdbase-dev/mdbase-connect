@@ -200,12 +200,13 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
         }
         OutputKind::Mirrors => render_rows(
             value.as_array().map(Vec::as_slice).unwrap_or(&[]),
-            &["NAME", "STATE", "MODE", "ID", "PATH"],
+            &["NAME", "STATE", "MODE", "SELECTIVE SYNC", "ID", "PATH"],
             |item| {
                 vec![
                     text(item, "name"),
                     text(item, "state").replace('_', " "),
                     text(item, "mode").replace('_', " "),
+                    mirror_selective_sync(item),
                     text(item, "replica_id"),
                     text(item, "path"),
                 ]
@@ -215,10 +216,11 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
         OutputKind::Mirror => {
             let error = value["error"].as_str();
             format!(
-                "{}\n{}\n{}\n{}{}",
+                "{}\n{}\n{}\nSelective sync: {}\n{}{}",
                 text(value, "name"),
                 text(value, "state").replace('_', " "),
                 text(value, "path"),
+                mirror_selective_sync(value),
                 text(value, "replica_id"),
                 error.map(|error| format!("\n{error}")).unwrap_or_default()
             )
@@ -230,6 +232,28 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 serde_json::to_string_pretty(value).unwrap_or_else(|_| "Done.".to_string())
             }
         }
+    }
+}
+
+fn mirror_selective_sync(value: &Value) -> String {
+    let classes = value
+        .pointer("/selective_sync/file_classes")
+        .and_then(Value::as_array)
+        .map(|classes| classes.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let files = if classes.is_empty() {
+        "Markdown only".to_string()
+    } else {
+        classes.join(", ")
+    };
+    let excluded = value
+        .pointer("/selective_sync/excluded_folders")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    if excluded == 0 {
+        files
+    } else {
+        format!("{files}; {excluded} folder(s) excluded")
     }
 }
 

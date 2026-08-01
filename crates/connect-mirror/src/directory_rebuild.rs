@@ -33,7 +33,12 @@ impl DirectoryMirror {
                     "Hosted snapshot boundary changed during download.",
                 ));
             }
-            records.extend(snapshot.records);
+            records.extend(
+                snapshot
+                    .records
+                    .into_iter()
+                    .filter(|snapshot| self.path_selected(&snapshot.record.path)),
+            );
             page = snapshot.next_page;
             if page
                 .as_ref()
@@ -100,7 +105,7 @@ impl DirectoryMirror {
             session,
             records,
             files,
-            file_policy: self.file_policy.clone(),
+            sync_policy: self.sync_policy.clone(),
             prior,
         };
         self.write_rebuild_plan(&plan)?;
@@ -126,7 +131,7 @@ impl DirectoryMirror {
             records: BTreeMap::new(),
             resources: BTreeMap::new(),
             files: BTreeMap::new(),
-            file_policy: self.file_policy.clone(),
+            sync_policy: self.sync_policy.clone(),
             mode: self.mode,
             pending: Vec::new(),
             conflicts: BTreeMap::new(),
@@ -580,7 +585,7 @@ impl DirectoryMirror {
         &self,
         state: &DurableMirrorState,
     ) -> Result<(), MirrorError> {
-        validate_file_materialization_policy(&state.file_policy)?;
+        validate_selective_sync_policy(&state.sync_policy)?;
         let mut paths = HashSet::new();
         let mut physical_paths = HashMap::<String, String>::new();
         for (record_id, entry) in &state.records {

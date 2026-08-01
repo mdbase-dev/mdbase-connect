@@ -12,6 +12,11 @@ type ContractSetupChoice =
       binding?: Record<string, unknown>;
     };
 
+type DesktopSelectiveSyncPolicy = {
+  file_classes: Array<"image" | "audio" | "video" | "pdf" | "other">;
+  excluded_folders: string[];
+};
+
 contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
@@ -95,8 +100,13 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     path: string;
     mode: "read_only" | "read_write";
     name?: string;
+    selectiveSync: DesktopSelectiveSyncPolicy;
   }) => ipcRenderer.invoke("connect:mirrors:connect", input),
   syncMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:sync", replicaId),
+  configureMirrorSelectiveSync: (input: {
+    replicaId: string;
+    selectiveSync: DesktopSelectiveSyncPolicy;
+  }) => ipcRenderer.invoke("connect:mirrors:configure-selective-sync", input),
   resolveMirrorConflict: (input: {
     replicaId: string;
     recordId: string;

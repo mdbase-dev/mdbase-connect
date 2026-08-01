@@ -21,7 +21,10 @@ fn registry_contains_no_credentials() {
         replica_id: Uuid::new_v4(),
         name: "Notes".to_string(),
         mode: SyncReplicaMode::ReadWrite,
-        files: FileMaterializationPolicy::default(),
+        selective_sync: SelectiveSyncPolicy {
+            file_classes: vec![mdbase_connect_protocol::FileMediaClass::Image],
+            excluded_folders: vec!["Archive".to_string()],
+        },
         path: temporary.path().join("notes"),
         sync_url:
             "https://connect.example/v1/authorities/01900000-0000-7000-8000-000000000000/sync"
@@ -34,10 +37,20 @@ fn registry_contains_no_credentials() {
         promotion: None,
     };
     write_registry(&path, &[entry]).unwrap();
-    let raw = fs::read_to_string(path).unwrap();
+    let raw = fs::read_to_string(&path).unwrap();
     assert!(!raw.contains("\"access_token\":"));
     assert!(!raw.contains("\"refresh_token\":"));
     assert!(!raw.contains("Bearer"));
+    assert!(raw.contains("\"selective_sync\""));
+    assert!(raw.contains("\"file_classes\""));
+
+    fs::write(&path, raw.replace("\"selective_sync\"", "\"files\"")).unwrap();
+    let migrated = read_registry(&path).unwrap();
+    assert_eq!(
+        migrated[0].selective_sync.file_classes,
+        vec![mdbase_connect_protocol::FileMediaClass::Image]
+    );
+    assert_eq!(migrated[0].selective_sync.excluded_folders, vec!["Archive"]);
 }
 
 #[test]

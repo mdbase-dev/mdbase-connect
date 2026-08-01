@@ -9,21 +9,21 @@ fn protocol_schema() -> Value {
 
 #[test]
 fn file_materialization_defaults_to_metadata_only() {
-    let policy = FileMaterializationPolicy::default();
-    assert!(policy.media_classes.is_empty());
+    let policy = SelectiveSyncPolicy::default();
+    assert!(policy.file_classes.is_empty());
     assert!(policy.excluded_folders.is_empty());
     assert!(!policy.includes(FileMediaClass::Image));
 
-    let selected: FileMaterializationPolicy = serde_json::from_value(serde_json::json!({
-        "media_classes": ["image", "pdf"],
+    let selected: SelectiveSyncPolicy = serde_json::from_value(serde_json::json!({
+        "file_classes": ["image", "pdf"],
         "excluded_folders": ["Private"]
     }))
     .unwrap();
     assert!(selected.includes(FileMediaClass::Image));
     assert!(!selected.includes(FileMediaClass::Audio));
     assert!(
-        serde_json::from_value::<FileMaterializationPolicy>(serde_json::json!({
-            "media_classes": [],
+        serde_json::from_value::<SelectiveSyncPolicy>(serde_json::json!({
+            "file_classes": [],
             "excluded_folders": [],
             "hidden": true
         }))
@@ -336,6 +336,37 @@ fn copied_collection_registration_has_an_explicit_wire_command() {
             "protocol_version": 1,
             "method": "collections.add-copy",
             "params": { "path": "/collections/notes-copy" }
+        })
+    );
+}
+
+#[test]
+fn mirror_file_preferences_have_an_explicit_control_command() {
+    let replica_id = Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap();
+    let request = ControlRequest {
+        id: Uuid::nil(),
+        protocol_version: LOCAL_CONTROL_PROTOCOL_VERSION,
+        command: ControlCommand::MirrorConfigureSelectiveSync(MirrorConfigureSelectiveSyncParams {
+            replica_id,
+            selective_sync: SelectiveSyncPolicy {
+                file_classes: vec![FileMediaClass::Image, FileMediaClass::Pdf],
+                excluded_folders: vec!["Archive".to_string()],
+            },
+        }),
+    };
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "protocol_version": 1,
+            "method": "mirrors.configure-selective-sync",
+            "params": {
+                "replica_id": replica_id,
+                "selective_sync": {
+                    "file_classes": ["image", "pdf"],
+                    "excluded_folders": ["Archive"]
+                }
+            }
         })
     );
 }

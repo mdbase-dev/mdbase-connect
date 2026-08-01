@@ -6,14 +6,14 @@ use mdbase::frontmatter::parser::{
 };
 use mdbase_connect_protocol::{
     authority_manifest_digest, AuthoritySnapshotRecord, CollectionFileDescriptor,
-    FileMaterializationPolicy, FileTransferDirection, FileTransferProtection, FileTransferSession,
-    FileTransferStatus, FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue,
-    MirrorResolution, MirrorState as MirrorStatusState, OpenFileDownloadRequest,
-    OpenFileDownloadRequestKind, PrepareFileDownloadPartRequest,
-    PrepareFileDownloadPartRequestKind, PreparedFilePart, PreparedFilePartKind, SyncChange,
-    SyncChangesPage, SyncCollectionResources, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
-    SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
-    SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION,
+    FileTransferDirection, FileTransferProtection, FileTransferSession, FileTransferStatus,
+    FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue, MirrorResolution,
+    MirrorState as MirrorStatusState, OpenFileDownloadRequest, OpenFileDownloadRequestKind,
+    PrepareFileDownloadPartRequest, PrepareFileDownloadPartRequestKind, PreparedFilePart,
+    PreparedFilePartKind, SelectiveSyncPolicy, SyncChange, SyncChangesPage,
+    SyncCollectionResources, SyncFileSnapshotPage, SyncFileSnapshotPageKind, SyncMutation,
+    SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode, SyncResourceDocument,
+    SyncSession, SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION,
     FILE_TRANSFER_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
@@ -38,7 +38,7 @@ mod directory_sync;
 mod filesystem;
 mod transport;
 
-pub use directory_files::validate_file_materialization_policy;
+pub use directory_files::validate_selective_sync_policy;
 
 pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
 pub use transport::{HttpSyncTransport, SyncTransport};
@@ -118,8 +118,8 @@ struct DurableMirrorState {
     resources: BTreeMap<String, MirrorEntry>,
     #[serde(default)]
     files: BTreeMap<Uuid, MirrorFileEntry>,
-    #[serde(default)]
-    file_policy: FileMaterializationPolicy,
+    #[serde(default, alias = "file_policy")]
+    sync_policy: SelectiveSyncPolicy,
     mode: SyncReplicaMode,
     #[serde(default)]
     pending: Vec<PendingMirrorMutation>,
@@ -147,8 +147,8 @@ struct DurableRebuildPlan {
     records: Vec<SyncSnapshotRecord>,
     #[serde(default)]
     files: Vec<CollectionFileDescriptor>,
-    #[serde(default)]
-    file_policy: FileMaterializationPolicy,
+    #[serde(default, alias = "file_policy")]
+    sync_policy: SelectiveSyncPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     prior: Option<DurableMirrorState>,
 }
@@ -176,7 +176,7 @@ pub struct DirectoryMirror {
     lock_file: PathBuf,
     replica_id: Uuid,
     mode: SyncReplicaMode,
-    file_policy: FileMaterializationPolicy,
+    sync_policy: SelectiveSyncPolicy,
     transport: Arc<dyn SyncTransport>,
 }
 
@@ -189,27 +189,27 @@ impl DirectoryMirror {
         mode: SyncReplicaMode,
         transport: Arc<dyn SyncTransport>,
     ) -> Result<Self, MirrorError> {
-        Self::new_with_files(
+        Self::new_with_selective_sync(
             root,
             state_file,
             lock_file,
             replica_id,
             mode,
-            FileMaterializationPolicy::default(),
+            SelectiveSyncPolicy::default(),
             transport,
         )
     }
 
-    pub fn new_with_files(
+    pub fn new_with_selective_sync(
         root: impl AsRef<Path>,
         state_file: impl AsRef<Path>,
         lock_file: impl AsRef<Path>,
         replica_id: Uuid,
         mode: SyncReplicaMode,
-        file_policy: FileMaterializationPolicy,
+        sync_policy: SelectiveSyncPolicy,
         transport: Arc<dyn SyncTransport>,
     ) -> Result<Self, MirrorError> {
-        validate_file_materialization_policy(&file_policy)?;
+        validate_selective_sync_policy(&sync_policy)?;
         fs::create_dir_all(root.as_ref())
             .map_err(|error| MirrorError::io("Could not create", root.as_ref(), error))?;
         if fs::symlink_metadata(root.as_ref())
@@ -234,7 +234,7 @@ impl DirectoryMirror {
             lock_file: lock_file.as_ref().to_path_buf(),
             replica_id,
             mode,
-            file_policy,
+            sync_policy,
             transport,
         })
     }

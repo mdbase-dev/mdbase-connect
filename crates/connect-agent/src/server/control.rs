@@ -262,6 +262,13 @@ impl AgentState {
                     .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
                 Err(error) => Err(error),
             },
+            ControlCommand::MirrorConfigureSelectiveSync(params) => match self.mirror_manager() {
+                Ok(mirrors) => mirrors
+                    .configure_selective_sync(params)
+                    .await
+                    .and_then(|value| serde_json::to_value(value).map_err(ConnectError::from)),
+                Err(error) => Err(error),
+            },
             ControlCommand::MirrorRemove(params) => match self.mirror_manager() {
                 Ok(mirrors) => mirrors.remove(params).await,
                 Err(error) => Err(error),

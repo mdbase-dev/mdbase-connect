@@ -45,7 +45,7 @@ pub(super) fn read_registry(path: &Path) -> Result<Vec<MirrorRegistryEntry>, Con
     let mut replica_ids = HashSet::new();
     let mut enrollment_ids = HashSet::new();
     for entry in &registry.mirrors {
-        validate_file_materialization_policy(&entry.files).map_err(from_mirror)?;
+        validate_selective_sync_policy(&entry.selective_sync).map_err(from_mirror)?;
         if !entry.path.is_absolute()
             || paths
                 .iter()

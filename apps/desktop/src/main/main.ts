@@ -635,17 +635,28 @@ function registerIpc(): void {
     if (!["read_only", "read_write"].includes(String(value.mode))) {
       throw new Error("Choose receive-only or two-way synchronization.");
     }
+    const selectiveSync = selectiveSyncPolicy(value.selectiveSync);
     return requestReadyAgent("mirrors.add", {
       collection_id: value.collectionId,
       path: value.path,
       mode: value.mode as "read_only" | "read_write",
-      name: typeof value.name === "string" ? value.name : undefined
+      name: typeof value.name === "string" ? value.name : undefined,
+      selective_sync: selectiveSync
     }, 2 * 60 * 1_000);
   });
   ipcMain.handle("connect:mirrors:sync", async (event, replicaId: unknown) => {
     trustedIpc(event);
     if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
     return requestReadyAgent("mirrors.sync", { replica_id: replicaId }, 2 * 60 * 1_000);
+  });
+  ipcMain.handle("connect:mirrors:configure-selective-sync", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid selective sync settings.");
+    if (typeof value.replicaId !== "string") throw new Error("Invalid mirror ID.");
+    return requestReadyAgent("mirrors.configure-selective-sync", {
+      replica_id: value.replicaId,
+      selective_sync: selectiveSyncPolicy(value.selectiveSync)
+    }, 15 * 60 * 1_000);
   });
   ipcMain.handle("connect:mirrors:resolve", async (event, input: unknown) => {
     trustedIpc(event);
@@ -707,6 +718,28 @@ function registerIpc(): void {
 function asObject(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
   return value as Record<string, unknown>;
+}
+
+function selectiveSyncPolicy(value: unknown): {
+  file_classes: Array<"image" | "audio" | "video" | "pdf" | "other">;
+  excluded_folders: string[];
+} {
+  const policy = asObject(value, "Invalid selective sync settings.");
+  const allowed = new Set(["image", "audio", "video", "pdf", "other"]);
+  if (
+    !Array.isArray(policy.file_classes)
+    || policy.file_classes.some((item) => typeof item !== "string" || !allowed.has(item))
+    || !Array.isArray(policy.excluded_folders)
+    || policy.excluded_folders.some((item) => typeof item !== "string" || item.length === 0)
+  ) {
+    throw new Error("Invalid selective sync settings.");
+  }
+  return {
+    file_classes: [...new Set(policy.file_classes)] as Array<
+      "image" | "audio" | "video" | "pdf" | "other"
+    >,
+    excluded_folders: [...new Set(policy.excluded_folders as string[])]
+  };
 }
 
 function stringArray(value: unknown, message: string): string[] {

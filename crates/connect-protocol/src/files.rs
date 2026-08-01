@@ -33,20 +33,20 @@ pub enum FileMediaClass {
     Other,
 }
 
-/// Device-local projection of the authority's safe collection-file namespace.
-/// Hidden and reserved paths remain excluded independently of this preference.
+/// Device-local projection of a hosted collection. Folder exclusions apply to
+/// Markdown and files; hidden and reserved paths are independently mandatory.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FileMaterializationPolicy {
+pub struct SelectiveSyncPolicy {
     #[serde(default)]
-    pub media_classes: Vec<FileMediaClass>,
+    pub file_classes: Vec<FileMediaClass>,
     #[serde(default)]
     pub excluded_folders: Vec<String>,
 }
 
-impl FileMaterializationPolicy {
+impl SelectiveSyncPolicy {
     pub fn includes(&self, media_class: FileMediaClass) -> bool {
-        self.media_classes.contains(&media_class)
+        self.file_classes.contains(&media_class)
     }
 }
 

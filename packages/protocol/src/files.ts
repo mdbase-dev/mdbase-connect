@@ -25,9 +25,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 export type FileMediaClass = "image" | "audio" | "video" | "pdf" | "other";
 
-/** Device-local projection; namespace safety and hidden-path exclusion are mandatory. */
-export interface FileMaterializationPolicy {
-  media_classes: FileMediaClass[];
+/** Device-local projection. Folder exclusions apply to Markdown and files. */
+export interface SelectiveSyncPolicy {
+  file_classes: FileMediaClass[];
   excluded_folders: string[];
 }
 export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";

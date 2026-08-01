@@ -11,12 +11,10 @@ const RESERVED_FILE_DIRECTORIES: &[&str] = &[
     "_views",
 ];
 
-pub fn validate_file_materialization_policy(
-    policy: &FileMaterializationPolicy,
-) -> Result<(), MirrorError> {
+pub fn validate_selective_sync_policy(policy: &SelectiveSyncPolicy) -> Result<(), MirrorError> {
     let mut classes = HashSet::new();
     if policy
-        .media_classes
+        .file_classes
         .iter()
         .any(|class| !classes.insert(*class))
     {
@@ -42,15 +40,17 @@ pub fn validate_file_materialization_policy(
 }
 
 impl DirectoryMirror {
+    pub(super) fn path_selected(&self, path: &str) -> bool {
+        !self.sync_policy.excluded_folders.iter().any(|folder| {
+            path == folder
+                || path
+                    .strip_prefix(folder)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+    }
+
     pub(super) fn file_selected(&self, file: &CollectionFileDescriptor) -> bool {
-        self.file_policy.includes(file.media_class)
-            && !self.file_policy.excluded_folders.iter().any(|folder| {
-                file.path == *folder
-                    || file
-                        .path
-                        .strip_prefix(folder)
-                        .is_some_and(|suffix| suffix.starts_with('/'))
-            })
+        self.sync_policy.includes(file.media_class) && self.path_selected(&file.path)
     }
 
     pub(super) fn validate_file_descriptor(

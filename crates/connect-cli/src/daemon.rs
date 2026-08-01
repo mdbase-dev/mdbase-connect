@@ -388,6 +388,7 @@ pub(super) fn control_request_timeout(command: &ControlCommand) -> std::time::Du
     let seconds = match command {
         ControlCommand::MirrorAdd(_)
         | ControlCommand::MirrorSync(_)
+        | ControlCommand::MirrorConfigureSelectiveSync(_)
         | ControlCommand::MirrorResolve(_)
         | ControlCommand::MirrorPromoteComplete(_)
         | ControlCommand::CollectionTransferAuthority(_) => 15 * 60,

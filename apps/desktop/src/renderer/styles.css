@@ -132,6 +132,43 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .mirror-setup > small { grid-column: 1 / -1; }
 .mirror-setup .button { align-self: end; }
 .mirror-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding-top: 4px; border-top: 1px solid var(--line); }
+.mirror-file-settings { min-width: 0; border-top: 1px solid var(--line); }
+.mirror-file-settings > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 46px; cursor: pointer; list-style: none; outline: none; }
+.mirror-file-settings > summary::-webkit-details-marker { display: none; }
+.mirror-file-settings > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.mirror-file-settings > summary > span { display: grid; gap: 2px; }
+.mirror-file-settings > summary strong { font-size: var(--type-supporting); }
+.mirror-file-settings > summary small { color: var(--muted); font-size: var(--type-action); }
+.mirror-file-settings > summary code { color: var(--muted); font-size: var(--type-metadata); white-space: nowrap; }
+.mirror-file-settings > summary code::after { content: " +"; color: var(--ink); }
+.mirror-file-settings[open] > summary code::after { content: " −"; }
+.mirror-file-settings-setup { grid-column: 1 / -1; margin-top: 2px; border-bottom: 1px solid var(--line); }
+.file-sync-settings { display: grid; gap: 0; padding: 2px 0 12px; }
+.file-sync-projection { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 4px; padding: 10px 12px; border-left: 2px solid var(--accent); background: var(--hover); }
+.file-sync-projection > div { display: grid; gap: 2px; }
+.file-sync-projection span, .excluded-folder-control label > span { font-size: var(--type-action); font-weight: 700; }
+.file-sync-projection code { font-size: var(--type-supporting); }
+.file-sync-projection small { max-width: 34ch; color: var(--muted); font-size: var(--type-action); line-height: 1.4; text-align: right; }
+.file-class-list { display: grid; }
+.file-class-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 14px 0 4px; }
+.file-class-heading strong { font-size: var(--type-action); }
+.file-class-heading small { color: var(--muted); font-size: var(--type-action); text-align: right; }
+.file-class-list .setting-toggle { min-height: 58px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.file-class-list .toggle-copy strong { font-size: var(--type-supporting); }
+.file-class-list .toggle-copy small { font-size: var(--type-action); }
+.file-class-list .toggle-action { min-width: 156px; }
+.excluded-folder-control { display: grid; grid-template-columns: minmax(190px, 0.6fr) minmax(220px, 1fr); gap: 14px 20px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.excluded-folder-control > label { display: grid; align-content: start; gap: 3px; }
+.excluded-folder-control > label small { color: var(--muted); font-size: var(--type-action); line-height: 1.4; }
+.excluded-folder-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.excluded-folder-list { display: flex; grid-column: 2; flex-wrap: wrap; gap: 6px; }
+.excluded-folder-list > span { display: inline-flex; align-items: center; min-height: 26px; padding-left: 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--paper); }
+.excluded-folder-list code { color: var(--muted); font-size: var(--type-action); }
+.excluded-folder-list button { width: 26px; height: 24px; padding: 0; border: 0; color: var(--muted); background: transparent; cursor: pointer; }
+.excluded-folder-list button:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
+.mirror-file-settings-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 0 12px; }
+.mirror-file-settings-actions small { max-width: 60ch; color: var(--muted); font-size: var(--type-action); line-height: 1.4; }
+.mirror-file-settings-actions .button { flex: 0 0 auto; }
 .mirror-conflicts { display: grid; border-top: 1px solid var(--line); }
 .mirror-conflicts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .mirror-conflicts > div > div:first-child { display: grid; gap: 2px; min-width: 0; }
@@ -331,6 +368,11 @@ fieldset legend { margin-bottom: 6px; }
   .collection-fields { grid-template-columns: 1fr; }
   .hosted-editor .collection-fields, .mirror-setup { grid-template-columns: 1fr; }
   .mirror-setup > small { grid-column: 1; }
+  .mirror-file-settings-setup { grid-column: 1; }
+  .file-sync-projection, .mirror-file-settings-actions { align-items: flex-start; flex-direction: column; }
+  .file-sync-projection small { text-align: left; }
+  .excluded-folder-control { grid-template-columns: 1fr; }
+  .excluded-folder-list { grid-column: 1; }
   .replica-list > div { grid-template-columns: 1fr auto auto; }
   .replica-list small { grid-column: 1 / -1; }
   .request-footer { align-items: flex-start; flex-direction: column; }

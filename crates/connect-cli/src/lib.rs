@@ -22,9 +22,10 @@ use mdbase_connect_protocol::{
     AccessPauseParams, ActivityListParams, AuthorityTarget, AuthorizationApproveParams,
     AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
     CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
-    ControlRequest, ControlResponse, GrantIdParams, GrantUpdateParams,
-    HostedCollectionCreateParams, HostedCollectionRenameParams, MirrorAddParams, MirrorIdParams,
-    MirrorResolution, MirrorResolveParams, SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
+    ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
+    HostedCollectionCreateParams, HostedCollectionRenameParams, MirrorAddParams,
+    MirrorConfigureSelectiveSyncParams, MirrorIdParams, MirrorResolution, MirrorResolveParams,
+    SyncReplicaMode, LOCAL_CONTROL_PROTOCOL_VERSION,
 };
 use serde_json::Value;
 use std::io::IsTerminal;
@@ -328,9 +329,24 @@ enum MirrorCommand {
         read_only: bool,
         #[arg(long)]
         two_way: bool,
+        /// Non-Markdown file classes to keep on this computer (comma-separated).
+        #[arg(long, value_enum, value_delimiter = ',')]
+        files: Vec<CliFileClass>,
+        /// Visible collection folder to leave online-only. Repeat for multiple folders.
+        #[arg(long = "exclude-folder")]
+        excluded_folders: Vec<String>,
     },
     Sync {
         replica_id: Uuid,
+    },
+    Configure {
+        replica_id: Uuid,
+        /// Non-Markdown file classes to keep on this computer (comma-separated).
+        #[arg(long, value_enum, value_delimiter = ',')]
+        files: Vec<CliFileClass>,
+        /// Visible collection folder to leave online-only. Repeat for multiple folders.
+        #[arg(long = "exclude-folder")]
+        excluded_folders: Vec<String>,
     },
     Resolve {
         replica_id: Uuid,
@@ -355,6 +371,15 @@ enum MirrorCommand {
 enum CliMirrorResolution {
     Local,
     Hosted,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum CliFileClass {
+    Images,
+    Audio,
+    Videos,
+    Pdfs,
+    Other,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

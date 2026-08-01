@@ -95,3 +95,33 @@ fn invalid_operation_json_is_a_usage_error() {
     assert_eq!(error.code, "invalid_input");
     assert_eq!(error.exit_code, 2);
 }
+
+#[test]
+fn mirror_file_flags_build_an_explicit_device_local_policy() {
+    let collection_id = "01900000-0000-7000-8000-000000000000";
+    let args = Args::try_parse_from([
+        "mdbase",
+        "connect",
+        "mirror",
+        "add",
+        collection_id,
+        "/data/notes",
+        "--files",
+        "images,pdfs,images",
+        "--exclude-folder",
+        "archive",
+    ])
+    .unwrap();
+    let RootCommand::Connect { command } = args.command else {
+        panic!("expected a Connect command")
+    };
+    let (command, _) = control_command(command).unwrap();
+    let ControlCommand::MirrorAdd(params) = command else {
+        panic!("expected mirrors.add")
+    };
+    assert_eq!(
+        params.selective_sync.file_classes,
+        vec![FileMediaClass::Image, FileMediaClass::Pdf]
+    );
+    assert_eq!(params.selective_sync.excluded_folders, vec!["archive"]);
+}

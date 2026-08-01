@@ -39,7 +39,7 @@ pub struct MirrorSummary {
     pub name: String,
     pub mode: SyncReplicaMode,
     #[serde(default)]
-    pub files: FileMaterializationPolicy,
+    pub selective_sync: SelectiveSyncPolicy,
     pub path: String,
     pub state: MirrorState,
     pub pending: usize,

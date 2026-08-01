@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
 import {
   authorityPromotionState,
@@ -6,6 +6,129 @@ import {
   plural,
   relativeTime
 } from "./view-model";
+
+const FILE_CLASS_OPTIONS: Array<{
+  value: DesktopFileMediaClass;
+  label: string;
+  description: string;
+}> = [
+  { value: "image", label: "Images", description: "BMP, PNG, JPG, JPEG, GIF, SVG, WebP and AVIF." },
+  { value: "audio", label: "Audio", description: "MP3, WAV, M4A, 3GP, FLAC, OGG, OGA and Opus." },
+  { value: "video", label: "Videos", description: "MP4, WebM, OGV, MOV and MKV." },
+  { value: "pdf", label: "PDFs", description: "PDF documents." },
+  { value: "other", label: "Other files", description: "Any other visible, supported non-Markdown file." }
+];
+
+function emptySelectiveSyncPolicy(): DesktopSelectiveSyncPolicy {
+  return { file_classes: [], excluded_folders: [] };
+}
+
+function selectiveSyncSummary(policy: DesktopSelectiveSyncPolicy): string {
+  const files = policy.file_classes.length === 0
+    ? "Markdown only"
+    : policy.file_classes.length === FILE_CLASS_OPTIONS.length
+      ? "Markdown + all visible files"
+      : `Markdown + ${FILE_CLASS_OPTIONS
+        .filter((option) => policy.file_classes.includes(option.value))
+        .map((option) => option.label.toLowerCase())
+        .join(", ")}`;
+  const excluded = policy.excluded_folders.length === 0
+    ? ""
+    : ` · ${policy.excluded_folders.length} ${policy.excluded_folders.length === 1 ? "folder" : "folders"} excluded`;
+  return `${files}${excluded}`;
+}
+
+function sameSelectiveSyncPolicy(
+  left: DesktopSelectiveSyncPolicy,
+  right: DesktopSelectiveSyncPolicy
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function SelectiveSyncSettings({ value, disabled, onChange }: {
+  value: DesktopSelectiveSyncPolicy;
+  disabled: boolean;
+  onChange(value: DesktopSelectiveSyncPolicy): void;
+}) {
+  const [folder, setFolder] = useState("");
+  const folderInputId = useId();
+
+  function toggleFileClass(mediaClass: DesktopFileMediaClass) {
+    const selected = value.file_classes.includes(mediaClass);
+    onChange({
+      ...value,
+      file_classes: FILE_CLASS_OPTIONS
+        .map((option) => option.value)
+        .filter((candidate) => candidate === mediaClass ? !selected : value.file_classes.includes(candidate))
+    });
+  }
+
+  function addExcludedFolder() {
+    const normalized = folder.trim().replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
+    if (!normalized) return;
+    const physical = normalized.normalize("NFC").toLocaleLowerCase();
+    if (value.excluded_folders.some(
+      (candidate) => candidate.normalize("NFC").toLocaleLowerCase() === physical
+    )) {
+      setFolder("");
+      return;
+    }
+    onChange({ ...value, excluded_folders: [...value.excluded_folders, normalized] });
+    setFolder("");
+  }
+
+  return <div className="file-sync-settings">
+    <div className="file-sync-projection">
+      <div><span>Local projection</span><code>{selectiveSyncSummary(value)}</code></div>
+      <small>Hidden folders and mdbase-managed files always stay excluded.</small>
+    </div>
+    <div className="excluded-folder-control">
+      <label htmlFor={folderInputId}><span>Folders excluded from this computer</span><small>Markdown and other files in these folders stay hosted only.</small></label>
+      <div className="excluded-folder-input">
+        <input
+          id={folderInputId}
+          value={folder}
+          disabled={disabled}
+          placeholder="Archive/large-media"
+          onChange={(event) => setFolder(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addExcludedFolder();
+            }
+          }}
+        />
+        <button type="button" className="button secondary" disabled={disabled || !folder.trim()} onClick={addExcludedFolder}>Exclude</button>
+      </div>
+      {value.excluded_folders.length > 0 && <div className="excluded-folder-list" aria-label="Excluded folders">
+        {value.excluded_folders.map((candidate) => <span key={candidate}><code>{candidate}</code><button
+          type="button"
+          disabled={disabled}
+          aria-label={`Include ${candidate}`}
+          onClick={() => onChange({
+            ...value,
+            excluded_folders: value.excluded_folders.filter((item) => item !== candidate)
+          })}
+        >×</button></span>)}
+      </div>}
+    </div>
+    <div className="file-class-heading"><strong>Non-Markdown files</strong><small>Selected types are downloaded unless their folder is excluded.</small></div>
+    <div className="file-class-list" role="group" aria-label="File types kept on this computer">
+      {FILE_CLASS_OPTIONS.map((option) => <label className={`setting-toggle ${disabled ? "disabled" : ""}`} key={option.value}>
+        <span className="toggle-copy"><strong>{option.label}</strong><small>{option.description}</small></span>
+        <span className="toggle-action">
+          <span className="toggle-state">{value.file_classes.includes(option.value) ? "On this computer" : "Online only"}</span>
+          <input
+            type="checkbox"
+            checked={value.file_classes.includes(option.value)}
+            disabled={disabled}
+            onChange={() => toggleFileClass(option.value)}
+          />
+        </span>
+      </label>)}
+    </div>
+  </div>;
+}
 
 export function Collections({
   collections,
@@ -260,6 +383,7 @@ function HostedCollectionRow({
   const [name, setName] = useState(collection.display_name);
   const [path, setPath] = useState("");
   const [mode, setMode] = useState<"read_only" | "read_write">("read_write");
+  const [syncPolicy, setSyncPolicy] = useState<DesktopSelectiveSyncPolicy>(emptySelectiveSyncPolicy);
   const [promotionStarting, setPromotionStarting] = useState(false);
   const mirror = mirrors.find((candidate) => candidate.collection_id === collection.id);
   const activeReplicas = collection.replicas.filter((replica) => replica.revoked_at === null);
@@ -278,6 +402,9 @@ function HostedCollectionRow({
   useEffect(() => {
     if (!editing) setName(collection.display_name);
   }, [collection.display_name, editing]);
+  useEffect(() => {
+    setSyncPolicy(mirror?.selective_sync ?? emptySelectiveSyncPolicy());
+  }, [mirror?.replica_id, JSON.stringify(mirror?.selective_sync)]);
 
   async function chooseMirrorFolder() {
     const selected = await window.mdbaseConnect.chooseMirrorFolder();
@@ -340,7 +467,7 @@ function HostedCollectionRow({
         {collection.authority_state !== "transferred" && <section className="collection-editor-section mirror-section">
           <div>
             <strong>Synced folder on this computer</strong>
-            <small>Keep ordinary Markdown here while the main copy remains hosted by mdbase.</small>
+            <small>Keep Markdown and selected files here while the main copy remains hosted by mdbase.</small>
           </div>
           {mirror ? (
             <div className="mirror-control">
@@ -378,6 +505,22 @@ function HostedCollectionRow({
                   </div>)}
                 </div>
               )}
+              <details className="mirror-file-settings">
+                <summary><span><strong>Selective sync</strong><small>Choose which folders and non-Markdown files are downloaded.</small></span><code>{selectiveSyncSummary(mirror.selective_sync)}</code></summary>
+                <SelectiveSyncSettings value={syncPolicy} disabled={busy} onChange={setSyncPolicy} />
+                <div className="mirror-file-settings-actions">
+                  <small>Changing this may download selected files or remove online-only files from this folder. Hosted files are not deleted.</small>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={busy || sameSelectiveSyncPolicy(syncPolicy, mirror.selective_sync)}
+                    onClick={() => void onAct(async () => {
+                      await window.mdbaseConnect.configureMirrorSelectiveSync({ replicaId: mirror.replica_id, selectiveSync: syncPolicy });
+                      onNotice(`Selective sync settings for ${collection.display_name} were saved.`);
+                    })}
+                  >Save selective sync</button>
+                </div>
+              </details>
               <div className="mirror-actions">
                 <button className="quiet-action" disabled={busy || mirror.syncing} onClick={() => void onAct(async () => {
                   await window.mdbaseConnect.syncMirror(mirror.replica_id);
@@ -397,12 +540,16 @@ function HostedCollectionRow({
             <div className="mirror-setup">
               <label><span>Folder</span><button type="button" className="folder-picker" onClick={() => void chooseMirrorFolder()}>{path || "Choose a folder…"}</button></label>
               <label><span>How should it sync?</span><select value={mode} onChange={(event) => setMode(event.target.value as "read_only" | "read_write")}><option value="read_write">Sync edits both ways</option><option value="read_only">Download updates only</option></select></label>
-              <small>Syncing both ways sends local edits to mdbase. Download-only folders replace their local view with hosted changes.</small>
               <button className="button primary" disabled={busy || !path} onClick={() => void onAct(async () => {
-                await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode });
+                await window.mdbaseConnect.connectMirror({ collectionId: collection.id, path, mode, selectiveSync: syncPolicy });
                 setPath("");
                 onNotice(`${collection.display_name} now has a synced folder on this computer.`);
               })}>Start syncing</button>
+              <small>Syncing both ways sends local edits to mdbase. Download-only folders replace their local view with hosted changes.</small>
+              <details className="mirror-file-settings mirror-file-settings-setup">
+                <summary><span><strong>Selective sync</strong><small>Choose which folders and files stay on this computer.</small></span><code>{selectiveSyncSummary(syncPolicy)}</code></summary>
+                <SelectiveSyncSettings value={syncPolicy} disabled={busy} onChange={setSyncPolicy} />
+              </details>
             </div>
           )}
         </section>}

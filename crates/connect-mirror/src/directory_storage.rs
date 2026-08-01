@@ -120,7 +120,9 @@ impl DirectoryMirror {
         }
         for event in events {
             match event {
-                SyncChange::Put { record, .. } => self.validate_record_path(&record.path)?,
+                SyncChange::Put { record, .. } if self.path_selected(&record.path) => {
+                    self.validate_record_path(&record.path)?
+                }
                 SyncChange::FilePut { file, .. } if self.file_selected(file) => {
                     self.validate_file_descriptor(file)?
                 }
@@ -169,6 +171,29 @@ impl DirectoryMirror {
                     if deferred_record_ids.contains(&record.record_id) {
                         continue;
                     }
+                    if let Some(prior) = record_paths.get(&record.record_id) {
+                        let prior_physical = portable_mirror_path_key(prior)
+                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        if self.path_selected(&record.path)
+                            && portable_mirror_path_key(&record.path)
+                                .map_err(|error| MirrorError::new("invalid_record_path", error))?
+                                == prior_physical
+                            && prior != &record.path
+                        {
+                            return Err(MirrorError::new(
+                                "invalid_record_path",
+                                format!(
+                                    "Mirror paths {prior} and {} alias on a supported filesystem.",
+                                    record.path
+                                ),
+                            ));
+                        }
+                        physical_paths.remove(&prior_physical);
+                    }
+                    if !self.path_selected(&record.path) {
+                        record_paths.remove(&record.record_id);
+                        continue;
+                    }
                     let physical_path =
                         portable_mirror_path_key(&record.path).map_err(|error| {
                             MirrorError::new(
@@ -189,11 +214,6 @@ impl DirectoryMirror {
                             ));
                         }
                     }
-                    if let Some(prior) = record_paths.get(&record.record_id) {
-                        let prior_physical = portable_mirror_path_key(prior)
-                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
-                        physical_paths.remove(&prior_physical);
-                    }
                     physical_paths.insert(
                         physical_path,
                         (record.path.clone(), Owner::Record(record.record_id)),
@@ -211,6 +231,20 @@ impl DirectoryMirror {
                     if let Some(prior) = file_paths.remove(&file.file_id) {
                         let physical_path = portable_mirror_path_key(&prior)
                             .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        if self.file_selected(file)
+                            && portable_mirror_path_key(&file.path)
+                                .map_err(|error| MirrorError::new("invalid_file_path", error))?
+                                == physical_path
+                            && prior != file.path
+                        {
+                            return Err(MirrorError::new(
+                                "invalid_file_path",
+                                format!(
+                                    "Mirror paths {prior} and {} alias on a supported filesystem.",
+                                    file.path
+                                ),
+                            ));
+                        }
                         physical_paths.remove(&physical_path);
                     }
                     if !self.file_selected(file) {
@@ -296,7 +330,7 @@ impl DirectoryMirror {
             || plan.session.protocol_version != SYNC_PROTOCOL_VERSION
             || plan.session.replica_id != self.replica_id
             || plan.session.mode != self.mode
-            || plan.file_policy != self.file_policy
+            || plan.sync_policy != self.sync_policy
         {
             return Err(MirrorError::new(
                 "invalid_mirror_state",
@@ -402,10 +436,19 @@ impl DirectoryMirror {
                 if entry.file_type().is_symlink() {
                     return false;
                 }
-                !matches!(
+                if matches!(
                     entry.file_name().to_string_lossy().as_ref(),
                     ".git" | ".mdbase" | "node_modules"
-                )
+                ) {
+                    return false;
+                }
+                entry
+                    .path()
+                    .strip_prefix(&self.root)
+                    .ok()
+                    .and_then(|path| path.to_str())
+                    .map(|path| self.path_selected(&path.replace('\\', "/")))
+                    .unwrap_or(false)
             })
         {
             let entry = entry.map_err(|error| {
@@ -429,6 +472,7 @@ impl DirectoryMirror {
                 .to_string_lossy()
                 .replace('\\', "/");
             if !excluded.contains(&relative)
+                && self.path_selected(&relative)
                 && self
                     .validate_record_path_with(&collection, &relative)
                     .is_ok()

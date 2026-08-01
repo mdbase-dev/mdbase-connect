@@ -17,7 +17,10 @@ impl DirectoryMirror {
             }
             return Ok(());
         };
-        if state.file_policy != self.file_policy {
+        if state.sync_policy != self.sync_policy {
+            if self.mode == SyncReplicaMode::ReadWrite && !state.pending.is_empty() {
+                self.flush_pending(&mut state).await?;
+            }
             return self.rebuild(Some(state)).await;
         }
         if self.mode == SyncReplicaMode::ReadWrite {
@@ -41,6 +44,19 @@ impl DirectoryMirror {
                 ) {
                     self.apply_file_change(&mut state, event)?;
                     continue;
+                }
+                if let SyncChange::Put { record, .. } = &event {
+                    if !self.path_selected(&record.path) {
+                        if let Some(entry) = state.records.get(&record.record_id).cloned() {
+                            self.remove(&mut state, record.record_id, &entry.path)?;
+                        }
+                        continue;
+                    }
+                }
+                if let SyncChange::Remove { record_id, .. } = &event {
+                    if !state.records.contains_key(record_id) {
+                        continue;
+                    }
                 }
                 let record_id = match &event {
                     SyncChange::Put { record, .. } => record.record_id,

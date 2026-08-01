@@ -1,5 +1,5 @@
 use super::*;
-use mdbase_connect_protocol::FileMaterializationPolicy;
+use mdbase_connect_protocol::SelectiveSyncPolicy;
 pub(super) fn control_command(
     command: ConnectCommand,
 ) -> Result<(ControlCommand, OutputKind), CliError> {
@@ -58,6 +58,8 @@ pub(super) fn control_command(
             name,
             read_only,
             two_way: _,
+            files,
+            excluded_folders,
         }) => (
             ControlCommand::MirrorAdd(MirrorAddParams {
                 collection_id,
@@ -68,12 +70,23 @@ pub(super) fn control_command(
                     SyncReplicaMode::ReadWrite
                 },
                 name,
-                files: FileMaterializationPolicy::default(),
+                selective_sync: selective_sync_policy(files, excluded_folders),
             }),
             OutputKind::Mirror,
         ),
         ConnectCommand::Mirror(MirrorCommand::Sync { replica_id }) => (
             ControlCommand::MirrorSync(MirrorIdParams { replica_id }),
+            OutputKind::Mirror,
+        ),
+        ConnectCommand::Mirror(MirrorCommand::Configure {
+            replica_id,
+            files,
+            excluded_folders,
+        }) => (
+            ControlCommand::MirrorConfigureSelectiveSync(MirrorConfigureSelectiveSyncParams {
+                replica_id,
+                selective_sync: selective_sync_policy(files, excluded_folders),
+            }),
             OutputKind::Mirror,
         ),
         ConnectCommand::Mirror(MirrorCommand::Resolve {
@@ -204,6 +217,29 @@ pub(super) fn control_command(
         }
     };
     Ok(pair)
+}
+
+fn selective_sync_policy(
+    classes: Vec<CliFileClass>,
+    excluded_folders: Vec<String>,
+) -> SelectiveSyncPolicy {
+    let mut file_classes = Vec::new();
+    for class in classes {
+        let class = match class {
+            CliFileClass::Images => FileMediaClass::Image,
+            CliFileClass::Audio => FileMediaClass::Audio,
+            CliFileClass::Videos => FileMediaClass::Video,
+            CliFileClass::Pdfs => FileMediaClass::Pdf,
+            CliFileClass::Other => FileMediaClass::Other,
+        };
+        if !file_classes.contains(&class) {
+            file_classes.push(class);
+        }
+    }
+    SelectiveSyncPolicy {
+        file_classes,
+        excluded_folders,
+    }
 }
 
 pub(super) fn path_string(path: PathBuf) -> Result<String, CliError> {

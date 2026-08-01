@@ -17,7 +17,7 @@ impl MirrorManager {
     }
 
     pub async fn add(&self, params: MirrorAddParams) -> Result<MirrorSummary, ConnectError> {
-        validate_file_materialization_policy(&params.files).map_err(from_mirror)?;
+        validate_selective_sync_policy(&params.selective_sync).map_err(from_mirror)?;
         let cloud = self.cloud()?;
         let selected = PathBuf::from(&params.path);
         fs::create_dir_all(&selected)?;
@@ -97,7 +97,7 @@ impl MirrorManager {
             replica_id: exchange.replica.id,
             name: exchange.replica.name,
             mode: exchange.replica.mode,
-            files: params.files,
+            selective_sync: params.selective_sync,
             path,
             sync_url: exchange.sync_url,
             control_url: cloud.server_url().to_string(),
@@ -144,6 +144,31 @@ impl MirrorManager {
             ));
         }
         self.sync_entry(entry.clone(), false).await?;
+        self.summary(&entry)
+    }
+
+    pub async fn configure_selective_sync(
+        &self,
+        params: MirrorConfigureSelectiveSyncParams,
+    ) -> Result<MirrorSummary, ConnectError> {
+        validate_selective_sync_policy(&params.selective_sync).map_err(from_mirror)?;
+        let mut entry = self.entry(params.replica_id)?;
+        self.require_active(&entry)?;
+        if entry.promotion.is_some() {
+            return Err(mirror_error(
+                "mirror_promotion_in_progress",
+                "Selective sync settings cannot change during an authority transfer.",
+            ));
+        }
+        if entry.selective_sync == params.selective_sync {
+            return self.summary(&entry);
+        }
+        entry.selective_sync = params.selective_sync;
+        self.replace_entry(entry.clone())?;
+        // The device-local preference is durable even when the authority is
+        // temporarily offline. The background reconciler will retry the same
+        // projection; the summary exposes any immediate synchronization error.
+        let _ = self.sync_entry(entry.clone(), false).await;
         self.summary(&entry)
     }
 
