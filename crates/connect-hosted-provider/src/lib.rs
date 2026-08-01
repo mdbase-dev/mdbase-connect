@@ -7,7 +7,9 @@ mod provider;
 mod template;
 mod workspace;
 
-pub use blob_store::{BlobStore, PresignedPart, R2BlobStore, R2Config, UploadedPart};
+pub use blob_store::{
+    BlobByteStream, BlobStore, BlobStreamError, PresignedPart, R2BlobStore, R2Config, UploadedPart,
+};
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use http::{app, AppState};

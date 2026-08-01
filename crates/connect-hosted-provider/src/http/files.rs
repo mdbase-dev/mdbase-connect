@@ -1,8 +1,7 @@
 use super::*;
-use aws_sdk_s3::primitives::ByteStream;
 use axum::body::Body;
 use axum::response::Response;
-use futures_util::{stream, Stream};
+use futures_util::{stream, Stream, StreamExt};
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
     PrepareFileUploadPartRequest, PreparedFilePart,
@@ -184,7 +183,7 @@ async fn download_file_part(
 }
 
 fn exact_length_stream(
-    body: ByteStream,
+    body: crate::blob_store::BlobByteStream,
     expected_length: u64,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> {
     stream::try_unfold(
@@ -354,21 +353,25 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
 
+    fn byte_stream(bytes: Vec<u8>) -> crate::blob_store::BlobByteStream {
+        Box::pin(stream::once(async move { Ok(bytes.into()) }))
+    }
+
     #[tokio::test]
     async fn exact_length_delivery_preserves_bytes() {
-        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2, 3]), 3));
+        let body = Body::from_stream(exact_length_stream(byte_stream(vec![1, 2, 3]), 3));
         assert_eq!(to_bytes(body, 4).await.unwrap().as_ref(), &[1, 2, 3]);
     }
 
     #[tokio::test]
     async fn exact_length_delivery_rejects_truncation() {
-        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2]), 3));
+        let body = Body::from_stream(exact_length_stream(byte_stream(vec![1, 2]), 3));
         assert!(to_bytes(body, 4).await.is_err());
     }
 
     #[tokio::test]
     async fn exact_length_delivery_rejects_excess_bytes() {
-        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2, 3, 4]), 3));
+        let body = Body::from_stream(exact_length_stream(byte_stream(vec![1, 2, 3, 4]), 3));
         assert!(to_bytes(body, 5).await.is_err());
     }
 }

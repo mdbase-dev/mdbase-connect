@@ -1,9 +1,11 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use aws_sdk_s3::primitives::ByteStream;
 use chrono::Utc;
-use mdbase_connect_hosted_provider::{ApiError, ApiResult, BlobStore, PresignedPart, UploadedPart};
+use futures_util::stream;
+use mdbase_connect_hosted_provider::{
+    ApiError, ApiResult, BlobByteStream, BlobStore, PresignedPart, UploadedPart,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, Notify};
 
@@ -208,7 +210,7 @@ impl BlobStore for ControlledBlobStore {
         Ok(())
     }
 
-    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<ByteStream> {
+    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<BlobByteStream> {
         let objects = self.objects.lock().await;
         let bytes = objects.get(key).ok_or_else(|| missing_object(key))?;
         let start = usize::try_from(offset).map_err(|_| missing_object(key))?;
@@ -218,7 +220,7 @@ impl BlobStore for ControlledBlobStore {
             .get(start..end)
             .map(ToOwned::to_owned)
             .ok_or_else(|| missing_object(key))?;
-        Ok(ByteStream::from(range))
+        Ok(Box::pin(stream::once(async move { Ok(range.into()) })))
     }
 
     async fn delete(&self, key: &str) -> ApiResult<()> {

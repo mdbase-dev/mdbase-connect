@@ -3,12 +3,14 @@ use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{BehaviorVersion, Region};
 use aws_sdk_s3::presigning::PresigningConfig;
-use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
+use axum::body::Bytes;
+use futures_util::{stream, Stream};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::pin::Pin;
 use std::time::Duration;
 use url::Url;
 
@@ -17,6 +19,10 @@ const MAX_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 const MIN_DOWNLOAD_PART_BYTES: u64 = 64 * 1024;
 const MAX_DOWNLOAD_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PRESIGN_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+pub type BlobStreamError = Box<dyn std::error::Error + Send + Sync>;
+pub type BlobByteStream =
+    Pin<Box<dyn Stream<Item = Result<Bytes, BlobStreamError>> + Send + 'static>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct R2Config {
@@ -180,7 +186,7 @@ pub trait BlobStore: Send + Sync {
     async fn object_exists(&self, key: &str) -> ApiResult<bool>;
     async fn copy(&self, source_key: &str, destination_key: &str) -> ApiResult<()>;
     async fn verify_object(&self, key: &str, size: u64, content_digest: &str) -> ApiResult<()>;
-    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<ByteStream>;
+    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<BlobByteStream>;
     async fn delete(&self, key: &str) -> ApiResult<()>;
 }
 
@@ -443,10 +449,10 @@ impl BlobStore for R2BlobStore {
         Ok(())
     }
 
-    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<ByteStream> {
+    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<BlobByteStream> {
         validate_object_key(key)?;
         if length == 0 {
-            return Ok(ByteStream::from_static(&[]));
+            return Ok(Box::pin(futures_util::stream::empty()));
         }
         if length > self.config.download_part_bytes {
             return Err(ApiError::bad_request(
@@ -464,7 +470,14 @@ impl BlobStore for R2BlobStore {
             .send()
             .await
             .map_err(|error| r2_unavailable("read object range", &error))?;
-        Ok(response.body)
+        Ok(Box::pin(stream::unfold(response.body, |mut body| async {
+            body.next().await.map(|result| {
+                (
+                    result.map_err(|error| Box::new(error) as BlobStreamError),
+                    body,
+                )
+            })
+        })))
     }
 
     async fn delete(&self, key: &str) -> ApiResult<()> {

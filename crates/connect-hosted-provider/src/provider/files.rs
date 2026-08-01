@@ -1,6 +1,5 @@
 use super::*;
-use crate::blob_store::UploadedPart as BlobUploadedPart;
-use aws_sdk_s3::primitives::ByteStream;
+use crate::blob_store::{BlobByteStream, UploadedPart as BlobUploadedPart};
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, CollectionFileDescriptor, CommitFileUploadReceipt,
     CommitFileUploadReceiptKind, CommitFileUploadRequest, DeleteFileReceipt, DeleteFileRequest,
@@ -15,7 +14,7 @@ const TRANSFER_LIFETIME_HOURS: i64 = 24;
 const SINGLE_PUT_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 
 pub(crate) struct HostedFileDownload {
-    pub body: ByteStream,
+    pub body: BlobByteStream,
     pub content_length: u64,
 }
 
