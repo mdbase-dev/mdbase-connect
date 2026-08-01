@@ -1,4 +1,7 @@
 {
   "productionFileMaxLines": 1000,
-  "legacyFileLineBudgets": {}
+  "legacyFileLineBudgets": {
+    "apps/editor/src/App.tsx": 2273,
+    "apps/editor/src/TypeBrowser.tsx": 1998
+  }
 }

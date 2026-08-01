@@ -9,6 +9,8 @@ export interface SystemRoutesOptions {
   hostedCollections: boolean;
   hostedProvider?: Pick<HostedProviderClient, "ready">;
   revision?: string;
+  publicUrl: string;
+  editorOrigin?: string;
 }
 
 export function registerSystemRoutes(
@@ -23,6 +25,14 @@ export function registerSystemRoutes(
     protocol_version: 1,
     ...(revision ? { revision } : {})
   }));
+
+  app.get("/v1/ui-configuration", async (_request, reply) => {
+    reply.header("cache-control", "public, max-age=300");
+    if (!options.editorOrigin) return { editor_url: null };
+    const editor = new URL("/connect", options.editorOrigin);
+    editor.searchParams.set("server", new URL(options.publicUrl).origin);
+    return { editor_url: editor.href };
+  });
 
   app.get("/ready", async (_request, reply) => {
     try {

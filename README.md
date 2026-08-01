@@ -67,9 +67,10 @@ If you have beta access:
 5. In a compatible application, choose **Connect collection** and review the
    requested access before approving it.
 
-The desktop app is the main place to manage collections, local mirrors,
-connected applications, and access. The account portal is available for
-pairing, account recovery, and remote revocation.
+The editor's **Connect** workspace is the main web place to manage collections,
+connected applications, computers, and account sessions. The desktop app owns
+local-folder and mirror administration. The Connect portal is intentionally
+limited to sign-in, pairing, recovery, and authorization transactions.
 
 ## Connect an MCP client
 
@@ -165,9 +166,10 @@ Use an immutable beta release tag rather than `main`, and follow the
 
 ## Contributing
 
-This repository contains the desktop app, CLI and connector, browser SDK,
-managed-service control plane and relay, hosted collection provider, MCP
-gateway, and shared protocols.
+This repository contains the editor, desktop app, CLI and connector, browser
+SDK, managed-service control plane and relay, hosted collection provider, MCP
+gateway, and shared protocols. These products release independently even
+though they share one workspace and lockfile.
 
 Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
 

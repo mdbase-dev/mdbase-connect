@@ -22,6 +22,7 @@ import {
 interface AccountSessionRoutesOptions {
   db: DatabasePool;
   publicUrl: string;
+  managementOrigins?: string[];
   developmentAuth?: boolean;
 }
 
@@ -102,7 +103,7 @@ export function registerAccountSessionRoutes(
   });
 
   app.delete("/v1/account/sessions/:sessionId", async (request, reply) => {
-    requireSameOrigin(request, options.publicUrl);
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(
       request,
       reply,
@@ -132,7 +133,7 @@ export function registerAccountSessionRoutes(
   });
 
   app.post("/v1/account/sessions/revoke-others", async (request, reply) => {
-    requireSameOrigin(request, options.publicUrl);
+    requireSameOrigin(request, options.publicUrl, options.managementOrigins);
     const authenticated = await requireSessionContext(
       request,
       reply,

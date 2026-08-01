@@ -19,110 +19,6 @@ export class ApiError extends Error {
   }
 }
 
-export interface AccountSession {
-  id: string;
-  provider: "google" | "github" | "password" | "session";
-  client_name: string;
-  created_at: string;
-  last_seen_at: string;
-  expires_at: string;
-  current: boolean;
-}
-
-export interface AccountData {
-  user: { id: string; name: string; email: string | null; login: string | null };
-  authentication: {
-    managed: boolean;
-    current_provider: "google" | "github" | "password" | "tailscale" | "session";
-    available_providers: {
-      github: boolean;
-      google: boolean;
-      password: boolean;
-    };
-    identities: Array<{
-      provider: "github" | "google";
-      subject: string;
-      login: string | null;
-      email: string | null;
-      email_verified: boolean;
-      linked_at: string;
-      current: boolean;
-      removable: boolean;
-    }>;
-    password: {
-      configured: boolean;
-      email: string | null;
-      current: boolean;
-      change_available: boolean;
-    };
-  };
-  storage: {
-    status: "available" | "partial" | "unavailable";
-    total_content_bytes: number | null;
-    total_records: number | null;
-    collections: Array<{
-      id: string;
-      display_name: string;
-      usage: null | {
-        collection_id: string;
-        record_count: number;
-        content_bytes: number;
-        max_records: number;
-        max_content_bytes: number;
-        max_document_bytes: number;
-      };
-    }>;
-  };
-  deletion: {
-    available: boolean;
-    hosted_collections: number;
-    local_collections: number;
-    computers: number;
-    development_confirmation: boolean;
-  };
-}
-
-export interface DashboardData {
-  user: { id: string; name: string; email: string | null; login: string | null };
-  hosted_collections_available?: boolean;
-  authentication: {
-    provider: "google" | "github" | "password" | "tailscale" | "session";
-    registration: "closed" | "invite" | "open";
-  };
-  connectors: Array<{ id: string; name: string; last_seen_at: string | null; created_at: string }>;
-  collections: Array<{
-    id: string;
-    connector_id: string;
-    local_id: string;
-    connector_name: string;
-    display_name: string;
-    spec_version: string;
-    enabled: boolean;
-    contracts: CollectionContractDescriptor[];
-    last_seen_at: string;
-  }>;
-  hosted_collections: HostedCollection[];
-  grants: Array<{
-    id: string;
-    operations: string[];
-    scope: GrantScope;
-    created_at: string;
-    revoked_at: string | null;
-    collection_id: string;
-    collection_name: string;
-    collection_kind: "local" | "hosted";
-    application_id: string;
-    application_family_id?: string;
-    application_name: string;
-    distribution: "web" | "portable";
-    homepage: string;
-    project_url: string | null;
-    application_origin: string;
-    icon: string | null;
-  }>;
-  pending_authorizations: PendingAuthorization[];
-}
-
 export interface HostedReplica {
   id: string;
   name: string;
@@ -246,12 +142,6 @@ export interface ApplicationRequirements {
   contracts: ContractRequirement[];
   access?: "contract" | "full_collection";
   collection_kind?: "local" | "hosted";
-  files?: {
-    actions: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
-    scope:
-      | { kind: "selected_folders"; folders: string[] }
-      | { kind: "collection" };
-  };
 }
 
 export interface TypePackProvision {
@@ -291,9 +181,4 @@ export interface NotificationCriterion {
 
 export interface ApplicationNotifications {
   criteria: NotificationCriterion[];
-}
-
-export interface GrantScope {
-  contracts: CollectionContractDescriptor[];
-  access: "contract" | "full_collection";
 }

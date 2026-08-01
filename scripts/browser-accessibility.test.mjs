@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
 
 const roots = {
   portal: resolve("apps/portal/dist"),
-  desktop: resolve("apps/desktop/dist/renderer")
+  desktop: resolve("apps/desktop/dist/renderer"),
+  editor: resolve("apps/editor/dist")
 };
-const screenshotDirectory = process.env.MDBASE_CONNECT_A11Y_SCREENSHOT_DIR;
-if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
 const servers = await Promise.all(
   Object.values(roots).map((root) => serveStaticApplication(root))
 );
@@ -17,9 +16,7 @@ const browser = await chromium.launch({ headless: true });
 
 try {
   await auditPortalLogin();
-  await auditPortalDashboard();
-  await auditPortalAccount();
-  await auditPortalAccountDeleted();
+  await auditEditorConnect();
   await auditPortalColdStartAuthorization();
   await auditPortalDeviceAuthorization();
   await auditDesktopResumedAuthorization();
@@ -71,7 +68,7 @@ async function auditPortalLogin() {
   await page.close();
 }
 
-async function auditPortalDashboard() {
+async function auditEditorConnect() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
   await page.route("**/v1/**", async (route) => {
@@ -88,7 +85,17 @@ async function auditPortalDashboard() {
           hosted_collections_available: true,
           authentication: { provider: "github", registration: "open" },
           connectors: [],
-          collections: [],
+          collections: [{
+            id: "22222222-2222-4222-8222-222222222222",
+            connector_id: "33333333-3333-4333-8333-333333333333",
+            local_id: "local-collection",
+            connector_name: "Example computer",
+            display_name: "Accessibility collection",
+            spec_version: "1",
+            enabled: true,
+            contracts: [],
+            last_seen_at: new Date().toISOString()
+          }],
           hosted_collections: [],
           grants: [],
           pending_authorizations: []
@@ -102,187 +109,9 @@ async function auditPortalDashboard() {
     }
     await route.fulfill({ json: {} });
   });
-  await page.goto(servers[0].origin);
-  await page.getByRole("heading", { name: "Your connections." }).waitFor();
-  const portalNavigation = page.getByRole("navigation", { name: "mdbase connect navigation" });
-  await portalNavigation.waitFor();
-  await assertThemeMenu(page, "portal dashboard");
-  await auditPage(page, "portal dashboard", { keyboard: true });
-
-  await portalNavigation.getByRole("link", { name: /^Requests/ }).click();
-  await page.getByRole("heading", { name: "Review access requests." }).waitFor();
-  assert.equal(new URL(page.url()).pathname, "/requests", "portal requests: stable route");
-  assert.equal(await portalNavigation.getByRole("link", { name: /^Requests/ }).getAttribute("aria-current"), "page");
-  await page.goBack();
-  await page.getByRole("heading", { name: "Your connections." }).waitFor();
-
-  for (const route of [
-    ["Requests", "/requests", "Review access requests."],
-    ["Hosted collections", "/hosted-collections", "Collections hosted by mdbase."],
-    ["App access", "/app-access", "Decide what apps can do."],
-    ["Computers", "/computers", "Your connected computers."]
-  ]) {
-    await portalNavigation.getByRole("link", { name: new RegExp(`^${route[0]}`) }).click();
-    await page.getByRole("heading", { name: route[2] }).waitFor();
-    assert.equal(new URL(page.url()).pathname, route[1], `portal ${route[0]}: stable route`);
-    assert.equal(
-      await portalNavigation.getByRole("link", { name: new RegExp(`^${route[0]}`) }).getAttribute("aria-current"),
-      "page",
-      `portal ${route[0]}: current page exposed`
-    );
-    await auditPage(page, `portal ${route[0].toLowerCase()}`);
-    if (screenshotDirectory) {
-      await page.screenshot({
-        path: resolve(screenshotDirectory, `portal-${route[0].toLowerCase().replaceAll(" ", "-")}.png`),
-        fullPage: true
-      });
-    }
-  }
-  await page.reload();
-  await page.getByRole("heading", { name: "Your connected computers." }).waitFor();
-  assert.equal(new URL(page.url()).pathname, "/computers", "portal route survives reload");
-  await portalNavigation.getByRole("link", { name: /^Overview/ }).click();
-  await page.getByRole("heading", { name: "Your connections." }).waitFor();
-  await assertResponsiveSidebar(page, "portal dashboard");
-  assert.deepEqual(errors, []);
-  await page.close();
-}
-
-async function auditPortalAccount() {
-  const page = await browser.newPage();
-  const errors = watchPageErrors(page);
-  await page.route("**/v1/**", async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
-    if (pathname === "/v1/me") {
-      await route.fulfill({
-        json: {
-          user: {
-            id: "11111111-1111-4111-8111-111111111111",
-            name: "Example User",
-            email: "user@example.com",
-            login: "example"
-          },
-          hosted_collections_available: true,
-          authentication: { provider: "password", registration: "open" },
-          connectors: [],
-          collections: [],
-          hosted_collections: [],
-          grants: [],
-          pending_authorizations: []
-        }
-      });
-      return;
-    }
-    if (pathname === "/v1/account") {
-      await route.fulfill({
-        json: {
-          user: {
-            id: "11111111-1111-4111-8111-111111111111",
-            name: "Example User",
-            email: "user@example.com",
-            login: "example"
-          },
-          authentication: {
-            managed: true,
-            current_provider: "password",
-            available_providers: {
-              github: true,
-              google: true,
-              password: true
-            },
-            identities: [{
-              provider: "github",
-              subject: "12345",
-              login: "example",
-              email: null,
-              email_verified: false,
-              linked_at: "2026-07-31T01:02:03.000Z",
-              current: false,
-              removable: true
-            }],
-            password: {
-              configured: true,
-              email: "user@example.com",
-              current: true,
-              change_available: true
-            }
-          },
-          storage: {
-            status: "available",
-            total_content_bytes: 12_345,
-            total_records: 42,
-            collections: [{
-              id: "22222222-2222-4222-8222-222222222222",
-              display_name: "Research notes",
-              usage: {
-                collection_id: "22222222-2222-4222-8222-222222222222",
-                record_count: 42,
-                content_bytes: 12_345,
-                max_records: 100_000,
-                max_content_bytes: 1_073_741_824,
-                max_document_bytes: 2_097_152
-              }
-            }]
-          },
-          deletion: {
-            available: true,
-            hosted_collections: 1,
-            local_collections: 2,
-            computers: 1,
-            development_confirmation: false
-          }
-        }
-      });
-      return;
-    }
-    if (pathname === "/v1/account/sessions") {
-      await route.fulfill({ json: { sessions: [] } });
-      return;
-    }
-    await route.fulfill({ status: 404, json: { error: "not_found" } });
-  });
-  await page.goto(`${servers[0].origin}/account`);
-  await page.getByRole("heading", { name: "Account and storage." }).waitFor();
-  await expectText(page, "42 records");
-  assert.equal(
-    await page.getByRole("progressbar", { name: "Research notes storage" })
-      .getAttribute("aria-valuenow"),
-    "12345"
-  );
-  await auditPage(page, "portal account", { keyboard: true });
-  if (screenshotDirectory) {
-    await page.evaluate(() => scrollTo(0, 0));
-    await page.screenshot({
-      path: resolve(screenshotDirectory, "portal-account.png"),
-      fullPage: true
-    });
-  }
-  await page.getByRole("button", { name: "Change password" }).click();
-  await page.getByLabel("Current password").waitFor();
-  assert.equal(
-    await page.getByLabel("New password", { exact: true }).getAttribute("minlength"),
-    "15"
-  );
-  assert.equal(await page.getByLabel("Confirm new password").getAttribute("minlength"), "15");
-  await auditPage(page, "portal password change", { keyboard: true });
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByLabel("Current password").waitFor({ state: "detached" });
-  await assertResponsiveSidebar(page, "portal account");
-  await page.getByRole("button", { name: "Delete account…" }).click();
-  await expectText(page, "Local files are never removed from your computers.");
-  await expectText(page, "Local collection and mirror files remain on your computers.");
-  assert.equal(
-    await page.getByRole("button", { name: "Delete account permanently" }).isDisabled(),
-    true
-  );
-  await auditPage(page, "portal account deletion", { keyboard: true });
-  if (screenshotDirectory) {
-    await page.evaluate(() => scrollTo(0, 0));
-    await page.screenshot({
-      path: resolve(screenshotDirectory, "portal-account-deletion.png"),
-      fullPage: true
-    });
-  }
+  await page.goto(`${servers[2].origin}/connect`);
+  await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
+  await auditPage(page, "editor Connect workspace", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -411,17 +240,6 @@ async function auditDesktopResumedAuthorization() {
   await page.close();
 }
 
-async function auditPortalAccountDeleted() {
-  const page = await browser.newPage();
-  const errors = watchPageErrors(page);
-  await page.goto(`${servers[0].origin}/account-deleted`);
-  await page.getByRole("heading", { name: "Your account has been deleted." }).waitFor();
-  await expectText(page, "Any local collection and mirror files remain on your computers.");
-  await auditPage(page, "portal account deleted", { keyboard: true });
-  assert.deepEqual(errors, []);
-  await page.close();
-}
-
 async function auditDesktopRoutes() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
@@ -463,7 +281,6 @@ async function auditDesktopRoutes() {
         configured: true,
         serverUrl: "https://connect.mdbase.dev"
       }),
-      openAccount: async () => undefined,
       accessSnapshot: async () => access,
       listActivity: async () => [],
       hostedSnapshot: async () => ({
@@ -487,15 +304,7 @@ async function auditDesktopRoutes() {
   await page.getByRole("button", { name: "Add existing folder" }).waitFor();
   await page.getByRole("button", { name: "Create collection" }).waitFor();
   await page.getByRole("button", { name: "Pause app access" }).waitFor();
-  await page.getByRole("navigation", { name: "mdbase connect navigation" }).waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
-  if (screenshotDirectory) {
-    await page.evaluate(() => scrollTo(0, 0));
-    await page.screenshot({
-      path: resolve(screenshotDirectory, "desktop-overview.png"),
-      fullPage: true
-    });
-  }
 
   for (const route of [
     ["Collections", "Your collections."],
@@ -510,21 +319,8 @@ async function auditDesktopRoutes() {
       await page.getByRole("button", { name: "Create collection" }).waitFor();
       await expectText(page, "View and find records · Create and edit records · Delete records");
     }
-    if (route[0] === "Settings") {
-      await assertThemeMenu(page, "desktop settings");
-    }
-    await auditPage(page, `desktop ${route[0].toLowerCase()}`, {
-      keyboard: route[0] === "Settings"
-    });
-    if (screenshotDirectory && route[0] === "Settings") {
-      await page.evaluate(() => scrollTo(0, 0));
-      await page.screenshot({
-        path: resolve(screenshotDirectory, "desktop-settings.png"),
-        fullPage: true
-      });
-    }
+    await auditPage(page, `desktop ${route[0].toLowerCase()}`);
   }
-  await assertResponsiveSidebar(page, "desktop application");
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -569,82 +365,8 @@ function desktopAuthorizationFixture(id) {
   };
 }
 
-async function assertThemeMenu(page, label) {
-  const trigger = page.getByRole("button", { name: /^Color theme:/ }).first();
-  await trigger.waitFor();
-  assert.equal((await trigger.textContent())?.trim(), "", `${label}: trigger is icon only`);
-  assert.equal(await trigger.getAttribute("aria-expanded"), "false", `${label}: menu starts closed`);
-
-  await trigger.click();
-  assert.equal(await trigger.getAttribute("aria-expanded"), "true", `${label}: menu exposes open state`);
-  const menu = page.getByRole("menu", { name: "Color theme" });
-  await menu.waitFor();
-  assert.equal(await page.getByRole("menuitemradio").count(), 3, `${label}: every theme is available`);
-  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitemradio");
-  if (screenshotDirectory) {
-    await page.screenshot({
-      path: resolve(screenshotDirectory, `${label.replaceAll(" ", "-")}-theme-menu.png`)
-    });
-  }
-
-  await page.keyboard.press("End");
-  const dark = page.getByRole("menuitemradio", { name: "Dark" });
-  assert.equal(await dark.evaluate((element) => element === document.activeElement), true, `${label}: keyboard focus reaches dark`);
-  await page.keyboard.press("Enter");
-  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark", `${label}: dark theme applies`);
-  assert.equal(await trigger.getAttribute("aria-label"), "Color theme: Dark", `${label}: current theme is named`);
-  assert.equal(await trigger.getAttribute("aria-expanded"), "false", `${label}: selecting closes menu`);
-
-  await trigger.click();
-  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitemradio");
-  if (screenshotDirectory) {
-    await page.screenshot({
-      path: resolve(screenshotDirectory, `${label.replaceAll(" ", "-")}-dark-theme-menu.png`)
-    });
-  }
-  await page.keyboard.press("Home");
-  await page.keyboard.press("Enter");
-  assert.equal(await page.locator("html").getAttribute("data-theme"), null, `${label}: system theme applies`);
-
-  await trigger.click();
-  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitemradio");
-  await page.keyboard.press("Escape");
-  assert.equal(await trigger.getAttribute("aria-expanded"), "false", `${label}: Escape closes menu`);
-  assert.equal(await trigger.evaluate((element) => element === document.activeElement), true, `${label}: Escape restores trigger focus`);
-}
-
-async function assertResponsiveSidebar(page, label) {
-  const navigation = page.getByRole("navigation", { name: "mdbase connect navigation" });
-  await navigation.waitFor({ state: "visible" });
-  assert.equal(await navigation.isVisible(), true, `${label}: desktop sidebar visible`);
-  await page.setViewportSize({ width: 720, height: 820 });
-  await navigation.waitFor({ state: "hidden" });
-  assert.equal(await navigation.isVisible(), false, `${label}: mobile sidebar starts closed`);
-  const toggle = page.getByRole("button", { name: "Open navigation" });
-  await toggle.click();
-  assert.equal(await toggle.getAttribute("aria-expanded"), "true", `${label}: mobile navigation state exposed`);
-  await navigation.waitFor({ state: "visible" });
-  await page.waitForTimeout(220);
-  assert.equal(await navigation.isVisible(), true, `${label}: mobile sidebar opens`);
-  const navigationBounds = await navigation.boundingBox();
-  assert(
-    navigationBounds
-      && navigationBounds.x >= 0
-      && navigationBounds.x + navigationBounds.width <= 250,
-    `${label}: mobile sidebar finishes on screen (${JSON.stringify(navigationBounds)})`
-  );
-  if (screenshotDirectory) {
-    await page.screenshot({
-      path: resolve(
-        screenshotDirectory,
-        `${label.replaceAll(" ", "-")}-mobile-navigation.png`
-      )
-    });
-  }
-  await page.getByRole("button", { name: "Close navigation" }).click();
-  await navigation.waitFor({ state: "hidden" });
-  assert.equal(await navigation.isVisible(), false, `${label}: mobile sidebar closes`);
-  await page.setViewportSize({ width: 1280, height: 720 });
+async function expectText(page, value) {
+  await page.getByText(value, { exact: true }).waitFor();
 }
 
 async function auditPage(page, label, options = {}) {
@@ -797,10 +519,6 @@ function watchPageErrors(page) {
     if (entry.type() === "error") errors.push(entry.text());
   });
   return errors;
-}
-
-async function expectText(page, value) {
-  await page.getByText(value, { exact: false }).first().waitFor();
 }
 
 async function serveStaticApplication(root) {

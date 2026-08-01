@@ -8,7 +8,6 @@ import {
   tokenFromFragment
 } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
-import { SessionManager } from "./session-manager";
 
 export function Login() {
   const [name, setName] = useState("Callum");

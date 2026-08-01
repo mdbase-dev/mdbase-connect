@@ -53,7 +53,7 @@
     "test:stress-regressions": "pnpm stress:prepare && node scripts/stress/replay-regressions.mjs",
     "pretest": "pnpm build:packages",
     "test": "node --test scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
-    "test:accessibility": "pnpm --filter @mdbase/connect-portal build && pnpm --filter @mdbase/connect-desktop build:renderer && node scripts/browser-accessibility.test.mjs",
+    "test:accessibility": "pnpm build:packages && pnpm --filter @mdbase/connect-portal build && pnpm --filter @mdbase/connect-desktop build:renderer && pnpm --filter mdbase-editor build && node scripts/browser-accessibility.test.mjs",
     "test:browser-storage": "pnpm --filter @mdbase-dev/connect test:browser-storage",
     "pretypecheck": "pnpm build:packages",
     "typecheck": "pnpm -r typecheck",

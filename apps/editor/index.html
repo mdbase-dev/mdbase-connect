@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fbfcfd" />
+    <meta name="description" content="A quiet editor for mdbase collections." />
+    <link rel="icon" href="./mdbase-favicon.svg" type="image/svg+xml" />
+    <script>
+      try {
+        const theme = localStorage.getItem("mdbase:theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+        const dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.querySelector('meta[name="theme-color"]').content = dark ? "#1b1d23" : "#fcfcfd";
+      } catch {}
+    </script>
+    <title>mdbase editor</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

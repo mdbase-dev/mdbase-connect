@@ -124,6 +124,10 @@ derived capabilities without taking the service offline.
   issuance, collection access policy, audit metadata, and transient request
   routing. Its schema changes use the versioned, pre-deploy process in
   [Control-plane migrations](./control-plane-migrations.md).
+- `mdbase-editor` owns both the collection editing surface and an account-only
+  Connect workspace. The two routes use separate clients and authorities.
+- `@mdbase/connect-management` is the narrow browser client for account
+  inventory and administration. It cannot perform collection operations.
 - `connect-mcp` owns MCP host OAuth sessions and encrypted upstream Connect
   credentials. It uses one exact Connect grant per approved collection and
   never shares a collection grant across MCP connection sets.
@@ -319,9 +323,19 @@ payloads. Hosted collections use a separate provider encryption boundary. The
 complete trust, key, metadata, and rollout design is in
 [Encryption architecture](./encryption.md).
 
-The Electron controller is the primary collection and permission surface. The
-portal handles sign-in, pairing, account state, remote approval on trusted
-private deployments, and emergency computer revocation.
+The editor's Connect workspace is the primary remote collection, permission,
+computer, and account surface. The Electron controller remains primary for
+local-folder authority and mirror operations. The portal handles sign-in,
+pairing, account recovery, and authorization approval only.
+
+Account and collection authority stay separate. The editor sends the HttpOnly
+account cookie only to the Connect origin, with browser credentials enabled;
+the server accepts it only when `Origin` exactly matches
+`MDBASE_CONNECT_MANAGEMENT_ORIGINS`. That session can use account APIs but is
+not a collection grant. Opening a collection navigates to
+`?collection=<id>` and lets `MdbaseSession` reuse or request the editor's exact
+application grant. Managed deployments keep Connect and editor on the same
+site so `SameSite=Lax` remains effective while the two origins stay isolated.
 
 ## Direct local transport
 

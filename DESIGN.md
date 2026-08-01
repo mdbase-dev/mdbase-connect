@@ -6,10 +6,14 @@ mdbase connect is a desktop utility used at a personal computer while the user
 is making a consequential access decision. The theme is minimal and precise in
 both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
-Portal and desktop share a single compact left sidebar, visual tokens, and core
-controls. Each navigation item opens one focused page in an uninterrupted
-canvas. Hierarchy comes from typography, spacing, and alignment rather than
-tinted boxes or decoration.
+Editor, Connect workspace, portal, and desktop share visual tokens and core
+controls. The editor keeps one persistent collection rail: Notes, Types,
+Settings, then Connect under a quiet Manage heading. Selecting Connect replaces
+the note list with contextual Connect navigation; it does not open a parallel
+product shell. Transactional portal pages
+and desktop views retain their compact product header. Content remains an
+uninterrupted canvas. Hierarchy comes from typography, spacing, and alignment
+rather than tinted boxes or decoration.
 
 ## Color
 
@@ -82,13 +86,18 @@ and interaction guidance in
 
 ## Layout
 
-- Portal and desktop use the same fixed left-sidebar shell, with identity or
-  connection state in its footer and a focused page canvas beside it.
-- Counts appear only when they clarify collection state, connected resources,
-  or pending action. The current destination uses ordinary page navigation.
-- The portal gives requests, hosted collections, application access, computers,
-  and account management stable routes. Its overview summarizes those pages
-  without duplicating their management controls.
+- The editor's collection rail switches between Notes, Types, Settings, and
+  Connect. The Connect sidebar separates current-collection controls (Overview,
+  Storage & sync, App access) from account controls (All collections,
+  Applications, Computers, Account & sessions).
+- Direct Connect entry restores the last valid collection, opens the only
+  collection when there is one, and otherwise starts at All collections. A
+  collection is never chosen silently from an ambiguous list.
+- Desktop primary navigation uses a single horizontal tab row. Counts appear
+  only when they clarify local collection state or pending action.
+- Portal pages contain one consequential transaction only: authentication,
+  pairing, recovery, or authorization approval. They do not duplicate account
+  administration.
 - Collection metadata editing expands inline beneath the collection row. Name
   and description remain visibly tied to `mdbase.yaml`; availability is a
   separate immediate control.
