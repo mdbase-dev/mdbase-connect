@@ -1,0 +1,615 @@
+use super::*;
+use crate::{discover_collection_files, CollectionFileCandidate, PhysicalFileIdentity};
+use chrono::{DateTime, SecondsFormat, Utc};
+use mdbase_connect_protocol::{CollectionFileDescriptor, FileMediaClass};
+use rusqlite::Transaction;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::Read;
+
+#[derive(Debug, Clone)]
+struct IndexedFile {
+    descriptor: CollectionFileDescriptor,
+    path_key: String,
+    physical_identity: Option<PhysicalFileIdentity>,
+}
+
+#[derive(Debug)]
+struct ObservedFile<'a> {
+    candidate: &'a CollectionFileCandidate,
+    content_digest: String,
+}
+
+impl CollectionRegistry {
+    /// Reconcile the authority's logical file namespace with its filesystem.
+    ///
+    /// The mdbase snapshot remains the source of truth for records and
+    /// structural resources. File bytes are hashed from a verified open handle
+    /// and only metadata is persisted in the registry.
+    pub fn reconcile_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        let registered = self.get(id)?;
+        if !registered.enabled {
+            return Err(ConnectError::AccessDenied(
+                "This collection is disabled on its computer.".to_string(),
+            ));
+        }
+        assert_local_authority_folder(Path::new(&registered.path))?;
+        let provider = self.provider_for(&registered)?;
+        provider.with_collection_read(|collection| {
+            crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
+            let snapshot = collection.snapshot()?;
+            let managed_paths = snapshot
+                .resources
+                .iter()
+                .map(|resource| resource.path.clone())
+                .chain(snapshot.records.iter().map(|record| record.path.clone()))
+                .collect::<BTreeSet<_>>();
+            let inventory = discover_collection_files(Path::new(&registered.path), &managed_paths)?;
+            let observed = inventory
+                .files
+                .iter()
+                .map(|candidate| {
+                    Ok(ObservedFile {
+                        candidate,
+                        content_digest: hash_verified_file(candidate)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ConnectError>>()?;
+            self.reconcile_observed_files(id, &observed)
+        })
+    }
+
+    pub fn indexed_files(&self, id: Uuid) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        let connection = self.connection()?;
+        Ok(read_indexed_files(&connection, id)?
+            .into_values()
+            .map(|file| file.descriptor)
+            .collect())
+    }
+
+    fn reconcile_observed_files(
+        &self,
+        collection_id: Uuid,
+        observed: &[ObservedFile<'_>],
+    ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let previous = read_indexed_files(&transaction, collection_id)?;
+        let assignments = assign_file_ids(&previous, observed);
+        let mut after = BTreeMap::<Uuid, IndexedFile>::new();
+
+        for (position, file) in observed.iter().enumerate() {
+            let file_id = assignments[&position];
+            let prior = previous.get(&file_id);
+            let unchanged = prior.is_some_and(|prior| {
+                prior.descriptor.path == file.candidate.path
+                    && prior.descriptor.content_digest == file.content_digest
+                    && prior.descriptor.size == file.candidate.size
+                    && prior.descriptor.media_type == file.candidate.media_type
+                    && prior.descriptor.media_class == file.candidate.media_class
+                    && prior.descriptor.modified_at == file.candidate.modified_at
+            });
+            let revision = if unchanged {
+                prior.expect("checked above").descriptor.revision.clone()
+            } else {
+                format!("file:{}", Uuid::now_v7())
+            };
+            after.insert(
+                file_id,
+                IndexedFile {
+                    descriptor: CollectionFileDescriptor {
+                        file_id,
+                        path: file.candidate.path.clone(),
+                        revision,
+                        content_digest: file.content_digest.clone(),
+                        size: file.candidate.size,
+                        media_type: file.candidate.media_type.clone(),
+                        media_class: file.candidate.media_class,
+                        modified_at: file.candidate.modified_at.clone(),
+                    },
+                    path_key: file.candidate.path_key.clone(),
+                    physical_identity: file.candidate.physical_identity.clone(),
+                },
+            );
+        }
+
+        let sync_head = transaction
+            .query_row(
+                "SELECT head FROM local_sync_collections WHERE collection_id = ?1",
+                [collection_id.to_string()],
+                |row| row.get::<_, u64>(0),
+            )
+            .optional()?;
+        if let Some(mut head) = sync_head {
+            let ids = previous
+                .keys()
+                .chain(after.keys())
+                .copied()
+                .collect::<BTreeSet<_>>();
+            for file_id in ids {
+                let before = previous.get(&file_id);
+                let current = after.get(&file_id);
+                if before.map(|value| &value.descriptor) == current.map(|value| &value.descriptor) {
+                    continue;
+                }
+                head = head.checked_add(1).ok_or_else(|| ConnectError::File {
+                    code: "sequence_exhausted".to_string(),
+                    message: "The collection change sequence is exhausted.".to_string(),
+                })?;
+                let revision = current
+                    .map(|value| value.descriptor.revision.clone())
+                    .unwrap_or_else(|| format!("file:{}", Uuid::now_v7()));
+                transaction.execute(
+                    "INSERT INTO collection_file_changes
+                       (collection_id, sequence, file_id, before_file, after_file, revision)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        collection_id.to_string(),
+                        head,
+                        file_id.to_string(),
+                        before
+                            .map(|value| serde_json::to_string(&value.descriptor))
+                            .transpose()?,
+                        current
+                            .map(|value| serde_json::to_string(&value.descriptor))
+                            .transpose()?,
+                        revision,
+                    ],
+                )?;
+            }
+            transaction.execute(
+                "UPDATE local_sync_collections SET head = ?2 WHERE collection_id = ?1",
+                params![collection_id.to_string(), head],
+            )?;
+        }
+
+        transaction.execute(
+            "DELETE FROM collection_files WHERE collection_id = ?1",
+            [collection_id.to_string()],
+        )?;
+        for file in after.values() {
+            persist_indexed_file(&transaction, collection_id, file)?;
+        }
+        transaction.commit()?;
+        Ok(after.into_values().map(|file| file.descriptor).collect())
+    }
+}
+
+fn assign_file_ids(
+    previous: &BTreeMap<Uuid, IndexedFile>,
+    observed: &[ObservedFile<'_>],
+) -> BTreeMap<usize, Uuid> {
+    let mut assignments = BTreeMap::new();
+    let mut available = previous.keys().copied().collect::<BTreeSet<_>>();
+
+    for (position, file) in observed.iter().enumerate() {
+        if let Some((file_id, _)) = previous
+            .iter()
+            .find(|(_, prior)| prior.path_key == file.candidate.path_key)
+        {
+            assignments.insert(position, *file_id);
+            available.remove(file_id);
+        }
+    }
+
+    assign_unique_matches(
+        &mut assignments,
+        &mut available,
+        previous,
+        observed,
+        |prior, current| {
+            prior.physical_identity.is_some()
+                && prior.physical_identity == current.candidate.physical_identity
+        },
+    );
+    assign_unique_matches(
+        &mut assignments,
+        &mut available,
+        previous,
+        observed,
+        |prior, current| prior.descriptor.content_digest == current.content_digest,
+    );
+
+    for position in 0..observed.len() {
+        assignments.entry(position).or_insert_with(Uuid::now_v7);
+    }
+    assignments
+}
+
+fn assign_unique_matches(
+    assignments: &mut BTreeMap<usize, Uuid>,
+    available: &mut BTreeSet<Uuid>,
+    previous: &BTreeMap<Uuid, IndexedFile>,
+    observed: &[ObservedFile<'_>],
+    matches: impl Fn(&IndexedFile, &ObservedFile<'_>) -> bool,
+) {
+    let pending = (0..observed.len())
+        .filter(|position| !assignments.contains_key(position))
+        .collect::<Vec<_>>();
+    for position in pending {
+        let candidates = available
+            .iter()
+            .filter(|file_id| matches(&previous[file_id], &observed[position]))
+            .copied()
+            .collect::<Vec<_>>();
+        let competing = observed
+            .iter()
+            .enumerate()
+            .filter(|(other, current)| {
+                !assignments.contains_key(other)
+                    && candidates
+                        .iter()
+                        .any(|file_id| matches(&previous[file_id], current))
+            })
+            .count();
+        if candidates.len() == 1 && competing == 1 {
+            assignments.insert(position, candidates[0]);
+            available.remove(&candidates[0]);
+        }
+    }
+}
+
+fn hash_verified_file(candidate: &CollectionFileCandidate) -> Result<String, ConnectError> {
+    let mut file = File::open(&candidate.absolute_path)?;
+    let before = file.metadata()?;
+    verify_open_file(candidate, &before)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 128 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    let after = file.metadata()?;
+    verify_open_file(candidate, &after)?;
+    let live = fs::symlink_metadata(&candidate.absolute_path)?;
+    verify_open_file(candidate, &live)?;
+    Ok(format!("sha256:{:x}", digest.finalize()))
+}
+
+fn verify_open_file(
+    candidate: &CollectionFileCandidate,
+    metadata: &fs::Metadata,
+) -> Result<(), ConnectError> {
+    let stable = metadata.is_file()
+        && !metadata.file_type().is_symlink()
+        && metadata.len() == candidate.size
+        && metadata
+            .modified()
+            .map_or(candidate.modified_at == "1970-01-01T00:00:00Z", |value| {
+                DateTime::<Utc>::from(value).to_rfc3339_opts(SecondsFormat::Nanos, true)
+                    == candidate.modified_at
+            })
+        && physical_identity_matches(metadata, candidate.physical_identity.as_ref());
+    if stable {
+        return Ok(());
+    }
+    Err(ConnectError::File {
+        code: "file_changed_during_read".to_string(),
+        message: format!(
+            "Collection file '{}' changed while it was being indexed; retry after writes finish.",
+            candidate.path
+        ),
+    })
+}
+
+#[cfg(unix)]
+fn physical_identity_matches(
+    metadata: &fs::Metadata,
+    expected: Option<&PhysicalFileIdentity>,
+) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    expected.is_some_and(|identity| {
+        metadata.dev() == identity.device
+            && metadata.ino() == identity.file
+            && metadata.nlink() == 1
+    })
+}
+
+#[cfg(not(unix))]
+fn physical_identity_matches(
+    _metadata: &fs::Metadata,
+    _expected: Option<&PhysicalFileIdentity>,
+) -> bool {
+    true
+}
+
+fn read_indexed_files(
+    connection: &Connection,
+    collection_id: Uuid,
+) -> Result<BTreeMap<Uuid, IndexedFile>, ConnectError> {
+    let mut statement = connection.prepare(
+        "SELECT file_id, path, path_key, revision, content_digest, size,
+                media_type, media_class, modified_at, physical_device, physical_file
+         FROM collection_files WHERE collection_id = ?1 ORDER BY path_key",
+    )?;
+    let rows = statement.query_map([collection_id.to_string()], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, u64>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
+            row.get::<_, Option<String>>(9)?,
+            row.get::<_, Option<String>>(10)?,
+        ))
+    })?;
+    rows.map(|row| {
+        let (
+            file_id,
+            path,
+            path_key,
+            revision,
+            content_digest,
+            size,
+            media_type,
+            media_class,
+            modified_at,
+            physical_device,
+            physical_file,
+        ) = row?;
+        let file_id = Uuid::parse_str(&file_id).map_err(|error| ConnectError::File {
+            code: "file_index_corrupt".to_string(),
+            message: format!("The local file index contains an invalid file ID: {error}"),
+        })?;
+        Ok((
+            file_id,
+            IndexedFile {
+                descriptor: CollectionFileDescriptor {
+                    file_id,
+                    path,
+                    revision,
+                    content_digest,
+                    size,
+                    media_type,
+                    media_class: parse_media_class(&media_class)?,
+                    modified_at,
+                },
+                path_key,
+                physical_identity: physical_device
+                    .zip(physical_file)
+                    .map(
+                        |(device, file)| -> Result<PhysicalFileIdentity, ConnectError> {
+                            Ok(PhysicalFileIdentity {
+                                device: device.parse().map_err(|_| ConnectError::File {
+                                    code: "file_index_corrupt".to_string(),
+                                    message:
+                                        "The local file index contains an invalid device identity."
+                                            .to_string(),
+                                })?,
+                                file: file.parse().map_err(|_| ConnectError::File {
+                                    code: "file_index_corrupt".to_string(),
+                                    message:
+                                        "The local file index contains an invalid file identity."
+                                            .to_string(),
+                                })?,
+                            })
+                        },
+                    )
+                    .transpose()?,
+            },
+        ))
+    })
+    .collect()
+}
+
+fn persist_indexed_file(
+    transaction: &Transaction<'_>,
+    collection_id: Uuid,
+    file: &IndexedFile,
+) -> Result<(), ConnectError> {
+    transaction.execute(
+        "INSERT INTO collection_files
+           (collection_id, file_id, path, path_key, revision, content_digest, size,
+            media_type, media_class, modified_at, physical_device, physical_file)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            collection_id.to_string(),
+            file.descriptor.file_id.to_string(),
+            file.descriptor.path,
+            file.path_key,
+            file.descriptor.revision,
+            file.descriptor.content_digest,
+            file.descriptor.size,
+            file.descriptor.media_type,
+            media_class_name(file.descriptor.media_class),
+            file.descriptor.modified_at,
+            file.physical_identity
+                .as_ref()
+                .map(|identity| identity.device.to_string()),
+            file.physical_identity
+                .as_ref()
+                .map(|identity| identity.file.to_string()),
+        ],
+    )?;
+    Ok(())
+}
+
+fn media_class_name(media_class: FileMediaClass) -> &'static str {
+    match media_class {
+        FileMediaClass::Image => "image",
+        FileMediaClass::Audio => "audio",
+        FileMediaClass::Video => "video",
+        FileMediaClass::Pdf => "pdf",
+        FileMediaClass::Other => "other",
+    }
+}
+
+fn parse_media_class(value: &str) -> Result<FileMediaClass, ConnectError> {
+    match value {
+        "image" => Ok(FileMediaClass::Image),
+        "audio" => Ok(FileMediaClass::Audio),
+        "video" => Ok(FileMediaClass::Video),
+        "pdf" => Ok(FileMediaClass::Pdf),
+        "other" => Ok(FileMediaClass::Other),
+        _ => Err(ConnectError::File {
+            code: "file_index_corrupt".to_string(),
+            message: "The local file index contains an invalid media class.".to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdbase::runtime::FilesystemProvider;
+    use tempfile::tempdir;
+
+    fn registered() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        CollectionRegistry,
+        Uuid,
+    ) {
+        let state = tempdir().unwrap();
+        let root = tempdir().unwrap();
+        fs::write(root.path().join("mdbase.yaml"), "spec_version: 0.3.0\n").unwrap();
+        let registry = CollectionRegistry::open(state.path()).unwrap();
+        let id = registry.add(root.path()).unwrap().id;
+        (state, root, registry, id)
+    }
+
+    #[test]
+    fn file_ids_survive_restart_and_exact_reconciliation() {
+        let (state, root, registry, id) = registered();
+        fs::write(root.path().join("photo.png"), b"pixels").unwrap();
+        let first = registry.reconcile_files(id).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].file_id.get_version_num(), 7);
+        let reopened = CollectionRegistry::open(state.path()).unwrap();
+        let second = reopened.reconcile_files(id).unwrap();
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn replacement_keeps_identity_and_changes_digest_and_revision() {
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("photo.png"), b"first").unwrap();
+        let first = registry.reconcile_files(id).unwrap().remove(0);
+        fs::write(root.path().join("photo.png"), b"second version").unwrap();
+        let second = registry.reconcile_files(id).unwrap().remove(0);
+        assert_eq!(second.file_id, first.file_id);
+        assert_ne!(second.content_digest, first.content_digest);
+        assert_ne!(second.revision, first.revision);
+    }
+
+    #[test]
+    fn rename_keeps_identity_but_changes_revision() {
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("before.pdf"), b"document").unwrap();
+        let first = registry.reconcile_files(id).unwrap().remove(0);
+        fs::rename(
+            root.path().join("before.pdf"),
+            root.path().join("after.pdf"),
+        )
+        .unwrap();
+        let second = registry.reconcile_files(id).unwrap().remove(0);
+        assert_eq!(second.file_id, first.file_id);
+        assert_eq!(second.content_digest, first.content_digest);
+        assert_ne!(second.revision, first.revision);
+        assert_eq!(second.path, "after.pdf");
+    }
+
+    #[test]
+    fn unique_copy_delete_move_preserves_identity_after_inode_changes() {
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("before.bin"), b"unique bytes").unwrap();
+        let first = registry.reconcile_files(id).unwrap().remove(0);
+        fs::copy(
+            root.path().join("before.bin"),
+            root.path().join("after.bin"),
+        )
+        .unwrap();
+        fs::remove_file(root.path().join("before.bin")).unwrap();
+        let second = registry.reconcile_files(id).unwrap().remove(0);
+        assert_eq!(second.file_id, first.file_id);
+    }
+
+    #[test]
+    fn ambiguous_duplicates_never_guess_a_move() {
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("original.bin"), b"same").unwrap();
+        let original = registry.reconcile_files(id).unwrap().remove(0);
+        fs::write(root.path().join("copy-a.bin"), b"same").unwrap();
+        fs::write(root.path().join("copy-b.bin"), b"same").unwrap();
+        fs::remove_file(root.path().join("original.bin")).unwrap();
+        let files = registry.reconcile_files(id).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().all(|file| file.file_id != original.file_id));
+        assert_ne!(files[0].file_id, files[1].file_id);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsafe_entries_do_not_hide_independent_safe_files() {
+        use std::os::unix::fs::symlink;
+
+        let (_state, root, registry, id) = registered();
+        fs::write(root.path().join("safe.png"), b"safe").unwrap();
+        symlink(
+            root.path().join("safe.png"),
+            root.path().join("unsafe-link.png"),
+        )
+        .unwrap();
+        let files = registry.reconcile_files(id).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "safe.png");
+    }
+
+    #[test]
+    fn file_changes_share_the_collection_sequence_and_are_atomic_with_the_index() {
+        let (_state, root, registry, id) = registered();
+        let provider = FilesystemProvider::open(root.path()).unwrap();
+        crate::LocalSyncStore::for_registry(&registry)
+            .reconcile(id, &provider.snapshot().unwrap(), &HashMap::new())
+            .unwrap();
+        fs::write(root.path().join("one.pdf"), b"one").unwrap();
+
+        let first = registry.reconcile_files(id).unwrap().remove(0);
+        let connection = registry.connection().unwrap();
+        let (head, after): (u64, String) = connection
+            .query_row(
+                "SELECT c.head, f.after_file
+                 FROM local_sync_collections c
+                 JOIN collection_file_changes f ON f.collection_id = c.collection_id
+                 WHERE c.collection_id = ?1 AND f.sequence = 1",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(head, 1);
+        assert_eq!(
+            serde_json::from_str::<CollectionFileDescriptor>(&after).unwrap(),
+            first
+        );
+
+        fs::rename(root.path().join("one.pdf"), root.path().join("two.pdf")).unwrap();
+        let second = registry.reconcile_files(id).unwrap().remove(0);
+        let (head, before, after): (u64, String, String) = connection
+            .query_row(
+                "SELECT c.head, f.before_file, f.after_file
+                 FROM local_sync_collections c
+                 JOIN collection_file_changes f ON f.collection_id = c.collection_id
+                 WHERE c.collection_id = ?1 AND f.sequence = 2",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(head, 2);
+        assert_eq!(
+            serde_json::from_str::<CollectionFileDescriptor>(&before).unwrap(),
+            first
+        );
+        assert_eq!(
+            serde_json::from_str::<CollectionFileDescriptor>(&after).unwrap(),
+            second
+        );
+    }
+}

@@ -8,8 +8,8 @@ target_path: tasks/First-class collection file support.md
 remote_title: First-class collection file support
 remote_state: in_progress
 remote_url: tasks/First-class collection file support.md
-remote_updated_at: 2026-08-01T13:17:53+10:00
-last_seen_remote_updated_at: 2026-08-01T13:17:53+10:00
+remote_updated_at: 2026-08-01T13:25:54+10:00
+last_seen_remote_updated_at: 2026-08-01T13:25:54+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 sync_state: clean
-last_analyzed_at: 2026-08-01T13:17:53+10:00
+last_analyzed_at: 2026-08-01T13:25:54+10:00
 type: item_state
 ---
 

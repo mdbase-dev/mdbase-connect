@@ -108,6 +108,33 @@ impl CollectionRegistry {
                 PRIMARY KEY (collection_id, sequence),
                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS collection_files (
+                collection_id TEXT NOT NULL,
+                file_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                path_key TEXT NOT NULL,
+                revision TEXT NOT NULL,
+                content_digest TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                media_type TEXT,
+                media_class TEXT NOT NULL,
+                modified_at TEXT NOT NULL,
+                physical_device TEXT,
+                physical_file TEXT,
+                PRIMARY KEY (collection_id, file_id),
+                UNIQUE (collection_id, path_key),
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS collection_file_changes (
+                collection_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                before_file TEXT,
+                after_file TEXT,
+                revision TEXT NOT NULL,
+                PRIMARY KEY (collection_id, sequence),
+                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS local_sync_replicas (
                 id TEXT PRIMARY KEY,
                 collection_id TEXT NOT NULL,
@@ -141,6 +168,10 @@ impl CollectionRegistry {
             );
             CREATE INDEX IF NOT EXISTS local_sync_changes_collection_idx
                 ON local_sync_changes(collection_id, sequence);
+            CREATE INDEX IF NOT EXISTS collection_file_changes_collection_idx
+                ON collection_file_changes(collection_id, sequence);
+            CREATE INDEX IF NOT EXISTS collection_files_digest_idx
+                ON collection_files(collection_id, content_digest);
             CREATE INDEX IF NOT EXISTS local_sync_snapshots_expiry_idx
                 ON local_sync_snapshots(expires_at);
             CREATE TABLE IF NOT EXISTS grant_crypto_state (

@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:17:53+10:00
+updated_at: 2026-08-01T13:25:54+10:00
 type: task
 ---
 
@@ -150,7 +150,16 @@ Windows-unsafe names, symlinks, hard links, managed paths, and all media groups.
 All 55 core tests, 36 mirror tests, workspace Rust checking, and strict
 workspace Clippy pass.
 
+The authority now persists a collection-scoped file index with UUIDv7
+identities, exact streaming SHA-256 digests, opaque revisions, portable path
+keys, media metadata, and filesystem identity hints. Reads verify the open file
+handle before and after hashing to reject replacement races. Identity survives
+restart, replacement, rename, and unique copy/delete moves; ambiguous duplicate
+content is never guessed. File metadata and its ordered change are committed in
+one SQLite transaction using the same collection sequence as records. Seven
+focused index tests and strict core Clippy pass.
+
 ## Handoff
 
-Work is active. Add the durable stable-identity/digest index and crash-safe
-staging store, then expose local file operations over the binary data plane.
+Work is active. Add the crash-safe staging and immutable-blob store, then expose
+local file operations over the binary data plane.

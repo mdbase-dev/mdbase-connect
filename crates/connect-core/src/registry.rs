@@ -34,6 +34,7 @@ mod collections;
 mod database;
 mod descriptions;
 mod encrypted_requests;
+mod files;
 mod grants;
 mod identity;
 mod operation_execution;
@@ -120,6 +121,8 @@ pub enum ConnectError {
     Serialization(#[from] serde_json::Error),
     #[error("Cloud control error: {0}")]
     Cloud(String),
+    #[error("{message}")]
+    File { code: String, message: String },
     #[error("Invalid timer operation: {0}")]
     InvalidTimer(String),
     #[error("Timer authority error: {0}")]
@@ -157,6 +160,7 @@ impl ConnectError {
             Self::Mirror { code, .. } => code.as_str(),
             Self::Serialization(_) => "serialization_failed",
             Self::Cloud(_) => "cloud_control_failed",
+            Self::File { code, .. } => code.as_str(),
             Self::InvalidTimer(_) => "invalid_timer_request",
             Self::TimerRuntime(_) => "timer_runtime_failed",
             Self::Provider(_) => "collection_provider_failed",
