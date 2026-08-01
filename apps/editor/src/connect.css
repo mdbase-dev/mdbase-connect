@@ -54,7 +54,7 @@
 .connect-nav > nav button {
   min-height: 38px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
@@ -75,11 +75,6 @@
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.connect-nav > nav button small {
-  color: var(--faint);
-  font-size: 0.77rem;
 }
 
 .connect-nav > nav button:hover {
@@ -161,13 +156,14 @@
 .connect-rail-account strong { font-size: 0.75rem; }
 .connect-rail-account small { color: var(--faint); font-size: 0.66rem; }
 
-.connect-request-callout {
+.connect-pending-banner {
+  width: min(734px, calc(100% - 116px));
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  margin: 12px 10px 0;
-  padding: 10px;
+  gap: 12px;
+  margin: 32px auto -22px;
+  padding: 13px 16px;
   border: 1px solid var(--color-warning-border);
   border-radius: 4px;
   background: var(--warning-soft);
@@ -175,12 +171,11 @@
   text-decoration: none;
 }
 
-.connect-request-callout > svg { width: 16px; height: 16px; }
-.connect-request-callout > span { min-width: 0; display: grid; gap: 2px; }
-.connect-request-callout strong,
-.connect-request-callout small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.connect-request-callout strong { font-size: 0.72rem; }
-.connect-request-callout small { color: var(--muted); font-size: 0.65rem; }
+.connect-pending-banner > svg { width: 16px; height: 16px; }
+.connect-pending-banner > span { min-width: 0; display: grid; gap: 2px; }
+.connect-pending-banner strong { font-size: 0.76rem; }
+.connect-pending-banner small { color: var(--muted); font-size: 0.68rem; }
+.connect-pending-banner b { color: var(--accent-strong); font-size: 0.7rem; white-space: nowrap; }
 
 .connect-main {
   min-width: 0;
@@ -283,6 +278,10 @@
   border-bottom: 1px solid var(--line);
 }
 
+.connect-storage-summary {
+  grid-template-columns: minmax(190px, 1fr) auto;
+}
+
 .connect-row > div:first-child,
 .connect-row > span:first-child,
 .connect-row-detail span {
@@ -337,11 +336,6 @@ button.danger:disabled {
 
 .connect-status.online i {
   background: var(--success);
-}
-
-.connect-attention {
-  padding-left: 14px;
-  border-left: 2px solid var(--warning);
 }
 
 .connect-primary-action {
@@ -765,7 +759,7 @@ button.danger:disabled {
   }
 
   .connect-nav > header,
-  .connect-request-callout {
+  .connect-nav > header {
     display: none;
   }
 
@@ -781,13 +775,19 @@ button.danger:disabled {
     gap: 2px;
   }
 
+  .connect-nav-group + .connect-nav-group {
+    margin-left: 2px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line-strong);
+  }
+
   .connect-nav-group > p {
     display: none;
   }
 
   .connect-nav > nav button {
     min-width: max-content;
-    grid-template-columns: 18px auto auto;
+    grid-template-columns: 18px auto;
   }
 
   .connect-main {
@@ -797,6 +797,16 @@ button.danger:disabled {
   .connect-page {
     width: calc(100% - 28px);
     padding: 32px 0 64px;
+  }
+
+  .connect-pending-banner {
+    width: calc(100% - 28px);
+    grid-template-columns: 18px minmax(0, 1fr);
+    margin: 20px auto -8px;
+  }
+
+  .connect-pending-banner b {
+    grid-column: 2;
   }
 
   .connect-page > header {

@@ -59,4 +59,28 @@ test("condenses the shared editor shell on mobile", async ({ page }) => {
   await expect(collectionRail.getByRole("button", { name: /Switch collection/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Overview" })).toBeVisible();
   await expect(page.getByRole("button", { name: "All collections" })).toBeVisible();
+  await expect(page.locator(".connect-nav-group").nth(1)).toHaveCSS("border-left-width", "1px");
+});
+
+test("uses a collection chooser when direct entry is ambiguous", async ({ page }) => {
+  await page.unroute("http://connect.test/v1/**");
+  const ambiguousOverview = {
+    ...overview,
+    collections: [overview.collections[0], {
+      ...overview.collections[0],
+      id: "collection-two",
+      local_id: "local-two",
+      display_name: "Research notes"
+    }]
+  };
+  await page.route("http://connect.test/v1/**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    await route.fulfill({ json: pathname === "/v1/account/sessions" ? { sessions: [] } : ambiguousOverview });
+  });
+
+  await page.goto("connect?server=http%3A%2F%2Fconnect.test");
+
+  await expect(page).toHaveURL(/\/connect\/collections\?server=/);
+  await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "All collections" })).toHaveAttribute("aria-current", "page");
 });

@@ -90,6 +90,9 @@ and interaction guidance in
   Connect. The Connect sidebar separates current-collection controls (Overview,
   Storage & sync, App access) from account controls (All collections,
   Applications, Computers, Account & sessions).
+- Direct Connect entry restores the last valid collection, opens the only
+  collection when there is one, and otherwise starts at All collections. A
+  collection is never chosen silently from an ambiguous list.
 - Desktop primary navigation uses a single horizontal tab row. Counts appear
   only when they clarify local collection state or pending action.
 - Portal pages contain one consequential transaction only: authentication,

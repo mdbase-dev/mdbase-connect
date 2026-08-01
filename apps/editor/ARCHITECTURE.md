@@ -25,6 +25,9 @@ The route entry point lazy-loads `App` and `ConnectApp` independently, while
 both compose the same primary editor rail. Opening Connect replaces the
 editor's note-list context with current-collection and account navigation. It
 does not construct a collection gateway or start collection authorization.
+Collection context is carried in `?collection=<id>` and remembered locally for
+direct entry. Without a valid remembered or requested collection, Connect opens
+the account-wide collection list rather than selecting an arbitrary collection.
 Choosing Notes, Types, Settings, or **Open in editor** creates a normal
 `?collection=<id>` editor navigation; the collection session then reuses an
 existing grant or begins the standard approval transaction.
