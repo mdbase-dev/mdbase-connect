@@ -13,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-filesystem:
+    name: Windows filesystem safety
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+      - id: mdbase_revision
+        shell: bash
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+      - run: cargo test --locked -p mdbase-connect-core -p mdbase-connect-daemon
+        env:
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+
   runtime-testbed:
     name: Runtime interoperability testbed
     runs-on: ubuntu-latest
