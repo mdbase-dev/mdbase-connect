@@ -37,7 +37,7 @@ describe("ConnectCollectionGateway collection index", () => {
     const structureProgress: NoteListProgress[] = [];
     const contentProgress: NoteListProgress[] = [];
 
-    const structure = await gateway.list((update) => structureProgress.push(update));
+    const structure = await gateway.list({ onProgress: (update) => { structureProgress.push(update); } });
 
     expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
       [false, 0],
@@ -45,10 +45,13 @@ describe("ConnectCollectionGateway collection index", () => {
     ]);
     expect(structureProgress[0]).toMatchObject({ structureComplete: false, complete: false, contentComplete: false, total: 2 });
     expect(structureProgress[1]).toMatchObject({ structureComplete: true, complete: true, contentComplete: false, total: 2 });
-    expect(structure.map((note) => note.path)).toEqual(["Notes/one.md", "Archive/two.md"]);
-    expect(structure.every((note) => note.body === undefined)).toBe(true);
+    expect(structure.notes.map((note) => note.path)).toEqual(["Notes/one.md", "Archive/two.md"]);
+    expect(structure.notes.every((note) => note.body === undefined)).toBe(true);
 
-    const notes = await gateway.hydrateContent((update) => contentProgress.push(update));
+    const notes = await gateway.hydrateContent({
+      snapshot: structure.snapshot,
+      onProgress: (update) => { contentProgress.push(update); }
+    });
 
     expect(query.mock.calls.map(([input]) => [input.include_body, input.offset])).toEqual([
       [false, 0],
@@ -64,7 +67,7 @@ describe("ConnectCollectionGateway collection index", () => {
     ]);
     expect(contentProgress[0]).toMatchObject({ structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: 2 });
     expect(contentProgress.at(-1)).toMatchObject({ structureComplete: true, complete: true, contentComplete: true, contentLoaded: 2, total: 2 });
-    expect(notes.map((note) => note.body)).toEqual(["Body 1", "Body 2"]);
+    expect(notes.notes.map((note) => note.body)).toEqual(["Body 1", "Body 2"]);
   });
 });
 

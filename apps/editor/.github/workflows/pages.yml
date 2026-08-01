@@ -32,6 +32,8 @@ jobs:
         env:
           MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
+      - run: pnpm check:bundle
+      - run: pnpm check:csp
 
   deploy-cloudflare:
     if: github.event_name != 'pull_request' && vars.CLOUDFLARE_PAGES_ENABLED == '1'

@@ -13,7 +13,6 @@ vi.mock("./CodeEditor", () => ({
 
 describe("typed note properties", () => {
   it("edits date and date-time strings with native pickers", async () => {
-    const user = userEvent.setup();
     const onSave = vi.fn();
     render(<PropertiesPanel note={eventNote} types={[eventType]} onClose={() => undefined} onSave={onSave} />);
 

@@ -30,6 +30,9 @@ The repository currently vendors pinned pre-release SDK tarballs from
 `mdbase-dev/mdbase-connect` so its private Pages build is reproducible before
 the packages are published to npm.
 
+The runtime boundaries, state ownership rules, and concurrency invariants are
+documented in [ARCHITECTURE.md](./ARCHITECTURE.md).
+
 ```sh
 pnpm install
 pnpm dev

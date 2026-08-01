@@ -224,6 +224,7 @@ test.beforeEach(async ({ page }) => {
 
 async function expectSharedSelectControls(scope: Locator) {
   const controls = scope.locator("select");
+  await expect(controls.first()).toBeVisible();
   expect(await controls.count()).toBeGreaterThan(0);
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     wrapped: select.parentElement?.classList.contains("select-control") ?? false,

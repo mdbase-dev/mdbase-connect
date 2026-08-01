@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CollectionTypeDescriptor } from "@mdbase/connect";
 import {
   buildNoteSearchIndex,
+  IncrementalNoteSearchIndex,
   searchNoteResults,
   searchNotes,
   searchTextRanges
@@ -57,6 +58,18 @@ describe("note search", () => {
 
   it("preserves collection order for an empty query", () => {
     expect(searchNotes(index, "")).toEqual(notes);
+  });
+
+  it("reuses normalized entries until a note changes", () => {
+    const incremental = new IncrementalNoteSearchIndex();
+    const first = incremental.build(notes, types);
+    const unchanged = incremental.build([...notes], types);
+    const changedNote = { ...notes[1], body: "Changed body" };
+    const changed = incremental.build([notes[0], changedNote, notes[2]], types);
+
+    expect(unchanged[0]).toBe(first[0]);
+    expect(changed[0]).toBe(first[0]);
+    expect(changed[1]).not.toBe(first[1]);
   });
 
   it("returns a highlighted excerpt from the field that matched", () => {

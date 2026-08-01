@@ -23,8 +23,10 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
+  NoteContentRequest,
+  NoteIndexRequest,
+  NoteIndexResult,
   NoteFrontmatter,
-  NoteListProgress,
   NoteSummary,
   RenamePreflight,
   DeletePreflight,
@@ -76,7 +78,6 @@ const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
   private readonly session: MdbaseSession<NoteFrontmatter>;
-  private indexSnapshot?: string;
   private readonly renamePreflights = new Map<string, import("@mdbase/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase/connect").DeletePreflightResult>();
 
@@ -146,18 +147,19 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.requireConnection().describe();
   }
 
-  async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     const notes: NoteSummary[] = [];
     let snapshot: string | undefined;
     for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
         include_body: false,
         frontmatter_mode: "both"
-      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE })) {
+      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
       notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
         notes: [...notes],
+        snapshot,
         structureComplete: page.complete,
         complete: page.complete,
         contentComplete: notes.length === 0,
@@ -166,23 +168,23 @@ export class ConnectCollectionGateway implements CollectionGateway {
       });
     }
 
-    this.indexSnapshot = snapshot;
-    return notes;
+    return { notes, snapshot };
   }
 
-  async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  async hydrateContent({ snapshot: requestedSnapshot, signal, onProgress }: NoteContentRequest = {}): Promise<NoteIndexResult> {
     const notes: NoteSummary[] = [];
-    let snapshot = this.indexSnapshot;
+    let snapshot = requestedSnapshot;
     for await (const page of this.requireConnection().queryPages({
         order_by: [{ field: "file.mtime", direction: "desc" }],
         ...(snapshot ? { snapshot } : {}),
         include_body: true,
         frontmatter_mode: "both"
-      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE })) {
+      }, { firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, signal })) {
       notes.push(...page.results.map(completeSummary));
       snapshot = page.snapshot;
       onProgress?.({
         notes: [...notes],
+        snapshot,
         structureComplete: true,
         complete: page.complete,
         contentComplete: page.complete,
@@ -190,8 +192,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
         total: page.meta?.total_count
       });
     }
-    this.indexSnapshot = snapshot;
-    return notes;
+    return { notes, snapshot };
   }
 
   async read(path: string): Promise<NoteDocument> {

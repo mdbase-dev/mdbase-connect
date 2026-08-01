@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type JsonObject, type WatchStatus } from "@mdbase/connect";
+import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -9,8 +9,10 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   MutationOperationOptions,
+  NoteContentRequest,
   NoteDocument,
-  NoteListProgress,
+  NoteIndexRequest,
+  NoteIndexResult,
   NoteSummary
 } from "./model";
 
@@ -83,7 +85,7 @@ describe("mdbase editor", () => {
 
   it("opens a collection, selects a note, and autosaves body changes", async () => {
     const gateway = new DemoCollectionGateway(12);
-    const seeded = (await gateway.list())[0]!;
+    const seeded = (await gateway.list()).notes[0]!;
     const original = await gateway.read(seeded.path);
     await gateway.updateProperties(original.path, { status: "draft" }, original.revision);
     const user = userEvent.setup();
@@ -94,7 +96,7 @@ describe("mdbase editor", () => {
     await user.type(body, "\nA saved sentence.");
     await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument(), { timeout: 2_000 });
 
-    const first = (await gateway.list())[0];
+    const first = (await gateway.list()).notes[0];
     const saved = await gateway.read(first.path);
     expect(saved.body).toContain("A saved sentence.");
     await user.click(screen.getByRole("button", { name: "Note properties" }));
@@ -195,7 +197,7 @@ describe("mdbase editor", () => {
     await user.type(screen.getByRole("textbox", { name: "Note body" }), "The opening paragraph is already here.");
     await user.click(screen.getByRole("button", { name: "Create note" }));
     expect(await screen.findByDisplayValue("A useful note")).toBeInTheDocument();
-    await waitFor(async () => expect((await gateway.list()).length).toBe(5));
+    await waitFor(async () => expect((await gateway.list()).notes.length).toBe(5));
     const created = await gateway.read("Notes/A useful note.md");
     expect(created.frontmatter.title).toBe("A useful note");
     expect(created.body).toBe("The opening paragraph is already here.");
@@ -483,17 +485,16 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(1);
   });
 
-  it("hydrates full text only when a search needs it and reports real progress", async () => {
+  it("hydrates full text in the background and reports search progress", async () => {
     const gateway = new DemandContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
     expect(await screen.findByText("3 notes · modified newest")).toBeInTheDocument();
-    expect(gateway.hydrateCalls).toBe(0);
+    await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
     await user.type(screen.getByRole("textbox", { name: "Search every note" }), "Record 3 remains");
 
     expect(await screen.findByText(/searching 1 of 3/)).toBeInTheDocument();
-    expect(gateway.hydrateCalls).toBe(1);
     expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
     gateway.releaseContent();
 
@@ -746,7 +747,7 @@ describe("mdbase editor", () => {
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("preflight:rename"));
     expect(gateway.events.indexOf("preflight:rename")).toBeLessThan(gateway.events.indexOf("rename"));
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("rename"));
-    expect((await gateway.list()).some((note) => note.path === "Notes/renamed-in-background.md")).toBe(true);
+    expect((await gateway.list()).notes.some((note) => note.path === "Notes/renamed-in-background.md")).toBe(true);
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   });
 
@@ -849,7 +850,7 @@ describe("mdbase editor", () => {
     expect(gateway.events.indexOf("preflight:delete")).toBeLessThan(gateway.events.indexOf("delete"));
     expect(gateway.events.indexOf("save:end")).toBeLessThan(gateway.events.indexOf("delete"));
     await waitFor(() => expect(screen.queryByRole("option", { name: /The shape of useful tools/ })).not.toBeInTheDocument());
-    expect((await gateway.list()).some((note) => note.path === "Notes/the-shape-of-useful-tools.md")).toBe(false);
+    expect((await gateway.list()).notes.some((note) => note.path === "Notes/the-shape-of-useful-tools.md")).toBe(false);
   });
 
   it("restores a deleted note without reloading the collection", async () => {
@@ -1068,6 +1069,7 @@ describe("mdbase editor", () => {
     render(<App gateway={gateway} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The note index could not be read.");
+    expect(gateway.hydrateCalls).toBe(0);
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("textbox", { name: "Note title" })).toBeInTheDocument();
     expect(gateway.listCalls).toBe(2);
@@ -1122,15 +1124,21 @@ class DirectAccessGateway extends DemoCollectionGateway {
 
 class RetryingListGateway extends DemoCollectionGateway {
   listCalls = 0;
+  hydrateCalls = 0;
 
   constructor() {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     this.listCalls += 1;
     if (this.listCalls === 1) throw new Error("The note index could not be read.");
-    return super.list(onProgress);
+    return super.list(options);
+  }
+
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    this.hydrateCalls += 1;
+    return super.hydrateContent(options);
   }
 }
 
@@ -1143,19 +1151,21 @@ class DemandContentGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
-    this.fullNotes = await super.list();
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.list();
+    this.fullNotes = (await super.hydrateContent({ snapshot: result.snapshot })).notes;
     const structure = this.fullNotes.map(({ body: _body, ...note }) => note);
-    onProgress?.({ notes: structure, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
-    return structure;
+    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
+    return { notes: structure, snapshot: result.snapshot };
   }
 
-  override async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
     this.hydrateCalls += 1;
-    onProgress?.({ notes: this.fullNotes.slice(0, 1), structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: this.fullNotes.length });
+    options.onProgress?.({ notes: this.fullNotes.slice(0, 1), snapshot: options.snapshot, structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: this.fullNotes.length });
     await new Promise<void>((resolve) => { this.release = resolve; });
-    onProgress?.({ notes: this.fullNotes, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
-    return this.fullNotes;
+    options.signal?.throwIfAborted();
+    options.onProgress?.({ notes: this.fullNotes, snapshot: options.snapshot, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
+    return { notes: this.fullNotes, snapshot: options.snapshot };
   }
 
   releaseContent() {
@@ -1171,18 +1181,19 @@ class RetryingContentGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
-    this.fullNotes = await super.list();
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.list();
+    this.fullNotes = (await super.hydrateContent({ snapshot: result.snapshot })).notes;
     const structure = this.fullNotes.map(({ body: _body, ...note }) => note);
-    onProgress?.({ notes: structure, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
-    return structure;
+    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
+    return { notes: structure, snapshot: result.snapshot };
   }
 
-  override async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
     this.hydrateCalls += 1;
     if (this.hydrateCalls === 1) throw new Error("The full-text index could not be read.");
-    onProgress?.({ notes: this.fullNotes, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
-    return this.fullNotes;
+    options.onProgress?.({ notes: this.fullNotes, snapshot: options.snapshot, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
+    return { notes: this.fullNotes, snapshot: options.snapshot };
   }
 }
 
@@ -1213,9 +1224,9 @@ class ResettingCursorGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     this.listCalls += 1;
-    return super.list(onProgress);
+    return super.list(options);
   }
 
   override async watch(_onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void> {
@@ -1242,9 +1253,10 @@ class RemoteChangeGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
-    if (!this.remote) return super.list(onProgress);
-    const notes = await super.list();
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    if (!this.remote) return super.list(options);
+    const result = await super.list();
+    const notes = result.notes;
     const { revision: _revision, ...summary } = this.remote;
     const updated = notes.map((note) => note.path === summary.path
       ? structuredClone({
@@ -1252,8 +1264,8 @@ class RemoteChangeGateway extends DemoCollectionGateway {
           file: { ...summary.file, path: summary.path }
         })
       : note);
-    onProgress?.({ notes: updated, structureComplete: true, complete: true, total: updated.length });
-    return updated;
+    options.onProgress?.({ notes: updated, snapshot: result.snapshot, structureComplete: true, complete: true, total: updated.length });
+    return { notes: updated, snapshot: result.snapshot };
   }
 
   override async read(path: string): Promise<NoteDocument> {
@@ -1336,16 +1348,19 @@ class ProgressiveListGateway extends DemoCollectionGateway {
   private releaseContentPage?: () => void;
   listCalls = 0;
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     this.listCalls += 1;
-    const notes = await super.list();
+    const result = await super.list();
+    const notes = (await super.hydrateContent({ snapshot: result.snapshot })).notes;
     const structure = notes.map(({ body: _body, ...note }) => note);
-    onProgress?.({ notes: structure.slice(0, 1), structureComplete: false, complete: false, total: notes.length });
+    options.onProgress?.({ notes: structure.slice(0, 1), snapshot: result.snapshot, structureComplete: false, complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.releaseStructurePage = resolve; });
-    onProgress?.({ notes: structure, structureComplete: true, complete: false, total: notes.length });
+    options.signal?.throwIfAborted();
+    options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.releaseContentPage = resolve; });
-    onProgress?.({ notes, structureComplete: true, complete: true, total: notes.length });
-    return notes;
+    options.signal?.throwIfAborted();
+    options.onProgress?.({ notes, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
+    return { notes, snapshot: result.snapshot };
   }
 
   releaseStructure() {
@@ -1369,9 +1384,9 @@ class CountingGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     this.listCalls += 1;
-    return super.list(onProgress);
+    return super.list(options);
   }
 
   override async read(path: string): Promise<NoteDocument> {
@@ -1431,9 +1446,9 @@ class SaveCountingGateway extends DemoCollectionGateway {
     super(3);
   }
 
-  override async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     this.listCalls += 1;
-    return super.list(onProgress);
+    return super.list(options);
   }
 
   override async update(input: Parameters<DemoCollectionGateway["update"]>[0]): Promise<NoteDocument> {

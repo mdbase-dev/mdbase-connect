@@ -4,6 +4,7 @@ import "@fontsource/azeret-mono/latin-500.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
 import "./phosphor-icons.generated.css";
@@ -20,5 +21,5 @@ const gateway = demoCount > 0
   : new ConnectCollectionGateway();
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><App gateway={gateway} /></StrictMode>
+  <StrictMode><AppErrorBoundary><App gateway={gateway} /></AppErrorBoundary></StrictMode>
 );

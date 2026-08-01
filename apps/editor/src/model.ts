@@ -102,11 +102,26 @@ export interface EditableNote {
 
 export interface NoteListProgress {
   notes: NoteSummary[];
+  snapshot?: string;
   structureComplete: boolean;
   complete: boolean;
   total?: number;
   contentComplete?: boolean;
   contentLoaded?: number;
+}
+
+export interface NoteIndexResult {
+  notes: NoteSummary[];
+  snapshot?: string;
+}
+
+export interface NoteIndexRequest {
+  signal?: AbortSignal;
+  onProgress?: (progress: NoteListProgress) => void;
+}
+
+export interface NoteContentRequest extends NoteIndexRequest {
+  snapshot?: string;
 }
 
 export interface CollectionGateway {
@@ -119,8 +134,8 @@ export interface CollectionGateway {
   authorize(target: CollectionAuthorizationTarget): Promise<void>;
   forgetConnection(collectionId: string): void;
   describe(): Promise<CollectionDescription>;
-  list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
-  hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]>;
+  list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
+  hydrateContent(options?: NoteContentRequest): Promise<NoteIndexResult>;
   read(path: string): Promise<NoteDocument>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
   restore(document: NoteDocument): Promise<NoteDocument>;

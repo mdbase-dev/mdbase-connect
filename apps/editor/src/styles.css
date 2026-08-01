@@ -63,6 +63,28 @@
   --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.fatal-error {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.fatal-error > div {
+  max-width: 440px;
+}
+
+.fatal-error strong {
+  font-size: 1.25rem;
+}
+
+.fatal-error p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --color-canvas: oklch(17.5% 0.012 255);

@@ -29,25 +29,51 @@ export interface SearchTextRange {
   to: number;
 }
 
+/** Reuses normalized entries for records whose object identity has not changed. */
+export class IncrementalNoteSearchIndex {
+  private entries = new Map<string, { note: NoteSummary; typeKey: string; entry: NoteSearchEntry }>();
+
+  build(notes: NoteSummary[], types: CollectionTypeDescriptor[] = []): NoteSearchEntry[] {
+    const typeKey = JSON.stringify(types.map((type) => [type.name, type.collection]));
+    const currentPaths = new Set(notes.map((note) => note.path));
+    for (const path of this.entries.keys()) {
+      if (!currentPaths.has(path)) this.entries.delete(path);
+    }
+    return notes.map((note) => {
+      const cached = this.entries.get(note.path);
+      if (cached?.note === note && cached.typeKey === typeKey) return cached.entry;
+      const entry = buildNoteSearchEntry(note, types);
+      this.entries.set(note.path, { note, typeKey, entry });
+      return entry;
+    });
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}
+
 export function buildNoteSearchIndex(
   notes: NoteSummary[],
   types: CollectionTypeDescriptor[] = []
 ): NoteSearchEntry[] {
-  return notes.map((note) => {
-    const metadata: string[] = [...note.types, ...noteTags(note)];
-    collectSearchValues(note.effective_frontmatter, metadata);
-    const metadataText = readableMetadata(note);
-    return {
-      note,
-      title: normalize(noteTitle(note, types)),
-      filename: normalize(basename(note.path)),
-      path: normalize(note.path),
-      metadata: normalize(metadata.join("\n")),
-      body: normalize(note.body ?? ""),
-      metadataText,
-      bodyText: note.body ?? ""
-    };
-  });
+  return notes.map((note) => buildNoteSearchEntry(note, types));
+}
+
+function buildNoteSearchEntry(note: NoteSummary, types: CollectionTypeDescriptor[]): NoteSearchEntry {
+  const metadata: string[] = [...note.types, ...noteTags(note)];
+  collectSearchValues(note.effective_frontmatter, metadata);
+  const metadataText = readableMetadata(note);
+  return {
+    note,
+    title: normalize(noteTitle(note, types)),
+    filename: normalize(basename(note.path)),
+    path: normalize(note.path),
+    metadata: normalize(metadata.join("\n")),
+    body: normalize(note.body ?? ""),
+    metadataText,
+    bodyText: note.body ?? ""
+  };
 }
 
 export function searchNotes(index: NoteSearchEntry[], query: string, limit = Number.POSITIVE_INFINITY): NoteSummary[] {

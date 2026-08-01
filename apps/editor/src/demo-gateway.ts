@@ -18,7 +18,9 @@ import type {
   ConnectionSummary,
   CreateNoteInput,
   NoteDocument,
-  NoteListProgress,
+  NoteContentRequest,
+  NoteIndexRequest,
+  NoteIndexResult,
   NoteSummary,
   RenamePreflight,
   DeletePreflight,
@@ -112,56 +114,60 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const listener of this.sessionListeners) listener(snapshot);
   }
 
-  async list(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  async list({ signal, onProgress }: NoteIndexRequest = {}): Promise<NoteIndexResult> {
     await delay(4);
-    const notes = this.notes.map(demoSummary);
-    const structure = notes.map(({ body: _body, ...note }) => note);
+    signal?.throwIfAborted();
+    const snapshot = `demo-${this.changeCursor}`;
+    const structure = this.notes.map(demoSummary).map(({ body: _body, ...note }) => note);
     const firstStructurePage = structure.slice(0, Math.min(200, structure.length));
     const structureComplete = firstStructurePage.length === structure.length;
     onProgress?.({
       notes: firstStructurePage,
+      snapshot,
       structureComplete,
-      complete: structureComplete && structure.length === 0,
+      complete: structureComplete,
       contentComplete: structure.length === 0,
       contentLoaded: 0,
       total: structure.length
     });
     if (!structureComplete) {
       await delay(4);
-      onProgress?.({ notes: structure, structureComplete: true, complete: false, contentComplete: false, contentLoaded: 0, total: structure.length });
+      signal?.throwIfAborted();
+      onProgress?.({ notes: structure, snapshot, structureComplete: true, complete: true, contentComplete: false, contentLoaded: 0, total: structure.length });
     }
-    if (notes.length) {
-      await delay(4);
-      const firstContentPage = notes.slice(0, Math.min(200, notes.length));
-      const hydrated = [...structure];
-      for (let index = 0; index < firstContentPage.length; index += 1) hydrated[index] = firstContentPage[index];
-      onProgress?.({
-        notes: hydrated,
-        structureComplete: true,
-        complete: firstContentPage.length === notes.length,
-        contentComplete: firstContentPage.length === notes.length,
-        contentLoaded: firstContentPage.length,
-        total: notes.length
-      });
-      if (firstContentPage.length !== notes.length) {
-        await delay(4);
-        onProgress?.({ notes, structureComplete: true, complete: true, contentComplete: true, contentLoaded: notes.length, total: notes.length });
-      }
-    }
-    return notes;
+    return { notes: structure, snapshot };
   }
 
-  async hydrateContent(onProgress?: (progress: NoteListProgress) => void): Promise<NoteSummary[]> {
+  async hydrateContent({ snapshot: requestedSnapshot, signal, onProgress }: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    signal?.throwIfAborted();
+    const snapshot = requestedSnapshot ?? `demo-${this.changeCursor}`;
     const notes = this.notes.map(demoSummary);
+    const firstPageSize = Math.min(200, notes.length);
+    let loaded = firstPageSize;
+    while (loaded < notes.length) {
+      signal?.throwIfAborted();
+      onProgress?.({
+        notes: notes.slice(0, loaded),
+        snapshot,
+        structureComplete: true,
+        complete: false,
+        contentComplete: false,
+        contentLoaded: loaded,
+        total: notes.length
+      });
+      await delay(0);
+      loaded = Math.min(notes.length, loaded + 1_000);
+    }
     onProgress?.({
       notes,
+      snapshot,
       structureComplete: true,
       complete: true,
       contentComplete: true,
       contentLoaded: notes.length,
       total: notes.length
     });
-    return notes;
+    return { notes, snapshot };
   }
 
   async read(path: string): Promise<NoteDocument> {
