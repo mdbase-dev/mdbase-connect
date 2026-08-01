@@ -1,0 +1,545 @@
+use crate::ConnectError;
+use chrono::{DateTime, SecondsFormat, Utc};
+use mdbase::api::CollectionPath;
+use mdbase_connect_protocol::FileMediaClass;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use unicode_normalization::UnicodeNormalization;
+
+const RESERVED_DIRECTORIES: &[&str] = &["_contracts", "_schemas", "_types", "_views"];
+const DEPENDENCY_DIRECTORIES: &[&str] = &["node_modules"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhysicalFileIdentity {
+    pub device: u64,
+    pub file: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionFileCandidate {
+    pub path: String,
+    pub path_key: String,
+    pub absolute_path: PathBuf,
+    pub size: u64,
+    pub modified_at: String,
+    pub media_type: Option<String>,
+    pub media_class: FileMediaClass,
+    pub physical_identity: Option<PhysicalFileIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionFileIssue {
+    pub path: String,
+    pub code: &'static str,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CollectionFileInventory {
+    pub files: Vec<CollectionFileCandidate>,
+    pub issues: Vec<CollectionFileIssue>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CollectionFileInclusion {
+    pub images: bool,
+    pub audio: bool,
+    pub videos: bool,
+    pub pdfs: bool,
+    pub other: bool,
+    pub excluded_folders: BTreeSet<String>,
+}
+
+impl CollectionFileInclusion {
+    pub fn includes(&self, media_class: FileMediaClass) -> bool {
+        match media_class {
+            FileMediaClass::Image => self.images,
+            FileMediaClass::Audio => self.audio,
+            FileMediaClass::Video => self.videos,
+            FileMediaClass::Pdf => self.pdfs,
+            FileMediaClass::Other => self.other,
+        }
+    }
+}
+
+/// Discover non-Markdown collection files without traversing hard-excluded roots.
+///
+/// `managed_paths` must come from the mdbase snapshot. This keeps record and
+/// structural-resource classification owned by mdbase instead of duplicating
+/// it in Connect.
+pub fn discover_collection_files(
+    root: &Path,
+    managed_paths: &BTreeSet<String>,
+) -> Result<CollectionFileInventory, ConnectError> {
+    let root = root.canonicalize()?;
+    let mut inventory = CollectionFileInventory::default();
+    visit_directory(&root, &root, managed_paths, &mut inventory)?;
+    remove_portable_aliases(&mut inventory);
+    inventory
+        .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    inventory.issues.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.code.cmp(right.code))
+    });
+    Ok(inventory)
+}
+
+/// Apply sync inclusion independently from authority inventory and app grants.
+pub fn select_collection_files<'a>(
+    inventory: &'a CollectionFileInventory,
+    inclusion: &CollectionFileInclusion,
+) -> Result<Vec<&'a CollectionFileCandidate>, ConnectError> {
+    let excluded = validated_excluded_folders(&inclusion.excluded_folders)?;
+    Ok(inventory
+        .files
+        .iter()
+        .filter(|file| {
+            inclusion.includes(file.media_class) && !excluded_path(&file.path, &excluded)
+        })
+        .collect())
+}
+
+fn visit_directory(
+    root: &Path,
+    directory: &Path,
+    managed_paths: &BTreeSet<String>,
+    inventory: &mut CollectionFileInventory,
+) -> Result<(), ConnectError> {
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    for entry in entries {
+        let absolute_path = entry.path();
+        let relative_path = absolute_path.strip_prefix(root).map_err(|_| {
+            ConnectError::CollectionOpen("Collection file escaped its authority root.".to_string())
+        })?;
+        let Some(relative) = relative_path.to_str().map(path_with_forward_slashes) else {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative_path.to_string_lossy().to_string(),
+                code: "non_unicode_path",
+                message: "Collection files must have Unicode paths.".to_string(),
+            });
+            continue;
+        };
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative,
+                code: "non_unicode_path",
+                message: "Collection files must have Unicode names.".to_string(),
+            });
+            continue;
+        };
+        let metadata = fs::symlink_metadata(&absolute_path)?;
+        if metadata.file_type().is_symlink() {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative,
+                code: "symlink_excluded",
+                message: "Symbolic links are never collection files.".to_string(),
+            });
+            continue;
+        }
+        if metadata.is_dir() {
+            if excluded_directory(&name) || nested_collection(&absolute_path) {
+                continue;
+            }
+            visit_directory(root, &absolute_path, managed_paths, inventory)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative,
+                code: "non_regular_file",
+                message: "Only regular files can be collection files.".to_string(),
+            });
+            continue;
+        }
+        if hidden_name(&name)
+            || managed_paths.contains(&relative)
+            || relative.eq_ignore_ascii_case("mdbase.yaml")
+            || extension(&relative).is_some_and(|value| value.eq_ignore_ascii_case("md"))
+        {
+            continue;
+        }
+        if let Err(message) = validate_portable_path(&relative) {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative,
+                code: "unsafe_path",
+                message,
+            });
+            continue;
+        }
+        if has_multiple_hard_links(&metadata) {
+            inventory.issues.push(CollectionFileIssue {
+                path: relative,
+                code: "hard_link_excluded",
+                message: "Hard-linked files are excluded because writes could escape the collection boundary."
+                    .to_string(),
+            });
+            continue;
+        }
+        let (media_class, media_type) = classify_media(&relative);
+        let modified_at = metadata
+            .modified()
+            .map(DateTime::<Utc>::from)
+            .map(|value| value.to_rfc3339_opts(SecondsFormat::Nanos, true))
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+        inventory.files.push(CollectionFileCandidate {
+            path_key: portable_path_key(&relative),
+            path: relative,
+            absolute_path,
+            size: metadata.len(),
+            modified_at,
+            media_type,
+            media_class,
+            physical_identity: physical_identity(&metadata),
+        });
+    }
+    Ok(())
+}
+
+fn validated_excluded_folders(
+    folders: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, ConnectError> {
+    folders
+        .iter()
+        .map(|folder| {
+            let canonical = folder.trim_end_matches('/');
+            validate_portable_path(canonical).map_err(|message| {
+                ConnectError::Settings(format!("Invalid excluded file folder {folder}: {message}"))
+            })?;
+            Ok(portable_path_key(canonical))
+        })
+        .collect()
+}
+
+fn excluded_directory(name: &str) -> bool {
+    hidden_name(name)
+        || RESERVED_DIRECTORIES
+            .iter()
+            .chain(DEPENDENCY_DIRECTORIES)
+            .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
+
+fn excluded_path(relative: &str, excluded: &BTreeSet<String>) -> bool {
+    let key = portable_path_key(relative);
+    excluded
+        .iter()
+        .any(|folder| key == *folder || key.starts_with(&format!("{folder}/")))
+}
+
+fn nested_collection(directory: &Path) -> bool {
+    fs::symlink_metadata(directory.join("mdbase.yaml")).is_ok_and(|metadata| metadata.is_file())
+}
+
+fn hidden_name(name: &str) -> bool {
+    name.starts_with('.')
+}
+
+fn validate_portable_path(relative: &str) -> Result<(), String> {
+    let path = CollectionPath::new(relative).map_err(|error| error.to_string())?;
+    if path.as_str() != relative {
+        return Err("path is not in canonical forward-slash form".to_string());
+    }
+    Ok(())
+}
+
+fn portable_path_key(relative: &str) -> String {
+    relative
+        .nfc()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .nfc()
+        .collect()
+}
+
+fn remove_portable_aliases(inventory: &mut CollectionFileInventory) {
+    let mut paths = BTreeMap::<String, Vec<String>>::new();
+    for file in &inventory.files {
+        paths
+            .entry(file.path_key.clone())
+            .or_default()
+            .push(file.path.clone());
+    }
+    let aliases = paths
+        .into_iter()
+        .filter(|(_, paths)| paths.len() > 1)
+        .collect::<BTreeMap<_, _>>();
+    if aliases.is_empty() {
+        return;
+    }
+    inventory
+        .files
+        .retain(|file| !aliases.contains_key(&file.path_key));
+    for (_, paths) in aliases {
+        let joined = paths.join(", ");
+        for path in paths {
+            inventory.issues.push(CollectionFileIssue {
+                path,
+                code: "path_alias",
+                message: format!(
+                    "Collection file paths alias on a supported filesystem: {joined}."
+                ),
+            });
+        }
+    }
+}
+
+fn path_with_forward_slashes(path: &str) -> String {
+    path.replace(std::path::MAIN_SEPARATOR, "/")
+}
+
+fn extension(path: &str) -> Option<&str> {
+    path.rsplit_once('.').map(|(_, extension)| extension)
+}
+
+fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
+    let extension = extension(path).unwrap_or_default().to_ascii_lowercase();
+    let (class, media_type) = match extension.as_str() {
+        "avif" => (FileMediaClass::Image, "image/avif"),
+        "bmp" => (FileMediaClass::Image, "image/bmp"),
+        "gif" => (FileMediaClass::Image, "image/gif"),
+        "jpeg" | "jpg" => (FileMediaClass::Image, "image/jpeg"),
+        "png" => (FileMediaClass::Image, "image/png"),
+        "svg" => (FileMediaClass::Image, "image/svg+xml"),
+        "webp" => (FileMediaClass::Image, "image/webp"),
+        "flac" => (FileMediaClass::Audio, "audio/flac"),
+        "m4a" => (FileMediaClass::Audio, "audio/mp4"),
+        "mp3" => (FileMediaClass::Audio, "audio/mpeg"),
+        "oga" | "ogg" => (FileMediaClass::Audio, "audio/ogg"),
+        "opus" => (FileMediaClass::Audio, "audio/opus"),
+        "wav" => (FileMediaClass::Audio, "audio/wav"),
+        "3gp" => (FileMediaClass::Video, "video/3gpp"),
+        "mkv" => (FileMediaClass::Video, "video/x-matroska"),
+        "mov" => (FileMediaClass::Video, "video/quicktime"),
+        "mp4" => (FileMediaClass::Video, "video/mp4"),
+        "webm" => (FileMediaClass::Video, "video/webm"),
+        "pdf" => (FileMediaClass::Pdf, "application/pdf"),
+        _ => return (FileMediaClass::Other, None),
+    };
+    (class, Some(media_type.to_string()))
+}
+
+#[cfg(unix)]
+fn has_multiple_hard_links(metadata: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    metadata.nlink() > 1
+}
+
+#[cfg(not(unix))]
+fn has_multiple_hard_links(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn physical_identity(metadata: &fs::Metadata) -> Option<PhysicalFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    Some(PhysicalFileIdentity {
+        device: metadata.dev(),
+        file: metadata.ino(),
+    })
+}
+
+#[cfg(not(unix))]
+fn physical_identity(_metadata: &fs::Metadata) -> Option<PhysicalFileIdentity> {
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    fn all_files() -> CollectionFileInclusion {
+        CollectionFileInclusion {
+            images: true,
+            audio: true,
+            videos: true,
+            pdfs: true,
+            other: true,
+            excluded_folders: BTreeSet::new(),
+        }
+    }
+
+    fn write(root: &Path, relative: &str) {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, relative.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn inventory_classifies_files_without_an_attachment_root() {
+        let root = tempdir().unwrap();
+        write(root.path(), "mdbase.yaml");
+        write(root.path(), "Journal/photo.PNG");
+        write(root.path(), "Audio/interview.mp3");
+        write(root.path(), "exports/demo.webm");
+        write(root.path(), "papers/design.pdf");
+        write(root.path(), "data/archive.zip");
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let classified = inventory
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.media_class))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            classified,
+            vec![
+                ("Audio/interview.mp3", FileMediaClass::Audio),
+                ("Journal/photo.PNG", FileMediaClass::Image),
+                ("data/archive.zip", FileMediaClass::Other),
+                ("exports/demo.webm", FileMediaClass::Video),
+                ("papers/design.pdf", FileMediaClass::Pdf),
+            ]
+        );
+        assert!(inventory.issues.is_empty());
+    }
+
+    #[test]
+    fn hard_exclusions_win_before_media_configuration() {
+        let root = tempdir().unwrap();
+        for path in [
+            ".obsidian/plugins/plugin.js",
+            ".hidden.png",
+            "visible/.cache/image.png",
+            "_types/example.json",
+            "_contracts/example.json",
+            "_schemas/example.json",
+            "_views/example.json",
+            "node_modules/package/image.png",
+            "notes/record.md",
+            "mdbase.yaml",
+        ] {
+            write(root.path(), path);
+        }
+        write(root.path(), "nested/mdbase.yaml");
+        write(root.path(), "nested/asset.png");
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        assert!(inventory.files.is_empty());
+        assert!(inventory.issues.is_empty());
+    }
+
+    #[test]
+    fn mdbase_managed_paths_and_user_exclusions_are_not_rediscovered() {
+        let root = tempdir().unwrap();
+        write(root.path(), "records/generated.bin");
+        write(root.path(), "private/secret.png");
+        write(root.path(), "public/ok.png");
+        let mut managed = BTreeSet::new();
+        managed.insert("records/generated.bin".to_string());
+        let mut policy = all_files();
+        policy.excluded_folders.insert("private".to_string());
+        let inventory = discover_collection_files(root.path(), &managed).unwrap();
+        assert_eq!(inventory.files.len(), 2);
+        let selected = select_collection_files(&inventory, &policy).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].path, "public/ok.png");
+    }
+
+    #[test]
+    fn media_toggles_are_independent_from_namespace_safety() {
+        let root = tempdir().unwrap();
+        write(root.path(), "image.png");
+        write(root.path(), "document.pdf");
+        write(root.path(), "archive.zip");
+        let policy = CollectionFileInclusion {
+            images: true,
+            ..CollectionFileInclusion::default()
+        };
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let selected = select_collection_files(&inventory, &policy).unwrap();
+        assert_eq!(
+            selected
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["image.png"]
+        );
+    }
+
+    #[test]
+    fn portable_aliases_are_reported_and_both_files_are_excluded() {
+        let root = tempdir().unwrap();
+        write(root.path(), "Notes/Example.png");
+        write(root.path(), "notes/example.png");
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        assert!(inventory.files.is_empty());
+        assert_eq!(inventory.issues.len(), 2);
+        assert!(inventory
+            .issues
+            .iter()
+            .all(|issue| issue.code == "path_alias"));
+    }
+
+    #[test]
+    fn unicode_equivalent_paths_alias_and_invalid_exclusions_fail_closed() {
+        let root = tempdir().unwrap();
+        write(root.path(), "Café/photo.png");
+        write(root.path(), "Café/photo.png");
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        assert!(inventory.files.is_empty());
+        assert_eq!(inventory.issues.len(), 2);
+
+        let mut policy = all_files();
+        policy.excluded_folders.insert("../outside".to_string());
+        let error = select_collection_files(&inventory, &policy).unwrap_err();
+        assert_eq!(error.code(), "invalid_config");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_hard_links_and_non_unicode_names_are_never_files() {
+        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        write(root.path(), "outside.png");
+        symlink(
+            root.path().join("outside.png"),
+            root.path().join("link.png"),
+        )
+        .unwrap();
+        fs::hard_link(
+            root.path().join("outside.png"),
+            root.path().join("hard.png"),
+        )
+        .unwrap();
+        let invalid = std::ffi::OsString::from_vec(vec![b'i', b'n', 0xff, b'.', b'p', b'n', b'g']);
+        let mut file = fs::File::create(root.path().join(invalid)).unwrap();
+        file.write_all(b"invalid").unwrap();
+
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        assert!(inventory.files.is_empty());
+        let codes = inventory
+            .issues
+            .iter()
+            .map(|issue| issue.code)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            codes,
+            BTreeSet::from(["hard_link_excluded", "non_unicode_path", "symlink_excluded"])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn platform_unsafe_names_are_reported() {
+        let root = tempdir().unwrap();
+        write(root.path(), "safe.png");
+        write(root.path(), "unsafe:name.png");
+        write(root.path(), "CON.png");
+        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        assert_eq!(inventory.files.len(), 1);
+        assert_eq!(inventory.files[0].path, "safe.png");
+        assert_eq!(
+            inventory
+                .issues
+                .iter()
+                .map(|issue| issue.code)
+                .collect::<Vec<_>>(),
+            vec!["unsafe_path", "unsafe_path"]
+        );
+    }
+}

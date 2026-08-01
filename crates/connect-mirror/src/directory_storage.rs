@@ -123,6 +123,9 @@ impl DirectoryMirror {
             let record_id = match event {
                 SyncChange::Put { record, .. } => record.record_id,
                 SyncChange::Remove { record_id, .. } => *record_id,
+                SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
+                    return Err(file_sync_unsupported())
+                }
             };
             if deferred_record_ids.contains(&record_id) {
                 continue;
@@ -162,6 +165,9 @@ impl DirectoryMirror {
                     physical_paths
                         .insert(physical_path, (record.path.clone(), Some(record.record_id)));
                     record_paths.insert(record.record_id, record.path.clone());
+                }
+                SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
+                    return Err(file_sync_unsupported())
                 }
             }
         }

@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:08:15+10:00
+updated_at: 2026-08-01T13:17:53+10:00
 type: task
 ---
 
@@ -137,7 +137,20 @@ compatibility boundary so they cannot checkpoint past an unmaterialized file
 event. Workspace typechecking, 113 sync tests, protocol tests, strict Clippy,
 formatting, schema validation, and architecture budgets pass.
 
+The local authority now has a standalone file inventory boundary. It takes
+record/resource paths from mdbase, discovers all other regular non-Markdown
+files without requiring an attachments folder, and never traverses hidden,
+reserved, dependency, nested-collection, or symlinked directories. It excludes
+symlinks, hard links, non-regular and non-Unicode entries, rejects portable-path
+aliases, classifies media, and reports actionable local issues. Media toggles
+and user folder exclusions are applied in a separate selector so synchronization
+policy cannot accidentally redefine app-visible authority inventory. The path
+corpus covers hidden trees, nested collections, case and Unicode aliases,
+Windows-unsafe names, symlinks, hard links, managed paths, and all media groups.
+All 55 core tests, 36 mirror tests, workspace Rust checking, and strict
+workspace Clippy pass.
+
 ## Handoff
 
-Work is active. Begin the local authority inventory, safe path policy, stable
-file identity index, and crash-safe staging store before exposing operations.
+Work is active. Add the durable stable-identity/digest index and crash-safe
+staging store, then expose local file operations over the binary data plane.

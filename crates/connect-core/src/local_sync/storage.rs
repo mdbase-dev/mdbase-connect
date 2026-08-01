@@ -239,7 +239,10 @@ pub(super) fn visible(record: &SyncRecord, allowed_types: &BTreeSet<String>) -> 
 
 pub(super) fn change_sequence(change: &SyncChange) -> u64 {
     match change {
-        SyncChange::Put { sequence, .. } | SyncChange::Remove { sequence, .. } => *sequence,
+        SyncChange::Put { sequence, .. }
+        | SyncChange::Remove { sequence, .. }
+        | SyncChange::FilePut { sequence, .. }
+        | SyncChange::FileRemove { sequence, .. } => *sequence,
     }
 }
 

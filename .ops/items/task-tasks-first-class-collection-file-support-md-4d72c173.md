@@ -8,8 +8,8 @@ target_path: tasks/First-class collection file support.md
 remote_title: First-class collection file support
 remote_state: in_progress
 remote_url: tasks/First-class collection file support.md
-remote_updated_at: 2026-08-01T13:08:15+10:00
-last_seen_remote_updated_at: 2026-08-01T13:08:15+10:00
+remote_updated_at: 2026-08-01T13:17:53+10:00
+last_seen_remote_updated_at: 2026-08-01T13:17:53+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 sync_state: clean
-last_analyzed_at: 2026-08-01T13:08:15+10:00
+last_analyzed_at: 2026-08-01T13:17:53+10:00
 type: item_state
 ---
 
@@ -71,7 +71,11 @@ Sync file snapshot, ordered change, staged mutation, conflict, and receipt
 contracts are implemented. Existing record-only replicas fail closed if they
 encounter these events until their file materializers are wired.
 
+Local file discovery and portable namespace safety are implemented with
+inventory, synchronization selection, media classification, and hostile
+filesystem coverage kept as separate concerns.
+
 ## Handoff
 
-Current next step: implement the local authority's file inventory, namespace
-safety policy, stable identity index, and crash-safe staging layer.
+Current next step: implement the durable file identity/digest index and
+crash-safe staging/atomic-commit layer.

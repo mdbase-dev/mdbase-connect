@@ -64,6 +64,13 @@ impl MirrorError {
     }
 }
 
+fn file_sync_unsupported() -> MirrorError {
+    MirrorError::new(
+        "file_sync_unsupported",
+        "This mirror cannot materialize collection file changes yet. Upgrade it before continuing sync.",
+    )
+}
+
 impl From<serde_json::Error> for MirrorError {
     fn from(error: serde_json::Error) -> Self {
         Self::new("invalid_mirror_state", error.to_string())

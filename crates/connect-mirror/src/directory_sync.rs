@@ -34,6 +34,9 @@ impl DirectoryMirror {
                 let record_id = match &event {
                     SyncChange::Put { record, .. } => record.record_id,
                     SyncChange::Remove { record_id, .. } => *record_id,
+                    SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
+                        return Err(file_sync_unsupported())
+                    }
                 };
                 let local_entry = state.records.get(&record_id).cloned();
                 let already_applied = self.mode == SyncReplicaMode::ReadWrite
@@ -71,6 +74,9 @@ impl DirectoryMirror {
                             previous_path,
                             ..
                         } => self.remove(&mut state, record_id, &previous_path)?,
+                        SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
+                            return Err(file_sync_unsupported())
+                        }
                     }
                 }
             }

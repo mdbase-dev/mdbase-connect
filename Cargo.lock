@@ -1932,6 +1932,7 @@ dependencies = [
 name = "mdbase-connect-core"
 version = "0.1.0-beta.21"
 dependencies = [
+ "chrono",
  "directories",
  "keyring",
  "mdbase",
@@ -1945,6 +1946,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror",
+ "unicode-normalization",
  "url",
  "uuid",
 ]

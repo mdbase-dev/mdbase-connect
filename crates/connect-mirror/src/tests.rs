@@ -1,5 +1,7 @@
 use super::*;
-use mdbase_connect_protocol::{SyncConflict, SyncMutationError, SyncResourceDocument};
+use mdbase_connect_protocol::{
+    CollectionFileDescriptor, FileMediaClass, SyncConflict, SyncMutationError, SyncResourceDocument,
+};
 use serde_json::json;
 use std::sync::Mutex;
 use tempfile::TempDir;
@@ -119,6 +121,24 @@ impl FakeAuthority {
         let sequence = changes.len() as u64 + 2;
         changes.push(SyncChange::Put { sequence, record });
     }
+
+    fn emit_file_put(&self) {
+        let mut changes = self.changes.lock().unwrap();
+        let sequence = changes.len() as u64 + 2;
+        changes.push(SyncChange::FilePut {
+            sequence,
+            file: CollectionFileDescriptor {
+                file_id: Uuid::new_v4(),
+                path: "assets/photo.png".to_string(),
+                revision: "file:1".to_string(),
+                content_digest: format!("sha256:{}", "1".repeat(64)),
+                size: 12,
+                media_type: Some("image/png".to_string()),
+                media_class: FileMediaClass::Image,
+                modified_at: Utc::now().to_rfc3339(),
+            },
+        });
+    }
 }
 
 #[tokio::test]
@@ -218,16 +238,20 @@ impl SyncTransport for FakeAuthority {
             .unwrap()
             .iter()
             .filter(|event| match event {
-                SyncChange::Put { sequence, .. } | SyncChange::Remove { sequence, .. } => {
-                    *sequence > after
-                }
+                SyncChange::Put { sequence, .. }
+                | SyncChange::Remove { sequence, .. }
+                | SyncChange::FilePut { sequence, .. }
+                | SyncChange::FileRemove { sequence, .. } => *sequence > after,
             })
             .cloned()
             .collect::<Vec<_>>();
         let cursor = events
             .last()
             .map(|event| match event {
-                SyncChange::Put { sequence, .. } | SyncChange::Remove { sequence, .. } => *sequence,
+                SyncChange::Put { sequence, .. }
+                | SyncChange::Remove { sequence, .. }
+                | SyncChange::FilePut { sequence, .. }
+                | SyncChange::FileRemove { sequence, .. } => *sequence,
             })
             .unwrap_or(after);
         Ok(SyncChangesPage {
@@ -408,6 +432,19 @@ async fn receive_only_materializes_and_refuses_divergence() {
     let error = mirror.sync().await.unwrap_err();
     assert_eq!(error.code, "mirror_diverged");
     assert_eq!(fs::read_to_string(path).unwrap(), "local edit");
+}
+
+#[tokio::test]
+async fn record_only_mirror_never_checkpoints_past_a_file_change() {
+    let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
+    mirror.sync().await.unwrap();
+    authority.emit_file_put();
+
+    let first = mirror.sync().await.unwrap_err();
+    assert_eq!(first.code, "file_sync_unsupported");
+    let second = mirror.sync().await.unwrap_err();
+    assert_eq!(second.code, "file_sync_unsupported");
+    assert!(!mirror.root().join("assets/photo.png").exists());
 }
 
 #[tokio::test]

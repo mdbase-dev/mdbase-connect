@@ -300,6 +300,7 @@ pub(super) fn refresh_conflict(state: &mut DurableMirrorState, event: &SyncChang
     let record_id = match event {
         SyncChange::Put { record, .. } => record.record_id,
         SyncChange::Remove { record_id, .. } => *record_id,
+        SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => return,
     };
     let Some(SyncMutationReceipt::Conflicted { conflict, .. }) =
         state.conflicts.get_mut(&record_id)
@@ -315,6 +316,7 @@ pub(super) fn refresh_conflict(state: &mut DurableMirrorState, event: &SyncChang
             conflict.current = None;
             conflict.current_revision = Some(revision.clone());
         }
+        SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {}
     }
 }
 
