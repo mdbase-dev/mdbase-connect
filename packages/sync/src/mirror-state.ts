@@ -7,6 +7,7 @@ import type {
   SyncChange
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
+import { assertRecordSyncChange } from "./record-sync-change.js";
 import {
   portableMirrorPathKey,
   validatePortableMirrorPath
@@ -216,6 +217,7 @@ export function normalizeMirrorState(
 }
 
 export function refreshMirrorConflict(state: MirrorState, event: SyncChange): void {
+  assertRecordSyncChange(event);
   const recordId = event.type === "put" ? event.record.record_id : event.record_id;
   const receipt = state.conflicts?.[recordId];
   if (!receipt || receipt.status !== "conflicted") return;

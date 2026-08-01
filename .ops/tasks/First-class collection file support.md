@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:01:14+10:00
+updated_at: 2026-08-01T13:08:15+10:00
 type: task
 ---
 
@@ -129,8 +129,15 @@ The hosted boundary is explicit: attachment/file rows and transactions live in
 the Render-hosted PostgreSQL authority; immutable file bytes live in Cloudflare
 R2. Provider-issued staging access never constitutes a collection commit.
 
+Sync protocol 1 now carries manifest-only file snapshot pages, file put/remove
+events in the same ordered collection history, staged file put/move/delete
+mutations, structured conflicts, and idempotent receipts. File bytes are never
+embedded in sync JSON. Record-only replicas gained an explicit fail-closed
+compatibility boundary so they cannot checkpoint past an unmaterialized file
+event. Workspace typechecking, 113 sync tests, protocol tests, strict Clippy,
+formatting, schema validation, and architecture budgets pass.
+
 ## Handoff
 
-Work is active. Complete transfer-key derivation and encrypted chunk fixtures,
-then extend the sync schema with manifest-only file snapshot/change objects
-before adding authority or storage implementation.
+Work is active. Begin the local authority inventory, safe path policy, stable
+file identity index, and crash-safe staging store before exposing operations.

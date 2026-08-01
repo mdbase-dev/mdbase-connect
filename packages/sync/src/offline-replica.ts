@@ -8,6 +8,7 @@ import type {
 } from "@mdbase-dev/connect-protocol";
 import type { ReplicaData, ReplicaStore } from "./replica-store.js";
 import { SyncError } from "./sync-error.js";
+import { assertRecordSyncChanges } from "./record-sync-change.js";
 import type { SyncTransport } from "./sync-types.js";
 import {
   assertSafePath,
@@ -356,6 +357,7 @@ export class OfflineReplica<Frontmatter extends JsonObject = JsonObject> {
         return;
       }
       validateChangesPage(page, data.cursor!);
+      assertRecordSyncChanges(page.events);
       for (const event of page.events) {
         if (event.type === "put") {
           data.records[event.record.record_id] = clone(event.record);

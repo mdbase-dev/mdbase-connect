@@ -107,10 +107,18 @@ fn assert_sync_schema(reference: &str, value: Value) {
         object.remove("oneOf");
         object.insert("$ref".to_string(), Value::String(format!("#{reference}")));
     }
-    let validator = jsonschema::JSONSchema::options()
+    let file_schema: Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/files.v1.schema.json"
+    ))
+    .unwrap();
+    let mut options = jsonschema::JSONSchema::options();
+    options
         .with_draft(jsonschema::Draft::Draft202012)
-        .compile(&schema)
-        .unwrap();
+        .with_document(
+            "https://mdbase.dev/connect/schemas/files.v1.json".to_string(),
+            file_schema,
+        );
+    let validator = options.compile(&schema).unwrap();
     let errors = validator
         .validate(&value)
         .err()
@@ -517,6 +525,30 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
         created_at: "2026-07-21T00:00:00Z".to_string(),
         causal_predecessor: None,
     };
+    let file = CollectionFileDescriptor {
+        file_id: Uuid::parse_str("01977777-7777-7777-8777-777777777777").unwrap(),
+        path: "assets/example.png".to_string(),
+        revision: "file:1".to_string(),
+        content_digest: format!("sha256:{}", "3".repeat(64)),
+        size: 12,
+        media_type: Some("image/png".to_string()),
+        media_class: FileMediaClass::Image,
+        modified_at: "2026-07-21T00:00:00Z".to_string(),
+    };
+    let file_mutation = SyncFileMutation::FilePut {
+        mutation_id: Uuid::parse_str("01988888-8888-7888-8888-888888888888").unwrap(),
+        replica_id,
+        scope_epoch: 1,
+        file_id: file.file_id,
+        base_revision: None,
+        path: file.path.clone(),
+        transfer_id: Uuid::parse_str("01999999-9999-7999-8999-999999999999").unwrap(),
+        content_digest: file.content_digest.clone(),
+        size: file.size,
+        media_type: file.media_type.clone(),
+        created_at: "2026-07-21T00:00:00Z".to_string(),
+        causal_predecessor: None,
+    };
 
     for (reference, value) in [
         (
@@ -551,22 +583,45 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
             .unwrap(),
         ),
         (
+            "/$defs/fileSnapshotPage",
+            serde_json::to_value(SyncFileSnapshotPage {
+                protocol_version: SYNC_PROTOCOL_VERSION,
+                message_type: SyncFileSnapshotPageKind::FileSnapshotPage,
+                snapshot_id,
+                scope_epoch: 1,
+                cursor: 1,
+                files: vec![file.clone()],
+                next_page: None,
+            })
+            .unwrap(),
+        ),
+        (
             "/$defs/changesPage",
             serde_json::to_value(SyncChangesPage {
                 protocol_version: SYNC_PROTOCOL_VERSION,
                 scope_epoch: 1,
-                events: vec![SyncChange::Put {
-                    sequence: 1,
-                    record: record.clone(),
-                }],
-                cursor: 1,
-                head: 1,
+                events: vec![
+                    SyncChange::Put {
+                        sequence: 1,
+                        record: record.clone(),
+                    },
+                    SyncChange::FilePut {
+                        sequence: 2,
+                        file: file.clone(),
+                    },
+                ],
+                cursor: 2,
+                head: 2,
                 has_more: false,
                 reset_required: false,
             })
             .unwrap(),
         ),
         ("/$defs/mutation", serde_json::to_value(&mutation).unwrap()),
+        (
+            "/$defs/mutation",
+            serde_json::to_value(&file_mutation).unwrap(),
+        ),
         (
             "/$defs/receipt",
             serde_json::to_value(SyncMutationReceipt::Conflicted {
@@ -577,6 +632,15 @@ fn rust_sync_messages_match_the_canonical_wire_schema() {
                     current_revision: Some(record.revision.clone()),
                     current: Some(record),
                 },
+            })
+            .unwrap(),
+        ),
+        (
+            "/$defs/receipt",
+            serde_json::to_value(SyncFileMutationReceipt::FileApplied {
+                mutation_id: file_mutation.mutation_id(),
+                sequence: 2,
+                file: Some(file),
             })
             .unwrap(),
         ),

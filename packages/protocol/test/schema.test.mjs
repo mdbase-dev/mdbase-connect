@@ -445,6 +445,62 @@ test("sync wire objects are independently addressable", () => {
     ...snapshot,
     records: snapshot.records.map(({ document: _, ...record }) => record)
   }), false);
+
+  const file = {
+    file_id: "01988888-8888-7888-8888-888888888888",
+    path: "assets/example.png",
+    revision: "file:1",
+    content_digest: `sha256:${"3".repeat(64)}`,
+    size: 12,
+    media_type: "image/png",
+    media_class: "image",
+    modified_at: "2026-07-21T00:00:00Z"
+  };
+  const validateFileSnapshot = validator(`${syncSchema.$id}#/$defs/fileSnapshotPage`);
+  const fileSnapshot = {
+    protocol_version: 1,
+    type: "file_snapshot_page",
+    snapshot_id: session.snapshot_id,
+    scope_epoch: 1,
+    cursor: 2,
+    files: [file]
+  };
+  assert.equal(validateFileSnapshot(fileSnapshot), true, JSON.stringify(validateFileSnapshot.errors));
+  assert.equal(validateWireObject(fileSnapshot), true, JSON.stringify(validateWireObject.errors));
+  assert.equal(validateFileSnapshot({ ...fileSnapshot, bytes: [1, 2, 3] }), false);
+
+  const fileMutation = {
+    mutation_id: "01999999-9999-7999-8999-999999999999",
+    replica_id: mutation.replica_id,
+    scope_epoch: 1,
+    operation: "file_put",
+    file_id: file.file_id,
+    path: file.path,
+    transfer_id: "019aaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa",
+    content_digest: file.content_digest,
+    size: file.size,
+    media_type: file.media_type,
+    created_at: "2026-07-21T00:00:00Z"
+  };
+  assert.equal(validateMutation(fileMutation), true, JSON.stringify(validateMutation.errors));
+  assert.equal(validateMutation({ ...fileMutation, bytes_base64: "secret" }), false);
+  assert.equal(validateReceipt({
+    mutation_id: fileMutation.mutation_id,
+    status: "file_applied",
+    sequence: 2,
+    file
+  }), true, JSON.stringify(validateReceipt.errors));
+
+  const validateChanges = validator(`${syncSchema.$id}#/$defs/changesPage`);
+  assert.equal(validateChanges({
+    protocol_version: 1,
+    scope_epoch: 1,
+    events: [{ sequence: 2, type: "file_put", file }],
+    cursor: 2,
+    head: 2,
+    has_more: false,
+    reset_required: false
+  }), true, JSON.stringify(validateChanges.errors));
 });
 
 test("encrypted relay envelopes expose routing metadata and reject payload-shaped fields", () => {

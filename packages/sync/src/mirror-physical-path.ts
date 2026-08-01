@@ -3,6 +3,7 @@ import type {
   SyncChange
 } from "@mdbase-dev/connect-protocol";
 import { SyncError } from "./sync-error.js";
+import { assertRecordSyncChanges } from "./record-sync-change.js";
 import type { MirrorState } from "./mirror-state.js";
 import {
   portableMirrorPathKey,
@@ -72,6 +73,7 @@ export function preflightChangePhysicalPaths<
   policy: MirrorRecordPathPolicy,
   state: MirrorState
 ): void {
+  assertRecordSyncChanges(events);
   const deferredRecordIds = new Set<string>();
   for (const recordId in state.conflicts ?? {}) {
     if (Object.prototype.hasOwnProperty.call(state.conflicts, recordId)) {

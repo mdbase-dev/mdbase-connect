@@ -8,8 +8,8 @@ target_path: tasks/First-class collection file support.md
 remote_title: First-class collection file support
 remote_state: in_progress
 remote_url: tasks/First-class collection file support.md
-remote_updated_at: 2026-08-01T13:01:14+10:00
-last_seen_remote_updated_at: 2026-08-01T13:01:14+10:00
+remote_updated_at: 2026-08-01T13:08:15+10:00
+last_seen_remote_updated_at: 2026-08-01T13:08:15+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 sync_state: clean
-last_analyzed_at: 2026-08-01T13:01:14+10:00
+last_analyzed_at: 2026-08-01T13:08:15+10:00
 type: item_state
 ---
 
@@ -67,7 +67,11 @@ Domain-separated file-transfer encryption is implemented and independently
 cross-checked between Rust and Web Crypto. Hosted file metadata is assigned to
 the Render/PostgreSQL authority and immutable bytes to Cloudflare R2.
 
+Sync file snapshot, ordered change, staged mutation, conflict, and receipt
+contracts are implemented. Existing record-only replicas fail closed if they
+encounter these events until their file materializers are wired.
+
 ## Handoff
 
-Current next step: finish the encrypted-transfer and sync-manifest portions of
-the protocol, then begin the local authority inventory and staging layer.
+Current next step: implement the local authority's file inventory, namespace
+safety policy, stable identity index, and crash-safe staging layer.

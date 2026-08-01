@@ -1,4 +1,5 @@
 import type { ConnectProblem } from "./connect-problems.generated.js";
+import type { CollectionFileDescriptor } from "./files.js";
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 
@@ -485,9 +486,22 @@ export interface SyncSnapshotRecord<Frontmatter extends JsonObject = JsonObject>
   document: string;
 }
 
+/** Manifest-only snapshot page. File bytes are fetched by digest via the file data plane. */
+export interface SyncFileSnapshotPage {
+  protocol_version: 1;
+  type: "file_snapshot_page";
+  snapshot_id: string;
+  scope_epoch: number;
+  cursor: number;
+  files: CollectionFileDescriptor[];
+  next_page?: string;
+}
+
 export type SyncChange<Frontmatter extends JsonObject = JsonObject> =
   | { sequence: number; type: "put"; record: SyncRecord<Frontmatter> }
-  | { sequence: number; type: "remove"; record_id: string; previous_path: string; revision: string };
+  | { sequence: number; type: "remove"; record_id: string; previous_path: string; revision: string }
+  | { sequence: number; type: "file_put"; file: CollectionFileDescriptor }
+  | { sequence: number; type: "file_remove"; file_id: string; previous_path: string; revision: string };
 
 export interface SyncChangesPage<Frontmatter extends JsonObject = JsonObject> {
   protocol_version: 1;
@@ -511,6 +525,36 @@ export interface SyncMutation {
   causal_predecessor?: string;
 }
 
+interface SyncFileMutationBase {
+  mutation_id: string;
+  replica_id: string;
+  scope_epoch: number;
+  file_id: string;
+  created_at: string;
+  causal_predecessor?: string;
+}
+
+export type SyncFileMutation =
+  | SyncFileMutationBase & {
+      operation: "file_put";
+      base_revision?: string;
+      path: string;
+      transfer_id: string;
+      content_digest: `sha256:${string}`;
+      size: number;
+      media_type?: string;
+    }
+  | SyncFileMutationBase & {
+      operation: "file_move";
+      base_revision: string;
+      path: string;
+      update_references: boolean;
+    }
+  | SyncFileMutationBase & {
+      operation: "file_delete";
+      base_revision: string;
+    };
+
 export interface SyncConflict<Frontmatter extends JsonObject = JsonObject> {
   record_id: string;
   mutation: SyncMutation;
@@ -522,6 +566,23 @@ export type SyncMutationReceipt<Frontmatter extends JsonObject = JsonObject> =
   | { mutation_id: string; status: "applied" | "previously_applied"; sequence: number; record?: SyncRecord<Frontmatter> }
   | { mutation_id: string; status: "conflicted"; conflict: SyncConflict<Frontmatter> }
   | { mutation_id: string; status: "rejected"; error: { code: string; message: string } };
+
+export interface SyncFileConflict {
+  file_id: string;
+  mutation: SyncFileMutation;
+  current?: CollectionFileDescriptor;
+  current_revision?: string;
+}
+
+export type SyncFileMutationReceipt =
+  | {
+      mutation_id: string;
+      status: "file_applied" | "file_previously_applied";
+      sequence: number;
+      file?: CollectionFileDescriptor;
+    }
+  | { mutation_id: string; status: "file_conflicted"; conflict: SyncFileConflict }
+  | { mutation_id: string; status: "file_rejected"; error: { code: string; message: string } };
 
 export type EncryptedRelayOperationRequest = EncryptedRelayEnvelope & {
   type: "encrypted_operation_request";

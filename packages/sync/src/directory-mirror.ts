@@ -1,6 +1,7 @@
 import type { JsonObject, SyncMutation, SyncRecord } from "@mdbase-dev/connect-protocol";
 import type { SyncTransport } from "./sync-types.js";
 import { SyncError } from "./sync-error.js";
+import { assertRecordSyncChanges } from "./record-sync-change.js";
 import {
   WritableMirrorConflictError,
   WritableMirrorRejectedError
@@ -110,6 +111,7 @@ export class DirectoryMirror<Frontmatter extends JsonObject = JsonObject> {
         await this.rebuild(state);
         return;
       }
+      assertRecordSyncChanges(page.events);
       if (page.events.some((event) => event.type === "put")) {
         preflightChangePhysicalPaths(
           page.events,
