@@ -7,6 +7,30 @@ fn protocol_schema() -> Value {
     .unwrap()
 }
 
+#[test]
+fn file_materialization_defaults_to_metadata_only() {
+    let policy = FileMaterializationPolicy::default();
+    assert!(policy.media_classes.is_empty());
+    assert!(policy.excluded_folders.is_empty());
+    assert!(!policy.includes(FileMediaClass::Image));
+
+    let selected: FileMaterializationPolicy = serde_json::from_value(serde_json::json!({
+        "media_classes": ["image", "pdf"],
+        "excluded_folders": ["Private"]
+    }))
+    .unwrap();
+    assert!(selected.includes(FileMediaClass::Image));
+    assert!(!selected.includes(FileMediaClass::Audio));
+    assert!(
+        serde_json::from_value::<FileMaterializationPolicy>(serde_json::json!({
+            "media_classes": [],
+            "excluded_folders": [],
+            "hidden": true
+        }))
+        .is_err()
+    );
+}
+
 fn assert_schema(reference: &str, value: Value) {
     let mut schema = protocol_schema();
     if !reference.is_empty() {

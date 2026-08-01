@@ -33,6 +33,23 @@ pub enum FileMediaClass {
     Other,
 }
 
+/// Device-local projection of the authority's safe collection-file namespace.
+/// Hidden and reserved paths remain excluded independently of this preference.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileMaterializationPolicy {
+    #[serde(default)]
+    pub media_classes: Vec<FileMediaClass>,
+    #[serde(default)]
+    pub excluded_folders: Vec<String>,
+}
+
+impl FileMaterializationPolicy {
+    pub fn includes(&self, media_class: FileMediaClass) -> bool {
+        self.media_classes.contains(&media_class)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileAction {

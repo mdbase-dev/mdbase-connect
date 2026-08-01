@@ -24,6 +24,12 @@ const RELAY_FILE_FRAME_FLAGS = 0;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type FileMediaClass = "image" | "audio" | "video" | "pdf" | "other";
+
+/** Device-local projection; namespace safety and hidden-path exclusion are mandatory. */
+export interface FileMaterializationPolicy {
+  media_classes: FileMediaClass[];
+  excluded_folders: string[];
+}
 export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
 export type FileTransferDirection = "upload" | "download";
 export type FileTransferProtection = "grant_aead_v1" | "transport_tls";

@@ -233,6 +233,8 @@ pub struct MirrorAddParams {
     pub mode: SyncReplicaMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default)]
+    pub files: FileMaterializationPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

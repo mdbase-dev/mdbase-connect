@@ -1,4 +1,5 @@
 use super::*;
+use mdbase_connect_protocol::FileMaterializationPolicy;
 pub(super) fn control_command(
     command: ConnectCommand,
 ) -> Result<(ControlCommand, OutputKind), CliError> {
@@ -67,6 +68,7 @@ pub(super) fn control_command(
                     SyncReplicaMode::ReadWrite
                 },
                 name,
+                files: FileMaterializationPolicy::default(),
             }),
             OutputKind::Mirror,
         ),

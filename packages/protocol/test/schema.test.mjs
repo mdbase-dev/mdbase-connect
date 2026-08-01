@@ -66,6 +66,18 @@ test("file capabilities use an explicit namespace and scope", () => {
   assert.equal(validate({ ...capability, scope: { kind: "selected_folders", folders: [] } }), false);
 });
 
+test("file materialization is an explicit device policy with no implicit opt-in", () => {
+  const validate = validator(`${filesSchema.$id}#/$defs/fileMaterializationPolicy`);
+  assert.equal(validate({ media_classes: [], excluded_folders: [] }), true);
+  assert.equal(validate({
+    media_classes: ["image", "audio", "video", "pdf", "other"],
+    excluded_folders: ["Private", "Exports/Archive"]
+  }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ media_classes: ["image", "image"], excluded_folders: [] }), false);
+  assert.equal(validate({ media_classes: ["binary"], excluded_folders: [] }), false);
+  assert.equal(validate({ media_classes: ["image"], excluded_folders: [".hidden"] }), false);
+});
+
 test("file descriptors separate stable identity, path, revision, and content", () => {
   const validate = validator(`${filesSchema.$id}#/$defs/fileDescriptor`);
   const descriptor = {

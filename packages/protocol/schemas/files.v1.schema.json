@@ -4,6 +4,7 @@
   "title": "mdbase connect collection file protocol 1",
   "oneOf": [
     { "$ref": "#/$defs/applicationFileRequirement" },
+    { "$ref": "#/$defs/fileMaterializationPolicy" },
     { "$ref": "#/$defs/fileCapability" },
     { "$ref": "#/$defs/fileDescriptor" },
     { "$ref": "#/$defs/listFilesRequest" },
@@ -34,6 +35,25 @@
     },
     "mediaClass": {
       "enum": ["image", "audio", "video", "pdf", "other"]
+    },
+    "fileMaterializationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_classes", "excluded_folders"],
+      "properties": {
+        "media_classes": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/mediaClass" }
+        },
+        "excluded_folders": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/path" }
+        }
+      }
     },
     "fileDescriptor": {
       "type": "object",
