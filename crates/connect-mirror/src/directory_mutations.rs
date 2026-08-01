@@ -98,6 +98,7 @@ impl DirectoryMirror {
         &self,
         state: &mut DurableMirrorState,
     ) -> Result<(), MirrorError> {
+        self.assert_files_undiverged(state)?;
         let resource_paths = state.resources.keys().cloned().collect::<HashSet<_>>();
         for (path, entry) in &state.resources {
             let value = self.read_file(path)?;
@@ -513,6 +514,6 @@ impl DirectoryMirror {
                 ));
             }
         }
-        Ok(())
+        self.assert_files_undiverged(state)
     }
 }

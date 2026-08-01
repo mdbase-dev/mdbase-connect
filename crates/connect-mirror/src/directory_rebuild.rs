@@ -48,15 +48,59 @@ impl DirectoryMirror {
                 break;
             }
         }
-        self.validate_snapshot_shape(&session.resources, &records)?;
-        self.preflight_rebuild(&session.resources, &records, prior.as_ref())?;
+        let mut files = Vec::new();
+        let mut file_page = None::<String>;
+        let mut seen_file_pages = HashSet::<String>::new();
+        loop {
+            let snapshot = self
+                .transport
+                .file_snapshot(session.snapshot_id, file_page.as_deref())
+                .await?;
+            if snapshot.protocol_version != SYNC_PROTOCOL_VERSION
+                || snapshot.message_type != SyncFileSnapshotPageKind::FileSnapshotPage
+                || snapshot.scope_epoch != session.scope_epoch
+                || snapshot.cursor != session.head
+                || snapshot.snapshot_id != session.snapshot_id
+            {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    "Hosted file snapshot boundary changed during download.",
+                ));
+            }
+            files.extend(
+                snapshot
+                    .files
+                    .into_iter()
+                    .filter(|file| self.file_selected(file)),
+            );
+            file_page = snapshot.next_page;
+            if file_page
+                .as_ref()
+                .is_some_and(|page| !seen_file_pages.insert(page.clone()))
+            {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    "Hosted file snapshot repeated a page cursor.",
+                ));
+            }
+            if file_page.is_none() {
+                break;
+            }
+        }
+        self.validate_snapshot_shape(&session.resources, &records, &files)?;
+        self.preflight_rebuild(&session.resources, &records, &files, prior.as_ref())?;
         self.validate_snapshot_documents(&session.resources, &records)?;
+        for file in &files {
+            self.ensure_file_blob(file).await?;
+        }
         let plan = DurableRebuildPlan {
             protocol_version: SYNC_PROTOCOL_VERSION,
             replica_id: self.replica_id,
             mode: self.mode,
             session,
             records,
+            files,
+            file_policy: self.file_policy.clone(),
             prior,
         };
         self.write_rebuild_plan(&plan)?;
@@ -65,10 +109,15 @@ impl DirectoryMirror {
 
     pub(super) fn apply_rebuild(&self, plan: DurableRebuildPlan) -> Result<(), MirrorError> {
         self.validate_rebuild_plan(&plan)?;
-        self.validate_snapshot_shape(&plan.session.resources, &plan.records)?;
+        self.validate_snapshot_shape(&plan.session.resources, &plan.records, &plan.files)?;
         self.validate_snapshot_documents(&plan.session.resources, &plan.records)?;
-        self.preflight_rebuild(&plan.session.resources, &plan.records, plan.prior.as_ref())?;
-        let target_paths = self.target_paths(&plan.session.resources, &plan.records);
+        self.preflight_rebuild(
+            &plan.session.resources,
+            &plan.records,
+            &plan.files,
+            plan.prior.as_ref(),
+        )?;
+        let target_paths = self.target_paths(&plan.session.resources, &plan.records, &plan.files);
         let mut state = DurableMirrorState {
             protocol_version: SYNC_PROTOCOL_VERSION,
             replica_id: self.replica_id,
@@ -76,6 +125,8 @@ impl DirectoryMirror {
             cursor: plan.session.head,
             records: BTreeMap::new(),
             resources: BTreeMap::new(),
+            files: BTreeMap::new(),
+            file_policy: self.file_policy.clone(),
             mode: self.mode,
             pending: Vec::new(),
             conflicts: BTreeMap::new(),
@@ -107,11 +158,22 @@ impl DirectoryMirror {
                 },
             );
         }
+        for file in &plan.files {
+            self.install_file_blob(file)?;
+            state
+                .files
+                .insert(file.file_id, MirrorFileEntry { file: file.clone() });
+        }
         if let Some(prior) = plan.prior {
             let mut stale_paths = BTreeSet::new();
             for entry in prior.records.values().chain(prior.resources.values()) {
                 if !target_paths.contains(&entry.path) {
                     stale_paths.insert(entry.path.clone());
+                }
+            }
+            for entry in prior.files.values() {
+                if !target_paths.contains(&entry.file.path) {
+                    stale_paths.insert(entry.file.path.clone());
                 }
             }
             for path in stale_paths {
@@ -141,16 +203,33 @@ impl DirectoryMirror {
         Ok(paths)
     }
 
+    pub(super) fn prior_managed_file_paths<'a>(
+        &self,
+        prior: Option<&'a DurableMirrorState>,
+    ) -> Result<HashMap<String, &'a MirrorFileEntry>, MirrorError> {
+        let mut paths = HashMap::new();
+        for entry in prior.into_iter().flat_map(|state| state.files.values()) {
+            paths.insert(
+                portable_mirror_path_key(&entry.file.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+                entry,
+            );
+        }
+        Ok(paths)
+    }
+
     pub(super) fn target_paths(
         &self,
         resources: &SyncCollectionResources,
         records: &[SyncSnapshotRecord],
+        files: &[CollectionFileDescriptor],
     ) -> HashSet<String> {
         resources
             .documents
             .iter()
             .map(|resource| resource.path.clone())
             .chain(records.iter().map(|snapshot| snapshot.record.path.clone()))
+            .chain(files.iter().map(|file| file.path.clone()))
             .collect()
     }
 
@@ -158,6 +237,7 @@ impl DirectoryMirror {
         &self,
         resources: &SyncCollectionResources,
         records: &[SyncSnapshotRecord],
+        files: &[CollectionFileDescriptor],
     ) -> Result<(), MirrorError> {
         let mut paths = HashSet::<String>::new();
         let mut physical_paths = HashMap::<String, String>::new();
@@ -222,6 +302,34 @@ impl DirectoryMirror {
                     format!(
                         "Hosted snapshot repeats record identity or path {}.",
                         record.path
+                    ),
+                ));
+            }
+        }
+        let mut file_ids = HashSet::new();
+        for file in files {
+            self.validate_file_descriptor(file)?;
+            let physical_path = portable_mirror_path_key(&file.path).map_err(|error| {
+                MirrorError::new(
+                    "invalid_snapshot",
+                    format!("Hosted file path {} is unsafe: {error}", file.path),
+                )
+            })?;
+            if let Some(existing) = physical_paths.insert(physical_path, file.path.clone()) {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!(
+                        "Hosted snapshot paths {existing} and {} alias on a supported filesystem.",
+                        file.path
+                    ),
+                ));
+            }
+            if !file_ids.insert(file.file_id) || !paths.insert(file.path.clone()) {
+                return Err(MirrorError::new(
+                    "invalid_snapshot",
+                    format!(
+                        "Hosted snapshot repeats file identity or path {}.",
+                        file.path
                     ),
                 ));
             }
@@ -335,62 +443,100 @@ impl DirectoryMirror {
         &self,
         resources: &SyncCollectionResources,
         records: &[SyncSnapshotRecord],
+        files: &[CollectionFileDescriptor],
         prior: Option<&DurableMirrorState>,
     ) -> Result<(), MirrorError> {
         let prior_paths = self.prior_managed_paths(prior)?;
-        let target_paths = self.target_paths(resources, records);
+        let prior_file_paths = self.prior_managed_file_paths(prior)?;
+        let target_paths = self.target_paths(resources, records, files);
         let mut collisions = BTreeSet::new();
         for resource in &resources.documents {
-            let local = self.read_file(&resource.path)?;
-            let managed = if prior.is_some() {
-                let physical_path = portable_mirror_path_key(&resource.path)
-                    .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
-                prior_paths.get(&physical_path)
-            } else {
-                None
-            };
-            if managed.is_some_and(|entry| entry.path != resource.path) {
+            let physical_path = portable_mirror_path_key(&resource.path)
+                .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
+            let managed = prior_paths.get(&physical_path);
+            let managed_file = prior_file_paths.get(&physical_path);
+            let prior_path = managed
+                .map(|entry| entry.path.as_str())
+                .or_else(|| managed_file.map(|entry| entry.file.path.as_str()));
+            if prior_path.is_some_and(|path| path != resource.path) {
                 return Err(MirrorError::new(
                     "invalid_record_path",
                     format!(
                         "Mirror paths {} and {} alias on a supported filesystem.",
-                        managed.unwrap().path,
+                        prior_path.unwrap(),
                         resource.path
                     ),
                 ));
             }
-            if local.as_deref().is_some_and(|local| {
-                local != resource.document
-                    && managed.is_none_or(|entry| digest(local) != entry.hash)
-            }) {
+            let expected = format!("sha256:{}", digest(&resource.document));
+            let prior_digest = managed
+                .map(|entry| format!("sha256:{}", entry.hash))
+                .or_else(|| managed_file.map(|entry| entry.file.content_digest.clone()));
+            if self
+                .file_digest(&resource.path)?
+                .as_deref()
+                .is_some_and(|local| local != expected && prior_digest.as_deref() != Some(local))
+            {
                 collisions.insert(resource.path.clone());
             }
         }
         for snapshot in records {
             let record = &snapshot.record;
-            let document = &snapshot.document;
-            let local = self.read_file(&record.path)?;
-            let managed = if prior.is_some() {
-                let physical_path = portable_mirror_path_key(&record.path)
-                    .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
-                prior_paths.get(&physical_path)
-            } else {
-                None
-            };
-            if managed.is_some_and(|entry| entry.path != record.path) {
+            let physical_path = portable_mirror_path_key(&record.path)
+                .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
+            let managed = prior_paths.get(&physical_path);
+            let managed_file = prior_file_paths.get(&physical_path);
+            let prior_path = managed
+                .map(|entry| entry.path.as_str())
+                .or_else(|| managed_file.map(|entry| entry.file.path.as_str()));
+            if prior_path.is_some_and(|path| path != record.path) {
                 return Err(MirrorError::new(
                     "invalid_record_path",
                     format!(
                         "Mirror paths {} and {} alias on a supported filesystem.",
-                        managed.unwrap().path,
+                        prior_path.unwrap(),
                         record.path
                     ),
                 ));
             }
-            if local.as_deref().is_some_and(|local| {
-                local != document && managed.is_none_or(|entry| digest(local) != entry.hash)
-            }) {
+            let expected = format!("sha256:{}", digest(&snapshot.document));
+            let prior_digest = managed
+                .map(|entry| format!("sha256:{}", entry.hash))
+                .or_else(|| managed_file.map(|entry| entry.file.content_digest.clone()));
+            if self
+                .file_digest(&record.path)?
+                .as_deref()
+                .is_some_and(|local| local != expected && prior_digest.as_deref() != Some(local))
+            {
                 collisions.insert(record.path.clone());
+            }
+        }
+        for file in files {
+            let physical_path = portable_mirror_path_key(&file.path)
+                .map_err(|error| MirrorError::new("invalid_snapshot", error))?;
+            let local = self.file_digest(&file.path)?;
+            let managed = prior_file_paths.get(&physical_path);
+            let managed_text = prior_paths.get(&physical_path);
+            let prior_path = managed
+                .map(|entry| entry.file.path.as_str())
+                .or_else(|| managed_text.map(|entry| entry.path.as_str()));
+            if prior_path.is_some_and(|path| path != file.path) {
+                return Err(MirrorError::new(
+                    "invalid_file_path",
+                    format!(
+                        "Mirror paths {} and {} alias on a supported filesystem.",
+                        prior_path.unwrap(),
+                        file.path
+                    ),
+                ));
+            }
+            let prior_digest = managed
+                .map(|entry| entry.file.content_digest.clone())
+                .or_else(|| managed_text.map(|entry| format!("sha256:{}", entry.hash)));
+            if local.as_deref().is_some_and(|digest| {
+                digest != file.content_digest && prior_digest.as_deref() != Some(digest)
+            }) {
+                collisions.insert(file.path.clone());
             }
         }
         if let Some(prior) = prior {
@@ -405,6 +551,17 @@ impl DirectoryMirror {
                     collisions.insert(entry.path.clone());
                 }
             }
+            for entry in prior.files.values() {
+                if target_paths.contains(&entry.file.path) {
+                    continue;
+                }
+                if self
+                    .file_digest(&entry.file.path)?
+                    .is_some_and(|digest| digest != entry.file.content_digest)
+                {
+                    collisions.insert(entry.file.path.clone());
+                }
+            }
         }
         if collisions.is_empty() {
             Ok(())
@@ -412,7 +569,7 @@ impl DirectoryMirror {
             Err(MirrorError::new(
                 "mirror_initialization_conflict",
                 format!(
-                    "Existing files differ from hosted Markdown: {}.",
+                    "Existing files differ from the last synchronized projection: {}.",
                     collisions.into_iter().collect::<Vec<_>>().join(", ")
                 ),
             ))
@@ -423,6 +580,7 @@ impl DirectoryMirror {
         &self,
         state: &DurableMirrorState,
     ) -> Result<(), MirrorError> {
+        validate_file_materialization_policy(&state.file_policy)?;
         let mut paths = HashSet::new();
         let mut physical_paths = HashMap::<String, String>::new();
         for (record_id, entry) in &state.records {
@@ -456,6 +614,22 @@ impl DirectoryMirror {
                 return Err(MirrorError::new(
                     "invalid_mirror_state",
                     "Mirror state contains inconsistent or overlapping resource paths.",
+                ));
+            }
+        }
+        for (file_id, entry) in &state.files {
+            self.validate_file_descriptor(&entry.file)?;
+            let physical_path = portable_mirror_path_key(&entry.file.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+            if entry.file.file_id != *file_id
+                || physical_paths
+                    .insert(physical_path, entry.file.path.clone())
+                    .is_some()
+                || !paths.insert(entry.file.path.as_str())
+            {
+                return Err(MirrorError::new(
+                    "invalid_mirror_state",
+                    "Mirror state contains inconsistent or overlapping file paths.",
                 ));
             }
         }

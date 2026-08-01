@@ -17,6 +17,9 @@ impl DirectoryMirror {
             }
             return Ok(());
         };
+        if state.file_policy != self.file_policy {
+            return self.rebuild(Some(state)).await;
+        }
         if self.mode == SyncReplicaMode::ReadWrite {
             self.flush_pending(&mut state).await?;
             self.capture_local_changes(&mut state)?;
@@ -30,13 +33,19 @@ impl DirectoryMirror {
                 return self.rebuild(Some(state)).await;
             }
             self.preflight_change_physical_paths(&state, &page.events)?;
+            self.stage_file_changes(&page.events).await?;
             for event in page.events {
+                if matches!(
+                    &event,
+                    SyncChange::FilePut { .. } | SyncChange::FileRemove { .. }
+                ) {
+                    self.apply_file_change(&mut state, event)?;
+                    continue;
+                }
                 let record_id = match &event {
                     SyncChange::Put { record, .. } => record.record_id,
                     SyncChange::Remove { record_id, .. } => *record_id,
-                    SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
-                        return Err(file_sync_unsupported())
-                    }
+                    SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => unreachable!(),
                 };
                 let local_entry = state.records.get(&record_id).cloned();
                 let already_applied = self.mode == SyncReplicaMode::ReadWrite
@@ -75,7 +84,7 @@ impl DirectoryMirror {
                             ..
                         } => self.remove(&mut state, record_id, &previous_path)?,
                         SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
-                            return Err(file_sync_unsupported())
+                            unreachable!()
                         }
                     }
                 }

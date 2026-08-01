@@ -21,6 +21,7 @@ fn registry_contains_no_credentials() {
         replica_id: Uuid::new_v4(),
         name: "Notes".to_string(),
         mode: SyncReplicaMode::ReadWrite,
+        files: FileMaterializationPolicy::default(),
         path: temporary.path().join("notes"),
         sync_url:
             "https://connect.example/v1/authorities/01900000-0000-7000-8000-000000000000/sync"

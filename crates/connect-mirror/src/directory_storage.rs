@@ -81,6 +81,20 @@ impl DirectoryMirror {
                 ));
             }
         }
+        for entry in state.files.values() {
+            if portable_mirror_path_key(&entry.file.path)
+                .map_err(|error| MirrorError::new("invalid_mirror_state", error))?
+                == physical_path
+            {
+                return Err(MirrorError::new(
+                    "invalid_record_path",
+                    format!(
+                        "Mirror record path {relative} aliases collection file {} on a supported filesystem.",
+                        entry.file.path
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -89,6 +103,13 @@ impl DirectoryMirror {
         state: &DurableMirrorState,
         events: &[SyncChange],
     ) -> Result<(), MirrorError> {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Owner {
+            Resource,
+            Record(Uuid),
+            File(Uuid),
+        }
+
         let mut deferred_record_ids = state.conflicts.keys().copied().collect::<HashSet<_>>();
         if !state.local_issues.is_empty() {
             for (record_id, entry) in &state.records {
@@ -98,40 +119,46 @@ impl DirectoryMirror {
             }
         }
         for event in events {
-            if let SyncChange::Put { record, .. } = event {
-                self.validate_record_path(&record.path)?;
+            match event {
+                SyncChange::Put { record, .. } => self.validate_record_path(&record.path)?,
+                SyncChange::FilePut { file, .. } if self.file_selected(file) => {
+                    self.validate_file_descriptor(file)?
+                }
+                _ => {}
             }
         }
-        let mut physical_paths = HashMap::<String, (String, Option<Uuid>)>::new();
+        let mut physical_paths = HashMap::<String, (String, Owner)>::new();
         let mut record_paths = HashMap::<Uuid, String>::new();
+        let mut file_paths = HashMap::<Uuid, String>::new();
         for path in state.resources.keys() {
             physical_paths.insert(
                 portable_mirror_path_key(path)
                     .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
-                (path.clone(), None),
+                (path.clone(), Owner::Resource),
             );
         }
         for (record_id, entry) in &state.records {
             physical_paths.insert(
                 portable_mirror_path_key(&entry.path)
                     .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
-                (entry.path.clone(), Some(*record_id)),
+                (entry.path.clone(), Owner::Record(*record_id)),
             );
             record_paths.insert(*record_id, entry.path.clone());
         }
+        for (file_id, entry) in &state.files {
+            physical_paths.insert(
+                portable_mirror_path_key(&entry.file.path)
+                    .map_err(|error| MirrorError::new("invalid_mirror_state", error))?,
+                (entry.file.path.clone(), Owner::File(*file_id)),
+            );
+            file_paths.insert(*file_id, entry.file.path.clone());
+        }
         for event in events {
-            let record_id = match event {
-                SyncChange::Put { record, .. } => record.record_id,
-                SyncChange::Remove { record_id, .. } => *record_id,
-                SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
-                    return Err(file_sync_unsupported())
-                }
-            };
-            if deferred_record_ids.contains(&record_id) {
-                continue;
-            }
             match event {
                 SyncChange::Remove { record_id, .. } => {
+                    if deferred_record_ids.contains(record_id) {
+                        continue;
+                    }
                     if let Some(prior) = record_paths.remove(record_id) {
                         let physical_path = portable_mirror_path_key(&prior)
                             .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
@@ -139,6 +166,9 @@ impl DirectoryMirror {
                     }
                 }
                 SyncChange::Put { record, .. } => {
+                    if deferred_record_ids.contains(&record.record_id) {
+                        continue;
+                    }
                     let physical_path =
                         portable_mirror_path_key(&record.path).map_err(|error| {
                             MirrorError::new(
@@ -146,8 +176,10 @@ impl DirectoryMirror {
                                 format!("Mirror record path '{}' is unsafe: {error}", record.path),
                             )
                         })?;
-                    if let Some((occupied_path, occupied_id)) = physical_paths.get(&physical_path) {
-                        if *occupied_id != Some(record.record_id) || occupied_path != &record.path {
+                    if let Some((occupied_path, owner)) = physical_paths.get(&physical_path) {
+                        if *owner != Owner::Record(record.record_id)
+                            || occupied_path != &record.path
+                        {
                             return Err(MirrorError::new(
                                 "invalid_record_path",
                                 format!(
@@ -162,12 +194,50 @@ impl DirectoryMirror {
                             .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
                         physical_paths.remove(&prior_physical);
                     }
-                    physical_paths
-                        .insert(physical_path, (record.path.clone(), Some(record.record_id)));
+                    physical_paths.insert(
+                        physical_path,
+                        (record.path.clone(), Owner::Record(record.record_id)),
+                    );
                     record_paths.insert(record.record_id, record.path.clone());
                 }
-                SyncChange::FilePut { .. } | SyncChange::FileRemove { .. } => {
-                    return Err(file_sync_unsupported())
+                SyncChange::FileRemove { file_id, .. } => {
+                    if let Some(prior) = file_paths.remove(file_id) {
+                        let physical_path = portable_mirror_path_key(&prior)
+                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        physical_paths.remove(&physical_path);
+                    }
+                }
+                SyncChange::FilePut { file, .. } => {
+                    if let Some(prior) = file_paths.remove(&file.file_id) {
+                        let physical_path = portable_mirror_path_key(&prior)
+                            .map_err(|error| MirrorError::new("invalid_mirror_state", error))?;
+                        physical_paths.remove(&physical_path);
+                    }
+                    if !self.file_selected(file) {
+                        continue;
+                    }
+                    let physical_path = portable_mirror_path_key(&file.path).map_err(|error| {
+                        MirrorError::new(
+                            "invalid_file_path",
+                            format!("Mirror file path '{}' is unsafe: {error}", file.path),
+                        )
+                    })?;
+                    if let Some((occupied_path, owner)) = physical_paths.get(&physical_path) {
+                        if *owner != Owner::File(file.file_id) || occupied_path != &file.path {
+                            return Err(MirrorError::new(
+                                "invalid_file_path",
+                                format!(
+                                    "Mirror paths {occupied_path} and {} alias on a supported filesystem.",
+                                    file.path
+                                ),
+                            ));
+                        }
+                    }
+                    physical_paths.insert(
+                        physical_path,
+                        (file.path.clone(), Owner::File(file.file_id)),
+                    );
+                    file_paths.insert(file.file_id, file.path.clone());
                 }
             }
         }
@@ -226,6 +296,7 @@ impl DirectoryMirror {
             || plan.session.protocol_version != SYNC_PROTOCOL_VERSION
             || plan.session.replica_id != self.replica_id
             || plan.session.mode != self.mode
+            || plan.file_policy != self.file_policy
         {
             return Err(MirrorError::new(
                 "invalid_mirror_state",

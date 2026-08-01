@@ -22,6 +22,7 @@ struct PortablePathAlias {
 struct FakeAuthority {
     session: SyncSession,
     records: Mutex<BTreeMap<Uuid, SyncRecord>>,
+    files: Mutex<BTreeMap<Uuid, (CollectionFileDescriptor, Vec<u8>)>>,
     changes: Mutex<Vec<SyncChange>>,
     mutations: Mutex<Vec<SyncMutation>>,
     receipts: Mutex<HashMap<Uuid, SyncMutationReceipt>>,
@@ -62,6 +63,7 @@ impl FakeAuthority {
                     .map(|record| (record.record_id, record))
                     .collect(),
             ),
+            files: Mutex::new(BTreeMap::new()),
             changes: Mutex::new(Vec::new()),
             mutations: Mutex::new(Vec::new()),
             receipts: Mutex::new(HashMap::new()),
@@ -122,21 +124,39 @@ impl FakeAuthority {
         changes.push(SyncChange::Put { sequence, record });
     }
 
-    fn emit_file_put(&self) {
+    fn put_file(
+        &self,
+        path: &str,
+        bytes: &[u8],
+        media_class: FileMediaClass,
+    ) -> CollectionFileDescriptor {
+        let descriptor = test_file(path, bytes, media_class);
+        self.files
+            .lock()
+            .unwrap()
+            .insert(descriptor.file_id, (descriptor.clone(), bytes.to_vec()));
+        descriptor
+    }
+
+    fn emit_file_put(&self, file: CollectionFileDescriptor, bytes: &[u8]) {
+        self.files
+            .lock()
+            .unwrap()
+            .insert(file.file_id, (file.clone(), bytes.to_vec()));
         let mut changes = self.changes.lock().unwrap();
         let sequence = changes.len() as u64 + 2;
-        changes.push(SyncChange::FilePut {
+        changes.push(SyncChange::FilePut { sequence, file });
+    }
+
+    fn emit_file_remove(&self, file: &CollectionFileDescriptor) {
+        self.files.lock().unwrap().remove(&file.file_id);
+        let mut changes = self.changes.lock().unwrap();
+        let sequence = changes.len() as u64 + 2;
+        changes.push(SyncChange::FileRemove {
             sequence,
-            file: CollectionFileDescriptor {
-                file_id: Uuid::new_v4(),
-                path: "assets/photo.png".to_string(),
-                revision: "file:1".to_string(),
-                content_digest: format!("sha256:{}", "1".repeat(64)),
-                size: 12,
-                media_type: Some("image/png".to_string()),
-                media_class: FileMediaClass::Image,
-                modified_at: Utc::now().to_rfc3339(),
-            },
+            file_id: file.file_id,
+            previous_path: file.path.clone(),
+            revision: file.revision.clone(),
         });
     }
 }
@@ -229,6 +249,47 @@ impl SyncTransport for FakeAuthority {
                 .collect(),
             next_page: None,
         })
+    }
+
+    async fn file_snapshot(
+        &self,
+        snapshot_id: Uuid,
+        _page: Option<&str>,
+    ) -> Result<SyncFileSnapshotPage, MirrorError> {
+        Ok(SyncFileSnapshotPage {
+            protocol_version: SYNC_PROTOCOL_VERSION,
+            message_type: SyncFileSnapshotPageKind::FileSnapshotPage,
+            snapshot_id,
+            scope_epoch: self.session.scope_epoch,
+            cursor: self.session.head,
+            files: self
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .map(|(file, _)| file.clone())
+                .collect(),
+            next_page: None,
+        })
+    }
+
+    async fn download_file(
+        &self,
+        file: &CollectionFileDescriptor,
+        destination: &Path,
+    ) -> Result<(), MirrorError> {
+        let files = self.files.lock().unwrap();
+        let (current, bytes) = files.get(&file.file_id).ok_or_else(|| {
+            MirrorError::new("file_not_found", "Fake authority file is unavailable.")
+        })?;
+        if current != file {
+            return Err(MirrorError::new(
+                "file_revision_unavailable",
+                "Fake authority file revision changed.",
+            ));
+        }
+        fs::write(destination, bytes)
+            .map_err(|error| MirrorError::io("Could not write", destination, error))
     }
 
     async fn changes(&self, after: u64, _limit: usize) -> Result<SyncChangesPage, MirrorError> {
@@ -382,6 +443,32 @@ fn refresh_revision(record: &mut SyncRecord) {
     );
 }
 
+fn test_file(path: &str, bytes: &[u8], media_class: FileMediaClass) -> CollectionFileDescriptor {
+    let content_digest = format!("sha256:{}", digest_bytes(bytes));
+    CollectionFileDescriptor {
+        file_id: Uuid::new_v4(),
+        path: path.to_string(),
+        revision: content_digest.clone(),
+        content_digest,
+        size: bytes.len() as u64,
+        media_type: match media_class {
+            FileMediaClass::Image => Some("image/png".to_string()),
+            FileMediaClass::Audio => Some("audio/mpeg".to_string()),
+            FileMediaClass::Video => Some("video/mp4".to_string()),
+            FileMediaClass::Pdf => Some("application/pdf".to_string()),
+            FileMediaClass::Other => None,
+        },
+        media_class,
+        modified_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn digest_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 fn harness(
     mode: SyncReplicaMode,
     records: Vec<SyncRecord>,
@@ -402,16 +489,24 @@ fn harness(
 }
 
 fn custom_harness(authority: FakeAuthority) -> (TempDir, DirectoryMirror, Arc<FakeAuthority>) {
+    custom_harness_with_files(authority, FileMaterializationPolicy::default())
+}
+
+fn custom_harness_with_files(
+    authority: FakeAuthority,
+    file_policy: FileMaterializationPolicy,
+) -> (TempDir, DirectoryMirror, Arc<FakeAuthority>) {
     let temporary = tempfile::tempdir().unwrap();
     let replica_id = authority.session.replica_id;
     let mode = authority.session.mode;
     let authority = Arc::new(authority);
-    let mirror = DirectoryMirror::new(
+    let mirror = DirectoryMirror::new_with_files(
         temporary.path().join("mirror"),
         temporary.path().join("state/state.json"),
         temporary.path().join("locks/mirror.lock"),
         replica_id,
         mode,
+        file_policy,
         authority.clone(),
     )
     .unwrap();
@@ -435,16 +530,317 @@ async fn receive_only_materializes_and_refuses_divergence() {
 }
 
 #[tokio::test]
-async fn record_only_mirror_never_checkpoints_past_a_file_change() {
+async fn metadata_only_mirror_checkpoints_file_changes_without_materializing() {
     let (_temporary, mirror, authority) = harness(SyncReplicaMode::ReadOnly, Vec::new());
     mirror.sync().await.unwrap();
-    authority.emit_file_put();
+    let bytes = b"not actually a png";
+    let file = test_file("assets/photo.png", bytes, FileMediaClass::Image);
+    authority.emit_file_put(file, bytes);
 
-    let first = mirror.sync().await.unwrap_err();
-    assert_eq!(first.code, "file_sync_unsupported");
-    let second = mirror.sync().await.unwrap_err();
-    assert_eq!(second.code, "file_sync_unsupported");
+    mirror.sync().await.unwrap();
+    mirror.sync().await.unwrap();
     assert!(!mirror.root().join("assets/photo.png").exists());
+    assert_eq!(mirror.status().unwrap().cursor, Some(2));
+}
+
+#[tokio::test]
+async fn initial_snapshot_materializes_only_selected_file_classes_and_folders() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let image = authority.put_file("assets/photo.png", b"image bytes", FileMediaClass::Image);
+    let pdf = authority.put_file("documents/guide.pdf", b"pdf bytes", FileMediaClass::Pdf);
+    authority.put_file(
+        "private/secret.png",
+        b"excluded image",
+        FileMediaClass::Image,
+    );
+    authority.put_file("audio/theme.mp3", b"audio bytes", FileMediaClass::Audio);
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image, FileMediaClass::Pdf],
+        excluded_folders: vec!["private".to_string()],
+    };
+    let (_temporary, mirror, _authority) = custom_harness_with_files(authority, policy);
+
+    mirror.sync().await.unwrap();
+
+    assert_eq!(
+        fs::read(mirror.root().join(&image.path)).unwrap(),
+        b"image bytes"
+    );
+    assert_eq!(
+        fs::read(mirror.root().join(&pdf.path)).unwrap(),
+        b"pdf bytes"
+    );
+    assert!(!mirror.root().join("private/secret.png").exists());
+    assert!(!mirror.root().join("audio/theme.mp3").exists());
+    assert_eq!(mirror.read_state().unwrap().unwrap().files.len(), 2);
+}
+
+#[tokio::test]
+async fn incremental_file_update_move_and_remove_preserve_identity() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let original = authority.put_file("assets/photo.png", b"first revision", FileMediaClass::Image);
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_files(authority, policy);
+    mirror.sync().await.unwrap();
+
+    let mut updated = test_file(
+        "assets/photo.png",
+        b"second revision",
+        FileMediaClass::Image,
+    );
+    updated.file_id = original.file_id;
+    authority.emit_file_put(updated.clone(), b"second revision");
+    mirror.sync().await.unwrap();
+    assert_eq!(
+        fs::read(mirror.root().join("assets/photo.png")).unwrap(),
+        b"second revision"
+    );
+
+    let mut moved = test_file(
+        "archive/photo.png",
+        b"second revision",
+        FileMediaClass::Image,
+    );
+    moved.file_id = original.file_id;
+    authority.emit_file_put(moved.clone(), b"second revision");
+    mirror.sync().await.unwrap();
+    assert!(!mirror.root().join("assets/photo.png").exists());
+    assert_eq!(
+        fs::read(mirror.root().join("archive/photo.png")).unwrap(),
+        b"second revision"
+    );
+    assert_eq!(
+        mirror.read_state().unwrap().unwrap().files[&original.file_id]
+            .file
+            .path,
+        "archive/photo.png"
+    );
+
+    authority.emit_file_remove(&moved);
+    mirror.sync().await.unwrap();
+    assert!(!mirror.root().join("archive/photo.png").exists());
+    assert!(mirror.read_state().unwrap().unwrap().files.is_empty());
+    assert_eq!(mirror.status().unwrap().cursor, Some(4));
+}
+
+#[tokio::test]
+async fn local_file_edits_block_remote_changes_without_advancing_the_cursor() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let original = authority.put_file(
+        "assets/photo.png",
+        b"authority bytes",
+        FileMediaClass::Image,
+    );
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_files(authority, policy);
+    mirror.sync().await.unwrap();
+    fs::write(mirror.root().join(&original.path), b"important local edit").unwrap();
+    let mut updated = test_file(
+        "assets/photo.png",
+        b"new authority bytes",
+        FileMediaClass::Image,
+    );
+    updated.file_id = original.file_id;
+    authority.emit_file_put(updated, b"new authority bytes");
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "mirror_diverged");
+    assert_eq!(
+        fs::read(mirror.root().join(&original.path)).unwrap(),
+        b"important local edit"
+    );
+    assert_eq!(mirror.status().unwrap().cursor, Some(1));
+}
+
+#[tokio::test]
+async fn corrupt_download_is_rejected_before_materialization_or_checkpoint() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_files(authority, policy);
+    mirror.sync().await.unwrap();
+    let file = test_file("assets/photo.png", b"declared bytes", FileMediaClass::Image);
+    authority.emit_file_put(file.clone(), b"declared bytes");
+    authority
+        .files
+        .lock()
+        .unwrap()
+        .get_mut(&file.file_id)
+        .unwrap()
+        .1 = b"corrupt".to_vec();
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "file_integrity_failed");
+    assert!(!mirror.root().join(&file.path).exists());
+    assert_eq!(mirror.status().unwrap().cursor, Some(1));
+}
+
+#[tokio::test]
+async fn a_corrupt_file_keeps_the_entire_change_page_invisible() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_files(authority, policy);
+    mirror.sync().await.unwrap();
+    let valid = test_file("assets/valid.png", b"valid", FileMediaClass::Image);
+    authority.emit_file_put(valid.clone(), b"valid");
+    let corrupt = test_file("assets/corrupt.png", b"declared", FileMediaClass::Image);
+    authority.emit_file_put(corrupt.clone(), b"wrong");
+
+    let error = mirror.sync().await.unwrap_err();
+
+    assert_eq!(error.code, "file_integrity_failed");
+    assert!(!mirror.root().join(&valid.path).exists());
+    assert!(!mirror.root().join(&corrupt.path).exists());
+    assert_eq!(mirror.status().unwrap().cursor, Some(1));
+}
+
+#[tokio::test]
+async fn selected_files_cannot_alias_collection_resources_or_use_hidden_paths() {
+    for path in ["mdbase.yaml", ".hidden/photo.png"] {
+        let replica_id = Uuid::new_v4();
+        let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+        authority.put_file(path, b"hostile", FileMediaClass::Image);
+        let policy = FileMaterializationPolicy {
+            media_classes: vec![FileMediaClass::Image],
+            excluded_folders: Vec::new(),
+        };
+        let (_temporary, mirror, _authority) = custom_harness_with_files(authority, policy);
+
+        let error = mirror.sync().await.unwrap_err();
+
+        assert!(matches!(
+            error.code.as_str(),
+            "invalid_snapshot" | "invalid_file_path"
+        ));
+        assert!(!mirror.root().join(".hidden/photo.png").exists());
+    }
+}
+
+#[tokio::test]
+async fn changing_file_policy_rebuilds_the_local_projection_both_ways() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let file = authority.put_file("assets/photo.png", b"image bytes", FileMediaClass::Image);
+    let (temporary, metadata_only, authority) = custom_harness(authority);
+    metadata_only.sync().await.unwrap();
+    assert!(!metadata_only.root().join(&file.path).exists());
+
+    let selected_policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let selected = DirectoryMirror::new_with_files(
+        metadata_only.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        replica_id,
+        SyncReplicaMode::ReadOnly,
+        selected_policy,
+        authority.clone(),
+    )
+    .unwrap();
+    selected.sync().await.unwrap();
+    assert_eq!(
+        fs::read(selected.root().join(&file.path)).unwrap(),
+        b"image bytes"
+    );
+
+    let metadata_only_again = DirectoryMirror::new(
+        selected.root(),
+        temporary.path().join("state/state.json"),
+        temporary.path().join("locks/mirror.lock"),
+        replica_id,
+        SyncReplicaMode::ReadOnly,
+        authority,
+    )
+    .unwrap();
+    metadata_only_again.sync().await.unwrap();
+    assert!(!metadata_only_again.root().join(&file.path).exists());
+    assert!(metadata_only_again
+        .read_state()
+        .unwrap()
+        .unwrap()
+        .files
+        .is_empty());
+}
+
+#[tokio::test]
+async fn interrupted_file_rebuild_resumes_from_verified_content_cache() {
+    let replica_id = Uuid::new_v4();
+    let authority = FakeAuthority::new(replica_id, SyncReplicaMode::ReadOnly, Vec::new());
+    let file = authority.put_file(
+        "assets/photo.png",
+        b"cached image bytes",
+        FileMediaClass::Image,
+    );
+    let policy = FileMaterializationPolicy {
+        media_classes: vec![FileMediaClass::Image],
+        excluded_folders: Vec::new(),
+    };
+    let (_temporary, mirror, authority) = custom_harness_with_files(authority, policy.clone());
+    mirror.ensure_file_blob(&file).await.unwrap();
+    let plan = DurableRebuildPlan {
+        protocol_version: SYNC_PROTOCOL_VERSION,
+        replica_id,
+        mode: SyncReplicaMode::ReadOnly,
+        session: authority.session.clone(),
+        records: Vec::new(),
+        files: vec![file.clone()],
+        file_policy: policy,
+        prior: None,
+    };
+    mirror.write_rebuild_plan(&plan).unwrap();
+    authority.files.lock().unwrap().clear();
+
+    mirror.sync().await.unwrap();
+
+    assert_eq!(
+        fs::read(mirror.root().join(&file.path)).unwrap(),
+        b"cached image bytes"
+    );
+    assert!(!mirror.rebuild_plan_file().exists());
+}
+
+#[test]
+fn file_materialization_policy_rejects_hidden_reserved_and_ambiguous_preferences() {
+    for policy in [
+        FileMaterializationPolicy {
+            media_classes: vec![FileMediaClass::Image, FileMediaClass::Image],
+            excluded_folders: Vec::new(),
+        },
+        FileMaterializationPolicy {
+            media_classes: Vec::new(),
+            excluded_folders: vec![".hidden".to_string()],
+        },
+        FileMaterializationPolicy {
+            media_classes: Vec::new(),
+            excluded_folders: vec!["Assets".to_string(), "assets".to_string()],
+        },
+        FileMaterializationPolicy {
+            media_classes: Vec::new(),
+            excluded_folders: vec!["node_modules/cache".to_string()],
+        },
+    ] {
+        assert!(validate_file_materialization_policy(&policy).is_err());
+    }
 }
 
 #[tokio::test]
@@ -626,6 +1022,8 @@ async fn interrupted_initial_snapshot_resumes_from_its_durable_plan() {
             snapshot_record(first.clone()),
             snapshot_record(second.clone()),
         ],
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: None,
     };
     mirror.write_rebuild_plan(&plan).unwrap();
@@ -675,6 +1073,8 @@ async fn reset_snapshot_removes_old_paths_after_a_remote_rename_and_delete() {
         mode: SyncReplicaMode::ReadOnly,
         session,
         records: vec![snapshot_record(renamed.clone())],
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: mirror.read_state().unwrap(),
     };
     mirror.write_rebuild_plan(&plan).unwrap();
@@ -710,6 +1110,8 @@ async fn reset_snapshot_rejects_a_same_record_case_only_rename() {
         mode: SyncReplicaMode::ReadOnly,
         session,
         records: vec![snapshot_record(renamed.clone())],
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: mirror.read_state().unwrap(),
     };
 
@@ -750,6 +1152,8 @@ async fn reset_snapshot_can_atomically_swap_managed_record_paths() {
             snapshot_record(swapped_first.clone()),
             snapshot_record(swapped_second.clone()),
         ],
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: mirror.read_state().unwrap(),
     };
     mirror.write_rebuild_plan(&plan).unwrap();
@@ -1015,6 +1419,8 @@ fn snapshot_rejects_inconsistent_record_documents_before_materialization() {
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
         records: vec![hostile],
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: None,
     };
 
@@ -1037,6 +1443,8 @@ fn snapshot_rejects_inconsistent_resource_revisions_before_materialization() {
         mode: SyncReplicaMode::ReadOnly,
         session: authority.session.clone(),
         records: Vec::new(),
+        files: Vec::new(),
+        file_policy: FileMaterializationPolicy::default(),
         prior: None,
     };
 

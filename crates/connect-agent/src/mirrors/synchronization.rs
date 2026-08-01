@@ -37,6 +37,7 @@ impl MirrorManager {
             replica_id: entry.replica_id,
             name: entry.name.clone(),
             mode: entry.mode,
+            files: entry.files.clone(),
             path: entry.path.to_string_lossy().to_string(),
             state: if error.is_some() {
                 MirrorState::Offline
@@ -131,12 +132,13 @@ impl MirrorManager {
         self.validate_mirror_root(entry)?;
         let transport =
             HttpSyncTransport::new(&entry.sync_url, access_token).map_err(from_mirror)?;
-        DirectoryMirror::new(
+        DirectoryMirror::new_with_files(
             &entry.path,
             self.replica_state_dir(entry.replica_id).join("state.json"),
             mirror_lock_path(&self.lock_root, &entry.path),
             entry.replica_id,
             entry.mode,
+            entry.files.clone(),
             Arc::new(transport),
         )
         .map_err(from_mirror)

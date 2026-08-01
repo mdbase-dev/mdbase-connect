@@ -23,7 +23,7 @@ const RELAY_FILE_FRAME_FLAGS: u16 = 0;
 const AEAD_TAG_BYTES: usize = 16;
 const MAX_SAFE_WIRE_INTEGER: u64 = 9_007_199_254_740_991;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileMediaClass {
     Image,

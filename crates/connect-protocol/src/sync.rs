@@ -38,6 +38,8 @@ pub struct MirrorSummary {
     pub replica_id: Uuid,
     pub name: String,
     pub mode: SyncReplicaMode,
+    #[serde(default)]
+    pub files: FileMaterializationPolicy,
     pub path: String,
     pub state: MirrorState,
     pub pending: usize,

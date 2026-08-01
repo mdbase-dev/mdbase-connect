@@ -5,11 +5,16 @@ use mdbase::frontmatter::parser::{
     is_parse_error, json_to_yaml_mapping, parse_document, yaml_mapping_to_json,
 };
 use mdbase_connect_protocol::{
-    authority_manifest_digest, AuthoritySnapshotRecord, MirrorConflictSummary, MirrorLocalIssue,
-    MirrorResolution, MirrorState as MirrorStatusState, SyncChange, SyncChangesPage,
-    SyncCollectionResources, SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord,
-    SyncReplicaMode, SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord,
-    SYNC_PROTOCOL_VERSION,
+    authority_manifest_digest, AuthoritySnapshotRecord, CollectionFileDescriptor,
+    FileMaterializationPolicy, FileTransferDirection, FileTransferProtection, FileTransferSession,
+    FileTransferStatus, FileTransferStrategy, MirrorConflictSummary, MirrorLocalIssue,
+    MirrorResolution, MirrorState as MirrorStatusState, OpenFileDownloadRequest,
+    OpenFileDownloadRequestKind, PrepareFileDownloadPartRequest,
+    PrepareFileDownloadPartRequestKind, PreparedFilePart, PreparedFilePartKind, SyncChange,
+    SyncChangesPage, SyncCollectionResources, SyncFileSnapshotPage, SyncFileSnapshotPageKind,
+    SyncMutation, SyncMutationOperation, SyncMutationReceipt, SyncRecord, SyncReplicaMode,
+    SyncResourceDocument, SyncSession, SyncSnapshotPage, SyncSnapshotRecord, FILE_PROTOCOL_VERSION,
+    FILE_TRANSFER_PROTOCOL_VERSION, SYNC_PROTOCOL_VERSION,
 };
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
@@ -25,12 +30,15 @@ use url::Url;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+mod directory_files;
 mod directory_mutations;
 mod directory_rebuild;
 mod directory_storage;
 mod directory_sync;
 mod filesystem;
 mod transport;
+
+pub use directory_files::validate_file_materialization_policy;
 
 pub use filesystem::{clear_mirror_marker, mark_mirror, mirror_lock_path};
 pub use transport::{HttpSyncTransport, SyncTransport};
@@ -64,13 +72,6 @@ impl MirrorError {
     }
 }
 
-fn file_sync_unsupported() -> MirrorError {
-    MirrorError::new(
-        "file_sync_unsupported",
-        "This mirror cannot materialize collection file changes yet. Upgrade it before continuing sync.",
-    )
-}
-
 impl From<serde_json::Error> for MirrorError {
     fn from(error: serde_json::Error) -> Self {
         Self::new("invalid_mirror_state", error.to_string())
@@ -84,6 +85,11 @@ struct MirrorEntry {
     hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     record: Option<SyncRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MirrorFileEntry {
+    file: CollectionFileDescriptor,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +116,10 @@ struct DurableMirrorState {
     records: BTreeMap<Uuid, MirrorEntry>,
     #[serde(default)]
     resources: BTreeMap<String, MirrorEntry>,
+    #[serde(default)]
+    files: BTreeMap<Uuid, MirrorFileEntry>,
+    #[serde(default)]
+    file_policy: FileMaterializationPolicy,
     mode: SyncReplicaMode,
     #[serde(default)]
     pending: Vec<PendingMirrorMutation>,
@@ -135,6 +145,10 @@ struct DurableRebuildPlan {
     mode: SyncReplicaMode,
     session: SyncSession,
     records: Vec<SyncSnapshotRecord>,
+    #[serde(default)]
+    files: Vec<CollectionFileDescriptor>,
+    #[serde(default)]
+    file_policy: FileMaterializationPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     prior: Option<DurableMirrorState>,
 }
@@ -162,6 +176,7 @@ pub struct DirectoryMirror {
     lock_file: PathBuf,
     replica_id: Uuid,
     mode: SyncReplicaMode,
+    file_policy: FileMaterializationPolicy,
     transport: Arc<dyn SyncTransport>,
 }
 
@@ -174,6 +189,27 @@ impl DirectoryMirror {
         mode: SyncReplicaMode,
         transport: Arc<dyn SyncTransport>,
     ) -> Result<Self, MirrorError> {
+        Self::new_with_files(
+            root,
+            state_file,
+            lock_file,
+            replica_id,
+            mode,
+            FileMaterializationPolicy::default(),
+            transport,
+        )
+    }
+
+    pub fn new_with_files(
+        root: impl AsRef<Path>,
+        state_file: impl AsRef<Path>,
+        lock_file: impl AsRef<Path>,
+        replica_id: Uuid,
+        mode: SyncReplicaMode,
+        file_policy: FileMaterializationPolicy,
+        transport: Arc<dyn SyncTransport>,
+    ) -> Result<Self, MirrorError> {
+        validate_file_materialization_policy(&file_policy)?;
         fs::create_dir_all(root.as_ref())
             .map_err(|error| MirrorError::io("Could not create", root.as_ref(), error))?;
         if fs::symlink_metadata(root.as_ref())
@@ -198,6 +234,7 @@ impl DirectoryMirror {
             lock_file: lock_file.as_ref().to_path_buf(),
             replica_id,
             mode,
+            file_policy,
             transport,
         })
     }

@@ -17,6 +17,7 @@ impl MirrorManager {
     }
 
     pub async fn add(&self, params: MirrorAddParams) -> Result<MirrorSummary, ConnectError> {
+        validate_file_materialization_policy(&params.files).map_err(from_mirror)?;
         let cloud = self.cloud()?;
         let selected = PathBuf::from(&params.path);
         fs::create_dir_all(&selected)?;
@@ -96,6 +97,7 @@ impl MirrorManager {
             replica_id: exchange.replica.id,
             name: exchange.replica.name,
             mode: exchange.replica.mode,
+            files: params.files,
             path,
             sync_url: exchange.sync_url,
             control_url: cloud.server_url().to_string(),
