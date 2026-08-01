@@ -144,7 +144,12 @@ try {
   await builtB.relay.pushPolicy(fixture.connectorId);
 
   const denied = await operation(urlB, fixture, "read", { deny: true });
-  assert(denied.status === 403 && denied.body.error?.code === "access_denied",
+  assert(denied.status === 200
+    && denied.body.ok === false
+    && denied.body.problem?.code === "access_denied"
+    && denied.body.problem?.category === "authorization"
+    && denied.body.problem?.recovery === "reauthorize"
+    && denied.body.problem?.operation_outcome === "rejected",
     `Connector authorization error was not preserved across NATS: ${JSON.stringify(denied)}`);
 
   const closedA = closed(socketA);
@@ -448,7 +453,14 @@ async function connectFakeConnector({ WebSocket: Socket, serverUrl, token, owner
         protocol_version: 1,
         request_id: message.request_id,
         ok: false,
-        error: { code: "access_denied", message: "Denied by the connector fixture." }
+        problem: {
+          problem_version: 1,
+          code: "access_denied",
+          category: "authorization",
+          recovery: "reauthorize",
+          message: "Denied by the connector fixture.",
+          operation_outcome: "rejected"
+        }
       }));
       return;
     }
