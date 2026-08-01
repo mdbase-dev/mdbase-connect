@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "id": "dev.mdbase.editor",
+  "name": "mdbase editor",
+  "homepage": "https://editor.mdbase.dev/",
+  "redirect_uris": [
+    "https://editor.mdbase.dev/"
+  ],
+  "requirements": {
+    "contracts": [],
+    "access": "full_collection"
+  }
+}
