@@ -20,6 +20,7 @@ fn request(path: &str, bytes: &[u8]) -> OpenFileUploadRequest {
     OpenFileUploadRequest {
         protocol_version: FILE_PROTOCOL_VERSION,
         message_type: OpenFileUploadRequestKind::OpenFileUpload,
+        transfer_id: Uuid::now_v7(),
         path: path.to_string(),
         size: bytes.len() as u64,
         content_digest: sha256_digest(bytes),

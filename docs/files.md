@@ -130,11 +130,13 @@ Small commands remain bounded encrypted JSON:
 
 File bytes use a separate negotiated data plane. Local direct and relayed
 transfers use independently authenticated indexed frames with a default of one
-MiB and a four MiB maximum. Hosted direct transfers use presigned object-store
-multipart parts; R2 parts default to eight MiB because every non-final R2 part
-must be at least five MiB. Multipart parts are not MDBF frames and do not relax
-the smaller relay memory bound.
-The transfer record contains an opaque ID, direction, grant binding, file
+MiB and a four MiB maximum. Hosted direct uploads use a presigned single PUT
+for small and empty objects, or presigned multipart parts for larger objects;
+R2 parts default to eight MiB because every non-final R2 part must be at least
+five MiB. Hosted downloads use presigned, revision-pinned ranges. Object-store
+parts are not MDBF frames and do not relax the smaller relay memory bound.
+The client chooses the transfer UUID so opening a transfer is retry-safe. The
+durable transfer record contains that opaque ID, direction, grant binding, file
 intent, expected size, optional declared digest, base revision, accepted chunk
 map, expiry, and terminal receipt.
 

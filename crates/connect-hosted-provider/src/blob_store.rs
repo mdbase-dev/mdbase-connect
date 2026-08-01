@@ -73,6 +73,7 @@ pub struct PresignedPart {
     pub method: String,
     pub url: String,
     pub headers: BTreeMap<String, String>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -115,6 +116,7 @@ pub trait BlobStore: Send + Sync {
     fn part_size(&self) -> u64;
     async fn ready(&self) -> ApiResult<()>;
     async fn create_multipart(&self, key: &str) -> ApiResult<String>;
+    async fn presign_put(&self, key: &str, content_length: u64) -> ApiResult<PresignedPart>;
     async fn presign_part(
         &self,
         key: &str,
@@ -122,6 +124,7 @@ pub trait BlobStore: Send + Sync {
         part_number: i32,
         content_length: u64,
     ) -> ApiResult<PresignedPart>;
+    async fn presign_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<PresignedPart>;
     async fn complete_multipart(
         &self,
         key: &str,
@@ -166,6 +169,22 @@ impl BlobStore for R2BlobStore {
             .ok_or_else(|| ApiError::internal("R2 did not return a multipart upload ID."))
     }
 
+    async fn presign_put(&self, key: &str, content_length: u64) -> ApiResult<PresignedPart> {
+        validate_object_key(key)?;
+        let content_length = i64::try_from(content_length)
+            .map_err(|_| ApiError::bad_request("invalid_file_size", "File is too large."))?;
+        let request = self
+            .client
+            .put_object()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .content_length(content_length)
+            .presigned(self.presigning_config()?)
+            .await
+            .map_err(|error| r2_unavailable("presign object upload", &error))?;
+        Ok(self.prepared_request(request))
+    }
+
     async fn presign_part(
         &self,
         key: &str,
@@ -186,8 +205,6 @@ impl BlobStore for R2BlobStore {
         }
         let content_length = i64::try_from(content_length)
             .map_err(|_| ApiError::bad_request("invalid_file_part", "File part is too large."))?;
-        let presign = PresigningConfig::expires_in(self.config.presign_ttl)
-            .map_err(|_| invalid_r2_config())?;
         let request = self
             .client
             .upload_part()
@@ -196,17 +213,25 @@ impl BlobStore for R2BlobStore {
             .upload_id(upload_id)
             .part_number(part_number)
             .content_length(content_length)
-            .presigned(presign)
+            .presigned(self.presigning_config()?)
             .await
             .map_err(|error| r2_unavailable("presign multipart part", &error))?;
-        Ok(PresignedPart {
-            method: request.method().to_string(),
-            url: request.uri().to_string(),
-            headers: request
-                .headers()
-                .map(|(name, value)| (name.to_string(), value.to_string()))
-                .collect(),
-        })
+        Ok(self.prepared_request(request))
+    }
+
+    async fn presign_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<PresignedPart> {
+        validate_object_key(key)?;
+        let end = range_end(offset, length)?;
+        let request = self
+            .client
+            .get_object()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .range(format!("bytes={offset}-{end}"))
+            .presigned(self.presigning_config()?)
+            .await
+            .map_err(|error| r2_unavailable("presign object range", &error))?;
+        Ok(self.prepared_request(request))
     }
 
     async fn complete_multipart(
@@ -311,9 +336,7 @@ impl BlobStore for R2BlobStore {
                 "File range exceeds the provider delivery part size.",
             ));
         }
-        let end = offset
-            .checked_add(length - 1)
-            .ok_or_else(|| ApiError::bad_request("invalid_file_range", "File range overflowed."))?;
+        let end = range_end(offset, length)?;
         let response = self
             .client
             .get_object()
@@ -348,6 +371,38 @@ impl BlobStore for R2BlobStore {
             .map_err(|error| r2_unavailable("delete object", &error))?;
         Ok(())
     }
+}
+
+impl R2BlobStore {
+    fn presigning_config(&self) -> ApiResult<PresigningConfig> {
+        PresigningConfig::expires_in(self.config.presign_ttl).map_err(|_| invalid_r2_config())
+    }
+
+    fn prepared_request(&self, request: aws_sdk_s3::presigning::PresignedRequest) -> PresignedPart {
+        PresignedPart {
+            method: request.method().to_string(),
+            url: request.uri().to_string(),
+            headers: request
+                .headers()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect(),
+            expires_at: chrono::Utc::now()
+                + chrono::Duration::from_std(self.config.presign_ttl)
+                    .expect("validated presign TTL fits chrono duration"),
+        }
+    }
+}
+
+fn range_end(offset: u64, length: u64) -> ApiResult<u64> {
+    if length == 0 {
+        return Err(ApiError::bad_request(
+            "invalid_file_range",
+            "File ranges cannot be empty.",
+        ));
+    }
+    offset
+        .checked_add(length - 1)
+        .ok_or_else(|| ApiError::bad_request("invalid_file_range", "File range overflowed."))
 }
 
 fn parse_sha256_digest(value: &str) -> ApiResult<[u8; 32]> {

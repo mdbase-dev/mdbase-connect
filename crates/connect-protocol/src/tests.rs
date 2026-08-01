@@ -201,6 +201,23 @@ fn rust_file_messages_match_the_canonical_wire_schema() {
         serde_json::to_value(session).unwrap(),
     );
 
+    let prepared_part = PreparedFilePart {
+        protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+        message_type: PreparedFilePartKind::FilePart,
+        transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+        part_index: 1,
+        offset: 8 * 1024 * 1024,
+        content_length: 123,
+        method: "PUT".to_string(),
+        url: "https://example.r2.cloudflarestorage.com/bucket/object?signature=opaque".to_string(),
+        headers: BTreeMap::from([("content-length".to_string(), "123".to_string())]),
+        expires_at: "2026-08-01T02:13:04Z".to_string(),
+    };
+    assert_file_schema(
+        "/$defs/preparedPart",
+        serde_json::to_value(prepared_part).unwrap(),
+    );
+
     let receipt = CommitFileUploadReceipt {
         protocol_version: FILE_PROTOCOL_VERSION,
         message_type: CommitFileUploadReceiptKind::FileUploadCommitted,

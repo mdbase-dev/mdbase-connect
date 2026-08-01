@@ -110,6 +110,7 @@ pub struct OpenFileUploadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
     pub message_type: OpenFileUploadRequestKind,
+    pub transfer_id: Uuid,
     pub path: String,
     pub size: u64,
     pub content_digest: String,
@@ -130,6 +131,7 @@ pub struct OpenFileDownloadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
     pub message_type: OpenFileDownloadRequestKind,
+    pub transfer_id: Uuid,
     pub file_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
@@ -168,7 +170,9 @@ pub enum FileTransferState {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FileTransferStrategy {
     FramedChunks { chunk_size: u32 },
+    ObjectPut,
     ObjectMultipart { part_size: u64 },
+    ObjectRanges { part_size: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,11 +213,71 @@ pub enum FileTransferStatusKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrepareFileUploadPartRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: PrepareFileUploadPartRequestKind,
+    pub transfer_id: Uuid,
+    pub part_number: u16,
+    pub content_length: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrepareFileUploadPartRequestKind {
+    PrepareFileUploadPart,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrepareFileDownloadPartRequest {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: PrepareFileDownloadPartRequestKind,
+    pub transfer_id: Uuid,
+    pub part_index: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrepareFileDownloadPartRequestKind {
+    PrepareFileDownloadPart,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedFilePart {
+    pub protocol_version: u32,
+    #[serde(rename = "type")]
+    pub message_type: PreparedFilePartKind,
+    pub transfer_id: Uuid,
+    pub part_index: u64,
+    pub offset: u64,
+    pub content_length: u64,
+    pub method: String,
+    pub url: String,
+    pub headers: BTreeMap<String, String>,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreparedFilePartKind {
+    FilePart,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadedFilePart {
+    pub part_number: u16,
+    pub etag: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitFileUploadRequest {
     pub protocol_version: u32,
     #[serde(rename = "type")]
     pub message_type: CommitFileUploadRequestKind,
     pub transfer_id: Uuid,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<UploadedFilePart>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -351,7 +351,7 @@ impl CollectionRegistry {
                 Uuid::now_v7()
             }
         };
-        let transfer_id = Uuid::now_v7();
+        let transfer_id = request.transfer_id;
         let staging_name = format!("{transfer_id}.part");
         let staging_root = ensure_staging_root(Path::new(&registered.path))?;
         let staging = staging_root.join(&staging_name);

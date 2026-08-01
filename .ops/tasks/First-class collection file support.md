@@ -181,11 +181,13 @@ Clippy, and architecture checks pass.
 
 Transfer sessions now negotiate a discriminated delivery strategy instead of
 pretending one chunk size fits every transport. Local and relayed transfers use
-bounded `framed_chunks`; hosted R2 transfers use `object_multipart` with an
+bounded `framed_chunks`; hosted R2 transfers distinguish `object_put`,
+`object_multipart`, and revision-pinned `object_ranges`. Multipart has an
 independent minimum five MiB part size and an eight MiB deployment default.
-The provider must stream-verify SHA-256 because R2's multipart SHA-256 is
-composite rather than full-object. Rust/schema tests and TypeScript protocol
-tests/typechecking pass for both strategies.
+Clients choose transfer IDs so opening a resumable transfer is retry-safe. The
+provider must stream-verify SHA-256 because R2's multipart SHA-256 is composite
+rather than full-object. Rust/schema tests and TypeScript protocol
+tests/typechecking pass for every strategy.
 
 The hosted provider now has a testable blob-store boundary and a production R2
 implementation built on Cloudflare's S3-compatible API. It validates private

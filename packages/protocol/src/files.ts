@@ -18,7 +18,9 @@ export type FileTransferProtection = "grant_aead_v1" | "transport_tls";
 export type FileTransferState = "open" | "committed" | "aborted" | "expired";
 export type FileTransferStrategy =
   | { kind: "framed_chunks"; chunk_size: number }
-  | { kind: "object_multipart"; part_size: number };
+  | { kind: "object_put" }
+  | { kind: "object_multipart"; part_size: number }
+  | { kind: "object_ranges"; part_size: number };
 export type FileFrameKind = "upload_chunk" | "download_chunk";
 
 export type FileScope =
@@ -62,6 +64,7 @@ export interface ListFilesPage {
 export interface OpenFileUploadRequest {
   protocol_version: 1;
   type: "open_file_upload";
+  transfer_id: string;
   path: string;
   size: number;
   content_digest: `sha256:${string}`;
@@ -72,6 +75,7 @@ export interface OpenFileUploadRequest {
 export interface OpenFileDownloadRequest {
   protocol_version: 1;
   type: "open_file_download";
+  transfer_id: string;
   file_id: string;
   revision?: string;
 }
@@ -97,10 +101,44 @@ export interface FileTransferStatus {
   received_bytes: number;
 }
 
+export interface PrepareFileUploadPartRequest {
+  protocol_version: 1;
+  type: "prepare_file_upload_part";
+  transfer_id: string;
+  part_number: number;
+  content_length: number;
+}
+
+export interface PrepareFileDownloadPartRequest {
+  protocol_version: 1;
+  type: "prepare_file_download_part";
+  transfer_id: string;
+  part_index: number;
+}
+
+export interface PreparedFilePart {
+  protocol_version: 1;
+  type: "file_part";
+  transfer_id: string;
+  part_index: number;
+  offset: number;
+  content_length: number;
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  expires_at: string;
+}
+
+export interface UploadedFilePart {
+  part_number: number;
+  etag: string;
+}
+
 export interface CommitFileUploadRequest {
   protocol_version: 1;
   type: "commit_file_upload";
   transfer_id: string;
+  parts?: UploadedFilePart[];
 }
 
 export interface CommitFileUploadReceipt {
