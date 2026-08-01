@@ -303,13 +303,15 @@ function fileSdk(url, collectionId, token) {
     )),
     undefined,
     {
-      async downloadPart(session, partIndex) {
+      async downloadPart(session, partIndex, expectedLength) {
         const response = await fetch(
           `${url}/v1/authorities/${collectionId}/files/downloads/${session.transfer_id}/parts/${partIndex}`,
           { headers: { authorization: `Bearer ${token}` } }
         );
         if (!response.ok) throw new Error(`Hosted range failed with HTTP ${response.status}.`);
-        return new Uint8Array(await response.arrayBuffer());
+        assert.equal(Number(response.headers.get("content-length")), expectedLength);
+        assert.ok(response.body, "Hosted range did not return a response stream.");
+        return response.body;
       }
     }
   );
