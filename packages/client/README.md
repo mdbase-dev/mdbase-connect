@@ -410,7 +410,7 @@ Applications request non-Markdown files separately from record contracts:
 requirements: {
   contracts: [],
   files: {
-    actions: ["list", "read", "add", "replace"],
+    actions: ["list", "read", "add", "replace", "move", "delete"],
     scope: { kind: "selected_folders", folders: ["Photos"] }
   }
 }
@@ -432,7 +432,15 @@ for await (const file of connection.files.list({ folder: "Photos" })) {
   const blob = await connection.files.download(file);
   console.log(file.file_id, file.path, blob.size);
 }
+
+const moved = await connection.files.move(saved, "Archive/image.jpg");
+await connection.files.delete(moved);
 ```
+
+Both lifecycle methods are optimistic and use the descriptor revision by
+default. Pass a stable `mutationId` when retrying after an ambiguous network
+failure; the authority returns the original durable receipt instead of applying
+the change twice.
 
 Record-facing code can depend on `MdbaseCollectionClient` instead of the OAuth
 client. It accepts a small `MdbaseCollectionTransport`, which is the stable seam

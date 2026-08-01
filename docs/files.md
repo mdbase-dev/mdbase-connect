@@ -235,6 +235,15 @@ Render authority still verifies the declared size and SHA-256 digest,
 checks current grant/path/quota/base-revision state, finalizes the object, and
 atomically commits its PostgreSQL file row and ordered change receipt.
 
+Moving a hosted file is a PostgreSQL-only namespace mutation: the new revision
+keeps the same immutable R2 object key, size, and digest. Deleting a file
+atomically removes its current PostgreSQL row and writes a tombstone, but does
+not synchronously delete R2 bytes. Retained versions continue to reference the
+object until compaction proves that no current row, pinned snapshot, or retained
+version needs it. Idempotency requests and receipts are encrypted in PostgreSQL
+and bound to the calling replica, collection, mutation UUID, and exact source
+revision and path.
+
 R2's storage encryption is part of the standard-hosted at-rest boundary. Any
 additional provider envelope-encryption profile must preserve resumable range
 reads and avoid exposing collection keys in signed browser requests.
@@ -243,8 +252,11 @@ lifecycle, and deletion coupling.
 
 Garbage collection removes expired R2 staging objects and unreferenced retained
 versions only after snapshot leases, transfer pins, mutation receipts, and
-recovery retention permit it. Provider deletion covers both Render/PostgreSQL
-metadata and R2 object versions and is verified by restore and deletion drills.
+recovery retention permit it. Because moves share immutable objects across
+revisions, GC counts and deletes unique object keys only after the final
+PostgreSQL reference disappears. Provider deletion covers both
+Render/PostgreSQL metadata and R2 object versions and is verified by restore and
+deletion drills.
 
 ## Replication and selective sync
 
@@ -286,7 +298,7 @@ An application requests file intent independently from record contracts:
   "requirements": {
     "contracts": [],
     "files": {
-      "actions": ["list", "read", "add", "replace"],
+      "actions": ["list", "read", "add", "replace", "move", "delete"],
       "scope": { "kind": "selected_folders", "folders": ["Photos"] }
     }
   }
@@ -306,7 +318,17 @@ for await (const file of connection.files.list({ folder: "Photos" })) {
   const blob = await connection.files.download(file, { signal, onProgress });
   image.src = URL.createObjectURL(blob);
 }
+
+const moved = await connection.files.move(stored, "Archive/image.jpg");
+await connection.files.delete(moved);
 ```
+
+Move and delete are optimistic, identity-bound mutations. They default to the
+descriptor's revision and a generated mutation UUID. Applications retrying an
+ambiguous network failure can pass the same `mutationId` to receive the exact
+durable receipt. Hosted wire requests use explicit `POST …/{file_id}/move` and
+`POST …/{file_id}/delete` mutation endpoints so request bodies and proofs behave
+consistently across browsers, proxies, and local encrypted transports.
 
 Record-link helpers build on this file API without redefining storage paths:
 

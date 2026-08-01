@@ -76,6 +76,13 @@ committed key, verifies that copy, and then commits PostgreSQL. Downloads pin a
 stored revision and use short-lived signed ranges, while SDKs hide single-PUT,
 multipart, and range mechanics from applications.
 
+Hosted moves update only encrypted PostgreSQL metadata and retain the immutable
+R2 object key. Deletes commit a PostgreSQL tombstone while retained versions
+continue to pin the object. Compaction removes old version rows first and queues
+an R2 deletion only after no current or retained PostgreSQL reference remains,
+so multiple move revisions can safely share one object without double-counting
+or premature deletion.
+
 ## Mutation transaction
 
 Every mutation follows one failure-atomic transaction:
