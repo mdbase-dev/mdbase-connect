@@ -1,0 +1,103 @@
+name: Publish npm packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use an npm version with trusted publishing support
+        run: npm install --global npm@11
+
+      - name: Validate tag
+        id: release
+        run: |
+          VERSION="$(node --print "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v${VERSION}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match workspace version v${VERSION}"
+            exit 1
+          fi
+          case "$VERSION" in
+            *-*) DIST_TAG="next" ;;
+            *) DIST_TAG="latest" ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm version:check
+
+      - name: Enforce release-readiness gates
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          case "$VERSION" in
+            *-*) pnpm check:release-readiness ;;
+            *) pnpm check:release-readiness -- --stable ;;
+          esac
+
+      - run: pnpm check:architecture
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm package:audit
+
+      - name: Pack public packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-packages"
+          for PACKAGE_DIR in \
+            packages/protocol \
+            packages/client \
+            packages/devkit \
+            packages/sync \
+            packages/pickle \
+            packages/webhooks
+          do
+            pnpm --dir "$PACKAGE_DIR" pack --pack-destination "$RUNNER_TEMP/npm-packages"
+          done
+
+      - name: Publish packages
+        env:
+          DIST_TAG: ${{ steps.release.outputs.dist_tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          for PACKAGE_NAME in \
+            @mdbase/connect-protocol \
+            @mdbase/connect \
+            @mdbase/connect-dev \
+            @mdbase/connect-sync \
+            @mdbase/pickle \
+            @mdbase/connect-webhooks
+          do
+            if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE_NAME@$VERSION is already published; skipping"
+              continue
+            fi
+
+            SAFE_NAME="${PACKAGE_NAME#@}"
+            SAFE_NAME="${SAFE_NAME/\//-}"
+            npm publish "$RUNNER_TEMP/npm-packages/${SAFE_NAME}-${VERSION}.tgz" \
+              --access public \
+              --tag "$DIST_TAG"
+          done
