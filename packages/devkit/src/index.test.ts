@@ -235,6 +235,24 @@ describe("canonical developer validation", () => {
       .toBe(true);
     expect(validateProtocolValue({ valid: true, result: {} }, "operationEnvelope").valid)
       .toBe(false);
+    const rejected = {
+      protocol_version: 1,
+      request_id: "00000000-0000-4000-8000-000000000001",
+      ok: false,
+      problem: {
+        problem_version: 1,
+        code: "access_paused",
+        category: "availability",
+        recovery: "resume_connector_access",
+        message: "Remote access is paused.",
+        operation_outcome: "rejected"
+      }
+    };
+    expect(validateProtocolValue(rejected, "operationHttpResponse").valid).toBe(true);
+    expect(validateProtocolValue({
+      ...rejected,
+      problem: { code: "access_paused", message: "Missing canonical metadata." }
+    }, "operationHttpResponse").valid).toBe(false);
   });
 });
 
