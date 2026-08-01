@@ -9,6 +9,7 @@ mod collections;
 mod connect_problems_generated;
 mod control;
 pub mod crypto;
+mod files;
 mod relay;
 mod sync;
 
@@ -16,6 +17,7 @@ pub use applications::*;
 pub use collections::*;
 pub use connect_problems_generated::*;
 pub use control::*;
+pub use files::*;
 pub use relay::*;
 pub use sync::*;
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;

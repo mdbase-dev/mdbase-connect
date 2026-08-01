@@ -122,6 +122,87 @@ fn assert_sync_schema(reference: &str, value: Value) {
     );
 }
 
+fn assert_file_schema(reference: &str, value: Value) {
+    let mut schema: Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/files.v1.schema.json"
+    ))
+    .unwrap();
+    let object = schema.as_object_mut().unwrap();
+    object.remove("oneOf");
+    object.insert("$ref".to_string(), Value::String(format!("#{reference}")));
+    let validator = jsonschema::JSONSchema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .compile(&schema)
+        .unwrap();
+    let errors = validator
+        .validate(&value)
+        .err()
+        .map(|errors| errors.map(|error| error.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert!(
+        errors.is_empty(),
+        "file schema errors: {errors:#?}\nvalue: {value:#}"
+    );
+}
+
+#[test]
+fn rust_file_messages_match_the_canonical_wire_schema() {
+    let file = CollectionFileDescriptor {
+        file_id: Uuid::parse_str("01911111-1111-7111-8111-111111111111").unwrap(),
+        path: "Projects/Launch/diagram.png".to_string(),
+        revision: "rev_01K0G8F8XRZ5CNE2X3MQBBSN8S".to_string(),
+        content_digest: format!("sha256:{}", "ab".repeat(32)),
+        size: 43_821,
+        media_type: Some("image/png".to_string()),
+        media_class: FileMediaClass::Image,
+        modified_at: "2026-08-01T02:03:04Z".to_string(),
+    };
+    assert_file_schema(
+        "/$defs/fileDescriptor",
+        serde_json::to_value(&file).unwrap(),
+    );
+
+    let capability = FileCapability {
+        kind: FileCapabilityKind::Files,
+        protocol_version: FILE_PROTOCOL_VERSION,
+        actions: vec![FileAction::List, FileAction::Read, FileAction::Add],
+        scope: FileScope::SelectedFolders {
+            folders: vec!["Assets".to_string(), "Project exports".to_string()],
+        },
+    };
+    assert_file_schema(
+        "/$defs/fileCapability",
+        serde_json::to_value(capability).unwrap(),
+    );
+
+    let session = FileTransferSession {
+        protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+        message_type: FileTransferSessionKind::FileTransfer,
+        transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+        direction: FileTransferDirection::Upload,
+        protection: FileTransferProtection::GrantAeadV1,
+        chunk_size: DEFAULT_FILE_CHUNK_BYTES,
+        total_size: 3_145_729,
+        expires_at: "2026-08-01T02:13:04Z".to_string(),
+        received: vec![0, 2],
+    };
+    assert_file_schema(
+        "/$defs/transferSession",
+        serde_json::to_value(session).unwrap(),
+    );
+
+    let receipt = CommitFileUploadReceipt {
+        protocol_version: FILE_PROTOCOL_VERSION,
+        message_type: CommitFileUploadReceiptKind::FileUploadCommitted,
+        transfer_id: Uuid::parse_str("01922222-2222-7222-8222-222222222222").unwrap(),
+        file,
+    };
+    assert_file_schema(
+        "/$defs/commitUploadReceipt",
+        serde_json::to_value(receipt).unwrap(),
+    );
+}
+
 #[test]
 fn control_request_has_stable_wire_shape() {
     let request = ControlRequest {

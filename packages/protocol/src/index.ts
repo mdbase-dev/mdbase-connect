@@ -1,5 +1,6 @@
 import type { ConnectProblem } from "./connect-problems.generated.js";
 export * from "./connect-problems.generated.js";
+export * from "./files.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 1 as const;
@@ -58,6 +59,7 @@ export const CONNECT_SCHEMA_IDS = {
   eventActionInterop: "https://mdbase.dev/schemas/interop/v0.1/profile.schema.json",
   protocol: "https://mdbase.dev/connect/schemas/connect-protocol.v1.json",
   encryptedRelay: "https://mdbase.dev/connect/schemas/encrypted-relay.v1.json",
+  files: "https://mdbase.dev/connect/schemas/files.v1.json",
   sync: "https://mdbase.dev/connect/schemas/sync.v1.json"
 } as const;
 

@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdbase.dev/connect/schemas/files.v1.json",
+  "title": "mdbase connect collection file protocol 1",
+  "oneOf": [
+    { "$ref": "#/$defs/fileCapability" },
+    { "$ref": "#/$defs/fileDescriptor" },
+    { "$ref": "#/$defs/listFilesRequest" },
+    { "$ref": "#/$defs/listFilesPage" },
+    { "$ref": "#/$defs/openUploadRequest" },
+    { "$ref": "#/$defs/openDownloadRequest" },
+    { "$ref": "#/$defs/transferSession" },
+    { "$ref": "#/$defs/transferStatus" },
+    { "$ref": "#/$defs/commitUploadRequest" },
+    { "$ref": "#/$defs/commitUploadReceipt" },
+    { "$ref": "#/$defs/abortTransferRequest" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*/$).+$"
+    },
+    "mediaClass": {
+      "enum": ["image", "audio", "video", "pdf", "other"]
+    },
+    "fileDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_id",
+        "path",
+        "revision",
+        "content_digest",
+        "size",
+        "media_class",
+        "modified_at"
+      ],
+      "properties": {
+        "file_id": { "$ref": "#/$defs/uuid" },
+        "path": { "$ref": "#/$defs/path" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "size": { "type": "integer", "minimum": 0 },
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "media_class": { "$ref": "#/$defs/mediaClass" },
+        "modified_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "fileAction": {
+      "enum": ["list", "read", "add", "replace", "move", "delete"]
+    },
+    "fileScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "referenced" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "folders"],
+          "properties": {
+            "kind": { "const": "selected_folders" },
+            "folders": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/path" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "collection" } }
+        }
+      ]
+    },
+    "fileCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protocol_version", "actions", "scope"],
+      "properties": {
+        "kind": { "const": "files" },
+        "protocol_version": { "const": 1 },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/fileAction" }
+        },
+        "scope": { "$ref": "#/$defs/fileScope" }
+      }
+    },
+    "listFilesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "list_files" },
+        "folder": { "$ref": "#/$defs/path" },
+        "after": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "listFilesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "files"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "files_page" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/fileDescriptor" } },
+        "next": { "type": "string", "minLength": 1 }
+      }
+    },
+    "openUploadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "path", "size", "content_digest"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "open_file_upload" },
+        "path": { "$ref": "#/$defs/path" },
+        "size": { "type": "integer", "minimum": 0 },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "if_revision": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "openDownloadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "file_id"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "open_file_download" },
+        "file_id": { "$ref": "#/$defs/uuid" },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "transferProtection": {
+      "enum": ["grant_aead_v1", "transport_tls"]
+    },
+    "transferSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "type",
+        "transfer_id",
+        "direction",
+        "protection",
+        "chunk_size",
+        "total_size",
+        "expires_at",
+        "received"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_transfer" },
+        "transfer_id": { "$ref": "#/$defs/uuid" },
+        "direction": { "enum": ["upload", "download"] },
+        "protection": { "$ref": "#/$defs/transferProtection" },
+        "chunk_size": { "type": "integer", "minimum": 65536, "maximum": 4194304 },
+        "total_size": { "type": "integer", "minimum": 0 },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "received": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "transferStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "transfer_id", "state", "received", "received_bytes"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_transfer_status" },
+        "transfer_id": { "$ref": "#/$defs/uuid" },
+        "state": { "enum": ["open", "committed", "aborted", "expired"] },
+        "received": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "received_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "commitUploadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "transfer_id"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "commit_file_upload" },
+        "transfer_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "commitUploadReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "transfer_id", "file"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "file_upload_committed" },
+        "transfer_id": { "$ref": "#/$defs/uuid" },
+        "file": { "$ref": "#/$defs/fileDescriptor" }
+      }
+    },
+    "abortTransferRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "type", "transfer_id"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "type": { "const": "abort_file_transfer" },
+        "transfer_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "frameHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "protection",
+        "grant_id",
+        "authority_id",
+        "collection_id",
+        "transfer_id",
+        "direction",
+        "chunk_size",
+        "chunk_index",
+        "offset",
+        "plaintext_length",
+        "total_size",
+        "scope_revision"
+      ],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "protection": { "$ref": "#/$defs/transferProtection" },
+        "grant_id": { "$ref": "#/$defs/uuid" },
+        "authority_id": { "$ref": "#/$defs/uuid" },
+        "collection_id": { "$ref": "#/$defs/uuid" },
+        "transfer_id": { "$ref": "#/$defs/uuid" },
+        "direction": { "enum": ["upload", "download"] },
+        "chunk_size": { "type": "integer", "minimum": 65536, "maximum": 4194304 },
+        "chunk_index": { "type": "integer", "minimum": 0 },
+        "offset": { "type": "integer", "minimum": 0 },
+        "plaintext_length": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "total_size": { "type": "integer", "minimum": 0 },
+        "scope_revision": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "key_id": { "type": "string", "minLength": 1, "maxLength": 255 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "protection": { "const": "grant_aead_v1" } } },
+          "then": { "required": ["key_id"] }
+        }
+      ]
+    }
+  }
+}

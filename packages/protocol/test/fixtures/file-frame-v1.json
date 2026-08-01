@@ -1,0 +1,20 @@
+{
+  "kind": "upload_chunk",
+  "header": {
+    "protocol_version": 1,
+    "protection": "transport_tls",
+    "grant_id": "01911111-1111-7111-8111-111111111111",
+    "authority_id": "01922222-2222-7222-8222-222222222222",
+    "collection_id": "01933333-3333-7333-8333-333333333333",
+    "transfer_id": "01944444-4444-7444-8444-444444444444",
+    "direction": "upload",
+    "chunk_size": 65536,
+    "chunk_index": 0,
+    "offset": 0,
+    "plaintext_length": 32,
+    "total_size": 32,
+    "scope_revision": "scope_7"
+  },
+  "payload_base64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "frame_base64": "TURCRgEBAAAAAAGLAAAAIHsicHJvdG9jb2xfdmVyc2lvbiI6MSwicHJvdGVjdGlvbiI6InRyYW5zcG9ydF90bHMiLCJncmFudF9pZCI6IjAxOTExMTExLTExMTEtNzExMS04MTExLTExMTExMTExMTExMSIsImF1dGhvcml0eV9pZCI6IjAxOTIyMjIyLTIyMjItNzIyMi04MjIyLTIyMjIyMjIyMjIyMiIsImNvbGxlY3Rpb25faWQiOiIwMTkzMzMzMy0zMzMzLTczMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJ0cmFuc2Zlcl9pZCI6IjAxOTQ0NDQ0LTQ0NDQtNzQ0NC04NDQ0LTQ0NDQ0NDQ0NDQ0NCIsImRpcmVjdGlvbiI6InVwbG9hZCIsImNodW5rX3NpemUiOjY1NTM2LCJjaHVua19pbmRleCI6MCwib2Zmc2V0IjowLCJwbGFpbnRleHRfbGVuZ3RoIjozMiwidG90YWxfc2l6ZSI6MzIsInNjb3BlX3JldmlzaW9uIjoic2NvcGVfNyJ9AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+}

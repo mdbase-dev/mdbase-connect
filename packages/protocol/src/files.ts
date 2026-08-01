@@ -1,0 +1,393 @@
+export const FILE_PROTOCOL_VERSION = 1 as const;
+export const FILE_TRANSFER_PROTOCOL_VERSION = 1 as const;
+export const DEFAULT_FILE_CHUNK_BYTES = 1024 * 1024;
+export const MAX_FILE_CHUNK_BYTES = 4 * 1024 * 1024;
+export const MAX_FILE_FRAME_HEADER_BYTES = 16 * 1024;
+export const FILE_FRAME_PREFIX_BYTES = 16;
+export const FILE_FRAME_MAGIC = "MDBF" as const;
+
+const FILE_FRAME_MAGIC_BYTES = new Uint8Array([0x4d, 0x44, 0x42, 0x46]);
+const FILE_FRAME_VERSION = 1;
+const FILE_FRAME_FLAGS = 0;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type FileMediaClass = "image" | "audio" | "video" | "pdf" | "other";
+export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
+export type FileTransferDirection = "upload" | "download";
+export type FileTransferProtection = "grant_aead_v1" | "transport_tls";
+export type FileTransferState = "open" | "committed" | "aborted" | "expired";
+export type FileFrameKind = "upload_chunk" | "download_chunk";
+
+export type FileScope =
+  | { kind: "referenced" }
+  | { kind: "selected_folders"; folders: string[] }
+  | { kind: "collection" };
+
+export interface FileCapability {
+  kind: "files";
+  protocol_version: 1;
+  actions: FileAction[];
+  scope: FileScope;
+}
+
+export interface CollectionFileDescriptor {
+  file_id: string;
+  path: string;
+  revision: string;
+  content_digest: `sha256:${string}`;
+  size: number;
+  media_type?: string;
+  media_class: FileMediaClass;
+  modified_at: string;
+}
+
+export interface ListFilesRequest {
+  protocol_version: 1;
+  type: "list_files";
+  folder?: string;
+  after?: string;
+  limit?: number;
+}
+
+export interface ListFilesPage {
+  protocol_version: 1;
+  type: "files_page";
+  files: CollectionFileDescriptor[];
+  next?: string;
+}
+
+export interface OpenFileUploadRequest {
+  protocol_version: 1;
+  type: "open_file_upload";
+  path: string;
+  size: number;
+  content_digest: `sha256:${string}`;
+  media_type?: string;
+  if_revision?: string;
+}
+
+export interface OpenFileDownloadRequest {
+  protocol_version: 1;
+  type: "open_file_download";
+  file_id: string;
+  revision?: string;
+}
+
+export interface FileTransferSession {
+  protocol_version: 1;
+  type: "file_transfer";
+  transfer_id: string;
+  direction: FileTransferDirection;
+  protection: FileTransferProtection;
+  chunk_size: number;
+  total_size: number;
+  expires_at: string;
+  received: number[];
+}
+
+export interface FileTransferStatus {
+  protocol_version: 1;
+  type: "file_transfer_status";
+  transfer_id: string;
+  state: FileTransferState;
+  received: number[];
+  received_bytes: number;
+}
+
+export interface CommitFileUploadRequest {
+  protocol_version: 1;
+  type: "commit_file_upload";
+  transfer_id: string;
+}
+
+export interface CommitFileUploadReceipt {
+  protocol_version: 1;
+  type: "file_upload_committed";
+  transfer_id: string;
+  file: CollectionFileDescriptor;
+}
+
+export interface AbortFileTransferRequest {
+  protocol_version: 1;
+  type: "abort_file_transfer";
+  transfer_id: string;
+}
+
+export interface FileFrameHeader {
+  protocol_version: 1;
+  protection: FileTransferProtection;
+  grant_id: string;
+  authority_id: string;
+  collection_id: string;
+  transfer_id: string;
+  direction: FileTransferDirection;
+  chunk_size: number;
+  chunk_index: number;
+  offset: number;
+  plaintext_length: number;
+  total_size: number;
+  scope_revision: string;
+  key_id?: string;
+}
+
+export interface FileFrame {
+  kind: FileFrameKind;
+  header: FileFrameHeader;
+  payload: Uint8Array;
+}
+
+export interface FileFrameDecodeLimits {
+  maxHeaderBytes?: number;
+  maxPayloadBytes?: number;
+}
+
+export type FileFrameErrorCode =
+  | "invalid_magic"
+  | "unsupported_version"
+  | "invalid_kind"
+  | "unsupported_flags"
+  | "invalid_length"
+  | "invalid_header"
+  | "limit_exceeded";
+
+export class FileFrameError extends Error {
+  constructor(
+    public readonly code: FileFrameErrorCode,
+    message: string
+  ) {
+    super(message);
+    this.name = "FileFrameError";
+  }
+}
+
+function frameKindCode(kind: FileFrameKind): number {
+  return kind === "upload_chunk" ? 1 : 2;
+}
+
+function frameKindFromCode(code: number): FileFrameKind {
+  if (code === 1) return "upload_chunk";
+  if (code === 2) return "download_chunk";
+  throw new FileFrameError("invalid_kind", `Unknown file frame kind ${code}`);
+}
+
+function expectObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new FileFrameError("invalid_header", "File frame header must be a JSON object");
+  }
+  return value as Record<string, unknown>;
+}
+
+function expectString(object: Record<string, unknown>, name: string): string {
+  const value = object[name];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new FileFrameError("invalid_header", `File frame header ${name} must be a non-empty string`);
+  }
+  return value;
+}
+
+function expectUuid(object: Record<string, unknown>, name: string): string {
+  const value = expectString(object, name);
+  if (!UUID_PATTERN.test(value)) {
+    throw new FileFrameError("invalid_header", `File frame header ${name} must be a UUID`);
+  }
+  return value;
+}
+
+function expectInteger(object: Record<string, unknown>, name: string, maximum = Number.MAX_SAFE_INTEGER): number {
+  const value = object[name];
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > maximum) {
+    throw new FileFrameError("invalid_header", `File frame header ${name} is outside its allowed range`);
+  }
+  return value as number;
+}
+
+function canonicalHeader(header: FileFrameHeader): FileFrameHeader {
+  if (header.protocol_version !== FILE_TRANSFER_PROTOCOL_VERSION) {
+    throw new FileFrameError("unsupported_version", `Unsupported file transfer protocol ${header.protocol_version}`);
+  }
+  if (header.protection !== "grant_aead_v1" && header.protection !== "transport_tls") {
+    throw new FileFrameError("invalid_header", "Unknown file transfer protection");
+  }
+  if (header.direction !== "upload" && header.direction !== "download") {
+    throw new FileFrameError("invalid_header", "Unknown file transfer direction");
+  }
+  for (const [name, value] of [
+    ["grant_id", header.grant_id],
+    ["authority_id", header.authority_id],
+    ["collection_id", header.collection_id],
+    ["transfer_id", header.transfer_id]
+  ] as const) {
+    if (!UUID_PATTERN.test(value)) {
+      throw new FileFrameError("invalid_header", `File frame header ${name} must be a UUID`);
+    }
+  }
+  for (const [name, value, maximum] of [
+    ["chunk_size", header.chunk_size, MAX_FILE_CHUNK_BYTES],
+    ["chunk_index", header.chunk_index, Number.MAX_SAFE_INTEGER],
+    ["offset", header.offset, Number.MAX_SAFE_INTEGER],
+    ["plaintext_length", header.plaintext_length, MAX_FILE_CHUNK_BYTES],
+    ["total_size", header.total_size, Number.MAX_SAFE_INTEGER]
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
+      throw new FileFrameError("invalid_header", `File frame header ${name} is outside its allowed range`);
+    }
+  }
+  if (header.chunk_size < 64 * 1024) {
+    throw new FileFrameError("invalid_header", "File frame chunk_size is below the protocol minimum");
+  }
+  if (!header.scope_revision) {
+    throw new FileFrameError("invalid_header", "File frame header scope_revision must not be empty");
+  }
+  if (header.protection === "grant_aead_v1" && !header.key_id) {
+    throw new FileFrameError("invalid_header", "AEAD-protected file frames require key_id");
+  }
+  return {
+    protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+    protection: header.protection,
+    grant_id: header.grant_id,
+    authority_id: header.authority_id,
+    collection_id: header.collection_id,
+    transfer_id: header.transfer_id,
+    direction: header.direction,
+    chunk_size: header.chunk_size,
+    chunk_index: header.chunk_index,
+    offset: header.offset,
+    plaintext_length: header.plaintext_length,
+    total_size: header.total_size,
+    scope_revision: header.scope_revision,
+    ...(header.key_id === undefined ? {} : { key_id: header.key_id })
+  };
+}
+
+function parseHeader(bytes: Uint8Array): FileFrameHeader {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new FileFrameError("invalid_header", "File frame header is not valid UTF-8");
+  }
+  let object: Record<string, unknown>;
+  try {
+    object = expectObject(JSON.parse(source));
+  } catch (error) {
+    if (error instanceof FileFrameError) throw error;
+    throw new FileFrameError("invalid_header", "File frame header is not valid JSON");
+  }
+  const allowed = new Set([
+    "protocol_version", "protection", "grant_id", "authority_id", "collection_id",
+    "transfer_id", "direction", "chunk_size", "chunk_index", "offset", "plaintext_length",
+    "total_size", "scope_revision", "key_id"
+  ]);
+  if (Object.keys(object).some((key) => !allowed.has(key))) {
+    throw new FileFrameError("invalid_header", "File frame header contains an unknown field");
+  }
+  const protocolVersion = expectInteger(object, "protocol_version");
+  if (protocolVersion !== FILE_TRANSFER_PROTOCOL_VERSION) {
+    throw new FileFrameError("unsupported_version", `Unsupported file transfer protocol ${protocolVersion}`);
+  }
+  const protection = expectString(object, "protection");
+  const direction = expectString(object, "direction");
+  const keyId = object.key_id === undefined ? undefined : expectString(object, "key_id");
+  const header = canonicalHeader({
+    protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
+    protection: protection as FileTransferProtection,
+    grant_id: expectUuid(object, "grant_id"),
+    authority_id: expectUuid(object, "authority_id"),
+    collection_id: expectUuid(object, "collection_id"),
+    transfer_id: expectUuid(object, "transfer_id"),
+    direction: direction as FileTransferDirection,
+    chunk_size: expectInteger(object, "chunk_size", MAX_FILE_CHUNK_BYTES),
+    chunk_index: expectInteger(object, "chunk_index"),
+    offset: expectInteger(object, "offset"),
+    plaintext_length: expectInteger(object, "plaintext_length", MAX_FILE_CHUNK_BYTES),
+    total_size: expectInteger(object, "total_size"),
+    scope_revision: expectString(object, "scope_revision"),
+    ...(keyId === undefined ? {} : { key_id: keyId })
+  });
+  if (JSON.stringify(header) !== source) {
+    throw new FileFrameError(
+      "invalid_header",
+      "File frame header must use the canonical field order without duplicate fields or whitespace"
+    );
+  }
+  return header;
+}
+
+function validateFrameSemantics(kind: FileFrameKind, header: FileFrameHeader, payloadLength: number): void {
+  const expectedDirection = kind === "upload_chunk" ? "upload" : "download";
+  if (header.direction !== expectedDirection) {
+    throw new FileFrameError("invalid_header", `Frame kind ${kind} requires direction ${expectedDirection}`);
+  }
+  const expectedOffset = header.chunk_index * header.chunk_size;
+  if (!Number.isSafeInteger(expectedOffset) || header.offset !== expectedOffset) {
+    throw new FileFrameError("invalid_header", "Chunk offset does not match its index and protocol chunk size");
+  }
+  if (header.offset + header.plaintext_length > header.total_size) {
+    throw new FileFrameError("invalid_header", "Chunk extends past the declared transfer size");
+  }
+  const expectedPayloadLength = header.protection === "grant_aead_v1"
+    ? header.plaintext_length + 16
+    : header.plaintext_length;
+  if (payloadLength !== expectedPayloadLength) {
+    throw new FileFrameError("invalid_length", "Payload length does not match the protected plaintext length");
+  }
+}
+
+export function encodeFileFrame(frame: FileFrame): Uint8Array {
+  const header = canonicalHeader(frame.header);
+  validateFrameSemantics(frame.kind, header, frame.payload.byteLength);
+  const headerBytes = new TextEncoder().encode(JSON.stringify(header));
+  if (headerBytes.byteLength > MAX_FILE_FRAME_HEADER_BYTES) {
+    throw new FileFrameError("limit_exceeded", "File frame header exceeds the protocol limit");
+  }
+  if (frame.payload.byteLength > MAX_FILE_CHUNK_BYTES + 16) {
+    throw new FileFrameError("limit_exceeded", "File frame payload exceeds the protocol limit");
+  }
+  const output = new Uint8Array(FILE_FRAME_PREFIX_BYTES + headerBytes.byteLength + frame.payload.byteLength);
+  output.set(FILE_FRAME_MAGIC_BYTES, 0);
+  const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+  view.setUint8(4, FILE_FRAME_VERSION);
+  view.setUint8(5, frameKindCode(frame.kind));
+  view.setUint16(6, FILE_FRAME_FLAGS, false);
+  view.setUint32(8, headerBytes.byteLength, false);
+  view.setUint32(12, frame.payload.byteLength, false);
+  output.set(headerBytes, FILE_FRAME_PREFIX_BYTES);
+  output.set(frame.payload, FILE_FRAME_PREFIX_BYTES + headerBytes.byteLength);
+  return output;
+}
+
+export function decodeFileFrame(bytes: Uint8Array, limits: FileFrameDecodeLimits = {}): FileFrame {
+  if (bytes.byteLength < FILE_FRAME_PREFIX_BYTES) {
+    throw new FileFrameError("invalid_length", "File frame is shorter than its fixed prefix");
+  }
+  if (!FILE_FRAME_MAGIC_BYTES.every((byte, index) => bytes[index] === byte)) {
+    throw new FileFrameError("invalid_magic", "File frame magic is not MDBF");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const version = view.getUint8(4);
+  if (version !== FILE_FRAME_VERSION) {
+    throw new FileFrameError("unsupported_version", `Unsupported file frame version ${version}`);
+  }
+  const kind = frameKindFromCode(view.getUint8(5));
+  if (view.getUint16(6, false) !== FILE_FRAME_FLAGS) {
+    throw new FileFrameError("unsupported_flags", "File frame uses unsupported flags");
+  }
+  const headerLength = view.getUint32(8, false);
+  const payloadLength = view.getUint32(12, false);
+  const maxHeaderBytes = limits.maxHeaderBytes ?? MAX_FILE_FRAME_HEADER_BYTES;
+  const maxPayloadBytes = limits.maxPayloadBytes ?? MAX_FILE_CHUNK_BYTES + 16;
+  if (headerLength === 0) {
+    throw new FileFrameError("invalid_length", "File frame header must not be empty");
+  }
+  if (headerLength > maxHeaderBytes || payloadLength > maxPayloadBytes) {
+    throw new FileFrameError("limit_exceeded", "File frame exceeds the configured decode limits");
+  }
+  const expectedLength = FILE_FRAME_PREFIX_BYTES + headerLength + payloadLength;
+  if (!Number.isSafeInteger(expectedLength) || expectedLength !== bytes.byteLength) {
+    throw new FileFrameError("invalid_length", "File frame lengths do not match the supplied bytes");
+  }
+  const headerEnd = FILE_FRAME_PREFIX_BYTES + headerLength;
+  const header = parseHeader(bytes.subarray(FILE_FRAME_PREFIX_BYTES, headerEnd));
+  validateFrameSemantics(kind, header, payloadLength);
+  return { kind, header, payload: bytes.slice(headerEnd) };
+}

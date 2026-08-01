@@ -8,8 +8,8 @@ target_path: tasks/First-class collection file support.md
 remote_title: First-class collection file support
 remote_state: in_progress
 remote_url: tasks/First-class collection file support.md
-remote_updated_at: 2026-08-01T12:40:38+10:00
-last_seen_remote_updated_at: 2026-08-01T12:40:38+10:00
+remote_updated_at: 2026-08-01T12:51:30+10:00
+last_seen_remote_updated_at: 2026-08-01T12:51:30+10:00
 local_status: in_progress
 priority: critical
 difficulty: complex
@@ -17,7 +17,7 @@ risk: high
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 sync_state: clean
-last_analyzed_at: 2026-08-01T12:40:38+10:00
+last_analyzed_at: 2026-08-01T12:51:30+10:00
 type: item_state
 ---
 
@@ -59,8 +59,11 @@ generated schemas, and registry validation. `docs/files.md` now owns the
 foundational design and the existing architecture, encryption, sync, and threat
 model documents point to it.
 
+The v1 file schema, shared models, bounded binary frame implementation, strict
+malformation tests, and byte-identical Rust/TypeScript golden fixture are now
+implemented and green in both runtimes.
+
 ## Handoff
 
-Current next step: write and validate the architecture decision and protocol
-fixtures, including the precise capability, file metadata, transfer, mutation,
-change, snapshot, and error shapes.
+Current next step: finish the encrypted-transfer and sync-manifest portions of
+the protocol, then begin the local authority inventory and staging layer.

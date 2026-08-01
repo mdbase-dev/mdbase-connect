@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T12:40:38+10:00
+updated_at: 2026-08-01T12:51:30+10:00
 type: task
 ---
 
@@ -103,7 +103,21 @@ the authority, identity, revision, binary framing, encryption, staged commit,
 storage, replication, selective-sync, SDK, and verification boundaries before
 wire implementation.
 
+The first executable protocol slice defines the strict
+`files.v1.schema.json`, shared Rust and TypeScript models, and the bounded
+`MDBF` binary frame codec. Frame headers are canonical JSON; prefixes and
+payloads are length-bounded before slicing; unknown versions, kinds, flags,
+fields, duplicate keys, trailing bytes, inconsistent chunk offsets, transfer
+bounds, direction mismatches, and AEAD tag-length mismatches are rejected.
+One checked-in golden frame is encoded byte-for-byte by both runtimes.
+
+Focused verification passes: 18 Rust protocol tests, strict protocol Clippy,
+Rust formatting, TypeScript typechecking/build, 24 Node protocol tests,
+strict compilation of every canonical JSON Schema, architecture budgets, and
+`git diff --check`.
+
 ## Handoff
 
-Work is active. Begin with versioned contracts and executable compatibility
-fixtures before adding authority or storage implementation.
+Work is active. Complete transfer-key derivation and encrypted chunk fixtures,
+then extend the sync schema with manifest-only file snapshot/change objects
+before adding authority or storage implementation.

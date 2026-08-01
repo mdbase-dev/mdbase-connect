@@ -170,9 +170,11 @@ payload            plaintext or AEAD ciphertext according to protection
 
 The header contains the protocol, protection profile, grant and authority
 binding, collection and transfer IDs, direction, chunk index, byte offset,
-plaintext length, total size, scope epoch, and key ID. The complete prefix and
-exact header bytes are authenticated associated data. Routers may inspect the
-header but cannot rewrite it without authentication failure.
+negotiated chunk size, plaintext length, total size, scope revision, and key
+ID. Headers use the canonical field order with no insignificant whitespace so
+Rust and TypeScript produce identical bytes. The complete prefix and exact
+header bytes are authenticated associated data. Routers may inspect the header
+but cannot rewrite it without authentication failure.
 
 Frames are bounded before allocation. Unknown versions, kinds, flags,
 duplicate fields, inconsistent lengths, overflow, trailing bytes, and chunks

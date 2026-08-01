@@ -12,6 +12,7 @@ const manifestSchema = JSON.parse(readFileSync(resolve(here, "../schemas/mdbase-
 const notificationWebhookSchema = JSON.parse(readFileSync(resolve(here, "../schemas/notification-webhook.v1.schema.json"), "utf8"));
 const contractSchema = JSON.parse(readFileSync(resolve(here, "../schemas/data-contract.schema.json"), "utf8"));
 const encryptedRelaySchema = JSON.parse(readFileSync(resolve(here, "../schemas/encrypted-relay.v1.schema.json"), "utf8"));
+const filesSchema = JSON.parse(readFileSync(resolve(here, "../schemas/files.v1.schema.json"), "utf8"));
 const interopSchema = JSON.parse(readFileSync(resolve(here, "../schemas/interop/v0.1/profile.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
 const problemSchema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-problem.v1.schema.json"), "utf8"));
@@ -25,6 +26,7 @@ ajv.addSchema(manifestSchema);
 ajv.addSchema(notificationWebhookSchema);
 ajv.addSchema(contractSchema);
 ajv.addSchema(encryptedRelaySchema);
+ajv.addSchema(filesSchema);
 ajv.addSchema(interopSchema);
 ajv.addSchema(syncSchema);
 ajv.addSchema(problemSchema);
@@ -41,9 +43,86 @@ test("all canonical schemas compile as strict JSON Schema 2020-12", () => {
   assert.ok(validator(notificationWebhookSchema.$id));
   assert.ok(validator(contractSchema.$id));
   assert.ok(validator(encryptedRelaySchema.$id));
+  assert.ok(validator(filesSchema.$id));
   assert.ok(validator(interopSchema.$id));
   assert.ok(validator(syncSchema.$id));
   assert.ok(validator(problemSchema.$id));
+});
+
+test("file capabilities use an explicit namespace and scope", () => {
+  const validate = validator(`${filesSchema.$id}#/$defs/fileCapability`);
+  const capability = {
+    kind: "files",
+    protocol_version: 1,
+    actions: ["list", "read", "add"],
+    scope: {
+      kind: "selected_folders",
+      folders: ["Assets", "Project exports"]
+    }
+  };
+  assert.equal(validate(capability), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...capability, operations: ["read"] }), false);
+  assert.equal(validate({ ...capability, actions: ["read", "read"] }), false);
+  assert.equal(validate({ ...capability, scope: { kind: "selected_folders", folders: [] } }), false);
+});
+
+test("file descriptors separate stable identity, path, revision, and content", () => {
+  const validate = validator(`${filesSchema.$id}#/$defs/fileDescriptor`);
+  const descriptor = {
+    file_id: "01911111-1111-7111-8111-111111111111",
+    path: "Projects/Launch/diagram.png",
+    revision: "rev_01K0G8F8XRZ5CNE2X3MQBBSN8S",
+    content_digest: `sha256:${"ab".repeat(32)}`,
+    size: 43821,
+    media_type: "image/png",
+    media_class: "image",
+    modified_at: "2026-08-01T02:03:04Z"
+  };
+  assert.equal(validate(descriptor), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...descriptor, content_digest: "ab".repeat(32) }), false);
+  assert.equal(validate({ ...descriptor, path: "/absolute.png" }), false);
+  assert.equal(validate({ ...descriptor, path: "folder\\windows.png" }), false);
+  assert.equal(validate({ ...descriptor, size: -1 }), false);
+});
+
+test("file transfer control messages are bounded and resumable", () => {
+  const validateSession = validator(`${filesSchema.$id}#/$defs/transferSession`);
+  const session = {
+    protocol_version: 1,
+    type: "file_transfer",
+    transfer_id: "01922222-2222-7222-8222-222222222222",
+    direction: "upload",
+    protection: "grant_aead_v1",
+    chunk_size: 1048576,
+    total_size: 3145729,
+    expires_at: "2026-08-01T02:13:04Z",
+    received: [0, 2]
+  };
+  assert.equal(validateSession(session), true, JSON.stringify(validateSession.errors));
+  assert.equal(validateSession({ ...session, chunk_size: 1024 }), false);
+  assert.equal(validateSession({ ...session, received: [0, 0] }), false);
+
+  const validateHeader = validator(`${filesSchema.$id}#/$defs/frameHeader`);
+  const header = {
+    protocol_version: 1,
+    protection: "grant_aead_v1",
+    grant_id: "01933333-3333-7333-8333-333333333333",
+    authority_id: "01944444-4444-7444-8444-444444444444",
+    collection_id: "01955555-5555-7555-8555-555555555555",
+    transfer_id: session.transfer_id,
+    direction: "upload",
+    chunk_size: 1048576,
+    chunk_index: 2,
+    offset: 2097152,
+    plaintext_length: 1048576,
+    total_size: 3145729,
+    scope_revision: "scope_7",
+    key_id: "grant-key-3"
+  };
+  assert.equal(validateHeader(header), true, JSON.stringify(validateHeader.errors));
+  const { key_id: _keyId, ...withoutKey } = header;
+  assert.equal(validateHeader(withoutKey), false);
+  assert.equal(validateHeader({ ...header, plaintext_length: 4194305 }), false);
 });
 
 test("connect problems bind stable codes to exact categories, recovery, and details", () => {
