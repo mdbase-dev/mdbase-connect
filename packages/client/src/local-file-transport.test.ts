@@ -206,6 +206,40 @@ describe("LocalFileTransport", () => {
         status: 503
       }));
   });
+
+  it("maps lifecycle mutations to explicit encrypted control routes", async () => {
+    const fixture = await transportFixture("upload", false);
+    const fileId = "01966666-6666-7666-8666-666666666666";
+    const deleteRequest = {
+      protocol_version: 1,
+      type: "delete_file",
+      mutation_id: "01977777-7777-7777-8777-777777777777",
+      file_id: fileId,
+      if_revision: "file:1",
+      path: "Assets/file.bin"
+    };
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: "connector_offline", message: "Offline" } }),
+      { status: 503, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(fixture.transport.control(
+      fixture.token,
+      "POST",
+      `${fileId}/delete`,
+      deleteRequest
+    )).rejects.toMatchObject({ code: "connector_offline" });
+    expect(fetch).toHaveBeenCalledOnce();
+
+    fetch.mockClear();
+    await expect(fixture.transport.control(
+      fixture.token,
+      "POST",
+      fileId,
+      deleteRequest
+    )).rejects.toMatchObject({ code: "invalid_request" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 async function transportFixture(

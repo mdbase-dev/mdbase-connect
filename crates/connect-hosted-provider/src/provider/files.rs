@@ -2,10 +2,11 @@ use super::*;
 use crate::blob_store::UploadedPart as BlobUploadedPart;
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, CollectionFileDescriptor, CommitFileUploadReceipt,
-    CommitFileUploadReceiptKind, CommitFileUploadRequest, FileMediaClass, FileTransferDirection,
-    FileTransferProtection, FileTransferSession, FileTransferSessionKind, FileTransferState,
-    FileTransferStatus, FileTransferStatusKind, FileTransferStrategy, ListFilesPage,
-    ListFilesPageKind, ListFilesRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
+    CommitFileUploadReceiptKind, CommitFileUploadRequest, DeleteFileReceipt, DeleteFileRequest,
+    FileMediaClass, FileTransferDirection, FileTransferProtection, FileTransferSession,
+    FileTransferSessionKind, FileTransferState, FileTransferStatus, FileTransferStatusKind,
+    FileTransferStrategy, ListFilesPage, ListFilesPageKind, ListFilesRequest, MoveFileReceipt,
+    MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
     PrepareFileDownloadPartRequest, PrepareFileUploadPartRequest, PreparedFilePart,
     PreparedFilePartKind, UploadedFilePart, FILE_TRANSFER_PROTOCOL_VERSION,
 };
@@ -68,6 +69,7 @@ struct HostedDownloadTransfer {
     expires_at: DateTime<Utc>,
 }
 
+mod lifecycle;
 mod list_download;
 mod persistence;
 mod upload;

@@ -381,8 +381,8 @@ export class MdbaseFileClient {
     let receipt: DeleteFileReceipt;
     try {
       receipt = await this.request<DeleteFileReceipt>(
-        "DELETE",
-        encodeURIComponent(file.file_id),
+        "POST",
+        `${encodeURIComponent(file.file_id)}/delete`,
         {
           protocol_version: FILE_PROTOCOL_VERSION,
           type: "delete_file",

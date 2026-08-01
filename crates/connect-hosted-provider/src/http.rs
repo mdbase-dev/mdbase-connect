@@ -13,8 +13,9 @@ use axum::{
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, AbortFileTransferRequestKind, AuthorityImportManifest,
     AuthorityImportRecordPage, CommitFileUploadReceipt, CommitFileUploadRequest,
-    ContractSetupChoice, FileTransferSession, FileTransferStatus, GrantSummary, ListFilesPage,
-    ListFilesRequest, ListFilesRequestKind, OpenFileDownloadRequest, OpenFileUploadRequest,
+    ContractSetupChoice, DeleteFileReceipt, DeleteFileRequest, FileTransferSession,
+    FileTransferStatus, GrantSummary, ListFilesPage, ListFilesRequest, ListFilesRequestKind,
+    MoveFileReceipt, MoveFileRequest, OpenFileDownloadRequest, OpenFileUploadRequest,
     OperationRequest, OperationResponse, PrepareFileDownloadPartRequest,
     PrepareFileUploadPartRequest, PreparedFilePart, SyncChangesPage, SyncFileSnapshotPage,
     SyncMutation, SyncMutationReceipt, SyncSession, SyncSnapshotPage, TypePackProvision,

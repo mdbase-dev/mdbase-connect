@@ -507,14 +507,6 @@ function localFileControlInput(
   if (method === "DELETE" && segments.length === 2 && segments[0] === "transfers") {
     return transferControl("abort_file_transfer", segments[1]!);
   }
-  if (
-    method === "DELETE"
-    && segments.length === 1
-    && segments[0]
-    && isRecord(input)
-    && input.type === "delete_file"
-    && input.file_id === decodeURIComponent(segments[0])
-  ) return { ...input };
   if (method === "POST" && isRecord(input)) {
     const expectedType = path === "uploads"
       ? "open_file_upload"
@@ -525,6 +517,9 @@ function localFileControlInput(
           : segments.length === 2 && segments[1] === "move"
             && input.file_id === decodeURIComponent(segments[0]!)
             ? "move_file"
+            : segments.length === 2 && segments[1] === "delete"
+              && input.file_id === decodeURIComponent(segments[0]!)
+              ? "delete_file"
             : null;
     if (expectedType && input.type === expectedType) return { ...input };
   }

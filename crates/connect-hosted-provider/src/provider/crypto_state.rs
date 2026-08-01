@@ -58,6 +58,14 @@ pub(super) fn file_transfer_receipt_aad(transfer_id: Uuid) -> Vec<u8> {
     aad(("file_transfer_receipt", transfer_id))
 }
 
+pub(super) fn file_mutation_request_aad(mutation_id: Uuid) -> Vec<u8> {
+    aad(("file_mutation_request", mutation_id))
+}
+
+pub(super) fn file_mutation_receipt_aad(mutation_id: Uuid) -> Vec<u8> {
+    aad(("file_mutation_receipt", mutation_id))
+}
+
 pub(super) fn authority_import_manifest_aad(import_id: Uuid) -> Vec<u8> {
     aad(("authority_import_manifest", import_id))
 }

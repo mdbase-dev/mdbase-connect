@@ -64,9 +64,70 @@ try {
   assert.equal(sdkFile.content_digest, digest(sdkBytes));
   assert.deepEqual(Buffer.from(await sdk.downloadBytes(sdkFile)), sdkBytes);
 
+  const sdkObjectKey = await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.file_id}'`);
+  const moveMutationId = randomUUID();
+  const [moved, concurrentReplay] = await Promise.all([
+    sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId }),
+    sdk.move(sdkFile, "Archive/sdk-renamed.bin", { mutationId: moveMutationId })
+  ]);
+  assert.deepEqual(concurrentReplay, moved);
+  assert.equal(moved.file_id, sdkFile.file_id);
+  assert.notEqual(moved.revision, sdkFile.revision);
+  assert.deepEqual(await sdk.move(sdkFile, moved.path, { mutationId: moveMutationId }), moved);
+  assert.equal(await pg(`SELECT object_key FROM hosted_provider_files WHERE file_id = '${sdkFile.file_id}'`), sdkObjectKey);
+  assert.deepEqual(Buffer.from(await sdk.downloadBytes(moved)), sdkBytes);
+
+  const conflict = await request(provider.url,
+    `/v1/authorities/${collectionId}/files/${sdkFile.file_id}/move`, {
+      method: "POST", token: writer.token,
+      body: { protocol_version: 1, type: "move_file", mutation_id: moveMutationId,
+        file_id: sdkFile.file_id, if_revision: sdkFile.revision, from_path: sdkFile.path,
+        path: "Archive/different.bin", update_references: false }
+    });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, "file_mutation_conflict");
+  const stale = await request(provider.url,
+    `/v1/authorities/${collectionId}/files/${moved.file_id}/move`, {
+      method: "POST", token: writer.token,
+      body: { protocol_version: 1, type: "move_file", mutation_id: randomUUID(),
+        file_id: moved.file_id, if_revision: sdkFile.revision, from_path: moved.path,
+        path: "Archive/stale.bin", update_references: false }
+    });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.code, "stale_file_revision");
+  const hiddenMove = await request(provider.url,
+    `/v1/authorities/${collectionId}/files/${moved.file_id}/move`, {
+      method: "POST", token: writer.token,
+      body: { protocol_version: 1, type: "move_file", mutation_id: randomUUID(),
+        file_id: moved.file_id, if_revision: moved.revision, from_path: moved.path,
+        path: ".hidden/sdk.bin", update_references: false }
+    });
+  assert.equal(hiddenMove.status, 400);
+
+  const readOnly = { id: randomUUID(), token: `reader-${randomUUID()}-${randomUUID()}` };
+  await internal(provider.url, `/internal/v1/collections/${collectionId}/replicas`, {
+    replica_id: readOnly.id, name: "File reader", purpose: "mirror", mode: "read_only",
+    allowed_types: [], contract_scope: [], full_collection: false,
+    allowed_operations: [], token: readOnly.token
+  });
+  const deniedDelete = await request(provider.url,
+    `/v1/authorities/${collectionId}/files/${moved.file_id}/delete`, {
+      method: "POST", token: readOnly.token,
+      body: { protocol_version: 1, type: "delete_file", mutation_id: randomUUID(),
+        file_id: moved.file_id, if_revision: moved.revision, path: moved.path }
+    });
+  assert.equal(deniedDelete.status, 403);
+
+  const deleteMutationId = randomUUID();
+  const deleted = await sdk.delete(moved, { mutationId: deleteMutationId });
+  assert.equal(deleted.previous_path, moved.path);
+  assert.deepEqual(await sdk.delete(moved, { mutationId: deleteMutationId }), deleted);
+  assert.equal(await pg(`SELECT count(*) FROM hosted_provider_files WHERE file_id = '${moved.file_id}'`), "0");
+  assert.deepEqual(await download(provider.url, collectionId, writer.token, moved), sdkBytes);
+
   const listed = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/files?protocol_version=1`, { token: writer.token }));
-  assert.deepEqual(listed.files.map((file) => file.path).sort(), ["Assets/sdk.bin", "Assets/small.bin", "Media/large.bin"]);
+  assert.deepEqual(listed.files.map((file) => file.path).sort(), ["Assets/small.bin", "Media/large.bin"]);
   assert.deepEqual(await download(provider.url, collectionId, writer.token, smallUpload.receipt.file), small);
   assert.deepEqual(await download(provider.url, collectionId, writer.token, largeUpload.receipt.file), large);
 
@@ -75,10 +136,18 @@ try {
   const fileSnapshot = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/sync/files/snapshot?snapshot_id=${session.snapshot_id}`,
     { token: writer.token }));
-  assert.equal(fileSnapshot.files.length, 3);
+  assert.equal(fileSnapshot.files.length, 2);
   const changes = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/sync/changes?after=0&limit=100`, { token: writer.token }));
-  assert.deepEqual(changes.events.map((event) => event.type), ["file_put", "file_put", "file_put"]);
+  assert.deepEqual(changes.events.map((event) => event.type), ["file_put", "file_put", "file_put", "file_put", "file_remove"]);
+
+  assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
+  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: 4 });
+  assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
+  await internal(provider.url, `/internal/v1/collections/${collectionId}/compact`, { through: 5 });
+  assert.equal((await mc("find", `local/${bucket}`)).trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 2);
+  const accounting = await pg(`SELECT file_count || ':' || file_bytes || ':' || stored_file_bytes FROM hosted_provider_collections WHERE id = '${collectionId}'`);
+  assert.equal(accounting, `2:${small.length + large.length}:${small.length + large.length}`);
 
   const bad = Buffer.from("wrong bytes");
   const badTransfer = randomUUID();
@@ -110,9 +179,12 @@ try {
 
   const plaintextPaths = await pg(`SELECT count(*) FROM hosted_provider_files WHERE encode(payload_ciphertext, 'escape') LIKE '%Assets/small.bin%'`);
   assert.equal(plaintextPaths, "0");
+  const plaintextMutations = await pg(`SELECT count(*) FROM hosted_provider_file_mutations WHERE encode(request_ciphertext, 'escape') LIKE '%sdk-renamed%' OR encode(receipt_ciphertext, 'escape') LIKE '%sdk-renamed%'`);
+  assert.equal(plaintextMutations, "0");
+  assert.equal(await pg("SELECT count(*) FROM hosted_provider_file_mutations"), "2");
   const objectsAfterCommit = await mc("find", `local/${bucket}`);
   assert.equal(objectsAfterCommit.includes("/v1/staging/"), false);
-  assert.equal(objectsAfterCommit.trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
+  assert.equal(objectsAfterCommit.trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 2);
   process.stdout.write("mdbase hosted file PostgreSQL + S3 e2e passed\n");
 } finally {
   if (provider && provider.exitCode === null) provider.kill("SIGTERM");
@@ -169,7 +241,7 @@ function fileSdk(url, collectionId, token) {
     () => ({
       kind: "files",
       protocol_version: 1,
-      actions: ["list", "read", "add", "replace"],
+      actions: ["list", "read", "add", "replace", "move", "delete"],
       scope: { kind: "collection" }
     }),
     async (method, path = "", input) => ok(request(

@@ -81,43 +81,7 @@ impl HostedProvider {
         .bind(prune_boundary)
         .execute(&mut *transaction)
         .await?;
-        let obsolete_files = sqlx::query(
-            r#"SELECT version.object_key, version.size
-               FROM hosted_provider_file_versions version
-               WHERE version.collection_id = $1
-                 AND version.sequence <= $2
-                 AND version.deleted = false
-                 AND version.sequence < (
-                   SELECT max(anchor.sequence)
-                   FROM hosted_provider_file_versions anchor
-                   WHERE anchor.collection_id = version.collection_id
-                     AND anchor.file_id = version.file_id
-                     AND anchor.sequence <= $2
-                 )"#,
-        )
-        .bind(collection_id)
-        .bind(prune_boundary)
-        .fetch_all(&mut *transaction)
-        .await?;
-        let mut released_bytes = 0_u64;
-        for row in &obsolete_files {
-            let key: String = row.get("object_key");
-            let size = number(row.get("size"), "file version size")?;
-            released_bytes = released_bytes
-                .checked_add(size)
-                .ok_or_else(|| ApiError::internal("Released file bytes overflowed."))?;
-            sqlx::query(
-                r#"INSERT INTO hosted_provider_blob_deletions
-                     (object_key, byte_length, reason)
-                   VALUES ($1, $2, 'version_compaction')
-                   ON CONFLICT (object_key) DO NOTHING"#,
-            )
-            .bind(key)
-            .bind(to_i64(size, "file version size")?)
-            .execute(&mut *transaction)
-            .await?;
-        }
-        sqlx::query(
+        let pruned_files = sqlx::query(
             r#"DELETE FROM hosted_provider_file_versions version
                WHERE version.collection_id = $1
                  AND version.sequence <= $2
@@ -127,12 +91,68 @@ impl HostedProvider {
                    WHERE anchor.collection_id = version.collection_id
                      AND anchor.file_id = version.file_id
                      AND anchor.sequence <= $2
-                 )"#,
+                 )
+               RETURNING object_key, size"#,
         )
         .bind(collection_id)
         .bind(prune_boundary)
-        .execute(&mut *transaction)
+        .fetch_all(&mut *transaction)
         .await?;
+        let mut pruned_objects = HashMap::<String, u64>::new();
+        for row in pruned_files {
+            let Some(key) = row.get::<Option<String>, _>("object_key") else {
+                continue;
+            };
+            let size = number(
+                row.get::<Option<i64>, _>("size")
+                    .ok_or_else(|| ApiError::internal("Stored file version size is missing."))?,
+                "file version size",
+            )?;
+            match pruned_objects.entry(key) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(size);
+                }
+                std::collections::hash_map::Entry::Occupied(entry) if *entry.get() == size => {}
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    return Err(ApiError::internal(
+                        "One immutable file object has conflicting stored sizes.",
+                    ));
+                }
+            }
+        }
+        let mut released_bytes = 0_u64;
+        for (key, size) in pruned_objects {
+            let referenced: bool = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                     SELECT 1 FROM hosted_provider_files
+                     WHERE object_key = $1
+                     UNION ALL
+                     SELECT 1 FROM hosted_provider_file_versions
+                     WHERE object_key = $1
+                   )"#,
+            )
+            .bind(&key)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if referenced {
+                continue;
+            }
+            let queued = sqlx::query(
+                r#"INSERT INTO hosted_provider_blob_deletions
+                     (object_key, byte_length, reason)
+                   VALUES ($1, $2, 'version_compaction')
+                   ON CONFLICT (object_key) DO NOTHING"#,
+            )
+            .bind(&key)
+            .bind(to_i64(size, "file version size")?)
+            .execute(&mut *transaction)
+            .await?;
+            if queued.rows_affected() == 1 {
+                released_bytes = released_bytes
+                    .checked_add(size)
+                    .ok_or_else(|| ApiError::internal("Released file bytes overflowed."))?;
+            }
+        }
         if released_bytes > 0 {
             sqlx::query(
                 r#"UPDATE hosted_provider_collections

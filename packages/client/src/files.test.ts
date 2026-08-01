@@ -212,8 +212,8 @@ describe("MdbaseFileClient", () => {
       }
     });
     expect(calls[1]).toEqual({
-      method: "DELETE",
-      path: encodeURIComponent(moved.file_id),
+      method: "POST",
+      path: `${encodeURIComponent(moved.file_id)}/delete`,
       input: {
         protocol_version: 1,
         type: "delete_file",

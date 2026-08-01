@@ -5,6 +5,14 @@ pub(super) fn file_routes() -> Router<AppState> {
     Router::new()
         .route("/v1/authorities/{collection_id}/files", get(list_files))
         .route(
+            "/v1/authorities/{collection_id}/files/{file_id}/move",
+            post(move_file),
+        )
+        .route(
+            "/v1/authorities/{collection_id}/files/{file_id}/delete",
+            post(delete_file),
+        )
+        .route(
             "/v1/authorities/{collection_id}/files/uploads",
             post(open_file_upload),
         )
@@ -71,7 +79,8 @@ async fn open_file_upload(
     Path(collection_id): Path<Uuid>,
     body: Bytes,
 ) -> ApiResult<Json<FileTransferSession>> {
-    let token = authorize_file_request(&state, &headers, &uri, collection_id, &body).await?;
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<OpenFileUploadRequest>(&body)?;
     Ok(Json(
@@ -89,7 +98,8 @@ async fn prepare_file_upload_part(
     Path((collection_id, transfer_id)): Path<(Uuid, Uuid)>,
     body: Bytes,
 ) -> ApiResult<Json<PreparedFilePart>> {
-    let token = authorize_file_request(&state, &headers, &uri, collection_id, &body).await?;
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<PrepareFileUploadPartRequest>(&body)?;
     require_matching_transfer(transfer_id, request.transfer_id)?;
@@ -108,7 +118,8 @@ async fn commit_file_upload(
     Path((collection_id, transfer_id)): Path<(Uuid, Uuid)>,
     body: Bytes,
 ) -> ApiResult<Json<CommitFileUploadReceipt>> {
-    let token = authorize_file_request(&state, &headers, &uri, collection_id, &body).await?;
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<CommitFileUploadRequest>(&body)?;
     require_matching_transfer(transfer_id, request.transfer_id)?;
@@ -127,7 +138,8 @@ async fn open_file_download(
     Path(collection_id): Path<Uuid>,
     body: Bytes,
 ) -> ApiResult<Json<FileTransferSession>> {
-    let token = authorize_file_request(&state, &headers, &uri, collection_id, &body).await?;
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<OpenFileDownloadRequest>(&body)?;
     Ok(Json(
@@ -145,7 +157,8 @@ async fn prepare_file_download_part(
     Path((collection_id, transfer_id)): Path<(Uuid, Uuid)>,
     body: Bytes,
 ) -> ApiResult<Json<PreparedFilePart>> {
-    let token = authorize_file_request(&state, &headers, &uri, collection_id, &body).await?;
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
     let origin = request_origin(&headers);
     let request = file_json::<PrepareFileDownloadPartRequest>(&body)?;
     require_matching_transfer(transfer_id, request.transfer_id)?;
@@ -208,21 +221,73 @@ async fn abort_file_transfer(
     ))
 }
 
+async fn move_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path((collection_id, file_id)): Path<(Uuid, Uuid)>,
+    body: Bytes,
+) -> ApiResult<Json<MoveFileReceipt>> {
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+    let origin = request_origin(&headers);
+    let request = file_json::<MoveFileRequest>(&body)?;
+    require_matching_file(file_id, request.file_id)?;
+    Ok(Json(
+        state
+            .provider
+            .move_file(collection_id, token, request, origin)
+            .await?,
+    ))
+}
+
+async fn delete_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
+    Path((collection_id, file_id)): Path<(Uuid, Uuid)>,
+    body: Bytes,
+) -> ApiResult<Json<DeleteFileReceipt>> {
+    let token =
+        authorize_file_request(&state, &headers, Method::POST, &uri, collection_id, &body).await?;
+    let origin = request_origin(&headers);
+    let request = file_json::<DeleteFileRequest>(&body)?;
+    require_matching_file(file_id, request.file_id)?;
+    Ok(Json(
+        state
+            .provider
+            .delete_file(collection_id, token, request, origin)
+            .await?,
+    ))
+}
+
 async fn authorize_file_request<'a>(
     state: &AppState,
     headers: &'a HeaderMap,
+    method: Method,
     uri: &Uri,
     collection_id: Uuid,
     body: &[u8],
 ) -> ApiResult<&'a str> {
     let token = bearer(headers)?;
     let origin = request_origin(headers);
-    let proof = request_proof(headers, Method::POST, uri, body)?;
+    let proof = request_proof(headers, method, uri, body)?;
     state
         .provider
         .authorize_request(collection_id, token, origin, proof.as_ref())
         .await?;
     Ok(token)
+}
+
+fn require_matching_file(path: Uuid, body: Uuid) -> ApiResult<()> {
+    if path == body {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "file_id_mismatch",
+            "The file ID does not match the request path.",
+        ))
+    }
 }
 
 fn file_json<T: DeserializeOwned>(body: &[u8]) -> ApiResult<T> {
