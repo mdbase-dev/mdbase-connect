@@ -1,6 +1,6 @@
 # Collection files
 
-Status: foundational design for implementation before the first public release
+Status: implemented pre-release protocol 1; wire compatibility may still change
 
 ## Purpose
 
@@ -138,7 +138,7 @@ parts are not MDBF frames and do not relax the smaller relay memory bound.
 The client chooses the transfer UUID so opening a transfer is retry-safe. The
 durable transfer record contains that opaque ID, direction, grant binding, file
 intent, expected size, optional declared digest, base revision, accepted chunk
-map, expiry, and terminal receipt.
+map, opaque multipart receipts recovered from R2, expiry, and terminal receipt.
 
 Uploading follows this state machine:
 
@@ -222,9 +222,10 @@ digest, and installs the result with atomic replacement. Crash recovery either
 completes an already committed journal entry or removes an uncommitted staging
 file; it never exposes a partial destination.
 
-A hosted authority running on Render stores transactional file and attachment
-metadata, grants, transfer state, quota accounting, changes, versions, and
-receipts in PostgreSQL. Actual immutable file bytes live in Cloudflare R2 under
+A hosted authority running on Render stores transactional file metadata,
+record-held attachment references, grants, transfer state, quota accounting,
+changes, versions, and receipts in PostgreSQL. Actual immutable file bytes live
+in Cloudflare R2 under
 opaque collection-scoped staging and committed object keys; neither the Render
 filesystem nor PostgreSQL is a blob store. R2 credentials remain provider-only.
 Any direct multipart upload uses short-lived authority-issued permissions for
@@ -330,15 +331,23 @@ durable receipt. Hosted wire requests use explicit `POST …/{file_id}/move` and
 `POST …/{file_id}/delete` mutation endpoints so request bodies and proofs behave
 consistently across browsers, proxies, and local encrypted transports.
 
-Record-link helpers build on this file API without redefining storage paths:
+Record-link helpers can build on this file API without redefining storage
+paths. Protocol 1 intentionally does not impose a field schema on records, so
+applications currently store the returned `file_id` or `path` through their
+ordinary record operation:
 
 ```ts
-const attached = await collection.attachments.add({
+const photo = await connection.files.upload("Photos/today.jpg", browserFile);
+await connection.execute("journal.set-photo", {
   record: "Journal/today.md",
-  field: "photo",
-  file: browserFile
+  fileId: photo.file_id,
+  path: photo.path
 });
 ```
+
+A schema-aware `attachments.add(...)` convenience API belongs in an
+application contract or a future generic record-link API; it is not part of
+the current client surface.
 
 The hosted implementation already owns transport negotiation, incremental
 hashing, single versus multipart R2 delivery, bounded concurrent range reads,

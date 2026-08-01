@@ -97,13 +97,35 @@ state, not inside the mirrored collection. A host should provide a lease that
 excludes concurrent mirror owners for the same vault; the default memory lease
 only protects overlapping calls in one JavaScript process.
 
-Remote mirrors deliberately materialize only `.md` records. A hosted
-`mdbase.yaml` can reserve collection namespaces but cannot widen that device
-boundary with `record_extensions`. Before any write, the portable core checks
+Remote mirrors always materialize selected Markdown records and required
+structural resources. They can additionally materialize images, audio, video,
+PDFs, and other visible regular files according to an explicit per-device
+policy. No file classes are selected by default. Dot-prefixed paths,
+mdbase/Connect state, symlinks, unsafe hard links, portable path aliases, and
+nested or configured exclusions remain outside the namespace regardless of
+the selected media classes. A hosted `mdbase.yaml` can reserve collection
+namespaces but cannot widen that device boundary with `record_extensions`.
+Before any write, the portable core checks
 resource and record revisions against exact document bytes, verifies parsed
 record metadata, rejects duplicate stable identities, and rejects paths that
 alias under Windows case rules or macOS Unicode normalization. Rust and
 TypeScript exercise the same path-policy fixture corpus.
+
+The desktop exposes these choices as a local projection. The CLI accepts the
+same policy at enrollment and later configuration:
+
+```bash
+mdbase connect mirror add <collection-id> ./tasks \
+  --files images,pdfs --exclude-folder Archive
+
+mdbase connect mirror configure <replica-id> \
+  --files images,pdfs --exclude-folder Archive
+```
+
+File snapshot and change metadata share the record cursor, while bytes travel
+through the separately resumable file data plane. Hosted files are downloaded
+from immutable, revision-pinned R2 objects and verified against their exact
+SHA-256 digest before materialization.
 
 The portable runtime uses audited JavaScript SHA-256 and `crypto.randomUUID`.
 A host may inject `MirrorRuntime` to use an equivalent native primitive. The
@@ -201,3 +223,40 @@ or uploading anything. Differing paths stop for explicit review; matching
 Markdown keeps its local file and previously unmanaged Markdown is uploaded.
 Formatting of an accepted local upload is not rewritten when the mirror
 replays its own authority event.
+
+## Portable authority adoption
+
+`@mdbase/connect-sync/adoption` can move a portable collection snapshot into a
+hosted authority without routing binary bytes through the Connect control
+service. Include file descriptors in the snapshot and resolve their bytes
+lazily with `fileSource`:
+
+```ts
+import {
+  AuthorityAdoptionClient,
+  buildPortableAuthoritySnapshot
+} from "@mdbase/connect-sync/adoption";
+
+const snapshot = buildPortableAuthoritySnapshot({
+  collectionId,
+  specVersion: "0.3",
+  resources,
+  records,
+  files
+});
+
+await adoption.uploadSnapshot(session, prepared, snapshot, {
+  fileSource: (file) => localFiles.get(file.file_id)!,
+  onFileProgress: ({ file, transferredBytes, totalBytes }) => {
+    report(file.path, transferredBytes, totalBytes);
+  },
+  signal
+});
+```
+
+`fileSource` may return a `Blob`, `ArrayBuffer`, or typed-array view. The client
+hashes and validates each source, resumes from authority-reported parts, uses a
+single prepared PUT or multipart upload as appropriate, and commits only after
+the hosted provider has verified the complete R2 object. The manifest, file
+identity, upload intent, progress, versions, and activation state remain
+transactional PostgreSQL data; immutable bytes remain in R2.
