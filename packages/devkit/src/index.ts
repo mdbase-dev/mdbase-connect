@@ -17,6 +17,7 @@ import type {
 } from "@mdbase/connect-protocol";
 import { isNativeRedirectUri } from "@mdbase/connect-protocol";
 import appManifestSchema from "@mdbase/connect-protocol/schemas/mdbase-app.schema.json" with { type: "json" };
+import connectProblemSchema from "@mdbase/connect-protocol/schemas/connect-problem.v1.schema.json" with { type: "json" };
 import dataContractSchema from "@mdbase/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
 
@@ -34,9 +35,12 @@ export type ValidationResult =
 const ajv = new Ajv2020({
   allErrors: true,
   strict: true,
+  // `required` may name properties declared by an enclosing allOf branch.
+  strictRequired: false,
   formats: { "date-time": true, uri: true }
 });
 ajv.addSchema(appManifestSchema);
+ajv.addSchema(connectProblemSchema);
 ajv.addSchema(dataContractSchema);
 ajv.addSchema(connectProtocolSchema);
 
