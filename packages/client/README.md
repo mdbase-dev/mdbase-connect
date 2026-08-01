@@ -446,14 +446,17 @@ await connection.files.delete(moved);
 
 `download()` and `downloadBytes()` are convenient for values up to 64 MiB.
 Use `downloadStream()` for larger files; it verifies the pinned revision while
-holding at most one negotiated part in memory.
+forwarding response chunks with native stream backpressure rather than
+buffering a complete hosted range.
 
 `upload()` accepts `Blob`, `ArrayBuffer`, and typed-array values and hashes them
 before opening the transfer. `uploadStream()` accepts a `ReadableStream` or
 async iterable plus its exact size and `sha256:…` commitment. It verifies the
-stream while uploading sequentially and holds at most one negotiated part in
-memory. After an ambiguous failure, call it again with a newly opened source
-and the same `transferId` to resume safely.
+stream while uploading sequentially and never buffers the complete file.
+Yielded source chunks must fit within the authority's negotiated upload part;
+ordinary browser and Node streams already produce much smaller chunks. After
+an ambiguous failure, call it again with a newly opened source and the same
+`transferId` to resume safely.
 
 Both lifecycle methods are optimistic and use the descriptor revision by
 default. Pass a stable `mutationId` when retrying after an ambiguous network

@@ -146,6 +146,10 @@ for small and empty objects, or presigned multipart parts for larger objects;
 R2 parts default to eight MiB because every non-final R2 part must be at least
 five MiB. Hosted downloads use authenticated, revision-pinned range endpoints
 that recheck the live replica and grant before reading each bounded R2 range.
+The provider validates the exact streamed length, sends an explicit
+`Content-Length`, and stops reading R2 when the application cancels. Upload and
+download part sizes are separately configured, so increasing multipart upload
+throughput cannot accidentally increase download memory use.
 Hosted range responses are not MDBF frames and do not relax the smaller relay
 memory bound.
 The client chooses the transfer UUID so opening a transfer is retry-safe. The
@@ -385,11 +389,12 @@ The hosted implementation already owns transport negotiation, incremental
 hashing, single versus multipart R2 delivery, bounded sequential uploads and
 range reads, retry, receipts, progress, abort cleanup, and exact verification.
 `uploadStream()` requires an exact size and SHA-256 commitment, verifies the
-one-shot source before commit, and retains at most one negotiated part. A retry
-uses a newly opened source and the same caller-chosen transfer ID.
+one-shot source before commit, bounds source chunks to the negotiated part
+size, and never buffers the complete file. A retry uses a newly opened source
+and the same caller-chosen transfer ID.
 `download()` and `downloadBytes()` are convenience methods capped at 64 MiB;
-larger downloads use `downloadStream()` so memory remains bounded to one
-negotiated part.
+larger downloads use `downloadStream()` so hosted response chunks flow through
+native stream backpressure without assembling a complete range in memory.
 Local and relayed authorities use the same facade with encrypted MDBF chunks.
 Stable file IDs remain the machine identity; returned paths remain suitable for
 human-readable Markdown links. Link resolution delegates to authority-owned
