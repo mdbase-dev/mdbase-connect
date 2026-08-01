@@ -142,6 +142,12 @@ export interface ApplicationRequirements {
   contracts: ContractRequirement[];
   access?: "contract" | "full_collection";
   collection_kind?: "local" | "hosted";
+  files?: {
+    actions: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
+    scope:
+      | { kind: "selected_folders"; folders: string[] }
+      | { kind: "collection" };
+  };
 }
 
 export interface TypePackProvision {
