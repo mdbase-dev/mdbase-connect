@@ -51,6 +51,7 @@ impl CollectionRegistry {
                 collection_name TEXT NOT NULL DEFAULT 'Collection',
                 notification_criteria TEXT NOT NULL DEFAULT '[]',
                 encryption TEXT,
+                file_capability TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -237,6 +238,7 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
+            "ALTER TABLE grants ADD COLUMN file_capability TEXT",
             "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE collections ADD COLUMN description TEXT",
             "ALTER TABLE grant_crypto_state ADD COLUMN reorder_floor TEXT",

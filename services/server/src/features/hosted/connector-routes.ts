@@ -210,7 +210,7 @@ export function registerConnectorHostedRoutes(
       }).parse(request.params);
       const input = z.object({
         collection_id: z.uuid(),
-        operations: z.array(operationSchema).min(1),
+        operations: z.array(operationSchema),
         contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
       }).strict().parse(request.body);
       if (!options.hostedProvider) {
@@ -273,7 +273,7 @@ export function registerConnectorHostedRoutes(
         grantId: z.uuid()
       }).parse(request.params);
       const input = z.object({
-        operations: z.array(operationSchema).min(1)
+        operations: z.array(operationSchema)
       }).strict().parse(request.body);
       const grant = await narrowHostedGrantForUser(
         options,

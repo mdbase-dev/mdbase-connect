@@ -3,6 +3,7 @@ import type {
   CollectionOperation,
   EncryptedRelayOperationRequest,
   GrantEncryption,
+  FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
@@ -43,12 +44,14 @@ export interface StoredToken {
   refreshExpiresAt?: number;
   grantId?: string;
   encryption?: GrantEncryption;
+  fileCapability?: FileCapability;
   applicationOrigin?: string;
   keyHandle?: string;
   savedAt: number;
   authority?: {
     operationsUrl: string;
     syncUrl: string;
+    filesUrl: string;
     replicaId: string;
     accessToken: string;
     proofPublicKey?: string;

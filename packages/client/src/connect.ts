@@ -65,6 +65,7 @@ import {
   parseGrantScope,
   parseStored,
   stripTrailingSlash,
+  validFileCapability,
   validAuthorityTokenResponse
 } from "./runtime-utils.js";
 
@@ -706,6 +707,13 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         "Authorization returned conflicting collection transports."
       );
     }
+    if (body.file_capability !== null && body.file_capability !== undefined
+        && !validFileCapability(body.file_capability)) {
+      throw connectError(
+        "invalid_token_response",
+        "Authorization returned an invalid file capability."
+      );
+    }
     if (body.encryption) {
       try {
         validateGrantEncryption(body.encryption);
@@ -764,12 +772,14 @@ class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         : undefined,
       grantId: body.grant_id,
       encryption: body.encryption ?? undefined,
+      fileCapability: body.file_capability ?? undefined,
       applicationOrigin: body.application_origin ?? this.defaultApplicationOrigin(),
       keyHandle,
       savedAt: Date.now(),
       authority: body.authority ? {
         operationsUrl: body.authority.operations_url,
         syncUrl: body.authority.sync_url,
+        filesUrl: body.authority.files_url,
         replicaId: body.authority.replica_id,
         accessToken: body.authority.access_token,
         proofPublicKey: body.authority.proof_public_key

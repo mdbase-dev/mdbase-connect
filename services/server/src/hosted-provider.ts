@@ -2,6 +2,7 @@ import type {
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
   ContractSetupChoice,
+  FileCapability,
   GrantPolicy,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
@@ -23,6 +24,7 @@ export interface HostedReplicaEnrollment {
   contractScope?: CollectionContractDescriptor[];
   fullCollection?: boolean;
   allowedOperations?: string[];
+  fileCapability?: FileCapability;
   allowedOrigin?: string;
   proofPublicKey?: string;
   grantId?: string;
@@ -164,6 +166,7 @@ export class HostedProviderClient {
         allowed_operations: hostedReplicaCollectionOperations(
           replica.allowedOperations ?? []
         ),
+        ...(replica.fileCapability ? { file_capability: replica.fileCapability } : {}),
         ...(replica.allowedOrigin ? { allowed_origin: replica.allowedOrigin } : {}),
         ...(replica.proofPublicKey ? { proof_public_key: replica.proofPublicKey } : {}),
         ...(replica.grantId ? { grant_id: replica.grantId } : {}),
@@ -213,6 +216,7 @@ export class HostedProviderClient {
       contractScope: CollectionContractDescriptor[];
       fullCollection: boolean;
       allowedOperations: string[];
+      fileCapability?: FileCapability;
     }
   ): Promise<void> {
     await this.request(
@@ -226,7 +230,8 @@ export class HostedProviderClient {
         full_collection: policy.fullCollection,
         allowed_operations: hostedReplicaCollectionOperations(
           policy.allowedOperations
-        )
+        ),
+        ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {})
       }
     );
   }

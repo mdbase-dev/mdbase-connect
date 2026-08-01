@@ -857,6 +857,7 @@ mod tests {
                 notification_criteria: Vec::new(),
                 created_at: "2026-07-22T00:00:00Z".to_string(),
                 encryption: Some(encryption.clone()),
+                file_capability: None,
             }])
             .unwrap();
         let watcher = crate::watcher::CollectionWatchService::start(registry.clone());

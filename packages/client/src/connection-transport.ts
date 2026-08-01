@@ -52,7 +52,8 @@ import {
   parseGrantScope,
   parseStored,
   validStoredAuthority,
-  validStoredEncryption
+  validStoredEncryption,
+  validFileCapability
 } from "./runtime-utils.js";
 
 export interface ConnectionTransportInternals {
@@ -375,6 +376,37 @@ export class ConnectionTransport {
     return body as Result;
   }
 
+  async performAuthorityFileRequest<Result>(
+    method: "GET" | "POST" | "DELETE",
+    path = "",
+    input?: unknown,
+    signal?: AbortSignal
+  ): Promise<Result> {
+    let token = await this.authorizedToken();
+    if (!token?.authority || !token.fileCapability) {
+      throw connectError(
+        "not_authorized",
+        "This connection has no remote file capability."
+      );
+    }
+    let response = await this.sendAuthorityFileRequest(token, method, path, input, signal);
+    if (response.status === 401 && token.refreshToken) {
+      token = await this.refreshAuthorization();
+      if (!token.authority || !token.fileCapability) {
+        throw connectError(
+          "authority_authorization_changed",
+          "Reconnect this collection before accessing its files."
+        );
+      }
+      response = await this.sendAuthorityFileRequest(token, method, path, input, signal);
+    }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw apiError(body, "operation_failed", "Collection file request failed.", response.status);
+    }
+    return body as Result;
+  }
+
   private async sendAuthoritySyncRequest(
     token: StoredToken,
     method: "GET" | "POST",
@@ -399,6 +431,38 @@ export class ConnectionTransport {
         ...(body === undefined ? {} : { body })
       }
     );
+  }
+
+  private async sendAuthorityFileRequest(
+    token: StoredToken,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    input?: unknown,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    if (!token.authority) {
+      throw connectError("not_remote_authority", "This authorization has no remote authority endpoint.");
+    }
+    const suffix = path === "" || path.startsWith("?") ? path : `/${path}`;
+    const url = `${token.authority.filesUrl}${suffix}`;
+    const body = input === undefined ? undefined : JSON.stringify(input);
+    const proof = await this.authorityProofHeaders(
+      token,
+      method,
+      url,
+      body,
+      token.authority.accessToken
+    );
+    return fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${token.authority.accessToken}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...proof
+      },
+      ...(body === undefined ? {} : { body }),
+      ...(signal ? { signal } : {})
+    });
   }
 
   private async sendOperation(
@@ -741,6 +805,9 @@ export class ConnectionTransport {
       )
     ) return invalidate(token.keyHandle);
     if (!parseGrantScope(token.scope)) {
+      return invalidate(token.keyHandle);
+    }
+    if (token.fileCapability && !validFileCapability(token.fileCapability)) {
       return invalidate(token.keyHandle);
     }
     if (

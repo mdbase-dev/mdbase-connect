@@ -487,7 +487,9 @@ export function ApprovalForm({
   const permissionCount = permissionGroups.reduce(
     (count, group) => count + group.operations.length,
     0
-  );
+  ) + (request.requirements.files?.actions.length ?? 0);
+  const permissionCategoryCount = permissionGroups.length
+    + (request.requirements.files ? 1 : 0);
   const selectedPermissionCount = permissionGroups.reduce(
     (count, group) =>
       count + group.operations.filter((operation) => operations.has(operation.id)).length,
@@ -765,14 +767,17 @@ export function ApprovalForm({
       <section className="approval-section">
         <div className="approval-section-intro">
           <strong>Permissions</strong>
-          <small>{permissionCount} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small>
+          <small>{permissionCount} specific actions across {permissionCategoryCount} {permissionCategoryCount === 1 ? "category" : "categories"}.</small>
         </div>
-        <PermissionChoices
-          groups={permissionGroups}
-          selected={operations}
-          disabled={submitting !== null}
-          onToggle={toggleOperation}
-        />
+        <div className="authorization-permissions">
+          {permissionGroups.length > 0 && <PermissionChoices
+            groups={permissionGroups}
+            selected={operations}
+            disabled={submitting !== null}
+            onToggle={toggleOperation}
+          />}
+          {request.requirements.files && <FilePermissionSummary files={request.requirements.files} />}
+        </div>
       </section>
       <NotificationAccess notifications={request.notifications} />
       {error && <div className="message error compact">{error}</div>}
@@ -782,7 +787,7 @@ export function ApprovalForm({
           : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
         <div className="approval-actions">
           <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? "Denying…" : "Deny"}</button>
-          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || selectedPermissionCount === 0 || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (setup.length > 0 ? "Setting up and allowing…" : "Approving…") : setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
+          <button className="button primary" type="button" disabled={submitting !== null || !collectionId || (selectedPermissionCount === 0 && !request.requirements.files) || !setupReady} onClick={() => void decide("approved")}>{submitting === "approved" ? (setup.length > 0 ? "Setting up and allowing…" : "Approving…") : setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
         </div>
       </footer>
     </div>
@@ -872,6 +877,52 @@ function PermissionChoices({
           ))}</div>
         </fieldset>
       ))}</div>
+    </details>
+  );
+}
+
+const FILE_ACTION_LABELS: Record<
+  PendingAuthorization["requirements"]["files"] extends infer Files
+    ? Files extends { actions: Array<infer Action> }
+      ? Action & string
+      : never
+    : never,
+  string
+> = {
+  list: "List file names and metadata",
+  read: "Read file contents",
+  add: "Add new files",
+  replace: "Replace existing files",
+  move: "Move and rename files",
+  delete: "Delete files"
+};
+
+function FilePermissionSummary({ files }: {
+  files: NonNullable<PendingAuthorization["requirements"]["files"]>;
+}) {
+  const scope = files.scope.kind === "collection"
+    ? "Every visible folder in this collection. Hidden folders are always excluded."
+    : files.scope.kind === "referenced"
+      ? "Only files explicitly referenced by records this application can access."
+      : `Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`;
+  return (
+    <details className="permission-review file-permission-review">
+      <summary>
+        <span><strong>Files</strong><small>{files.actions.length} requested {files.actions.length === 1 ? "action" : "actions"}. {scope}</small></span>
+        <b>Details</b>
+      </summary>
+      <div className="permission-groups">
+        <fieldset className="permission-group">
+          <legend>Files</legend>
+          <p>{scope}</p>
+          <div>{files.actions.map((action) => (
+            <label key={action}>
+              <input type="checkbox" checked readOnly disabled />
+              <span>{FILE_ACTION_LABELS[action]}</span>
+            </label>
+          ))}</div>
+        </fieldset>
+      </div>
     </details>
   );
 }

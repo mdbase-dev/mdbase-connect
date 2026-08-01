@@ -1,5 +1,9 @@
 import type { ConnectProblem } from "./connect-problems.generated.js";
-import type { CollectionFileDescriptor } from "./files.js";
+import type {
+  ApplicationFileRequirement,
+  CollectionFileDescriptor,
+  FileCapability
+} from "./files.js";
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 
@@ -215,6 +219,8 @@ export interface ApplicationRequirements {
   access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */
   collection_kind?: "hosted";
+  /** First-class non-Markdown file access requested independently of records. */
+  files?: ApplicationFileRequirement;
 }
 
 export interface TypePackManifestResource {
@@ -358,6 +364,7 @@ export interface GrantPolicy {
   notification_criteria?: NotificationCriterion[];
   created_at: string;
   encryption?: GrantEncryption;
+  file_capability?: FileCapability;
 }
 
 export interface GrantEncryption {

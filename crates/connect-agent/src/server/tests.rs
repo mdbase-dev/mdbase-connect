@@ -199,6 +199,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         notification_criteria: Vec::new(),
         created_at: "2026-07-26T00:00:00Z".to_string(),
         encryption: None,
+        file_capability: None,
     };
     let activation = state
         .handle_relay_message(RelayMessage::AuthorizationActivationRequest {
@@ -210,6 +211,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
                 contracts: Vec::new(),
                 access: Some(ApplicationAccess::FullCollection),
                 collection_kind: None,
+                files: None,
             },
             provisions: ApplicationProvisions::default(),
             contract_setups: Vec::new(),
@@ -273,6 +275,7 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
             notification_criteria: Vec::new(),
             created_at: "2026-07-21T00:00:00Z".to_string(),
             encryption: Some(encryption.clone()),
+            file_capability: None,
         }])
         .unwrap();
     let state = AgentState::with_identity(registry, watcher, None, connector_identity);

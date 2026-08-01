@@ -115,6 +115,7 @@
           "const": "hosted",
           "description": "Require a durable provider-backed collection with direct sync support."
         },
+        "files": { "$ref": "#/$defs/fileRequirement" },
         "contracts": {
           "type": "array",
           "maxItems": 20,
@@ -122,6 +123,59 @@
           "items": { "$ref": "#/$defs/contract" }
         }
       }
+    },
+    "fileRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actions", "scope"],
+      "properties": {
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["list", "read", "add", "replace", "move", "delete"]
+          }
+        },
+        "scope": { "$ref": "#/$defs/fileScope" }
+      }
+    },
+    "fileScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "referenced" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "folders"],
+          "properties": {
+            "kind": { "const": "selected_folders" },
+            "folders": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^(?!/)(?!\\.)(?!.*//)(?!.*\\\\)(?!.*/\\.)(?!(?:_contracts|_schemas|_types|_views|node_modules)(?:/|$))(?!.*\\/(?:_contracts|_schemas|_types|_views|node_modules)(?:/|$))(?!.*/$).+$"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "collection" } }
+        }
+      ]
     },
     "typePackProvision": {
       "type": "object",

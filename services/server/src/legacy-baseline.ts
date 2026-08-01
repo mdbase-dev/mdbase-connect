@@ -268,6 +268,7 @@ export async function bootstrapLegacyBaseline(db: DatabaseQueryable): Promise<vo
       scope jsonb NOT NULL DEFAULT '{"contracts":[],"access":"full_collection"}'::jsonb,
       notification_criteria jsonb NOT NULL DEFAULT '[]'::jsonb,
       encryption jsonb,
+      file_capability jsonb,
       proof_public_key text,
       application_origin text NOT NULL DEFAULT '',
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -726,6 +727,7 @@ export async function bootstrapLegacyBaseline(db: DatabaseQueryable): Promise<vo
     "ALTER TABLE connectors ADD COLUMN relay_generation bigint NOT NULL DEFAULT 0"
   );
   await ensureColumn(db, "grants", "encryption", "ALTER TABLE grants ADD COLUMN encryption jsonb");
+  await ensureColumn(db, "grants", "file_capability", "ALTER TABLE grants ADD COLUMN file_capability jsonb");
   await ensureColumn(
     db,
     "grants",

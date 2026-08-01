@@ -3,6 +3,7 @@ import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
+  FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -184,7 +185,7 @@ export async function hostedControlSnapshot(
             a.icon AS application_icon,
             h.id AS collection_id, h.display_name AS collection_name,
             'hosted' AS collection_kind,
-            g.operations, g.scope, g.notification_criteria, g.created_at
+            g.operations, g.scope, g.file_capability, g.notification_criteria, g.created_at
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections h ON h.id = g.hosted_collection_id
@@ -498,8 +499,9 @@ export async function narrowHostedGrantForUser(
     requirements: ApplicationRequirements;
     template: HostedTemplate;
     hosted_contracts: CollectionContractDescriptor[];
+    file_capability: FileCapability | null;
   }>(
-    `SELECT g.id, g.hosted_replica_id, g.operations, g.scope,
+    `SELECT g.id, g.hosted_replica_id, g.operations, g.scope, g.file_capability,
             a.requirements, h.template,
             h.contracts AS hosted_contracts
      FROM grants g
@@ -541,7 +543,9 @@ export async function narrowHostedGrantForUser(
     "put_timer",
     "cancel_timer",
     "reconcile_timers"
-  ].includes(operation));
+  ].includes(operation)) || current.file_capability?.actions.some((action) =>
+    ["add", "replace", "move", "delete"].includes(action)
+  ) === true;
   await options.hostedProvider.updateApplicationReplica(
     current.hosted_replica_id,
     {
@@ -558,7 +562,8 @@ export async function narrowHostedGrantForUser(
         ? current.scope.contracts
         : [],
       fullCollection: current.scope.access === "full_collection",
-      allowedOperations: hostedReplicaCollectionOperations(operations)
+      allowedOperations: hostedReplicaCollectionOperations(operations),
+      fileCapability: current.file_capability ?? undefined
     }
   );
   const updated = await options.db.query<{

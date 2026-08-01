@@ -213,6 +213,45 @@ test("v1 portable manifests explicitly avoid web origin claims", () => {
   }), false);
 });
 
+test("application manifests request files independently from record contracts", () => {
+  const validate = validator(manifestSchema.$id);
+  const declaration = {
+    manifest_version: 1,
+    distribution: "portable",
+    id: "dev.mdbase.assets",
+    name: "Asset Browser",
+    requirements: {
+      contracts: [],
+      files: {
+        actions: ["list", "read"],
+        scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
+      }
+    }
+  };
+  assert.equal(validate(declaration), true, JSON.stringify(validate.errors));
+  assert.equal(validate({
+    ...declaration,
+    requirements: {
+      contracts: [],
+      files: { actions: ["read", "read"], scope: { kind: "collection" } }
+    }
+  }), false);
+  assert.equal(validate({
+    ...declaration,
+    requirements: {
+      contracts: [],
+      files: { actions: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } }
+    }
+  }), false);
+  assert.equal(validate({
+    ...declaration,
+    requirements: {
+      contracts: [],
+      files: { actions: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } }
+    }
+  }), false);
+});
+
 test("notification webhooks carry only an opaque wake-up signal", () => {
   const validate = validator(notificationWebhookSchema.$id);
   const webhook = {

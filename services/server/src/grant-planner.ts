@@ -2,8 +2,10 @@ import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionOperation,
+  FileCapability,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
+import { FILE_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { CollectionAccessContext } from "./collection-access.js";
 
 const FULL_COLLECTION_OPERATIONS = new Set<CollectionOperation>([
@@ -32,10 +34,13 @@ const WRITE_OPERATIONS = new Set<CollectionOperation>([
   "reconcile_timers"
 ]);
 
+const WRITE_FILE_ACTIONS = new Set(["add", "replace", "move", "delete"]);
+
 export interface GrantPlan {
   operations: CollectionOperation[];
   scope: GrantScope;
   replicaMode: "read_only" | "read_write";
+  fileCapability?: FileCapability;
 }
 
 /**
@@ -52,8 +57,17 @@ export function planCollectionGrant(input: {
   access: CollectionAccessContext;
 }): GrantPlan {
   const operations = [...new Set(input.requestedOperations)];
-  if (operations.length === 0) {
-    throw new GrantPlanningError("At least one operation must be approved.");
+  const fileRequirement = input.requirements.files;
+  if (operations.length === 0 && !fileRequirement) {
+    throw new GrantPlanningError("At least one record operation or file capability must be approved.");
+  }
+  if (fileRequirement) {
+    if (
+      fileRequirement.actions.length === 0
+      || new Set(fileRequirement.actions).size !== fileRequirement.actions.length
+    ) {
+      throw new GrantPlanningError("File capabilities require at least one unique action.");
+    }
   }
   const applicationOperations = new Set(input.applicationOperationCeiling);
   if (operations.some((operation) => !applicationOperations.has(operation))) {
@@ -67,7 +81,8 @@ export function planCollectionGrant(input: {
     );
   }
   if (
-    input.requirements.access !== "full_collection"
+    operations.length > 0
+    && input.requirements.access !== "full_collection"
     && input.requirements.contracts.length === 0
   ) {
     throw new GrantPlanningError(
@@ -88,13 +103,29 @@ export function planCollectionGrant(input: {
     input.availableContracts
   );
   const scope = intersectScope(applicationScope, input.access.scopeCeiling);
+  const fileCapability = fileCapabilityForRequirements(input.requirements);
   return {
     operations,
     scope,
     replicaMode: operations.some((operation) => WRITE_OPERATIONS.has(operation))
+      || fileRequirement?.actions.some((action) => WRITE_FILE_ACTIONS.has(action))
       ? "read_write"
-      : "read_only"
+      : "read_only",
+    ...(fileCapability ? { fileCapability } : {})
   };
+}
+
+export function fileCapabilityForRequirements(
+  requirements: ApplicationRequirements
+): FileCapability | undefined {
+  return requirements.files
+    ? {
+        kind: "files",
+        protocol_version: FILE_PROTOCOL_VERSION,
+        actions: [...requirements.files.actions],
+        scope: structuredClone(requirements.files.scope)
+      }
+    : undefined;
 }
 
 function scopeForRequirements(

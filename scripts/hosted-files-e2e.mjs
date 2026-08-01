@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID, randomBytes } from "node:crypto";
 import { resolve, join } from "node:path";
 import { promisify } from "node:util";
+import { MdbaseFileClient } from "../packages/client/dist/files.js";
 
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
@@ -57,9 +58,15 @@ try {
   const largeUpload = await upload(provider.url, collectionId, writer.token, "Media/large.bin", large);
   assert.equal(largeUpload.open.strategy.kind, "object_multipart");
 
+  const sdk = fileSdk(provider.url, collectionId, writer.token);
+  const sdkBytes = Buffer.from("uploaded and verified through the public SDK");
+  const sdkFile = await sdk.upload("Assets/sdk.bin", sdkBytes);
+  assert.equal(sdkFile.content_digest, digest(sdkBytes));
+  assert.deepEqual(Buffer.from(await sdk.downloadBytes(sdkFile)), sdkBytes);
+
   const listed = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/files?protocol_version=1`, { token: writer.token }));
-  assert.deepEqual(listed.files.map((file) => file.path).sort(), ["Assets/small.bin", "Media/large.bin"]);
+  assert.deepEqual(listed.files.map((file) => file.path).sort(), ["Assets/sdk.bin", "Assets/small.bin", "Media/large.bin"]);
   assert.deepEqual(await download(provider.url, collectionId, writer.token, smallUpload.receipt.file), small);
   assert.deepEqual(await download(provider.url, collectionId, writer.token, largeUpload.receipt.file), large);
 
@@ -68,10 +75,10 @@ try {
   const fileSnapshot = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/sync/files/snapshot?snapshot_id=${session.snapshot_id}`,
     { token: writer.token }));
-  assert.equal(fileSnapshot.files.length, 2);
+  assert.equal(fileSnapshot.files.length, 3);
   const changes = await ok(request(provider.url,
     `/v1/authorities/${collectionId}/sync/changes?after=0&limit=100`, { token: writer.token }));
-  assert.deepEqual(changes.events.map((event) => event.type), ["file_put", "file_put"]);
+  assert.deepEqual(changes.events.map((event) => event.type), ["file_put", "file_put", "file_put"]);
 
   const bad = Buffer.from("wrong bytes");
   const badTransfer = randomUUID();
@@ -105,7 +112,7 @@ try {
   assert.equal(plaintextPaths, "0");
   const objectsAfterCommit = await mc("find", `local/${bucket}`);
   assert.equal(objectsAfterCommit.includes("/v1/staging/"), false);
-  assert.equal(objectsAfterCommit.trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 2);
+  assert.equal(objectsAfterCommit.trim().split("\n").filter((line) => line.includes("/v1/blobs/")).length, 3);
   process.stdout.write("mdbase hosted file PostgreSQL + S3 e2e passed\n");
 } finally {
   if (provider && provider.exitCode === null) provider.kill("SIGTERM");
@@ -155,6 +162,22 @@ async function download(url, collectionId, token, file) {
   const bytes = Buffer.concat(chunks);
   assert.equal(digest(bytes), file.content_digest);
   return bytes;
+}
+
+function fileSdk(url, collectionId, token) {
+  return new MdbaseFileClient(
+    () => ({
+      kind: "files",
+      protocol_version: 1,
+      actions: ["list", "read", "add", "replace"],
+      scope: { kind: "collection" }
+    }),
+    async (method, path = "", input) => ok(request(
+      url,
+      `/v1/authorities/${collectionId}/files${path === "" || path.startsWith("?") ? path : `/${path}`}`,
+      { method, token, ...(input === undefined ? {} : { body: input }) }
+    ))
+  );
 }
 
 function digest(bytes) { return `sha256:${createHash("sha256").update(bytes).digest("hex")}`; }

@@ -5,6 +5,7 @@ import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
   ContractRequirement,
+  FileCapability,
   GrantEncryption,
   GrantPolicy,
   GrantScope,
@@ -14,6 +15,7 @@ import type { DatabasePool, DatabaseQueryable } from "../../db.js";
 import { queueHostedGrantRevocation } from "../../hosted-capability-lifecycle.js";
 import { contractRequirements, effectiveHostedContractDescriptors } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
+import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
@@ -36,6 +38,7 @@ export async function createOrUpdateGrant(
     collectionId: string;
     operations: string[];
     scope: GrantScope;
+    fileCapability?: FileCapability;
     applicationOrigin: string;
     notificationCriteria: NotificationCriterion[];
   }
@@ -50,13 +53,14 @@ export async function createOrUpdateGrant(
   const grant = existing.rows[0]
     ? await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
         `UPDATE grants SET operations = $2::jsonb, scope = $3::jsonb,
-                           application_origin = $4,
-                           notification_criteria = $5::jsonb
+                           file_capability = $4::jsonb, application_origin = $5,
+                           notification_criteria = $6::jsonb
          WHERE id = $1 RETURNING id, operations, scope`,
         [
           existing.rows[0].id,
           JSON.stringify(operations),
           JSON.stringify(input.scope),
+          input.fileCapability ? JSON.stringify(input.fileCapability) : null,
           input.applicationOrigin,
           JSON.stringify(input.notificationCriteria)
         ]
@@ -64,8 +68,8 @@ export async function createOrUpdateGrant(
     : await db.query<{ id: string; operations: string[]; scope: GrantScope }>(
         `INSERT INTO grants
            (id, user_id, application_id, collection_id, operations, scope,
-            application_origin, notification_criteria)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)
+            file_capability, application_origin, notification_criteria)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)
          RETURNING id, operations, scope`,
         [
           randomUUID(),
@@ -74,6 +78,7 @@ export async function createOrUpdateGrant(
           input.collectionId,
           JSON.stringify(operations),
           JSON.stringify(input.scope),
+          input.fileCapability ? JSON.stringify(input.fileCapability) : null,
           input.applicationOrigin,
           JSON.stringify(input.notificationCriteria)
         ]
@@ -101,6 +106,7 @@ export async function syncHostedNotificationGrant(
     operations: string[];
     scope: GrantScope;
     notification_criteria: NotificationCriterion[];
+    file_capability: FileCapability | null;
     created_at: string | Date;
   }>(
     `SELECT g.id, g.application_id, a.name AS application_name,
@@ -110,7 +116,8 @@ export async function syncHostedNotificationGrant(
             a.icon AS application_icon,
             g.hosted_collection_id AS collection_id,
             hosted.display_name AS collection_name,
-            g.operations, g.scope, g.notification_criteria, g.created_at
+            g.operations, g.scope, g.notification_criteria, g.file_capability,
+            g.created_at
      FROM grants g
      JOIN applications a ON a.id = g.application_id
      JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -136,7 +143,8 @@ export async function syncHostedNotificationGrant(
     ...(row.application_icon ? { application_icon: row.application_icon } : {}),
     collection_name: row.collection_name,
     notification_criteria: row.notification_criteria,
-    created_at: new Date(row.created_at).toISOString()
+    created_at: new Date(row.created_at).toISOString(),
+    ...(row.file_capability ? { file_capability: row.file_capability } : {})
   };
   await provider.upsertNotificationGrant(row.collection_id, grant);
 }
@@ -166,11 +174,13 @@ export async function reconcileApplicationGrants(
     allowed_types: string[] | null;
     scope: GrantScope;
     notification_criteria: NotificationCriterion[];
+    file_capability: FileCapability | null;
   }>(
     `SELECT g.id, g.user_id, col.connector_id, g.hosted_collection_id, g.hosted_replica_id,
             g.operations, col.contracts AS local_contracts, col.spec_version,
             hosted.contracts AS hosted_contracts, hosted.template,
-            replica.allowed_types, g.scope, g.notification_criteria
+            replica.allowed_types, g.scope, g.notification_criteria,
+            g.file_capability
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
@@ -225,6 +235,11 @@ export async function reconcileApplicationGrants(
       application.requirements,
       availableDescriptors
     );
+    const desiredFileCapability = fileCapabilityForRequirements(application.requirements);
+    const fileCapabilityMatches = isDeepStrictEqual(
+      grant.file_capability,
+      desiredFileCapability ?? null
+    );
     const collectionKindCompatible = !requiresHostedCollection(application.requirements)
       || grant.template !== null;
     const collectionCompatible = collectionKindCompatible
@@ -239,11 +254,16 @@ export async function reconcileApplicationGrants(
       : [];
     const replicaScopeMatches = !grant.hosted_replica_id
       || sameStrings(grant.allowed_types ?? [], desiredAllowedTypes);
-    if (scopeMatches && collectionCompatible && replicaScopeMatches) continue;
+    if (
+      scopeMatches
+      && collectionCompatible
+      && replicaScopeMatches
+      && fileCapabilityMatches
+    ) continue;
     const mayNarrow = desiredScope.contracts.length > 0
       && (grant.scope.contracts.length === 0
         || isContractSubset(desiredScope.contracts, grant.scope.contracts));
-    if ((scopeMatches || mayNarrow) && collectionCompatible) {
+    if ((scopeMatches || mayNarrow) && collectionCompatible && fileCapabilityMatches) {
       if (grant.hosted_replica_id) {
         if (!hostedProvider) {
           throw new Error("Hosted provider unavailable during grant reconciliation.");
@@ -264,14 +284,17 @@ export async function reconcileApplicationGrants(
             "cancel_timer",
             "reconcile_timers"
           ].includes(operation)
-        );
+        ) || desiredFileCapability?.actions.some((action) =>
+          ["add", "replace", "move", "delete"].includes(action)
+        ) === true;
         await hostedProvider.updateApplicationReplica(grant.hosted_replica_id, {
           grantId: grant.id,
           mode: write ? "read_write" : "read_only",
           allowedTypes: desiredAllowedTypes,
           contractScope: desiredScope.access === "contract" ? desiredScope.contracts : [],
           fullCollection: application.requirements.access === "full_collection",
-          allowedOperations: hostedReplicaCollectionOperations(grant.operations)
+          allowedOperations: hostedReplicaCollectionOperations(grant.operations),
+          fileCapability: desiredFileCapability
         });
         await db.query(
           "UPDATE hosted_replicas SET allowed_types = $2::jsonb, mode = $3 WHERE id = $1",

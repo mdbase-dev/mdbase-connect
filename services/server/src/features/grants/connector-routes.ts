@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { COLLECTION_OPERATIONS } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
+import { fileCapabilityForRequirements } from "../../grant-planner.js";
 import { collectionContractDescriptorSchema } from "../../protocol-schemas.js";
 import type { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
@@ -40,7 +41,7 @@ export function registerConnectorGrantRoutes(
     const input = z.object({
       application_id: z.uuid(),
       collection_id: z.uuid(),
-      operations: z.array(operationSchema).min(1),
+      operations: z.array(operationSchema),
       contracts: z.array(collectionContractDescriptorSchema).max(100).optional()
     }).parse(request.body);
     if (input.contracts) {
@@ -122,6 +123,7 @@ export function registerConnectorGrantRoutes(
       collectionId: collection.rows[0].id,
       operations: input.operations,
       scope,
+      fileCapability: fileCapabilityForRequirements(application.rows[0].requirements),
       applicationOrigin: new URL(application.rows[0].homepage).origin,
       notificationCriteria: application.rows[0].notifications.criteria
     });
@@ -138,7 +140,7 @@ export function registerConnectorGrantRoutes(
     if (!connector) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
     const input = z.object({
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema)
     }).parse(request.body);
     const current = await options.db.query<{
       requirements: ApplicationRequirements;

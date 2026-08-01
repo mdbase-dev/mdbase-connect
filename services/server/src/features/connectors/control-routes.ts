@@ -41,7 +41,7 @@ export function registerConnectorControlRoutes(
               a.icon AS application_icon,
               col.local_id AS collection_id,
               col.display_name AS collection_name,
-              g.operations, g.scope, g.encryption, g.created_at,
+              g.operations, g.scope, g.encryption, g.file_capability, g.created_at,
               g.notification_criteria
        FROM grants g
        JOIN applications a ON a.id = g.application_id

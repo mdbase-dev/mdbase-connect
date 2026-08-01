@@ -97,8 +97,8 @@ represented by one ever-growing operation list:
   "protocol_version": 1,
   "actions": ["list", "read", "add", "replace", "move", "delete"],
   "scope": {
-    "mode": "selected_folders",
-    "folders": ["Photos/", "Documents/"]
+    "kind": "selected_folders",
+    "folders": ["Photos", "Documents"]
   }
 }
 ```
@@ -279,21 +279,38 @@ included blob at the final fenced sequence.
 
 ## SDK contract
 
-The ordinary browser API exposes `collection.files` and
-`collection.attachments`:
+An application requests file intent independently from record contracts:
+
+```json
+{
+  "requirements": {
+    "contracts": [],
+    "files": {
+      "actions": ["list", "read", "add", "replace"],
+      "scope": { "kind": "selected_folders", "folders": ["Photos"] }
+    }
+  }
+}
+```
+
+The ordinary browser API exposes `connection.files`:
 
 ```ts
-const stored = await collection.files.add({
-  data: browserFile,
-  name: browserFile.name,
-  signal,
-  onProgress
-});
+const stored = await connection.files.upload(
+  `Photos/${browserFile.name}`,
+  browserFile,
+  { signal, onProgress }
+);
 
-const file = await collection.files.get(stored.path);
-const blob = await file.blob();
-const stream = file.stream();
+for await (const file of connection.files.list({ folder: "Photos" })) {
+  const blob = await connection.files.download(file, { signal, onProgress });
+  image.src = URL.createObjectURL(blob);
+}
+```
 
+Record-link helpers build on this file API without redefining storage paths:
+
+```ts
 const attached = await collection.attachments.add({
   record: "Journal/today.md",
   field: "photo",
@@ -301,10 +318,13 @@ const attached = await collection.attachments.add({
 });
 ```
 
-The SDK owns transport negotiation, hashing, chunks, encryption, resume,
-receipts, cached blobs, progress, and cleanup. Stable file IDs remain the
-machine identity; returned paths remain suitable for human-readable Markdown
-links. Link resolution delegates to authority-owned mdbase semantics.
+The hosted implementation already owns transport negotiation, incremental
+hashing, single versus multipart R2 delivery, bounded concurrent range reads,
+retry, receipts, progress, abort cleanup, and exact download verification.
+Local and relayed authorities use the same facade with encrypted MDBF chunks.
+Stable file IDs remain the machine identity; returned paths remain suitable for
+human-readable Markdown links. Link resolution delegates to authority-owned
+mdbase semantics.
 
 The public problem taxonomy includes structured recovery for permission,
 unsafe or occupied paths, unsupported selection, size, quota, stale revision,

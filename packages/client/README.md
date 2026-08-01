@@ -404,6 +404,36 @@ local and hosted authorities.
 provider credential. It refreshes the grant-bound capability as needed and can
 be passed directly to `@mdbase-dev/connect-sync` for an offline application cache.
 
+Applications request non-Markdown files separately from record contracts:
+
+```ts
+requirements: {
+  contracts: [],
+  files: {
+    actions: ["list", "read", "add", "replace"],
+    scope: { kind: "selected_folders", folders: ["Photos"] }
+  }
+}
+```
+
+The granted connection exposes one storage-neutral facade. Hosted transfers go
+directly to private R2 objects through short-lived prepared requests; object
+keys, multipart ETags, provider credentials, retries, and integrity checks stay
+inside the SDK.
+
+```ts
+const saved = await connection.files.upload("Photos/image.jpg", browserFile, {
+  onProgress: ({ phase, transferredBytes, totalBytes }) => {
+    console.log(phase, transferredBytes, totalBytes);
+  }
+});
+
+for await (const file of connection.files.list({ folder: "Photos" })) {
+  const blob = await connection.files.download(file);
+  console.log(file.file_id, file.path, blob.size);
+}
+```
+
 Record-facing code can depend on `MdbaseCollectionClient` instead of the OAuth
 client. It accepts a small `MdbaseCollectionTransport`, which is the stable seam
 used by Connect, the developer sandbox, and future hosted providers. This keeps

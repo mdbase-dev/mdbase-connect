@@ -1,4 +1,5 @@
 import type {
+  FileCapability,
   GrantEncryption,
   GrantScope,
   MdbaseAppManifest
@@ -78,6 +79,7 @@ export function validAuthorityTokenResponse(value: unknown, collectionId: unknow
   const authority = value as {
     operations_url?: unknown;
     sync_url?: unknown;
+    files_url?: unknown;
     replica_id?: unknown;
     access_token?: unknown;
     proof_public_key?: unknown;
@@ -85,6 +87,7 @@ export function validAuthorityTokenResponse(value: unknown, collectionId: unknow
   if (
     typeof authority.operations_url !== "string"
     || typeof authority.sync_url !== "string"
+    || typeof authority.files_url !== "string"
     || typeof authority.replica_id !== "string"
     || authority.replica_id.length === 0
     || typeof authority.access_token !== "string"
@@ -100,7 +103,8 @@ export function validAuthorityTokenResponse(value: unknown, collectionId: unknow
   try {
     const operations = new URL(authority.operations_url);
     const sync = new URL(authority.sync_url);
-    return [operations, sync].every((url) =>
+    const files = new URL(authority.files_url);
+    return [operations, sync, files].every((url) =>
       (
         url.protocol === "https:"
         || (
@@ -115,9 +119,12 @@ export function validAuthorityTokenResponse(value: unknown, collectionId: unknow
     )
       && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/operations$/i.test(operations.pathname)
       && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/sync$/i.test(sync.pathname)
+      && /^\/v1\/authorities\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/files$/i.test(files.pathname)
       && operations.origin === sync.origin
+      && operations.origin === files.origin
       && operations.pathname.split("/")[3] === collectionId
-      && sync.pathname.split("/")[3] === collectionId;
+      && sync.pathname.split("/")[3] === collectionId
+      && files.pathname.split("/")[3] === collectionId;
   } catch {
     return false;
   }
@@ -130,10 +137,78 @@ export function validStoredAuthority(
   return validAuthorityTokenResponse({
     operations_url: authority?.operationsUrl,
     sync_url: authority?.syncUrl,
+    files_url: authority?.filesUrl,
     replica_id: authority?.replicaId,
     access_token: authority?.accessToken,
     proof_public_key: authority?.proofPublicKey
   }, collectionId);
+}
+
+export function validFileCapability(value: unknown): value is FileCapability {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const capability = value as Partial<FileCapability>;
+  const actions = capability.actions;
+  if (
+    capability.kind !== "files"
+    || capability.protocol_version !== 1
+    || !Array.isArray(actions)
+    || actions.length === 0
+    || actions.length > 6
+    || new Set(actions).size !== actions.length
+    || actions.some((action) => ![
+      "list",
+      "read",
+      "add",
+      "replace",
+      "move",
+      "delete"
+    ].includes(action))
+  ) return false;
+  const scope = capability.scope;
+  if (!scope || typeof scope !== "object" || Array.isArray(scope)) return false;
+  if (scope.kind === "referenced" || scope.kind === "collection") {
+    return Object.keys(scope).length === 1;
+  }
+  return scope.kind === "selected_folders"
+    && Object.keys(scope).length === 2
+    && Array.isArray(scope.folders)
+    && scope.folders.length > 0
+    && scope.folders.length <= 100
+    && new Set(scope.folders).size === scope.folders.length
+    && scope.folders.every((folder) =>
+      typeof folder === "string"
+      && folder.length > 0
+      && folder.length <= 1_024
+      && validFileFolder(folder)
+    );
+}
+
+function validFileFolder(folder: string): boolean {
+  const reserved = new Set([
+    ".mdbase",
+    ".git",
+    "node_modules",
+    "_contracts",
+    "_schemas",
+    "_types",
+    "_views"
+  ]);
+  return !folder.startsWith("/")
+    && !folder.endsWith("/")
+    && !folder.includes("\\")
+    && folder.split("/").every((component) => {
+      const stem = component.split(".")[0]?.toUpperCase() ?? "";
+      return component !== ""
+        && component !== "."
+        && component !== ".."
+        && !component.startsWith(".")
+        && !component.endsWith(" ")
+        && !component.endsWith(".")
+        && !/[<>:"|?*]/.test(component)
+        && !reserved.has(component.toLowerCase())
+        && !["CON", "PRN", "AUX", "NUL"].includes(stem)
+        && !/^(COM|LPT)[1-9]$/.test(stem);
+    });
 }
 
 export function validStoredEncryption(

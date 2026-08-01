@@ -1,7 +1,7 @@
 export function authorityUrl(
   baseUrl: string,
   collectionId: string,
-  capability: "operations" | "sync"
+  capability: "operations" | "sync" | "files"
 ): string {
   const base = new URL(baseUrl);
   base.pathname = `/v1/authorities/${encodeURIComponent(collectionId)}/${capability}`;

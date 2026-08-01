@@ -43,6 +43,15 @@ pub enum FileScope {
     Collection,
 }
 
+/// File access requested by an application manifest. Protocol negotiation is
+/// authority-owned, so manifests describe intent without pinning a transport
+/// version or repeating the granted capability discriminator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationFileRequirement {
+    pub actions: Vec<FileAction>,
+    pub scope: FileScope,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCapability {
     pub kind: FileCapabilityKind,

@@ -27,6 +27,60 @@ const contractsSchema = z.array(contractSchema).max(20).refine(
   (contracts) => new Set(contracts.map((contract) => `${contract.id}@${contract.version}`)).size === contracts.length,
   "Contracts must be unique."
 );
+const fileActionsSchema = z.array(z.enum([
+  "list",
+  "read",
+  "add",
+  "replace",
+  "move",
+  "delete"
+])).min(1).max(6).refine(
+  (actions) => new Set(actions).size === actions.length,
+  "File actions must be unique."
+);
+const fileFolderSchema = z.string().min(1).max(1_024).refine(
+  (folder) => validFileFolder(folder),
+  "File folders must be portable collection-relative paths."
+);
+
+function validFileFolder(folder: string): boolean {
+  const reserved = new Set([
+    ".mdbase",
+    ".git",
+    "node_modules",
+    "_contracts",
+    "_schemas",
+    "_types",
+    "_views"
+  ]);
+  return !folder.startsWith("/")
+    && !folder.endsWith("/")
+    && !folder.includes("\\")
+    && folder.split("/").every((component) => {
+      const stem = component.split(".")[0]?.toUpperCase();
+      return component !== ""
+        && component !== "."
+        && component !== ".."
+        && !component.startsWith(".")
+        && !component.endsWith(" ")
+        && !component.endsWith(".")
+        && !/[<>:"|?*]/.test(component)
+        && !reserved.has(component.toLowerCase())
+        && !["CON", "PRN", "AUX", "NUL"].includes(stem ?? "")
+        && !/^(COM|LPT)[1-9]$/.test(stem ?? "");
+    });
+}
+const fileScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("referenced") }).strict(),
+  z.object({
+    kind: z.literal("selected_folders"),
+    folders: z.array(fileFolderSchema).min(1).max(100).refine(
+      (folders) => new Set(folders).size === folders.length,
+      "File folders must be unique."
+    )
+  }).strict(),
+  z.object({ kind: z.literal("collection") }).strict()
+]);
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const typePackResourceSchema = z.object({
   kind: z.enum(["contract", "type", "schema"]),
@@ -56,7 +110,11 @@ const typePackManifestSchema = z.object({
 const requirementsSchema = z.object({
   contracts: contractsSchema,
   access: z.enum(["contract", "full_collection"]).optional(),
-  collection_kind: z.literal("hosted").optional()
+  collection_kind: z.literal("hosted").optional(),
+  files: z.object({
+    actions: fileActionsSchema,
+    scope: fileScopeSchema
+  }).strict().optional()
 }).strict().default({ contracts: [] });
 const notificationCriterionSchema = z.object({
   id: contractSchema.shape.id,

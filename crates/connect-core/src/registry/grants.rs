@@ -20,8 +20,8 @@ impl CollectionRegistry {
                    (id, application_id, collection_id, operations, scope, application_name,
                     application_distribution, application_homepage, application_project_url,
                     application_origin, application_icon, collection_name, created_at, encryption,
-                    notification_criteria)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                    file_capability, notification_criteria)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -40,6 +40,11 @@ impl CollectionRegistry {
                     grant.created_at,
                     grant
                         .encryption
+                        .as_ref()
+                        .map(serde_json::to_string)
+                        .transpose()?,
+                    grant
+                        .file_capability
                         .as_ref()
                         .map(serde_json::to_string)
                         .transpose()?,
@@ -91,8 +96,8 @@ impl CollectionRegistry {
                (id, application_id, collection_id, operations, scope, application_name,
                 application_distribution, application_homepage, application_project_url,
                 application_origin, application_icon, collection_name, created_at, encryption,
-                notification_criteria)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                file_capability, notification_criteria)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              ON CONFLICT(id) DO UPDATE SET
                application_id = excluded.application_id,
                collection_id = excluded.collection_id,
@@ -107,6 +112,7 @@ impl CollectionRegistry {
                collection_name = excluded.collection_name,
                created_at = excluded.created_at,
                encryption = excluded.encryption,
+               file_capability = excluded.file_capability,
                notification_criteria = excluded.notification_criteria,
                updated_at = CURRENT_TIMESTAMP",
             params![
@@ -125,6 +131,11 @@ impl CollectionRegistry {
                 grant.created_at,
                 grant
                     .encryption
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+                grant
+                    .file_capability
                     .as_ref()
                     .map(serde_json::to_string)
                     .transpose()?,
@@ -175,6 +186,7 @@ impl CollectionRegistry {
                     notification_criteria: grant.notification_criteria.clone(),
                     created_at: grant.created_at.clone(),
                     encryption: grant.encryption.clone(),
+                    file_capability: grant.file_capability.clone(),
                 })
                 .collect::<Vec<_>>(),
         )
@@ -186,7 +198,7 @@ impl CollectionRegistry {
             "SELECT id, application_id, application_name, application_distribution,
                     application_homepage, application_project_url, application_origin,
                     application_icon, collection_id, collection_name, operations, scope,
-                    created_at, encryption, notification_criteria
+                    created_at, encryption, file_capability, notification_criteria
              FROM grants ORDER BY application_name COLLATE NOCASE, collection_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -205,7 +217,8 @@ impl CollectionRegistry {
                 row.get::<_, String>(11)?,
                 row.get::<_, String>(12)?,
                 row.get::<_, Option<String>>(13)?,
-                row.get::<_, String>(14)?,
+                row.get::<_, Option<String>>(14)?,
+                row.get::<_, String>(15)?,
             ))
         })?;
         rows.map(|row| {
@@ -224,6 +237,7 @@ impl CollectionRegistry {
                 scope,
                 created_at,
                 encryption,
+                file_capability,
                 notification_criteria,
             ) = row?;
             Ok(GrantSummary {
@@ -242,6 +256,10 @@ impl CollectionRegistry {
                 notification_criteria: serde_json::from_str(&notification_criteria)?,
                 created_at,
                 encryption: encryption
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()?,
+                file_capability: file_capability
                     .as_deref()
                     .map(serde_json::from_str)
                     .transpose()?,

@@ -163,6 +163,7 @@ implements:
             contracts: vec![requirement],
             access: Some(mdbase_connect_protocol::ApplicationAccess::Contract),
             collection_kind: None,
+            files: None,
         },
         provision,
     )

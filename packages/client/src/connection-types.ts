@@ -1,5 +1,6 @@
 import type {
   CollectionOperation,
+  FileCapability,
   GrantScope,
   JsonObject,
   SyncChangesPage,
@@ -23,6 +24,7 @@ export interface MdbaseConnectionInfo {
   displayName: string;
   operations: CollectionOperation[];
   scope: GrantScope;
+  fileCapability?: FileCapability;
   route: MdbaseConnectionRoute;
   directAccess: DirectAccessStatus;
 }

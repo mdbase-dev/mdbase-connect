@@ -304,6 +304,7 @@ fn test_grant(collection_id: Uuid) -> GrantSummary {
         }],
         created_at: "2026-07-29T00:00:00Z".to_string(),
         encryption: None,
+        file_capability: None,
     }
 }
 

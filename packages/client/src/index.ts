@@ -20,6 +20,7 @@ export * from "./connect.js";
 export * from "./connection.js";
 export * from "./connection-types.js";
 export * from "./errors.js";
+export * from "./files.js";
 export * from "./notifications.js";
 export * from "./outcomes.js";
 export * from "./operation-types.js";

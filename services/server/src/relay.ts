@@ -339,6 +339,7 @@ export class RelayHub {
       operations: string[];
       scope: GrantScope;
       encryption: unknown | null;
+      file_capability: unknown | null;
       notification_criteria: unknown[];
       created_at: string;
     }>(
@@ -350,7 +351,7 @@ export class RelayHub {
                    ELSE g.application_origin END AS application_origin,
               a.icon AS application_icon,
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
-              g.encryption, g.notification_criteria, g.created_at
+              g.encryption, g.file_capability, g.notification_criteria, g.created_at
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
@@ -379,7 +380,8 @@ export class RelayHub {
       collection_name: grant.collection_name,
       notification_criteria: grant.notification_criteria,
       created_at: grant.created_at,
-      ...(grant.encryption ? { encryption: grant.encryption } : {})
+      ...(grant.encryption ? { encryption: grant.encryption } : {}),
+      ...(grant.file_capability ? { file_capability: grant.file_capability } : {})
     }));
     const message = {
       type: "policy_snapshot",

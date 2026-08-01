@@ -14,10 +14,18 @@ fn assert_schema(reference: &str, value: Value) {
         object.remove("oneOf");
         object.insert("$ref".to_string(), Value::String(format!("#{reference}")));
     }
-    let validator = jsonschema::JSONSchema::options()
+    let file_schema: Value = serde_json::from_str(include_str!(
+        "../../../packages/protocol/schemas/files.v1.schema.json"
+    ))
+    .unwrap();
+    let mut options = jsonschema::JSONSchema::options();
+    options
         .with_draft(jsonschema::Draft::Draft202012)
-        .compile(&schema)
-        .unwrap();
+        .with_document(
+            "https://mdbase.dev/connect/schemas/files.v1.json".to_string(),
+            file_schema,
+        );
+    let validator = options.compile(&schema).unwrap();
     let errors = validator
         .validate(&value)
         .err()
@@ -402,6 +410,14 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
                 notification_criteria: Vec::new(),
                 created_at: "2026-07-21T00:00:00Z".to_string(),
                 encryption: None,
+                file_capability: Some(FileCapability {
+                    kind: FileCapabilityKind::Files,
+                    protocol_version: FILE_PROTOCOL_VERSION,
+                    actions: vec![FileAction::List, FileAction::Read],
+                    scope: FileScope::SelectedFolders {
+                        folders: vec!["Assets".to_string()],
+                    },
+                }),
             }],
         },
         RelayMessage::PolicyApplied {
@@ -453,6 +469,7 @@ fn portable_policy_keeps_v1_and_the_exact_opaque_origin() {
                 application_agreement_public_key: "A".repeat(87),
                 connector_agreement_public_key: "B".repeat(87),
             }),
+            file_capability: None,
         }],
     };
     assert_schema("", serde_json::to_value(message).unwrap());

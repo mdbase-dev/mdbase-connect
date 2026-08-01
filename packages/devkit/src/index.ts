@@ -20,6 +20,7 @@ import appManifestSchema from "@mdbase-dev/connect-protocol/schemas/mdbase-app.s
 import connectProblemSchema from "@mdbase-dev/connect-protocol/schemas/connect-problem.v1.schema.json" with { type: "json" };
 import dataContractSchema from "@mdbase-dev/connect-protocol/schemas/data-contract.schema.json" with { type: "json" };
 import connectProtocolSchema from "@mdbase-dev/connect-protocol/schemas/connect-protocol.v1.schema.json" with { type: "json" };
+import filesSchema from "@mdbase-dev/connect-protocol/schemas/files.v1.schema.json" with { type: "json" };
 
 export interface ValidationIssue {
   path: string;
@@ -37,11 +38,12 @@ const ajv = new Ajv2020({
   strict: true,
   // `required` may name properties declared by an enclosing allOf branch.
   strictRequired: false,
-  formats: { "date-time": true, uri: true }
+  formats: { "date-time": true, uri: true, uuid: true }
 });
 ajv.addSchema(appManifestSchema);
 ajv.addSchema(connectProblemSchema);
 ajv.addSchema(dataContractSchema);
+ajv.addSchema(filesSchema);
 ajv.addSchema(connectProtocolSchema);
 
 const appManifestValidator = requiredValidator(String(appManifestSchema.$id));

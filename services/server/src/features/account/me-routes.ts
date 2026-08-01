@@ -140,7 +140,7 @@ export function registerAccountOverviewRoute(
       }
     }
     const grants = await options.db.query(
-      `SELECT g.id, g.operations, g.scope, g.created_at, g.revoked_at,
+      `SELECT g.id, g.operations, g.scope, g.file_capability, g.created_at, g.revoked_at,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
               COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,

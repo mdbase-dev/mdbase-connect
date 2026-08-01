@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { GrantEncryption, GrantScope } from "@mdbase-dev/connect-protocol";
+import type {
+  FileCapability,
+  GrantEncryption,
+  GrantScope
+} from "@mdbase-dev/connect-protocol";
 import {
   requireCollectionAction,
   resolveHostedCollectionAccess,
@@ -28,10 +32,12 @@ export async function issueApplicationTokens(
   scope: GrantScope;
   grant_id: string;
   encryption: GrantEncryption | null;
+  file_capability: FileCapability | null;
   application_origin: string;
   authority?: {
     operations_url: string;
     sync_url: string;
+    files_url: string;
     replica_id: string;
     access_token: string;
     proof_public_key?: string;
@@ -48,6 +54,7 @@ export async function issueApplicationTokens(
     operations: string[];
     scope: GrantScope;
     encryption: GrantEncryption | null;
+    file_capability: FileCapability | null;
     proof_public_key: string | null;
     application_origin: string;
   }>(
@@ -56,7 +63,8 @@ export async function issueApplicationTokens(
             g.collection_id AS local_authority_row_id,
             COALESCE(col.display_name, hosted.display_name) AS collection_name,
             g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
-            g.operations, g.scope, g.encryption, g.proof_public_key,
+            g.operations, g.scope, g.encryption, g.file_capability,
+            g.proof_public_key,
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin
      FROM grants g
@@ -96,6 +104,7 @@ export async function issueApplicationTokens(
   let authority: {
     operations_url: string;
     sync_url: string;
+    files_url: string;
     replica_id: string;
     access_token: string;
     proof_public_key?: string;
@@ -116,6 +125,11 @@ export async function issueApplicationTokens(
         grant.rows[0].provider_url,
         grant.rows[0].collection_id,
         "sync"
+      ),
+      files_url: authorityUrl(
+        grant.rows[0].provider_url,
+        grant.rows[0].collection_id,
+        "files"
       ),
       replica_id: grant.rows[0].hosted_replica_id,
       access_token: providerToken,
@@ -146,6 +160,7 @@ export async function issueApplicationTokens(
     scope: grant.rows[0].scope,
     grant_id: grantId,
     encryption: grant.rows[0].encryption,
+    file_capability: grant.rows[0].file_capability,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
     ...(authority ? { authority } : {})
   };

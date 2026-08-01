@@ -93,6 +93,8 @@ export function assertOperationsAllowedByRequirements(
   requirements: ApplicationRequirements | null | undefined
 ): void {
   if (
+    operations.length > 0
+    &&
     requirements?.access !== "full_collection"
     && (requirements?.contracts?.length ?? 0) === 0
   ) {

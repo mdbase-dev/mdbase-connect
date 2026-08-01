@@ -8,6 +8,7 @@ import type {
   DeleteViewSourceInput,
   DeleteViewSourceResult,
   ExecuteViewInput,
+  FileCapability,
   GrantScope,
   JsonObject,
   ReadViewSourceInput,
@@ -36,6 +37,7 @@ import type {
 } from "./connection-types.js";
 import type { GrantKeyStore } from "./crypto.js";
 import { MdbaseConnectError, connectError } from "./errors.js";
+import { MdbaseFileClient } from "./files.js";
 import {
   DEFAULT_OPERATIONS,
   type Application
@@ -170,6 +172,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
   private readonly collectionClient: MdbaseCollectionClient<Frontmatter>;
   private readonly notifications: ConnectionNotifications;
   private readonly transport: ConnectionTransport;
+  readonly files: MdbaseFileClient;
   private readonly connectionListeners = new Set<(connection: MdbaseConnectionInfo | null) => void>();
 
   constructor(
@@ -186,6 +189,11 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       internals,
       onChange: () => this.emitConnection()
     });
+    this.files = new MdbaseFileClient(
+      () => this.fileCapability,
+      (method, path, input, signal) =>
+        this.transport.performAuthorityFileRequest(method, path, input, signal)
+    );
     this.collectionClient = new MdbaseCollectionClient({
       operation: (operation, input, requestOptions) =>
         this.transport.performOperation(operation, input, requestOptions)
@@ -213,6 +221,10 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.transport.currentToken()?.scope ?? null;
   }
 
+  get fileCapability(): FileCapability | null {
+    return this.transport.currentToken()?.fileCapability ?? null;
+  }
+
   get directAccess(): DirectAccessStatus {
     return this.transport.directAccess;
   }
@@ -235,6 +247,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       displayName: token.collectionName,
       operations: [...token.operations],
       scope: token.scope,
+      ...(token.fileCapability ? { fileCapability: token.fileCapability } : {}),
       route: this.transport.route,
       directAccess: this.transport.directAccess
     } : null;

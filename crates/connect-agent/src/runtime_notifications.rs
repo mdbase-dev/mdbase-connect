@@ -559,6 +559,7 @@ mod tests {
             }],
             created_at: "2026-07-24T00:00:00Z".to_string(),
             encryption: None,
+            file_capability: None,
         };
         let catalog = compose_catalog(std::slice::from_ref(&grant), grant.collection_id).unwrap();
         let workflow = &catalog.admission().workflows()[0];
@@ -625,6 +626,7 @@ mod tests {
                 ],
                 created_at: "2026-07-24T00:00:00Z".to_string(),
                 encryption: None,
+                file_capability: None,
             }])
             .unwrap();
 
@@ -797,6 +799,7 @@ mod tests {
                 }],
                 created_at: "2026-07-25T00:00:00Z".to_string(),
                 encryption: None,
+                file_capability: None,
             }])
             .unwrap();
         let grant = registry.grant_context(grant_id).unwrap().unwrap();

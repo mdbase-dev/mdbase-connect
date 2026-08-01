@@ -20,6 +20,7 @@ fn policy_snapshot_replaces_previous_local_authority() {
         notification_criteria: Vec::new(),
         created_at: "2026-07-19T00:00:00Z".to_string(),
         encryption: None,
+        file_capability: None,
     };
     registry
         .replace_grants(std::slice::from_ref(&grant))
@@ -227,6 +228,7 @@ fn policy_rotation_prunes_only_obsolete_encrypted_replay_windows() {
             application_agreement_public_key: "application-key".to_string(),
             connector_agreement_public_key: "connector-key".to_string(),
         }),
+        file_capability: None,
     };
     registry
         .replace_grants(std::slice::from_ref(&grant))

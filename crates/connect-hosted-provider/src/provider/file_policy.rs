@@ -1,7 +1,15 @@
 use super::*;
 use unicode_normalization::UnicodeNormalization;
 
-const RESERVED_DIRECTORIES: &[&str] = &[".mdbase", "node_modules", ".git"];
+const RESERVED_DIRECTORIES: &[&str] = &[
+    ".mdbase",
+    ".git",
+    "node_modules",
+    "_contracts",
+    "_schemas",
+    "_types",
+    "_views",
+];
 
 pub(super) fn validate_hosted_file_path(path: &str) -> ApiResult<()> {
     if path.is_empty()
@@ -91,6 +99,7 @@ mod tests {
             ".hidden/file",
             "Folder/.hidden",
             "node_modules/file.bin",
+            "_types/icon.bin",
             "CON.txt",
             "bad?.png",
             "note.md",

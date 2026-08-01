@@ -46,6 +46,44 @@ describe("native manifest callbacks", () => {
 });
 
 describe("portable application manifests", () => {
+  it("accepts explicit first-class file intent without record contracts", () => {
+    const registered = registerApplicationManifest({
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.assets",
+      name: "Asset Browser",
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read"],
+          scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
+        }
+      }
+    });
+
+    expect(registered.manifest.requirements.files).toEqual({
+      actions: ["list", "read"],
+      scope: { kind: "selected_folders", folders: ["Assets", "Exports/Final"] }
+    });
+  });
+
+  it.each([
+    { actions: [], scope: { kind: "collection" } },
+    { actions: ["read", "read"], scope: { kind: "collection" } },
+    { actions: ["read"], scope: { kind: "selected_folders", folders: ["../private"] } },
+    { actions: ["read"], scope: { kind: "selected_folders", folders: ["Assets//Raw"] } },
+    { actions: ["read"], scope: { kind: "selected_folders", folders: [".hidden"] } },
+    { actions: ["read"], scope: { kind: "selected_folders", folders: ["_types"] } }
+  ])("rejects unsafe or ambiguous file intent %#", (files) => {
+    expect(() => registerApplicationManifest({
+      manifest_version: 1,
+      distribution: "portable",
+      id: "dev.mdbase.assets",
+      name: "Asset Browser",
+      requirements: { contracts: [], files }
+    })).toThrow(ApplicationManifestError);
+  });
+
   it("registers an exact v1 portable declaration without a claimed origin", () => {
     const registered = registerApplicationManifest({
       manifest_version: 1,

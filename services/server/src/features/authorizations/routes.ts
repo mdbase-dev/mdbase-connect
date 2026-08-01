@@ -4,6 +4,7 @@ import type {
   ApplicationRequirements,
   CollectionContractDescriptor,
   CollectionTypeDescriptor,
+  FileCapability,
   GrantEncryption,
   GrantScope
 } from "@mdbase-dev/connect-protocol";
@@ -106,7 +107,7 @@ export function registerAuthorizationRoutes(
     const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
     const input = z.object({
       collection_id: z.uuid(),
-      operations: z.array(operationSchema).min(1),
+      operations: z.array(operationSchema),
       contracts: z.array(collectionContractDescriptorSchema).max(100).optional()
     }).parse(request.body);
     if (input.contracts) {
@@ -192,10 +193,10 @@ export function registerAuthorizationRoutes(
       input.operations.split(",").map((value) => value.trim()).filter(Boolean)
     )]
       .map((value) => operationSchema.parse(value));
-    if (requestedOperations.length === 0) {
+    if (requestedOperations.length === 0 && !application.rows[0].requirements.files) {
       return reply.code(400).send(apiError(
         "invalid_operations",
-        "At least one collection operation is required."
+        "At least one record operation or file capability is required."
       ));
     }
     assertOperationsAllowedByRequirements(
@@ -246,7 +247,7 @@ export function registerAuthorizationRoutes(
     const input = z.object({
       application_id: z.uuid(),
       collection_id: z.uuid(),
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema)
     }).parse(request.body);
     const ownership = await options.db.query<{ id: string; connector_id: string; contracts: CollectionContractDescriptor[]; spec_version: string }>(
       `SELECT col.id, col.connector_id, col.contracts, col.spec_version FROM collections col
@@ -316,6 +317,7 @@ export function registerAuthorizationRoutes(
       collectionId: ownership.rows[0].id,
       operations: plan.operations,
       scope: plan.scope,
+      fileCapability: plan.fileCapability,
       applicationOrigin: new URL(application.rows[0].homepage).origin,
       notificationCriteria: application.rows[0].notifications.criteria
     });
@@ -329,7 +331,7 @@ export function registerAuthorizationRoutes(
     if (!user) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
     const input = z.object({
-      operations: z.array(operationSchema).min(1)
+      operations: z.array(operationSchema)
     }).strict().parse(request.body);
     const active = await options.db.query<{
       id: string;
@@ -341,8 +343,10 @@ export function registerAuthorizationRoutes(
       requirements: ApplicationRequirements;
       template: string | null;
       hosted_contracts: CollectionContractDescriptor[] | null;
+      file_capability: FileCapability | null;
     }>(
-      `SELECT g.id, g.operations, g.encryption, g.scope, a.requirements, col.connector_id,
+      `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
+              a.requirements, col.connector_id,
               g.hosted_replica_id, hosted.template, hosted.contracts AS hosted_contracts
        FROM grants g
        JOIN applications a ON a.id = g.application_id
@@ -366,7 +370,8 @@ export function registerAuthorizationRoutes(
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation));
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
+        || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         grantId,
         mode: write ? "read_write" : "read_only",
@@ -376,7 +381,8 @@ export function registerAuthorizationRoutes(
         ),
         contractScope: current.scope.access === "contract" ? current.scope.contracts : [],
         fullCollection: current.scope.access === "full_collection",
-        allowedOperations: hostedReplicaCollectionOperations(operations)
+        allowedOperations: hostedReplicaCollectionOperations(operations),
+        fileCapability: current.file_capability ?? undefined
       });
     }
     const updated = await options.db.query<{ id: string; operations: string[] }>(
@@ -495,7 +501,15 @@ export function registerAuthorizationRoutes(
       const returnTo = `${publicUrl}${request.url}`;
       return reply.redirect(`/login?return_to=${encodeURIComponent(returnTo)}`);
     }
-    const requestedOperations = [...new Set(query.operations.split(","))].map((value) => operationSchema.parse(value));
+    const requestedOperations = [...new Set(
+      query.operations.split(",").map((value) => value.trim()).filter(Boolean)
+    )].map((value) => operationSchema.parse(value));
+    if (requestedOperations.length === 0 && !application.rows[0].requirements.files) {
+      return reply.code(400).send(apiError(
+        "invalid_operations",
+        "At least one record operation or file capability is required."
+      ));
+    }
     assertOperationsAllowedByRequirements(requestedOperations, application.rows[0].requirements);
     const authorizationId = randomUUID();
     await options.db.query(
@@ -701,7 +715,7 @@ export function registerAuthorizationRoutes(
     const input = z.object({
       collection_id: z.uuid(),
       offer_id: z.uuid().optional(),
-      operations: z.array(operationSchema).min(1),
+      operations: z.array(operationSchema),
       contract_setups: z.array(contractSetupChoiceSchema).max(20).default([])
     }).parse(request.body);
     let approved: boolean;

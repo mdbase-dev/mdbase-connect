@@ -661,9 +661,16 @@ describe("provider-neutral collection client", () => {
           grant_id: "00000000-0000-0000-0000-000000000003",
           application_origin: "null",
           encryption: null,
+          file_capability: {
+            kind: "files",
+            protocol_version: 1,
+            actions: ["list", "read"],
+            scope: { kind: "collection" }
+          },
           authority: {
             operations_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/operations",
             sync_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/sync",
+            files_url: "https://provider.example/v1/authorities/00000000-0000-0000-0000-000000000002/files",
             replica_id: "00000000-0000-0000-0000-000000000005",
             access_token: "hsa_portable_hosted",
             proof_public_key: applicationSigningPublicKey
@@ -689,7 +696,11 @@ describe("provider-neutral collection client", () => {
         requirements: {
           contracts: [],
           access: "full_collection",
-          collection_kind: "hosted"
+          collection_kind: "hosted",
+          files: {
+            actions: ["list", "read"],
+            scope: { kind: "collection" }
+          }
         }
       },
       keyStore
@@ -705,7 +716,13 @@ describe("provider-neutral collection client", () => {
     const result = unwrapConnectOutcome(await authorization);
     expect(result.connection).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
-      route: "remote"
+      route: "remote",
+      fileCapability: {
+        kind: "files",
+        protocol_version: 1,
+        actions: ["list", "read"],
+        scope: { kind: "collection" }
+      }
     });
     expect(deleteKey).not.toHaveBeenCalled();
     expect(connect.connections()).toHaveLength(1);
@@ -868,6 +885,7 @@ describe("provider-neutral collection client", () => {
           authority: {
             operations_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/operations`,
             sync_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/sync`,
+            files_url: `http://provider.example/v1/authorities/${TEST_COLLECTION_ID}/files`,
             replica_id: "00000000-0000-0000-0000-000000000005",
             access_token: "authority_access",
             proof_public_key: applicationSigningPublicKey
@@ -2269,6 +2287,7 @@ describe("authorization renewal", () => {
       authority: {
         operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
         syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
+        filesUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/files`,
         replicaId: "00000000-0000-0000-0000-000000000003",
         version: 1,
         accessToken: "hsa_direct"
@@ -2322,6 +2341,7 @@ describe("authorization renewal", () => {
       authority: {
         operationsUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/operations`,
         syncUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/sync`,
+        filesUrl: `${providerUrl}/v1/authorities/00000000-0000-0000-0000-000000000002/files`,
         replicaId: "00000000-0000-0000-0000-000000000003",
         version: 1,
         accessToken: "hsa_direct"

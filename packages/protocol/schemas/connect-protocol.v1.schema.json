@@ -227,7 +227,10 @@
           "items": { "$ref": "#/$defs/notificationCriterion" }
         },
         "created_at": { "type": "string", "format": "date-time" },
-        "encryption": { "$ref": "#/$defs/grantEncryption" }
+        "encryption": { "$ref": "#/$defs/grantEncryption" },
+        "file_capability": {
+          "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/fileCapability"
+        }
       }
     },
     "authorizationCollectionOffer": {
@@ -261,7 +264,10 @@
           "items": { "$ref": "#/$defs/contractRequirement" }
         },
         "access": { "enum": ["contract", "full_collection"] },
-        "collection_kind": { "const": "hosted" }
+        "collection_kind": { "const": "hosted" },
+        "files": {
+          "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/applicationFileRequirement"
+        }
       }
     },
     "typePackProvision": {

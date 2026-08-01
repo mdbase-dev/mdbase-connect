@@ -25,7 +25,10 @@ import type { DatabasePool } from "../../db.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
-import { planCollectionGrant } from "../../grant-planner.js";
+import {
+  fileCapabilityForRequirements,
+  planCollectionGrant
+} from "../../grant-planner.js";
 import { RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
@@ -241,8 +244,8 @@ export async function approvePortalAuthorization(
     const inserted = await connection.query<{ created_at: string | Date }>(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations, scope, encryption,
-          application_origin, notification_criteria, activated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb, NULL)
+          file_capability, application_origin, notification_criteria, activated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, NULL)
        RETURNING created_at`,
       [
         grantId,
@@ -252,6 +255,7 @@ export async function approvePortalAuthorization(
         JSON.stringify(operations),
         JSON.stringify(scope),
         encryption ? JSON.stringify(encryption) : null,
+        plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
         applicationOrigin,
         JSON.stringify(pending.notifications.criteria)
       ]
@@ -284,7 +288,8 @@ export async function approvePortalAuthorization(
       collection_name: selected.display_name,
       notification_criteria: pending.notifications.criteria,
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
-      ...(encryption ? { encryption } : {})
+      ...(encryption ? { encryption } : {}),
+      ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {})
     };
     await connection.query("COMMIT");
   } catch (error) {
@@ -559,6 +564,7 @@ export async function approveAuthorization(
       pending.requirements,
       collection.rows[0]?.contracts ?? []
     );
+    const fileCapability = fileCapabilityForRequirements(pending.requirements);
     if (!collection.rows[0]) {
       throw new RequestValidationError(
         "This collection does not provide the contracts required by the application."
@@ -602,8 +608,8 @@ export async function approveAuthorization(
     await connection.query(
     `INSERT INTO grants
        (id, user_id, application_id, collection_id, operations, scope, encryption,
-        application_origin, notification_criteria)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)`,
+        file_capability, application_origin, notification_criteria)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb)`,
     [
       grantId,
       input.userId,
@@ -612,6 +618,7 @@ export async function approveAuthorization(
       JSON.stringify(input.operations),
       JSON.stringify(scope),
       encryption ? JSON.stringify(encryption) : null,
+      fileCapability ? JSON.stringify(fileCapability) : null,
       pending.flow === "device_code"
         ? "null"
         : applicationOriginForRedirect(pending.redirect_uri!, pending.application_homepage),
@@ -814,6 +821,7 @@ export async function approveHostedAuthorization(
       contractScope: scope.access === "contract" ? scope.contracts : [],
       fullCollection: scope.access === "full_collection",
       allowedOperations: hostedReplicaCollectionOperations(operations),
+      fileCapability: plan.fileCapability,
       allowedOrigin,
       proofPublicKey: pending.application_signing_public_key!,
       grantId,
@@ -838,8 +846,8 @@ export async function approveHostedAuthorization(
       `INSERT INTO grants
           (id, user_id, application_id, hosted_collection_id, hosted_replica_id,
           operations, scope, encryption, proof_public_key, application_origin,
-          notification_criteria)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9, $10::jsonb)`,
+          file_capability, notification_criteria)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, NULL, $8, $9, $10::jsonb, $11::jsonb)`,
       [
         grantId,
         input.userId,
@@ -850,6 +858,7 @@ export async function approveHostedAuthorization(
         JSON.stringify(scope),
         pending.application_signing_public_key,
         applicationOrigin,
+        plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
         JSON.stringify(pending.notifications.criteria)
       ]
     );

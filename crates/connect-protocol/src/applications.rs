@@ -57,6 +57,8 @@ pub struct ApplicationRequirements {
     pub access: Option<ApplicationAccess>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_kind: Option<ApplicationCollectionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<ApplicationFileRequirement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +190,8 @@ pub struct GrantSummary {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encryption: Option<GrantEncryption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_capability: Option<FileCapability>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -294,6 +298,8 @@ pub struct GrantPolicy {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encryption: Option<GrantEncryption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_capability: Option<FileCapability>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -28,6 +28,12 @@ export type FileScope =
   | { kind: "selected_folders"; folders: string[] }
   | { kind: "collection" };
 
+/** File intent declared by an application before an authority is selected. */
+export interface ApplicationFileRequirement {
+  actions: FileAction[];
+  scope: FileScope;
+}
+
 export interface FileCapability {
   kind: "files";
   protocol_version: 1;

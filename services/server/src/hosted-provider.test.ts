@@ -155,7 +155,13 @@ describe("hosted provider control client", () => {
       allowedTypes: ["task"],
       contractScope: [],
       fullCollection: false,
-      allowedOperations: ["read", "sync", "query"]
+      allowedOperations: ["read", "sync", "query"],
+      fileCapability: {
+        kind: "files",
+        protocol_version: 1,
+        actions: ["list", "read"],
+        scope: { kind: "selected_folders", folders: ["Assets"] }
+      }
     });
     await provider.rotateReplicaToken("replica", "new-token", 3600);
     expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
@@ -168,7 +174,13 @@ describe("hosted provider control client", () => {
           allowed_types: ["task"],
           contract_scope: [],
           full_collection: false,
-          allowed_operations: ["read", "query"]
+          allowed_operations: ["read", "query"],
+          file_capability: {
+            kind: "files",
+            protocol_version: 1,
+            actions: ["list", "read"],
+            scope: { kind: "selected_folders", folders: ["Assets"] }
+          }
         })
       ],
       [

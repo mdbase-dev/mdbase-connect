@@ -5,7 +5,7 @@ priority: critical
 owner: codex
 tags: [files, protocol, sdk, encryption, sync, mirrors, hosted, infrastructure, testing]
 created_at: 2026-08-01T12:33:28+10:00
-updated_at: 2026-08-01T13:49:41+10:00
+updated_at: 2026-08-01T15:15:00+10:00
 type: task
 ---
 
@@ -210,7 +210,54 @@ MinIO end-to-end suite covers single PUT, multipart, replay, listing, exact
 downloads, sync manifests/events, digest rejection, hidden paths, database
 path confidentiality, and staging cleanup.
 
+Hosted object lifecycle is now tied to authority transactions without making
+PostgreSQL carry file bytes. Historical versions retain their immutable R2
+keys until the shared change history is compacted; compaction queues obsolete
+keys for retryable deletion, collection deletion queues every live, historical,
+staging, and committed key before removing authority rows, and maintenance
+drains that durable queue. Blob counters are updated in the same database
+transaction as retention changes.
+
+The hosted file implementation is split by upload, listing/download, and
+persistence responsibilities, with its HTTP surface in a dedicated child
+module. No architecture-budget exceptions were added. Strict workspace checks,
+hosted-provider Clippy, all 35 provider unit tests, the architecture guard, and
+the PostgreSQL + S3-compatible object-store end-to-end suite pass after the
+lifecycle and module-boundary work.
+
+Applications can now request file access independently of record contracts and
+operations. The versioned manifest requirement names exact actions and either
+record-referenced, selected-folder, or full visible-collection scope; hidden,
+reserved, and non-portable folder names fail validation. The portal presents
+the requested file actions and scope during approval and permits file-only
+applications. Grant rows, local policy snapshots, hosted replica capabilities,
+token responses, saved client state, and reconciliation all carry the exact
+file capability. A manifest change cannot silently expand or narrow an active
+grant.
+
+The browser SDK now exposes `connection.files.list()`, `upload()`,
+`download()`, and `downloadBytes()` using ordinary `Blob`, `ArrayBuffer`, and
+typed-array inputs. It incrementally hashes uploads, negotiates single or
+multipart object delivery, retries bounded object operations, assembles
+revision-pinned ranges in order, verifies exact byte counts and SHA-256, reports
+progress, refreshes authorization once, and cleans up failed transfers. R2
+keys, presigned-control details, multipart ETags, and range bookkeeping remain
+private. Prepared requests are closed over method, index, offset, length, safe
+URL, and browser-sendable headers; multipart completion fails closed when R2
+does not expose an ETag.
+
+This request-path phase passes workspace TypeScript checking, all 207 server
+tests, all 99 client tests, all 25 JavaScript protocol tests, all 21 Rust
+protocol tests, all 73 core tests, the complete Rust workspace suite, strict
+workspace Clippy, the architecture guard, and the full JavaScript/TypeScript
+workspace suite. The public SDK itself is exercised against a real hosted
+provider, PostgreSQL, and an S3-compatible object store in
+`hosted-files-e2e.mjs`, confirming that metadata stays in PostgreSQL while file
+bytes travel directly to object storage.
+
 ## Handoff
 
-Work is active. Add download/range access and expose local file operations over
-the binary loopback and relay data plane, then materialize the manifests.
+Work is active. Next expose framed local/direct and relay file transfers behind
+the same SDK facade, then materialize file manifests and immutable content in
+mirrors with independent selective-sync policy. Follow with move/delete APIs,
+authority-transfer coverage, recovery/fault injection, and desktop settings.

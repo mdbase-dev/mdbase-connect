@@ -253,14 +253,7 @@ pub(super) fn validate_file_capability(
 }
 
 fn valid_capability_folder(folder: &str) -> bool {
-    !folder.is_empty()
-        && folder.len() <= 1024
-        && !folder.starts_with('/')
-        && !folder.ends_with('/')
-        && !folder.contains('\\')
-        && !folder
-            .split('/')
-            .any(|component| component.is_empty() || matches!(component, "." | ".."))
+    folder.len() <= 1024 && validate_hosted_file_path(&format!("{folder}/placeholder.bin")).is_ok()
 }
 
 pub(super) fn validate_collection_scope(

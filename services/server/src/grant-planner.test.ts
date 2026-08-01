@@ -47,6 +47,34 @@ describe("planCollectionGrant", () => {
     });
   });
 
+  it("plans file-only access independently from record scope", () => {
+    const result = planCollectionGrant({
+      requestedOperations: [],
+      applicationOperationCeiling: [],
+      requirements: {
+        contracts: [],
+        files: {
+          actions: ["list", "read", "add"],
+          scope: { kind: "selected_folders", folders: ["Assets"] }
+        }
+      },
+      availableContracts: [],
+      access: owner
+    });
+
+    expect(result).toEqual({
+      operations: [],
+      scope: { access: "contract", contracts: [] },
+      replicaMode: "read_write",
+      fileCapability: {
+        kind: "files",
+        protocol_version: 1,
+        actions: ["list", "read", "add"],
+        scope: { kind: "selected_folders", folders: ["Assets"] }
+      }
+    });
+  });
+
   it("rejects an operation the application did not request", () => {
     expect(() => planCollectionGrant({
       requestedOperations: ["delete"],

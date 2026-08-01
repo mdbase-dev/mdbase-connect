@@ -531,6 +531,7 @@ mod tests {
             }],
             created_at: "2026-07-25T00:00:00Z".to_string(),
             encryption: None,
+            file_capability: None,
         }
     }
 
