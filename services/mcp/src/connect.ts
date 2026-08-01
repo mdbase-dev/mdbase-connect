@@ -187,7 +187,14 @@ export class ConnectGateway {
       attempt.request,
       envelope
     );
-    if (!decrypted.ok) throw new GatewayOperationError(decrypted.error.code, decrypted.error.message);
+    if (!decrypted.ok) {
+      throw new GatewayOperationError(
+        decrypted.problem.code === "unknown"
+          ? decrypted.problem.server_code
+          : decrypted.problem.code,
+        decrypted.problem.message
+      );
+    }
     return decrypted.result;
   }
 

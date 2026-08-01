@@ -27,6 +27,8 @@ export type ConnectOutcome<
 > = ConnectSuccess<Value> | ConnectFailure<Code>;
 
 export type CommonOperationProblemCode =
+  | "access_denied"
+  | "access_paused"
   | "authorization_expired"
   | "collection_access_denied"
   | "connector_identity_changed"
@@ -35,6 +37,7 @@ export type CommonOperationProblemCode =
   | "direct_operation_rejected"
   | "operation_outcome_unknown"
   | "encryption_required"
+  | "encrypted_relay_rejected"
   | "hosted_provider_unavailable"
   | "insufficient_access"
   | "invalid_encrypted_response"
@@ -48,9 +51,12 @@ export type CommonOperationProblemCode =
   | "relay_authorization_expired"
   | "relay_unavailable"
   | "temporarily_unavailable"
-  | "timeout";
+  | "timeout"
+  | "unsupported_operation";
 
 export const COMMON_OPERATION_PROBLEM_CODES = [
+  "access_denied",
+  "access_paused",
   "authorization_expired",
   "collection_access_denied",
   "connector_identity_changed",
@@ -59,6 +65,7 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "direct_operation_rejected",
   "operation_outcome_unknown",
   "encryption_required",
+  "encrypted_relay_rejected",
   "hosted_provider_unavailable",
   "insufficient_access",
   "invalid_encrypted_response",
@@ -72,7 +79,8 @@ export const COMMON_OPERATION_PROBLEM_CODES = [
   "relay_authorization_expired",
   "relay_unavailable",
   "temporarily_unavailable",
-  "timeout"
+  "timeout",
+  "unsupported_operation"
 ] as const satisfies readonly CommonOperationProblemCode[];
 
 export const ALL_CONNECT_PROBLEM_CODES = Object.keys(

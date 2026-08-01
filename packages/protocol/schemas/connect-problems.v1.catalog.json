@@ -19,6 +19,7 @@
     "reauthorize",
     "refresh",
     "repair_collection",
+    "resume_connector_access",
     "resolve_conflict",
     "resolve_outcome",
     "retry",
@@ -28,6 +29,7 @@
   ],
   "codes": {
     "access_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "access_paused": { "category": "availability", "recovery": "resume_connector_access" },
     "approval_window_blocked": {
       "category": "authorization",
       "recovery": "reauthorize",
@@ -132,6 +134,7 @@
     "device_authorization_failed": { "category": "authorization", "recovery": "reauthorize" },
     "direct_operation_rejected": { "category": "authorization", "recovery": "reauthorize" },
     "discovery_failed": { "category": "availability", "recovery": "retry" },
+    "encrypted_relay_rejected": { "category": "authorization", "recovery": "reauthorize" },
     "encryption_required": { "category": "authorization", "recovery": "reauthorize" },
     "expired_token": { "category": "authorization", "recovery": "reauthorize" },
     "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },

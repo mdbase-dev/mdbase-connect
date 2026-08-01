@@ -51,20 +51,12 @@
     "rejected": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "protocol_version", "request_id", "error"],
+      "required": ["type", "protocol_version", "request_id", "problem"],
       "properties": {
         "type": { "const": "encrypted_operation_rejected" },
         "protocol_version": { "const": 1 },
         "request_id": { "$ref": "#/$defs/uuid" },
-        "error": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["code", "message"],
-          "properties": {
-            "code": { "const": "encrypted_relay_rejected" },
-            "message": { "type": "string" }
-          }
-        }
+        "problem": { "$ref": "https://schemas.mdbase.dev/connect/problem/v1" }
       }
     }
   }

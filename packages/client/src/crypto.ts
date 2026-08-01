@@ -4,7 +4,9 @@ import {
   AUTHORITY_PROOF_HEADERS,
   AUTHORITY_PROOF_VERSION,
   RELAY_ENCRYPTION_SUITE,
+  isConnectProblem,
   type CollectionOperation,
+  type ConnectProblem,
   type EncryptedRelayOperationRequest,
   type EncryptedRelayOperationResponse,
   type GrantEncryption
@@ -267,7 +269,7 @@ export async function decryptRelayResponse<Result>(
   binding: RelayBinding,
   request: EncryptedRelayOperationRequest,
   response: EncryptedRelayOperationResponse
-): Promise<{ ok: true; result: Result } | { ok: false; error: { code: string; message: string } }> {
+): Promise<{ ok: true; result: Result } | { ok: false; problem: ConnectProblem }> {
   if (!sameEnvelopeMetadata(request, response)) {
     throw new RelayCryptoError("invalid_encrypted_response", "Encrypted response metadata does not match its request.");
   }
@@ -292,9 +294,7 @@ export async function decryptRelayResponse<Result>(
     }, key, toArrayBuffer(base64UrlToBytes(response.ciphertext)));
     const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(plaintext));
     if (value?.ok === true && "result" in value) return value;
-    if (value?.ok === false
-        && typeof value.error?.code === "string"
-        && typeof value.error?.message === "string") return value;
+    if (value?.ok === false && isConnectProblem(value.problem)) return value;
     throw new Error("invalid response body");
   } catch (error) {
     if (error instanceof RelayCryptoError) throw error;

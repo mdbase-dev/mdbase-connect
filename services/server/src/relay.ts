@@ -9,11 +9,14 @@ import type {
   EncryptedRelayOperationRequest,
   EncryptedRelayOperationResponse,
   GrantPolicy,
-  GrantScope
+  GrantScope,
+  ConnectProblem
 } from "@mdbase/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
   CONTRACT_SETUP_CAPABILITY,
+  isConnectProblem,
+  normalizeConnectProblem,
   RELAY_CAPABILITIES,
   RELAY_REQUIRED_CAPABILITIES
 } from "@mdbase/connect-protocol";
@@ -137,6 +140,7 @@ export class RelayHub {
           ok?: boolean;
           result?: unknown;
           error?: { code?: string; message?: string };
+          problem?: unknown;
           protocol_version?: number;
           suite?: string;
           grant_id?: string;
@@ -161,12 +165,20 @@ export class RelayHub {
         const pending = this.pending.get(message.request_id);
         if (!pending || pending.socket !== socket) return;
         if (message.type === "encrypted_operation_rejected") {
+          const problem = message.problem;
+          if (!isConnectProblem(problem)) {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                "invalid_relay_response",
+                "The connector returned an invalid rejection problem."
+              )
+            );
+            return;
+          }
           this.rejectPending(
             message.request_id,
-            new ConnectorOperationError(
-              "encrypted_relay_rejected",
-              "The connector rejected the encrypted relay request."
-            )
+            ConnectorOperationError.fromProblem(problem)
           );
           return;
         }
@@ -262,12 +274,20 @@ export class RelayHub {
         }
         if (message.ok) this.resolvePending(message.request_id, message.result);
         else {
+          const problem = message.problem;
+          if (!isConnectProblem(problem)) {
+            this.rejectPending(
+              message.request_id,
+              new ConnectorOperationError(
+                "invalid_relay_response",
+                "The connector returned an invalid operation problem."
+              )
+            );
+            return;
+          }
           this.rejectPending(
             message.request_id,
-            new ConnectorOperationError(
-              message.error?.code ?? "connector_operation_failed",
-              message.error?.message ?? "Connector operation failed."
-            )
+            ConnectorOperationError.fromProblem(problem)
           );
         }
       } catch {
@@ -782,7 +802,18 @@ export class RelayUnavailableError extends Error {
 }
 
 export class ConnectorOperationError extends Error {
-  constructor(public readonly code: string, message: string) {
+  readonly problem: ConnectProblem;
+
+  constructor(public readonly code: string, message: string, problem?: ConnectProblem) {
     super(message);
+    this.problem = problem ?? normalizeConnectProblem(code, message);
+  }
+
+  static fromProblem(problem: ConnectProblem): ConnectorOperationError {
+    return new ConnectorOperationError(
+      problem.code === "unknown" ? problem.server_code : problem.code,
+      problem.message,
+      problem
+    );
   }
 }

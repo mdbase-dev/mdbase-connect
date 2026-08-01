@@ -334,11 +334,13 @@ impl AgentState {
                         request_id,
                         ok: false,
                         result: None,
-                        error: Some(ControlError {
-                            code: "encryption_required".to_string(),
-                            message: "This grant requires encrypted relay protocol 1.".to_string(),
-                            details: None,
-                        }),
+                        problem: Some(
+                            ConnectProblem::new(
+                                "encryption_required",
+                                "This grant requires encrypted relay protocol 1.",
+                            )
+                            .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                        ),
                     });
                 }
                 if self.registry.paused().unwrap_or(true) {
@@ -356,11 +358,13 @@ impl AgentState {
                         request_id,
                         ok: false,
                         result: None,
-                        error: Some(ControlError {
-                            code: "access_paused".to_string(),
-                            message: "Remote access is paused on this computer.".to_string(),
-                            details: None,
-                        }),
+                        problem: Some(
+                            ConnectProblem::new(
+                                "access_paused",
+                                "Remote access is paused on this computer.",
+                            )
+                            .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                        ),
                     });
                 }
                 let authorized = context.as_ref().is_some_and(|grant| {
@@ -391,12 +395,13 @@ impl AgentState {
                         request_id,
                         ok: false,
                         result: None,
-                        error: Some(ControlError {
-                            code: "access_denied".to_string(),
-                            message: "The local connector policy does not allow this request."
-                                .to_string(),
-                            details: None,
-                        }),
+                        problem: Some(
+                            ConnectProblem::new(
+                                "access_denied",
+                                "The local connector policy does not allow this request.",
+                            )
+                            .with_operation_outcome(ConnectOperationOutcome::Rejected),
+                        ),
                     });
                 };
                 let (outcome, detail) = match &result {
@@ -418,18 +423,14 @@ impl AgentState {
                         request_id,
                         ok: true,
                         result: Some(result),
-                        error: None,
+                        problem: None,
                     },
                     Err(error) => RelayMessage::OperationResponse {
                         protocol_version: CONTROL_PROTOCOL_VERSION,
                         request_id,
                         ok: false,
                         result: None,
-                        error: Some(ControlError {
-                            code: error.code().to_string(),
-                            message: error.to_string(),
-                            details: None,
-                        }),
+                        problem: Some(operation_problem(&error)),
                     },
                 })
             }
@@ -573,9 +574,11 @@ impl AgentState {
             Ok(result) => serde_json::json!({ "ok": true, "result": result }),
             Err(error) => serde_json::json!({
                 "ok": false,
-                "error": {
-                    "code": if paused { "access_paused" } else { error.code() },
-                    "message": error.to_string()
+                "problem": if paused {
+                    ConnectProblem::new("access_paused", error.to_string())
+                        .with_operation_outcome(ConnectOperationOutcome::Rejected)
+                } else {
+                    operation_problem(&error)
                 }
             }),
         };
@@ -603,4 +606,18 @@ impl AgentState {
             envelope: response_envelope,
         }
     }
+}
+
+fn operation_problem(error: &ConnectError) -> ConnectProblem {
+    let code = match error.code() {
+        "invalid_input" | "invalid_timer_request" => "invalid_request",
+        "collection_provider_failed"
+        | "io_failed"
+        | "registry_failed"
+        | "serialization_failed"
+        | "timer_runtime_failed" => "operation_failed",
+        code => code,
+    };
+    ConnectProblem::new(code, error.to_string())
+        .with_operation_outcome(ConnectOperationOutcome::Rejected)
 }

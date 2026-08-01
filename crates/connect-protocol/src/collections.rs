@@ -104,7 +104,7 @@ pub struct OperationResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<ControlError>,
+    pub problem: Option<ConnectProblem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

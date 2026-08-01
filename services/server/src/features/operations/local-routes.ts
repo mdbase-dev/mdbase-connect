@@ -103,6 +103,7 @@ export function registerLocalOperationRoutes(
           "The application is not allowed to perform this operation."
         ));
       }
+      let operationRequestId: string | undefined;
       try {
         if (grant.encryption) {
           let envelope: EncryptedRelayOperationRequest;
@@ -148,6 +149,7 @@ export function registerLocalOperationRoutes(
           ));
         }
         const operationRequest = operationRequestSchema.parse(request.body);
+        operationRequestId = operationRequest.request_id;
         const result = await options.relay.route({
           connectorId: grant.connector_id,
           localCollectionId: grant.local_id,
@@ -171,12 +173,15 @@ export function registerLocalOperationRoutes(
           ));
         }
         if (error instanceof ConnectorOperationError) {
-          const denied = error.code === "access_paused"
-            || error.code === "access_denied";
-          return reply.code(denied ? 403 : 502).send(apiError(
-            error.code,
-            error.message
-          ));
+          if (!operationRequestId) {
+            return reply.code(502).send(apiError(error.code, error.message));
+          }
+          return {
+            protocol_version: CONTROL_PROTOCOL_VERSION,
+            request_id: operationRequestId,
+            ok: false,
+            problem: error.problem
+          };
         }
         throw error;
       }

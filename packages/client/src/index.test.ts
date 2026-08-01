@@ -19,7 +19,7 @@ import type {
   GrantEncryption,
   MdbaseAppManifest
 } from "@mdbase/connect-protocol";
-import { AUTHORITY_PROOF_HEADERS } from "@mdbase/connect-protocol";
+import { AUTHORITY_PROOF_HEADERS, isConnectProblem } from "@mdbase/connect-protocol";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -894,6 +894,24 @@ describe("provider-neutral collection client", () => {
 });
 
 describe("actionable SDK errors", () => {
+  it("rejects malformed problem metadata and required details at runtime", () => {
+    expect(isConnectProblem({
+      problem_version: 1,
+      code: "collection_version_unsupported",
+      category: "compatibility",
+      recovery: "upgrade_collection",
+      message: "Upgrade required."
+    })).toBe(false);
+    expect(isConnectProblem({
+      problem_version: 1,
+      code: "connector_offline",
+      category: "availability",
+      recovery: "retry",
+      message: "Connector offline.",
+      operation_outcome: "maybe"
+    })).toBe(false);
+  });
+
   it("normalizes registration network failures at the I/O boundary", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network unavailable"));
     const connect = new MdbaseConnect({
@@ -999,6 +1017,81 @@ describe("actionable SDK errors", () => {
         category: "availability",
         recovery: "retry",
         details: { computer: "Studio" }
+      }
+    });
+  });
+
+  it("accepts canonical wire problems and preserves unknown future codes", async () => {
+    const serverUrl = "https://connect.example";
+    const manifest = "https://tasks.example/manifest.json";
+    const storage = new MemoryStorage();
+    storage.setItem(storedTokenKey(serverUrl, manifest, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
+      accessToken: "plain-relay-token",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Tasks",
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() + 60_000
+    }));
+    const manager = new MdbaseConnect({
+      serverUrl,
+      manifest,
+      redirectUri: "https://tasks.example/callback",
+      storage,
+      relayEncryption: "disabled",
+      directAccess: "disabled"
+    });
+    const connection = manager.connection(TEST_COLLECTION_ID)!;
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementationOnce(async (_request, init) => {
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse({
+        protocol_version: 1,
+        request_id: request.request_id,
+        ok: false,
+        problem: {
+          problem_version: 1,
+          code: "access_paused",
+          category: "availability",
+          recovery: "resume_connector_access",
+          message: "Remote access is paused.",
+          operation_outcome: "rejected"
+        }
+      });
+    });
+    fetchMock.mockImplementationOnce(async (_request, init) => {
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse({
+        protocol_version: 1,
+        request_id: request.request_id,
+        ok: false,
+        problem: {
+          problem_version: 1,
+          code: "unknown",
+          server_code: "future_connector_state",
+          category: "unknown",
+          recovery: "none",
+          message: "A future connector state occurred."
+        }
+      });
+    });
+
+    await expect(connection.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "access_paused",
+        recovery: "resume_connector_access",
+        operation_outcome: "rejected"
+      }
+    });
+    await expect(connection.query()).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "unknown",
+        server_code: "future_connector_state",
+        recovery: "none"
       }
     });
   });

@@ -7,7 +7,8 @@ import type {
 } from "@mdbase/connect-protocol";
 import {
   CONTROL_PROTOCOL_VERSION,
-  ENCRYPTED_RELAY_PROTOCOL_VERSION
+  ENCRYPTED_RELAY_PROTOCOL_VERSION,
+  isConnectProblem
 } from "@mdbase/connect-protocol";
 import {
   decryptRelayResponse,
@@ -284,9 +285,15 @@ export class ConnectionTransport {
         );
         if (attempt.pendingMutation) this.clearPendingMutation();
         if (!decrypted.ok) throw serverConnectError(
-          decrypted.error.code,
-          decrypted.error.message,
-          { operationOutcome: "rejected" }
+          decrypted.problem.code === "unknown"
+            ? decrypted.problem.server_code
+            : decrypted.problem.code,
+          decrypted.problem.message,
+          {
+            details: decrypted.problem.details,
+            operationOutcome: decrypted.problem.operation_outcome ?? "rejected",
+            traceId: decrypted.problem.trace_id
+          }
         );
         return decrypted.result;
       } catch (error) {
@@ -305,6 +312,28 @@ export class ConnectionTransport {
       throw connectError(
         "invalid_operation_response",
         "The collection authority returned a response for a different protocol request."
+      );
+    }
+    if (body.ok === false) {
+      if (!isConnectProblem(body.problem)) {
+        if (attempt.pendingMutation) throw unknownMutationOutcome(
+          new Error("Operation rejection did not contain a canonical problem.")
+        );
+        throw connectError(
+          "invalid_operation_response",
+          "The collection authority returned an invalid operation problem."
+        );
+      }
+      if (attempt.pendingMutation) this.clearPendingMutation();
+      throw new MdbaseConnectError(body.problem);
+    }
+    if (body.ok !== true || !("result" in body)) {
+      if (attempt.pendingMutation) throw unknownMutationOutcome(
+        new Error("Successful operation response did not contain a result.")
+      );
+      throw connectError(
+        "invalid_operation_response",
+        "The collection authority returned an incomplete operation response."
       );
     }
     if (attempt.pendingMutation) this.clearPendingMutation();
