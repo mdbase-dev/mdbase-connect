@@ -19,57 +19,6 @@ export class ApiError extends Error {
   }
 }
 
-export interface AccountSession {
-  id: string;
-  provider: "google" | "github" | "password" | "session";
-  client_name: string;
-  created_at: string;
-  last_seen_at: string;
-  expires_at: string;
-  current: boolean;
-}
-
-export interface DashboardData {
-  user: { id: string; name: string; email: string | null; login: string | null };
-  hosted_collections_available?: boolean;
-  authentication: {
-    provider: "google" | "github" | "password" | "tailscale" | "session";
-    registration: "closed" | "invite" | "open";
-  };
-  connectors: Array<{ id: string; name: string; last_seen_at: string | null; created_at: string }>;
-  collections: Array<{
-    id: string;
-    connector_id: string;
-    local_id: string;
-    connector_name: string;
-    display_name: string;
-    spec_version: string;
-    enabled: boolean;
-    contracts: CollectionContractDescriptor[];
-    last_seen_at: string;
-  }>;
-  hosted_collections: HostedCollection[];
-  grants: Array<{
-    id: string;
-    operations: string[];
-    scope: GrantScope;
-    created_at: string;
-    revoked_at: string | null;
-    collection_id: string;
-    collection_name: string;
-    collection_kind: "local" | "hosted";
-    application_id: string;
-    application_family_id?: string;
-    application_name: string;
-    distribution: "web" | "portable";
-    homepage: string;
-    project_url: string | null;
-    application_origin: string;
-    icon: string | null;
-  }>;
-  pending_authorizations: PendingAuthorization[];
-}
-
 export interface HostedReplica {
   id: string;
   name: string;
@@ -232,9 +181,4 @@ export interface NotificationCriterion {
 
 export interface ApplicationNotifications {
   criteria: NotificationCriterion[];
-}
-
-export interface GrantScope {
-  contracts: CollectionContractDescriptor[];
-  access: "contract" | "full_collection";
 }

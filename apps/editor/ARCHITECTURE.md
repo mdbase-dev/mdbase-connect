@@ -1,9 +1,11 @@
 # Architecture
 
-mdbase editor is a client-side application over an explicitly authorized
-`@mdbase/connect` collection. The design keeps transport, collection lifecycle,
-editing state, and rendering separate even though the application is deployed
-as one static bundle.
+mdbase editor is a client-side application with two deliberately separate
+authorities. `/connect` uses `@mdbase/connect-management` and the user's account
+session for control-plane administration. The editing workspace uses an
+explicitly authorized `@mdbase/connect` collection grant. The design keeps
+account management, collection transport, lifecycle, editing state, and
+rendering separate even though the application is deployed as one static site.
 
 ## Dependency direction
 
@@ -15,7 +17,15 @@ React composition (App, feature views)
         └── operation coordinator ────────┘
                                               │
                                   @mdbase/connect or demo adapter
+
+ConnectApp ── @mdbase/connect-management ── account APIs only
 ```
+
+The route entry point lazy-loads `App` and `ConnectApp` independently. Opening
+Connect does not construct a collection gateway or start collection
+authorization. Choosing **Open in editor** creates a normal
+`?collection=<id>` editor navigation; the collection session then reuses an
+existing grant or begins the standard approval transaction.
 
 Views may depend on model types and pure domain helpers. They do not own remote
 request generations, snapshot tokens, mutation queues, or authoritative note
@@ -86,6 +96,12 @@ outside it:
 Heavy editor and type workspaces are lazy-loaded. An application error boundary
 contains unexpected render failures and offers recovery.
 
+`ConnectApp.tsx` owns account navigation and control-plane actions. Its client
+always sends browser credentials to the configured Connect origin, which must
+explicitly trust the editor origin. The server accepts that session only from
+the configured origin. This account session is not accepted by collection
+operation routes as an application grant.
+
 ## Invariants
 
 1. Every remote result is accepted only by the request generation that started
@@ -99,6 +115,8 @@ contains unexpected render failures and offers recovery.
 6. Switching collections cancels index work and clears every collection-scoped
    store before loading the next collection.
 7. Demo mode follows production pagination and hydration semantics.
+8. No Connect account response contains record bodies, collection paths, or
+   reusable collection credentials.
 
 ## Verification
 

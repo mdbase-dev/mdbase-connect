@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MdbaseBrowserSelection,
   MdbaseCollectionClient,
-  MdbaseConnectError,
-  MdbaseOperationValidationError,
+  ConnectOutcomeError,
+  connectFailure,
+  connectProblem,
+  connectSuccess,
   MdbaseSession,
   type DirectAccessStatus,
   type MdbaseConnection,
@@ -151,7 +153,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
 
     const selected = session.select("saved-collection", { history: "replace" });
 
-    expect(selected).toBe(saved);
+    expect(selected).toMatchObject({ ok: true, value: saved });
     expect(session.getSnapshot()).toMatchObject({
       status: "ready",
       collectionId: "saved-collection"
@@ -161,11 +163,10 @@ describe("ConnectCollectionGateway recovery operations", () => {
   });
 
   it("turns stale connector grants into a clear authorization action", () => {
-    expect(gatewayError(new MdbaseConnectError(
+    expect(gatewayError(new ConnectOutcomeError(connectProblem(
       "direct_operation_rejected",
-      "The local connector rejected this operation.",
-      { status: 403 }
-    ))).toBe("This collection needs authorization again. Choose the collection to continue.");
+      "The local connector rejected this operation."
+    )))).toBe("This collection needs authorization again. Choose the collection to continue.");
   });
 
   it("uses SDK capability gaps and envelope validation", async () => {
@@ -197,10 +198,14 @@ describe("ConnectCollectionGateway recovery operations", () => {
     });
     await gateway.authorize("selected");
     expect(session.authorize).toHaveBeenCalledWith("selected");
-    await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(MdbaseOperationValidationError);
+    await expect(gateway.read("Notes/invalid.md")).rejects.toBeInstanceOf(ConnectOutcomeError);
     await expect(gateway.read("Notes/invalid.md")).rejects.toMatchObject({
-      diagnostics: [{ code: "invalid_record" }],
-      result: { path: "Notes/invalid.md" }
+      problem: {
+        details: {
+          diagnostics: [{ code: "invalid_record" }],
+          partial_result: { path: "Notes/invalid.md" }
+        }
+      }
     });
   });
 
@@ -436,7 +441,16 @@ function injectConnection(
   bound.route ??= "relay";
   bound.directAccess ??= "unavailable";
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
-  const authorize = vi.fn(async () => ({ kind: "redirecting" as const }));
+  for (const name of [
+    "checkDirectAccess", "requestDirectAccess", "read", "create", "update",
+    "renameWithProgress", "preflightRename", "preflightDelete", "installTypePack"
+  ]) {
+    const original = (bound as Record<string, unknown>)[name];
+    if (typeof original !== "function") continue;
+    (bound as Record<string, unknown>)[name] = async (...args: unknown[]) =>
+      legacyOutcome(await original.apply(bound, args));
+  }
+  const authorize = vi.fn(async () => connectSuccess({ kind: "redirecting" as const }));
   injectSession(gateway, {
     getSnapshot: () => {
       const info = {
@@ -471,27 +485,42 @@ function injectSession(
   gateway: ConnectCollectionGateway,
   session: {
     getSnapshot: () => MdbaseSessionSnapshot;
-    authorize?: ReturnType<typeof vi.fn>;
-    start?: () => Promise<MdbaseSessionSnapshot>;
+    authorize?: (...args: unknown[]) => unknown;
+    start?: () => Promise<unknown>;
     subscribe?: (listener: () => void) => () => void;
-    select?: (collectionId: string) => MdbaseConnection;
+    select?: (collectionId: string) => unknown;
     forget?: (collectionId: string) => void;
   }
 ): void {
   Object.defineProperty(gateway, "session", {
     value: {
-      start: session.start ?? (async () => session.getSnapshot()),
+      start: async () => legacyOutcome(await (session.start?.() ?? session.getSnapshot())),
       subscribe: session.subscribe ?? (() => () => undefined),
-      select: session.select ?? (() => {
+      select: (collectionId: string) => legacyOutcome(session.select?.(collectionId) ?? (() => {
         const snapshot = session.getSnapshot();
         if (snapshot.status !== "ready") throw new Error("No selected connection.");
         return snapshot.connection;
-      }),
-      authorize: session.authorize ?? vi.fn(async () => ({ kind: "redirecting" as const })),
+      })()),
+      authorize: async (target: unknown) => legacyOutcome(await (session.authorize?.(target) ?? { kind: "redirecting" as const })),
       forget: session.forget ?? vi.fn(),
       getSnapshot: session.getSnapshot
     }
   });
+}
+
+function legacyOutcome(value: unknown) {
+  if (value && typeof value === "object" && "ok" in value) return value;
+  if (value && typeof value === "object" && "valid" in value && "diagnostics" in value && "result" in value) {
+    const envelope = value as { valid: boolean; diagnostics: import("@mdbase/connect").MdbaseDiagnostic[]; result: unknown };
+    if (!envelope.valid) {
+      return connectFailure(connectProblem("operation_invalid", "The operation result is invalid.", {
+        operationOutcome: "rejected",
+        details: { diagnostics: envelope.diagnostics, partial_result: envelope.result }
+      }));
+    }
+    return connectSuccess(envelope.result, envelope.diagnostics);
+  }
+  return connectSuccess(value);
 }
 
 function sessionConnection(collectionId: string, displayName: string): MdbaseConnection {

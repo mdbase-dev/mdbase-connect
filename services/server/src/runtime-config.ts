@@ -27,6 +27,8 @@ export interface RuntimeConfig {
   registration: RegistrationMode;
   authRateLimitSecret: string | null;
   betaAccessOrigin: string | null;
+  managementOrigins?: string[];
+  editorOrigin: string | null;
   authenticationLegalDocuments: AuthenticationLegalDocuments | null;
   transactionalEmail: TransactionalEmailConfig | null;
   hostedCollections: boolean;
@@ -101,6 +103,13 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
         "MDBASE_CONNECT_BETA_ACCESS_ORIGIN"
       )
     : null;
+  const editorOrigin = config.editorOrigin
+    ? validatePublicOrigin(config.editorOrigin, "MDBASE_EDITOR_ORIGIN")
+    : null;
+  const managementOrigins = [
+    ...(config.managementOrigins ?? []),
+    ...(editorOrigin ? [editorOrigin] : [])
+  ].map((origin) => validatePublicOrigin(origin, "MDBASE_CONNECT_MANAGEMENT_ORIGINS"));
   if (betaAccessOrigin && config.authRateLimitSecret === null) {
     throw new Error(
       "Beta access requests require MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET."
@@ -190,6 +199,8 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     ...config,
     publicUrl: publicUrl.origin,
     betaAccessOrigin,
+    managementOrigins: [...new Set(managementOrigins)],
+    editorOrigin,
     hostedProvider
   };
 }
@@ -212,6 +223,11 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     env.MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET?.trim() || null;
   const betaAccessOrigin =
     env.MDBASE_CONNECT_BETA_ACCESS_ORIGIN?.trim() || null;
+  const managementOrigins = (env.MDBASE_CONNECT_MANAGEMENT_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const editorOrigin = env.MDBASE_EDITOR_ORIGIN?.trim() || managementOrigins[0] || null;
   const termsUrl = env.MDBASE_CONNECT_TERMS_URL?.trim() ?? "";
   const privacyUrl = env.MDBASE_CONNECT_PRIVACY_URL?.trim() ?? "";
   if (Boolean(termsUrl) !== Boolean(privacyUrl)) {
@@ -287,6 +303,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     registration,
     authRateLimitSecret,
     betaAccessOrigin,
+    managementOrigins,
+    editorOrigin,
     authenticationLegalDocuments,
     transactionalEmail,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",

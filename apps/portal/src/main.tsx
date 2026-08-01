@@ -19,7 +19,7 @@ import {
   Pairing
 } from "./authority-workflows";
 import { Authorization, DeviceAuthorization } from "./authorization-view";
-import { Dashboard } from "./dashboard-view";
+import { editorConnectUrl } from "./portal-model";
 import "./styles.css";
 
 function Portal() {
@@ -38,7 +38,17 @@ function Portal() {
   if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
-  return <Dashboard />;
+  return <EditorRedirect />;
+}
+
+function EditorRedirect() {
+  React.useEffect(() => {
+    void fetch("/v1/ui-configuration")
+      .then(async (response) => response.ok ? await response.json() as { editor_url?: string | null } : {})
+      .then((configuration) => location.replace(configuration.editor_url ?? editorConnectUrl()))
+      .catch(() => location.replace(editorConnectUrl()));
+  }, []);
+  return <main className="portal-redirect" aria-live="polite">Opening mdbase Connect in the editor…</main>;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><Portal /></React.StrictMode>);

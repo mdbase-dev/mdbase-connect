@@ -37,6 +37,25 @@ afterEach(async () => {
 });
 
 describe("mdbase connect server", () => {
+  it("publishes the runtime editor handoff without baking it into the portal", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const { app } = await buildApp({
+      db,
+      devAuth: true,
+      publicUrl: "http://connect.test",
+      editorOrigin: "http://editor.test"
+    });
+    resources.push(() => app.close());
+
+    const response = await app.inject({ method: "GET", url: "/v1/ui-configuration" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      editor_url: "http://editor.test/connect?server=http%3A%2F%2Fconnect.test"
+    });
+  });
+
   it("reports the deployed revision when one is configured", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());

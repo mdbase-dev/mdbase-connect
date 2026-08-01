@@ -8,12 +8,40 @@ import { createDatabase } from "./db.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "http://127.0.0.1:8787";
+const editorOrigin = "http://127.0.0.1:4173";
 
 afterEach(async () => {
   while (resources.length) await resources.pop()?.();
 });
 
 describe("account browser sessions", () => {
+  it("allows the configured editor origin to use account sessions without exposing them elsewhere", async () => {
+    const { app } = await fixture();
+    await login(app, "person@example.com", "Browser one");
+    const current = await login(app, "person@example.com", "Browser two");
+    const listed = await app.inject({
+      method: "GET",
+      url: "/v1/account/sessions",
+      headers: { cookie: current.cookie, origin: editorOrigin }
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.headers["access-control-allow-origin"]).toBe(editorOrigin);
+    expect(listed.headers["access-control-allow-credentials"]).toBe("true");
+    const otherSession = listed.json().sessions.find(
+      (session: { current: boolean }) => !session.current
+    );
+    expect((await app.inject({
+      method: "DELETE",
+      url: `/v1/account/sessions/${otherSession.id}`,
+      headers: { cookie: current.cookie, origin: editorOrigin }
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie: current.cookie, origin: "https://evil.example" }
+    })).statusCode).toBe(403);
+  });
+
   it("lists active sessions, identifies the current browser, and revokes only owned sessions", async () => {
     const { app } = await fixture();
     const first = await login(
@@ -176,7 +204,8 @@ async function fixture() {
   const { app } = await buildApp({
     db,
     devAuth: true,
-    publicUrl: origin
+    publicUrl: origin,
+    managementOrigins: [editorOrigin]
   });
   resources.push(() => app.close());
   return { app, db };

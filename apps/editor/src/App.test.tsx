@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase/connect";
+import { ConnectOutcomeError, connectProblem, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase/connect";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -1208,7 +1208,7 @@ class ReconnectingGateway extends DemoCollectionGateway {
     this.watchCalls += 1;
     onStatus?.({ state: "connecting" });
     if (this.watchCalls === 1) {
-      onStatus?.({ state: "reconnecting", cursor: 1, attempt: 1, retryInMs: 500, error: new Error("The test connection dropped.") });
+      onStatus?.({ state: "reconnecting", cursor: 1, attempt: 1, retryInMs: 500, problem: connectProblem("temporarily_unavailable", "The test connection dropped.") });
     } else {
       onStatus?.({ state: "connected", cursor: 1, recovered: false });
     }
@@ -1233,8 +1233,9 @@ class ResettingCursorGateway extends DemoCollectionGateway {
     this.watchCalls += 1;
     onStatus?.({ state: "connecting" });
     if (this.watchCalls === 1) {
-      const error = new MdbaseConnectError("change_cursor_reset", "Refresh collection state.");
-      onStatus?.({ state: "reset_required", cursor: 1, error });
+      const problem = connectProblem("change_cursor_reset", "Refresh collection state.");
+      const error = new ConnectOutcomeError(problem);
+      onStatus?.({ state: "reset_required", cursor: 1, problem });
       throw error;
     }
     onStatus?.({ state: "connected", cursor: 2, recovered: false });
@@ -1585,11 +1586,11 @@ class CancellableRenameGateway extends DemoCollectionGateway {
         estimate: { affectedRecords: updateRefs ? 1 : 0, totalUnits: updateRefs ? 2 : 1, warnings: 0 }
       });
       this.markStarted?.();
-      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new MdbaseConnectError(
-        "operation_cancelled",
+      await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new ConnectOutcomeError(connectProblem(
+        "operation_outcome_unknown",
         "Waiting was cancelled after the mutation was sent. Resume the pending mutation to recover its authoritative result.",
-        { outcomeUnknown: true, recovery: "resolve_outcome" }
-      )), { once: true }));
+        { operationOutcome: "unknown" }
+      ))), { once: true }));
     }
     return super.rename(from, to, revision, updateRefs, options);
   }

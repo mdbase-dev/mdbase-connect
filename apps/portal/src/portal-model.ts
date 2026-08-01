@@ -1,18 +1,15 @@
 import type {
   AvailableCollection,
   ContractRequirement,
-  DashboardData,
   PendingAuthorization,
   TypePackProvision
 } from "./api";
 
-export const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "install_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
-
 const editorBaseUrl = import.meta.env.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
 
-export function editorUrl(collectionId?: string): string {
-  const url = new URL(editorBaseUrl);
-  if (collectionId) url.searchParams.set("collection", collectionId);
+export function editorConnectUrl(connectOrigin = location.origin): string {
+  const url = new URL("connect", editorBaseUrl);
+  url.searchParams.set("server", new URL(connectOrigin).origin);
   return url.href;
 }
 
@@ -37,7 +34,6 @@ export function formatDeviceCode(value: string) {
     ? `${canonical.slice(0, 4)}-${canonical.slice(4)}`
     : canonical;
 }
-export function pluralLabel(count: number, singular: string, pluralValue: string) { return `${count} ${count === 1 ? singular : pluralValue}`; }
 export function neededProvisions(
   request: Pick<PendingAuthorization, "requirements" | "provisions">,
   collection: Pick<AvailableCollection, "contracts">
@@ -83,21 +79,6 @@ export function isAuthorizationReturnTarget() {
   } catch {
     return false;
   }
-}
-export function identityLabel(user: { email: string | null; login: string | null }) {
-  return user.login ? `@${user.login}` : user.email ?? "Identity unavailable";
-}
-export function authenticationLabel(provider: DashboardData["authentication"]["provider"]) {
-  if (provider === "google") return "Google";
-  if (provider === "github") return "GitHub";
-  if (provider === "tailscale") return "Tailscale identity";
-  if (provider === "password") return "Email and password";
-  return "Development session";
-}
-export function registrationLabel(registration: DashboardData["authentication"]["registration"]) {
-  if (registration === "open") return "Open";
-  if (registration === "invite") return "Invitation only";
-  return "Closed";
 }
 export function relativeTime(value: string) {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1_000);

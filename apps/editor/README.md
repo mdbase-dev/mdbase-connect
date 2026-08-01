@@ -1,7 +1,8 @@
 # mdbase editor
 
-A quiet, browser-based editor for an entire mdbase collection. It connects to a
-user-approved collection through mdbase connect and works with the Markdown
+A quiet, browser-based editor for an entire mdbase collection, with an
+editor-native Connect workspace at `/connect`. It connects to a user-approved
+collection through mdbase connect and works with the Markdown
 records in place. The Connect authorization screen offers both collections on
 your connected computers and collections hosted by mdbase. After approval, the
 same editor works against either storage provider.
@@ -26,20 +27,27 @@ type definitions rather than one domain contract.
 
 ## Development
 
-The repository currently vendors pinned pre-release SDK tarballs from
-`mdbase-dev/mdbase-connect` so its private Pages build is reproducible before
-the packages are published to npm.
+The editor lives at `apps/editor` in the mdbase Connect monorepo. It consumes
+the Connect SDK, protocol, UI, and management client through `workspace:*`
+dependencies, so one lockfile describes the complete build.
 
 The runtime boundaries, state ownership rules, and concurrency invariants are
 documented in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```sh
 pnpm install
-pnpm dev
+pnpm build:packages
+pnpm --filter mdbase-editor dev
 ```
 
-Open `http://localhost:5173/mdbase-editor/?demo=5000` for a generated local
+Open `http://localhost:5173/?demo=5000` for a generated local
 collection that does not require authorization.
+
+Open `http://localhost:5173/connect` for account management. The Connect server
+must set `MDBASE_CONNECT_MANAGEMENT_ORIGINS=http://localhost:5173` so its
+HttpOnly account cookie can be used from the editor origin. Production and
+staging should keep the editor and Connect on the same registrable domain and
+allowlist only their exact editor origin.
 
 Run the browser suite with `pnpm test:e2e`. It covers hosted authorization and
 direct-provider CRUD, the real CodeMirror integration, creation and frontmatter
@@ -49,8 +57,9 @@ flows, type inspection, settings, responsive navigation, accessibility, and a
 ## Deployment
 
 The production application is configured for
-`https://editor.mdbase.dev/` on Cloudflare Pages. GitHub Actions runs the
-complete verification and browser suites, rebuilds the application for its
+`https://editor.mdbase.dev/` on Cloudflare Pages. The independent
+`editor-pages.yml` workflow runs the complete verification and browser suites,
+rebuilds the application for its
 dedicated origin, then uploads `dist` with Wrangler. Create a Direct Upload
 Pages project named `mdbase-editor` with production branch `main`.
 
@@ -60,7 +69,7 @@ to `1`.
 
 The same workflow publishes a permanent staging build at
 `https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
-generates a manifest for the staging editor origin, and targets
-`https://mdbase-connect-staging.onrender.com`. The Pages API attaches the
+generates a manifest for the staging editor origin, and targets the same-site
+`https://connect-staging.mdbase.dev` control-plane origin. The Pages API attaches the
 custom domain idempotently; Cloudflare DNS must proxy
 `editor-staging.mdbase.dev` to `staging.mdbase-editor.pages.dev`.

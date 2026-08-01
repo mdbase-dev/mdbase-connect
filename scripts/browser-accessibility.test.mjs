@@ -6,7 +6,8 @@ import { chromium } from "@playwright/test";
 
 const roots = {
   portal: resolve("apps/portal/dist"),
-  desktop: resolve("apps/desktop/dist/renderer")
+  desktop: resolve("apps/desktop/dist/renderer"),
+  editor: resolve("apps/editor/dist")
 };
 const servers = await Promise.all(
   Object.values(roots).map((root) => serveStaticApplication(root))
@@ -15,7 +16,7 @@ const browser = await chromium.launch({ headless: true });
 
 try {
   await auditPortalLogin();
-  await auditPortalDashboard();
+  await auditEditorConnect();
   await auditPortalColdStartAuthorization();
   await auditPortalDeviceAuthorization();
   await auditDesktopResumedAuthorization();
@@ -67,7 +68,7 @@ async function auditPortalLogin() {
   await page.close();
 }
 
-async function auditPortalDashboard() {
+async function auditEditorConnect() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
   await page.route("**/v1/**", async (route) => {
@@ -98,9 +99,9 @@ async function auditPortalDashboard() {
     }
     await route.fulfill({ json: {} });
   });
-  await page.goto(servers[0].origin);
-  await page.getByRole("heading", { name: "Your connections." }).waitFor();
-  await auditPage(page, "portal dashboard", { keyboard: true });
+  await page.goto(`${servers[2].origin}/connect`);
+  await page.getByRole("heading", { name: "Your connections" }).waitFor();
+  await auditPage(page, "editor Connect workspace", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }

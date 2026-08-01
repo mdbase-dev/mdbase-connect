@@ -13,10 +13,13 @@ tokens, or collection runtimes.
 
 ## Product purpose
 
-mdbase editor is a general Markdown collection editor. It opens one collection
-through mdbase connect, presents every record as a note, and preserves the
-collection's files, frontmatter, types, and revision checks. It is also the
-reference full-access consumer for the mdbase connect SDK.
+mdbase editor is a general Markdown collection editor and the web home for
+mdbase Connect. Its editing workspace opens one separately authorized
+collection, presents every record as a note, and preserves the collection's
+files, frontmatter, types, and revision checks. Its `/connect` workspace uses
+the user's Connect account session to manage collection inventory, application
+grants, computers, and browser sessions without receiving collection content.
+It is also the reference full-access consumer for the mdbase connect SDK.
 
 ## Brand personality
 
@@ -45,3 +48,6 @@ toolbar clutter, and permanent technical metadata around the document.
 8. Present data contracts as application compatibility: keep field mappings,
    schema-driven behavior settings, and the resulting application view visible,
    with YAML as the precise escape hatch.
+9. Keep account management and collection content authorization separate. An
+   account may reveal that a collection exists; opening it still requires the
+   editor application's exact collection grant.

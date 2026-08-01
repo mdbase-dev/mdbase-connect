@@ -210,6 +210,15 @@ body {
   overflow: hidden;
 }
 
+.route-loading {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  color: var(--muted);
+}
+
 button,
 input,
 textarea,

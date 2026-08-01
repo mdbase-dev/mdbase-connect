@@ -1,0 +1,821 @@
+.connect-shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 68px 248px minmax(0, 1fr);
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.connect-product-rail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 8px;
+  border-right: 1px solid var(--line);
+  background: var(--white);
+}
+
+.connect-product-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+}
+
+.connect-product-mark .wordmark-mark {
+  width: 32px;
+  height: 32px;
+}
+
+.connect-product-rail nav {
+  width: 100%;
+  display: grid;
+  gap: 7px;
+}
+
+.connect-product-rail nav a,
+.connect-product-rail nav button {
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border-radius: 7px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.68rem;
+}
+
+.connect-product-rail nav svg {
+  width: 20px;
+  height: 20px;
+}
+
+.connect-product-rail nav .selected {
+  background: var(--selected);
+  color: var(--accent-strong);
+}
+
+.connect-nav {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--white);
+}
+
+.connect-nav > header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-nav > header .wordmark-mark {
+  display: none;
+}
+
+.connect-nav > header .wordmark-label strong {
+  display: none;
+}
+
+.connect-nav > header > span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connect-nav > nav {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 14px 10px;
+  overflow-y: auto;
+}
+
+.connect-nav > nav button {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.connect-nav > nav button span,
+.connect-nav > nav button span svg {
+  width: 18px;
+  height: 18px;
+}
+
+.connect-nav > nav button strong {
+  overflow: hidden;
+  font-size: 0.92rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-nav > nav button small {
+  color: var(--faint);
+  font-size: 0.77rem;
+}
+
+.connect-nav > nav button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.connect-nav > nav button.selected {
+  background: var(--selected);
+  color: var(--accent-strong);
+}
+
+.connect-nav > nav button.selected strong {
+  font-weight: 700;
+}
+
+.connect-nav > footer {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.connect-nav > footer > span:last-child {
+  min-width: 0;
+  display: grid;
+}
+
+.connect-nav > footer strong,
+.connect-nav > footer small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-nav > footer strong {
+  font-size: 0.86rem;
+}
+
+.connect-nav > footer small {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.connect-avatar {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.connect-main {
+  min-width: 0;
+  overflow: auto;
+  background: var(--canvas);
+}
+
+.connect-page {
+  width: min(940px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 50px 0 90px;
+}
+
+.connect-page > header {
+  margin-bottom: 46px;
+}
+
+.connect-page > header p {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.connect-page > header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+}
+
+.connect-page > header > span {
+  max-width: 650px;
+  display: block;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.connect-page > section {
+  margin-top: 42px;
+}
+
+.connect-section-title {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.connect-section-title > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.connect-section-title h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+.connect-section-title span {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.connect-section-title button,
+.connect-row-actions button,
+.connect-row-actions a,
+.connect-section-title a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent-strong);
+  text-decoration: none;
+  font-size: 0.84rem;
+}
+
+.connect-section-title svg,
+.connect-row-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.connect-row {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-row > div:first-child,
+.connect-row > span:first-child,
+.connect-row-detail span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.connect-row strong {
+  font-size: 0.92rem;
+}
+
+.connect-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.connect-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 15px;
+}
+
+.connect-row-actions .danger,
+.connect-section-title .danger,
+button.danger {
+  color: var(--danger);
+}
+
+.connect-row-actions button:disabled,
+.connect-section-title button:disabled,
+button.danger:disabled {
+  opacity: 0.45;
+}
+
+.connect-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.connect-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.connect-status.online i {
+  background: var(--success);
+}
+
+.connect-attention {
+  padding-left: 14px;
+  border-left: 2px solid var(--warning);
+}
+
+.connect-primary-action {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--color-on-accent) !important;
+  text-decoration: none;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.connect-primary-action:hover {
+  background: var(--accent-strong);
+}
+
+.connect-overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.connect-overview-grid button {
+  min-height: 134px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 24px;
+  background: var(--white);
+  text-align: left;
+}
+
+.connect-overview-grid button:hover {
+  background: var(--hover);
+}
+
+.connect-overview-grid strong {
+  color: var(--accent-strong);
+  font-family: var(--mono);
+  font-size: 1.7rem;
+}
+
+.connect-overview-grid span {
+  font-weight: 700;
+}
+
+.connect-overview-grid small,
+.connect-muted {
+  color: var(--muted);
+}
+
+.connect-inline-form {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-inline-form label {
+  width: min(420px, 65%);
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.connect-inline-form input {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--white);
+}
+
+.connect-inline-form > div {
+  display: flex;
+  gap: 12px;
+}
+
+.connect-collection-row {
+  grid-template-columns: minmax(190px, 1fr) auto minmax(280px, auto);
+}
+
+.connect-row-detail {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.connect-row-detail summary {
+  width: max-content;
+  color: var(--accent-strong);
+}
+
+.connect-row-detail > div {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 8px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.connect-application,
+.connect-grant {
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-application > summary,
+.connect-grant > summary {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 4px;
+  list-style: none;
+}
+
+.connect-application > summary::-webkit-details-marker,
+.connect-grant > summary::-webkit-details-marker {
+  display: none;
+}
+
+.connect-application > summary > span,
+.connect-grant > summary > span {
+  display: grid;
+  gap: 3px;
+}
+
+.connect-application > summary small,
+.connect-grant > summary small {
+  color: var(--muted);
+}
+
+.connect-application > summary b,
+.connect-grant > summary b {
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+}
+
+.connect-application-body {
+  padding: 0 0 20px 22px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.connect-grant-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(200px, 0.7fr);
+  gap: 24px;
+  padding: 4px 4px 22px;
+}
+
+.connect-permissions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 18px;
+}
+
+.connect-permissions label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.connect-permissions input {
+  accent-color: var(--accent);
+}
+
+.connect-grant-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 8px 12px;
+  font-size: 0.78rem;
+}
+
+.connect-grant-meta span {
+  color: var(--muted);
+}
+
+.connect-grant-meta strong {
+  overflow-wrap: anywhere;
+  font-weight: 400;
+}
+
+.connect-grant-body > .connect-row-actions {
+  grid-column: 1 / -1;
+}
+
+.connect-revoke-application {
+  margin-top: 18px;
+}
+
+.connect-account-details {
+  margin: 0;
+}
+
+.connect-account-details > div {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: minmax(140px, 0.4fr) 1fr;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-account-details dt {
+  color: var(--muted);
+}
+
+.connect-account-details dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.connect-current {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+  font-size: 0.8rem;
+}
+
+.connect-current svg {
+  width: 14px;
+}
+
+.connect-sign-out {
+  margin-top: 24px;
+  color: var(--danger);
+}
+
+.connect-empty {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.connect-empty > svg {
+  width: 22px;
+  height: 22px;
+}
+
+.connect-empty div {
+  display: grid;
+  gap: 4px;
+}
+
+.connect-empty strong {
+  color: var(--ink);
+}
+
+.connect-empty p {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.connect-notice {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--color-warning-border);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.84rem;
+}
+
+.connect-notice svg {
+  width: 18px;
+}
+
+.connect-notice button {
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.connect-loading {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 30px;
+  background: var(--canvas);
+  text-align: center;
+}
+
+.connect-loading .wordmark-mark {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 8px;
+}
+
+.connect-loading p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.connect-workspace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.76rem;
+}
+
+.connect-workspace-link:hover {
+  color: var(--accent-strong);
+}
+
+.connect-workspace-link svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (max-width: 820px) {
+  .connect-shell {
+    grid-template-columns: 58px 210px minmax(0, 1fr);
+  }
+
+  .connect-page {
+    width: calc(100% - 38px);
+  }
+
+  .connect-row,
+  .connect-collection-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 18px;
+  }
+
+  .connect-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .connect-grant-body {
+    grid-template-columns: 1fr;
+  }
+
+  .connect-grant-body > .connect-row-actions {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 620px) {
+  body:has(.connect-shell) {
+    overflow: auto;
+  }
+
+  .connect-shell {
+    min-height: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .connect-product-rail {
+    height: 52px;
+    position: sticky;
+    z-index: 4;
+    top: 0;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .connect-product-rail nav {
+    width: auto;
+    display: flex;
+  }
+
+  .connect-product-rail nav a,
+  .connect-product-rail nav button {
+    min-height: 38px;
+    grid-template-columns: auto auto;
+    padding: 6px 10px;
+  }
+
+  .connect-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .connect-nav > header,
+  .connect-nav > footer {
+    display: none;
+  }
+
+  .connect-nav > nav {
+    display: flex;
+    gap: 2px;
+    padding: 7px 10px;
+    overflow-x: auto;
+  }
+
+  .connect-nav > nav button {
+    min-width: max-content;
+    grid-template-columns: 18px auto auto;
+  }
+
+  .connect-main {
+    overflow: visible;
+  }
+
+  .connect-page {
+    width: calc(100% - 28px);
+    padding: 32px 0 64px;
+  }
+
+  .connect-page > header {
+    margin-bottom: 32px;
+  }
+
+  .connect-overview-grid,
+  .connect-permissions {
+    grid-template-columns: 1fr;
+  }
+
+  .connect-section-title {
+    align-items: flex-start;
+  }
+
+  .connect-inline-form {
+    display: grid;
+  }
+
+  .connect-inline-form label {
+    width: 100%;
+  }
+
+  .connect-account-details > div {
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connect-shell *,
+  .connect-shell *::before,
+  .connect-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

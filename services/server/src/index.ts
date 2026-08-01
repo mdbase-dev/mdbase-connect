@@ -32,6 +32,8 @@ const { app } = await buildApp({
   registration: runtime.registration,
   authRateLimitSecret: runtime.authRateLimitSecret ?? undefined,
   betaAccessOrigin: runtime.betaAccessOrigin ?? undefined,
+  managementOrigins: runtime.managementOrigins,
+  editorOrigin: runtime.editorOrigin ?? undefined,
   authenticationLegalDocuments:
     runtime.authenticationLegalDocuments ?? undefined,
   emailTransport: runtime.transactionalEmail

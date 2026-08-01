@@ -436,6 +436,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       id: provision.manifest.id,
       version: provision.manifest.version,
       resources: planned.map(({ definition, action }) => ({
+        kind: definition.kind,
         target: definition.target,
         action,
         digest: definition.digest
