@@ -2557,6 +2557,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "futures-util",
  "hmac 0.12.1",
  "mdbase",
  "mdbase-connect-protocol",

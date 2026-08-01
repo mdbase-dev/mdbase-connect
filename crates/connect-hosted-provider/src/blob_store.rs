@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{BehaviorVersion, Region};
 use aws_sdk_s3::presigning::PresigningConfig;
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 use aws_sdk_s3::Client;
 use serde::Serialize;
@@ -13,6 +14,8 @@ use url::Url;
 
 const MIN_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_MULTIPART_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+const MIN_DOWNLOAD_PART_BYTES: u64 = 64 * 1024;
+const MAX_DOWNLOAD_PART_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_PRESIGN_SECONDS: u64 = 7 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +25,7 @@ pub struct R2Config {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub multipart_part_bytes: u64,
+    pub download_part_bytes: u64,
     pub presign_ttl: Duration,
     allow_insecure_loopback: bool,
 }
@@ -33,6 +37,7 @@ impl R2Config {
         access_key_id: impl Into<String>,
         secret_access_key: impl Into<String>,
         multipart_part_bytes: u64,
+        download_part_bytes: u64,
         presign_ttl: Duration,
     ) -> ApiResult<Self> {
         let config = Self {
@@ -41,6 +46,7 @@ impl R2Config {
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
             multipart_part_bytes,
+            download_part_bytes,
             presign_ttl,
             allow_insecure_loopback: false,
         };
@@ -54,6 +60,7 @@ impl R2Config {
         access_key_id: impl Into<String>,
         secret_access_key: impl Into<String>,
         multipart_part_bytes: u64,
+        download_part_bytes: u64,
         presign_ttl: Duration,
     ) -> ApiResult<Self> {
         let mut config = Self {
@@ -62,6 +69,7 @@ impl R2Config {
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
             multipart_part_bytes,
+            download_part_bytes,
             presign_ttl,
             allow_insecure_loopback: true,
         };
@@ -89,6 +97,8 @@ impl R2Config {
             || self.secret_access_key.trim().is_empty()
             || !(MIN_MULTIPART_PART_BYTES..=MAX_MULTIPART_PART_BYTES)
                 .contains(&self.multipart_part_bytes)
+            || !(MIN_DOWNLOAD_PART_BYTES..=MAX_DOWNLOAD_PART_BYTES)
+                .contains(&self.download_part_bytes)
             || self.presign_ttl.is_zero()
             || self.presign_ttl.as_secs() > MAX_PRESIGN_SECONDS
         {
@@ -143,7 +153,8 @@ impl R2BlobStore {
 
 #[async_trait]
 pub trait BlobStore: Send + Sync {
-    fn part_size(&self) -> u64;
+    fn upload_part_size(&self) -> u64;
+    fn download_part_size(&self) -> u64;
     async fn ready(&self) -> ApiResult<()>;
     async fn create_multipart(&self, key: &str) -> ApiResult<String>;
     async fn presign_put(&self, key: &str, content_length: u64) -> ApiResult<PresignedPart>;
@@ -169,14 +180,18 @@ pub trait BlobStore: Send + Sync {
     async fn object_exists(&self, key: &str) -> ApiResult<bool>;
     async fn copy(&self, source_key: &str, destination_key: &str) -> ApiResult<()>;
     async fn verify_object(&self, key: &str, size: u64, content_digest: &str) -> ApiResult<()>;
-    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<Vec<u8>>;
+    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<ByteStream>;
     async fn delete(&self, key: &str) -> ApiResult<()>;
 }
 
 #[async_trait]
 impl BlobStore for R2BlobStore {
-    fn part_size(&self) -> u64 {
+    fn upload_part_size(&self) -> u64 {
         self.config.multipart_part_bytes
+    }
+
+    fn download_part_size(&self) -> u64 {
+        self.config.download_part_bytes
     }
 
     async fn ready(&self) -> ApiResult<()> {
@@ -428,12 +443,12 @@ impl BlobStore for R2BlobStore {
         Ok(())
     }
 
-    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<Vec<u8>> {
+    async fn read_range(&self, key: &str, offset: u64, length: u64) -> ApiResult<ByteStream> {
         validate_object_key(key)?;
         if length == 0 {
-            return Ok(Vec::new());
+            return Ok(ByteStream::from_static(&[]));
         }
-        if length > self.config.multipart_part_bytes {
+        if length > self.config.download_part_bytes {
             return Err(ApiError::bad_request(
                 "invalid_file_range",
                 "File range exceeds the provider delivery part size.",
@@ -449,18 +464,7 @@ impl BlobStore for R2BlobStore {
             .send()
             .await
             .map_err(|error| r2_unavailable("read object range", &error))?;
-        let bytes = response
-            .body
-            .collect()
-            .await
-            .map_err(|error| r2_unavailable("read object body", &error))?
-            .into_bytes();
-        if bytes.len() as u64 != length {
-            return Err(ApiError::internal(
-                "R2 returned an incomplete object range.",
-            ));
-        }
-        Ok(bytes.to_vec())
+        Ok(response.body)
     }
 
     async fn delete(&self, key: &str) -> ApiResult<()> {
@@ -584,10 +588,11 @@ mod tests {
             "access",
             "secret",
             8 * 1024 * 1024,
+            8 * 1024 * 1024,
             Duration::from_secs(900),
         )
         .unwrap();
-        assert_eq!(R2BlobStore::new(valid).part_size(), 8 * 1024 * 1024);
+        assert_eq!(R2BlobStore::new(valid).upload_part_size(), 8 * 1024 * 1024);
 
         for invalid in [
             R2Config::new(
@@ -595,6 +600,7 @@ mod tests {
                 "bucket",
                 "access",
                 "secret",
+                8 * 1024 * 1024,
                 8 * 1024 * 1024,
                 Duration::from_secs(900),
             ),
@@ -604,6 +610,7 @@ mod tests {
                 "access",
                 "secret",
                 8 * 1024 * 1024,
+                8 * 1024 * 1024,
                 Duration::from_secs(900),
             ),
             R2Config::new(
@@ -612,6 +619,7 @@ mod tests {
                 "access",
                 "secret",
                 4 * 1024 * 1024,
+                8 * 1024 * 1024,
                 Duration::from_secs(900),
             ),
         ] {
@@ -623,6 +631,7 @@ mod tests {
             "access",
             "secret",
             8 * 1024 * 1024,
+            8 * 1024 * 1024,
             Duration::from_secs(900),
         )
         .is_ok());
@@ -631,6 +640,7 @@ mod tests {
             "bucket",
             "access",
             "secret",
+            8 * 1024 * 1024,
             8 * 1024 * 1024,
             Duration::from_secs(900),
         )

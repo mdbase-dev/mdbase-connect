@@ -1,6 +1,8 @@
 use super::*;
+use aws_sdk_s3::primitives::ByteStream;
 use axum::body::Body;
 use axum::response::Response;
+use futures_util::{stream, Stream};
 use mdbase_connect_protocol::{
     CommitFileUploadReceipt, CommitFileUploadRequest, FileTransferSession,
     PrepareFileUploadPartRequest, PreparedFilePart,
@@ -165,16 +167,50 @@ async fn download_file_part(
     let token =
         authorize_file_request(&state, &headers, Method::GET, &uri, collection_id, &[]).await?;
     let origin = request_origin(&headers);
-    let bytes = state
+    let download = state
         .provider
         .download_file_part(collection_id, token, transfer_id, part_index, origin)
         .await?;
     Response::builder()
         .header("content-type", "application/octet-stream")
+        .header("content-length", download.content_length)
         .header("cache-control", "no-store")
         .header("x-content-type-options", "nosniff")
-        .body(Body::from(bytes))
+        .body(Body::from_stream(exact_length_stream(
+            download.body,
+            download.content_length,
+        )))
         .map_err(|_| ApiError::internal("Could not build the hosted file response."))
+}
+
+fn exact_length_stream(
+    body: ByteStream,
+    expected_length: u64,
+) -> impl Stream<Item = Result<Bytes, std::io::Error>> {
+    stream::try_unfold(
+        (body, expected_length),
+        |(mut body, remaining)| async move {
+            match body.next().await {
+                Some(Ok(bytes)) if bytes.is_empty() => Ok(Some((bytes, (body, remaining)))),
+                Some(Ok(bytes)) if bytes.len() as u64 <= remaining => {
+                    let next_remaining = remaining - bytes.len() as u64;
+                    Ok(Some((bytes, (body, next_remaining))))
+                }
+                Some(Ok(_)) => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "R2 returned more bytes than the requested file range.",
+                )),
+                Some(Err(error)) => Err(std::io::Error::other(format!(
+                    "R2 file range stream failed: {error}"
+                ))),
+                None if remaining == 0 => Ok(None),
+                None => Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "R2 returned fewer bytes than the requested file range.",
+                )),
+            }
+        },
+    )
 }
 
 async fn file_transfer_status(
@@ -310,5 +346,29 @@ fn require_matching_transfer(path: Uuid, body: Uuid) -> ApiResult<()> {
             "file_transfer_mismatch",
             "The file transfer ID does not match the request path.",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn exact_length_delivery_preserves_bytes() {
+        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2, 3]), 3));
+        assert_eq!(to_bytes(body, 4).await.unwrap().as_ref(), &[1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn exact_length_delivery_rejects_truncation() {
+        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2]), 3));
+        assert!(to_bytes(body, 4).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn exact_length_delivery_rejects_excess_bytes() {
+        let body = Body::from_stream(exact_length_stream(ByteStream::from(vec![1, 2, 3, 4]), 3));
+        assert!(to_bytes(body, 5).await.is_err());
     }
 }

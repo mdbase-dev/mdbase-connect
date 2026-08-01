@@ -195,8 +195,11 @@ impl HostedProvider {
             .await?
             .ok_or_else(import_file_transfer_not_found)?;
         assert_import_transfer_open(&transfer, import_id)?;
-        let (part_index, offset, expected_length) =
-            import_expected_part(&transfer, self.blob_store.part_size(), request.part_number)?;
+        let (part_index, offset, expected_length) = import_expected_part(
+            &transfer,
+            self.blob_store.upload_part_size(),
+            request.part_number,
+        )?;
         if request.content_length != expected_length {
             return Err(import_invalid_part());
         }
@@ -417,7 +420,7 @@ impl HostedProvider {
             Vec::new()
         };
         let received = if transfer.state == "committed" {
-            (0..import_part_count(transfer, self.blob_store.part_size())).collect()
+            (0..import_part_count(transfer, self.blob_store.upload_part_size())).collect()
         } else if transfer.strategy == "object_multipart" {
             uploaded_parts
                 .iter()
@@ -446,7 +449,7 @@ impl HostedProvider {
                 FileTransferStrategy::ObjectPut
             } else {
                 FileTransferStrategy::ObjectMultipart {
-                    part_size: self.blob_store.part_size(),
+                    part_size: self.blob_store.upload_part_size(),
                 }
             },
             total_size: transfer.expected_size,
@@ -472,7 +475,7 @@ impl HostedProvider {
             }
             return Ok(Vec::new());
         }
-        let expected = import_part_count(transfer, self.blob_store.part_size());
+        let expected = import_part_count(transfer, self.blob_store.upload_part_size());
         if parts.len() as u64 != expected
             || parts.iter().enumerate().any(|(index, part)| {
                 usize::from(part.part_number) != index + 1 || part.etag.is_empty()

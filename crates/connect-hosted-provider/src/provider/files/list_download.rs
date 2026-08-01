@@ -118,7 +118,10 @@ impl HostedProvider {
                 Some(&existing.intent.path),
                 request_origin,
             )?;
-            return Ok(download_session(&existing, self.blob_store.part_size()));
+            return Ok(download_session(
+                &existing,
+                self.blob_store.download_part_size(),
+            ));
         }
         let row = if let Some(revision) = request.revision.as_deref() {
             sqlx::query(
@@ -200,7 +203,10 @@ impl HostedProvider {
                     "The transfer ID was already used for a different download.",
                 ));
             }
-            return Ok(download_session(&existing, self.blob_store.part_size()));
+            return Ok(download_session(
+                &existing,
+                self.blob_store.download_part_size(),
+            ));
         }
         Ok(FileTransferSession {
             protocol_version: FILE_TRANSFER_PROTOCOL_VERSION,
@@ -209,7 +215,7 @@ impl HostedProvider {
             direction: FileTransferDirection::Download,
             protection: FileTransferProtection::TransportTls,
             strategy: FileTransferStrategy::ObjectRanges {
-                part_size: self.blob_store.part_size(),
+                part_size: self.blob_store.download_part_size(),
             },
             total_size: descriptor.size,
             expires_at: expires_at.to_rfc3339(),
@@ -218,14 +224,14 @@ impl HostedProvider {
         })
     }
 
-    pub async fn download_file_part(
+    pub(crate) async fn download_file_part(
         &self,
         collection_id: Uuid,
         token: &str,
         transfer_id: Uuid,
         part_index: u64,
         request_origin: Option<&str>,
-    ) -> ApiResult<Vec<u8>> {
+    ) -> ApiResult<HostedFileDownload> {
         let replica = self.authenticate_for_file(collection_id, token).await?;
         let data_key = self.load_collection_key(collection_id).await?;
         let transfer = self
@@ -253,22 +259,18 @@ impl HostedProvider {
                 "An empty file has no download ranges.",
             ));
         }
-        let part_size = self.blob_store.part_size();
+        let part_size = self.blob_store.download_part_size();
         let offset = part_index
             .checked_mul(part_size)
             .ok_or_else(invalid_file_part)?;
         let content_length = part_length(transfer.size, part_size, part_index)?;
-        let bytes = self
+        let body = self
             .blob_store
             .read_range(&transfer.object_key, offset, content_length)
             .await?;
-        if bytes.len() as u64 != content_length {
-            return Err(ApiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "file_storage_unavailable",
-                "The stored file range had an unexpected length.",
-            ));
-        }
-        Ok(bytes)
+        Ok(HostedFileDownload {
+            body,
+            content_length,
+        })
     }
 }

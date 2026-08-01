@@ -173,8 +173,11 @@ impl HostedProvider {
             Some(&transfer.intent.path),
             request_origin,
         )?;
-        let (part_index, offset, expected_length) =
-            expected_upload_part(&transfer, self.blob_store.part_size(), request.part_number)?;
+        let (part_index, offset, expected_length) = expected_upload_part(
+            &transfer,
+            self.blob_store.upload_part_size(),
+            request.part_number,
+        )?;
         if request.content_length != expected_length {
             return Err(ApiError::bad_request(
                 "invalid_file_part",
@@ -478,7 +481,7 @@ impl HostedProvider {
     async fn upload_progress(&self, transfer: &HostedFileTransfer) -> ApiResult<(Vec<u64>, u64)> {
         if transfer.state == "committed" {
             return Ok((
-                (0..upload_part_count(transfer, self.blob_store.part_size())).collect(),
+                (0..upload_part_count(transfer, self.blob_store.upload_part_size())).collect(),
                 transfer.expected_size,
             ));
         }
@@ -521,7 +524,7 @@ impl HostedProvider {
             received_bytes = received_bytes
                 .checked_add(part_length(
                     transfer.expected_size,
-                    strategy_part_size(transfer, self.blob_store.part_size())?,
+                    strategy_part_size(transfer, self.blob_store.upload_part_size())?,
                     *index,
                 )?)
                 .ok_or_else(|| ApiError::internal("Uploaded byte count overflowed."))?;
@@ -547,7 +550,8 @@ impl HostedProvider {
                 Ok(Vec::new())
             }
             "object_multipart" => {
-                let expected_count = upload_part_count(transfer, self.blob_store.part_size());
+                let expected_count =
+                    upload_part_count(transfer, self.blob_store.upload_part_size());
                 if parts.len() as u64 != expected_count
                     || parts.iter().enumerate().any(|(index, part)| {
                         usize::from(part.part_number) != index + 1 || part.etag.is_empty()
@@ -600,7 +604,7 @@ impl HostedProvider {
                             || u64::try_from(length).ok()
                                 != part_length(
                                     transfer.expected_size,
-                                    self.blob_store.part_size(),
+                                    self.blob_store.upload_part_size(),
                                     index as u64,
                                 )
                                 .ok()

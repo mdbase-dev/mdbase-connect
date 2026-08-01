@@ -146,7 +146,7 @@ impl HostedProvider {
             Vec::new()
         };
         let received = if transfer.state == "committed" {
-            (0..upload_part_count(transfer, self.blob_store.part_size())).collect()
+            (0..upload_part_count(transfer, self.blob_store.upload_part_size())).collect()
         } else if transfer.strategy == "object_multipart" {
             uploaded_parts
                 .iter()
@@ -178,7 +178,7 @@ impl HostedProvider {
             strategy: match transfer.strategy.as_str() {
                 "object_put" => FileTransferStrategy::ObjectPut,
                 "object_multipart" => FileTransferStrategy::ObjectMultipart {
-                    part_size: self.blob_store.part_size(),
+                    part_size: self.blob_store.upload_part_size(),
                 },
                 _ => return Err(ApiError::internal("Stored upload strategy is invalid.")),
             },

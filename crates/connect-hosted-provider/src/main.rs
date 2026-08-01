@@ -105,6 +105,12 @@ struct Arguments {
     r2_multipart_part_bytes: u64,
     #[arg(
         long,
+        env = "MDBASE_CONNECT_R2_DOWNLOAD_PART_BYTES",
+        default_value_t = 8_388_608
+    )]
+    r2_download_part_bytes: u64,
+    #[arg(
+        long,
         env = "MDBASE_CONNECT_R2_PRESIGN_TTL_SECONDS",
         default_value_t = 900
     )]
@@ -166,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments.r2_access_key_id,
             arguments.r2_secret_access_key,
             arguments.r2_multipart_part_bytes,
+            arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
         )?
     } else {
@@ -175,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments.r2_access_key_id,
             arguments.r2_secret_access_key,
             arguments.r2_multipart_part_bytes,
+            arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
         )?
     };
