@@ -110,6 +110,7 @@ pub fn connect_problem_definition(code: &str) -> Option<ConnectProblemDefinition
         "file_mutation_conflict" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::ResolveConflict }),
         "file_not_found" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
         "file_source_mismatch" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Refresh }),
+        "file_upload_incomplete" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Conflict, recovery: ConnectRecoveryAction::Retry }),
         "hosted_provider_unavailable" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Availability, recovery: ConnectRecoveryAction::Retry }),
         "insufficient_access" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Authorization, recovery: ConnectRecoveryAction::Reauthorize }),
         "invalid_application_manifest" => Some(ConnectProblemDefinition { category: ConnectProblemCategory::Validation, recovery: ConnectRecoveryAction::FixRequest }),

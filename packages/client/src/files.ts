@@ -17,6 +17,7 @@ const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const MAX_OBJECT_ATTEMPTS = 3;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export type MdbaseFileSource = Blob | ArrayBuffer | ArrayBufferView;
 
@@ -36,6 +37,8 @@ export interface MdbaseFileUploadOptions {
   mediaType?: string;
   ifRevision?: string;
   concurrency?: number;
+  /** Stable retry key. Reuse it after an ambiguous failure to resume or replay commit. */
+  transferId?: string;
   signal?: AbortSignal;
   onProgress?: (progress: MdbaseFileProgress) => void;
 }
@@ -135,7 +138,10 @@ export class MdbaseFileClient {
         totalBytes: blob.size
       });
     });
-    const transferId = crypto.randomUUID();
+    const transferId = options.transferId ?? crypto.randomUUID();
+    if (!UUID.test(transferId)) {
+      throw connectError("invalid_request", "File transfer ID must be a UUID.");
+    }
     let committed = false;
     try {
       const session = await this.request<FileTransferSession>(
@@ -171,8 +177,17 @@ export class MdbaseFileClient {
       const partCount = session.strategy.kind === "object_put"
         ? 1
         : Math.ceil(blob.size / partSize);
-      const received = new Set(framed ? session.received : []);
-      let transferredBytes = framed
+      if (!framed && session.received.length === partCount) {
+        const replay = await this.tryReplayUploadCommit(transferId, options.signal);
+        if (replay) {
+          committed = true;
+          return replay.file;
+        }
+      }
+      const received = new Set(
+        framed || session.strategy.kind === "object_put" ? session.received : []
+      );
+      let transferredBytes = framed || session.strategy.kind === "object_put"
         ? [...received].reduce(
           (total, index) => total + chunkLength(blob.size, partSize, index),
           0
@@ -210,17 +225,11 @@ export class MdbaseFileClient {
         });
         return uploaded;
       });
-      const receipt = await this.request<CommitFileUploadReceipt>(
-        "POST",
-        `uploads/${encodeURIComponent(transferId)}/commit`,
-        {
-          protocol_version: FILE_PROTOCOL_VERSION,
-          type: "commit_file_upload",
-          transfer_id: transferId,
-          ...(session.strategy.kind === "object_multipart"
-            ? { parts: parts.filter((part): part is UploadedFilePart => part !== null) }
-            : {})
-        },
+      const receipt = await this.commitUpload(
+        transferId,
+        session.strategy.kind === "object_multipart"
+          ? parts.filter((part): part is UploadedFilePart => part !== null)
+          : undefined,
         options.signal
       );
       if (
@@ -235,7 +244,7 @@ export class MdbaseFileClient {
     } catch (error) {
       throw normalizeFileError(error);
     } finally {
-      if (!committed) await this.abort(transferId);
+      if (!committed && options.transferId === undefined) await this.abort(transferId);
     }
   }
 
@@ -437,6 +446,7 @@ export class MdbaseFileClient {
           method: prepared.method,
           headers: browserObjectHeaders(prepared.headers),
           body,
+          redirect: "error",
           signal
         });
         if (!response.ok) throw new Error(`Object upload failed with HTTP ${response.status}.`);
@@ -451,6 +461,50 @@ export class MdbaseFileClient {
       }
     }
     throw new Error("Unreachable upload retry state.");
+  }
+
+  private async tryReplayUploadCommit(
+    transferId: string,
+    signal?: AbortSignal
+  ): Promise<CommitFileUploadReceipt | null> {
+    try {
+      return await this.commitUpload(transferId, undefined, signal);
+    } catch (error) {
+      if (error instanceof MdbaseConnectError && error.code === "file_upload_incomplete") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async commitUpload(
+    transferId: string,
+    parts: UploadedFilePart[] | undefined,
+    signal?: AbortSignal
+  ): Promise<CommitFileUploadReceipt> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
+      throwIfAborted(signal);
+      try {
+        return await this.request<CommitFileUploadReceipt>(
+          "POST",
+          `uploads/${encodeURIComponent(transferId)}/commit`,
+          {
+            protocol_version: FILE_PROTOCOL_VERSION,
+            type: "commit_file_upload",
+            transfer_id: transferId,
+            ...(parts === undefined ? {} : { parts })
+          },
+          signal
+        );
+      } catch (error) {
+        lastError = error;
+        if (signal?.aborted || error instanceof MdbaseConnectError || attempt === MAX_OBJECT_ATTEMPTS) {
+          throw error;
+        }
+      }
+    }
+    throw lastError;
   }
 
   private async downloadPart(
@@ -478,6 +532,7 @@ export class MdbaseFileClient {
         const response = await fetch(prepared.url, {
           method: prepared.method,
           headers: browserObjectHeaders(prepared.headers),
+          redirect: "error",
           signal
         });
         if (!response.ok) throw new Error(`Object download failed with HTTP ${response.status}.`);

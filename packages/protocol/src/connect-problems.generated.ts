@@ -40,6 +40,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_mutation_conflict": { category: "conflict", recovery: "resolve_conflict" },
   "file_not_found": { category: "conflict", recovery: "refresh" },
   "file_source_mismatch": { category: "conflict", recovery: "refresh" },
+  "file_upload_incomplete": { category: "conflict", recovery: "retry" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
   "invalid_application_manifest": { category: "validation", recovery: "fix_request" },
@@ -169,6 +170,7 @@ export interface ConnectProblemDetailsByCode {
   "file_mutation_conflict": undefined;
   "file_not_found": undefined;
   "file_source_mismatch": undefined;
+  "file_upload_incomplete": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
@@ -454,6 +456,12 @@ export interface ConnectProblemByCode {
     code: "file_source_mismatch";
     category: "conflict";
     recovery: "refresh";
+    details?: never;
+  };
+  "file_upload_incomplete": ConnectProblemBase & {
+    code: "file_upload_incomplete";
+    category: "conflict";
+    recovery: "retry";
     details?: never;
   };
   "hosted_provider_unavailable": ConnectProblemBase & {

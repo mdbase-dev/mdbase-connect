@@ -150,6 +150,7 @@
     "file_mutation_conflict": { "category": "conflict", "recovery": "resolve_conflict" },
     "file_not_found": { "category": "conflict", "recovery": "refresh" },
     "file_source_mismatch": { "category": "conflict", "recovery": "refresh" },
+    "file_upload_incomplete": { "category": "conflict", "recovery": "retry" },
     "hosted_provider_unavailable": { "category": "availability", "recovery": "retry" },
     "insufficient_access": {
       "category": "authorization",

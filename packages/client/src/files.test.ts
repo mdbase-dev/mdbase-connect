@@ -375,6 +375,73 @@ describe("MdbaseFileClient", () => {
     expect(commit).not.toHaveProperty("parts");
   });
 
+  it("replays an idempotent commit after an ambiguous transport failure", async () => {
+    const content = bytes("commit replay");
+    let commits = 0;
+    let aborts = 0;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(input.transfer_id, { kind: "object_put" }, content.length);
+      }
+      if (path?.endsWith("/parts")) {
+        return prepared(input.transfer_id, 0, 0, content.length, "PUT", "https://r2.example/upload");
+      }
+      if (path?.endsWith("/commit")) {
+        commits += 1;
+        if (commits < 3) throw new Error("response lost");
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: descriptor("replay.bin", content)
+        };
+      }
+      if (method === "DELETE") {
+        aborts += 1;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(undefined, { status: 200 }));
+
+    await expect(client.upload("replay.bin", content)).resolves.toMatchObject({
+      path: "replay.bin"
+    });
+    expect(commits).toBe(3);
+    expect(aborts).toBe(0);
+  });
+
+  it("resumes a caller-keyed object upload without re-sending committed bytes", async () => {
+    const content = bytes("already in r2");
+    const transferId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    let commits = 0;
+    const client = fileClient(async (_method, path, input) => {
+      if (path === "uploads") {
+        return {
+          ...uploadSession(transferId, { kind: "object_put" }, content.length),
+          received: [0]
+        };
+      }
+      if (path?.endsWith("/commit")) {
+        commits += 1;
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: descriptor("resumed.bin", content)
+        };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    const objectFetch = vi.spyOn(globalThis, "fetch");
+
+    await expect(client.upload("resumed.bin", content, { transferId })).resolves.toMatchObject({
+      path: "resumed.bin"
+    });
+    expect(commits).toBe(1);
+    expect(objectFetch).not.toHaveBeenCalled();
+  });
+
   it("downloads encrypted frames concurrently, reorders them, and verifies integrity", async () => {
     const content = bytes("framed chunks stay ordered");
     const file = descriptor("framed.bin", content);
