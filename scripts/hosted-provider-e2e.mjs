@@ -927,9 +927,9 @@ try {
       storage: inlineStorage,
       keyStore: new MemoryGrantKeyStore()
     });
-    void inlineSdk.authorize({
+    unwrapConnectOutcome(await inlineSdk.authorize({
       operations: ["describe", "read", "query", "create", "update"]
-    });
+    }));
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
     const inlineCallback = await authorizeHostedApplicationByCreating(
       inlineAuthorizationUrl,
@@ -987,12 +987,12 @@ try {
     storage,
     keyStore: new MemoryGrantKeyStore()
   });
-  void hostedSdk.authorize({
+  unwrapConnectOutcome(await hostedSdk.authorize({
     operations: [
       "describe", "changes", "read", "query", "list_views", "execute_view",
       "create", "update", "delete", "rename", "create_type"
     ]
-  });
+  }));
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
   const callbackUrl = await authorizeHostedApplication(
     authorizationUrl,
@@ -2208,7 +2208,7 @@ async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory
       };
     }).catch((error) => {
       globalThis.portableHarness.error = {
-        code: error && error.code,
+        code: error && (error.problem?.code || error.code),
         message: error && error.message
       };
     });
