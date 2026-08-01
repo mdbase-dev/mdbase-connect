@@ -137,15 +137,15 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
-      '@mdbase/connect':
+      '@mdbase-dev/connect':
         specifier: workspace:*
         version: link:../../packages/client
+      '@mdbase-dev/connect-protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@mdbase/connect-management':
         specifier: workspace:*
         version: link:../../packages/management
-      '@mdbase/connect-protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
