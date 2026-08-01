@@ -1,8 +1,5 @@
 use super::*;
-use crate::collection_files::{
-    classify_media, excluded_directory, extension, hidden_name, portable_path_key,
-    validate_portable_path,
-};
+use crate::collection_files::{classify_media, portable_path_key};
 use chrono::{Duration, SecondsFormat, Utc};
 use mdbase::runtime::CollectionSnapshot;
 use mdbase_connect_protocol::{
@@ -122,8 +119,13 @@ impl CollectionRegistry {
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_mutation_allowed(id)?;
             let snapshot = collection.snapshot()?;
-            self.reconcile_files_loaded(&registered, &snapshot)?;
-            validate_target_path(Path::new(&registered.path), &snapshot, &request.path)?;
+            self.reconcile_files_loaded(&registered, collection, &snapshot)?;
+            validate_target_path(
+                collection,
+                Path::new(&registered.path),
+                &snapshot,
+                &request.path,
+            )?;
             self.create_upload_transfer(&registered, owner_id, request)
         })
     }
@@ -262,9 +264,14 @@ impl CollectionRegistry {
             }
 
             let snapshot = collection.snapshot()?;
-            validate_target_path(Path::new(&registered.path), &snapshot, &transfer.path)?;
+            validate_target_path(
+                collection,
+                Path::new(&registered.path),
+                &snapshot,
+                &transfer.path,
+            )?;
             if transfer.state == "open" {
-                self.reconcile_files_loaded(&registered, &snapshot)?;
+                self.reconcile_files_loaded(&registered, collection, &snapshot)?;
                 recheck_upload_intent(self, &transfer)?;
             }
             assert_upload_complete(self, &transfer)?;
@@ -308,6 +315,7 @@ impl CollectionRegistry {
             };
             let files = self.reconcile_files_loaded_with_preferences(
                 &registered,
+                collection,
                 &after_snapshot,
                 &preferences,
             )?;
@@ -699,23 +707,18 @@ fn chunk_count(total_size: u64, chunk_size: u32) -> u64 {
 }
 
 fn validate_target_path(
+    collection: &mdbase::Collection,
     root: &Path,
     snapshot: &CollectionSnapshot,
     relative: &str,
 ) -> Result<(), ConnectError> {
-    validate_portable_path(relative).map_err(|message| file_error("unsafe_file_path", message))?;
-    let components = relative.split('/').collect::<Vec<_>>();
-    if components
-        .iter()
-        .any(|component| hidden_name(component) || excluded_directory(component))
-        || relative.eq_ignore_ascii_case("mdbase.yaml")
-        || extension(relative).is_some_and(|value| value.eq_ignore_ascii_case("md"))
-    {
-        return Err(file_error(
+    collection.validate_file_path(relative).map_err(|error| {
+        file_error(
             "unsafe_file_path",
-            "The destination is reserved or excluded from the file namespace.",
-        ));
-    }
+            format!("The destination is outside the collection file namespace: {error}."),
+        )
+    })?;
+    let components = relative.split('/').collect::<Vec<_>>();
     let managed = snapshot
         .resources
         .iter()

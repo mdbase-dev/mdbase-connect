@@ -302,7 +302,7 @@ impl CollectionRegistry {
                 .unwrap_or_default();
             let snapshot = collection.snapshot()?;
             store.reconcile(id, &snapshot, &HashMap::new())?;
-            let files = self.reconcile_files_loaded(&registered, &snapshot)?;
+            let files = self.reconcile_files_loaded(&registered, collection, &snapshot)?;
             match action {
                 "open_session" => {
                     let description = self.describe_loaded(&registered, collection)?;

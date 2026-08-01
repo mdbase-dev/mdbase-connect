@@ -1,6 +1,7 @@
 use crate::ConnectError;
 use chrono::{DateTime, SecondsFormat, Utc};
-use mdbase::api::CollectionPath;
+use mdbase::file_path::FilePathError;
+use mdbase::Collection;
 use mdbase_connect_protocol::FileMediaClass;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -69,12 +70,12 @@ impl CollectionFileInclusion {
 /// structural-resource classification owned by mdbase instead of duplicating
 /// it in Connect.
 pub fn discover_collection_files(
-    root: &Path,
+    collection: &Collection,
     managed_paths: &BTreeSet<String>,
 ) -> Result<CollectionFileInventory, ConnectError> {
-    let root = root.canonicalize()?;
+    let root = collection.root().canonicalize()?;
     let mut inventory = CollectionFileInventory::default();
-    visit_directory(&root, &root, managed_paths, &mut inventory)?;
+    visit_directory(collection, &root, &root, managed_paths, &mut inventory)?;
     remove_portable_aliases(&mut inventory);
     inventory
         .files
@@ -103,6 +104,7 @@ pub fn select_collection_files<'a>(
 }
 
 fn visit_directory(
+    collection: &Collection,
     root: &Path,
     directory: &Path,
     managed_paths: &BTreeSet<String>,
@@ -132,7 +134,7 @@ fn visit_directory(
             continue;
         };
         let metadata = fs::symlink_metadata(&absolute_path)?;
-        if metadata.file_type().is_symlink() {
+        if is_link_or_reparse_point(&metadata) {
             inventory.issues.push(CollectionFileIssue {
                 path: relative,
                 code: "symlink_excluded",
@@ -144,7 +146,7 @@ fn visit_directory(
             if excluded_directory(&name) || nested_collection(&absolute_path) {
                 continue;
             }
-            visit_directory(root, &absolute_path, managed_paths, inventory)?;
+            visit_directory(collection, root, &absolute_path, managed_paths, inventory)?;
             continue;
         }
         if !metadata.is_file() {
@@ -155,22 +157,36 @@ fn visit_directory(
             });
             continue;
         }
-        if hidden_name(&name)
-            || managed_paths.contains(&relative)
-            || relative.eq_ignore_ascii_case("mdbase.yaml")
-            || extension(&relative).is_some_and(|value| value.eq_ignore_ascii_case("md"))
-        {
+        if managed_paths.contains(&relative) {
             continue;
         }
-        if let Err(message) = validate_portable_path(&relative) {
-            inventory.issues.push(CollectionFileIssue {
-                path: relative,
-                code: "unsafe_path",
-                message,
-            });
-            continue;
+        match collection.validate_file_path(&relative) {
+            Ok(path) if path.as_str() == relative => {}
+            Ok(_) => {
+                inventory.issues.push(CollectionFileIssue {
+                    path: relative,
+                    code: "unsafe_path",
+                    message: "path is not in canonical forward-slash form".to_string(),
+                });
+                continue;
+            }
+            Err(FilePathError::InvalidPath(error)) => {
+                inventory.issues.push(CollectionFileIssue {
+                    path: relative,
+                    code: "unsafe_path",
+                    message: error.to_string(),
+                });
+                continue;
+            }
+            Err(
+                FilePathError::HiddenComponent
+                | FilePathError::Reserved
+                | FilePathError::RecordPath,
+            ) => continue,
         }
-        if has_multiple_hard_links(&metadata) {
+        let (multiple_hard_links, physical_identity) =
+            physical_file_information(&absolute_path, &metadata)?;
+        if multiple_hard_links {
             inventory.issues.push(CollectionFileIssue {
                 path: relative,
                 code: "hard_link_excluded",
@@ -193,7 +209,7 @@ fn visit_directory(
             modified_at,
             media_type,
             media_class,
-            physical_identity: physical_identity(&metadata),
+            physical_identity,
         });
     }
     Ok(())
@@ -238,7 +254,7 @@ pub(crate) fn hidden_name(name: &str) -> bool {
 }
 
 pub(crate) fn validate_portable_path(relative: &str) -> Result<(), String> {
-    let path = CollectionPath::new(relative).map_err(|error| error.to_string())?;
+    let path = mdbase::api::CollectionPath::new(relative).map_err(|error| error.to_string())?;
     if path.as_str() != relative {
         return Err("path is not in canonical forward-slash form".to_string());
     }
@@ -321,29 +337,75 @@ pub(crate) fn classify_media(path: &str) -> (FileMediaClass, Option<String>) {
     (class, Some(media_type.to_string()))
 }
 
+#[cfg(windows)]
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
 #[cfg(unix)]
-fn has_multiple_hard_links(metadata: &fs::Metadata) -> bool {
+fn physical_file_information(
+    _path: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(bool, Option<PhysicalFileIdentity>), ConnectError> {
     use std::os::unix::fs::MetadataExt;
-    metadata.nlink() > 1
+
+    Ok((
+        metadata.nlink() > 1,
+        Some(PhysicalFileIdentity {
+            device: metadata.dev(),
+            file: metadata.ino(),
+        }),
+    ))
 }
 
-#[cfg(not(unix))]
-fn has_multiple_hard_links(_metadata: &fs::Metadata) -> bool {
-    false
+#[cfg(windows)]
+fn physical_file_information(
+    path: &Path,
+    _metadata: &fs::Metadata,
+) -> Result<(bool, Option<PhysicalFileIdentity>), ConnectError> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let file = fs::File::open(path)?;
+    let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: the handle remains open for this call and Windows initializes
+    // the complete BY_HANDLE_FILE_INFORMATION structure on success.
+    let succeeded =
+        unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) };
+    if succeeded == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: a successful GetFileInformationByHandle initialized the value.
+    let information = unsafe { information.assume_init() };
+    let file_index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Ok((
+        information.nNumberOfLinks > 1,
+        Some(PhysicalFileIdentity {
+            device: u64::from(information.dwVolumeSerialNumber),
+            file: file_index,
+        }),
+    ))
 }
 
-#[cfg(unix)]
-fn physical_identity(metadata: &fs::Metadata) -> Option<PhysicalFileIdentity> {
-    use std::os::unix::fs::MetadataExt;
-    Some(PhysicalFileIdentity {
-        device: metadata.dev(),
-        file: metadata.ino(),
-    })
-}
-
-#[cfg(not(unix))]
-fn physical_identity(_metadata: &fs::Metadata) -> Option<PhysicalFileIdentity> {
-    None
+#[cfg(not(any(unix, windows)))]
+fn physical_file_information(
+    _path: &Path,
+    _metadata: &fs::Metadata,
+) -> Result<(bool, Option<PhysicalFileIdentity>), ConnectError> {
+    Ok((false, None))
 }
 
 #[cfg(test)]
@@ -369,6 +431,20 @@ mod tests {
         fs::write(path, relative.as_bytes()).unwrap();
     }
 
+    fn inventory(root: &Path, managed_paths: &BTreeSet<String>) -> CollectionFileInventory {
+        inventory_with_config(root, "spec_version: 0.3.0\n", managed_paths)
+    }
+
+    fn inventory_with_config(
+        root: &Path,
+        config: &str,
+        managed_paths: &BTreeSet<String>,
+    ) -> CollectionFileInventory {
+        fs::write(root.join("mdbase.yaml"), config).unwrap();
+        let collection = Collection::open(root).unwrap();
+        discover_collection_files(&collection, managed_paths).unwrap()
+    }
+
     #[test]
     fn inventory_classifies_files_without_an_attachment_root() {
         let root = tempdir().unwrap();
@@ -378,7 +454,7 @@ mod tests {
         write(root.path(), "exports/demo.webm");
         write(root.path(), "papers/design.pdf");
         write(root.path(), "data/archive.zip");
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         let classified = inventory
             .files
             .iter()
@@ -416,7 +492,7 @@ mod tests {
         }
         write(root.path(), "nested/mdbase.yaml");
         write(root.path(), "nested/asset.png");
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
         assert!(inventory.issues.is_empty());
     }
@@ -429,10 +505,13 @@ mod tests {
         write(root.path(), "public/ok.png");
         let mut managed = BTreeSet::new();
         managed.insert("records/generated.bin".to_string());
-        let mut policy = all_files();
-        policy.excluded_folders.insert("private".to_string());
-        let inventory = discover_collection_files(root.path(), &managed).unwrap();
-        assert_eq!(inventory.files.len(), 2);
+        let policy = all_files();
+        let inventory = inventory_with_config(
+            root.path(),
+            "spec_version: 0.3.0\nsettings:\n  exclude: [private/**]\n",
+            &managed,
+        );
+        assert_eq!(inventory.files.len(), 1);
         let selected = select_collection_files(&inventory, &policy).unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].path, "public/ok.png");
@@ -448,7 +527,7 @@ mod tests {
             images: true,
             ..CollectionFileInclusion::default()
         };
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         let selected = select_collection_files(&inventory, &policy).unwrap();
         assert_eq!(
             selected
@@ -464,7 +543,7 @@ mod tests {
         let root = tempdir().unwrap();
         write(root.path(), "Notes/Example.png");
         write(root.path(), "notes/example.png");
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
         assert_eq!(inventory.issues.len(), 2);
         assert!(inventory
@@ -478,7 +557,7 @@ mod tests {
         let root = tempdir().unwrap();
         write(root.path(), "Café/photo.png");
         write(root.path(), "Café/photo.png");
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
         assert_eq!(inventory.issues.len(), 2);
 
@@ -510,7 +589,7 @@ mod tests {
         let mut file = fs::File::create(root.path().join(invalid)).unwrap();
         file.write_all(b"invalid").unwrap();
 
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         assert!(inventory.files.is_empty());
         let codes = inventory
             .issues
@@ -530,7 +609,7 @@ mod tests {
         write(root.path(), "safe.png");
         write(root.path(), "unsafe:name.png");
         write(root.path(), "CON.png");
-        let inventory = discover_collection_files(root.path(), &BTreeSet::new()).unwrap();
+        let inventory = inventory(root.path(), &BTreeSet::new());
         assert_eq!(inventory.files.len(), 1);
         assert_eq!(inventory.files[0].path, "safe.png");
         assert_eq!(

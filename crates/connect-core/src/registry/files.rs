@@ -47,17 +47,19 @@ impl CollectionRegistry {
         provider.with_collection_read(|collection| {
             crate::LocalSyncStore::for_registry(self).assert_authority_available(id)?;
             let snapshot = collection.snapshot()?;
-            self.reconcile_files_loaded(&registered, &snapshot)
+            self.reconcile_files_loaded(&registered, collection, &snapshot)
         })
     }
 
     pub(super) fn reconcile_files_loaded(
         &self,
         registered: &CollectionSummary,
+        collection: &mdbase::Collection,
         snapshot: &CollectionSnapshot,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
         self.reconcile_files_loaded_with_preferences(
             registered,
+            collection,
             snapshot,
             &FileReconcilePreferences::default(),
         )
@@ -66,6 +68,7 @@ impl CollectionRegistry {
     pub(super) fn reconcile_files_loaded_with_preferences(
         &self,
         registered: &CollectionSummary,
+        collection: &mdbase::Collection,
         snapshot: &CollectionSnapshot,
         preferences: &FileReconcilePreferences,
     ) -> Result<Vec<CollectionFileDescriptor>, ConnectError> {
@@ -75,7 +78,7 @@ impl CollectionRegistry {
             .map(|resource| resource.path.clone())
             .chain(snapshot.records.iter().map(|record| record.path.clone()))
             .collect::<BTreeSet<_>>();
-        let inventory = discover_collection_files(Path::new(&registered.path), &managed_paths)?;
+        let inventory = discover_collection_files(collection, &managed_paths)?;
         let observed = inventory
             .files
             .iter()

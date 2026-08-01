@@ -1,4 +1,5 @@
 use super::*;
+use mdbase::api::CollectionPath;
 use unicode_normalization::UnicodeNormalization;
 
 const RESERVED_DIRECTORIES: &[&str] = &[
@@ -12,23 +13,13 @@ const RESERVED_DIRECTORIES: &[&str] = &[
 ];
 
 pub(super) fn validate_hosted_file_path(path: &str) -> ApiResult<()> {
-    if path.is_empty()
-        || path.len() > 1024
-        || path.starts_with('/')
-        || path.ends_with('/')
-        || path.contains('\\')
-        || path.chars().any(|character| character.is_control())
-    {
+    let canonical = CollectionPath::new(path).map_err(|_| invalid_file_path())?;
+    if path.len() > 1024 || canonical.as_str() != path {
         return Err(invalid_file_path());
     }
     let components = path.split('/').collect::<Vec<_>>();
     if components.iter().any(|component| {
-        component.is_empty()
-            || matches!(*component, "." | "..")
-            || component.starts_with('.')
-            || component.ends_with([' ', '.'])
-            || component.contains(['<', '>', ':', '"', '|', '?', '*'])
-            || windows_reserved_name(component)
+        component.starts_with('.')
             || RESERVED_DIRECTORIES
                 .iter()
                 .any(|reserved| component.eq_ignore_ascii_case(reserved))
@@ -62,18 +53,6 @@ pub(super) fn file_path_in_folder(path: &str, folder: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
-fn windows_reserved_name(component: &str) -> bool {
-    let stem = component.split('.').next().unwrap_or_default();
-    let upper = stem.to_ascii_uppercase();
-    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || upper
-            .strip_prefix("COM")
-            .or_else(|| upper.strip_prefix("LPT"))
-            .is_some_and(|number| {
-                matches!(number, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
-            })
-}
-
 fn invalid_file_path() -> ApiError {
     ApiError::bad_request(
         "invalid_file_path",
@@ -101,6 +80,7 @@ mod tests {
             "node_modules/file.bin",
             "_types/icon.bin",
             "CON.txt",
+            "COM¹.bin",
             "bad?.png",
             "note.md",
             "NOTE.MD",

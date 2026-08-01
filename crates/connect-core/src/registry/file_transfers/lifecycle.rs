@@ -54,9 +54,14 @@ impl CollectionRegistry {
             let snapshot = collection.snapshot()?;
             let preferences = planned.as_ref().map(move_preferences).unwrap_or_default();
             let files = if existing.is_some() {
-                self.reconcile_files_loaded_with_preferences(&registered, &snapshot, &preferences)?
+                self.reconcile_files_loaded_with_preferences(
+                    &registered,
+                    collection,
+                    &snapshot,
+                    &preferences,
+                )?
             } else {
-                self.reconcile_files_loaded(&registered, &snapshot)?
+                self.reconcile_files_loaded(&registered, collection, &snapshot)?
             };
             let current = files
                 .iter()
@@ -70,7 +75,14 @@ impl CollectionRegistry {
                 if current.revision != request.if_revision {
                     return Err(stale_file_revision());
                 }
-                validate_move_destination(&registered, &snapshot, &files, current, &request.path)?;
+                validate_move_destination(
+                    collection,
+                    &registered,
+                    &snapshot,
+                    &files,
+                    current,
+                    &request.path,
+                )?;
                 let receipt = planned_move_receipt(request, current);
                 self.prepare_lifecycle_mutation(
                     id,
@@ -90,7 +102,14 @@ impl CollectionRegistry {
                 if current.revision != request.if_revision {
                     return Err(stale_file_revision());
                 }
-                validate_move_destination(&registered, &snapshot, &files, &current, &request.path)?;
+                validate_move_destination(
+                    collection,
+                    &registered,
+                    &snapshot,
+                    &files,
+                    &current,
+                    &request.path,
+                )?;
                 let root = Path::new(&registered.path);
                 let source = root.join(&current.path);
                 let source_handle = open_verified_file(&source, false)?;
@@ -126,6 +145,7 @@ impl CollectionRegistry {
             let moved = self
                 .reconcile_files_loaded_with_preferences(
                     &registered,
+                    collection,
                     &after_snapshot,
                     &preferences,
                 )?
@@ -181,9 +201,14 @@ impl CollectionRegistry {
             let snapshot = collection.snapshot()?;
             let preferences = planned.as_ref().map(delete_preferences).unwrap_or_default();
             let files = if existing.is_some() {
-                self.reconcile_files_loaded_with_preferences(&registered, &snapshot, &preferences)?
+                self.reconcile_files_loaded_with_preferences(
+                    &registered,
+                    collection,
+                    &snapshot,
+                    &preferences,
+                )?
             } else {
-                self.reconcile_files_loaded(&registered, &snapshot)?
+                self.reconcile_files_loaded(&registered, collection, &snapshot)?
             };
             let current = files
                 .iter()
@@ -231,6 +256,7 @@ impl CollectionRegistry {
                 let after_snapshot = collection.snapshot()?;
                 self.reconcile_files_loaded_with_preferences(
                     &registered,
+                    collection,
                     &after_snapshot,
                     &preferences,
                 )?;
@@ -397,13 +423,19 @@ fn to_sql_conversion_error(error: ConnectError) -> rusqlite::Error {
 }
 
 fn validate_move_destination(
+    collection: &mdbase::Collection,
     registered: &CollectionSummary,
     snapshot: &CollectionSnapshot,
     files: &[mdbase_connect_protocol::CollectionFileDescriptor],
     current: &mdbase_connect_protocol::CollectionFileDescriptor,
     destination: &str,
 ) -> Result<(), ConnectError> {
-    validate_target_path(Path::new(&registered.path), snapshot, destination)?;
+    validate_target_path(
+        collection,
+        Path::new(&registered.path),
+        snapshot,
+        destination,
+    )?;
     let target_key = portable_path_key(destination);
     if files
         .iter()
