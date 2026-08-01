@@ -326,6 +326,12 @@ const stored = await connection.files.upload(
   { signal, onProgress }
 );
 
+const streamed = await connection.files.uploadStream("Media/video.mp4", {
+  size: manifest.size,
+  contentDigest: manifest.sha256,
+  stream: response.body!
+}, { signal, onProgress, transferId });
+
 for await (const file of connection.files.list({ folder: "Photos" })) {
   const stream = await connection.files.downloadStream(file, { signal, onProgress });
   await stream.pipeTo(destination);
@@ -361,8 +367,11 @@ application contract or a future generic record-link API; it is not part of
 the current client surface.
 
 The hosted implementation already owns transport negotiation, incremental
-hashing, single versus multipart R2 delivery, bounded sequential range reads,
-retry, receipts, progress, abort cleanup, and exact download verification.
+hashing, single versus multipart R2 delivery, bounded sequential uploads and
+range reads, retry, receipts, progress, abort cleanup, and exact verification.
+`uploadStream()` requires an exact size and SHA-256 commitment, verifies the
+one-shot source before commit, and retains at most one negotiated part. A retry
+uses a newly opened source and the same caller-chosen transfer ID.
 `download()` and `downloadBytes()` are convenience methods capped at 64 MiB;
 larger downloads use `downloadStream()` so memory remains bounded to one
 negotiated part.

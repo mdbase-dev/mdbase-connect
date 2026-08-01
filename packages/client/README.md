@@ -416,16 +416,23 @@ requirements: {
 }
 ```
 
-The granted connection exposes one storage-neutral facade. Hosted transfers go
-directly to private R2 objects through short-lived prepared requests; object
-keys, multipart ETags, provider credentials, retries, and integrity checks stay
-inside the SDK.
+The granted connection exposes one storage-neutral facade. Hosted uploads go
+directly to private R2 objects through short-lived prepared requests. Downloads
+use authenticated bounded ranges so the authority can recheck access between
+parts. Object keys, multipart ETags, provider credentials, retries, and
+integrity checks stay inside the SDK.
 
 ```ts
 const saved = await connection.files.upload("Photos/image.jpg", browserFile, {
   onProgress: ({ phase, transferredBytes, totalBytes }) => {
     console.log(phase, transferredBytes, totalBytes);
   }
+});
+
+const large = await connection.files.uploadStream("Media/video.mp4", {
+  size: manifest.size,
+  contentDigest: manifest.sha256,
+  stream: response.body!
 });
 
 for await (const file of connection.files.list({ folder: "Photos" })) {
@@ -440,6 +447,13 @@ await connection.files.delete(moved);
 `download()` and `downloadBytes()` are convenient for values up to 64 MiB.
 Use `downloadStream()` for larger files; it verifies the pinned revision while
 holding at most one negotiated part in memory.
+
+`upload()` accepts `Blob`, `ArrayBuffer`, and typed-array values and hashes them
+before opening the transfer. `uploadStream()` accepts a `ReadableStream` or
+async iterable plus its exact size and `sha256:…` commitment. It verifies the
+stream while uploading sequentially and holds at most one negotiated part in
+memory. After an ambiguous failure, call it again with a newly opened source
+and the same `transferId` to resume safely.
 
 Both lifecycle methods are optimistic and use the descriptor revision by
 default. Pass a stable `mutationId` when retrying after an ambiguous network

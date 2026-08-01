@@ -160,6 +160,216 @@ describe("MdbaseFileClient", () => {
     expect(preparedParts.sort()).toEqual([0, 2]);
   });
 
+  it("uploads irregular byte streams with one negotiated part in memory", async () => {
+    const content = Uint8Array.from({ length: 19 }, (_, index) => index + 1);
+    const uploaded: Uint8Array[] = [];
+    const progress: number[] = [];
+    let committedParts: unknown;
+    const expected = descriptor("stream.bin", content);
+    const client = fileClient(async (_method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(input.transfer_id, { kind: "object_multipart", part_size: 8 }, content.length);
+      }
+      if (path?.endsWith("/parts")) {
+        const index = input.part_number - 1;
+        return prepared(
+          input.transfer_id,
+          index,
+          index * 8,
+          Math.min(8, content.length - index * 8),
+          "PUT",
+          `https://r2.example/stream/${index}`
+        );
+      }
+      if (path?.endsWith("/commit")) {
+        committedParts = input.parts;
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: expected
+        };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_request, init) => {
+      const value = new Uint8Array(await (init?.body as Blob).arrayBuffer());
+      expect(value.byteLength).toBeLessThanOrEqual(8);
+      uploaded.push(value);
+      return new Response(undefined, {
+        status: 200,
+        headers: { etag: `etag-${uploaded.length}` }
+      });
+    });
+    const source = (async function* () {
+      yield content.slice(0, 2);
+      yield content.slice(2, 11);
+      yield content.slice(11, 12);
+      yield content.slice(12);
+    })();
+
+    await expect(client.uploadStream("stream.bin", {
+      size: content.byteLength,
+      contentDigest: digest(content),
+      stream: source
+    }, {
+      onProgress: ({ phase, transferredBytes }) => {
+        expect(phase).toBe("uploading");
+        progress.push(transferredBytes);
+      }
+    })).resolves.toEqual(expected);
+
+    expect(new Uint8Array(uploaded.flatMap((part) => [...part]))).toEqual(content);
+    expect(committedParts).toEqual([
+      { part_number: 1, etag: "etag-1" },
+      { part_number: 2, etag: "etag-2" },
+      { part_number: 3, etag: "etag-3" }
+    ]);
+    expect(progress).toEqual([8, 16, 19]);
+  });
+
+  it("verifies a streamed digest before commit and closes the source on failure", async () => {
+    const content = bytes("stream integrity");
+    let committed = false;
+    let aborted = false;
+    let closed = false;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(input.transfer_id, { kind: "object_put" }, content.length);
+      }
+      if (path?.endsWith("/parts")) {
+        return prepared(input.transfer_id, 0, 0, content.length, "PUT", "https://r2.example/stream");
+      }
+      if (path?.endsWith("/commit")) {
+        committed = true;
+        throw new Error("commit must not run");
+      }
+      if (method === "DELETE") {
+        aborted = true;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(undefined, { status: 200 }));
+    const source = (async function* () {
+      try {
+        yield content;
+      } finally {
+        closed = true;
+      }
+    })();
+
+    await expect(client.uploadStream("stream.bin", {
+      size: content.byteLength,
+      contentDigest: digest(bytes("different bytes")),
+      stream: source
+    })).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("SHA-256")
+    });
+    expect(committed).toBe(false);
+    expect(aborted).toBe(true);
+    expect(closed).toBe(true);
+  });
+
+  it("resumes streamed uploads without re-sending accepted parts", async () => {
+    const content = Uint8Array.from({ length: 17 }, (_, index) => 30 + index);
+    const preparedParts: number[] = [];
+    const expected = descriptor("resumed-stream.bin", content);
+    const client = fileClient(async (_method, path, input) => {
+      if (path === "uploads") {
+        return {
+          ...uploadSession(input.transfer_id, { kind: "object_multipart", part_size: 8 }, content.length),
+          received: [1],
+          uploaded_parts: [{ part_number: 2, etag: "etag-existing" }]
+        };
+      }
+      if (path?.endsWith("/parts")) {
+        const index = input.part_number - 1;
+        preparedParts.push(index);
+        return prepared(
+          input.transfer_id,
+          index,
+          index * 8,
+          Math.min(8, content.length - index * 8),
+          "PUT",
+          `https://r2.example/resume-stream/${index}`
+        );
+      }
+      if (path?.endsWith("/commit")) {
+        expect(input.parts).toEqual([
+          { part_number: 1, etag: "etag-0" },
+          { part_number: 2, etag: "etag-existing" },
+          { part_number: 3, etag: "etag-2" }
+        ]);
+        return {
+          protocol_version: 1,
+          type: "file_upload_committed",
+          transfer_id: input.transfer_id,
+          file: expected
+        };
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) => {
+      const index = Number(String(request).split("/").at(-1));
+      return new Response(undefined, { status: 200, headers: { etag: `etag-${index}` } });
+    });
+
+    await expect(client.uploadStream("resumed-stream.bin", {
+      size: content.byteLength,
+      contentDigest: digest(content),
+      stream: (async function* () { yield content; })()
+    }, {
+      transferId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    })).resolves.toEqual(expected);
+    expect(preparedParts).toEqual([0, 2]);
+  });
+
+  it("cancels a readable upload source and aborts a new transfer", async () => {
+    const content = bytes("abcdefgh");
+    const controller = new AbortController();
+    let sourceCancelled = false;
+    let transferAborted = false;
+    const client = fileClient(async (method, path, input) => {
+      if (path === "uploads") {
+        return uploadSession(input.transfer_id, { kind: "object_multipart", part_size: 4 }, content.length);
+      }
+      if (path?.endsWith("/parts")) {
+        const index = input.part_number - 1;
+        return prepared(input.transfer_id, index, index * 4, 4, "PUT", `https://r2.example/cancel/${index}`);
+      }
+      if (method === "DELETE") {
+        transferAborted = true;
+        return {};
+      }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(undefined, {
+      status: 200,
+      headers: { etag: "etag-1" }
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        streamController.enqueue(content.slice(0, 4));
+      },
+      cancel() {
+        sourceCancelled = true;
+      }
+    });
+
+    await expect(client.uploadStream("cancel.bin", {
+      size: content.byteLength,
+      contentDigest: digest(content),
+      stream
+    }, {
+      signal: controller.signal,
+      onProgress: () => controller.abort()
+    })).rejects.toMatchObject({ code: "operation_cancelled" });
+    expect(sourceCancelled).toBe(true);
+    expect(transferAborted).toBe(true);
+  });
+
   it("reassembles revision-pinned ranges in order and verifies the digest", async () => {
     const content = bytes("ordered range download");
     const file = descriptor("Assets/download.bin", content);
