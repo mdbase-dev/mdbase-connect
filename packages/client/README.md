@@ -27,48 +27,48 @@ const session = mdbase.createSession({
   selection: new MdbaseBrowserSelection()
 });
 
-await session.start();
+const started = await session.start();
+if (!started.ok) {
+  renderProblem(started.problem);
+  return;
+}
 if (session.getSnapshot().status === "unselected") {
-  await session.authorize("choose");
+  const authorized = await session.authorize("choose");
+  if (!authorized.ok) {
+    renderProblem(authorized.problem);
+    return;
+  }
 }
 
 const snapshot = session.getSnapshot();
 if (snapshot.status !== "ready") throw new Error("Choose an authorized collection.");
 const connection = snapshot.connection;
-const description = await connection.describe();
-const workouts = await connection.query({ types: ["workout"] });
-await connection.update({
+const queried = await connection.query({ types: ["workout"] });
+if (!queried.ok) {
+  renderProblem(queried.problem);
+  return;
+}
+const workouts = queried.value;
+const updated = await connection.update({
   path: "workouts/monday.md",
   patch: { completed: true },
-  if_revision: workouts.result.results[0].revision
+  if_revision: workouts.results[0].revision
 });
-
-const preview = await connection.preflightRename({
-  from: "workouts/monday.md",
-  to: "archive/monday.md",
-  update_refs: true,
-  if_revision: workouts.result.results[0].revision
-});
-console.log(preview.result.references_affected);
-
-const controller = new AbortController();
-await connection.renameWithProgress({
-  from: "workouts/monday.md",
-  to: "archive/monday.md",
-  update_refs: true,
-  if_revision: workouts.result.results[0].revision
-}, {
-  preflight: preview.result,
-  signal: controller.signal,
-  onProgress: ({ state, estimate, cancellable }) => {
-    console.log(state, estimate?.affectedRecords, cancellable);
-  }
-});
+if (!updated.ok) renderProblem(updated.problem);
 
 for await (const change of connection.watch()) {
-  console.log(change.type, change.payload.path);
+  if (!change.ok) {
+    renderProblem(change.problem);
+    break;
+  }
+  console.log(change.value.type, change.value.payload.path);
 }
 ```
+
+Expected failures are returned as typed `ConnectOutcome` values. Exceptions are
+reserved for programming errors and broken SDK invariants. See
+[typed outcomes and recovery](../../docs/sdk-outcomes.md) for the complete
+problem model, setup failures, mutation uncertainty, and UI guidance.
 
 `MdbaseConnect` is the application-level authorization registry.
 `MdbaseSession` is the normal application boundary: it owns active collection
@@ -174,8 +174,8 @@ if (!capabilities.sufficient) {
 `requestOperations()` is a no-op when the current grant is sufficient. When a
 replacement grant is needed, it requests the least-privilege union of the
 already granted operations and the missing requirements. An
-`insufficient_access` error carries the same `grantedOperations`,
-`missingOperations`, and `requiredOperations` metadata with a `reauthorize`
+An `insufficient_access` problem carries the same `granted_operations`,
+`missing_operations`, and `required_operations` metadata with a `reauthorize`
 recovery action.
 
 Applications that declare an `mdbase.runtime.timer.fired` notification criterion can keep
@@ -222,12 +222,15 @@ schema:
 `
 });
 
+if (!created.ok) return renderProblem(created.problem);
 const current = await connection.readType({ name: "workout" });
-await connection.updateType({
-  path: current.result.path,
-  document: current.result.document.replace("version: 1", "version: 2"),
-  if_revision: current.result.revision
+if (!current.ok) return renderProblem(current.problem);
+const updatedType = await connection.updateType({
+  path: current.value.path,
+  document: current.value.document.replace("version: 1", "version: 2"),
+  if_revision: current.value.revision
 });
+if (!updatedType.ok) renderProblem(updatedType.problem);
 ```
 
 Request `read_type`, `create_type`, and `update_type` during authorization.
@@ -250,7 +253,8 @@ For a local collection, ask for same-computer access from a user gesture:
 
 ```ts
 const status = await connection.checkDirectAccess();
-if (status === "permission_required") {
+if (!status.ok) return renderProblem(status.problem);
+if (status.value === "permission_required") {
   directButton.onclick = () => connection.requestDirectAccess();
 }
 
@@ -353,8 +357,9 @@ installs each missing type pack transactionally, verifies its exact contracts
 and implementations, and creates the scoped grant afterward. The application
 is not granted collection-wide type-management access.
 
-The SDK returns the mdbase operation envelope, carries revision tokens in typed
-record results, and accepts `if_revision` on mutations. `describe()` exposes
+The SDK returns typed outcomes, carries successful mdbase diagnostics alongside
+the value, carries revision tokens in typed record results, and accepts
+`if_revision` on mutations. `describe()` exposes
 JSON Schemas, portable type definitions, canonical collection settings, and
 first-class data contracts. `watch()` resumes from a local collection cursor;
 the Connect server does not store the change feed.

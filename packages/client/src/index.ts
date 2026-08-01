@@ -34,6 +34,12 @@ export type {
   CollectionOperation as MdbaseOperation,
   CollectionTypeDescriptor,
   CollectionTypeDocument,
+  ConnectOperationOutcome,
+  ConnectProblem,
+  ConnectProblemCategory,
+  ConnectProblemCode,
+  ConnectProblemDetailsByCode,
+  ConnectRecoveryAction,
   ContractRequirement,
   DataContractViewIdentity,
   GrantScope,
@@ -42,6 +48,7 @@ export type {
   NotificationCriterion,
   MdbaseDiagnostic,
   MdbaseOperationEnvelope,
+  KnownConnectProblem,
   RecordDocument,
   QueryRecord,
   SavedNamedView,
@@ -63,5 +70,6 @@ export type {
   TypePackInstallResult,
   TypePackProvision,
   TypePackResourceDiff,
-  TypePackSourceResource
+  TypePackSourceResource,
+  UnknownConnectProblem
 } from "@mdbase/connect-protocol";

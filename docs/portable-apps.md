@@ -139,14 +139,24 @@ or omit SRI in a downloaded application.
   });
 
   document.querySelector("#connect").onclick = async () => {
-    const { connection } = await connect.authorize({
+    const authorization = await connect.authorize({
       operations: ["describe", "read", "query"],
       onDeviceCode: ({ userCode }) => {
         document.querySelector("#code").textContent =
           `Confirm ${userCode} in mdbase Connect`;
       }
     });
-    console.log(await connection.describe());
+    if (!authorization.ok) {
+      console.error(authorization.problem);
+      return;
+    }
+    if (authorization.value.kind !== "connected") return;
+    const description = await authorization.value.connection.describe();
+    if (!description.ok) {
+      console.error(description.problem);
+      return;
+    }
+    console.log(description.value);
   };
 </script>
 ```
@@ -159,4 +169,4 @@ read-only `connection.route` property can be used for diagnostics.
 Authorization must start from a user gesture so browsers permit the approval
 popup. If a caller supplies `openVerification`, it is responsible for showing
 or opening the verification URL. If the default popup is blocked, the SDK
-throws `approval_window_blocked` with the verification details.
+returns an `approval_window_blocked` problem with the verification details.
