@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { chromium, _electron as electron } from "playwright-core";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -12,6 +12,11 @@ import {
   startConnectTestEnvironment,
   waitForReady
 } from "../../../scripts/lib/connect-test-environment.mjs";
+import {
+  MdbaseConnect,
+  MemoryGrantKeyStore,
+  unwrapConnectOutcome
+} from "../../../packages/client/dist/index.js";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
@@ -31,6 +36,7 @@ let environment;
 let pairingApp;
 let connectedApp;
 let portalBrowser;
+let consumerAuthorizationAbort;
 
 try {
   editor = await startEditorServer();
@@ -51,7 +57,8 @@ try {
     app.relaunch = () => {};
     app.exit = () => {};
   });
-  const pairingWindow = await pairingApp.firstWindow();
+  const pairingWindow = await pairingApp.firstWindow({ timeout: 30_000 });
+  pairingWindow.setDefaultTimeout(30_000);
   await pairingWindow
     .getByRole("heading", { name: "Connect this computer." })
     .waitFor();
@@ -81,6 +88,7 @@ try {
   portalBrowser = await chromium.launch({ headless: true });
   const portalContext = await portalBrowser.newContext();
   const portalPage = await portalContext.newPage();
+  portalPage.setDefaultTimeout(30_000);
   await portalPage.goto(verificationUri);
   await portalPage.getByLabel("Name").fill("Desktop Docker E2E");
   await portalPage
@@ -124,7 +132,8 @@ try {
 
   phase("running the real connector against the disposable credential");
   connectedApp = await launchDesktop(connectedData, connectorToken);
-  const connectedWindow = await connectedApp.firstWindow();
+  const connectedWindow = await connectedApp.firstWindow({ timeout: 30_000 });
+  connectedWindow.setDefaultTimeout(30_000);
   await connectedWindow
     .getByText("Connected securely")
     .waitFor({ timeout: 20_000 });
@@ -177,24 +186,6 @@ try {
     provisions: { type_packs: [] },
     notifications: { criteria: [] }
   };
-  const registration = await jsonRequest("/v1/apps/register", {
-    method: "POST",
-    body: { manifest }
-  });
-  assert.equal(registration.response.status, 200);
-  const applicationId = registration.body.application.id;
-  const verifier = "desktop-docker-e2e-pkce-verifier-000000000000000";
-  const challenge = createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
-  const authorizeUrl =
-    `${environment.serverUrl}/oauth/authorize`
-    + `?client_id=${applicationId}`
-    + `&redirect_uri=${encodeURIComponent(manifest.redirect_uris[0])}`
-    + `&code_challenge=${challenge}`
-    + "&code_challenge_method=S256"
-    + "&state=desktop-docker-e2e"
-    + "&operations=describe";
   await portalPage.route(
     "https://desktop-docker-e2e.example/**",
     (route) => route.fulfill({
@@ -203,7 +194,32 @@ try {
       body: "Consumer callback reached"
     })
   );
-  await portalPage.goto(authorizeUrl);
+  const consumerStorage = memoryStorage();
+  let authorizationUrl;
+  let applicationFirstContactCode;
+  consumerAuthorizationAbort = new AbortController();
+  const consumer = new MdbaseConnect({
+    serverUrl: environment.serverUrl,
+    manifest,
+    redirectUri: manifest.redirect_uris[0],
+    storage: consumerStorage,
+    keyStore: new MemoryGrantKeyStore(),
+    navigate: (value) => { authorizationUrl = value; }
+  });
+  const authorization = consumer.authorize({
+    operations: ["describe"],
+    target: { kind: "collection", collectionId: collection.id },
+    onFirstContact: ({ authenticationString }) => {
+      applicationFirstContactCode = authenticationString;
+    },
+    signal: consumerAuthorizationAbort.signal
+  });
+  await waitForValue(
+    async () => authorizationUrl,
+    (value) => typeof value === "string",
+    15_000
+  );
+  await portalPage.goto(authorizationUrl);
   await portalPage
     .getByRole("heading", { name: "Docker fixture consumer" })
     .waitFor();
@@ -213,47 +229,40 @@ try {
   await portalPage
     .getByRole("button", { name: "Allow Docker fixture consumer" })
     .click();
-  await portalPage.waitForURL(
-    /^https:\/\/desktop-docker-e2e\.example\/callback/,
-    { timeout: 15_000 }
+  await portalPage
+    .getByRole("heading", { name: "Compare the first-contact code." })
+    .waitFor();
+  await waitForValue(
+    async () => applicationFirstContactCode,
+    (value) => typeof value === "string",
+    15_000
   );
-  const callback = new URL(portalPage.url());
-  const tokenResponse = await fetch(`${environment.serverUrl}/oauth/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code: callback.searchParams.get("code"),
-      client_id: applicationId,
-      redirect_uri: manifest.redirect_uris[0],
-      code_verifier: verifier
-    })
-  });
-  const token = await tokenResponse.json();
-  assert.equal(tokenResponse.status, 200);
-  assert.match(token.access_token, /^mdb_/);
-  assert.ok(token.grant_id);
-
-  const describeRequestId = randomUUID();
-  const described = await jsonRequest(
-    `/v1/authorities/${collection.id}/operations/describe`,
-    {
-      method: "POST",
-      authorization: `Bearer ${token.access_token}`,
-      body: {
-        protocol_version: 1,
-        request_id: describeRequestId,
-        input: {}
-      }
-    }
-  );
-  assert.equal(described.response.status, 200);
-  assert.equal(described.body.protocol_version, 1);
-  assert.equal(described.body.request_id, describeRequestId);
-  assert.equal(described.body.result.display_name, "Docker fixture");
   await connectedWindow.getByRole("button", { name: /App access/ }).click();
+  const connectorFirstContactCode = connectedWindow.getByLabel("First-contact code");
+  await connectorFirstContactCode.waitFor({ timeout: 15_000 });
+  assert.equal(
+    await connectorFirstContactCode.textContent(),
+    applicationFirstContactCode,
+    "the application and connector must independently present the same first-contact code"
+  );
   await connectedWindow
-    .getByText("Docker fixture consumer", { exact: true })
+    .getByRole("button", { name: "Codes match — trust application" })
+    .click();
+  await portalPage
+    .getByRole("heading", { name: "Returning to the application…" })
+    .waitFor({ timeout: 15_000 });
+  const authorized = unwrapConnectOutcome(await authorization);
+  assert.equal(authorized.kind, "connected");
+  const described = unwrapConnectOutcome(
+    await authorized.connection.describe()
+  );
+  assert.equal(described.display_name, "Docker fixture");
+  const token = consumerStorage.token();
+  assert.match(token.accessToken, /^mdb_/);
+  assert.ok(token.grantId);
+  await connectedWindow
+    .locator("details.application-grant-group")
+    .filter({ hasText: "Docker fixture consumer" })
     .waitFor({ timeout: 10_000 });
 
   phase("reviewing and revoking application access through the editor");
@@ -277,14 +286,14 @@ try {
   await portalApplication.waitFor({ state: "detached" });
   await waitForValue(
     () => connectedWindow.evaluate(() => window.mdbaseConnect.accessSnapshot()),
-    (snapshot) => !snapshot.grants.some((grant) => grant.id === token.grant_id),
+    (snapshot) => !snapshot.grants.some((grant) => grant.id === token.grantId),
     10_000
   );
   const revoked = await jsonRequest(
     `/v1/authorities/${collection.id}/operations/describe`,
     {
       method: "POST",
-      authorization: `Bearer ${token.access_token}`,
+      authorization: `Bearer ${token.accessToken}`,
       body: {
         protocol_version: 1,
         request_id: randomUUID(),
@@ -328,6 +337,7 @@ try {
   await environment?.compose(["logs", "--no-color"]).catch(() => {});
   throw error;
 } finally {
+  consumerAuthorizationAbort?.abort();
   for (const userData of [pairingData, connectedData].filter(Boolean)) {
     await run(executable, [
       "--state-dir",
@@ -384,7 +394,11 @@ async function startEditorServer() {
 function launchDesktop(userData, connectorToken) {
   return electron.launch({
     cwd: desktopRoot,
-    args: [".", `--user-data-dir=${userData}`],
+    args: [
+      ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []),
+      ".",
+      `--user-data-dir=${userData}`
+    ],
     env: {
       ...process.env,
       MDBASE_CONNECT_BIN: executable,
@@ -430,6 +444,24 @@ async function waitForValue(read, predicate, timeoutMs) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
   }
   throw new Error(`Timed out waiting for Electron state: ${JSON.stringify(value)}`);
+}
+
+function memoryStorage() {
+  const values = new Map();
+  return {
+    get length() { return values.size; },
+    clear() { values.clear(); },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    removeItem(key) { values.delete(key); },
+    setItem(key, value) { values.set(key, String(value)); },
+    token() {
+      const value = [...values.entries()]
+        .find(([key]) => key.includes(":token:"))?.[1];
+      assert.ok(value, "SDK did not persist the desktop Docker E2E token");
+      return JSON.parse(value);
+    }
+  };
 }
 
 function phase(message) {
