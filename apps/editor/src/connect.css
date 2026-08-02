@@ -610,6 +610,44 @@ button.danger:disabled {
   border-top: 1px solid var(--line);
 }
 
+.connect-subscription-storage {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 30px;
+  padding: 16px 4px 18px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.connect-subscription-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.connect-subscription-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.connect-subscription-heading strong {
+  font-size: 0.9rem;
+}
+
+.connect-subscription-heading small,
+.connect-subscription-storage p {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.connect-subscription-heading > span {
+  font-weight: 700;
+}
+
+.connect-subscription-storage p {
+  margin: 0;
+}
+
 .connect-account-row {
   min-height: 66px;
   display: grid;

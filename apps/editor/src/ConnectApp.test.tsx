@@ -143,7 +143,11 @@ describe("ConnectApp", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open account and sessions" }));
     expect(await screen.findByRole("heading", { name: "Hosted storage" })).toBeInTheDocument();
-    expect(screen.getByText("4 KB")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.getByText("Permanent allowance")).toBeInTheDocument();
+    expect(screen.getByText("10 MB of 1 GB")).toBeInTheDocument();
+    expect(screen.getByText("4 KB Markdown · 10 MB files")).toBeInTheDocument();
+    expect(screen.getByText("2 MB of 1 GB retained file storage")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument();
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
@@ -161,6 +165,28 @@ function overviewFixture(): ManagementOverview {
   const now = new Date().toISOString();
   return {
     user: { id: "person", name: "Example Person", email: "person@example.com", login: null },
+    subscription: {
+      kind: "beta",
+      profiles: ["beta_v1"],
+      permanent: true,
+      limits: {
+        hosted_storage_bytes: 1_073_741_824,
+        retained_file_bytes: 1_073_741_824,
+        max_document_bytes: 2_097_152,
+        max_single_file_bytes: 262_144_000,
+        max_replicas_per_collection: 10,
+        max_hosted_collections: 250,
+        max_files_per_collection: 10_000
+      },
+      usage: {
+        hosted_collections: 1,
+        live_content_bytes: 4_096,
+        live_file_bytes: 10_485_760,
+        live_storage_bytes: 10_489_856,
+        retained_file_bytes: 2_097_152
+      },
+      reconciliation: { entitlement_revision: 1, provider_revision: 1 }
+    },
     hosted_collections_available: true,
     authentication: { provider: "github", registration: "closed" },
     connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],
@@ -199,6 +225,9 @@ function accountFixture(): AccountData {
     storage: {
       status: "available",
       total_content_bytes: 4_096,
+      total_file_bytes: 10_485_760,
+      total_storage_bytes: 10_489_856,
+      total_stored_file_bytes: 12_582_912,
       total_records: 2,
       collections: [{
         id: "hosted",
@@ -209,7 +238,14 @@ function accountFixture(): AccountData {
           content_bytes: 4_096,
           max_records: 100_000,
           max_content_bytes: 1_073_741_824,
-          max_document_bytes: 2_097_152
+          max_document_bytes: 2_097_152,
+          file_count: 2,
+          file_bytes: 10_485_760,
+          stored_file_bytes: 12_582_912,
+          max_files: 10_000,
+          max_file_bytes: 1_073_741_824,
+          max_stored_file_bytes: 2_147_483_648,
+          max_single_file_bytes: 262_144_000
         }
       }]
     },

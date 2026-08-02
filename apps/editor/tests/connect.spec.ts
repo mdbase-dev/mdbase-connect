@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 const now = new Date().toISOString();
 const overview = {
   user: { id: "person", name: "Example Person", email: "person@example.com", login: null },
+  subscription: null,
   hosted_collections_available: true,
   authentication: { provider: "github", registration: "closed" },
   connectors: [{ id: "computer", name: "Home computer", last_seen_at: now, created_at: now }],

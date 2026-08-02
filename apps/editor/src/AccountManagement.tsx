@@ -141,10 +141,11 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
     <section>
       <SectionTitle title="Hosted storage" note="Local collection files stay on your computers and are not measured here." />
+      {overview.subscription && <SubscriptionStorage subscription={overview.subscription} fallbackStorage={account.storage} />}
       <div className="connect-account-list">
         <div className="connect-account-row">
           <div><strong>Used by hosted collections</strong><small>{storageDetail(account)}</small></div>
-          <span>{account.storage.total_content_bytes === null ? "Unavailable" : formatBytes(account.storage.total_content_bytes)}</span>
+          <span>{account.storage.total_storage_bytes === null ? "Unavailable" : formatBytes(account.storage.total_storage_bytes)}</span>
         </div>
         {account.storage.collections.map((collection) => <StorageRow key={collection.id} collection={collection} />)}
       </div>
@@ -240,8 +241,45 @@ function Empty({ title, body }: { title: string; body: string }) {
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {
   const usage = collection.usage;
-  const percentage = usage && usage.max_content_bytes > 0 ? Math.min(100, usage.content_bytes / usage.max_content_bytes * 100) : 0;
-  return <div className="connect-account-row connect-storage-row"><div><strong>{collection.display_name}</strong><small>{usage ? `${pluralLabel(usage.record_count, "record", "records")} · ${formatBytes(usage.content_bytes)} of ${formatBytes(usage.max_content_bytes)}` : "Usage temporarily unavailable"}</small></div>{usage && <div className="connect-storage-progress" role="progressbar" aria-label={`${collection.display_name} storage`} aria-valuemin={0} aria-valuemax={usage.max_content_bytes} aria-valuenow={usage.content_bytes}><span style={{ width: `${percentage}%` }} /></div>}</div>;
+  const liveBytes = usage ? usage.content_bytes + usage.file_bytes : null;
+  return <div className="connect-account-row">
+    <div>
+      <strong>{collection.display_name}</strong>
+      <small>{usage
+        ? `${pluralLabel(usage.record_count, "record", "records")} · ${pluralLabel(usage.file_count, "file", "files")} · ${formatBytes(usage.content_bytes)} Markdown · ${formatBytes(usage.file_bytes)} files`
+        : "Usage temporarily unavailable"}</small>
+    </div>
+    <span>{liveBytes === null ? "Unavailable" : formatBytes(liveBytes)}</span>
+  </div>;
+}
+
+function SubscriptionStorage({ subscription, fallbackStorage }: {
+  subscription: NonNullable<ManagementOverview["subscription"]>;
+  fallbackStorage: AccountData["storage"];
+}) {
+  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage.total_storage_bytes;
+  const liveContentBytes = subscription.usage?.live_content_bytes ?? fallbackStorage.total_content_bytes;
+  const liveFileBytes = subscription.usage?.live_file_bytes ?? fallbackStorage.total_file_bytes;
+  const limit = subscription.limits.hosted_storage_bytes;
+  const percentage = liveStorageBytes !== null && limit > 0
+    ? Math.min(100, liveStorageBytes / limit * 100)
+    : 0;
+  const tier = subscription.kind === "beta" ? "Beta" : "Included storage";
+  const permanence = subscription.permanent ? "Permanent allowance" : "Current allowance";
+  return <div className="connect-subscription-storage">
+    <div className="connect-subscription-heading">
+      <div><strong>{tier}</strong><small>{permanence}</small></div>
+      <span>{liveStorageBytes === null ? "Usage unavailable" : `${formatBytes(liveStorageBytes)} of ${formatBytes(limit)}`}</span>
+    </div>
+    {liveStorageBytes !== null && <div className="connect-storage-progress" role="progressbar" aria-label={`${tier} hosted storage`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={liveStorageBytes} aria-valuetext={`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)} used`}><span style={{ width: `${percentage}%` }} /></div>}
+    <p>{liveContentBytes === null || liveFileBytes === null
+      ? "Markdown and file usage is temporarily unavailable."
+      : `${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>
+    {subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
+      ? `${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
+      : `${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
+    <p>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {pluralLabel(subscription.limits.max_replicas_per_collection, "synced folder", "synced folders")} per collection</p>
+  </div>;
 }
 
 function tokenFromFragment(): string | null {
@@ -253,7 +291,8 @@ function storageDetail(account: AccountData): string {
   const collections = pluralLabel(account.storage.collections.length, "hosted collection", "hosted collections");
   if (account.storage.status === "unavailable") return `${collections} · usage temporarily unavailable`;
   const records = pluralLabel(account.storage.total_records ?? 0, "record", "records");
-  return `${collections} · ${records}${account.storage.status === "partial" ? " · partial usage" : ""}`;
+  const files = account.storage.collections.reduce((total, collection) => total + (collection.usage?.file_count ?? 0), 0);
+  return `${collections} · ${records} · ${pluralLabel(files, "file", "files")}${account.storage.status === "partial" ? " · partial usage" : ""}`;
 }
 
 function providerLabel(provider: string): string {
