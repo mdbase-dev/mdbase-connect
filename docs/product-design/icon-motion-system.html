@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The adopted motion system for the mdbase Frontmatter mark.">
+  <title>mdbase icon motion system</title>
+  <link rel="stylesheet" href="../../packages/ui/motion.css">
+  <script>
+    (() => {
+      const saved = localStorage.getItem("mdbase:theme");
+      const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = saved === "dark" || (saved !== "light" && dark) ? "dark" : "light";
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: oklch(99.5% 0.002 255);
+      --surface: oklch(98% 0.003 255);
+      --ink: oklch(21% 0.018 255);
+      --ink-soft: oklch(39% 0.016 255);
+      --muted: oklch(54% 0.014 255);
+      --line: oklch(92% 0.006 255);
+      --line-strong: oklch(82% 0.008 255);
+      --accent: oklch(45% 0.105 238);
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: oklch(17.5% 0.012 255);
+      --surface: oklch(19.5% 0.012 255);
+      --ink: oklch(92% 0.008 255);
+      --ink-soft: oklch(80% 0.01 255);
+      --muted: oklch(68% 0.012 255);
+      --line: oklch(29% 0.012 255);
+      --line-strong: oklch(40% 0.014 255);
+      --accent: oklch(73% 0.105 238);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      min-width: 320px;
+      background: var(--paper);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Atkinson Hyperlegible", Atkinson, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button { font: inherit; }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 clamp(18px, 4vw, 64px);
+      gap: 20px;
+      background: color-mix(in oklch, var(--paper) 94%, transparent);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font: 650 13px/1 "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: -0.025em;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 450;
+    }
+
+    .controls {
+      display: flex;
+      gap: 7px;
+    }
+
+    .controls button {
+      min-height: 34px;
+      padding: 0 11px;
+      color: var(--ink-soft);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 620;
+      transition: color 170ms var(--ease), border-color 170ms var(--ease), background-color 170ms var(--ease);
+    }
+
+    .controls button:hover,
+    .controls button[aria-pressed="true"] {
+      color: var(--ink);
+      background: var(--surface);
+      border-color: var(--line-strong);
+    }
+
+    main {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: clamp(70px, 10vw, 132px) 0 110px;
+    }
+
+    .intro {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+      align-items: end;
+      gap: clamp(42px, 8vw, 112px);
+    }
+
+    h1 {
+      max-width: 10ch;
+      margin: 0;
+      font-size: clamp(48px, 7vw, 88px);
+      font-weight: 720;
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      text-wrap: balance;
+    }
+
+    .intro p {
+      max-width: 55ch;
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: clamp(15px, 1.5vw, 18px);
+      line-height: 1.55;
+    }
+
+    .usage {
+      width: 100%;
+      margin-top: clamp(64px, 9vw, 108px);
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .usage th,
+    .usage td {
+      padding: 14px 16px 14px 0;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .usage th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .usage td:first-child {
+      width: 22%;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .usage td:nth-child(2) {
+      width: 34%;
+      color: var(--ink-soft);
+    }
+
+    .usage code {
+      color: var(--muted);
+      font: 520 10px/1.5 "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .studies {
+      margin-top: clamp(76px, 10vw, 124px);
+      border-top: 1px solid var(--line-strong);
+    }
+
+    .study {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+      min-height: 260px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stage {
+      display: grid;
+      place-items: center;
+      min-height: 260px;
+      padding: 34px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 0;
+      border-right: 1px solid var(--line);
+      cursor: pointer;
+    }
+
+    .stage:hover { background: color-mix(in oklch, var(--surface) 75%, var(--accent) 2%); }
+
+    .stage .mdbase-motion-mark {
+      width: 132px;
+      height: 132px;
+    }
+
+    .study-copy {
+      align-self: center;
+      padding: clamp(34px, 5vw, 62px);
+    }
+
+    .study-copy h2 {
+      margin: 0;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .study-copy p {
+      max-width: 59ch;
+      margin: 14px 0 0;
+      color: var(--ink-soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .study-copy code {
+      display: block;
+      margin-top: 18px;
+      color: var(--muted);
+      font: 520 10px/1.5 "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    body[data-paused="true"] .mdbase-motion-mark * {
+      animation-play-state: paused !important;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 64px;
+      padding-top: 20px;
+      gap: 28px;
+      color: var(--muted);
+      border-top: 1px solid var(--line-strong);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    footer p { max-width: 62ch; margin: 0; }
+
+    @media (max-width: 720px) {
+      .intro,
+      .study { grid-template-columns: 1fr; }
+      .stage { border-right: 0; border-bottom: 1px solid var(--line); }
+      .usage th:nth-child(3), .usage td:nth-child(3) { display: none; }
+      footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">mdbase <span>icon motion system</span></div>
+    <div class="controls" aria-label="Preview controls">
+      <button id="pause" type="button" aria-pressed="false">Pause</button>
+      <button id="theme" type="button">Dark</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <h1>Motion with a job.</h1>
+      <p>Four adopted behaviors for the Frontmatter mark. They identify mdbase while clarifying opening, structural preparation, or active machine work; they never replace status text.</p>
+    </section>
+
+    <table class="usage">
+      <thead><tr><th>Motion</th><th>Approved use</th><th>Production integration</th></tr></thead>
+      <tbody>
+        <tr><td>Trace → conveyor</td><td>Initial Connect and portal bootstrap loading.</td><td><code>motion="bootstrap"</code></td></tr>
+        <tr><td>Unfold</td><td>Opening a collection in the editor.</td><td><code>motion="unfold"</code></td></tr>
+        <tr><td>Field rebalance</td><td>Preparing a real type-contract setup.</td><td><code>motion="rebalance"</code></td></tr>
+        <tr><td>Gap conveyor</td><td>Indeterminate machine work with no meaningful progress count.</td><td><code>motion="conveyor"</code></td></tr>
+      </tbody>
+    </table>
+
+    <section class="studies" aria-label="Adopted motion previews">
+      <article class="study">
+        <button class="stage" type="button" data-motion="bootstrap" aria-label="Replay trace into gap conveyor"></button>
+        <div class="study-copy"><h2>Trace → gap conveyor</h2><p>The record draws once in reading order. If loading continues, the fixed fence bounds become a continuous conveyor while the key-value rows remain stable.</p><code>720ms trace · conveyor begins at 1.12s · 900ms linear loop</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="unfold" aria-label="Replay unfold"></button>
+        <div class="study-copy"><h2>Unfold</h2><p>The frontmatter fences open to reveal the two structured rows. This runs once when the editor opens a collection.</p><code>760ms · ease-out · one shot</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="rebalance" aria-label="Replay field rebalance"></button>
+        <div class="study-copy"><h2>Field rebalance</h2><p>The upper divider moves right while the lower divider moves left. Both row bounds and both 8px gaps remain exact.</p><code>1.8s · opposing structure loop</code></div>
+      </article>
+      <article class="study">
+        <button class="stage" type="button" data-motion="conveyor" aria-label="Replay gap conveyor"></button>
+        <div class="study-copy"><h2>Gap conveyor</h2><p>Repeated fence segments travel left beneath two exact 76 × 10 clips. Nothing overflows the canonical fence bounds.</p><code>900ms · linear · continuous only while work is active</code></div>
+      </article>
+    </section>
+
+    <footer>
+      <p>Use the static mark for errors, completion, connection health, approval, revocation, routine saves, and any reduced-motion preference.</p>
+      <p>The previews load <code>packages/ui/motion.css</code>, the same motion implementation used by the product.</p>
+    </footer>
+  </main>
+
+  <script>
+    const xs = [-6, 22, 50, 78, 106];
+    const segments = [
+      [22, 22, 20, 10], [50, 22, 20, 10], [78, 22, 20, 10],
+      [22, 44, 12, 10], [42, 44, 56, 10],
+      [22, 66, 28, 10], [58, 66, 40, 10],
+      [22, 88, 20, 10], [50, 88, 20, 10], [78, 88, 20, 10]
+    ];
+
+    function rect([x, y, width, height], index) {
+      const tone = index === 4 ? "mdbase-mark-accent" : "mdbase-mark-ink";
+      return `<rect class="mdbase-mark-segment mdbase-mark-segment-${index + 1} ${tone}" x="${x}" y="${y}" width="${width}" height="${height}" rx="2" pathLength="1"/>`;
+    }
+
+    function mark(motion, id) {
+      const conveyor = xs.flatMap((x) => [22, 88].map((y) => `<rect x="${x}" y="${y}" width="20" height="10" rx="2"/>`)).join("");
+      return `<svg class="mdbase-motion-mark mdbase-motion-${motion}" viewBox="18 18 84 84" aria-hidden="true" focusable="false">
+        <defs><clipPath id="fences-${id}"><rect x="22" y="22" width="76" height="10" rx="2"/><rect x="22" y="88" width="76" height="10" rx="2"/></clipPath></defs>
+        <g class="mdbase-mark-fence mdbase-mark-fence-top">${segments.slice(0, 3).map((value, index) => rect(value, index)).join("")}</g>
+        <g class="mdbase-mark-row mdbase-mark-row-top">${segments.slice(3, 5).map((value, index) => rect(value, index + 3)).join("")}</g>
+        <g class="mdbase-mark-row mdbase-mark-row-bottom">${segments.slice(5, 7).map((value, index) => rect(value, index + 5)).join("")}</g>
+        <g class="mdbase-mark-fence mdbase-mark-fence-bottom">${segments.slice(7).map((value, index) => rect(value, index + 7)).join("")}</g>
+        <g clip-path="url(#fences-${id})"><g class="mdbase-mark-conveyor-track">${conveyor}</g></g>
+      </svg>`;
+    }
+
+    const stages = [...document.querySelectorAll("[data-motion]")];
+    function renderStage(stage, index) {
+      stage.innerHTML = mark(stage.dataset.motion, index);
+    }
+    stages.forEach(renderStage);
+    stages.forEach((stage, index) => stage.addEventListener("click", () => renderStage(stage, index)));
+
+    const pause = document.querySelector("#pause");
+    pause.addEventListener("click", () => {
+      const paused = document.body.dataset.paused !== "true";
+      document.body.dataset.paused = String(paused);
+      pause.setAttribute("aria-pressed", String(paused));
+      pause.textContent = paused ? "Play" : "Pause";
+    });
+
+    const theme = document.querySelector("#theme");
+    function syncTheme() { theme.textContent = document.documentElement.dataset.theme === "dark" ? "Light" : "Dark"; }
+    syncTheme();
+    theme.addEventListener("click", () => {
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem("mdbase:theme", next);
+      syncTheme();
+    });
+  </script>
+</body>
+</html>

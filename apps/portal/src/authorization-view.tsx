@@ -112,6 +112,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
   const [status, setStatus] = useState<"pending" | "setting_up" | "approved" | "denied">("pending");
+  const [structuralSetupRequested, setStructuralSetupRequested] = useState(false);
   const [continuingInDesktop, setContinuingInDesktop] = useState(
     () => new URLSearchParams(location.search).get("continue_in_desktop") === "1"
   );
@@ -174,6 +175,12 @@ export function Authorization({ requestId }: { requestId: string }) {
 
   if (!request) return <Loading error={error} />;
   const authorization = request.authorization;
+  const preparingStructure = structuralSetupRequested || authorizationNeedsTypeSetup(
+    authorization,
+    request.collections
+  );
+  const setupMotionActive = status === "setting_up"
+    || (status === "pending" && structuralSetupRequested);
   function continueInDesktop(value: boolean) {
     const url = new URL(location.href);
     if (value) url.searchParams.set("continue_in_desktop", "1");
@@ -183,7 +190,11 @@ export function Authorization({ requestId }: { requestId: string }) {
   }
   return (
     <main className="center-page">
-      <PageBrand label="Application request" themePicker={false} />
+      <PageBrand
+        label="Application request"
+        themePicker={false}
+        markMotion={setupMotionActive ? (preparingStructure ? "rebalance" : "conveyor") : undefined}
+      />
       <section className="decision-panel authorization-panel">
         <RequestIdentity request={authorization} large />
         {status === "pending" && continuingInDesktop ? (
@@ -201,6 +212,7 @@ export function Authorization({ requestId }: { requestId: string }) {
             unavailableConnectors={request.unavailable_connectors}
             onContinueInDesktop={() => continueInDesktop(true)}
             onDecision={(decision) => setStatus(decision)}
+            onSetupActivityChange={setStructuralSetupRequested}
             onCollectionCreated={(collection) => setRequest((current) => current ? {
               ...current,
               collections: current.collections.some((existing) => existing.id === collection.id)
@@ -411,6 +423,7 @@ export function ApprovalForm({
   unavailableConnectors = [],
   onContinueInDesktop,
   onDecision,
+  onSetupActivityChange,
   onCollectionCreated
 }: {
   request: PendingAuthorization;
@@ -419,6 +432,7 @@ export function ApprovalForm({
   unavailableConnectors?: UnavailableConnector[];
   onContinueInDesktop?(): void;
   onDecision(decision: "approved" | "denied"): void | Promise<void>;
+  onSetupActivityChange?(active: boolean): void;
   onCollectionCreated(collection: AvailableCollection): void;
 }) {
   const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]);
@@ -559,6 +573,8 @@ export function ApprovalForm({
   }
 
   async function decide(decision: "approved" | "denied") {
+    const preparingTypeSetup = decision === "approved" && contractSetups.length > 0;
+    if (preparingTypeSetup) onSetupActivityChange?.(true);
     setSubmitting(decision);
     setError("");
     try {
@@ -575,6 +591,7 @@ export function ApprovalForm({
       });
       await onDecision(decision);
     } catch (decisionError) {
+      if (preparingTypeSetup) onSetupActivityChange?.(false);
       setError(message(decisionError));
       setSubmitting(null);
     }
@@ -791,6 +808,20 @@ export function ApprovalForm({
         </div>
       </footer>
     </div>
+  );
+}
+
+function authorizationNeedsTypeSetup(
+  request: PendingAuthorization,
+  collections: AvailableCollection[]
+): boolean {
+  if (!request.collection_id) return false;
+  const collection = collections.find((candidate) => candidate.id === request.collection_id);
+  if (!collection) return false;
+  return request.requirements.contracts.some((required) =>
+    !collection.contracts.some((contract) =>
+      contract.id === required.id && contract.version === required.version
+    ) && Boolean(provisionedContract(required, request.provisions.type_packs))
   );
 }
 

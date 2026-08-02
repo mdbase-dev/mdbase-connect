@@ -1,0 +1,223 @@
+.mdbase-motion-mark {
+  overflow: visible;
+}
+
+.mdbase-motion-mark .mdbase-mark-segment,
+.mdbase-motion-mark .mdbase-mark-row,
+.mdbase-motion-mark .mdbase-mark-fence,
+.mdbase-motion-mark .mdbase-mark-conveyor-track {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mdbase-motion-mark .mdbase-mark-ink,
+.mdbase-motion-mark .mdbase-mark-conveyor-track {
+  fill: currentColor;
+}
+
+.mdbase-motion-mark .mdbase-mark-accent {
+  fill: var(--accent);
+}
+
+.mdbase-motion-mark .mdbase-mark-conveyor-track {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+
+/* Bootstrap: trace once in reading order, then continue as bounded I/O. */
+.mdbase-motion-bootstrap .mdbase-mark-segment {
+  --mdbase-trace-delay: 0ms;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  vector-effect: non-scaling-stroke;
+  animation: mdbase-trace-ink 720ms cubic-bezier(0.16, 1, 0.3, 1) var(--mdbase-trace-delay) 1 both;
+}
+
+.mdbase-motion-bootstrap .mdbase-mark-accent {
+  stroke: var(--accent);
+  animation-name: mdbase-trace-accent;
+}
+
+.mdbase-motion-bootstrap .mdbase-mark-segment-2 { --mdbase-trace-delay: 35ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-3 { --mdbase-trace-delay: 70ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-4 { --mdbase-trace-delay: 125ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-5 { --mdbase-trace-delay: 165ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-6 { --mdbase-trace-delay: 220ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-7 { --mdbase-trace-delay: 260ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-8 { --mdbase-trace-delay: 315ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-9 { --mdbase-trace-delay: 350ms; }
+.mdbase-motion-bootstrap .mdbase-mark-segment-10 { --mdbase-trace-delay: 385ms; }
+
+.mdbase-motion-bootstrap .mdbase-mark-fence {
+  animation: mdbase-hide-original-fence 1ms linear 1.12s 1 forwards;
+}
+
+.mdbase-motion-bootstrap .mdbase-mark-conveyor-track {
+  animation:
+    mdbase-show-conveyor 1ms linear 1.12s 1 forwards,
+    mdbase-gap-conveyor 900ms linear 1.12s infinite;
+}
+
+@keyframes mdbase-trace-ink {
+  0% {
+    fill: transparent;
+    opacity: 0;
+    stroke-dashoffset: 1;
+    stroke-opacity: 1;
+  }
+  10% { opacity: 1; }
+  54% {
+    fill: transparent;
+    opacity: 1;
+    stroke-dashoffset: 0;
+    stroke-opacity: 1;
+  }
+  72%,
+  100% {
+    fill: currentColor;
+    opacity: 1;
+    stroke-dashoffset: 0;
+    stroke-opacity: 0;
+  }
+}
+
+@keyframes mdbase-trace-accent {
+  0% {
+    fill: transparent;
+    opacity: 0;
+    stroke-dashoffset: 1;
+    stroke-opacity: 1;
+  }
+  10% { opacity: 1; }
+  54% {
+    fill: transparent;
+    opacity: 1;
+    stroke-dashoffset: 0;
+    stroke-opacity: 1;
+  }
+  72%,
+  100% {
+    fill: var(--accent);
+    opacity: 1;
+    stroke-dashoffset: 0;
+    stroke-opacity: 0;
+  }
+}
+
+@keyframes mdbase-hide-original-fence {
+  to { opacity: 0; }
+}
+
+@keyframes mdbase-show-conveyor {
+  to { opacity: 1; }
+}
+
+/* Unfold: the frontmatter boundary opens once to reveal its fields. */
+.mdbase-motion-unfold .mdbase-mark-fence-top {
+  animation: mdbase-unfold-top 760ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
+}
+
+.mdbase-motion-unfold .mdbase-mark-fence-bottom {
+  animation: mdbase-unfold-bottom 760ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
+}
+
+.mdbase-motion-unfold .mdbase-mark-row {
+  animation: mdbase-unfold-row 760ms cubic-bezier(0.16, 1, 0.3, 1) 70ms 1 both;
+}
+
+@keyframes mdbase-unfold-top {
+  from { transform: translateY(27px) scaleX(0.62); }
+  to { transform: translateY(0) scaleX(1); }
+}
+
+@keyframes mdbase-unfold-bottom {
+  from { transform: translateY(-27px) scaleX(0.62); }
+  to { transform: translateY(0) scaleX(1); }
+}
+
+@keyframes mdbase-unfold-row {
+  from { opacity: 0; transform: scaleX(0.45); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+/* Rebalance: two fixed-width rows change structure in opposite directions. */
+.mdbase-motion-rebalance .mdbase-mark-segment-4,
+.mdbase-motion-rebalance .mdbase-mark-segment-6 {
+  transform-origin: left center;
+}
+
+.mdbase-motion-rebalance .mdbase-mark-segment-5,
+.mdbase-motion-rebalance .mdbase-mark-segment-7 {
+  transform-origin: right center;
+}
+
+.mdbase-motion-rebalance .mdbase-mark-segment-4 {
+  animation: mdbase-rebalance-top-key 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.mdbase-motion-rebalance .mdbase-mark-segment-5 {
+  animation: mdbase-rebalance-top-value 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.mdbase-motion-rebalance .mdbase-mark-segment-6 {
+  animation: mdbase-rebalance-bottom-key 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.mdbase-motion-rebalance .mdbase-mark-segment-7 {
+  animation: mdbase-rebalance-bottom-value 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes mdbase-rebalance-top-key {
+  0%, 15%, 100% { transform: scaleX(1); }
+  42%, 72% { transform: scaleX(2.666667); }
+}
+
+@keyframes mdbase-rebalance-top-value {
+  0%, 15%, 100% { transform: scaleX(1); }
+  42%, 72% { transform: scaleX(0.642857); }
+}
+
+@keyframes mdbase-rebalance-bottom-key {
+  0%, 15%, 100% { transform: scaleX(1); }
+  42%, 72% { transform: scaleX(0.428571); }
+}
+
+@keyframes mdbase-rebalance-bottom-value {
+  0%, 15%, 100% { transform: scaleX(1); }
+  42%, 72% { transform: scaleX(1.4); }
+}
+
+/* Conveyor: repeated fence segments travel left inside exact fence clips. */
+.mdbase-motion-conveyor .mdbase-mark-fence {
+  opacity: 0;
+}
+
+.mdbase-motion-conveyor .mdbase-mark-conveyor-track {
+  opacity: 1;
+  animation: mdbase-gap-conveyor 900ms linear infinite;
+}
+
+@keyframes mdbase-gap-conveyor {
+  from { transform: translateX(0); }
+  to { transform: translateX(-28px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-motion-mark .mdbase-mark-segment,
+  .mdbase-motion-mark .mdbase-mark-row,
+  .mdbase-motion-mark .mdbase-mark-fence,
+  .mdbase-motion-mark .mdbase-mark-conveyor-track {
+    animation: none !important;
+    filter: none !important;
+    opacity: 1;
+    stroke: none;
+    transform: none !important;
+  }
+
+  .mdbase-motion-mark .mdbase-mark-conveyor-track {
+    opacity: 0;
+  }
+}

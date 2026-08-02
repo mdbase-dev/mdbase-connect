@@ -29,6 +29,15 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("traces into bounded activity while Connect is opening", () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
+    const { container } = render(<ConnectApp />);
+
+    expect(screen.getByText("Opening mdbase connect")).toBeInTheDocument();
+    expect(container.querySelector(".connect-loading .mdbase-motion-bootstrap")).toBeInTheDocument();
+    expect(container.querySelector(".mdbase-mark-conveyor-track")).toBeInTheDocument();
+  });
+
   it("opens account management without requesting a collection grant", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);

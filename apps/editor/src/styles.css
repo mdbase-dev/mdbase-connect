@@ -737,7 +737,6 @@ select:focus-visible {
   left: clamp(28px, 7vw, 112px);
   display: flex;
   align-items: flex-start;
-  gap: 11px;
 }
 
 .opening-message p,

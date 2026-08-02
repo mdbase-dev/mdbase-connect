@@ -548,7 +548,7 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
 }
 
 function ConnectLoading({ error }: { error: string }) {
-  return <div className="connect-loading"><MdbaseMark /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion={error ? undefined : "bootstrap"} /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {

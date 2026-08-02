@@ -102,6 +102,11 @@ Good placements include:
 Avoid repeating the mark in section headings, empty states, collection rows,
 or permission controls. Repetition turns a precise identity into decoration.
 
+The adopted loading and transition behaviors, their semantic assignments, and
+live production previews are documented in the
+[icon motion system](icon-motion-system.html). Product implementations consume
+the shared motion classes from `packages/ui/motion.css`.
+
 ## Assets
 
 - [Default mark](../../assets/mdbase-icon.svg)

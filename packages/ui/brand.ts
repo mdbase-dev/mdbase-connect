@@ -6,6 +6,19 @@ export type MdbaseMarkRect = Readonly<{
   rx: number;
 }>;
 
+export const mdbaseMarkMotions = [
+  "bootstrap",
+  "unfold",
+  "rebalance",
+  "conveyor"
+] as const;
+
+export type MdbaseMarkMotion = typeof mdbaseMarkMotions[number];
+
+export function mdbaseMarkMotionClass(motion?: MdbaseMarkMotion): string {
+  return motion ? ` mdbase-motion-${motion}` : "";
+}
+
 export const MDBASE_MARK_VIEW_BOX = "18 18 84 84";
 
 export const mdbaseMarkInkRects = [

@@ -10,6 +10,7 @@
     "./access": "./access.ts",
     "./brand": "./brand.ts",
     "./contract-setup": "./contract-setup.ts",
+    "./motion.css": "./motion.css",
     "./theme": "./theme.ts",
     "./styles.css": "./styles.css"
   },

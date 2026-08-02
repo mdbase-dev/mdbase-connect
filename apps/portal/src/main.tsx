@@ -4,6 +4,7 @@ import "@fontsource/azeret-mono/latin-400.css";
 import "@fontsource/azeret-mono/latin-500.css";
 import "@fontsource/azeret-mono/latin-600.css";
 import "@mdbase/connect-ui/styles.css";
+import "@mdbase/connect-ui/motion.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
