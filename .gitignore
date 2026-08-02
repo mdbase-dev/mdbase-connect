@@ -4,7 +4,7 @@
 **/.vite/
 **/out/
 /.tmp/
-/.ops/.mdbase/
+/.ops/
 /.env
 /.env.*
 !.env.example
