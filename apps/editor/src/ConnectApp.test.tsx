@@ -34,7 +34,7 @@ describe("ConnectApp", () => {
     expect(calls).toEqual(expect.arrayContaining(["/v1/me", "/v1/account/sessions"]));
     expect(calls.some((path) => path.includes("authorization"))).toBe(false);
 
-    await user.click(screen.getByRole("button", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
     await waitFor(() => expect(location.pathname).toBe("/connect/applications"));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
   });
@@ -51,13 +51,13 @@ describe("ConnectApp", () => {
     expect(collectionNavigation).toHaveTextContent("Manage");
     expect(screen.getByRole("link", { name: /Connect/ })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("complementary", { name: "Product navigation" })).not.toBeInTheDocument();
-    expect(screen.getByText("This collection")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Garden notes" })).toBeInTheDocument();
     expect(screen.getByText("Account", { selector: "p" })).toBeInTheDocument();
 
     const notes = screen.getByRole("link", { name: "Notes" });
     expect(new URL(notes.getAttribute("href")!).searchParams.get("collection")).toBe("collection");
 
-    await user.click(screen.getByRole("button", { name: "Storage & sync" }));
+    await user.click(screen.getByRole("link", { name: "Storage & sync" }));
     await waitFor(() => expect(location.pathname).toBe("/connect/storage"));
     expect(screen.getByRole("heading", { name: "Storage & sync" })).toBeInTheDocument();
   });
@@ -76,7 +76,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "All collections" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "All collections" })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(location.pathname).toBe("/connect/collections"));
     expect(new URLSearchParams(location.search).has("collection")).toBe(false);
   });
@@ -105,7 +105,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("button", { name: "All collections" }));
+    await user.click(screen.getByRole("link", { name: "All collections" }));
     await user.click(await screen.findByRole("button", { name: "New hosted collection" }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
@@ -147,7 +147,7 @@ describe("ConnectApp", () => {
     expect(screen.getAllByText("Reading list is waiting")).toHaveLength(1);
     expect(screen.getByText("Read and update records")).toBeInTheDocument();
     expect(screen.queryByText(/allowed actions/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "App access" })).not.toHaveTextContent("1");
+    expect(screen.getByRole("link", { name: "App access" })).not.toHaveTextContent("1");
   });
 
   it("keeps provider-pending revocations visible without claiming success", async () => {
@@ -165,7 +165,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await screen.findByRole("heading", { name: "Garden notes" });
-    await user.click(screen.getByRole("button", { name: /Applications/ }));
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
 
     expect(await screen.findByText("Revoking…")).toBeInTheDocument();
     expect(screen.getByText(/Waiting for the hosted authority to confirm revocation/)).toBeInTheDocument();
@@ -176,7 +176,7 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
 
-    await user.click(await screen.findByRole("button", { name: "Open account and sessions" }));
+    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
     expect(await screen.findByRole("heading", { name: "Hosted storage" })).toBeInTheDocument();
     expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.getByText("Permanent allowance")).toBeInTheDocument();

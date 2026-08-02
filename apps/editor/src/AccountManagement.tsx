@@ -5,7 +5,12 @@ import {
   type ConnectManagementClient,
   type ManagementOverview
 } from "@mdbase/connect-management";
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  ConnectEmpty as Empty,
+  ConnectPage as Page,
+  ConnectSectionTitle as SectionTitle
+} from "./ConnectPrimitives";
 import { GoogleIdentityButton } from "./GoogleIdentityButton";
 
 export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted }: {
@@ -227,18 +232,6 @@ export function DeletedAccount({ client }: { client: ConnectManagementClient }) 
   return <main className="connect-deleted-account"><div><p>Account deleted</p><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
-function Page({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
-  return <div className="connect-page"><header><p>mdbase Connect</p><h1>{title}</h1><span>{intro}</span></header>{children}</div>;
-}
-
-function SectionTitle({ title, note, count, action }: { title: string; note?: string; count?: number; action?: ReactNode }) {
-  return <header className="connect-section-title"><div><h2>{title}</h2>{count !== undefined && <span>{count}</span>}</div>{note && <p>{note}</p>}{action}</header>;
-}
-
-function Empty({ title, body }: { title: string; body: string }) {
-  return <div className="connect-empty"><div><strong>{title}</strong><p>{body}</p></div></div>;
-}
-
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {
   const usage = collection.usage;
   const liveBytes = usage ? usage.content_bytes + usage.file_bytes : null;
@@ -348,6 +341,6 @@ function loginUrl(client: ConnectManagementClient): string {
 function errorMessage(value: unknown): string {
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
-    ? "Connect could not be reached. Check your connection and try again."
+    ? "mdbase connect could not be reached. Check your connection and try again."
     : detail;
 }
