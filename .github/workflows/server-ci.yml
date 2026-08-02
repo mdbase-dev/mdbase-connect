@@ -222,7 +222,7 @@ jobs:
             --data-urlencode "application_authorization=$(jq --compact-output '.form.application_authorization | fromjson' <<<"$authorization")" \
             http://127.0.0.1:8787/oauth/authorization_request |
             jq --raw-output '.authorization_uri')
-          [[ "$authorization_uri" == http://127.0.0.1:8787/oauth/authorize/* ]]
+          [[ "$authorization_uri" == "http://127.0.0.1:8787/oauth/authorize?request_id=$authorization_id" ]]
           location=$(curl --silent --show-error \
             --cookie "$cookie_jar" \
             --output /dev/null \
