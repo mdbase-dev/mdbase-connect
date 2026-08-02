@@ -542,12 +542,14 @@ function validateContractSetupChoices(
   available: CollectionContractDescriptor[]
 ): void {
   const keys = new Set(setups.map(
-    (setup) => `${setup.contract.id}@${setup.contract.version}`
+    (setup) => `${setup.contract.id}@${setup.contract.version}#${setup.contract.digest}`
   ));
   if (
     keys.size !== setups.length
     || setups.some((setup) => !required.some((contract) =>
-      contract.id === setup.contract.id && contract.version === setup.contract.version
+      contract.id === setup.contract.id
+        && contract.version === setup.contract.version
+        && contract.digest === setup.contract.digest
     ))
   ) {
     throw new RequestValidationError(
@@ -556,11 +558,14 @@ function validateContractSetupChoices(
   }
   if (setups.length === 0) return;
   const missing = required.filter((contract) => !available.some((candidate) =>
-    candidate.id === contract.id && candidate.version === contract.version
+    candidate.id === contract.id
+      && candidate.version === contract.version
+      && candidate.digest === contract.digest
   ));
   if (
     keys.size !== missing.length
-    || missing.some((contract) => !keys.has(`${contract.id}@${contract.version}`))
+    || missing.some((contract) =>
+      !keys.has(`${contract.id}@${contract.version}#${contract.digest}`))
   ) {
     throw new RequestValidationError(
       "Choose starter or existing-type setup for each missing contract only."
@@ -674,12 +679,17 @@ export async function approveHostedAuthorization(
     if (provisions.length > 0) {
       requireCollectionAction(input.access, "schema.manage");
       const setupResult = input.contractSetups.length
-        ? await provider.provisionTypePacks(
+          ? await provider.provisionTypePacks(
+              input.collectionId,
+              provisions,
+              `app.${pending.application_id}`,
+              input.contractSetups
+            )
+        : await provider.provisionTypePacks(
             input.collectionId,
             provisions,
-            input.contractSetups
-          )
-        : await provider.provisionTypePacks(input.collectionId, provisions);
+            `app.${pending.application_id}`
+          );
       if (input.contractSetups.length > 0) {
         verifyContractSetupAcknowledgement(
           input.contractSetups,

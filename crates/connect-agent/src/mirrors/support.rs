@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct MirrorOperationGuard<'a> {
     pub(super) replica_id: Uuid,
     pub(super) syncing: &'a StdMutex<HashSet<Uuid>>,
+    pub(super) operation_finished: &'a Notify,
 }
 
 pub(super) struct BackgroundRetry {
@@ -25,6 +26,7 @@ impl Drop for MirrorOperationGuard<'_> {
             .lock()
             .expect("mirror sync lock poisoned")
             .remove(&self.replica_id);
+        self.operation_finished.notify_one();
     }
 }
 

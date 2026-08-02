@@ -23,6 +23,7 @@ import { pkceChallenge, tokenHash } from "./security.js";
 import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];
+const TEST_CONTRACT_DIGEST = `sha256:${"0".repeat(64)}`;
 
 function p256PublicKey(): string {
   const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -303,7 +304,11 @@ describe("mdbase connect server", () => {
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
       requirements: {
-        contracts: [{ id: "example.work-item", version: "1.0.0" }]
+        contracts: [{
+          id: "example.work-item",
+          version: "1.0.0",
+          digest: TEST_CONTRACT_DIGEST
+        }]
       },
       provisions: {
         type_packs: [typePackProvision(
@@ -317,7 +322,11 @@ describe("mdbase connect server", () => {
               "---\nkind: mdbase.type\nname: task_comment\n---\n"
             ]
           ],
-          [{ id: "example.work-item", version: "1.0.0" }]
+          [{
+            id: "example.work-item",
+            version: "1.0.0",
+            digest: TEST_CONTRACT_DIGEST
+          }]
         )]
       }
     };
@@ -482,7 +491,11 @@ describe("mdbase connect server", () => {
     });
     expect(discovered.statusCode).toBe(200);
     expect(discovered.json().application.requirements).toEqual({
-      contracts: [{ id: "workout.record", version: "1.0.0" }]
+      contracts: [{
+        id: "workout.record",
+        version: "1.0.0",
+        digest: TEST_CONTRACT_DIGEST
+      }]
     });
     const applicationId = discovered.json().application.id as string;
     const applicationManifestDigest =
@@ -636,7 +649,11 @@ describe("mdbase connect server", () => {
     expect(localControl.json().pending_authorizations[0].application_name).toBe("Workout Tracker");
     expect(localControl.json().pending_authorizations[0].collection_id).toBe(localCollectionId);
     expect(localControl.json().pending_authorizations[0].requirements).toEqual({
-      contracts: [{ id: "workout.record", version: "1.0.0" }]
+      contracts: [{
+        id: "workout.record",
+        version: "1.0.0",
+        digest: TEST_CONTRACT_DIGEST
+      }]
     });
 
     const connectorLegacyApproval = await app.inject({
@@ -1765,7 +1782,7 @@ describe("mdbase connect server", () => {
           contracts: [existingContract, contract],
           contractSetups: []
         })
-        .mockImplementation(async (_collectionId, _packs, setups = []) => ({
+        .mockImplementation(async (_collectionId, _packs, _installedBy, setups = []) => ({
           contracts: [existingContract, contract],
           contractSetups: setups
         })),
@@ -1814,13 +1831,13 @@ describe("mdbase connect server", () => {
         ["type", "workout.md", "_types/workout.md", typeDocument],
         ["type", "workout-note.md", "_types/workout_note.md", auxiliaryDocument]
       ],
-      [{ id: "workout.record", version: "1.0.0" }]
+      [{ id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }]
     );
     const manifestServer = applicationManifestFixture(
       {
         contracts: [
-          { id: "athlete.profile", version: "1.0.0" },
-          { id: "workout.record", version: "1.0.0" }
+          { id: "athlete.profile", version: "1.0.0", digest: TEST_CONTRACT_DIGEST },
+          { id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }
         ],
         access: "full_collection"
       },
@@ -1854,18 +1871,26 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     expect(pending.json().authorization.provisions.type_packs[0].provides).toEqual([
-      { id: "workout.record", version: "1.0.0" }
+      { id: "workout.record", version: "1.0.0", digest: TEST_CONTRACT_DIGEST }
     ]);
     expect(pending.json().collections[0].types).toEqual([typeCandidate]);
     const setup = {
-      contract: { id: "workout.record", version: "1.0.0" },
+      contract: {
+        id: "workout.record",
+        version: "1.0.0",
+        digest: TEST_CONTRACT_DIGEST
+      },
       mode: "existing",
       type_name: "task",
       type_revision: typeCandidate.revision,
       fields: {}
     };
     const unnecessarySetup = {
-      contract: { id: "athlete.profile", version: "1.0.0" },
+      contract: {
+        id: "athlete.profile",
+        version: "1.0.0",
+        digest: TEST_CONTRACT_DIGEST
+      },
       mode: "starter"
     };
     const overbroad = await app.inject({
@@ -1911,6 +1936,7 @@ describe("mdbase connect server", () => {
     expect(hostedProvider.provisionTypePacks).toHaveBeenCalledWith(
       collectionId,
       [pack],
+      `app.${applicationId}`,
       [setup]
     );
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
@@ -2050,7 +2076,11 @@ async function startWebAuthorization(
 
 function applicationManifestFixture(
   requirements: ApplicationRequirements = {
-    contracts: [{ id: "workout.record", version: "1.0.0" }]
+    contracts: [{
+      id: "workout.record",
+      version: "1.0.0",
+      digest: TEST_CONTRACT_DIGEST
+    }]
   },
   name = "Workout Tracker",
   provisions?: NonNullable<MdbaseAppManifest["provisions"]>
@@ -2084,7 +2114,7 @@ function contractDescriptor(
     contract_type: "record",
     id,
     version: "1.0.0",
-    digest: `sha256:${"0".repeat(64)}`,
+    digest: TEST_CONTRACT_DIGEST,
     schema: { type: "object" },
     implementations: [{
       type_name: typeName,
@@ -2104,7 +2134,7 @@ function typePackProvision(
     target: string,
     document: string
   ]>,
-  provides: Array<{ id: string; version: string }>
+  provides: Array<{ id: string; version: string; digest: string }>
 ) {
   return {
     manifest: {
@@ -2113,6 +2143,7 @@ function typePackProvision(
       version: "1.0.0",
       resources: resources.map(([kind, source, target, document]) => ({
         kind,
+        mode: kind === "type" ? "seed" as const : "managed" as const,
         source,
         target,
         digest: `sha256:${createHash("sha256").update(document).digest("hex")}`

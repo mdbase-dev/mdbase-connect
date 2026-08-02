@@ -260,15 +260,18 @@ describe("hosted provider control client", () => {
         version: "1.0.0",
         resources: [{
           kind: "type" as const,
+          mode: "seed" as const,
           source: "workout.md",
           target: "_types/workout.md",
           digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
         }]
       },
       resources: [{ source: "workout.md", document }],
-      provides: [{ id: "workout.record", version: "1.0.0" }]
+      provides: [{ id: contract.id, version: contract.version, digest: contract.digest }]
     };
-    await expect(provider.provisionTypePacks("collection", [provision])).resolves.toEqual({
+    await expect(
+      provider.provisionTypePacks("collection", [provision], "example.workouts")
+    ).resolves.toEqual({
       contracts: [contract],
       contractSetups: []
     });
@@ -276,7 +279,10 @@ describe("hosted provider control client", () => {
       "https://provider.example/internal/v1/collections/collection/type-packs/provision",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ type_packs: [provision] })
+        body: JSON.stringify({
+          type_packs: [provision],
+          installed_by: "example.workouts"
+        })
       })
     );
   });
@@ -289,7 +295,11 @@ describe("hosted provider control client", () => {
       extensions: {}
     };
     const setup = {
-      contract: { id: "example.task", version: "1.0.0" },
+      contract: {
+        id: "example.task",
+        version: "1.0.0",
+        digest: `sha256:${"3".repeat(64)}`
+      },
       mode: "existing" as const,
       type_name: "task",
       type_revision: candidate.revision,
@@ -312,7 +322,9 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await expect(provider.collectionTypeCandidates("collection")).resolves.toEqual([candidate]);
-    await expect(provider.provisionTypePacks("collection", [], [setup])).resolves.toEqual({
+    await expect(
+      provider.provisionTypePacks("collection", [], "example.tasks", [setup])
+    ).resolves.toEqual({
       contracts: [],
       contractSetups: [setup]
     });
@@ -328,6 +340,7 @@ describe("hosted provider control client", () => {
         "POST",
         JSON.stringify({
           type_packs: [],
+          installed_by: "example.tasks",
           contract_setups: [setup]
         })
       ]

@@ -180,6 +180,7 @@ pub(super) fn canonicalize_imported_snapshot(
                                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
                                     "configuration"
                                 }
+                                mdbase::runtime::CollectionSnapshotResourceKind::Lock => "lock",
                                 mdbase::runtime::CollectionSnapshotResourceKind::Contract => {
                                     "contract"
                                 }

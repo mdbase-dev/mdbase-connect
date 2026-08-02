@@ -268,6 +268,7 @@ impl AgentState {
         let contracts = self
             .ensure_application_types(
                 params.collection_id,
+                pending.application_id,
                 &pending.requirements,
                 &pending.provisions,
                 &params.contract_setups,
@@ -285,6 +286,7 @@ impl AgentState {
         let contracts = self
             .ensure_application_types(
                 params.collection_id,
+                application.id,
                 &application.requirements,
                 &application.provisions,
                 &[],
@@ -296,6 +298,7 @@ impl AgentState {
     pub(super) async fn ensure_application_types(
         &self,
         collection_id: uuid::Uuid,
+        application_id: uuid::Uuid,
         requirements: &mdbase_connect_protocol::ApplicationRequirements,
         provisions: &mdbase_connect_protocol::ApplicationProvisions,
         contract_setups: &[ContractSetupChoice],
@@ -308,6 +311,7 @@ impl AgentState {
         }
         let contracts = self.registry.provision_type_packs(
             collection_id,
+            &format!("app.{application_id}"),
             requirements,
             &provisions.type_packs,
             contract_setups,

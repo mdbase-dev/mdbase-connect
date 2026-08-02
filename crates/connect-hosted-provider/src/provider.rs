@@ -8,8 +8,8 @@ use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use mdbase::v03::{Diagnostic, OperationResult};
 use mdbase_connect_protocol::{
-    authority_file_hash, authority_manifest_digest as snapshot_manifest_digest,
-    AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
+    authority_file_hash, authority_manifest_digest as snapshot_manifest_digest, ApplyTypePackInput,
+    AssessTypePackInput, AuthorityImportManifest, AuthorityImportRecord, AuthorityImportRecordPage,
     AuthoritySnapshotRecord, CollectionChange, CollectionChangesPage, CollectionContractDescriptor,
     CollectionDescription, CollectionTypeDescriptor, ContractRequirement, ContractSetupChoice,
     ContractSetupMode, FileAction, FileCapability, FileScope, GrantSummary, SyncChange,
@@ -375,8 +375,8 @@ pub fn validate_limit(limit: Option<u32>) -> ApiResult<u32> {
 }
 
 fn validate_contract_setup_targets(
-    setup_contracts: &BTreeSet<(String, String)>,
-    missing_contracts: &BTreeSet<(String, String)>,
+    setup_contracts: &BTreeSet<(String, String, String)>,
+    missing_contracts: &BTreeSet<(String, String, String)>,
 ) -> ApiResult<()> {
     if setup_contracts
         .iter()
@@ -388,6 +388,42 @@ fn validate_contract_setup_targets(
         ));
     }
     Ok(())
+}
+
+fn type_pack_provision_error(result: &OperationResult) -> ApiError {
+    let detail = result
+        .diagnostics
+        .first()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .or_else(|| {
+            result.result["resources"]
+                .as_array()
+                .and_then(|resources| {
+                    resources
+                        .iter()
+                        .find(|resource| resource["action"] == "conflict")
+                })
+                .and_then(|resource| resource["reason"].as_str())
+        })
+        .unwrap_or("the type pack requires review");
+    ApiError::conflict(
+        "type_pack_review_required",
+        format!("The collection definitions need review before they can be updated: {detail}"),
+    )
+    .with_details(json!({ "assessment": result.result }))
+}
+
+fn type_pack_envelope_error(envelope: &Value) -> ApiError {
+    let detail = envelope
+        .pointer("/diagnostics/0/message")
+        .or_else(|| envelope.pointer("/result/resources/0/reason"))
+        .and_then(Value::as_str)
+        .unwrap_or("the type pack was rejected");
+    ApiError::conflict(
+        "type_pack_provision_failed",
+        format!("The collection definitions could not be updated: {detail}"),
+    )
+    .with_details(envelope.clone())
 }
 
 pub(crate) fn hosted_migrator() -> sqlx::migrate::Migrator {

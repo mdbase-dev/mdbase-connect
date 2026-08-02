@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { MDBASE_RECORD_MODIFIED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "./app.js";
 import { createDatabase, type DatabasePool } from "./db.js";
 import { HostedProviderClient } from "./hosted-provider.js";
@@ -147,12 +148,12 @@ describe("Web Push notifications", () => {
           criteria: [
             {
               id: "task.ready",
-              event: { id: "mdbase.record.modified", version: "1.0.0" },
+              event: MDBASE_RECORD_MODIFIED_CONTRACT,
               presentation: { title: "A task changed" }
             },
             {
               id: "private.exfiltrate",
-              event: { id: "mdbase.record.modified", version: "1.0.0" },
+              event: MDBASE_RECORD_MODIFIED_CONTRACT,
               presentation: { title: "Newly declared" }
             }
           ]
@@ -429,7 +430,7 @@ async function notificationFixture(
           : {}),
         criteria: [{
           id: "task.ready",
-          event: { id: "mdbase.record.modified", version: "1.0.0" },
+          event: MDBASE_RECORD_MODIFIED_CONTRACT,
           presentation: {
             title: "A task changed",
             body: "Open Tasks to see the latest update.",
@@ -456,7 +457,7 @@ async function notificationFixture(
       "https://tasks.example",
       JSON.stringify([{
         id: "task.ready",
-        event: { id: "mdbase.record.modified", version: "1.0.0" },
+        event: MDBASE_RECORD_MODIFIED_CONTRACT,
         presentation: {
           title: "A task changed",
           body: "Open Tasks to see the latest update.",

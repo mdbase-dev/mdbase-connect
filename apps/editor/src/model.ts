@@ -14,10 +14,11 @@ import type {
   RecordDocument,
   QueryRecord,
   TypePackProvision,
+  TypePackAssessment,
   WatchStatus
 } from "@mdbase-dev/connect";
 
-export type TypePackInstallResult = import("@mdbase-dev/connect").TypePackInstallResult;
+export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
 
@@ -154,7 +155,15 @@ export interface CollectionGateway {
   readType(name: string): Promise<CollectionTypeDocument>;
   createType(document: string): Promise<CollectionTypeDocument>;
   updateType(document: CollectionTypeDocument, source: string): Promise<CollectionTypeDocument>;
-  installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult>;
+  assessTypePack(
+    provision: TypePackProvision,
+    adoptResources?: Record<string, string>,
+  ): Promise<TypePackAssessment>;
+  applyTypePack(
+    provision: TypePackProvision,
+    assessment: TypePackAssessment,
+    adoptResources?: Record<string, string>,
+  ): Promise<TypePackApplyResult>;
   watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void>;
 }
 

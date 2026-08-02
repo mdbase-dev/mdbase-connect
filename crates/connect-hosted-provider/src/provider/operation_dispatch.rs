@@ -48,8 +48,8 @@ impl HostedProvider {
                 self.changes_operation(collection_id, &replica, &input)
                     .await
             }
-            "read" | "query" | "validate" | "read_type" | "list_views" | "execute_view"
-            | "read_view_source" => {
+            "read" | "query" | "validate" | "read_type" | "assess_type_pack" | "list_views"
+            | "execute_view" | "read_view_source" => {
                 let (scoped_input, selector) = match (&contract_scope, operation) {
                     (Some(scope), "query") => scope.query_input(&input).map_err(scope_error)?,
                     (Some(scope), "read") => scope.read_input(&input).map_err(scope_error)?,
@@ -176,30 +176,15 @@ impl HostedProvider {
                 self.write_type_operation(collection_id, operation, input)
                     .await
             }
-            "install_type_pack" => {
-                let provision =
-                    serde_json::from_value::<TypePackProvision>(input).map_err(|error| {
+            "apply_type_pack" => {
+                let request =
+                    serde_json::from_value::<ApplyTypePackInput>(input).map_err(|error| {
                         ApiError::bad_request(
                             "invalid_type_pack",
-                            format!("The type-pack provision is invalid: {error}"),
+                            format!("The type-pack apply request is invalid: {error}"),
                         )
                     })?;
-                let setups = provision
-                    .provides
-                    .iter()
-                    .cloned()
-                    .map(|contract| ContractSetupChoice {
-                        contract,
-                        mode: ContractSetupMode::Starter,
-                    })
-                    .collect::<Vec<_>>();
-                if setups.is_empty() {
-                    return Err(ApiError::bad_request(
-                        "invalid_type_pack",
-                        "Hosted type-pack installation requires declared provided contracts.",
-                    ));
-                }
-                self.write_contract_setup_operation(collection_id, &[provision], &setups)
+                self.write_type_pack_apply_operation(collection_id, &request)
                     .await
             }
             "create_view_source" | "update_view_source" | "delete_view_source" => {
@@ -223,9 +208,11 @@ impl HostedProvider {
         }
         let current = self.collection_resources(collection_id).await?.contracts;
         for pinned in &replica.contract_scope {
-            let matching = current
-                .iter()
-                .find(|contract| contract.id == pinned.id && contract.version == pinned.version);
+            let matching = current.iter().find(|contract| {
+                contract.id == pinned.id
+                    && contract.version == pinned.version
+                    && contract.digest == pinned.digest
+            });
             if matching != Some(pinned) {
                 return Err(ApiError::forbidden(
                     "contract_scope_changed",
@@ -261,6 +248,7 @@ impl HostedProvider {
     pub async fn provision_type_packs(
         &self,
         collection_id: Uuid,
+        installed_by: &str,
         provisions: Vec<TypePackProvision>,
         contract_setups: Vec<ContractSetupChoice>,
     ) -> ApiResult<(Vec<CollectionContractDescriptor>, Vec<ContractSetupChoice>)> {
@@ -268,11 +256,23 @@ impl HostedProvider {
         let provided_contracts = provisions
             .iter()
             .flat_map(|provision| provision.provides.iter())
-            .map(|contract| (contract.id.clone(), contract.version.clone()))
+            .map(|contract| {
+                (
+                    contract.id.clone(),
+                    contract.version.clone(),
+                    contract.digest.clone(),
+                )
+            })
             .collect::<BTreeSet<_>>();
         let setup_contracts = contract_setups
             .iter()
-            .map(|setup| (setup.contract.id.clone(), setup.contract.version.clone()))
+            .map(|setup| {
+                (
+                    setup.contract.id.clone(),
+                    setup.contract.version.clone(),
+                    setup.contract.digest.clone(),
+                )
+            })
             .collect::<BTreeSet<_>>();
         if setup_contracts.len() != contract_setups.len() {
             return Err(ApiError::bad_request(
@@ -291,11 +291,10 @@ impl HostedProvider {
         }
         let missing_contracts = provided_contracts
             .iter()
-            .filter(|(id, version)| {
-                !resources
-                    .contracts
-                    .iter()
-                    .any(|contract| &contract.id == id && &contract.version == version)
+            .filter(|(id, version, digest)| {
+                !resources.contracts.iter().any(|contract| {
+                    &contract.id == id && &contract.version == version && &contract.digest == digest
+                })
             })
             .cloned()
             .collect::<BTreeSet<_>>();
@@ -303,8 +302,12 @@ impl HostedProvider {
         let effective_setups = if contract_setups.is_empty() {
             missing_contracts
                 .into_iter()
-                .map(|(id, version)| ContractSetupChoice {
-                    contract: ContractRequirement { id, version },
+                .map(|(id, version, digest)| ContractSetupChoice {
+                    contract: ContractRequirement {
+                        id,
+                        version,
+                        digest,
+                    },
                     mode: ContractSetupMode::Starter,
                 })
                 .collect::<Vec<_>>()
@@ -312,24 +315,97 @@ impl HostedProvider {
             contract_setups
         };
         if !effective_setups.is_empty() {
-            let result = self
-                .write_contract_setup_operation(collection_id, &provisions, &effective_setups)
-                .await?;
-            if result.get("valid").and_then(Value::as_bool) != Some(true) {
-                let detail = result
-                    .pointer("/diagnostics/0/message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("the type pack was rejected");
-                return Err(ApiError::bad_request(
-                    "type_pack_provision_failed",
-                    format!("The contract setup could not be installed: {detail}"),
-                ));
+            for provision in &provisions {
+                let provision_setups = effective_setups
+                    .iter()
+                    .filter(|setup| provision.provides.contains(&setup.contract))
+                    .collect::<Vec<_>>();
+                let has_existing = provision_setups
+                    .iter()
+                    .any(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }));
+                let has_starter = provision_setups
+                    .iter()
+                    .any(|setup| matches!(setup.mode, ContractSetupMode::Starter));
+                let existing_setups = provision_setups
+                    .iter()
+                    .filter(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }))
+                    .map(|setup| (*setup).clone())
+                    .collect::<Vec<_>>();
+                let preserve_seed_targets = if has_existing {
+                    if has_starter
+                        && provision
+                            .manifest
+                            .resources
+                            .iter()
+                            .any(|resource| resource.mode == "seed")
+                    {
+                        return Err(ApiError::bad_request(
+                            "ambiguous_seed_setup",
+                            "A type pack with shared seed resources cannot mix starter and existing-type setup. Split the pack by contract.",
+                        ));
+                    }
+                    provision
+                        .manifest
+                        .resources
+                        .iter()
+                        .filter(|resource| resource.mode == "seed")
+                        .map(|resource| resource.target.clone())
+                        .collect::<BTreeSet<_>>()
+                } else {
+                    BTreeSet::new()
+                };
+                let assessment_input = AssessTypePackInput {
+                    provision: provision.clone(),
+                    installed_by: installed_by.to_string(),
+                    adopt_resources: BTreeMap::new(),
+                    preserve_seed_targets: preserve_seed_targets.clone(),
+                    target_overrides: BTreeMap::new(),
+                    contract_setups: existing_setups.clone(),
+                };
+                let assessment = self
+                    .execute_read_operation(
+                        collection_id,
+                        "assess_type_pack",
+                        &serde_json::to_value(&assessment_input).map_err(|error| {
+                            ApiError::internal(format!(
+                                "Type-pack assessment input could not serialize: {error}"
+                            ))
+                        })?,
+                    )
+                    .await?;
+                if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
+                    return Err(type_pack_provision_error(&assessment));
+                }
+                let expected_assessment_digest = assessment.result["assessment_digest"]
+                    .as_str()
+                    .ok_or_else(|| ApiError::internal("Type-pack assessment returned no digest."))?
+                    .to_string();
+                let applied = self
+                    .write_type_pack_apply_operation(
+                        collection_id,
+                        &ApplyTypePackInput {
+                            provision: provision.clone(),
+                            installed_by: installed_by.to_string(),
+                            adopt_resources: BTreeMap::new(),
+                            preserve_seed_targets,
+                            target_overrides: BTreeMap::new(),
+                            contract_setups: existing_setups,
+                            expected_assessment_digest,
+                            allow_downgrade: false,
+                        },
+                    )
+                    .await?;
+                if applied.get("valid").and_then(Value::as_bool) != Some(true) {
+                    return Err(type_pack_envelope_error(&applied));
+                }
             }
         }
         let resources = self.collection_resources(collection_id).await?;
         if effective_setups.iter().any(|setup| {
             !resources.contracts.iter().any(|available| {
-                available.id == setup.contract.id && available.version == setup.contract.version
+                available.id == setup.contract.id
+                    && available.version == setup.contract.version
+                    && available.digest == setup.contract.digest
             })
         }) {
             return Err(ApiError::bad_request(

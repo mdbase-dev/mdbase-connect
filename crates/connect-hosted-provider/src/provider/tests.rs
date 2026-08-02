@@ -9,10 +9,19 @@ fn rollback_binaries_tolerate_newer_additive_migrations() {
 
 #[test]
 fn contract_setup_targets_missing_contracts_only() {
-    let missing = BTreeSet::from([("example.missing".to_string(), "1.0.0".to_string())]);
+    let digest = format!("sha256:{}", "0".repeat(64));
+    let missing = BTreeSet::from([(
+        "example.missing".to_string(),
+        "1.0.0".to_string(),
+        digest.clone(),
+    )]);
     let requested = BTreeSet::from([
-        ("example.present".to_string(), "1.0.0".to_string()),
-        ("example.missing".to_string(), "1.0.0".to_string()),
+        (
+            "example.present".to_string(),
+            "1.0.0".to_string(),
+            digest.clone(),
+        ),
+        ("example.missing".to_string(), "1.0.0".to_string(), digest),
     ]);
 
     let error = validate_contract_setup_targets(&requested, &missing).unwrap_err();
@@ -116,6 +125,7 @@ fn portable_imports_are_canonicalized_by_rust_including_first_class_resources() 
             path: resource.path.clone(),
             kind: match resource.kind {
                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration => "configuration",
+                mdbase::runtime::CollectionSnapshotResourceKind::Lock => "lock",
                 mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract",
                 mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",

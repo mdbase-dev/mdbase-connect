@@ -309,13 +309,6 @@ fn installs_type_packs_as_full_collection_operations_and_provisions_idempotently
     let root = collection_parent.path().join("provisioned");
     let registry = CollectionRegistry::open(state.path()).unwrap();
     let collection = registry.create(&root, Some("Provisioned")).unwrap();
-    let requirements = ApplicationRequirements {
-        contracts: vec![ContractRequirement {
-            id: "workout.record".to_string(),
-            version: "1.0.0".to_string(),
-        }],
-        ..Default::default()
-    };
     let contract_document = r#"---
 kind: mdbase.contract
 contract_type: record
@@ -330,6 +323,22 @@ record_schema:
       type: { const: workout }
 ---
 "#;
+    let requirements = ApplicationRequirements {
+        contracts: vec![ContractRequirement {
+            id: "workout.record".to_string(),
+            version: "1.0.0".to_string(),
+            digest: mdbase::data_contracts::data_contract_digest(
+                &serde_yaml::from_str::<serde_json::Value>(
+                    contract_document
+                        .strip_prefix("---\n")
+                        .and_then(|value| value.strip_suffix("---\n"))
+                        .expect("contract fixture has frontmatter fences"),
+                )
+                .expect("contract fixture is valid YAML"),
+            ),
+        }],
+        ..Default::default()
+    };
     let type_document = r#"---
 kind: mdbase.type
 name: workout
@@ -386,6 +395,7 @@ schema:
                 .map(|(source, target, kind, document)| {
                     mdbase_connect_protocol::TypePackManifestResource {
                         kind: (*kind).to_string(),
+                        mode: "managed".to_string(),
                         source: (*source).to_string(),
                         target: (*target).to_string(),
                         digest: format!("sha256:{:x}", Sha256::digest(document.as_bytes())),
@@ -405,15 +415,30 @@ schema:
             .collect(),
         provides: requirements.contracts.clone(),
     };
+    let assessed = registry
+        .operation(
+            collection.id,
+            "assess_type_pack",
+            &json!({
+                "provision": provision,
+                "installed_by": "dev.mdbase.tests",
+            }),
+        )
+        .unwrap();
+    assert_eq!(assessed["valid"], true, "{assessed}");
     let installed = registry
         .operation(
             collection.id,
-            "install_type_pack",
-            &serde_json::to_value(&provision).unwrap(),
+            "apply_type_pack",
+            &json!({
+                "provision": provision,
+                "installed_by": "dev.mdbase.tests",
+                "expected_assessment_digest": assessed["result"]["assessment_digest"],
+            }),
         )
         .unwrap();
     assert_eq!(installed["valid"], true, "{installed}");
-    assert_eq!(installed["result"]["id"], "example.workout");
+    assert_eq!(installed["result"]["desired"]["id"], "example.workout");
     assert_eq!(
         installed["result"]["resources"].as_array().unwrap().len(),
         3
@@ -421,8 +446,12 @@ schema:
     assert!(matches!(
         registry.scoped_operation(
             collection.id,
-            "install_type_pack",
-            &serde_json::to_value(&provision).unwrap(),
+            "apply_type_pack",
+            &json!({
+                "provision": provision,
+                "installed_by": "dev.mdbase.tests",
+                "expected_assessment_digest": assessed["result"]["assessment_digest"],
+            }),
             &unavailable_contract_scope()
         ),
         Err(ConnectError::AccessDenied(_))
@@ -431,7 +460,13 @@ schema:
     let provisions = [provision];
 
     let contracts = registry
-        .provision_type_packs(collection.id, &requirements, &provisions, &[])
+        .provision_type_packs(
+            collection.id,
+            "dev.mdbase.tests",
+            &requirements,
+            &provisions,
+            &[],
+        )
         .unwrap();
     assert!(contracts.iter().any(|contract| {
         contract.id == requirements.contracts[0].id
@@ -441,7 +476,13 @@ schema:
     assert!(root.join("_types/workout.md").is_file());
     assert!(root.join("_types/workout_note.md").is_file());
     registry
-        .provision_type_packs(collection.id, &requirements, &provisions, &[])
+        .provision_type_packs(
+            collection.id,
+            "dev.mdbase.tests",
+            &requirements,
+            &provisions,
+            &[],
+        )
         .unwrap();
 }
 
@@ -495,7 +536,13 @@ This body is documentation and must remain byte-for-byte intact.
     };
 
     let contracts = registry
-        .provision_type_packs(collection.id, &requirements, &[provision], &[setup])
+        .provision_type_packs(
+            collection.id,
+            "dev.mdbase.tests",
+            &requirements,
+            &[provision],
+            &[setup],
+        )
         .unwrap();
 
     assert!(!root.join("_types/work_item.md").exists());
@@ -546,7 +593,13 @@ schema:
     };
 
     let error = registry
-        .provision_type_packs(collection.id, &requirements, &[provision], &[setup])
+        .provision_type_packs(
+            collection.id,
+            "dev.mdbase.tests",
+            &requirements,
+            &[provision],
+            &[setup],
+        )
         .unwrap_err();
 
     assert_eq!(error.code(), "access_denied");

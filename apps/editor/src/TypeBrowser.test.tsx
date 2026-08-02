@@ -661,7 +661,8 @@ const contractCatalog: ContractCatalog = {
     provisionUrl: "https://mdbase.dev/contracts/packs/example.people/1.0.0/provision.json",
     provides: [{
       id: personContract.id,
-      version: personContract.version
+      version: personContract.version,
+      digest: personContract.digest
     }],
     resourceCount: 3,
     displayName: "Person",

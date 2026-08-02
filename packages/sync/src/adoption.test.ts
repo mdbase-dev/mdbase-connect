@@ -21,13 +21,15 @@ describe("portable authority snapshot", () => {
       { path: "_schemas/task.json", kind: "schema" as const, document: "{\"type\":\"object\"}\n" },
       { path: "_contracts/task.md", kind: "contract" as const, document: "---\nkind: mdbase.contract\n---\n" },
       { path: "views/tasks.base", kind: "view" as const, document: "views: []\n" },
+      { path: "mdbase.lock.yaml", kind: "lock" as const, document: "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n" },
       { path: "mdbase.yaml", kind: "configuration" as const, document: "spec_version: 0.3.0\n" }
     ]);
     const repeated = snapshot([
       { path: "mdbase.yaml", kind: "configuration" as const, document: "spec_version: 0.3.0\n" },
       { path: "views/tasks.base", kind: "view" as const, document: "views: []\n" },
       { path: "_contracts/task.md", kind: "contract" as const, document: "---\nkind: mdbase.contract\n---\n" },
-      { path: "_schemas/task.json", kind: "schema" as const, document: "{\"type\":\"object\"}\n" }
+      { path: "_schemas/task.json", kind: "schema" as const, document: "{\"type\":\"object\"}\n" },
+      { path: "mdbase.lock.yaml", kind: "lock" as const, document: "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n" }
     ]);
 
     expect(repeated).toEqual(first);
@@ -35,6 +37,7 @@ describe("portable authority snapshot", () => {
       ["configuration", "mdbase.yaml"],
       ["contract", "_contracts/task.md"],
       ["schema", "_schemas/task.json"],
+      ["lock", "mdbase.lock.yaml"],
       ["view", "views/tasks.base"]
     ]);
     expect(first.records[0]?.record_id).toBe(

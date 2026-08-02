@@ -16,6 +16,7 @@ const filesSchema = JSON.parse(readFileSync(resolve(here, "../schemas/files.v1.s
 const interopSchema = JSON.parse(readFileSync(resolve(here, "../schemas/interop/v0.1/profile.schema.json"), "utf8"));
 const syncSchema = JSON.parse(readFileSync(resolve(here, "../schemas/sync.v1.schema.json"), "utf8"));
 const problemSchema = JSON.parse(readFileSync(resolve(here, "../schemas/connect-problem.v1.schema.json"), "utf8"));
+const EXACT_DIGEST = `sha256:${"0".repeat(64)}`;
 // JSON Schema permits `required` to name properties declared by an enclosing
 // schema. Keep every other strict check, but do not reject that standard
 // composition pattern.
@@ -253,7 +254,7 @@ test("v1 application manifests carry a stable reverse-domain id", () => {
       "dev.mdbase.tasks://auth/mdbase/callback"
     ],
     requirements: {
-      contracts: [{ id: "example.work-item", version: "1.0.0" }]
+      contracts: [{ id: "example.work-item", version: "1.0.0", digest: EXACT_DIGEST }]
     },
     notifications: {
       criteria: []
@@ -273,7 +274,7 @@ test("v1 portable manifests explicitly avoid web origin claims", () => {
     name: "Portable Workouts",
     project_url: "https://workouts.example/source",
     requirements: {
-      contracts: [{ id: "workout.record", version: "1.0.0" }]
+      contracts: [{ id: "workout.record", version: "1.0.0", digest: EXACT_DIGEST }]
     }
   };
   assert.equal(validate(declaration), true, JSON.stringify(validate.errors));
@@ -372,7 +373,7 @@ test("application manifests declare authority-evaluated notification criteria", 
       },
       criteria: [{
         id: "task.ready",
-        event: { id: "mdbase.record.modified", version: "1.0.0" },
+        event: { id: "mdbase.record.modified", version: "1.0.0", digest: EXACT_DIGEST },
         if: { $expr: "event.data.changed_fields.exists(field, field == 'status')" },
         debounce: "2s",
         minimum_interval: "1m",
@@ -443,7 +444,7 @@ test("application manifests declare connector-controlled type-pack provisioning"
     requirements: {
       collection_kind: "hosted",
       access: "full_collection",
-      contracts: [{ id: "example.work-item", version: "1.0.0" }]
+      contracts: [{ id: "example.work-item", version: "1.0.0", digest: EXACT_DIGEST }]
     },
     provisions: {
       type_packs: [{
@@ -453,6 +454,7 @@ test("application manifests declare connector-controlled type-pack provisioning"
           version: "1.0.0",
           resources: [{
             kind: "contract",
+            mode: "managed",
             source: "contract.md",
             target: "_contracts/example.work-item.md",
             digest: `sha256:${"0".repeat(64)}`
@@ -462,7 +464,7 @@ test("application manifests declare connector-controlled type-pack provisioning"
           source: "contract.md",
           document: "---\nkind: mdbase.contract\ncontract_type: record\nid: example.work-item\nversion: 1.0.0\n---\n"
         }],
-        provides: [{ id: "example.work-item", version: "1.0.0" }]
+        provides: [{ id: "example.work-item", version: "1.0.0", digest: EXACT_DIGEST }]
       }]
     }
   };
@@ -662,7 +664,7 @@ test("relay request and response discriminators reject malformed wire messages",
   const hello = {
     type: "relay_hello",
     protocol_version: 1,
-    connector_version: "0.1.0-beta.24",
+    connector_version: "0.1.0-beta.25",
     capabilities: [
       "authorization-activation",
       "encrypted-relay",
@@ -779,7 +781,7 @@ test("relay request and response discriminators reject malformed wire messages",
 
 test("contract setup choices explicitly distinguish starter and existing modes", () => {
   const validate = validator(`${schema.$id}#/$defs/contractSetupChoice`);
-  const contract = { id: "example.task", version: "1.0.0" };
+  const contract = { id: "example.task", version: "1.0.0", digest: EXACT_DIGEST };
   assert.equal(validate({ contract, mode: "starter" }), true, JSON.stringify(validate.errors));
   assert.equal(validate({
     contract,

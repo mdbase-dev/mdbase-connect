@@ -479,7 +479,9 @@ export function ApprovalForm({
   const setupContracts = useMemo(() => selected
     ? request.requirements.contracts.flatMap((required) => {
         if (selected.contracts.some((contract) =>
-          contract.id === required.id && contract.version === required.version)) return [];
+          contract.id === required.id
+            && contract.version === required.version
+            && contract.digest === required.digest)) return [];
         const contract = provisionedContract(required, request.provisions.type_packs);
         return contract ? [contract] : [];
       })
@@ -548,13 +550,13 @@ export function ApprovalForm({
     const choice = setupChoices[`${contract.id}@${contract.version}`];
     if (!choice) return [];
     if (choice.mode === "starter") return [{
-      contract: { id: contract.id, version: contract.version },
+      contract: { id: contract.id, version: contract.version, digest: contract.digest },
       mode: "starter" as const
     }];
     const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
     if (!type?.revision) return [];
     return [{
-      contract: { id: contract.id, version: contract.version },
+      contract: { id: contract.id, version: contract.version, digest: contract.digest },
       mode: "existing" as const,
       type_name: type.name,
       type_revision: type.revision,
@@ -820,7 +822,9 @@ function authorizationNeedsTypeSetup(
   if (!collection) return false;
   return request.requirements.contracts.some((required) =>
     !collection.contracts.some((contract) =>
-      contract.id === required.id && contract.version === required.version
+      contract.id === required.id
+        && contract.version === required.version
+        && contract.digest === required.digest
     ) && Boolean(provisionedContract(required, request.provisions.type_packs))
   );
 }

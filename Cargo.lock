@@ -2554,6 +2554,7 @@ dependencies = [
  "rusqlite",
  "semver",
  "serde",
+ "serde_jcs",
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
@@ -2566,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-cli"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "clap",
  "directories",
@@ -2594,11 +2595,12 @@ dependencies = [
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
 name = "mdbase-connect-core"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "chrono",
  "directories",
@@ -2622,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-daemon"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "async-trait",
  "axum",
@@ -2657,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-hosted-provider"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -2700,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-mirror"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2723,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-protocol"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2741,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-runtime"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 dependencies = [
  "chrono",
  "mdbase",

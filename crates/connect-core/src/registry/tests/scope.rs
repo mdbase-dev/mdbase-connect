@@ -195,6 +195,7 @@ schema:
                     .map(|contract| ContractRequirement {
                         id: contract.id.clone(),
                         version: contract.version.clone(),
+                        digest: contract.digest.clone(),
                     })
                     .collect(),
                 ..Default::default()

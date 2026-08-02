@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
   PICKLE_REQUEST_CONTRACT,
+  PICKLE_REQUEST_CONTRACT_DIGEST,
   PICKLE_TYPE_PACK_PROVISION,
   PickleCollection,
   PickleContractError,
@@ -52,7 +53,7 @@ const approvalType = {
 const contract = {
   id: PICKLE_REQUEST_CONTRACT,
   version: "1.0.0",
-  digest: `sha256:${"0".repeat(64)}`,
+  digest: PICKLE_REQUEST_CONTRACT_DIGEST,
   schema: { type: "object" },
   implementations: [
     {

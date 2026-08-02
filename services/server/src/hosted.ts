@@ -413,7 +413,7 @@ export function hostedResources(template: string): SyncCollectionResources {
 }
 
 export function hostedContracts(template: string): ContractRequirement[] {
-  return hostedResources(template).contracts.map(({ id, version }) => ({ id, version }));
+  return hostedResources(template).contracts.map(({ id, version, digest }) => ({ id, version, digest }));
 }
 
 export function hostedContractDescriptors(template: string): CollectionContractDescriptor[] {
@@ -428,7 +428,7 @@ export function effectiveHostedContractDescriptors(
 }
 
 export function contractRequirements(contracts: CollectionContractDescriptor[]): ContractRequirement[] {
-  return contracts.map(({ id, version }) => ({ id, version }));
+  return contracts.map(({ id, version, digest }) => ({ id, version, digest }));
 }
 
 export function typesForContracts(

@@ -4,7 +4,8 @@ export const contractRequirementSchema = z.object({
   id: z.string().trim().min(1).max(100),
   version: z.string().regex(
     /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-  )
+  ),
+  digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
 }).strict();
 
 export const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);

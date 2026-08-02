@@ -44,7 +44,7 @@ const desktopReleaseUrl = "https://github.com/mdbase-dev/mdbase-connect/releases
 const allOperations = [
   "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate",
   "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source",
-  "read_type", "create_type", "update_type", "install_type_pack", "list_timers", "put_timer", "cancel_timer",
+  "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer",
   "reconcile_timers"
 ];
 
@@ -603,7 +603,7 @@ function permissionSummary(grants: ApplicationAccessGroup<Grant>["grants"]): str
   ].filter(Boolean);
   const capabilities: string[] = [];
   if (verbs.length > 0) capabilities.push(`${joinWords(verbs)} records`);
-  if (["create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source"].some((operation) => operations.has(operation))) capabilities.push("manage types");
+  if (["create_type", "update_type", "apply_type_pack", "create_view_source", "update_view_source", "delete_view_source"].some((operation) => operations.has(operation))) capabilities.push("manage types");
   if (["put_timer", "cancel_timer", "reconcile_timers"].some((operation) => operations.has(operation))) capabilities.push("manage timers");
   if (capabilities.length === 0) return `${operations.size} ${operations.size === 1 ? "permission" : "permissions"}`;
   const summary = capabilities.join("; ");

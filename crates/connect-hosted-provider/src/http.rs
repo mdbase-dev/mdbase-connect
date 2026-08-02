@@ -111,6 +111,7 @@ struct CompactRequest {
 #[derive(Debug, Deserialize)]
 struct ProvisionTypePacksRequest {
     type_packs: Vec<TypePackProvision>,
+    installed_by: String,
     #[serde(flatten)]
     extensions: serde_json::Map<String, Value>,
 }
@@ -118,6 +119,7 @@ struct ProvisionTypePacksRequest {
 #[derive(Debug, Deserialize)]
 struct ContractSetupRequest {
     type_packs: Vec<TypePackProvision>,
+    installed_by: String,
     #[serde(default)]
     contract_setups: Vec<ContractSetupChoice>,
 }
@@ -763,7 +765,12 @@ async fn provision_type_packs(
     }
     let (contracts, _) = state
         .provider
-        .provision_type_packs(collection_id, input.type_packs, Vec::new())
+        .provision_type_packs(
+            collection_id,
+            &input.installed_by,
+            input.type_packs,
+            Vec::new(),
+        )
         .await?;
     Ok(Json(json!({ "contracts": contracts })))
 }
@@ -787,7 +794,12 @@ async fn setup_contracts(
     }
     let (contracts, contract_setups) = state
         .provider
-        .provision_type_packs(collection_id, input.type_packs, input.contract_setups)
+        .provision_type_packs(
+            collection_id,
+            &input.installed_by,
+            input.type_packs,
+            input.contract_setups,
+        )
         .await?;
     Ok(Json(json!({
         "contracts": contracts,

@@ -151,7 +151,7 @@ Connect protocol 1 exposes these grantable operations:
 - `describe`, `changes`
 - `read`, `query`, `validate`, `list_views`, `execute_view`
 - `create`, `update`, `delete`, `rename`
-- `read_type`, `create_type`, `update_type`, `install_type_pack`
+- `read_type`, `create_type`, `update_type`, `assess_type_pack`, `apply_type_pack`
 - `list_timers`, `put_timer`, `cancel_timer`, `reconcile_timers`
 
 mdbase operations retain the canonical `{ valid, result, diagnostics }`
@@ -181,10 +181,13 @@ implementation digests before creating a grant. A pack contains the contract,
 every implementing type, and any referenced schemas; a failure writes none of
 them. This setup action does not give the application continuing `create_type`
 or `update_type` permission. A full-collection application may separately
-request `install_type_pack`; each user-selected provision is digest-checked,
-validated, and installed atomically without allowing replacement of differing
-targets. Local collection paths and record payloads remain outside the control
-plane.
+request `apply_type_pack`. It first calls `assess_type_pack`, presents the
+structured resource and lock diff for review, then applies that exact
+assessment digest. The authority rechecks live state inside the write
+transaction, records publisher source paths separately from resolved collection
+targets, and refuses unmanaged or locally modified targets without explicit
+digest-pinned adoption. Local collection paths and record payloads remain
+outside the control plane.
 
 `describe` returns the collection's spec version, supported operations, JSON
 Schemas, collection-relative type paths, complete portable type definitions,

@@ -311,7 +311,8 @@ pub(super) fn is_full_collection_operation(operation: &str) -> bool {
             | "read_type"
             | "create_type"
             | "update_type"
-            | "install_type_pack"
+            | "assess_type_pack"
+            | "apply_type_pack"
             | "list_views"
             | "execute_view"
             | "read_view_source"
@@ -335,7 +336,8 @@ pub(super) fn validate_operations(operations: &[String], mode: SyncReplicaMode) 
         "read_type",
         "create_type",
         "update_type",
-        "install_type_pack",
+        "assess_type_pack",
+        "apply_type_pack",
         "list_views",
         "execute_view",
         "read_view_source",
@@ -354,7 +356,7 @@ pub(super) fn validate_operations(operations: &[String], mode: SyncReplicaMode) 
         "rename",
         "create_type",
         "update_type",
-        "install_type_pack",
+        "apply_type_pack",
         "create_view_source",
         "update_view_source",
         "delete_view_source",

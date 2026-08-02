@@ -665,6 +665,7 @@ impl DirectoryMirror {
 fn resource_kind(kind: mdbase::runtime::CollectionSnapshotResourceKind) -> &'static str {
     match kind {
         mdbase::runtime::CollectionSnapshotResourceKind::Configuration => "configuration",
+        mdbase::runtime::CollectionSnapshotResourceKind::Lock => "lock",
         mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract",
         mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema",
         mdbase::runtime::CollectionSnapshotResourceKind::Type => "type",

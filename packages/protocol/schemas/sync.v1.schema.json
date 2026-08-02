@@ -89,7 +89,7 @@
       "required": ["path", "kind", "revision", "document"],
       "properties": {
         "path": { "type": "string", "minLength": 1 },
-        "kind": { "enum": ["configuration", "type", "contract", "schema", "view"] },
+        "kind": { "enum": ["configuration", "lock", "type", "contract", "schema", "view"] },
         "revision": { "$ref": "#/$defs/digest" },
         "document": { "type": "string" }
       }

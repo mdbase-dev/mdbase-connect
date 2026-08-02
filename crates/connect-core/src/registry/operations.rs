@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 impl CollectionRegistry {
     pub fn validate(&self, id: Uuid) -> Result<Value, ConnectError> {
         self.operation(id, "validate", &json!({}))
@@ -60,7 +61,9 @@ impl CollectionRegistry {
         let description = self.describe(id)?;
         Ok(requirements.contracts.iter().all(|required| {
             description.contracts.iter().any(|available| {
-                available.id == required.id && available.version == required.version
+                available.id == required.id
+                    && available.version == required.version
+                    && available.digest == required.digest
             })
         }))
     }
@@ -68,6 +71,7 @@ impl CollectionRegistry {
     pub fn provision_type_packs(
         &self,
         id: Uuid,
+        installed_by: &str,
         requirements: &ApplicationRequirements,
         provisions: &[TypePackProvision],
         contract_setups: &[ContractSetupChoice],
@@ -134,35 +138,93 @@ impl CollectionRegistry {
                 .iter()
                 .map(|setup| (setup.contract.id.as_str(), setup.contract.version.as_str()))
                 .collect::<BTreeSet<_>>();
-            let packs = provisions
+            let selected_provisions = provisions
                 .iter()
                 .filter(|provision| {
                     provision.provides.iter().any(|provided| {
                         relevant.contains(&(provided.id.as_str(), provided.version.as_str()))
                     })
                 })
-                .map(Self::engine_type_pack)
-                .collect::<Result<Vec<_>, _>>()?;
-            let setups = effective_setups
-                .iter()
-                .map(Self::engine_contract_setup)
                 .collect::<Vec<_>>();
             let registered = self.get(id)?;
             let provider = self.provider_for(&registered)?;
-            let result = provider.with_collection(|collection| {
-                Ok::<_, ConnectError>(
-                    collection.install_type_packs_with_contract_setups(&packs, &setups),
-                )
+            provider.with_collection(|collection| {
+                for provision in selected_provisions {
+                    let provision_setups = effective_setups
+                        .iter()
+                        .filter(|setup| provision.provides.contains(&setup.contract))
+                        .collect::<Vec<_>>();
+                    let has_existing = provision_setups.iter().any(|setup| {
+                        matches!(setup.mode, ContractSetupMode::Existing { .. })
+                    });
+                    let has_starter = provision_setups
+                        .iter()
+                        .any(|setup| matches!(setup.mode, ContractSetupMode::Starter));
+                    let existing_setups = provision_setups
+                        .iter()
+                        .filter(|setup| matches!(setup.mode, ContractSetupMode::Existing { .. }))
+                        .map(|setup| Self::engine_contract_setup(setup))
+                        .collect::<Vec<_>>();
+                    let preserve_seed_targets = if has_existing {
+                        if has_starter
+                            && provision
+                                .manifest
+                                .resources
+                                .iter()
+                                .any(|resource| resource.mode == "seed")
+                        {
+                            return Err(ConnectError::InvalidInput(
+                                "A type pack with shared seed resources cannot mix starter and existing-type setup. Split the pack by contract."
+                                    .to_string(),
+                            ));
+                        }
+                        provision
+                            .manifest
+                            .resources
+                            .iter()
+                            .filter(|resource| resource.mode == "seed")
+                            .map(|resource| resource.target.clone())
+                            .collect::<BTreeSet<_>>()
+                    } else {
+                        BTreeSet::new()
+                    };
+                    let provision = Self::engine_type_pack_provision(provision)?;
+                    let assessment = collection.assess_type_pack(
+                        &provision,
+                        &mdbase::v03::TypePackAssessmentOptions {
+                            installed_by: installed_by.to_string(),
+                            adopt_resources: BTreeMap::new(),
+                            preserve_seed_targets: preserve_seed_targets.clone(),
+                            target_overrides: BTreeMap::new(),
+                            contract_setups: existing_setups.clone(),
+                        },
+                    );
+                    if !assessment.valid || assessment.result["applicable"].as_bool() != Some(true) {
+                        return Err(type_pack_setup_error(&assessment));
+                    }
+                    let digest = assessment.result["assessment_digest"]
+                        .as_str()
+                        .ok_or_else(|| ConnectError::InvalidInput(
+                            "Type-pack assessment returned no digest.".to_string(),
+                        ))?;
+                    let applied = collection.apply_type_pack(
+                        &provision,
+                        &mdbase::v03::TypePackApplyOptions {
+                            installed_by: installed_by.to_string(),
+                            expected_assessment_digest: digest.to_string(),
+                            allow_downgrade: false,
+                            adopt_resources: BTreeMap::new(),
+                            preserve_seed_targets,
+                            target_overrides: BTreeMap::new(),
+                            contract_setups: existing_setups.clone(),
+                        },
+                    );
+                    if !applied.valid {
+                        return Err(type_pack_setup_error(&applied));
+                    }
+                }
+                Ok(())
             })?;
-            if !result.valid {
-                return Err(ConnectError::AccessDenied(
-                    result
-                        .diagnostics
-                        .first()
-                        .map(|diagnostic| diagnostic.message.clone())
-                        .unwrap_or_else(|| "Contract setup was rejected.".to_string()),
-                ));
-            }
         }
 
         let description = self.describe(id)?;
@@ -179,10 +241,10 @@ impl CollectionRegistry {
         Ok(description.contracts)
     }
 
-    fn engine_type_pack(
+    fn engine_type_pack_provision(
         provision: &TypePackProvision,
-    ) -> Result<mdbase::v03::TypePackInstall, ConnectError> {
-        Ok(mdbase::v03::TypePackInstall {
+    ) -> Result<mdbase::v03::TypePackProvision, ConnectError> {
+        Ok(mdbase::v03::TypePackProvision {
             manifest: serde_json::to_value(&provision.manifest)?,
             resources: provision
                 .resources
@@ -192,18 +254,12 @@ impl CollectionRegistry {
                     document: resource.document.clone(),
                 })
                 .collect(),
-            provides: provision
-                .provides
-                .iter()
-                .map(|contract| mdbase::v03::ContractIdentity {
-                    id: contract.id.clone(),
-                    version: contract.version.clone(),
-                })
-                .collect(),
         })
     }
 
-    fn engine_contract_setup(setup: &ContractSetupChoice) -> mdbase::v03::ContractSetupChoice {
+    pub(super) fn engine_contract_setup(
+        setup: &ContractSetupChoice,
+    ) -> mdbase::v03::ContractSetupChoice {
         let contract = mdbase::v03::ContractIdentity {
             id: setup.contract.id.clone(),
             version: setup.contract.version.clone(),
@@ -436,7 +492,9 @@ impl CollectionRegistry {
                     .retain(|type_definition| allowed_types.contains(&type_definition.name));
                 description.contracts.retain(|contract| {
                     scope.contracts.iter().any(|pinned| {
-                        pinned.id == contract.id && pinned.version == contract.version
+                        pinned.id == contract.id
+                            && pinned.version == contract.version
+                            && pinned.digest == contract.digest
                     })
                 });
                 serde_json::to_value(description).map_err(ConnectError::from)
@@ -623,7 +681,7 @@ impl CollectionRegistry {
             | "read_type"
             | "create_type"
             | "update_type"
-            | "install_type_pack" => Err(
+            | "apply_type_pack" => Err(
                 ConnectError::AccessDenied(
                     "Collection schemas can only be managed by an application with full collection access."
                         .to_string(),
@@ -678,11 +736,11 @@ impl CollectionRegistry {
         let description = self.describe_loaded(registered, collection)?;
         let mut allowed_types = BTreeSet::new();
         for pinned in &scope.contracts {
-            let Some(current) = description
-                .contracts
-                .iter()
-                .find(|contract| contract.id == pinned.id && contract.version == pinned.version)
-            else {
+            let Some(current) = description.contracts.iter().find(|contract| {
+                contract.id == pinned.id
+                    && contract.version == pinned.version
+                    && contract.digest == pinned.digest
+            }) else {
                 return Err(ConnectError::AccessDenied(format!(
                     "The collection no longer provides {} version {}.",
                     pinned.id, pinned.version
@@ -702,4 +760,25 @@ impl CollectionRegistry {
         debug_assert_eq!(resolved.allowed_types, allowed_types);
         Ok(Some(resolved))
     }
+}
+
+fn type_pack_setup_error(result: &mdbase::v03::OperationResult) -> ConnectError {
+    ConnectError::AccessDenied(
+        result
+            .diagnostics
+            .first()
+            .map(|diagnostic| diagnostic.message.clone())
+            .or_else(|| {
+                result.result["resources"]
+                    .as_array()
+                    .and_then(|resources| {
+                        resources
+                            .iter()
+                            .find(|resource| resource["action"] == "conflict")
+                    })
+                    .and_then(|resource| resource["reason"].as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "Contract setup was rejected.".to_string()),
+    )
 }

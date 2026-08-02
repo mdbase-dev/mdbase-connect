@@ -18,6 +18,7 @@ pub struct ApplicationSummary {
 pub struct ContractRequirement {
     pub id: String,
     pub version: String,
+    pub digest: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +106,7 @@ pub struct TypePackManifest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypePackManifestResource {
     pub kind: String,
+    pub mode: String,
     pub source: String,
     pub target: String,
     pub digest: String,
@@ -114,6 +116,37 @@ pub struct TypePackManifestResource {
 pub struct TypePackSourceResource {
     pub source: String,
     pub document: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AssessTypePackInput {
+    pub provision: TypePackProvision,
+    pub installed_by: String,
+    #[serde(default)]
+    pub adopt_resources: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub preserve_seed_targets: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pub target_overrides: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub contract_setups: Vec<ContractSetupChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ApplyTypePackInput {
+    pub provision: TypePackProvision,
+    pub installed_by: String,
+    #[serde(default)]
+    pub adopt_resources: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub preserve_seed_targets: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pub target_overrides: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub contract_setups: Vec<ContractSetupChoice>,
+    pub expected_assessment_digest: String,
+    #[serde(default)]
+    pub allow_downgrade: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

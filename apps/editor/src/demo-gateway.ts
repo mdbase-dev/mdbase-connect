@@ -6,6 +6,7 @@ import type {
   CollectionTypeDocument,
   JsonObject,
   MdbaseDiagnostic,
+  TypePackAssessment,
   TypePackProvision
 } from "@mdbase-dev/connect";
 import { parse } from "yaml";
@@ -26,7 +27,7 @@ import type {
   DeletePreflight,
   MutationOperationOptions,
   SaveNoteInput,
-  TypePackInstallResult
+  TypePackApplyResult
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
@@ -94,7 +95,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       collection_id: "00000000-0000-4000-8000-000000000001",
       display_name: "Writing",
       spec_version: "0.3.0",
-      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "install_type_pack"],
+      operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"],
       change_cursor: this.sequence,
       types: this.typeDocuments.map((document) => typeDescriptor(document, this.packResources)),
       contracts: clone(this.contractDescriptors),
@@ -376,7 +377,62 @@ export class DemoCollectionGateway implements CollectionGateway {
     return clone(next);
   }
 
-  async installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult> {
+  async assessTypePack(
+    provision: TypePackProvision,
+    _adoptResources: Record<string, string> = {}
+  ): Promise<TypePackAssessment> {
+    const sources = new Map(provision.resources.map((resource) => [resource.source, resource.document]));
+    const resources = provision.manifest.resources.map((definition) => {
+      const document = sources.get(definition.source);
+      if (document === undefined) throw new Error(`Type pack resource “${definition.source}” is missing.`);
+      const existing = this.packResources.get(definition.target);
+      return {
+        ...definition,
+        action: existing === undefined
+          ? "create" as const
+          : existing === document
+            ? "unchanged" as const
+            : "conflict" as const,
+        ...(existing !== undefined && existing !== document
+          ? { reason: `${definition.target} already exists with different content.` }
+          : {})
+      };
+    });
+    const packDigest = provision.manifest.resources[0]?.digest ?? `sha256:${"0".repeat(64)}`;
+    const desired = {
+      id: provision.manifest.id,
+      version: provision.manifest.version,
+      digest: packDigest,
+      installed_by: "dev.mdbase.editor.demo",
+      resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
+        kind, mode, source, target, digest
+      }))
+    };
+    const conflict = resources.some(({ action }) => action === "conflict");
+    return {
+      status: conflict ? "conflict" : resources.every(({ action }) => action === "unchanged") ? "current" : "install",
+      applicable: !conflict,
+      assessment_digest: packDigest,
+      desired,
+      resources,
+      lock: { target: "mdbase.lock.yaml", action: "update", digest: packDigest },
+      contract_setups: { choices: [], resources: [] }
+    };
+  }
+
+  async applyTypePack(
+    provision: TypePackProvision,
+    assessment: TypePackAssessment,
+    _adoptResources: Record<string, string> = {}
+  ): Promise<TypePackApplyResult> {
+    const currentAssessment = await this.assessTypePack(provision);
+    if (currentAssessment.assessment_digest !== assessment.assessment_digest) {
+      throw new Error("The type-pack assessment is stale. Review it again.");
+    }
+    if (!currentAssessment.applicable) {
+      throw new Error(currentAssessment.resources.find(({ action }) => action === "conflict")?.reason
+        ?? "This type pack conflicts with collection changes.");
+    }
     const sources = new Map(provision.resources.map((resource) => [resource.source, resource.document]));
     const planned = provision.manifest.resources.map((resource) => {
       const document = sources.get(resource.source);
@@ -432,15 +488,40 @@ export class DemoCollectionGateway implements CollectionGateway {
       if (index < 0) this.contractDescriptors.push(contract);
       else this.contractDescriptors[index] = contract;
     }
-    return {
+    const packDigest = provision.manifest.resources[0]?.digest ?? `sha256:${"0".repeat(64)}`;
+    const receipt = {
       id: provision.manifest.id,
       version: provision.manifest.version,
+      digest: packDigest,
+      installed_by: "dev.mdbase.editor.demo",
+      resources: provision.manifest.resources.map(({ kind, mode, source, target, digest }) => ({
+        kind,
+        mode,
+        source,
+        target,
+        digest
+      }))
+    };
+    return {
+      status: planned.every(({ action }) => action === "unchanged") ? "current" : "install",
+      applicable: true,
+      assessment_digest: packDigest,
+      desired: receipt,
       resources: planned.map(({ definition, action }) => ({
         kind: definition.kind,
+        mode: definition.mode,
+        source: definition.source,
         target: definition.target,
         action,
         digest: definition.digest
       })),
+      lock: {
+        target: "mdbase.lock.yaml",
+        action: "update",
+        digest: packDigest
+      },
+      contract_setups: { choices: [], resources: [] },
+      receipt,
       cleanup_deferred: false
     };
   }

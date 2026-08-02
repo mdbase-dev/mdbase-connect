@@ -157,10 +157,6 @@ fn unavailable_contract_scope() -> GrantScope {
 }
 
 fn work_item_provision() -> (ApplicationRequirements, TypePackProvision) {
-    let requirement = ContractRequirement {
-        id: "example.work-item".to_string(),
-        version: "1.0.0".to_string(),
-    };
     let contract = r#"---
 kind: mdbase.contract
 contract_type: record
@@ -177,6 +173,19 @@ record_schema:
       status: { type: string }
 ---
 "#;
+    let requirement = ContractRequirement {
+        id: "example.work-item".to_string(),
+        version: "1.0.0".to_string(),
+        digest: mdbase::data_contracts::data_contract_digest(
+            &serde_yaml::from_str::<serde_json::Value>(
+                contract
+                    .strip_prefix("---\n")
+                    .and_then(|value| value.strip_suffix("---\n"))
+                    .expect("contract fixture has frontmatter fences"),
+            )
+            .expect("contract fixture is valid YAML"),
+        ),
+    };
     let starter = r#"---
 kind: mdbase.type
 name: work_item
@@ -219,6 +228,7 @@ implements:
                 .map(|(source, target, kind, document)| {
                     mdbase_connect_protocol::TypePackManifestResource {
                         kind: (*kind).to_string(),
+                        mode: if *kind == "type" { "seed" } else { "managed" }.to_string(),
                         source: (*source).to_string(),
                         target: (*target).to_string(),
                         digest: format!("sha256:{:x}", Sha256::digest(document.as_bytes())),

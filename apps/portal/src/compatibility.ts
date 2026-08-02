@@ -61,7 +61,7 @@ const PORTABLE_PROFILE_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
-  "install_type_pack"
+  "apply_type_pack"
 ]);
 
 function requiresMdbase03(operations: readonly string[]): boolean {
@@ -73,7 +73,7 @@ function hasContract(contracts: ContractRequirement[], required: ContractRequire
 }
 
 function sameContract(left: ContractRequirement, right: ContractRequirement): boolean {
-  return left.id === right.id && left.version === right.version;
+  return left.id === right.id && left.version === right.version && left.digest === right.digest;
 }
 
 function contractLabel(contract: ContractRequirement): string {

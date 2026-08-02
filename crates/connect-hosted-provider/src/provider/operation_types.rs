@@ -218,11 +218,18 @@ impl HostedProvider {
         })
     }
 
-    pub(super) async fn write_contract_setup_operation(
+    pub(super) async fn write_type_pack_apply_operation(
         &self,
         collection_id: Uuid,
-        provisions: &[TypePackProvision],
-        contract_setups: &[ContractSetupChoice],
+        input: &ApplyTypePackInput,
+    ) -> ApiResult<Value> {
+        self.write_definition_mutation(collection_id, input).await
+    }
+
+    async fn write_definition_mutation(
+        &self,
+        collection_id: Uuid,
+        input: &ApplyTypePackInput,
     ) -> ApiResult<Value> {
         let mut transaction = self.pool.begin().await?;
         let collection = sqlx::query(
@@ -244,6 +251,7 @@ impl HostedProvider {
             collection.get::<i64, _>("max_document_bytes"),
             "maximum document size",
         )?;
+        let provisions = std::slice::from_ref(&input.provision);
         if provisions
             .iter()
             .flat_map(|provision| provision.resources.iter())
@@ -287,29 +295,63 @@ impl HostedProvider {
         let cached = cached
             .as_mut()
             .expect("hosted working set was initialized above");
-        let envelope = cached
-            .workspace
-            .install_type_packs_with_contract_setups(provisions, contract_setups)?;
+        let envelope = cached.workspace.apply_type_pack(input)?;
         if !envelope.valid {
             transaction.commit().await?;
             return serde_json::to_value(envelope).map_err(|error| {
                 ApiError::internal(format!("Hosted type pack could not serialize: {error}"))
             });
         }
-        let changed_resources = envelope
+        let mut changed_resources = envelope
             .result
             .get("resources")
             .and_then(Value::as_array)
             .ok_or_else(|| ApiError::internal("Contract setup returned no resource plan."))?
             .iter()
-            .filter(|resource| resource.get("action").and_then(Value::as_str) != Some("unchanged"))
+            .filter(|resource| {
+                matches!(
+                    resource.get("action").and_then(Value::as_str),
+                    Some("create" | "update" | "replace" | "delete")
+                )
+            })
+            .cloned()
             .collect::<Vec<_>>();
+        changed_resources.extend(
+            envelope
+                .result
+                .pointer("/contract_setups/resources")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|resource| {
+                    matches!(
+                        resource.get("action").and_then(Value::as_str),
+                        Some("create" | "update" | "replace" | "delete")
+                    )
+                })
+                .cloned(),
+        );
+        if let Some(lock) = envelope.result.get("lock").and_then(Value::as_object) {
+            if matches!(
+                lock.get("action").and_then(Value::as_str),
+                Some("create" | "update")
+            ) {
+                let mut lock = lock.clone();
+                lock.insert("kind".to_string(), Value::String("lock".to_string()));
+                changed_resources.push(Value::Object(lock));
+            }
+        }
         if changed_resources.iter().any(|resource| {
-            resource
-                .get("target")
-                .and_then(Value::as_str)
-                .and_then(|target| cached.workspace.resource_document(target).ok())
-                .is_some_and(|document| document.len() as u64 > max_document_bytes)
+            // The lockfile is connector-generated metadata, bounded by the
+            // protocol's type-pack limits, and cannot be made smaller by the
+            // collection owner. User-authored and setup-generated resources
+            // still obey the collection's per-document quota.
+            resource.get("kind").and_then(Value::as_str) != Some("lock")
+                && resource
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .and_then(|target| cached.workspace.resource_document(target).ok())
+                    .is_some_and(|document| document.len() as u64 > max_document_bytes)
         }) {
             cached.head = None;
             return Err(ApiError::bad_request(
@@ -349,33 +391,49 @@ impl HostedProvider {
                 .ok_or_else(|| {
                     ApiError::internal("Contract setup returned an invalid resource kind.")
                 })?;
+            let action = resource
+                .get("action")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ApiError::internal("Contract setup returned an invalid action."))?;
             head = head.checked_add(1).ok_or_else(|| {
                 ApiError::internal("The hosted collection sequence is exhausted.")
             })?;
-            let document = cached.workspace.resource_document(target)?;
-            let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
-            let ciphertext = self.crypto.encrypt_bytes(
-                &data_key,
-                document.as_bytes(),
-                &resource_document_aad(collection_id, target),
-            )?;
-            sqlx::query(
-                r#"INSERT INTO hosted_provider_resources
-                     (collection_id, path, kind, revision, document_ciphertext)
-                   VALUES ($1, $2, $3, $4, $5)
-                   ON CONFLICT (collection_id, path) DO UPDATE SET
-                     kind = EXCLUDED.kind,
-                     revision = EXCLUDED.revision,
-                     document_ciphertext = EXCLUDED.document_ciphertext,
-                     updated_at = now()"#,
-            )
-            .bind(collection_id)
-            .bind(target)
-            .bind(kind)
-            .bind(&revision)
-            .bind(ciphertext)
-            .execute(&mut *transaction)
-            .await?;
+            let revision = if action == "delete" {
+                sqlx::query(
+                    "DELETE FROM hosted_provider_resources WHERE collection_id = $1 AND path = $2",
+                )
+                .bind(collection_id)
+                .bind(target)
+                .execute(&mut *transaction)
+                .await?;
+                "deleted".to_string()
+            } else {
+                let document = cached.workspace.resource_document(target)?;
+                let revision = format!("sha256:{:x}", Sha256::digest(document.as_bytes()));
+                let ciphertext = self.crypto.encrypt_bytes(
+                    &data_key,
+                    document.as_bytes(),
+                    &resource_document_aad(collection_id, target),
+                )?;
+                sqlx::query(
+                    r#"INSERT INTO hosted_provider_resources
+                         (collection_id, path, kind, revision, document_ciphertext)
+                       VALUES ($1, $2, $3, $4, $5)
+                       ON CONFLICT (collection_id, path) DO UPDATE SET
+                         kind = EXCLUDED.kind,
+                         revision = EXCLUDED.revision,
+                         document_ciphertext = EXCLUDED.document_ciphertext,
+                         updated_at = now()"#,
+                )
+                .bind(collection_id)
+                .bind(target)
+                .bind(kind)
+                .bind(&revision)
+                .bind(ciphertext)
+                .execute(&mut *transaction)
+                .await?;
+                revision
+            };
             let type_name = if kind == "type" {
                 target
                     .rsplit('/')
@@ -384,19 +442,21 @@ impl HostedProvider {
             } else {
                 None
             };
-            sqlx::query(
-                r#"INSERT INTO hosted_provider_resource_changes
+            if kind != "lock" {
+                sqlx::query(
+                    r#"INSERT INTO hosted_provider_resource_changes
                      (collection_id, sequence, resource_kind, type_name, path, revision)
                    VALUES ($1, $2, $3, $4, $5, $6)"#,
-            )
-            .bind(collection_id)
-            .bind(to_i64(head, "resource change sequence")?)
-            .bind(kind)
-            .bind(type_name)
-            .bind(target)
-            .bind(&revision)
-            .execute(&mut *transaction)
-            .await?;
+                )
+                .bind(collection_id)
+                .bind(to_i64(head, "resource change sequence")?)
+                .bind(kind)
+                .bind(type_name)
+                .bind(target)
+                .bind(&revision)
+                .execute(&mut *transaction)
+                .await?;
+            }
         }
 
         let resource_revision = format!("hosted:1:{head}:resources");

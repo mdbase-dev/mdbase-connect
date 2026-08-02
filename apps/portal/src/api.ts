@@ -130,6 +130,7 @@ export interface UnavailableConnector {
 export interface ContractRequirement {
   id: string;
   version: string;
+  digest: string;
 }
 
 export interface CollectionContractDescriptor extends ContractRequirement {

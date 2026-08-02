@@ -61,6 +61,7 @@ interface CollectionSummary {
 interface ContractRequirement {
   id: string;
   version: string;
+  digest: string;
 }
 
 interface CollectionContractDescriptor extends ContractRequirement {

@@ -18,7 +18,8 @@ import {
 } from "./index.js";
 import type {
   GrantEncryption,
-  MdbaseAppManifest
+  MdbaseAppManifest,
+  TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 import {
   AUTHORITY_PROOF_HEADERS,
@@ -125,7 +126,13 @@ describe("provider-neutral collection client", () => {
     const client = new MdbaseCollectionClient({
       async operation<Result>(operation: string, input: unknown) {
         calls.push({ operation, input });
-        return { valid: true, result: {}, diagnostics: [] } as Result;
+        return {
+          valid: true,
+          result: operation === "assess_type_pack"
+            ? { assessment_digest: `sha256:${"2".repeat(64)}` }
+            : {},
+          diagnostics: []
+        } as Result;
       }
     });
     await client.readType({ name: "task" });
@@ -135,13 +142,14 @@ describe("provider-neutral collection client", () => {
       document: "---\nkind: mdbase.type\n---\n",
       if_revision: "sha256:one"
     });
-    await client.installTypePack({
+    const provision = {
       manifest: {
         kind: "mdbase.type-pack",
         id: "example.tasks",
         version: "1.0.0",
         resources: [{
           kind: "type",
+          mode: "seed",
           source: "types/task.md",
           target: "_types/task.md",
           digest: `sha256:${"1".repeat(64)}`
@@ -152,12 +160,22 @@ describe("provider-neutral collection client", () => {
         document: "---\nkind: mdbase.type\n---\n"
       }],
       provides: []
+    } satisfies TypePackProvision;
+    const assessment = unwrapConnectOutcome(await client.assessTypePack({
+      provision,
+      installed_by: "dev.mdbase.tests"
+    }));
+    await client.applyTypePack({
+      provision,
+      installed_by: "dev.mdbase.tests",
+      expected_assessment_digest: assessment.assessment_digest
     });
     expect(calls.map(({ operation }) => operation)).toEqual([
       "read_type",
       "create_type",
       "update_type",
-      "install_type_pack"
+      "assess_type_pack",
+      "apply_type_pack"
     ]);
   });
 

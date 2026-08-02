@@ -116,6 +116,9 @@ const contactResources = [
   ["contract", "contracts/mdbase.contact/1.0.0.md", "_contracts/mdbase.contact/1.0.0.md", contactContract],
   ["type", "types/contact/2.md", "_types/contact.md", contactType]
 ] as const;
+const contactContractDigest =
+  "sha256:411c128d1f0ccef547836bb67fd84abbd0614749a57eee53cabe466092cba783";
+const runtimeRunContractDigest = `sha256:${"3".repeat(64)}`;
 const contactProvision = {
   manifest: {
     kind: "mdbase.type-pack",
@@ -123,13 +126,18 @@ const contactProvision = {
     version: "1.0.0",
     resources: contactResources.map(([kind, source, target, document]) => ({
       kind,
+      mode: kind === "type" ? "seed" : "managed",
       source,
       target,
       digest: sha256(document)
     }))
   },
   resources: contactResources.map(([, source, , document]) => ({ source, document })),
-  provides: [{ id: "mdbase.contact", version: "1.0.0" }]
+  provides: [{
+    id: "mdbase.contact",
+    version: "1.0.0",
+    digest: contactContractDigest
+  }]
 };
 const contactProvisionDocument = JSON.stringify(contactProvision);
 
@@ -153,7 +161,7 @@ test.beforeEach(async ({ page }) => {
           name: "Contact",
           description: "A compact application-facing view of a person or organisation.",
           contract_type: "record",
-          digest: `sha256:${"1".repeat(64)}`,
+          digest: contactContractDigest,
           artifact: "./artifacts/contracts/mdbase.contact/1.0.0.md",
           standards: []
         }],
@@ -166,7 +174,8 @@ test.beforeEach(async ({ page }) => {
           provision: "./packs/mdbase.contact/1.0.0.json",
           provides: [{
             id: "mdbase.contact",
-            version: "1.0.0"
+            version: "1.0.0",
+            digest: contactContractDigest
           }],
           resource_count: 3,
           display: {
@@ -192,7 +201,8 @@ test.beforeEach(async ({ page }) => {
           provision: "./packs/mdbase.runtime.standard/0.2.0.json",
           provides: [{
             id: "mdbase.runtime.run",
-            version: "1.0.0"
+            version: "1.0.0",
+            digest: runtimeRunContractDigest
           }],
           resource_count: 43,
           display: {

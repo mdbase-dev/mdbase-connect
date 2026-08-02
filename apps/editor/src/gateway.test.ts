@@ -327,8 +327,19 @@ describe("ConnectCollectionGateway recovery operations", () => {
     });
   });
 
-  it("installs a complete type pack through one collection operation", async () => {
-    const installTypePack = vi.fn(async () => ({
+  it("assesses then applies a complete type pack with the reviewed digest", async () => {
+    const assessTypePack = vi.fn(async () => ({
+      ok: true,
+      value: {
+        status: "install",
+        applicable: true,
+        assessment_digest: `sha256:${"2".repeat(64)}`,
+        desired: {},
+        resources: []
+      },
+      diagnostics: []
+    }));
+    const applyTypePack = vi.fn(async () => ({
       valid: true,
       diagnostics: [],
       result: {
@@ -336,6 +347,8 @@ describe("ConnectCollectionGateway recovery operations", () => {
         version: "1.0.0",
         resources: [{
           target: "_types/contact.md",
+          kind: "type",
+          mode: "managed",
           action: "create",
           digest: `sha256:${"1".repeat(64)}`
         }],
@@ -349,6 +362,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
         version: "1.0.0",
         resources: [{
           kind: "type" as const,
+          mode: "managed" as const,
           source: "types/contact.md",
           target: "_types/contact.md",
           digest: `sha256:${"1".repeat(64)}`
@@ -361,13 +375,15 @@ describe("ConnectCollectionGateway recovery operations", () => {
       provides: []
     };
     const gateway = new ConnectCollectionGateway("https://connect.example");
-    injectConnection(gateway, { installTypePack });
+    injectConnection(gateway, { assessTypePack, applyTypePack });
 
-    await expect(gateway.installTypePack(provision)).resolves.toMatchObject({
+    const assessment = await gateway.assessTypePack(provision);
+    await expect(gateway.applyTypePack(provision, assessment)).resolves.toMatchObject({
       id: "example.contacts",
       resources: [{ target: "_types/contact.md", action: "create" }]
     });
-    expect(installTypePack).toHaveBeenCalledWith(provision);
+    expect(assessTypePack).toHaveBeenCalled();
+    expect(applyTypePack).toHaveBeenCalled();
   });
 
   it("maps canonical mutation preflight impact to editor-safe paths", async () => {
@@ -443,7 +459,7 @@ function injectConnection(
   bound.authorizationCapabilities ??= () => ({ missingOperations: [] });
   for (const name of [
     "checkDirectAccess", "requestDirectAccess", "read", "create", "update",
-    "renameWithProgress", "preflightRename", "preflightDelete", "installTypePack"
+    "renameWithProgress", "preflightRename", "preflightDelete", "assessTypePack", "applyTypePack"
   ]) {
     const original = (bound as Record<string, unknown>)[name];
     if (typeof original !== "function") continue;

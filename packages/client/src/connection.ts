@@ -17,8 +17,10 @@ import type {
   SavedViewExecution,
   SavedViewList,
   SavedViewSourceDocument,
-  TypePackInstallResult,
-  TypePackProvision,
+  ApplyTypePackInput,
+  AssessTypePackInput,
+  TypePackApplyResult,
+  TypePackAssessment,
   UpdateViewSourceInput
 } from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
@@ -677,8 +679,12 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
     return this.collectionClient.updateType(input);
   }
 
-  installTypePack(input: TypePackProvision): Promise<ConnectOutcome<TypePackInstallResult, CollectionTypeProblemCode>> {
-    return this.collectionClient.installTypePack(input);
+  assessTypePack(input: AssessTypePackInput): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
+    return this.collectionClient.assessTypePack(input);
+  }
+
+  applyTypePack(input: ApplyTypePackInput): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
+    return this.collectionClient.applyTypePack(input);
   }
 
   listTimers(namespace: string): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {

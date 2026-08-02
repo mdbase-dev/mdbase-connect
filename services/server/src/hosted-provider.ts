@@ -194,6 +194,7 @@ export class HostedProviderClient {
   async provisionTypePacks(
     collectionId: string,
     provisions: TypePackProvision[],
+    installedBy: string,
     contractSetups: ContractSetupChoice[] = []
   ): Promise<HostedContractSetupResult> {
     const setupRequest = contractSetups.length > 0;
@@ -204,6 +205,7 @@ export class HostedProviderClient {
         : "type-packs/provision"}`,
       {
         type_packs: provisions,
+        installed_by: installedBy,
         ...(setupRequest
           ? { contract_setups: contractSetups }
           : {})

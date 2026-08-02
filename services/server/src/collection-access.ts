@@ -28,7 +28,7 @@ export const COLLECTION_OPERATIONS = [
   "read_type",
   "create_type",
   "update_type",
-  "install_type_pack",
+  "apply_type_pack",
   "list_timers",
   "put_timer",
   "cancel_timer",

@@ -13,7 +13,7 @@ import { planCollectionGrant } from "./grant-planner.js";
 const contract: CollectionContractDescriptor = {
   id: "example.tasks",
   version: "1.0.0",
-  digest: "a".repeat(64),
+  digest: `sha256:${"a".repeat(64)}`,
   schema: {},
   implementations: []
 };
@@ -34,7 +34,7 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["read", "update"],
       applicationOperationCeiling: ["read", "query", "update"],
       requirements: {
-        contracts: [{ id: contract.id, version: contract.version }]
+        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
       },
       availableContracts: [contract],
       access: owner
@@ -113,7 +113,7 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["read"],
       applicationOperationCeiling: ["read"],
       requirements: {
-        contracts: [{ id: contract.id, version: contract.version }]
+        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
       },
       availableContracts: [contract],
       access: restricted(owner, ["read"], {
@@ -128,12 +128,12 @@ describe("planCollectionGrant", () => {
       requestedOperations: ["read"],
       applicationOperationCeiling: ["read"],
       requirements: {
-        contracts: [{ id: contract.id, version: contract.version }]
+        contracts: [{ id: contract.id, version: contract.version, digest: contract.digest }]
       },
       availableContracts: [contract],
       access: restricted(owner, ["read"], {
         access: "contract",
-        contracts: [{ ...contract, digest: "b".repeat(64) }]
+        contracts: [{ ...contract, digest: `sha256:${"b".repeat(64)}` }]
       })
     })).toThrow("required contracts");
   });

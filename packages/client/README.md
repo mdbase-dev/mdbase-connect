@@ -254,17 +254,31 @@ Request `read_type`, `create_type`, and `update_type` during authorization.
 Contract-scoped applications cannot manage collection-wide type definitions.
 
 To install a complete catalog pack without exposing its individual collection
-paths, request `install_type_pack`, fetch and verify the published provision,
-then pass it to the atomic collection operation:
+paths, request `assess_type_pack` and `apply_type_pack`, fetch and verify the
+published provision, then review and apply the authority's exact plan:
 
 ```ts
 const response = await fetch(pack.provisionUrl);
 const provision = await response.json();
-await connection.installTypePack(provision);
+const installedBy = "dev.example.catalog";
+const assessment = await connection.assessTypePack({
+  provision,
+  installed_by: installedBy
+});
+if (!assessment.ok) return renderProblem(assessment.problem);
+
+renderDefinitionChanges(assessment.value);
+const applied = await connection.applyTypePack({
+  provision,
+  installed_by: installedBy,
+  expected_assessment_digest: assessment.value.assessment_digest
+});
+if (!applied.ok) return renderProblem(applied.problem);
 ```
 
 The caller remains responsible for verifying the catalog digest before sending
-the provision. Existing targets with different content are rejected.
+the provision. Apply rechecks the reviewed assessment inside the transaction;
+stale plans and locally modified targets fail without partial writes.
 
 For a local collection, ask for same-computer access from a user gesture:
 
@@ -333,6 +347,25 @@ implements:
 ---
 `;
 
+const workItemPack = defineTypePack({
+  id: "example.work-items",
+  version: "1.0.0",
+  resources: [
+    {
+      kind: "contract",
+      mode: "managed",
+      source: "_contracts/example.work-item.md",
+      document: contract
+    },
+    {
+      kind: "type",
+      mode: "seed",
+      source: "_types/work-item.md",
+      document: type
+    }
+  ]
+});
+
 export const manifest = {
   manifest_version: 1,
   id: "dev.mdbase.worklog",
@@ -340,18 +373,10 @@ export const manifest = {
   homepage: "https://worklog.example",
   redirect_uris: ["https://worklog.example/auth/mdbase/callback"],
   requirements: {
-    contracts: [{ id: "example.work-item", version: "1.0.0" }]
+    contracts: workItemPack.provides
   },
   provisions: {
-    type_packs: [defineTypePack({
-      id: "example.work-items",
-      version: "1.0.0",
-      provides: [{ id: "example.work-item", version: "1.0.0" }],
-      resources: [
-        { kind: "contract", source: "_contracts/example.work-item.md", document: contract },
-        { kind: "type", source: "_types/work-item.md", document: type }
-      ]
-    })]
+    type_packs: [workItemPack]
   }
 };
 ```

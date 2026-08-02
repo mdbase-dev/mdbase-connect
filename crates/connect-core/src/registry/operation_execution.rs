@@ -13,9 +13,11 @@ pub(super) fn has_contract(
     available: &[CollectionContractDescriptor],
     required: &ContractRequirement,
 ) -> bool {
-    available
-        .iter()
-        .any(|contract| contract.id == required.id && contract.version == required.version)
+    available.iter().any(|contract| {
+        contract.id == required.id
+            && contract.version == required.version
+            && contract.digest == required.digest
+    })
 }
 
 pub(super) fn execute_loaded(
@@ -25,26 +27,92 @@ pub(super) fn execute_loaded(
     input: &Value,
 ) -> Result<Value, ConnectError> {
     if collection.spec_profile() == SpecProfile::V03 {
-        if operation == "install_type_pack" {
-            let provision =
-                serde_json::from_value::<TypePackProvision>(input.clone()).map_err(|error| {
-                    ConnectError::InvalidInput(format!(
-                        "The type-pack provision is invalid: {error}"
-                    ))
-                })?;
-            let manifest = serde_json::to_value(&provision.manifest)?;
-            let resources = provision
-                .resources
+        if operation == "assess_type_pack" || operation == "apply_type_pack" {
+            let (
+                provision,
+                installed_by,
+                provision_adoptions,
+                preserve_seed_targets,
+                target_overrides,
+                contract_setups,
+                expected,
+                allow_downgrade,
+            ) = if operation == "assess_type_pack" {
+                let request = serde_json::from_value::<AssessTypePackInput>(input.clone())
+                    .map_err(|error| {
+                        ConnectError::InvalidInput(format!(
+                            "The type-pack assessment is invalid: {error}"
+                        ))
+                    })?;
+                (
+                    request.provision,
+                    request.installed_by,
+                    request.adopt_resources,
+                    request.preserve_seed_targets,
+                    request.target_overrides,
+                    request.contract_setups,
+                    None,
+                    false,
+                )
+            } else {
+                let request = serde_json::from_value::<ApplyTypePackInput>(input.clone()).map_err(
+                    |error| {
+                        ConnectError::InvalidInput(format!(
+                            "The type-pack apply request is invalid: {error}"
+                        ))
+                    },
+                )?;
+                (
+                    request.provision,
+                    request.installed_by,
+                    request.adopt_resources,
+                    request.preserve_seed_targets,
+                    request.target_overrides,
+                    request.contract_setups,
+                    Some(request.expected_assessment_digest),
+                    request.allow_downgrade,
+                )
+            };
+            let contract_setups = contract_setups
                 .iter()
-                .map(|resource| mdbase::v03::TypePackResource {
-                    source: resource.source.clone(),
-                    document: resource.document.clone(),
-                })
+                .map(CollectionRegistry::engine_contract_setup)
                 .collect::<Vec<_>>();
-            return serde_json::to_value(
-                collection.install_type_pack(&manifest, &resources, false),
-            )
-            .map_err(ConnectError::from);
+            let engine_provision = mdbase::v03::TypePackProvision {
+                manifest: serde_json::to_value(&provision.manifest)?,
+                resources: provision
+                    .resources
+                    .iter()
+                    .map(|resource| mdbase::v03::TypePackResource {
+                        source: resource.source.clone(),
+                        document: resource.document.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            };
+            let result = match expected {
+                Some(expected) => collection.apply_type_pack(
+                    &engine_provision,
+                    &mdbase::v03::TypePackApplyOptions {
+                        installed_by,
+                        expected_assessment_digest: expected,
+                        allow_downgrade,
+                        adopt_resources: provision_adoptions,
+                        preserve_seed_targets,
+                        target_overrides,
+                        contract_setups,
+                    },
+                ),
+                None => collection.assess_type_pack(
+                    &engine_provision,
+                    &mdbase::v03::TypePackAssessmentOptions {
+                        installed_by,
+                        adopt_resources: provision_adoptions,
+                        preserve_seed_targets,
+                        target_overrides,
+                        contract_setups,
+                    },
+                ),
+            };
+            return serde_json::to_value(result).map_err(ConnectError::from);
         }
         let operations = collection
             .v03_operations()
@@ -273,7 +341,7 @@ pub(super) fn is_collection_mutation(operation: &str) -> bool {
             | "rename"
             | "create_type"
             | "update_type"
-            | "install_type_pack"
+            | "apply_type_pack"
             | "create_view_source"
             | "update_view_source"
             | "delete_view_source"
@@ -296,7 +364,7 @@ pub(super) fn operation_invalidation(
         operation,
         "create_type"
             | "update_type"
-            | "install_type_pack"
+            | "apply_type_pack"
             | "create_view_source"
             | "update_view_source"
             | "delete_view_source"
@@ -354,7 +422,8 @@ pub(super) fn supported_operations(profile: SpecProfile) -> &'static [&'static s
         "read_type",
         "create_type",
         "update_type",
-        "install_type_pack",
+        "assess_type_pack",
+        "apply_type_pack",
         "list_timers",
         "put_timer",
         "cancel_timer",

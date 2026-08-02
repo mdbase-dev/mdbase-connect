@@ -26,17 +26,31 @@ pub use timers::{perform_timer_operation, TimerOperationError};
 
 pub const NOTIFICATION_ACTION_ID: &str = "mdbase.connect.notification.signal";
 pub const NOTIFICATION_EXECUTOR_ID: &str = "connect-notifications";
+pub const RECORD_CREATED_EVENT_ID: &str = "mdbase.record.created";
+pub const RECORD_CREATED_EVENT_DIGEST: &str =
+    "sha256:7f3bed6baa356ee9389e977ae7b77a102e2bee871a7c1d9f2026fc21cacdbfc9";
+pub const RECORD_MODIFIED_EVENT_ID: &str = "mdbase.record.modified";
+pub const RECORD_MODIFIED_EVENT_DIGEST: &str =
+    "sha256:064187148a95701a1f5c749643d306d3c6708470b6b7ab0bf0c698d38dbcabe3";
+pub const RECORD_DELETED_EVENT_ID: &str = "mdbase.record.deleted";
+pub const RECORD_DELETED_EVENT_DIGEST: &str =
+    "sha256:84e5fb0f9d3bfdcd53f76cdc5035f94c7693fdea39a8ead190b10b422dd2ee09";
+pub const RECORD_RENAMED_EVENT_ID: &str = "mdbase.record.renamed";
+pub const RECORD_RENAMED_EVENT_DIGEST: &str =
+    "sha256:c825ef8d7db775b784d7af27e6acdf6f2799d2c6440d486f5bfa78afcca71471";
 pub const TIMER_EVENT_ID: &str = "mdbase.runtime.timer.fired";
+pub const TIMER_EVENT_DIGEST: &str =
+    "sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642";
 
 const CONTRACT_VERSION: &str = "1.0.0";
 const INTEROP_PROFILE_VERSION: &str = "0.1";
 const NOTIFICATION_HANDLER_ID: &str = "signal";
 const POLICY_ID: &str = "mdbase.connect.notification.policy";
 const RECORD_EVENT_IDS: [&str; 4] = [
-    "mdbase.record.created",
-    "mdbase.record.modified",
-    "mdbase.record.deleted",
-    "mdbase.record.renamed",
+    RECORD_CREATED_EVENT_ID,
+    RECORD_MODIFIED_EVENT_ID,
+    RECORD_DELETED_EVENT_ID,
+    RECORD_RENAMED_EVENT_ID,
 ];
 
 /// Passive, verified evidence used to admit notification work for one
@@ -381,19 +395,19 @@ fn workflow_record(grant: &GrantSummary, criterion: &NotificationCriterion) -> V
 fn contract_artifacts() -> mdbase_runtime::RuntimeResult<Vec<Value>> {
     let schemas = [
         (
-            "mdbase.record.created",
+            RECORD_CREATED_EVENT_ID,
             include_str!("../contracts/mdbase.record.created-1.0.0.schema.json"),
         ),
         (
-            "mdbase.record.modified",
+            RECORD_MODIFIED_EVENT_ID,
             include_str!("../contracts/mdbase.record.modified-1.0.0.schema.json"),
         ),
         (
-            "mdbase.record.deleted",
+            RECORD_DELETED_EVENT_ID,
             include_str!("../contracts/mdbase.record.deleted-1.0.0.schema.json"),
         ),
         (
-            "mdbase.record.renamed",
+            RECORD_RENAMED_EVENT_ID,
             include_str!("../contracts/mdbase.record.renamed-1.0.0.schema.json"),
         ),
         (
@@ -545,6 +559,20 @@ mod tests {
     };
 
     #[test]
+    fn published_builtin_event_digests_match_the_embedded_contracts() {
+        let catalog = catalog(&[]);
+        for (id, digest) in [
+            (RECORD_CREATED_EVENT_ID, RECORD_CREATED_EVENT_DIGEST),
+            (RECORD_MODIFIED_EVENT_ID, RECORD_MODIFIED_EVENT_DIGEST),
+            (RECORD_DELETED_EVENT_ID, RECORD_DELETED_EVENT_DIGEST),
+            (RECORD_RENAMED_EVENT_ID, RECORD_RENAMED_EVENT_DIGEST),
+            (TIMER_EVENT_ID, TIMER_EVENT_DIGEST),
+        ] {
+            assert_eq!(catalog.contract(id).unwrap().digest, digest);
+        }
+    }
+
+    #[test]
     fn multiple_grants_consume_one_exact_event_contract() {
         let first = grant(
             "modified",
@@ -555,9 +583,9 @@ mod tests {
         let catalog = catalog(&[first, second]);
 
         assert_eq!(catalog.admission().workflows().len(), 2);
-        let exact = catalog.contract("mdbase.record.modified").unwrap();
+        let exact = catalog.contract(RECORD_MODIFIED_EVENT_ID).unwrap();
         assert_eq!(exact.version, CONTRACT_VERSION);
-        assert!(exact.digest.starts_with("sha256:"));
+        assert_eq!(exact.digest, RECORD_MODIFIED_EVENT_DIGEST);
     }
 
     #[test]
@@ -664,6 +692,7 @@ mod tests {
                 event: ContractRequirement {
                     id: event_id.to_string(),
                     version: "1.0.0".to_string(),
+                    digest: format!("sha256:{}", "0".repeat(64)),
                 },
                 r#if: condition.map(|expression| RuntimeExpression {
                     expression: expression.to_string(),

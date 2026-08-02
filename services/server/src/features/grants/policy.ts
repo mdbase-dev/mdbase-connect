@@ -19,7 +19,7 @@ const FULL_COLLECTION_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
-  "install_type_pack"
+  "apply_type_pack"
 ]);
 
 const PORTABLE_PROFILE_OPERATIONS = new Set([
@@ -29,7 +29,7 @@ const PORTABLE_PROFILE_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
-  "install_type_pack"
+  "apply_type_pack"
 ]);
 
 export function scopeForRequirements(
@@ -184,6 +184,7 @@ export function requiredTypePackProvisions(
         (present) =>
           present.id === required.id
           && present.version === required.version
+          && present.digest === required.digest
       )
   );
   if (
@@ -195,6 +196,7 @@ export function requiredTypePackProvisions(
               (provided) =>
                 provided.id === required.id
                 && provided.version === required.version
+                && provided.digest === required.digest
             )
         )
     )

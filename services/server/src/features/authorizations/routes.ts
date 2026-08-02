@@ -317,7 +317,7 @@ export function registerAuthorizationRoutes(
       if (!options.hostedProvider) {
         return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
-      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "install_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
+      const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
         || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
       await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
         grantId,

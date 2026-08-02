@@ -14,7 +14,8 @@ const contractSchema = z.object({
   id: z.string().trim().min(1).max(100).regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
   version: z.string().regex(
     /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-  )
+  ),
+  digest: z.string().regex(/^sha256:[0-9a-f]{64}$/)
 }).strict();
 const applicationIdSchema = z.string()
   .min(5)
@@ -83,6 +84,7 @@ const fileScopeSchema = z.discriminatedUnion("kind", [
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const typePackResourceSchema = z.object({
   kind: z.enum(["contract", "type", "schema"]),
+  mode: z.enum(["managed", "seed"]),
   source: z.string().min(1).max(240),
   target: z.string().min(1).max(240),
   digest: digestSchema

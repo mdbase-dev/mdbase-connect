@@ -2,6 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.MDBASE_EDITOR_E2E_PORT ?? 42_873);
 const baseURL = `http://127.0.0.1:${port}/`;
+const webServerCommand =
+  process.env.MDBASE_EDITOR_E2E_WEB_SERVER_COMMAND ??
+  `pnpm build:e2e && pnpm preview --port ${port} --strictPort`;
 
 export default defineConfig({
   testDir: "./tests",
@@ -13,7 +16,7 @@ export default defineConfig({
     trace: "retain-on-failure"
   },
   webServer: {
-    command: `pnpm build:e2e && pnpm preview --port ${port} --strictPort`,
+    command: webServerCommand,
     url: `${baseURL}?demo=10`,
     reuseExistingServer: false,
     timeout: 120_000

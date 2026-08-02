@@ -293,6 +293,7 @@ impl AgentState {
                     }
                     let contracts = self.registry.provision_type_packs(
                         collection_id,
+                        &format!("app.{}", grant.application_id),
                         &requirements,
                         &provisions.type_packs,
                         &contract_setups,
@@ -307,6 +308,7 @@ impl AgentState {
                                     requirements.contracts.iter().any(|required| {
                                         available.id == required.id
                                             && available.version == required.version
+                                            && available.digest == required.digest
                                     })
                                 })
                                 .cloned()

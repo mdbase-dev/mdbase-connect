@@ -519,6 +519,7 @@ mod tests {
                 event: ContractRequirement {
                     id: TIMER_EVENT_ID.to_string(),
                     version: "1.0.0".to_string(),
+                    digest: format!("sha256:{}", "0".repeat(64)),
                 },
                 r#if: None,
                 debounce: None,

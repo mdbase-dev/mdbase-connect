@@ -12,7 +12,7 @@ export interface AuthorizationCollection {
   types: CollectionTypeDescriptor[];
 }
 
-export const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "install_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
+export const allOperations = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "create", "update", "rename", "delete", "create_view_source", "update_view_source", "delete_view_source", "validate", "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
 
 export function neededProvisions(
   requirements: ApplicationRequirements,
@@ -32,7 +32,7 @@ const MDBASE_03_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
-  "install_type_pack"
+  "apply_type_pack"
 ]);
 
 export function hostedCollectionCompatible(
@@ -180,7 +180,7 @@ function authorityPromotionPhaseLabel(
 }
 
 export function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
-function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
+function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version && left.digest === right.digest; }
 export function provisionNames(provisions: TypePackProvision[]) {
   return provisions
     .map((provision) => provision.manifest.name ?? provision.manifest.id)

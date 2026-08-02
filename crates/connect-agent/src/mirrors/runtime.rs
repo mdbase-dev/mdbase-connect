@@ -26,6 +26,7 @@ impl MirrorManager {
             secrets: SystemSecretStore::new(state_dir),
             entries: RwLock::new(entries),
             syncing: StdMutex::new(HashSet::new()),
+            operation_finished: Notify::new(),
             errors: RwLock::new(HashMap::new()),
         }))
     }

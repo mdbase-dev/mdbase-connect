@@ -44,7 +44,9 @@ pub(super) fn sync_resources(
                     | mdbase::runtime::CollectionSnapshotResourceKind::Contract
                     | mdbase::runtime::CollectionSnapshotResourceKind::Schema
                     | mdbase::runtime::CollectionSnapshotResourceKind::View
-            ) || type_paths.contains(resource.path.as_str())
+            ) || (resource.kind == mdbase::runtime::CollectionSnapshotResourceKind::Lock
+                && allowed_types.is_empty())
+                || type_paths.contains(resource.path.as_str())
         })
         .map(|resource| SyncResourceDocument {
             path: resource.path.clone(),
@@ -52,6 +54,7 @@ pub(super) fn sync_resources(
                 mdbase::runtime::CollectionSnapshotResourceKind::Configuration => {
                     "configuration".to_string()
                 }
+                mdbase::runtime::CollectionSnapshotResourceKind::Lock => "lock".to_string(),
                 mdbase::runtime::CollectionSnapshotResourceKind::Contract => "contract".to_string(),
                 mdbase::runtime::CollectionSnapshotResourceKind::Schema => "schema".to_string(),
                 mdbase::runtime::CollectionSnapshotResourceKind::Type => "type".to_string(),

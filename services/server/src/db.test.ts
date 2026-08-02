@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
+import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import {
   backfillExternalIdentityEmails,
   backfillSessionProviders,
@@ -45,7 +46,8 @@ describe("database migrations", () => {
       "0008_account_management",
       "0009_grant_file_capabilities",
       "0010_beta_entitlements_and_email",
-      "0011_application_authorization_trust"
+      "0011_application_authorization_trust",
+      "0012_notification_contract_digests"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -317,7 +319,8 @@ describe("database migrations", () => {
       "0008_account_management",
       "0009_grant_file_capabilities",
       "0010_beta_entitlements_and_email",
-      "0011_application_authorization_trust"
+      "0011_application_authorization_trust",
+      "0012_notification_contract_digests"
     ]);
   });
 
@@ -385,7 +388,8 @@ describe("database migrations", () => {
       `DELETE FROM schema_migrations
        WHERE id IN (
          '0005_notification_contract_versions',
-         '0006_notification_event_ids'
+         '0006_notification_event_ids',
+         '0012_notification_contract_digests'
        )`
     );
 
@@ -393,22 +397,26 @@ describe("database migrations", () => {
 
     const application = await db.query<{
       notifications: {
-        criteria: Array<{ event: { id: string; version: unknown } }>;
+        criteria: Array<{ event: { id: string; version: unknown; digest?: string } }>;
       };
     }>("SELECT notifications FROM applications WHERE id = $1", [applicationId]);
     const grant = await db.query<{
       notification_criteria: Array<{
-        event: { id: string; version: unknown };
+        event: { id: string; version: unknown; digest?: string };
       }>;
     }>("SELECT notification_criteria FROM grants WHERE id = $1", [grantId]);
     expect(application.rows[0]?.notifications.criteria[0]?.event.version)
       .toBe("1.0.0");
     expect(application.rows[0]?.notifications.criteria[0]?.event.id)
       .toBe("mdbase.runtime.timer.fired");
+    expect(application.rows[0]?.notifications.criteria[0]?.event.digest)
+      .toBe(MDBASE_TIMER_FIRED_CONTRACT.digest);
     expect(grant.rows[0]?.notification_criteria[0]?.event.version)
       .toBe("1.0.0");
     expect(grant.rows[0]?.notification_criteria[0]?.event.id)
       .toBe("mdbase.runtime.timer.fired");
+    expect(grant.rows[0]?.notification_criteria[0]?.event.digest)
+      .toBe(MDBASE_TIMER_FIRED_CONTRACT.digest);
   });
 
   it("fails closed when an application starts before pre-deploy migration", async () => {

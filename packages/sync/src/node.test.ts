@@ -127,6 +127,11 @@ describe("receive-only Markdown mirror", () => {
             kind: "configuration",
             revision: documentRevision("spec_version: 0.3.0\n"),
             document: "spec_version: 0.3.0\n"
+          }, {
+            path: "mdbase.lock.yaml",
+            kind: "lock",
+            revision: documentRevision("kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n"),
+            document: "kind: mdbase.type-pack-lock\nlock_version: 1\npacks: []\n"
           }]
         }
       });
@@ -143,6 +148,8 @@ describe("receive-only Markdown mirror", () => {
       const mirror = new DirectoryMirror(root, mirrorId, hosted.transport(mirrorId), deviceState());
       await mirror.sync();
       expect(await readFile(join(root, "mdbase.yaml"), "utf8")).toBe("spec_version: 0.3.0\n");
+      expect(await readFile(join(root, "mdbase.lock.yaml"), "utf8"))
+        .toContain("kind: mdbase.type-pack-lock");
       expect(await readFile(join(root, "tasks/one.md"), "utf8")).toContain("title: One");
       await hosted.transport(writer).mutate({
         mutation_id: crypto.randomUUID(), replica_id: writer, scope_epoch: 1,

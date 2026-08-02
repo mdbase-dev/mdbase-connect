@@ -143,7 +143,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
         collectionName: "Stale editor collection",
         operations: [
           "describe", "changes", "read", "query", "validate", "create", "update",
-          "delete", "rename", "read_type", "create_type", "update_type", "install_type_pack"
+          "delete", "rename", "read_type", "create_type", "update_type", "apply_type_pack"
         ],
         scope: { contracts: [], access: "full_collection" },
         expiresAt: Date.now() + 60_000,

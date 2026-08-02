@@ -6,6 +6,7 @@ export const DEFAULT_CONTRACT_CATALOG_URL = import.meta.env.VITE_MDBASE_CONTRACT
 export interface ContractCatalogReference {
   id: string;
   version: string;
+  digest: string;
 }
 
 export interface ContractCatalogStandard {
@@ -45,7 +46,7 @@ export interface ContractCatalogPack extends ContractCatalogReference {
 }
 
 export interface ContractCatalog {
-  catalogVersion: 1 | 2;
+  catalogVersion: 2;
   id: string;
   name: string;
   description: string;
@@ -120,10 +121,9 @@ export async function loadTypePackProvision(
 
 export function parseContractCatalog(value: unknown, sourceUrl: string): ContractCatalog {
   const catalog = requiredRecord(value, "The contract catalog");
-  if (catalog.catalog_version !== 1 && catalog.catalog_version !== 2) {
+  if (catalog.catalog_version !== 2) {
     throw new Error("The contract catalog uses an unsupported version.");
   }
-  const catalogVersion = catalog.catalog_version;
   const publisher = requiredRecord(catalog.publisher, "The contract catalog publisher");
   const contracts = requiredArray(catalog.contracts, "contracts").map((candidate, index) => {
     const contract = requiredRecord(candidate, `contracts[${index}]`);
@@ -166,23 +166,6 @@ export function parseContractCatalog(value: unknown, sourceUrl: string): Contrac
         )),
       resourceCount: Number(resourceCount)
     };
-    if (catalogVersion === 1) {
-      if (typeof pack.featured !== "boolean") {
-        throw new Error(`packs[${index}].featured must be a boolean.`);
-      }
-      return {
-        ...common,
-        displayName: common.name,
-        summary: common.description,
-        category: "other" as const,
-        audience: "general" as const,
-        icon: "package",
-        badges: [],
-        visibility: pack.featured ? "default" as const : "advanced" as const,
-        recommendation: "optional" as const,
-        installedTypes: []
-      };
-    }
     return {
       ...common,
       ...parsePackPresentation(pack, `packs[${index}]`)
@@ -192,7 +175,7 @@ export function parseContractCatalog(value: unknown, sourceUrl: string): Contrac
   assertUnique(contracts, "contract");
   assertUnique(packs, "pack");
   return {
-    catalogVersion,
+    catalogVersion: 2,
     id: requiredString(catalog.id, "id"),
     name: requiredString(catalog.name, "name"),
     description: requiredString(catalog.description, "description"),
@@ -232,6 +215,10 @@ export function parseTypePackProvision(
     const kind = requiredString(resource.kind, `manifest.resources[${index}].kind`);
     if (!["contract", "type", "schema"].includes(kind)) {
       throw new Error(`manifest.resources[${index}].kind is not supported.`);
+    }
+    const mode = requiredString(resource.mode, `manifest.resources[${index}].mode`);
+    if (!["managed", "seed"].includes(mode)) {
+      throw new Error(`manifest.resources[${index}].mode is not supported.`);
     }
     const source = safeRelativePath(resource.source, `manifest.resources[${index}].source`);
     safeRelativePath(resource.target, `manifest.resources[${index}].target`);
@@ -273,13 +260,13 @@ export function parseTypePackProvision(
 
 export function contractCatalogPackStatus(
   pack: ContractCatalogPack,
-  installedContracts: Array<{ id: string; version: string }>,
+  installedContracts: Array<{ id: string; version: string; digest: string }>,
   installedTypes: Array<{ name: string }> = []
 ): ContractCatalogStatus {
-  const installed = new Set(installedContracts.map(({ id, version }) => `${id}@${version}`));
+  const installed = new Set(installedContracts.map(referenceKey));
   const typeNames = new Set(installedTypes.map(({ name }) => name));
   const contractCount = pack.provides
-    .filter(({ id, version }) => installed.has(`${id}@${version}`)).length;
+    .filter((reference) => installed.has(referenceKey(reference))).length;
   const typeCount = pack.installedTypes.filter(({ name }) => typeNames.has(name)).length;
   const expected = pack.provides.length + pack.installedTypes.length;
   const present = contractCount + typeCount;
@@ -364,7 +351,8 @@ function parseReference(value: unknown, label: string): ContractCatalogReference
   const reference = requiredRecord(value, label);
   return {
     id: requiredString(reference.id, `${label}.id`),
-    version: requiredString(reference.version, `${label}.version`)
+    version: requiredString(reference.version, `${label}.version`),
+    digest: requiredDigest(reference.digest, `${label}.digest`)
   };
 }
 
@@ -445,7 +433,7 @@ function safeRelativePath(value: unknown, label: string): string {
 }
 
 function referenceKey(reference: ContractCatalogReference): string {
-  return `${reference.id}@${reference.version}`;
+  return `${reference.id}@${reference.version}#${reference.digest}`;
 }
 
 function hex(value: ArrayBuffer): string {

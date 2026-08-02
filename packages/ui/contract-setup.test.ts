@@ -9,6 +9,7 @@ import {
   typeFields
 } from "./contract-setup.ts";
 
+const contractDigest = `sha256:${"a".repeat(64)}`;
 const provision = {
   manifest: {
     resources: [
@@ -52,12 +53,12 @@ record_schema:
 `
     }
   ],
-  provides: [{ id: "example.work", version: "1.0.0" }]
+  provides: [{ id: "example.work", version: "1.0.0", digest: contractDigest }]
 };
 
 test("resolves provisioned contract schemas and suggests semantic field matches", () => {
   const contract = provisionedContract(
-    { id: "example.work", version: "1.0.0" },
+    { id: "example.work", version: "1.0.0", digest: contractDigest },
     [provision]
   );
   assert.ok(contract);
@@ -83,7 +84,7 @@ test("resolves provisioned contract schemas and suggests semantic field matches"
 
 test("reports incompatible and optional mappings in user-facing terms", () => {
   const contract = provisionedContract(
-    { id: "example.work", version: "1.0.0" },
+    { id: "example.work", version: "1.0.0", digest: contractDigest },
     [provision]
   )!;
   const [title] = contractFields(contract);

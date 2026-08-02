@@ -3,6 +3,7 @@ import { parse } from "yaml";
 export interface ContractRequirementLike {
   id: string;
   version: string;
+  digest: string;
 }
 
 export interface TypePackProvisionLike {
@@ -97,6 +98,7 @@ export function provisionedContract(
       return {
         id: required.id,
         version: required.version,
+        digest: required.digest,
         ...(typeof frontmatter.name === "string" ? { name: frontmatter.name } : {}),
         ...(typeof frontmatter.description === "string"
           ? { description: frontmatter.description }
@@ -251,7 +253,7 @@ export function setupLabel(contract: SetupContract): string {
 }
 
 export function propertyFields(schema: Record<string, unknown>): SetupField[] {
-  return contractFields({ id: "binding", version: "0.0.0", schema });
+  return contractFields({ id: "binding", version: "0.0.0", digest: `sha256:${"0".repeat(64)}`, schema });
 }
 
 export function guidedBindingSupported(contract: SetupContract): boolean {
@@ -458,7 +460,7 @@ function lastSegment(reference: string): string {
 }
 
 function sameContract(left: ContractRequirementLike, right: ContractRequirementLike): boolean {
-  return left.id === right.id && left.version === right.version;
+  return left.id === right.id && left.version === right.version && left.digest === right.digest;
 }
 
 function record(value: unknown): Record<string, unknown> {

@@ -14,6 +14,7 @@ import {
   type MdbaseDiagnostic,
   type QueryRecord,
   type QueryResult,
+  type TypePackAssessment,
   type TypePackProvision
 } from "@mdbase-dev/connect";
 import { persistedBody, titlePatch } from "./note";
@@ -34,7 +35,7 @@ import type {
   DeletePreflight,
   MutationOperationOptions,
   SaveNoteInput,
-  TypePackInstallResult
+  TypePackApplyResult
 } from "./model";
 
 export const CORE_COLLECTION_OPERATIONS: CollectionOperation[] = [
@@ -55,7 +56,7 @@ export const TYPE_DEFINITION_OPERATIONS: CollectionOperation[] = [
   "update_type"
 ];
 
-const INSTALL_TYPE_PACK_OPERATION: CollectionOperation = "install_type_pack";
+const INSTALL_TYPE_PACK_OPERATION: CollectionOperation = "apply_type_pack";
 
 export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
   ...CORE_COLLECTION_OPERATIONS,
@@ -338,8 +339,30 @@ export class ConnectCollectionGateway implements CollectionGateway {
     }));
   }
 
-  async installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult> {
-    return unwrapConnectOutcome(await this.requireConnection().installTypePack(provision));
+  async assessTypePack(
+    provision: TypePackProvision,
+    adoptResources: Record<string, string> = {}
+  ): Promise<TypePackAssessment> {
+    const connection = this.requireConnection();
+    return unwrapConnectOutcome(await connection.assessTypePack({
+      provision,
+      installed_by: "dev.mdbase.editor",
+      adopt_resources: adoptResources
+    }));
+  }
+
+  async applyTypePack(
+    provision: TypePackProvision,
+    assessment: TypePackAssessment,
+    adoptResources: Record<string, string> = {}
+  ): Promise<TypePackApplyResult> {
+    const connection = this.requireConnection();
+    return unwrapConnectOutcome(await connection.applyTypePack({
+      provision,
+      installed_by: "dev.mdbase.editor",
+      adopt_resources: adoptResources,
+      expected_assessment_digest: assessment.assessment_digest
+    }));
   }
 
   async watch(onChange: (change: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {

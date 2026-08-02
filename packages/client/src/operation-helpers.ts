@@ -48,7 +48,7 @@ export function isMutation(operation: CollectionOperation, input?: unknown): boo
     || operation === "rename"
     || operation === "create_type"
     || operation === "update_type"
-    || operation === "install_type_pack"
+    || operation === "apply_type_pack"
     || operation === "put_timer"
     || operation === "cancel_timer"
     || operation === "reconcile_timers";

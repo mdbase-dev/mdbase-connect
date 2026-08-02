@@ -4,6 +4,8 @@ import type {
   CollectionDescription,
   CollectionOperation,
   CollectionTypeDocument,
+  ApplyTypePackInput,
+  AssessTypePackInput,
   CreateViewSourceInput,
   DeleteViewSourceInput,
   DeleteViewSourceResult,
@@ -16,8 +18,8 @@ import type {
   SavedViewExecution,
   SavedViewList,
   SavedViewSourceDocument,
-  TypePackInstallResult,
-  TypePackProvision,
+  TypePackApplyResult,
+  TypePackAssessment,
   UpdateViewSourceInput
 } from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
@@ -261,8 +263,12 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
     return this.envelopeOperation("update_type", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
-  installTypePack(input: TypePackProvision): Promise<ConnectOutcome<TypePackInstallResult, CollectionTypeProblemCode>> {
-    return this.envelopeOperation("install_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
+  assessTypePack(input: AssessTypePackInput): Promise<ConnectOutcome<TypePackAssessment, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("assess_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
+  }
+
+  applyTypePack(input: ApplyTypePackInput): Promise<ConnectOutcome<TypePackApplyResult, CollectionTypeProblemCode>> {
+    return this.envelopeOperation("apply_type_pack", input, COLLECTION_TYPE_PROBLEM_CODES);
   }
 
   listTimers(namespace: string): Promise<ConnectOutcome<MdbaseTimerList, CollectionReadProblemCode>> {

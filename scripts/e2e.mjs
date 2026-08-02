@@ -468,6 +468,8 @@ implements:
       status: status
 ---
 `;
+  const setupContractDigest =
+    "sha256:defbdfff727b8b6cc89041028878ddfc9fded9bd76e5fb106b90adfee3979a49";
   const setupResources = [
     {
       kind: "contract",
@@ -493,7 +495,11 @@ implements:
         redirect_uris: [manifest.redirectUri],
         requirements: {
           access: "contract",
-          contracts: [{ id: "planning.item", version: "1.0.0" }]
+          contracts: [{
+            id: "planning.item",
+            version: "1.0.0",
+            digest: setupContractDigest
+          }]
         },
         provisions: {
           type_packs: [{
@@ -504,11 +510,16 @@ implements:
               name: "Planning",
               resources: setupResources.map(({ document, ...resource }) => ({
                 ...resource,
+                mode: resource.kind === "type" ? "seed" : "managed",
                 digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
               }))
             },
             resources: setupResources.map(({ source, document }) => ({ source, document })),
-            provides: [{ id: "planning.item", version: "1.0.0" }]
+            provides: [{
+              id: "planning.item",
+              version: "1.0.0",
+              digest: setupContractDigest
+            }]
           }]
         },
         notifications: { criteria: [] }
@@ -589,7 +600,11 @@ implements:
     offer_id: setupOffer.offer_id,
     operations: ["describe", "query"],
     contract_setups: [{
-      contract: { id: "planning.item", version: "1.0.0" },
+      contract: {
+        id: "planning.item",
+        version: "1.0.0",
+        digest: setupContractDigest
+      },
       mode: "existing",
       type_name: "workout",
       type_revision: workoutCandidate.revision,
@@ -1537,7 +1552,11 @@ async function availableTcpPort() {
 async function openManifestServer() {
   const primary = await openApplicationServer(
     "MVP Workout App",
-    [{ id: "workout.record", version: "1.0.0" }]
+    [{
+      id: "workout.record",
+      version: "1.0.0",
+      digest: "sha256:ca1752bbf69314cc712c97ae25ca510dad0230a65653b664f405468c2cefbe16"
+    }]
   );
   const browser = await openApplicationServer("Browser direct E2E", [], "full_collection");
   return {

@@ -6,15 +6,18 @@ import type {
   RecordDocument,
   QueryRecord
 } from "@mdbase-dev/connect-protocol";
+import { MDBASE_RECORD_CREATED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import {
   unwrapConnectOutcome,
   type MdbaseConnection
 } from "@mdbase-dev/connect";
+import { PICKLE_REQUEST_CONTRACT_DIGEST } from "./resources.js";
 
 export {
   PICKLE_ACK_RESPONSE_TYPE_DOCUMENT,
   PICKLE_APPROVAL_RESPONSE_TYPE_DOCUMENT,
   PICKLE_REQUEST_CONTRACT_DOCUMENT,
+  PICKLE_REQUEST_CONTRACT_DIGEST,
   PICKLE_TYPE_PACK_PROVISION,
   PICKLE_REQUEST_TYPE_DOCUMENT
 } from "./resources.js";
@@ -22,6 +25,7 @@ export {
 export const PICKLE_REQUEST_CONTRACT = "pickle.request";
 export const PICKLE_REQUEST_CONTRACT_VERSION = "1.0.0";
 export const PICKLE_NOTIFICATION_CRITERION = "pickle.request.created";
+export const PICKLE_NOTIFICATION_EVENT = MDBASE_RECORD_CREATED_CONTRACT;
 
 const SYSTEM_RESPONSE_FIELDS = new Set([
   "type",
@@ -138,7 +142,8 @@ export function resolvePickleContract(
   const descriptor = description.contracts.find(
     (contract) =>
       contract.id === PICKLE_REQUEST_CONTRACT &&
-      contract.version === PICKLE_REQUEST_CONTRACT_VERSION
+      contract.version === PICKLE_REQUEST_CONTRACT_VERSION &&
+      contract.digest === PICKLE_REQUEST_CONTRACT_DIGEST
   );
   if (!descriptor) {
     throw new PickleContractError(

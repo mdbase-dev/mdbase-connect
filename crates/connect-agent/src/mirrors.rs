@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 use tempfile::NamedTempFile;
+use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -151,6 +152,7 @@ pub struct MirrorManager {
     secrets: SystemSecretStore,
     entries: RwLock<Vec<MirrorRegistryEntry>>,
     syncing: StdMutex<HashSet<Uuid>>,
+    operation_finished: Notify,
     errors: RwLock<HashMap<Uuid, String>>,
 }
 

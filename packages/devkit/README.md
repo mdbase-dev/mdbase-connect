@@ -47,13 +47,26 @@ import { defineTypePack } from "@mdbase-dev/connect-dev";
 const provision = defineTypePack({
   id: "example.tasks",
   version: "1.0.0",
-  provides: [{ id: "example.task", version: "1.0.0" }],
   resources: [
-    { kind: "contract", source: "_contracts/example.task.md", document: contractDocument },
-    { kind: "type", source: "_types/task.md", document: typeDocument }
+    {
+      kind: "contract",
+      mode: "managed",
+      source: "_contracts/example.task.md",
+      document: contractDocument
+    },
+    {
+      kind: "type",
+      mode: "seed",
+      source: "_types/task.md",
+      document: typeDocument
+    }
   ]
 });
 ```
+
+The helper validates each contract document and derives the exact semantic
+`provides` descriptors. Managed resources evolve with the pack; seed resources
+become collection-owned after their initial creation.
 
 Native applications may add a reverse-domain private-use callback scheme that
 matches the v1 manifest's application ID, such as

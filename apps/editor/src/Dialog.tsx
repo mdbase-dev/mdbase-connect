@@ -92,12 +92,13 @@ export function Dialog({ titleId, className, role = "dialog", onClose, children 
   );
 }
 
-export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel", tone = "default", onConfirm, onClose }: {
+export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel", tone = "default", initialFocus, onConfirm, onClose }: {
   title: string;
   body: ReactNode;
   confirmLabel: string;
   cancelLabel?: string;
   tone?: "default" | "danger";
+  initialFocus?: "confirm" | "cancel";
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -121,13 +122,13 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel
     </div>
     <footer>
       <button
-        data-autofocus={tone === "danger" ? "true" : undefined}
+        data-autofocus={(initialFocus ?? (tone === "danger" ? "cancel" : "confirm")) === "cancel" ? "true" : undefined}
         disabled={busy}
         onClick={onClose}
       >{cancelLabel}</button>
       <button
         className={tone === "danger" ? "confirm-danger" : "confirm-primary"}
-        data-autofocus={tone === "danger" ? undefined : "true"}
+        data-autofocus={(initialFocus ?? (tone === "danger" ? "cancel" : "confirm")) === "confirm" ? "true" : undefined}
         disabled={busy}
         onClick={() => void confirm()}
       >{busy ? "Working…" : confirmLabel}</button>

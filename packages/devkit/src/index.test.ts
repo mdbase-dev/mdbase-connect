@@ -36,7 +36,13 @@ const taskDescription: Partial<CollectionDescription> = {
   }]
 };
 
-function taskTypePack(provides = [{ id: "example.work-item", version: "1.0.0" }]) {
+const workItemDigest = `sha256:${"a".repeat(64)}`;
+
+function taskTypePack(provides = [{
+  id: "example.work-item",
+  version: "1.0.0",
+  digest: workItemDigest
+}]) {
   const document = "---\nkind: mdbase.type\nname: task\n---\n";
   return {
     manifest: {
@@ -45,6 +51,7 @@ function taskTypePack(provides = [{ id: "example.work-item", version: "1.0.0" }]
       version: "1.0.0",
       resources: [{
         kind: "type",
+        mode: "seed",
         source: "task.md",
         target: "_types/task.md",
         digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
@@ -63,7 +70,9 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] }
+      requirements: {
+        contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
+      }
     })).toEqual({ valid: true, issues: [] });
     const invalid = validateAppManifest({
       manifest_version: 1,
@@ -107,7 +116,9 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
+      requirements: {
+        contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
+      },
       provisions: {
         type_packs: [taskTypePack()]
       }
@@ -118,9 +129,15 @@ describe("canonical developer validation", () => {
       name: "Tasks",
       homepage: "https://tasks.example/",
       redirect_uris: ["https://tasks.example/callback"],
-      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
+      requirements: {
+        contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
+      },
       provisions: {
-        type_packs: [taskTypePack([{ id: "other.contract", version: "1.0.0" }])]
+        type_packs: [taskTypePack([{
+          id: "other.contract",
+          version: "1.0.0",
+          digest: workItemDigest
+        }])]
       }
     }).valid).toBe(false);
   });
@@ -135,7 +152,9 @@ describe("canonical developer validation", () => {
         "https://tasks.example/callback",
         "dev.mdbase.tasks://auth/mdbase/callback"
       ],
-      requirements: { contracts: [{ id: "example.work-item", version: "1.0.0" }] },
+      requirements: {
+        contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
+      },
       provisions: {
         type_packs: [taskTypePack()]
       }
@@ -205,29 +224,53 @@ describe("canonical developer validation", () => {
   });
 
   it("builds readable type packs with exact generated resource digests", () => {
-    const document = "---\nkind: mdbase.type\nname: task\nversion: 1\n---\n";
+    const contract = "---\nkind: mdbase.contract\ncontract_type: record\nid: example.work-item\nversion: 1.0.0\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n---\n";
+    const type = "---\nkind: mdbase.type\nname: task\nversion: 1\n---\n";
     const pack = defineTypePack({
       id: "example.tasks",
       version: "1.0.0",
-      resources: [{
-        kind: "type",
-        source: "_types/task.md",
-        document
-      }],
-      provides: [{ id: "example.work-item", version: "1.0.0" }]
+      resources: [
+        {
+          kind: "contract",
+          mode: "managed",
+          source: "_contracts/example.work-item.md",
+          document: contract
+        },
+        {
+          kind: "type",
+          mode: "seed",
+          source: "_types/task.md",
+          document: type
+        }
+      ]
     });
-    expect(pack.manifest.resources[0]).toEqual({
+    expect(pack.manifest.resources[1]).toEqual({
       kind: "type",
+      mode: "seed",
       source: "_types/task.md",
       target: "_types/task.md",
-      digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
+      digest: `sha256:${createHash("sha256").update(type).digest("hex")}`
     });
+    expect(pack.provides).toEqual([{
+      id: "example.work-item",
+      version: "1.0.0",
+      digest: "sha256:e3746db7f1f74be3e2621ee6dd87d6b6c56294cdd2e13de117f959c0f305f8ab"
+    }]);
     expect(() => defineTypePack({
       id: "invalid",
       version: "1",
-      resources: [],
-      provides: []
+      resources: []
     })).toThrow(TypePackDefinitionError);
+    expect(() => defineTypePack({
+      id: "example.seed-contract",
+      version: "1.0.0",
+      resources: [{
+        kind: "contract",
+        mode: "seed",
+        source: "_contracts/example.work-item.md",
+        document: contract
+      }]
+    })).toThrow("contract resources must be managed");
   });
 
   it("validates addressable wire definitions", () => {

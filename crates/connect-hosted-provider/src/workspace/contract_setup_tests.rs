@@ -59,6 +59,7 @@ implements:
                 .map(
                     |(source, target, kind, document)| TypePackManifestResource {
                         kind: (*kind).to_string(),
+                        mode: if *kind == "type" { "seed" } else { "managed" }.to_string(),
                         source: (*source).to_string(),
                         target: (*target).to_string(),
                         digest: format!("sha256:{:x}", Sha256::digest(document.as_bytes())),
@@ -77,6 +78,7 @@ implements:
         provides: vec![ContractRequirement {
             id: "example.work-item".to_string(),
             version: "1.0.0".to_string(),
+            digest: format!("sha256:{:x}", Sha256::digest(contract.as_bytes())),
         }],
     }
 }
@@ -84,6 +86,7 @@ implements:
 #[test]
 fn maps_hosted_contracts_to_revisioned_existing_types() {
     let workspace = WorkingSet::materialize(super::tests::resources(), []).unwrap();
+    let provision = work_item_provision();
     let (types, _) = workspace.type_resources().unwrap();
     let task = types
         .iter()
@@ -93,6 +96,7 @@ fn maps_hosted_contracts_to_revisioned_existing_types() {
         contract: ContractRequirement {
             id: "example.work-item".to_string(),
             version: "1.0.0".to_string(),
+            digest: provision.provides[0].digest.clone(),
         },
         mode: ContractSetupMode::Existing {
             type_name: "task".to_string(),
@@ -103,12 +107,30 @@ fn maps_hosted_contracts_to_revisioned_existing_types() {
             binding: None,
         },
     };
-    let provision = work_item_provision();
+    let assessment = workspace
+        .assess_type_pack(&AssessTypePackInput {
+            provision: provision.clone(),
+            installed_by: "dev.mdbase.tests".to_string(),
+            adopt_resources: BTreeMap::new(),
+            preserve_seed_targets: ["_types/work_item.md".to_string()].into_iter().collect(),
+            target_overrides: BTreeMap::new(),
+            contract_setups: vec![setup.clone()],
+        })
+        .unwrap();
     let installed = workspace
-        .install_type_packs_with_contract_setups(
-            std::slice::from_ref(&provision),
-            std::slice::from_ref(&setup),
-        )
+        .apply_type_pack(&ApplyTypePackInput {
+            provision: provision.clone(),
+            installed_by: "dev.mdbase.tests".to_string(),
+            adopt_resources: BTreeMap::new(),
+            preserve_seed_targets: ["_types/work_item.md".to_string()].into_iter().collect(),
+            target_overrides: BTreeMap::new(),
+            contract_setups: vec![setup.clone()],
+            expected_assessment_digest: assessment.result["assessment_digest"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            allow_downgrade: false,
+        })
         .unwrap();
     assert!(installed.valid, "{:?}", installed.diagnostics);
     assert!(workspace.resource_document("_types/work_item.md").is_err());
@@ -117,15 +139,18 @@ fn maps_hosted_contracts_to_revisioned_existing_types() {
     let (_, contracts) = workspace.type_resources().unwrap();
     assert_eq!(contracts[0].implementations[0].type_name, "task");
     let retried = workspace
-        .install_type_packs_with_contract_setups(
-            std::slice::from_ref(&provision),
-            std::slice::from_ref(&setup),
-        )
+        .assess_type_pack(&AssessTypePackInput {
+            provision,
+            installed_by: "dev.mdbase.tests".to_string(),
+            adopt_resources: BTreeMap::new(),
+            preserve_seed_targets: ["_types/work_item.md".to_string()].into_iter().collect(),
+            target_overrides: BTreeMap::new(),
+            contract_setups: vec![setup],
+        })
         .unwrap();
     assert!(retried.valid, "{:?}", retried.diagnostics);
-    assert!(retried.result["resources"]
+    assert!(retried.result["contract_setups"]["resources"]
         .as_array()
         .unwrap()
-        .iter()
-        .all(|resource| resource["action"] == "unchanged"));
+        .is_empty());
 }

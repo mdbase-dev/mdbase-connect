@@ -10,7 +10,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import { ConnectOutcomeError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress } from "@mdbase-dev/connect";
+import { ConnectOutcomeError, type CollectionChange, type CollectionDescription, type CollectionTypeDescriptor, type MutationProgress, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
 import {
   useCallback,
   useDeferredValue,
@@ -112,6 +112,7 @@ interface Confirmation {
   confirmLabel: string;
   cancelLabel?: string;
   tone?: "default" | "danger";
+  initialFocus?: "confirm" | "cancel";
   onConfirm: () => void | Promise<void>;
 }
 
@@ -1568,9 +1569,55 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   }
 
   async function installCatalogPack(pack: ContractCatalogPack) {
-    const previousTypes = new Set(description?.types.map((type) => type.name) ?? []);
     const provision = await loadTypePackProvision(pack);
-    const installed = await gateway.installTypePack(provision);
+    const assessment = await gateway.assessTypePack(provision);
+    if (!assessment.applicable) {
+      const conflicts = assessment.resources.filter(({ action }) => action === "conflict");
+      const adoptable = conflicts.filter((resource) =>
+        resource.mode === "managed" && resource.current_digest && !resource.installed_digest);
+      if (adoptable.length && adoptable.length === conflicts.length) {
+        const adoptions = Object.fromEntries(adoptable.map((resource) => [
+          resource.target,
+          resource.current_digest!
+        ]));
+        setConfirmation({
+          title: `Let “${pack.displayName}” manage these definitions?`,
+          body: <>
+            <p>The collection has older unmanaged files at the pack’s managed paths.</p>
+            <ul>{adoptable.map((resource) => <li key={resource.target}><code>{resource.target}</code></li>)}</ul>
+            <p>The editor will replace these reviewed files and record their exact source, version, and digest in <code>mdbase.lock.yaml</code>. Future upgrades stop instead of overwriting an unexpected edit.</p>
+          </>,
+          confirmLabel: "Adopt and update",
+          cancelLabel: "Not now",
+          initialFocus: "cancel",
+          onConfirm: async () => {
+            try {
+              const reviewed = await gateway.assessTypePack(provision, adoptions);
+              if (!reviewed.applicable) {
+                throw new Error(reviewed.resources.find(({ action }) => action === "conflict")?.reason
+                  ?? "The definitions changed while they were being reviewed.");
+              }
+              await finishCatalogPackInstall(pack, provision, reviewed, adoptions);
+            } catch (error) {
+              setTypeError(gatewayError(error));
+            }
+          }
+        });
+        return;
+      }
+      throw new Error(conflicts[0]?.reason ?? "This pack conflicts with collection definitions.");
+    }
+    await finishCatalogPackInstall(pack, provision, assessment);
+  }
+
+  async function finishCatalogPackInstall(
+    pack: ContractCatalogPack,
+    provision: TypePackProvision,
+    assessment: TypePackAssessment,
+    adoptions: Record<string, string> = {}
+  ) {
+    const previousTypes = new Set(description?.types.map((type) => type.name) ?? []);
+    const installed = await gateway.applyTypePack(provision, assessment, adoptions);
     const next = await refreshDescription();
     const addedTypes = next.types.filter((type) => !previousTypes.has(type.name));
     const primaryType = pack.primaryType
@@ -1761,6 +1808,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       confirmLabel={confirmation.confirmLabel}
       cancelLabel={confirmation.cancelLabel}
       tone={confirmation.tone}
+      initialFocus={confirmation.initialFocus}
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}
@@ -2044,7 +2092,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         loading={contractCatalog.status === "loading"}
         error={contractCatalog.status === "error" ? contractCatalog.message : undefined}
         canInstall={Boolean(connectionSummary?.operations.some((operation) =>
-          operation === "all" || operation === "install_type_pack"
+          operation === "all" || operation === "apply_type_pack"
         ))}
         leadingActions={editorLeadingActions}
         onInstall={installCatalogPack}
@@ -2158,6 +2206,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       confirmLabel={confirmation.confirmLabel}
       cancelLabel={confirmation.cancelLabel}
       tone={confirmation.tone}
+      initialFocus={confirmation.initialFocus}
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}

@@ -45,7 +45,7 @@ export function neededProvisions(
 }
 
 export function hasContract(contracts: ContractRequirement[], required: ContractRequirement) { return contracts.some((contract) => sameContract(contract, required)); }
-function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version; }
+function sameContract(left: ContractRequirement, right: ContractRequirement) { return left.id === right.id && left.version === right.version && left.digest === right.digest; }
 export function provisionNames(provisions: TypePackProvision[]) {
   return provisions
     .map((provision) => provision.manifest.name ?? provision.manifest.id)

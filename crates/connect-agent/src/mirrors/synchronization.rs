@@ -72,6 +72,13 @@ impl MirrorManager {
         skip_if_busy: bool,
     ) -> Result<(), ConnectError> {
         let _guard = self.begin_operation(entry.replica_id, skip_if_busy)?;
+        self.sync_entry_exclusive(entry).await
+    }
+
+    pub(super) async fn sync_entry_exclusive(
+        &self,
+        entry: MirrorRegistryEntry,
+    ) -> Result<(), ConnectError> {
         let result = async {
             let mirror = self.mirror(&entry).await?;
             mirror.sync().await.map_err(from_mirror)
@@ -113,7 +120,22 @@ impl MirrorManager {
         Ok(MirrorOperationGuard {
             replica_id,
             syncing: &self.syncing,
+            operation_finished: &self.operation_finished,
         })
+    }
+
+    pub(super) async fn begin_operation_waiting(
+        &self,
+        replica_id: Uuid,
+    ) -> Result<MirrorOperationGuard<'_>, ConnectError> {
+        loop {
+            let finished = self.operation_finished.notified();
+            match self.begin_operation(replica_id, false) {
+                Ok(guard) => return Ok(guard),
+                Err(error) if error.code() == "mirror_busy" => finished.await,
+                Err(error) => return Err(error),
+            }
+        }
     }
 
     pub(super) async fn mirror(

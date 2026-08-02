@@ -478,6 +478,9 @@ mod tests {
         ApplicationAccess, ContractRequirement, GrantPolicy, GrantScope, NotificationCriterion,
         NotificationPresentation, RuntimeExpression,
     };
+    use mdbase_connect_runtime::{
+        RECORD_MODIFIED_EVENT_DIGEST, RECORD_MODIFIED_EVENT_ID, TIMER_EVENT_DIGEST,
+    };
     use rusqlite::Connection;
     use serde_json::json;
     use tempfile::tempdir;
@@ -543,8 +546,9 @@ mod tests {
             notification_criteria: vec![NotificationCriterion {
                 id: "task.ready".to_string(),
                 event: ContractRequirement {
-                    id: "mdbase.record.modified".to_string(),
+                    id: RECORD_MODIFIED_EVENT_ID.to_string(),
                     version: "1.0.0".to_string(),
+                    digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
                 },
                 r#if: Some(RuntimeExpression {
                     expression: "event.data.changed_fields.size() > 0".to_string(),
@@ -625,8 +629,9 @@ mod tests {
                     NotificationCriterion {
                         id: "task.ready".to_string(),
                         event: ContractRequirement {
-                            id: "mdbase.record.modified".to_string(),
+                            id: RECORD_MODIFIED_EVENT_ID.to_string(),
                             version: "1.0.0".to_string(),
+                            digest: RECORD_MODIFIED_EVENT_DIGEST.to_string(),
                         },
                         r#if: None,
                         debounce: None,
@@ -642,6 +647,7 @@ mod tests {
                         event: ContractRequirement {
                             id: TIMER_EVENT_ID.to_string(),
                             version: "1.0.0".to_string(),
+                            digest: TIMER_EVENT_DIGEST.to_string(),
                         },
                         r#if: None,
                         debounce: None,
@@ -696,7 +702,7 @@ mod tests {
                 collection_id: collection.id,
                 cursor: 9,
                 event: mdbase::watch::WatchEvent {
-                    event_type: "mdbase.record.modified".to_string(),
+                    event_type: RECORD_MODIFIED_EVENT_ID.to_string(),
                     sequence: 4,
                     occurred_at: "2026-07-24T00:00:00Z".to_string(),
                     payload: json!({
@@ -847,6 +853,7 @@ mod tests {
                     event: ContractRequirement {
                         id: TIMER_EVENT_ID.to_string(),
                         version: "1.0.0".to_string(),
+                        digest: format!("sha256:{}", "0".repeat(64)),
                     },
                     r#if: None,
                     debounce: None,

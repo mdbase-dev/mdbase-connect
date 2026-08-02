@@ -292,6 +292,7 @@ fn test_grant(collection_id: Uuid) -> GrantSummary {
             event: ContractRequirement {
                 id: "mdbase.record.modified".to_string(),
                 version: "1.0.0".to_string(),
+                digest: format!("sha256:{}", "0".repeat(64)),
             },
             r#if: None,
             debounce: None,

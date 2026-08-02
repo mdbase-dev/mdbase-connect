@@ -220,7 +220,12 @@ impl MirrorManager {
                 "resumed": true
             }));
         }
-        self.sync_entry(entry.clone(), false).await?;
+        // Promotion is a state transition, not a best-effort sync command.
+        // Wait for any background pass, then hold the same operation fence
+        // through the final sync and durable promotion checkpoint so another
+        // pass cannot race the authority handoff.
+        let _guard = self.begin_operation_waiting(entry.replica_id).await?;
+        self.sync_entry_exclusive(entry.clone()).await?;
         self.build_mirror(&entry, "promotion-manifest-does-not-use-a-credential")?
             .authority_promotion_manifest()
             .map_err(from_mirror)?;

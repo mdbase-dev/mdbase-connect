@@ -32,7 +32,7 @@ const catalogDocument = {
     description: "Contact contract and type.",
     digest,
     provision: "./packs/contacts.json",
-    provides: [{ id: "mdbase.contact", version: "1.0.0" }],
+    provides: [{ id: "mdbase.contact", version: "1.0.0", digest }],
     resource_count: 2,
     display: {
       name: "Contact",
@@ -97,8 +97,8 @@ describe("contract catalog", () => {
       packs: [{
         ...catalogDocument.packs[0],
         provides: [
-          { id: "mdbase.contact", version: "1.0.0" },
-          { id: "mdbase.person", version: "1.0.0" }
+          { id: "mdbase.contact", version: "1.0.0", digest },
+          { id: "mdbase.person", version: "1.0.0", digest: `sha256:${"b".repeat(64)}` }
         ]
       }]
     }, "https://mdbase.dev/contracts/catalog.json");
@@ -107,15 +107,15 @@ describe("contract catalog", () => {
     expect(contractCatalogPackStatus(pack, [])).toBe("available");
     expect(contractCatalogPackStatus(
       pack,
-      [{ id: "mdbase.contact", version: "1.0.0" }]
+      [{ id: "mdbase.contact", version: "1.0.0", digest }]
     ))
       .toBe("partial");
     expect(contractCatalogPackStatus(pack, pack.provides, [{ name: "contact" }]))
       .toBe("installed");
   });
 
-  it("keeps catalog v1 packs readable with conservative presentation defaults", () => {
-    const legacy = parseContractCatalog({
+  it("rejects the obsolete catalog v1 shape", () => {
+    expect(() => parseContractCatalog({
       ...catalogDocument,
       catalog_version: 1,
       packs: [{
@@ -125,18 +125,11 @@ describe("contract catalog", () => {
         description: "Contact contract and type.",
         digest,
         provision: "./packs/contacts.json",
-        provides: [{ id: "mdbase.contact", version: "1.0.0" }],
+        provides: [{ id: "mdbase.contact", version: "1.0.0", digest }],
         resource_count: 2,
         featured: true
       }]
-    }, "https://mdbase.dev/contracts/catalog.json");
-
-    expect(legacy.packs[0]).toMatchObject({
-      displayName: "Contacts",
-      visibility: "default",
-      recommendation: "optional",
-      installedTypes: []
-    });
+    }, "https://mdbase.dev/contracts/catalog.json")).toThrow("unsupported version");
   });
 
   it("loads a catalog pack only when its bytes and declared resources match", async () => {
@@ -152,12 +145,14 @@ describe("contract catalog", () => {
         resources: [
           {
             kind: "contract",
+            mode: "managed",
             source: "contracts/contact.md",
             target: "_contracts/contact.md",
             digest
           },
           {
             kind: "type",
+            mode: "seed",
             source: "types/contact.md",
             target: "_types/contact.md",
             digest
@@ -201,12 +196,14 @@ describe("contract catalog", () => {
         resources: [
           {
             kind: "contract",
+            mode: "managed",
             source: "contracts/contact.md",
             target: "../outside.md",
             digest
           },
           {
             kind: "type",
+            mode: "seed",
             source: "types/contact.md",
             target: "_types/contact.md",
             digest

@@ -359,6 +359,7 @@ fn contract_setup_choices_have_an_explicit_discriminated_wire_shape() {
     let contract = ContractRequirement {
         id: "example.task".to_string(),
         version: "1.0.0".to_string(),
+        digest: format!("sha256:{}", "0".repeat(64)),
     };
     let choices = [
         ContractSetupChoice {
@@ -381,11 +382,19 @@ fn contract_setup_choices_have_an_explicit_discriminated_wire_shape() {
         serde_json::to_value(choices).unwrap(),
         serde_json::json!([
             {
-                "contract": { "id": "example.task", "version": "1.0.0" },
+                "contract": {
+                    "id": "example.task",
+                    "version": "1.0.0",
+                    "digest": format!("sha256:{}", "0".repeat(64))
+                },
                 "mode": "starter"
             },
             {
-                "contract": { "id": "example.task", "version": "1.0.0" },
+                "contract": {
+                    "id": "example.task",
+                    "version": "1.0.0",
+                    "digest": format!("sha256:{}", "0".repeat(64))
+                },
                 "mode": "existing",
                 "type_name": "task",
                 "type_revision": format!("sha256:{}", "1".repeat(64)),
@@ -471,7 +480,7 @@ fn rust_relay_messages_match_the_canonical_wire_schema() {
     for message in [
         RelayMessage::RelayHello {
             protocol_version: CONTROL_PROTOCOL_VERSION,
-            connector_version: "0.1.0-beta.24".to_string(),
+            connector_version: "0.1.0-beta.25".to_string(),
             capabilities: RELAY_CAPABILITIES
                 .iter()
                 .map(|value| (*value).to_string())

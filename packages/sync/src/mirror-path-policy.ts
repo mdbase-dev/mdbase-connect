@@ -72,6 +72,9 @@ export function validateSnapshotResources(
     let valid = false;
     if (resource.kind === "configuration") {
       valid = resource.path === "mdbase.yaml";
+    } else if (resource.kind === "lock") {
+      valid = resource.path === "mdbase.lock.yaml"
+        && isTypePackLock(resource.document);
     } else if (resource.kind === "type") {
       valid = isBelow(resource.path, typesFolder)
         && extension === "md"
@@ -216,6 +219,20 @@ function parseJsonObject(document: string): object | null {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
   } catch {
     return null;
+  }
+}
+
+function isTypePackLock(document: string): boolean {
+  try {
+    const value: unknown = parse(document);
+    return value !== null
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && (value as Record<string, unknown>).kind === "mdbase.type-pack-lock"
+      && (value as Record<string, unknown>).lock_version === 1
+      && Array.isArray((value as Record<string, unknown>).packs);
+  } catch {
+    return false;
   }
 }
 

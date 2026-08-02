@@ -6,6 +6,8 @@ import {
 } from "./manifest.js";
 import { canonicalJson, canonicalSha256 } from "./canonical-json.js";
 
+const TEST_CONTRACT_DIGEST = `sha256:${"0".repeat(64)}`;
+
 describe("canonical protocol JSON", () => {
   it("hashes equivalent objects identically regardless of insertion order", () => {
     const left = { z: 1, a: { beta: true, alpha: ["x", 2] } };
@@ -93,7 +95,11 @@ describe("portable application manifests", () => {
       project_url: "https://workouts.example/source",
       icon: "https://workouts.example/icon.svg",
       requirements: {
-        contracts: [{ id: "workout.record", version: "1.0.0" }]
+        contracts: [{
+          id: "workout.record",
+          version: "1.0.0",
+          digest: TEST_CONTRACT_DIGEST
+        }]
       }
     });
 
@@ -101,7 +107,11 @@ describe("portable application manifests", () => {
       distribution: "portable",
       project_url: "https://workouts.example/source",
       requirements: {
-        contracts: [{ id: "workout.record", version: "1.0.0" }]
+        contracts: [{
+          id: "workout.record",
+          version: "1.0.0",
+          digest: TEST_CONTRACT_DIGEST
+        }]
       }
     });
     expect(registered.canonicalIdentity)

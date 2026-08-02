@@ -165,13 +165,14 @@ fn requirements_can_be_provisioned(
     available: &[mdbase_connect_protocol::CollectionContractDescriptor],
 ) -> bool {
     requirements.contracts.iter().all(|required| {
-        available
+        available.iter().any(|contract| {
+            contract.id == required.id
+                && contract.version == required.version
+                && contract.digest == required.digest
+        }) || provisions
+            .type_packs
             .iter()
-            .any(|contract| contract.id == required.id && contract.version == required.version)
-            || provisions
-                .type_packs
-                .iter()
-                .any(|provision| provision.provides.contains(required))
+            .any(|provision| provision.provides.contains(required))
     })
 }
 

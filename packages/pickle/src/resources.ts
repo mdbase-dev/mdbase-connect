@@ -43,6 +43,10 @@ record_schema:
 ---
 `;
 
+/** Semantic digest of the resolved Pickle request contract, pinned by consumers. */
+export const PICKLE_REQUEST_CONTRACT_DIGEST =
+  "sha256:5a96bbda301de6ec2f71a5083f62769463b4e613ed8ba860d62170b8c810db61";
+
 export const PICKLE_REQUEST_TYPE_DOCUMENT = `---
 kind: mdbase.type
 name: pickle_request
@@ -216,24 +220,28 @@ export const PICKLE_TYPE_PACK_PROVISION = {
     resources: [
       {
         kind: "contract",
+        mode: "managed",
         source: "contracts/pickle.request.md",
         target: "_contracts/pickle.request.md",
         digest: "sha256:caf9ee290e98ef51f871a1237b38531168aa1b74640241ce6edece4c2bff66f1"
       },
       {
         kind: "type",
+        mode: "seed",
         source: "types/pickle_request.md",
         target: "_types/pickle_request.md",
         digest: "sha256:7f84e359a5a3b7d23dd3471c7557f67cb8a80eb553184db83c4750b2af5761e4"
       },
       {
         kind: "type",
+        mode: "seed",
         source: "types/pickle_response_approval.md",
         target: "_types/pickle_response_approval.md",
         digest: "sha256:944d2b68c158297f5d2a035fa6ff3c81a7098531f77a9bc3342dc9435ffcb8b8"
       },
       {
         kind: "type",
+        mode: "seed",
         source: "types/pickle_response_ack.md",
         target: "_types/pickle_response_ack.md",
         digest: "sha256:2530c8d21bb711889f20e0d096045cb6c9a7618583b1e2afff7ada72367de41f"
@@ -258,5 +266,9 @@ export const PICKLE_TYPE_PACK_PROVISION = {
       document: PICKLE_ACK_RESPONSE_TYPE_DOCUMENT
     }
   ],
-  provides: [{ id: "pickle.request", version: "1.0.0" }]
+  provides: [{
+    id: "pickle.request",
+    version: "1.0.0",
+    digest: PICKLE_REQUEST_CONTRACT_DIGEST
+  }]
 } as const;

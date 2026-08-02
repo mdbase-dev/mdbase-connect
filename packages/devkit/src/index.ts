@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+import { parseDocument } from "yaml";
 import {
   MdbaseCollectionClient,
   connectError,
@@ -122,6 +123,8 @@ export class DataContractDefinitionError extends Error {
 
 export interface TypePackResourceInput {
   kind: "contract" | "type" | "schema";
+  /** Managed resources evolve with the pack; seed resources become user-owned after creation. */
+  mode: "managed" | "seed";
   source: string;
   /** Collection-relative install location. Defaults to `source`. */
   target?: string;
@@ -135,7 +138,6 @@ export interface TypePackDefinition {
   name?: string;
   description?: string;
   resources: TypePackResourceInput[];
-  provides: Array<{ id: string; version: string }>;
 }
 
 /**
@@ -144,6 +146,23 @@ export interface TypePackDefinition {
  * developers to calculate SHA-256 values by hand.
  */
 export function defineTypePack(definition: TypePackDefinition): TypePackProvision {
+  const provides = definition.resources
+    .map((resource, index) => ({ resource, index }))
+    .filter(({ resource }) => resource.kind === "contract")
+    .map(({ resource, index }) => {
+      if (resource.mode !== "managed") {
+        throw new TypePackDefinitionError([definitionIssue(
+          `/resources/${index}/mode`,
+          "contract_resource_mode",
+          "contract resources must be managed so their declared version and digest can evolve with the pack"
+        )]);
+      }
+      return exactContractReferenceFromDocument(resource.document, index);
+    })
+    .sort((left, right) =>
+      left.id.localeCompare(right.id)
+      || left.version.localeCompare(right.version)
+      || left.digest.localeCompare(right.digest));
   const provision: TypePackProvision = {
     manifest: {
       kind: "mdbase.type-pack",
@@ -151,20 +170,86 @@ export function defineTypePack(definition: TypePackDefinition): TypePackProvisio
       version: definition.version,
       ...(definition.name ? { name: definition.name } : {}),
       ...(definition.description ? { description: definition.description } : {}),
-      resources: definition.resources.map(({ kind, source, target = source, document }) => ({
+      resources: definition.resources.map(({ kind, mode, source, target = source, document }) => ({
         kind,
+        mode,
         source,
         target,
         digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
       }))
     },
     resources: definition.resources.map(({ source, document }) => ({ source, document })),
-    provides: definition.provides.map((contract) => ({ ...contract }))
+    provides
   };
   const result = validateProtocolValue(provision, "typePackProvision");
   if (!result.valid) throw new TypePackDefinitionError(result.issues);
   return provision;
 }
+
+function exactContractReferenceFromDocument(
+  document: string,
+  resourceIndex: number
+): { id: string; version: string; digest: string } {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(document)?.[1];
+  if (frontmatter === undefined) {
+    throw new TypePackDefinitionError([definitionIssue(
+      `/resources/${resourceIndex}/document`,
+      "contract_frontmatter",
+      "contract resources must contain YAML frontmatter"
+    )]);
+  }
+  const parsed = parseDocument(frontmatter, { uniqueKeys: true });
+  if (parsed.errors.length > 0) {
+    throw new TypePackDefinitionError([definitionIssue(
+      `/resources/${resourceIndex}/document`,
+      "contract_frontmatter",
+      `contract frontmatter is invalid: ${parsed.errors[0]?.message ?? "unknown YAML error"}`
+    )]);
+  }
+  const contract = parsed.toJS({ maxAliasCount: 0 }) as unknown;
+  const validation = validateDataContract(contract);
+  if (!validation.valid) throw new DataContractDefinitionError(validation.issues);
+  const value = contract as Record<string, unknown>;
+  return {
+    id: String(value.id),
+    version: String(value.version),
+    digest: dataContractDigest(value)
+  };
+}
+
+/** Compute the portable semantic digest of one validated, fully resolved contract. */
+export function dataContractDigest(contract: Record<string, unknown>): string {
+  const validation = validateDataContract(contract);
+  if (!validation.valid) throw new DataContractDefinitionError(validation.issues);
+  const contractType = String(contract.contract_type);
+  const portable: Record<string, unknown> = {
+    kind: contract.kind,
+    contract_type: contract.contract_type,
+    id: contract.id,
+    version: contract.version
+  };
+  const schemaFields = contractType === "record"
+    ? ["record_schema", "binding_schema"]
+    : contractType === "event"
+      ? ["data_schema", "source_schema"]
+      : ["input_schema", "output_schema", "error_schema", "provider_schema"];
+  for (const field of schemaFields) {
+    const wrapper = contract[field];
+    if (wrapper === undefined) continue;
+    if (!isRecord(wrapper) || !("value" in wrapper)) {
+      throw new DataContractDigestError(
+        `${field} must be resolved to an inline JSON Schema before calculating a contract digest.`
+      );
+    }
+    portable[field] = structuredClone(wrapper.value);
+  }
+  if (contractType === "action" && contract.behavior !== undefined) {
+    portable.behavior = structuredClone(contract.behavior);
+  }
+  return `sha256:${createHash("sha256").update(canonicalJson(portable)).digest("hex")}`;
+}
+
+export class DataContractDigestError extends Error {}
 
 export class TypePackDefinitionError extends Error {
   constructor(public readonly issues: ValidationIssue[]) {
@@ -642,13 +727,35 @@ function semanticIssue(path: string, message: string): ValidationResult {
   };
 }
 
+function definitionIssue(
+  path: string,
+  keyword: string,
+  message: string
+): ValidationIssue {
+  return { path, keyword, message, params: {} };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+    .join(",")}}`;
+}
+
 function sandboxDescription(value: Partial<CollectionDescription> = {}): CollectionDescription {
   return {
     protocol_version: 1,
     collection_id: value.collection_id ?? "01900000-0000-7000-8000-000000000001",
     display_name: value.display_name ?? "Developer sandbox",
     spec_version: value.spec_version ?? "0.3.0",
-    operations: value.operations ?? ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "install_type_pack"],
+    operations: value.operations ?? ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "apply_type_pack"],
     change_cursor: value.change_cursor ?? 0,
     types: clone(value.types ?? []),
     contracts: clone(value.contracts ?? [])

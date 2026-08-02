@@ -18,6 +18,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { chromium, expect } from "@playwright/test";
+import {
+  MDBASE_RECORD_CREATED_CONTRACT,
+  MDBASE_TIMER_FIRED_CONTRACT
+} from "../packages/protocol/dist/index.js";
 
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
@@ -152,7 +156,10 @@ try {
   const provisionedTypes = await internalRequest(
     provider.url,
     `/internal/v1/collections/${provisionCollectionId}/type-packs/provision`,
-    { method: "POST", body: { type_packs: [typeProvision] } }
+    {
+      method: "POST",
+      body: { type_packs: [typeProvision], installed_by: "dev.mdbase.provider-e2e" }
+    }
   );
   assert.equal(provisionedTypes.contracts[0]?.id, "workout.record");
   assert.equal(provisionedTypes.contracts[0]?.version, "1.0.0");
@@ -163,7 +170,10 @@ try {
   const repeatedProvision = await internalRequest(
     provider.url,
     `/internal/v1/collections/${provisionCollectionId}/type-packs/provision`,
-    { method: "POST", body: { type_packs: [typeProvision] } }
+    {
+      method: "POST",
+      body: { type_packs: [typeProvision], installed_by: "dev.mdbase.provider-e2e" }
+    }
   );
   assert.equal(repeatedProvision.contracts.length, 1);
 
@@ -473,12 +483,12 @@ try {
         notification_criteria: [
           {
             id: "task.created",
-            event: { id: "mdbase.record.created", version: "1.0.0" },
+            event: MDBASE_RECORD_CREATED_CONTRACT,
             presentation: { title: "A task was created" }
           },
           {
             id: "task.reminder",
-            event: { id: "mdbase.runtime.timer.fired", version: "1.0.0" },
+            event: MDBASE_TIMER_FIRED_CONTRACT,
             presentation: { title: "Task reminder" }
           }
         ],
@@ -1015,7 +1025,7 @@ try {
   assert.ok(emptyCookie);
   const inlineManifest = await openManifestServer({
     name: "Workout Inline E2E",
-    requirements: { contracts: [{ id: "workout.record", version: "1.0.0" }] },
+    requirements: { contracts: [typeProvision.provides[0]] },
     provisions: { type_packs: [typeProvision] }
   });
   try {
@@ -3927,6 +3937,22 @@ async function postgresQuery(sql) {
 function workItemTypePack({ packId, name, contractId, types }) {
   const version = "1.0.0";
   const contractSource = `_contracts/${contractId}.md`;
+  const contractSchema = {
+    type: "object",
+    required: ["title", "status"],
+    additionalProperties: false,
+    properties: {
+      title: { type: "string", minLength: 1 },
+      status: { enum: ["open", "done"] }
+    }
+  };
+  const contractDigest = semanticContractDigest({
+    kind: "mdbase.contract",
+    contract_type: "record",
+    id: contractId,
+    version,
+    record_schema: { value: contractSchema }
+  });
   const contractDocument = `---
 kind: mdbase.contract
 contract_type: record
@@ -3980,14 +4006,36 @@ implements:
       name,
       resources: resources.map(({ source, document }) => ({
         kind: source.startsWith("_contracts/") ? "contract" : "type",
+        mode: source.startsWith("_contracts/") ? "managed" : "seed",
         source,
         target: source,
         digest: `sha256:${createHash("sha256").update(document).digest("hex")}`
       }))
     },
     resources,
-    provides: [{ id: contractId, version }]
+    provides: [{ id: contractId, version, digest: contractDigest }]
   };
+}
+
+function semanticContractDigest(contract) {
+  const portable = {
+    kind: contract.kind,
+    contract_type: contract.contract_type,
+    id: contract.id,
+    version: contract.version,
+    record_schema: contract.record_schema.value
+  };
+  return `sha256:${createHash("sha256").update(canonicalJson(portable)).digest("hex")}`;
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+    .join(",")}}`;
 }
 
 async function registerReplica(url, cookie, collectionId, name, mode, allowedTypes) {
@@ -4110,7 +4158,10 @@ function provisionTypes(url, collectionId, typePacks) {
   return internalRequest(
     url,
     `/internal/v1/collections/${collectionId}/type-packs/provision`,
-    { method: "POST", body: { type_packs: typePacks } }
+    {
+      method: "POST",
+      body: { type_packs: typePacks, installed_by: "dev.mdbase.provider-e2e" }
+    }
   );
 }
 
