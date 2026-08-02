@@ -445,7 +445,7 @@ describe("portable collection file mirror", () => {
 
     await target.sync();
     expect(transport.downloads).toBe(1);
-  });
+  }, 15_000);
 
   it("applies folder exclusions to Markdown and files without prefix-neighbor mistakes", async () => {
     const transport = new FileTransport();

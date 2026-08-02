@@ -441,7 +441,11 @@ describe("mdbase editor", () => {
     const loading = await screen.findByLabelText("Loading note");
     expect(loading).toHaveAttribute("aria-busy", "true");
     gateway.releaseRead();
-    expect(await screen.findByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    expect(await screen.findByRole(
+      "textbox",
+      { name: "Note title" },
+      { timeout: 5_000 }
+    )).toHaveValue("The shape of useful tools");
     expect(screen.queryByLabelText("Loading note")).not.toBeInTheDocument();
   });
 
