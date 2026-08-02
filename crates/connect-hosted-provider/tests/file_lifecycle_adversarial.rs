@@ -1,6 +1,8 @@
 mod support;
 
-use mdbase_connect_hosted_provider::HostedProvider;
+use std::sync::Arc;
+
+use mdbase_connect_hosted_provider::{HostedBackupAdmin, HostedProvider};
 use sqlx::Executor;
 use support::{
     assert_storage_consistent, wait_for_database_condition, wait_for_query_blocked, CopyCheckpoint,
@@ -27,8 +29,101 @@ async fn adversarial_file_lifecycle_scenarios() {
     commit_wins_maintenance_loses(&database_url).await;
     maintenance_recovers_abandoned_open_upload(&database_url).await;
     maintenance_retries_object_deletion_after_outage(&database_url).await;
+    backup_hold_fences_in_flight_and_future_deletions(&database_url).await;
     duplicate_commit_is_idempotent(&database_url).await;
     duplicate_commit_across_providers_is_idempotent(&database_url).await;
+}
+
+async fn backup_hold_fences_in_flight_and_future_deletions(database_url: &str) {
+    let fixture = FileLifecycleFixture::new(database_url).await;
+    let in_flight_key = format!("v1/blobs/{}/backup-race", fixture.collection_id);
+    fixture.blobs.put(&in_flight_key, b"already queued").await;
+    enqueue_test_deletion(&fixture, &in_flight_key).await;
+    fixture.blobs.arm_delete().await;
+
+    let provider = fixture.provider.clone();
+    let deletion = tokio::spawn(async move { provider.delete_pending_blobs(10).await });
+    fixture.blobs.wait_for_delete().await;
+
+    let admin = Arc::new(
+        HostedBackupAdmin::connect(database_url)
+            .await
+            .expect("backup admin connects"),
+    );
+    let acquiring_admin = Arc::clone(&admin);
+    let mut acquire = tokio::spawn(async move { acquiring_admin.acquire(600).await });
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(150), &mut acquire)
+            .await
+            .is_err(),
+        "hold acquisition waits for an in-flight object deletion"
+    );
+
+    fixture.blobs.release_delete().await;
+    assert_eq!(
+        deletion
+            .await
+            .expect("deletion task joins")
+            .expect("queued deletion succeeds"),
+        1
+    );
+    assert!(!fixture.blobs.contains(&in_flight_key).await);
+    let hold = acquire
+        .await
+        .expect("hold task joins")
+        .expect("hold is acquired after deletion finishes");
+
+    let held_key = format!("v1/blobs/{}/held", fixture.collection_id);
+    fixture.blobs.put(&held_key, b"must survive the hold").await;
+    enqueue_test_deletion(&fixture, &held_key).await;
+    assert_eq!(
+        fixture
+            .provider
+            .delete_pending_blobs(10)
+            .await
+            .expect("maintenance observes the hold"),
+        0
+    );
+    assert!(fixture.blobs.contains(&held_key).await);
+    assert_eq!(
+        admin.inspect().await.expect("hold inventory").active_holds,
+        1
+    );
+    assert!(
+        !admin
+            .release(Uuid::now_v7())
+            .await
+            .expect("unknown release is idempotent")
+            .released
+    );
+    assert!(
+        admin
+            .release(hold.hold_id)
+            .await
+            .expect("hold releases")
+            .released
+    );
+    assert_eq!(
+        fixture
+            .provider
+            .delete_pending_blobs(10)
+            .await
+            .expect("maintenance resumes after release"),
+        1
+    );
+    assert!(!fixture.blobs.contains(&held_key).await);
+}
+
+async fn enqueue_test_deletion(fixture: &FileLifecycleFixture, key: &str) {
+    sqlx::query(
+        r#"INSERT INTO hosted_provider_blob_deletions
+             (object_key, byte_length, reason)
+           VALUES ($1, 0, 'backup_hold_test')"#,
+    )
+    .bind(key)
+    .execute(&fixture.pool)
+    .await
+    .expect("test deletion is queued");
 }
 
 async fn commit_wins_abort_loses(database_url: &str) {

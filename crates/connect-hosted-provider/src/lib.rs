@@ -1,3 +1,4 @@
+mod backup_admin;
 mod blob_store;
 mod crypto;
 mod error;
@@ -10,6 +11,7 @@ mod symmetric_crypto;
 mod template;
 mod workspace;
 
+pub use backup_admin::{BackupHold, BackupHoldInventory, BackupHoldRelease, HostedBackupAdmin};
 pub use blob_store::{
     BlobByteStream, BlobStore, BlobStreamError, PresignedPart, R2BlobStore, R2Config, UploadedPart,
 };

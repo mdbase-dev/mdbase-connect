@@ -86,6 +86,7 @@ impl CopyGate {
 pub struct ControlledBlobStore {
     objects: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
     copy_gate: Arc<CopyGate>,
+    delete_gate: Arc<CopyGate>,
     delete_failures_remaining: Arc<Mutex<u32>>,
 }
 
@@ -116,6 +117,18 @@ impl ControlledBlobStore {
 
     pub async fn fail_next_delete(&self) {
         *self.delete_failures_remaining.lock().await += 1;
+    }
+
+    pub async fn arm_delete(&self) {
+        self.delete_gate.arm(CopyCheckpoint::BeforePublish).await;
+    }
+
+    pub async fn wait_for_delete(&self) {
+        self.delete_gate.wait_until_reached().await;
+    }
+
+    pub async fn release_delete(&self) {
+        self.delete_gate.release().await;
     }
 }
 
@@ -230,6 +243,9 @@ impl BlobStore for ControlledBlobStore {
             return Err(ApiError::internal("injected object deletion failure"));
         }
         drop(failures);
+        self.delete_gate
+            .checkpoint(CopyCheckpoint::BeforePublish)
+            .await;
         self.objects.lock().await.remove(key);
         Ok(())
     }

@@ -34,6 +34,7 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::{
+    backup_admin::lock_blob_deletion,
     blob_store::BlobStore,
     crypto::ProviderCrypto,
     error::{ApiError, ApiResult},

@@ -60,7 +60,10 @@ The production schema is normalized around these relations:
 - `hosted_replicas`: mode, contract/type scope, scope epoch, acknowledgement,
   credential state, and revocation;
 - `hosted_snapshot_leases`: bounded leases pinning an authority sequence and
-  resource revision while pages are downloaded.
+  resource revision while pages are downloaded; and
+- `hosted_provider_backup_holds`: short-lived administrative leases fencing
+  deletion of committed objects while a database export and object manifest
+  are captured.
 
 Canonical documents and retained content are encrypted with a per-collection
 data key. Type labels, identifiers, revisions, sequences, sizes, deletion state,
@@ -161,6 +164,33 @@ ordinary file transfers. It persists object-deletion intent before contacting
 R2, resumes interrupted multipart cleanup, and drains deletions only after
 rechecking that no durable file metadata references the object.
 
+## Consistent backup boundary
+
+The release image contains `mdbase-hosted-backup-admin` for coordinating a
+logical PostgreSQL export with the committed R2 objects named by that export:
+
+```bash
+mdbase-hosted-backup-admin acquire --ttl-seconds 14400
+mdbase-hosted-backup-admin inspect
+mdbase-hosted-backup-admin release --hold-id <uuid>
+```
+
+Acquisition takes a database advisory lock exclusively, so it waits for an R2
+deletion already in progress before creating the lease. Every queued committed
+object deletion takes the same lock in shared transaction mode, discards no
+object while any unexpired hold exists, and keeps its durable deletion intent
+for a later maintenance pass. The shared lock remains held through the object
+store call, closing the check/delete race across provider instances.
+
+Holds are limited to 60 seconds through six hours and expire in PostgreSQL if
+the backup worker disappears. Multiple holds compose safely: deletion resumes
+only after all of them are released or expired. Administrative output contains
+only hold IDs, timestamps, and aggregate counts. A backup must acquire the hold
+before exporting PostgreSQL, derive its committed-object manifest from that
+export, durably publish the database and every referenced object, and write its
+completion marker before releasing the hold. Disposable multipart and import
+staging objects are outside this recovery set.
+
 ## Mirrors and authority transfer
 
 Application caches and filesystem mirrors are replicas. Receive-only mirrors
@@ -198,7 +228,6 @@ path may not silently regress them.
 ## Deliberate non-goals for the first hosted release
 
 - multi-owner collaboration;
-- attachments and object storage;
 - billing;
 - private/zero-knowledge hosted collections;
 - peer-to-peer or multi-authority merging;

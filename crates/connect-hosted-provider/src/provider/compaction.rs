@@ -207,6 +207,10 @@ impl HostedProvider {
         for row in rows {
             let key: String = row.get("object_key");
             let mut transaction = self.pool.begin().await?;
+            if lock_blob_deletion(&mut transaction).await? {
+                transaction.commit().await?;
+                break;
+            }
             let claimed = sqlx::query_scalar::<_, String>(
                 "SELECT object_key FROM hosted_provider_blob_deletions WHERE object_key = $1 FOR UPDATE",
             )

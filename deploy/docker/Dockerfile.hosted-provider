@@ -28,6 +28,7 @@ RUN apt-get update \
 
 COPY --from=build /build/mdbase-connect/target/release/mdbase-connect-hosted-provider /usr/local/bin/
 COPY --from=build /build/mdbase-connect/target/release/mdbase-hosted-key-admin /usr/local/bin/
+COPY --from=build /build/mdbase-connect/target/release/mdbase-hosted-backup-admin /usr/local/bin/
 
 ENV HOST=0.0.0.0 \
     PORT=8790 \
