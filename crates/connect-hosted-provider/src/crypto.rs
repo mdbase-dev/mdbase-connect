@@ -1,17 +1,14 @@
-use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
-    Aes256Gcm, Nonce,
-};
 use base64::{engine::general_purpose, Engine as _};
 use rand_core::{OsRng, RngCore};
 use serde::{de::DeserializeOwned, Serialize};
 use subtle::ConstantTimeEq;
 
-use crate::error::{ApiError, ApiResult};
+use crate::{
+    error::{ApiError, ApiResult},
+    symmetric_crypto::{decrypt, encrypt},
+};
 
-const ENVELOPE_VERSION: u8 = 1;
 const KEY_BYTES: usize = 32;
-const NONCE_BYTES: usize = 12;
 const KEY_CHECK_PLAINTEXT: &[u8] = b"mdbase-connect-hosted-provider-key-check-v1";
 const KEY_CHECK_AAD: &[u8] = b"provider-key-check-v1";
 
@@ -104,51 +101,6 @@ impl ProviderCrypto {
     ) -> ApiResult<Vec<u8>> {
         decrypt(data_key, value, aad)
     }
-}
-
-fn encrypt(key: &[u8; KEY_BYTES], plaintext: &[u8], aad: &[u8]) -> ApiResult<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|_| ApiError::internal("The hosted encryption key is invalid."))?;
-    let mut nonce = [0_u8; NONCE_BYTES];
-    OsRng.fill_bytes(&mut nonce);
-    let nonce = Nonce::from(nonce);
-    let ciphertext = cipher
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: plaintext,
-                aad,
-            },
-        )
-        .map_err(|_| ApiError::internal("The hosted value could not be encrypted."))?;
-    let mut envelope = Vec::with_capacity(1 + NONCE_BYTES + ciphertext.len());
-    envelope.push(ENVELOPE_VERSION);
-    envelope.extend_from_slice(&nonce);
-    envelope.extend_from_slice(&ciphertext);
-    Ok(envelope)
-}
-
-fn decrypt(key: &[u8; KEY_BYTES], envelope: &[u8], aad: &[u8]) -> ApiResult<Vec<u8>> {
-    if envelope.len() <= 1 + NONCE_BYTES || envelope[0] != ENVELOPE_VERSION {
-        return Err(ApiError::internal(
-            "The hosted ciphertext envelope is invalid.",
-        ));
-    }
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|_| ApiError::internal("The hosted encryption key is invalid."))?;
-    let nonce_bytes: [u8; NONCE_BYTES] = envelope[1..1 + NONCE_BYTES]
-        .try_into()
-        .map_err(|_| ApiError::internal("The hosted ciphertext envelope is invalid."))?;
-    let nonce = Nonce::from(nonce_bytes);
-    cipher
-        .decrypt(
-            &nonce,
-            Payload {
-                msg: &envelope[1 + NONCE_BYTES..],
-                aad,
-            },
-        )
-        .map_err(|_| ApiError::internal("The hosted ciphertext failed authentication."))
 }
 
 fn invalid_master_key() -> ApiError {
