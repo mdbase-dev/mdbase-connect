@@ -12,6 +12,11 @@ import {
   FILE_TRANSFER_PROTOCOL_VERSION,
   RELAY_CAPABILITIES
 } from "../packages/protocol/dist/index.js";
+import { MemoryGrantKeyStore } from "../packages/client/dist/crypto.js";
+import {
+  applicationInstallationId,
+  signApplicationAuthorization
+} from "../packages/client/dist/index.js";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -188,8 +193,8 @@ try {
     scope_epoch: 1,
     connector_id: fixture.connectorId,
     collection_id: fixture.localCollectionId,
-    application_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url"),
-    connector_agreement_public_key: Buffer.concat([Buffer.from([4]), randomBytes(64)]).toString("base64url")
+    application_agreement_public_key: fixture.grantAgreementPublicKey,
+    connector_agreement_public_key: fixture.connectorAgreementPublicKey
   };
   await database.query(
     `UPDATE grants
@@ -426,8 +431,43 @@ async function seed(db, hash) {
   const localCollectionId = randomUUID();
   const applicationId = randomUUID();
   const grantId = randomUUID();
+  const authorizationId = randomUUID();
   const connectorToken = `con_${randomBytes(32).toString("base64url")}`;
   const accessToken = `acc_${randomBytes(32).toString("base64url")}`;
+  const keyStore = new MemoryGrantKeyStore();
+  const installationKey = await keyStore.create(`relay-e2e-installation:${applicationId}`);
+  const grantKey = await keyStore.create(`relay-e2e-grant:${grantId}`);
+  const connectorKey = await keyStore.create(`relay-e2e-connector:${connectorId}`);
+  const issuedAt = new Date();
+  const applicationAuthorization = await signApplicationAuthorization({
+    protocol_version: 1,
+    authorization_id: authorizationId,
+    application_id: applicationId,
+    application_manifest_digest: "00".repeat(32),
+    application_installation_id: await applicationInstallationId(installationKey),
+    installation_agreement_public_key: installationKey.agreementPublicKey,
+    installation_signing_public_key: installationKey.signingPublicKey,
+    grant_agreement_public_key: grantKey.agreementPublicKey,
+    grant_signing_public_key: grantKey.signingPublicKey,
+    flow: "authorization_code",
+    authorization_nonce: randomBytes(32).toString("base64url"),
+    issued_at: issuedAt.toISOString(),
+    expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
+    redirect_uri: "https://relay-e2e.example/callback",
+    state: "relay-e2e",
+    code_challenge: randomBytes(32).toString("base64url"),
+    requested_operations: ["read", "query"],
+    collection_id: collectionId
+  }, installationKey);
+  const firstContact = {
+    protocol_version: 1,
+    application_id: applicationId,
+    application_installation_id: applicationAuthorization.binding.application_installation_id,
+    application_agreement_public_key: installationKey.agreementPublicKey,
+    application_signing_public_key: installationKey.signingPublicKey,
+    connector_id: connectorId,
+    connector_agreement_public_key: connectorKey.agreementPublicKey
+  };
   await db.query(
     "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
     [userId, "relay-e2e@example.com", "Relay E2E"]
@@ -459,8 +499,8 @@ async function seed(db, hash) {
   await db.query(
     `INSERT INTO grants
        (id, user_id, application_id, collection_id, operations, scope,
-        application_origin, activated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, now())`,
+        application_origin, application_authorization, first_contact, activated_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9::jsonb, now())`,
     [
       grantId,
       userId,
@@ -468,7 +508,9 @@ async function seed(db, hash) {
       collectionId,
       JSON.stringify(["read", "query"]),
       JSON.stringify({ contracts: [], access: "full_collection" }),
-      "https://relay-e2e.example"
+      "https://relay-e2e.example",
+      JSON.stringify(applicationAuthorization),
+      JSON.stringify(firstContact)
     ]
   );
   await db.query(
@@ -482,6 +524,8 @@ async function seed(db, hash) {
     localCollectionId,
     applicationId,
     grantId,
+    grantAgreementPublicKey: grantKey.agreementPublicKey,
+    connectorAgreementPublicKey: connectorKey.agreementPublicKey,
     connectorToken,
     accessToken
   };
