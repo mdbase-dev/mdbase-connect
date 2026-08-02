@@ -80,6 +80,26 @@ impl IntoResponse for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
+        if let Some(database) = error.as_database_error() {
+            let quota = match database.message() {
+                "account_collection_quota_exceeded" => Some((
+                    "account_collection_quota_exceeded",
+                    "The account has reached its hosted collection limit.",
+                )),
+                "account_storage_quota_exceeded" => Some((
+                    "account_storage_quota_exceeded",
+                    "The change would exceed the account's hosted storage limit.",
+                )),
+                "account_retained_storage_quota_exceeded" => Some((
+                    "account_retained_storage_quota_exceeded",
+                    "The change would exceed the account's retained file storage limit.",
+                )),
+                _ => None,
+            };
+            if let Some((code, message)) = quota {
+                return Self::quota(code, message);
+            }
+        }
         tracing::error!(error = %error, "hosted provider database error");
         Self::internal("The hosted provider could not access its authoritative store.")
     }

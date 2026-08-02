@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use mdbase_connect_hosted_provider::{
-    HostedProvider, ProviderCrypto, ProviderLimits, RegisterReplica, ReplicaPurpose,
+    HostedProvider, ProviderAccountLimits, ProviderCrypto, ProviderLimits, RegisterReplica,
+    ReplicaPurpose,
 };
 use mdbase_connect_protocol::{
     AbortFileTransferRequest, AbortFileTransferRequestKind, CommitFileUploadRequest,
@@ -44,8 +45,25 @@ impl FileLifecycleFixture {
             .await
             .expect("test database connects");
         let collection_id = Uuid::now_v7();
+        let account_id = Uuid::now_v7();
         provider
-            .create_collection(collection_id, "mdbase", "Adversarial files")
+            .upsert_account(
+                account_id,
+                1,
+                ProviderAccountLimits {
+                    hosted_storage_bytes: 1024 * 1024 * 1024,
+                    retained_file_bytes: 2 * 1024 * 1024 * 1024,
+                    max_document_bytes: 2 * 1024 * 1024,
+                    max_single_file_bytes: 250 * 1024 * 1024,
+                    max_replicas_per_collection: 10,
+                    max_hosted_collections: 10,
+                    max_files_per_collection: 10_000,
+                },
+            )
+            .await
+            .expect("account is provisioned");
+        provider
+            .create_collection(account_id, collection_id, "mdbase", "Adversarial files")
             .await
             .expect("collection is created");
         let token = format!("adversarial-{}-{}", Uuid::new_v4(), Uuid::new_v4());

@@ -33,8 +33,13 @@ impl HostedProvider {
         .fetch_optional(&self.pool)
         .await?;
         if existing_state.is_none() {
-            self.create_collection(input.collection_id, "mdbase", &input.display_name)
-                .await?;
+            self.create_collection(
+                input.account_id,
+                input.collection_id,
+                "mdbase",
+                &input.display_name,
+            )
+            .await?;
         } else if !matches!(existing_state.as_deref(), Some("importing" | "transferred")) {
             return Err(ApiError::conflict(
                 "authority_import_target_unavailable",

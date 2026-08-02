@@ -273,6 +273,9 @@ async function storageSnapshot(
     return {
       status: "available" as const,
       total_content_bytes: 0,
+      total_file_bytes: 0,
+      total_storage_bytes: 0,
+      total_stored_file_bytes: 0,
       total_records: 0,
       collections: []
     };
@@ -281,6 +284,9 @@ async function storageSnapshot(
     return {
       status: "unavailable" as const,
       total_content_bytes: null,
+      total_file_bytes: null,
+      total_storage_bytes: null,
+      total_stored_file_bytes: null,
       total_records: null,
       collections: collections.map((collection) => ({
         ...collection,
@@ -310,6 +316,18 @@ async function storageSnapshot(
         : "unavailable" as const,
     total_content_bytes: available.length > 0
       ? available.reduce((total, value) => total + value.content_bytes, 0)
+      : null,
+    total_file_bytes: available.length > 0
+      ? available.reduce((total, value) => total + value.file_bytes, 0)
+      : null,
+    total_storage_bytes: available.length > 0
+      ? available.reduce(
+          (total, value) => total + value.content_bytes + value.file_bytes,
+          0
+        )
+      : null,
+    total_stored_file_bytes: available.length > 0
+      ? available.reduce((total, value) => total + value.stored_file_bytes, 0)
       : null,
     total_records: available.length > 0
       ? available.reduce((total, value) => total + value.record_count, 0)

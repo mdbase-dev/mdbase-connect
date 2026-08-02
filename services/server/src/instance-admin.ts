@@ -66,6 +66,7 @@ interface InvitationRow {
   revocation_reason: string | null;
   send_count: number | string;
   last_sent_at: Date | string | null;
+  entitlement_profile: string | null;
   created_at: Date | string;
 }
 
@@ -302,10 +303,15 @@ export class InstanceAdminService {
     }
     values.push(limit + 1);
     const result = await this.db.query<InvitationRow>(
-      `SELECT id, email, created_by, expires_at, accepted_at, revoked_at,
-              revoked_by, revocation_reason, send_count, last_sent_at,
-              created_at
-       FROM invitations
+      `SELECT invitation.id, invitation.email, invitation.created_by,
+              invitation.expires_at, invitation.accepted_at,
+              invitation.revoked_at, invitation.revoked_by,
+              invitation.revocation_reason, invitation.send_count,
+              invitation.last_sent_at, entitlement.profile_code AS entitlement_profile,
+              invitation.created_at
+       FROM invitations invitation
+       LEFT JOIN invitation_entitlements entitlement
+         ON entitlement.invitation_id = invitation.id
        ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
        ORDER BY created_at DESC, id DESC
        LIMIT $${values.length}`,
@@ -323,10 +329,16 @@ export class InstanceAdminService {
   async showInvitation(invitationId: string) {
     requireUuid(invitationId, "Invitation ID");
     const result = await this.db.query<InvitationRow>(
-      `SELECT id, email, created_by, expires_at, accepted_at, revoked_at,
-              revoked_by, revocation_reason, send_count, last_sent_at,
-              created_at
-       FROM invitations WHERE id = $1`,
+      `SELECT invitation.id, invitation.email, invitation.created_by,
+              invitation.expires_at, invitation.accepted_at,
+              invitation.revoked_at, invitation.revoked_by,
+              invitation.revocation_reason, invitation.send_count,
+              invitation.last_sent_at, entitlement.profile_code AS entitlement_profile,
+              invitation.created_at
+       FROM invitations invitation
+       LEFT JOIN invitation_entitlements entitlement
+         ON entitlement.invitation_id = invitation.id
+       WHERE invitation.id = $1`,
       [invitationId]
     );
     if (!result.rows[0]) {
@@ -397,7 +409,7 @@ export class InstanceAdminService {
       const invitation = await connection.query<InvitationRow>(
         `SELECT id, email, created_by, expires_at, accepted_at, revoked_at,
                 revoked_by, revocation_reason, send_count, last_sent_at,
-                created_at
+                NULL::text AS entitlement_profile, created_at
          FROM invitations WHERE id = $1 FOR UPDATE`,
         [invitationId]
       );
@@ -410,6 +422,12 @@ export class InstanceAdminService {
           "An accepted invitation cannot be revoked."
         );
       }
+      const entitlement = await connection.query<{ profile_code: string }>(
+        `SELECT profile_code FROM invitation_entitlements
+         WHERE invitation_id = $1`,
+        [invitationId]
+      );
+      row.entitlement_profile = entitlement.rows[0]?.profile_code ?? null;
       const changed = row.revoked_at === null;
       if (changed) {
         await connection.query(
@@ -806,7 +824,8 @@ function invitationSummary(row: InvitationRow) {
     revoked_by: row.revoked_by,
     revocation_reason: row.revocation_reason,
     send_count: Number(row.send_count),
-    last_sent_at: nullableIso(row.last_sent_at)
+    last_sent_at: nullableIso(row.last_sent_at),
+    entitlement_profile: row.entitlement_profile
   };
 }
 

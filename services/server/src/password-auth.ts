@@ -17,6 +17,10 @@ import {
   verifyPassword
 } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
+import {
+  attachInvitationEntitlement,
+  materializeInvitationEntitlement
+} from "./entitlements.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;
@@ -30,6 +34,7 @@ export interface CreateInvitationInput {
   actor: string;
   reason: string;
   expiresInSeconds?: number;
+  entitlementProfile?: string;
 }
 
 export interface CreatedInvitation {
@@ -39,6 +44,7 @@ export interface CreatedInvitation {
   expiresAt: Date;
   termsVersion: string;
   privacyVersion: string;
+  entitlementProfile: string | null;
 }
 
 export interface AcceptInvitationInput {
@@ -99,6 +105,7 @@ interface InvitationRow {
   terms_version: string | null;
   privacy_version: string | null;
   expires_at: Date | string;
+  entitlement_profile: string | null;
 }
 
 interface PasswordCredentialRow {
@@ -208,9 +215,17 @@ export class PasswordAccountService {
           expiresAt
         ]
       );
+      if (input.entitlementProfile) {
+        await attachInvitationEntitlement(
+          connection,
+          id,
+          input.entitlementProfile
+        );
+      }
       await audit(connection, null, "invitation.created", id, {
         actor,
-        reason
+        reason,
+        entitlement_profile: input.entitlementProfile ?? null
       });
       await connection.query("COMMIT");
       return {
@@ -218,6 +233,7 @@ export class PasswordAccountService {
         email,
         token,
         expiresAt,
+        entitlementProfile: input.entitlementProfile ?? null,
         ...agreements
       };
     } catch (error) {
@@ -234,8 +250,12 @@ export class PasswordAccountService {
     requireSignupEnabled(await this.policy.current());
     const invitationHash = tokenHash(input.invitationToken);
     const preliminary = await this.db.query<InvitationRow>(
-      `SELECT id, email, normalized_email, terms_version, privacy_version
-       FROM invitations
+      `SELECT invitation.id, invitation.email, invitation.normalized_email,
+              invitation.terms_version, invitation.privacy_version,
+              entitlement.profile_code AS entitlement_profile
+       FROM invitations invitation
+       LEFT JOIN invitation_entitlements entitlement
+         ON entitlement.invitation_id = invitation.id
        WHERE token_hash = $1
          AND accepted_at IS NULL
          AND revoked_at IS NULL
@@ -254,8 +274,12 @@ export class PasswordAccountService {
       const settings = await this.policy.currentForAccountChange(connection);
       requireSignupEnabled(settings);
       const invitation = await connection.query<InvitationRow>(
-        `SELECT id, email, normalized_email, terms_version, privacy_version
-         FROM invitations
+        `SELECT invitation.id, invitation.email, invitation.normalized_email,
+                invitation.terms_version, invitation.privacy_version,
+                entitlement.profile_code AS entitlement_profile
+         FROM invitations invitation
+         LEFT JOIN invitation_entitlements entitlement
+           ON entitlement.invitation_id = invitation.id
          WHERE token_hash = $1
            AND accepted_at IS NULL
            AND revoked_at IS NULL
@@ -280,13 +304,14 @@ export class PasswordAccountService {
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      const emailIdentityId = randomUUID();
       await connection.query(
         `INSERT INTO email_identities
            (id, user_id, email, normalized_email, normalization_version,
             verified_at, is_primary)
          VALUES ($1, $2, $3, $4, $5, now(), true)`,
         [
-          randomUUID(),
+          emailIdentityId,
           userId,
           row.email,
           row.normalized_email,
@@ -310,6 +335,12 @@ export class PasswordAccountService {
         `UPDATE invitations SET accepted_by_user_id = $2, accepted_at = now()
          WHERE id = $1`,
         [row.id, userId]
+      );
+      await materializeInvitationEntitlement(
+        connection,
+        userId,
+        row.id,
+        row.entitlement_profile
       );
       await connection.query(
         `INSERT INTO sessions

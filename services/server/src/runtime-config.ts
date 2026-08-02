@@ -31,6 +31,7 @@ export interface RuntimeConfig {
   editorOrigin: string | null;
   authenticationLegalDocuments: AuthenticationLegalDocuments | null;
   transactionalEmail: TransactionalEmailConfig | null;
+  resendWebhookSecret: string | null;
   hostedCollections: boolean;
   hostedProvider: HostedProviderConfig | null;
   allowInsecureHostedProvider: boolean;
@@ -133,6 +134,12 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     ) {
       throw new Error("Transactional email configuration is invalid.");
     }
+  }
+  if (
+    config.resendWebhookSecret !== null
+    && !/^whsec_[A-Za-z0-9+/=_-]{16,}$/u.test(config.resendWebhookSecret)
+  ) {
+    throw new Error("MDBASE_CONNECT_RESEND_WEBHOOK_SECRET is invalid.");
   }
   const hostedProvider = config.hostedProvider
     ? validateHostedProviderConfig(
@@ -248,6 +255,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   const transactionalEmail = resendApiKey && emailFrom
     ? { apiKey: resendApiKey, from: emailFrom }
     : null;
+  const resendWebhookSecret =
+    env.MDBASE_CONNECT_RESEND_WEBHOOK_SECRET?.trim() || null;
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
   const hostedProvider = hostedProviderConfigFromEnv(env);
@@ -307,6 +316,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     editorOrigin,
     authenticationLegalDocuments,
     transactionalEmail,
+    resendWebhookSecret,
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedProvider,
     allowInsecureHostedProvider:

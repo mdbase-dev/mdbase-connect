@@ -43,7 +43,8 @@ describe("database migrations", () => {
       "0007_beta_access_requests",
       "0007_oauth_login_state_foundation",
       "0008_account_management",
-      "0009_grant_file_capabilities"
+      "0009_grant_file_capabilities",
+      "0010_beta_entitlements_and_email"
     ]);
     const columns = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
@@ -313,7 +314,8 @@ describe("database migrations", () => {
       "0007_beta_access_requests",
       "0007_oauth_login_state_foundation",
       "0008_account_management",
-      "0009_grant_file_capabilities"
+      "0009_grant_file_capabilities",
+      "0010_beta_entitlements_and_email"
     ]);
   });
 

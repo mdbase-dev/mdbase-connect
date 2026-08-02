@@ -5,6 +5,7 @@ import {
   listLocalCollectionsVisibleToUser
 } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
+import { effectiveEntitlement } from "../../entitlements.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors,
@@ -181,8 +182,56 @@ export function registerAccountOverviewRoute(
       [user.id]
     );
     const authenticationSettings = await options.authenticationPolicy.current();
+    const entitlement = await effectiveEntitlement(options.db, user.id);
+    const storageAccount = entitlement
+      ? await options.db.query<{
+          provider_account_id: string;
+          entitlement_revision: string | number;
+          provider_revision: string | number;
+        }>(
+          `SELECT provider_account_id, entitlement_revision, provider_revision
+           FROM account_storage_accounts WHERE user_id = $1`,
+          [user.id]
+        )
+      : { rows: [] };
+    let hostedUsage = null;
+    if (options.hostedProvider && storageAccount.rows[0]) {
+      try {
+        hostedUsage = await options.hostedProvider.accountUsage(
+          storageAccount.rows[0].provider_account_id
+        );
+      } catch (error) {
+        request.log.warn({ error }, "Hosted account usage is unavailable");
+      }
+    }
     return {
       user,
+      subscription: entitlement ? {
+        kind: entitlement.profileCodes.includes("beta_v1") ? "beta" : "entitled",
+        profiles: entitlement.profileCodes,
+        permanent: true,
+        limits: {
+          hosted_storage_bytes: entitlement.hostedStorageBytes,
+          retained_file_bytes: entitlement.retainedFileBytes,
+          max_document_bytes: entitlement.maxDocumentBytes,
+          max_single_file_bytes: entitlement.maxSingleFileBytes,
+          max_replicas_per_collection: entitlement.maxReplicasPerCollection,
+          max_hosted_collections: entitlement.maxHostedCollections,
+          max_files_per_collection: entitlement.maxFilesPerCollection
+        },
+        usage: hostedUsage ? {
+          hosted_collections: hostedUsage.collection_count,
+          live_content_bytes: hostedUsage.live_content_bytes,
+          live_file_bytes: hostedUsage.live_file_bytes,
+          live_storage_bytes:
+            hostedUsage.live_content_bytes + hostedUsage.live_file_bytes,
+          retained_file_bytes: hostedUsage.retained_file_bytes
+        } : null,
+        reconciliation: storageAccount.rows[0] ? {
+          entitlement_revision: Number(storageAccount.rows[0].entitlement_revision),
+          provider_revision: Number(storageAccount.rows[0].provider_revision)
+        } : null
+      } : null,
       hosted_collections_available: options.hostedCollections === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

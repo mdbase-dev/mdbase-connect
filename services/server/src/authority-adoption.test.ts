@@ -33,6 +33,7 @@ describe("portable local collection adoption", () => {
     let completionAttempts = 0;
     const registeredReplicas: Array<{ collectionId: string; id: string }> = [];
     const provider = {
+      upsertAccount: async () => ({}),
       url: "https://provider.example",
       prepareAuthorityImport: async (input: {
         transferId: string;
@@ -250,6 +251,7 @@ describe("portable local collection adoption", () => {
     resources.push(() => db.end());
     let aborts = 0;
     const provider = {
+      upsertAccount: async () => ({}),
       url: "https://provider.example",
       prepareAuthorityImport: async (input: {
         transferId: string;

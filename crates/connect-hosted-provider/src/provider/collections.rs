@@ -7,7 +7,10 @@ impl HostedProvider {
     ) -> ApiResult<ProviderCollectionUsage> {
         let row = sqlx::query(
             r#"SELECT record_count, content_bytes, max_records,
-                      max_content_bytes, max_document_bytes
+                      max_content_bytes, max_document_bytes, file_count,
+                      file_bytes, stored_file_bytes, max_files,
+                      max_file_bytes, max_stored_file_bytes,
+                      max_single_file_bytes
                FROM hosted_provider_collections
                WHERE id = $1 AND state <> 'deleting'"#,
         )
@@ -27,11 +30,25 @@ impl HostedProvider {
             max_records: number(row.get::<i64, _>("max_records"), "record quota")?,
             max_content_bytes: number(row.get::<i64, _>("max_content_bytes"), "content quota")?,
             max_document_bytes: number(row.get::<i64, _>("max_document_bytes"), "document quota")?,
+            file_count: number(row.get::<i64, _>("file_count"), "file count")?,
+            file_bytes: number(row.get::<i64, _>("file_bytes"), "file size")?,
+            stored_file_bytes: number(row.get::<i64, _>("stored_file_bytes"), "stored file size")?,
+            max_files: number(row.get::<i64, _>("max_files"), "file quota")?,
+            max_file_bytes: number(row.get::<i64, _>("max_file_bytes"), "file byte quota")?,
+            max_stored_file_bytes: number(
+                row.get::<i64, _>("max_stored_file_bytes"),
+                "stored file quota",
+            )?,
+            max_single_file_bytes: number(
+                row.get::<i64, _>("max_single_file_bytes"),
+                "single file quota",
+            )?,
         })
     }
 
     pub async fn create_collection(
         &self,
+        account_id: Uuid,
         collection_id: Uuid,
         template_name: &str,
         display_name: &str,
@@ -52,17 +69,19 @@ impl HostedProvider {
             self.crypto
                 .encrypt_json(&data_key, &resources, &resources_aad(collection_id))?;
         let mut transaction = self.pool.begin().await?;
+        let account = load_account_limits(&mut transaction, account_id, true).await?;
         let inserted = sqlx::query(
             r#"INSERT INTO hosted_provider_collections
-                 (id, template, display_name, spec_version, resource_revision, wrapped_data_key,
+                 (id, account_id, template, display_name, spec_version, resource_revision, wrapped_data_key,
                   resources_ciphertext, max_records, max_content_bytes,
                   max_document_bytes, max_replicas, max_files, max_file_bytes,
                   max_stored_file_bytes, max_single_file_bytes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                       $13, $14, $15)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                       $14, $15, $16)
                ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(collection_id)
+        .bind(account_id)
         .bind(template_name)
         .bind(display_name)
         .bind(&resources.spec_version)
@@ -74,41 +93,42 @@ impl HostedProvider {
             "record quota",
         )?)
         .bind(to_i64(
-            self.limits.max_bytes_per_collection,
+            account.limits.hosted_storage_bytes,
             "collection byte quota",
         )?)
         .bind(to_i64(
-            self.limits.max_bytes_per_document,
+            account.limits.max_document_bytes,
             "document byte quota",
         )?)
         .bind(to_i64(
-            self.limits.max_replicas_per_collection,
+            account.limits.max_replicas_per_collection,
             "replica quota",
         )?)
-        .bind(to_i64(self.limits.max_files_per_collection, "file quota")?)
+        .bind(to_i64(account.limits.max_files_per_collection, "file quota")?)
         .bind(to_i64(
-            self.limits.max_file_bytes_per_collection,
+            account.limits.hosted_storage_bytes,
             "current file byte quota",
         )?)
         .bind(to_i64(
-            self.limits.max_stored_file_bytes_per_collection,
+            account.limits.retained_file_bytes,
             "stored file byte quota",
         )?)
         .bind(to_i64(
-            self.limits.max_bytes_per_file,
+            account.limits.max_single_file_bytes,
             "single file byte quota",
         )?)
         .execute(&mut *transaction)
         .await?;
         if inserted.rows_affected() == 0 {
             let existing = sqlx::query(
-                "SELECT template, display_name, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
+                "SELECT account_id, template, display_name, spec_version, resource_revision FROM hosted_provider_collections WHERE id = $1",
             )
             .bind(collection_id)
             .fetch_one(&mut *transaction)
             .await?;
             let existing_template: String = existing.get("template");
-            if existing_template != template_name
+            if existing.get::<Option<Uuid>, _>("account_id") != Some(account_id)
+                || existing_template != template_name
                 || existing.get::<String, _>("display_name") != display_name
             {
                 return Err(ApiError::conflict(

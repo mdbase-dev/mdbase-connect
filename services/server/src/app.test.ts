@@ -1228,6 +1228,7 @@ describe("mdbase connect server", () => {
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
@@ -1456,6 +1457,7 @@ describe("mdbase connect server", () => {
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
@@ -1503,6 +1505,7 @@ describe("mdbase connect server", () => {
     expect(created.statusCode, JSON.stringify(created.json())).toBe(201);
     const collectionId = created.json().collection.id as string;
     expect(hostedProvider.createCollection).toHaveBeenCalledWith(
+      expect.any(String),
       collectionId,
       "mdbase",
       "Desktop notes"
@@ -1623,6 +1626,7 @@ describe("mdbase connect server", () => {
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),
@@ -1871,6 +1875,7 @@ describe("mdbase connect server", () => {
     const hostedProvider = {
       url: "https://sync.example",
       ready: vi.fn(),
+      upsertAccount: vi.fn().mockResolvedValue({}),
       createCollection: vi.fn(),
       renameCollection: vi.fn(),
       deleteCollection: vi.fn(),

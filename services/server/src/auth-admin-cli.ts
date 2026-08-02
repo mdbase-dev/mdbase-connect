@@ -32,6 +32,7 @@ try {
     ...(emailTransport ? { emailTransport } : {}),
     ...(hostedProvider
       ? {
+          hostedProvider,
           hostedReplicaRevoker: {
             async revokeReplica(replicaId: string) {
               try {

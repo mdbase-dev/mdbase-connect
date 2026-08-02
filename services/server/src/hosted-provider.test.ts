@@ -84,7 +84,14 @@ describe("hosted provider control client", () => {
       content_bytes: 12_345,
       max_records: 100_000,
       max_content_bytes: 1_073_741_824,
-      max_document_bytes: 2_097_152
+      max_document_bytes: 2_097_152,
+      file_count: 3,
+      file_bytes: 50_000,
+      stored_file_bytes: 75_000,
+      max_files: 10_000,
+      max_file_bytes: 1_073_741_824,
+      max_stored_file_bytes: 2_147_483_648,
+      max_single_file_bytes: 262_144_000
     };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ usage }), {
@@ -199,7 +206,7 @@ describe("hosted provider control client", () => {
       url: "https://provider.example",
       internalToken: "internal-secret"
     });
-    await provider.createCollection("collection", "mdbase", "Writing");
+    await provider.createCollection("account", "collection", "mdbase", "Writing");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(fetchMock.mock.calls[1]?.[1]?.body);
   });

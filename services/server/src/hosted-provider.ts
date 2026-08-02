@@ -47,6 +47,32 @@ export interface HostedCollectionUsage {
   max_records: number;
   max_content_bytes: number;
   max_document_bytes: number;
+  file_count: number;
+  file_bytes: number;
+  stored_file_bytes: number;
+  max_files: number;
+  max_file_bytes: number;
+  max_stored_file_bytes: number;
+  max_single_file_bytes: number;
+}
+
+export interface HostedAccountLimits {
+  hosted_storage_bytes: number;
+  retained_file_bytes: number;
+  max_document_bytes: number;
+  max_single_file_bytes: number;
+  max_replicas_per_collection: number;
+  max_hosted_collections: number;
+  max_files_per_collection: number;
+}
+
+export interface HostedAccountUsage extends HostedAccountLimits {
+  account_id: string;
+  entitlement_revision: number;
+  collection_count: number;
+  live_content_bytes: number;
+  live_file_bytes: number;
+  retained_file_bytes: number;
 }
 
 export interface HostedAuthorityTransfer {
@@ -96,8 +122,57 @@ export class HostedProviderClient {
     return candidate !== null && safeEqual(candidate, this.internalToken);
   }
 
-  async createCollection(collectionId: string, template: string, displayName: string): Promise<void> {
+  async upsertAccount(
+    accountId: string,
+    entitlementRevision: number,
+    limits: HostedAccountLimits
+  ): Promise<HostedAccountUsage> {
+    const result = await this.request(
+      "PUT",
+      `/internal/v1/accounts/${encodeURIComponent(accountId)}`,
+      { entitlement_revision: entitlementRevision, ...limits }
+    ) as { account?: HostedAccountUsage } | undefined;
+    if (!result?.account) {
+      throw new HostedProviderResponseError(
+        502,
+        "invalid_provider_response",
+        "Hosted account usage was missing from the provider response."
+      );
+    }
+    return result.account;
+  }
+
+  async accountUsage(accountId: string): Promise<HostedAccountUsage> {
+    const result = await this.request(
+      "GET",
+      `/internal/v1/accounts/${encodeURIComponent(accountId)}`
+    ) as { account?: HostedAccountUsage } | undefined;
+    if (!result?.account) {
+      throw new HostedProviderResponseError(
+        502,
+        "invalid_provider_response",
+        "Hosted account usage was missing from the provider response."
+      );
+    }
+    return result.account;
+  }
+
+  async reconcileCollectionAccount(accountId: string, collectionId: string): Promise<void> {
+    await this.request(
+      "PUT",
+      `/internal/v1/accounts/${encodeURIComponent(accountId)}/collections/${encodeURIComponent(collectionId)}`,
+      {}
+    );
+  }
+
+  async createCollection(
+    accountId: string,
+    collectionId: string,
+    template: string,
+    displayName: string
+  ): Promise<void> {
     await this.request("POST", "/internal/v1/collections", {
+      account_id: accountId,
       collection_id: collectionId,
       template,
       display_name: displayName
@@ -298,6 +373,7 @@ export class HostedProviderClient {
 
   async prepareAuthorityImport(input: {
     transferId: string;
+    accountId: string;
     collectionId: string;
     displayName: string;
     token: string;
@@ -306,6 +382,7 @@ export class HostedProviderClient {
   }): Promise<AuthorityImport> {
     return await this.request("POST", "/internal/v1/authority-imports", {
       transfer_id: input.transferId,
+      account_id: input.accountId,
       collection_id: input.collectionId,
       display_name: input.displayName,
       token: input.token,

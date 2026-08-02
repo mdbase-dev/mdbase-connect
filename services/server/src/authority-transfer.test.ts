@@ -437,6 +437,7 @@ describe("local-to-hosted authority transfer", () => {
     resources.push(() => db.end());
     let completionAttempts = 0;
     const provider = {
+      upsertAccount: async () => ({}),
       url: "https://provider.example",
       prepareAuthorityImport: async (input: {
         transferId: string;

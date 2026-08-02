@@ -135,9 +135,10 @@ try {
 
   phase("provisioning and enforcing portable data-contract views");
   const provisionCollectionId = crypto.randomUUID();
+  const provisionAccountId = await provisionProviderAccount(provider.url);
   await internalRequest(provider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe" }
+    body: { account_id: provisionAccountId, collection_id: provisionCollectionId, template: "mdbase", display_name: "Provision probe" }
   });
   const typeProvision = workItemTypePack({
     packId: "example.workouts",
@@ -404,6 +405,7 @@ try {
   assert.equal(notificationReady.body.notifications.consecutive_failures, 0);
   assert.match(notificationReady.body.notifications.last_success_at, /^\d{4}-\d{2}-\d{2}T/);
   const notificationCollectionId = crypto.randomUUID();
+  const notificationAccountId = await provisionProviderAccount(notificationProvider.url);
   const notificationReplicaId = crypto.randomUUID();
   const notificationToken = `notification-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   const notificationGrantId = crypto.randomUUID();
@@ -412,6 +414,7 @@ try {
   await internalRequest(notificationProvider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
+      account_id: notificationAccountId,
       collection_id: notificationCollectionId,
       template: "mdbase",
       display_name: "Notification records"
@@ -606,11 +609,19 @@ try {
     MDBASE_CONNECT_HOSTED_MAX_REPLICAS_PER_COLLECTION: "1"
   });
   const quotaCollectionId = crypto.randomUUID();
+  const quotaAccountId = await provisionProviderAccount(quotaProvider.url, {
+    hosted_storage_bytes: 500,
+    retained_file_bytes: 1000,
+    max_document_bytes: 512,
+    max_replicas_per_collection: 1,
+    max_hosted_collections: 2
+  });
   const quotaReplicaId = crypto.randomUUID();
   const quotaToken = `quota-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
+      account_id: quotaAccountId,
       collection_id: quotaCollectionId,
       template: "mdbase",
       display_name: "Quota worklog"
@@ -619,6 +630,7 @@ try {
   await internalRequest(quotaProvider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
+      account_id: quotaAccountId,
       collection_id: quotaCollectionId,
       template: "mdbase",
       display_name: "Quota worklog"
@@ -707,6 +719,85 @@ try {
   });
   assert.equal(documentQuota.status, "rejected");
   assert.equal(documentQuota.error.code, "document_quota_exceeded");
+  const accountBeforeAggregateProbe = (
+    await internalRequest(
+      quotaProvider.url,
+      `/internal/v1/accounts/${quotaAccountId}`
+    )
+  ).account;
+  const aggregateCollectionId = crypto.randomUUID();
+  const aggregateReplicaId = crypto.randomUUID();
+  const aggregateToken = `aggregate-${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  await internalRequest(quotaProvider.url, "/internal/v1/collections", {
+    method: "POST",
+    body: {
+      account_id: quotaAccountId,
+      collection_id: aggregateCollectionId,
+      template: "mdbase",
+      display_name: "Aggregate quota probe"
+    }
+  });
+  await provisionTypes(quotaProvider.url, aggregateCollectionId, [WORK_ITEM_PROVISION]);
+  await internalRequest(
+    quotaProvider.url,
+    `/internal/v1/collections/${aggregateCollectionId}/replicas`,
+    {
+      method: "POST",
+      body: {
+        replica_id: aggregateReplicaId,
+        name: "Aggregate writer",
+        mode: "read_write",
+        allowed_types: ["task"],
+        token: aggregateToken
+      }
+    }
+  );
+  const aggregateTransport = new HttpSyncTransport(
+    authoritySyncUrl(quotaProvider.url, aggregateCollectionId),
+    aggregateToken
+  );
+  const aggregateMutation = createMutation(
+    aggregateReplicaId,
+    crypto.randomUUID(),
+    "tasks/aggregate.md",
+    "Aggregate"
+  );
+  aggregateMutation.input.body = "x".repeat(
+    500 - accountBeforeAggregateProbe.live_content_bytes + 1
+  );
+  await expectSyncError(
+    () => aggregateTransport.mutate(aggregateMutation),
+    "account_storage_quota_exceeded"
+  );
+  const accountAfterAggregateProbe = (
+    await internalRequest(
+      quotaProvider.url,
+      `/internal/v1/accounts/${quotaAccountId}`
+    )
+  ).account;
+  assert.equal(
+    accountAfterAggregateProbe.live_content_bytes,
+    accountBeforeAggregateProbe.live_content_bytes
+  );
+  const collectionQuota = await rawRequest(
+    quotaProvider.url,
+    "/internal/v1/collections",
+    {
+      method: "POST",
+      token: internalToken,
+      body: {
+        account_id: quotaAccountId,
+        collection_id: crypto.randomUUID(),
+        template: "mdbase",
+        display_name: "Too many collections"
+      }
+    }
+  );
+  assert.equal(collectionQuota.status, 429);
+  assert.equal(
+    collectionQuota.body.error.code,
+    "account_collection_quota_exceeded"
+  );
   await stopProvider(quotaProvider);
 
   phase("automatically bounding retained change history");
@@ -723,11 +814,12 @@ try {
     MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1"
   });
   const maintenanceCollectionId = crypto.randomUUID();
+  const maintenanceAccountId = await provisionProviderAccount(maintenanceProvider.url);
   const maintenanceReplicaId = crypto.randomUUID();
   const maintenanceToken = `maintenance-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(maintenanceProvider.url, "/internal/v1/collections", {
     method: "POST",
-    body: { collection_id: maintenanceCollectionId, template: "mdbase", display_name: "Maintenance records" }
+    body: { account_id: maintenanceAccountId, collection_id: maintenanceCollectionId, template: "mdbase", display_name: "Maintenance records" }
   });
   await provisionTypes(maintenanceProvider.url, maintenanceCollectionId, [WORK_ITEM_PROVISION]);
   await internalRequest(
@@ -1640,11 +1732,13 @@ schema:
 
   phase("fencing, proving, completing, and cancelling authority transfers");
   const authorityCollectionId = crypto.randomUUID();
+  const authorityAccountId = await provisionProviderAccount(provider.url);
   const authorityReplicaId = crypto.randomUUID();
   const authorityToken = `authority-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(provider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
+      account_id: authorityAccountId,
       collection_id: authorityCollectionId,
       template: "mdbase",
       display_name: "Authority transfer probe"
@@ -1810,11 +1904,13 @@ schema:
   );
 
   const cancelledCollectionId = crypto.randomUUID();
+  const cancelledAccountId = await provisionProviderAccount(provider.url);
   const cancelledReplicaId = crypto.randomUUID();
   const cancelledToken = `authority-cancel-${crypto.randomUUID()}-${crypto.randomUUID()}`;
   await internalRequest(provider.url, "/internal/v1/collections", {
     method: "POST",
     body: {
+      account_id: cancelledAccountId,
       collection_id: cancelledCollectionId,
       template: "mdbase",
       display_name: "Cancelled authority probe"
@@ -3985,6 +4081,24 @@ async function internalRequest(url, path, options = {}) {
     throw new Error(`${path} returned HTTP ${response.status}: ${JSON.stringify(response.body)}`);
   }
   return response.body;
+}
+
+async function provisionProviderAccount(url, overrides = {}, accountId = crypto.randomUUID()) {
+  await internalRequest(url, `/internal/v1/accounts/${accountId}`, {
+    method: "PUT",
+    body: {
+      entitlement_revision: 1,
+      hosted_storage_bytes: 1024 * 1024 * 1024,
+      retained_file_bytes: 2 * 1024 * 1024 * 1024,
+      max_document_bytes: 2 * 1024 * 1024,
+      max_single_file_bytes: 250 * 1024 * 1024,
+      max_replicas_per_collection: 10,
+      max_hosted_collections: 10,
+      max_files_per_collection: 10_000,
+      ...overrides
+    }
+  });
+  return accountId;
 }
 
 function provisionTypes(url, collectionId, typePacks) {

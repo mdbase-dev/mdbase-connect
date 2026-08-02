@@ -37,7 +37,7 @@ use crate::{
     error::{ApiError, ApiResult},
     provider::{
         validate_limit, AuthorityRequestProof, HostedProvider, PrepareAuthorityImport,
-        PrepareAuthorityTransfer, RegisterReplica, UpdateApplicationReplica,
+        PrepareAuthorityTransfer, ProviderAccountLimits, RegisterReplica, UpdateApplicationReplica,
     },
 };
 
@@ -92,9 +92,17 @@ impl AppState {
 
 #[derive(Debug, Deserialize)]
 struct CreateCollectionRequest {
+    account_id: Uuid,
     collection_id: Uuid,
     template: String,
     display_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertAccountRequest {
+    entitlement_revision: u64,
+    #[serde(flatten)]
+    limits: ProviderAccountLimits,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,6 +188,14 @@ pub fn app(state: AppState) -> Router {
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .max_age(std::time::Duration::from_secs(600));
     let internal = Router::new()
+        .route(
+            "/internal/v1/accounts/{account_id}",
+            put(upsert_account).get(account_usage),
+        )
+        .route(
+            "/internal/v1/accounts/{account_id}/collections/{collection_id}",
+            put(reconcile_collection_account),
+        )
         .route("/internal/v1/collections", post(create_collection))
         .route(
             "/internal/v1/collections/{collection_id}",
@@ -368,12 +384,48 @@ async fn create_collection(
     state.authorize_internal(&headers)?;
     let collection = state
         .provider
-        .create_collection(input.collection_id, &input.template, &input.display_name)
+        .create_collection(
+            input.account_id,
+            input.collection_id,
+            &input.template,
+            &input.display_name,
+        )
         .await?;
     Ok((
         StatusCode::CREATED,
         Json(json!({ "collection": collection })),
     ))
+}
+
+async fn upsert_account(
+    State(state): State<AppState>,
+    Path(account_id): Path<Uuid>,
+    Json(input): Json<UpsertAccountRequest>,
+) -> ApiResult<Json<Value>> {
+    let usage = state
+        .provider
+        .upsert_account(account_id, input.entitlement_revision, input.limits)
+        .await?;
+    Ok(Json(json!({ "account": usage })))
+}
+
+async fn account_usage(
+    State(state): State<AppState>,
+    Path(account_id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let usage = state.provider.account_usage(account_id).await?;
+    Ok(Json(json!({ "account": usage })))
+}
+
+async fn reconcile_collection_account(
+    State(state): State<AppState>,
+    Path((account_id, collection_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<StatusCode> {
+    state
+        .provider
+        .reconcile_collection_account(account_id, collection_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn rename_collection(

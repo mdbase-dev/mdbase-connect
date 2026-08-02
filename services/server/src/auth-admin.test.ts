@@ -376,6 +376,40 @@ describe("authentication operator command", () => {
       Buffer.from(JSON.stringify(["request", envelope])).toString("base64url")
     ], context)).rejects.toBeInstanceOf(AuthAdminUsageError);
   });
+
+  it("grants and reports durable Beta entitlements idempotently", async () => {
+    const context = await fixture();
+    const userId = "10000000-0000-4000-8000-000000000089";
+    await context.db.query(
+      `INSERT INTO users (id, email, name)
+       VALUES ($1, 'beta-target@example.com', 'Beta target')`,
+      [userId]
+    );
+    const command = [
+      "entitlements", "grant",
+      "--user", "beta-target@example.com",
+      "--profile", "beta_v1",
+      "--operation-id", "20000000-0000-4000-8000-000000000089",
+      "--actor", "operator:test",
+      "--reason", "Private beta storage"
+    ];
+    expect(await runAuthAdminCommand(command, context)).toEqual(
+      expect.objectContaining({
+        user_id: userId,
+        changed: true,
+        entitlementRevision: 1,
+        reconciliation: null
+      })
+    );
+    expect(await runAuthAdminCommand(command, context)).toEqual(
+      expect.objectContaining({ changed: false, entitlementRevision: 1 })
+    );
+    const shown = await runAuthAdminCommand([
+      "entitlements", "show", "--user", userId
+    ], context) as { effective: { hostedStorageBytes: number }; grants: unknown[] };
+    expect(shown.effective.hostedStorageBytes).toBe(1024 * 1024 * 1024);
+    expect(shown.grants).toHaveLength(1);
+  });
 });
 
 let messageSequence = 0;

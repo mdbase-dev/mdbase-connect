@@ -6,6 +6,7 @@ import {
   sessionClientName
 } from "../../account-sessions.js";
 import type { DatabasePool } from "../../database-types.js";
+import { ensureDevelopmentEntitlement } from "../../entitlements.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
@@ -47,6 +48,7 @@ export function registerAccountSessionRoutes(
       [randomUUID(), input.email.toLowerCase(), input.name]
     );
     const token = randomToken("ses");
+    await ensureDevelopmentEntitlement(options.db, user.rows[0].id);
     await options.db.query(
       `INSERT INTO sessions
          (id, user_id, token_hash, account_session_epoch,

@@ -3,7 +3,6 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveHostedCollectionAccess } from "../../collection-access.js";
 import {
-  hostedContractDescriptors,
   type HostedAuthorityRegistry
 } from "../../hosted.js";
 import { randomToken, tokenHash } from "../../security.js";
@@ -12,6 +11,7 @@ import { authorityUrl } from "../../platform/authority-url.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import {
+  createHostedCollectionForUser,
   canManageHostedReplica,
   permitsHostedCollectionAction,
   type HostedServiceOptions
@@ -39,57 +39,15 @@ export function registerHostedAccountRoutes(
       display_name: z.string().trim().min(1).max(200),
       template: z.literal("mdbase").default("mdbase")
     }).strict().parse(request.body);
-    const collectionId = randomUUID();
-    try {
-      if (options.hostedProvider) {
-        await options.hostedProvider.createCollection(
-          collectionId,
-          input.template,
-          input.display_name
-        );
-      } else {
-        await options.hostedReference!.create(
-          collectionId,
-          input.template
-        );
-      }
-      await options.db.query(
-        `INSERT INTO hosted_collections
-           (id, user_id, display_name, template, provider_url, contracts)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-        [
-          collectionId,
-          user.id,
-          input.display_name,
-          input.template,
-          options.hostedProvider?.url ?? null,
-          JSON.stringify(hostedContractDescriptors(input.template))
-        ]
-      );
-    } catch (error) {
-      if (options.hostedProvider) {
-        await options.hostedProvider
-          .deleteCollection(collectionId)
-          .catch((cleanupError) => {
-            request.log.error(
-              { cleanupError, collectionId },
-              "Failed to compensate hosted collection creation"
-            );
-          });
-      } else {
-        await options.hostedReference!
-          .delete(collectionId)
-          .catch(() => undefined);
-      }
-      throw error;
-    }
-    await audit(
-      options.db,
+    const collection = await createHostedCollectionForUser(
+      options,
+      options.hostedReference,
+      options.publicUrl,
       user.id,
-      "hosted_collection.created",
-      collectionId,
-      { template: input.template }
+      input.display_name,
+      input.template
     );
+    const collectionId = String(collection.id);
     return reply.code(201).send({
       collection: {
         id: collectionId,

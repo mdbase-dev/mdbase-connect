@@ -25,7 +25,14 @@ describe("account management", () => {
       content_bytes: 4_096,
       max_records: 100_000,
       max_content_bytes: 1_073_741_824,
-      max_document_bytes: 2_097_152
+      max_document_bytes: 2_097_152,
+      file_count: 0,
+      file_bytes: 0,
+      stored_file_bytes: 0,
+      max_files: 10_000,
+      max_file_bytes: 1_073_741_824,
+      max_stored_file_bytes: 2_147_483_648,
+      max_single_file_bytes: 262_144_000
     }));
     const { app, db } = await fixture({
       hostedCollections: true,
@@ -71,6 +78,9 @@ describe("account management", () => {
       storage: {
         status: "available",
         total_content_bytes: 4_096,
+        total_file_bytes: 0,
+        total_storage_bytes: 4_096,
+        total_stored_file_bytes: 0,
         total_records: 12,
         collections: [expect.objectContaining({
           display_name: "Research",

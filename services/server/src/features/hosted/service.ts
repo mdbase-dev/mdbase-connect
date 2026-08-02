@@ -30,6 +30,7 @@ import {
   typesForContracts
 } from "../../hosted.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import { reconcileHostedAccount } from "../../entitlements.js";
 import {
   hostedGrantRevocationStatus,
   hostedReplicaRevocationStatus,
@@ -301,7 +302,13 @@ export async function createHostedCollectionForUser(
   const collectionId = randomUUID();
   try {
     if (options.hostedProvider) {
+      const account = await reconcileHostedAccount(
+        options.db,
+        options.hostedProvider,
+        userId
+      );
       await options.hostedProvider.createCollection(
+        account.providerAccountId,
         collectionId,
         template,
         displayName

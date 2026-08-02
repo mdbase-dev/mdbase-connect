@@ -42,6 +42,7 @@ use crate::{
     workspace::{StoredDocument, WorkingSet},
 };
 
+mod account_quotas;
 mod authority_import_cleanup;
 mod authority_import_files;
 mod authority_imports;
@@ -68,6 +69,7 @@ mod provider_state;
 mod replicas;
 mod sync_reads;
 
+use account_quotas::*;
 use authority_snapshots::*;
 use capabilities::*;
 use crypto_state::*;
@@ -96,6 +98,29 @@ pub struct ProviderLimits {
     pub max_file_bytes_per_collection: u64,
     pub max_stored_file_bytes_per_collection: u64,
     pub max_bytes_per_file: u64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ProviderAccountLimits {
+    pub hosted_storage_bytes: u64,
+    pub retained_file_bytes: u64,
+    pub max_document_bytes: u64,
+    pub max_single_file_bytes: u64,
+    pub max_replicas_per_collection: u64,
+    pub max_hosted_collections: u64,
+    pub max_files_per_collection: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderAccountUsage {
+    pub account_id: Uuid,
+    pub entitlement_revision: u64,
+    pub collection_count: u64,
+    pub live_content_bytes: u64,
+    pub live_file_bytes: u64,
+    pub retained_file_bytes: u64,
+    #[serde(flatten)]
+    pub limits: ProviderAccountLimits,
 }
 
 impl Default for ProviderLimits {
@@ -200,6 +225,13 @@ pub struct ProviderCollectionUsage {
     pub max_records: u64,
     pub max_content_bytes: u64,
     pub max_document_bytes: u64,
+    pub file_count: u64,
+    pub file_bytes: u64,
+    pub stored_file_bytes: u64,
+    pub max_files: u64,
+    pub max_file_bytes: u64,
+    pub max_stored_file_bytes: u64,
+    pub max_single_file_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -235,6 +267,7 @@ pub struct ProviderAuthorityTransfer {
 pub struct PrepareAuthorityImport {
     pub transfer_id: Uuid,
     pub collection_id: Uuid,
+    pub account_id: Uuid,
     pub display_name: String,
     pub token: String,
     pub authority_epoch: u64,

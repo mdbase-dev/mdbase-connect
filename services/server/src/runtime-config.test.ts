@@ -20,6 +20,7 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     editorOrigin: null,
     authenticationLegalDocuments: null,
     transactionalEmail: null,
+    resendWebhookSecret: null,
     hostedCollections: false,
     hostedProvider: null,
     allowInsecureHostedProvider: false,

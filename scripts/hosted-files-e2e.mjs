@@ -26,7 +26,23 @@ try {
   assert.equal((await request(provider.url, "/ready")).status, 200);
 
   const collectionId = randomUUID();
+  const accountId = randomUUID();
+  await ok(request(provider.url, `/internal/v1/accounts/${accountId}`, {
+    method: "PUT",
+    token: internalToken,
+    body: {
+      entitlement_revision: 1,
+      hosted_storage_bytes: 1024 * 1024 * 1024,
+      retained_file_bytes: 2 * 1024 * 1024 * 1024,
+      max_document_bytes: 2 * 1024 * 1024,
+      max_single_file_bytes: 250 * 1024 * 1024,
+      max_replicas_per_collection: 10,
+      max_hosted_collections: 10,
+      max_files_per_collection: 10_000
+    }
+  }));
   await internal(provider.url, "/internal/v1/collections", {
+    account_id: accountId,
     collection_id: collectionId,
     template: "mdbase",
     display_name: "Hosted files"

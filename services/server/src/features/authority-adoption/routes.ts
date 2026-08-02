@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
+import { reconcileHostedAccount } from "../../entitlements.js";
 import {
   HostedProviderResponseError,
   type HostedProviderClient
@@ -307,8 +308,19 @@ export function registerAuthorityAdoptionRoutes(
         ));
       }
       const importToken = randomToken("ati");
+      if (!adoption.user_id) {
+        throw new RequestValidationError(
+          "Collection adoption has not been assigned to an account."
+        );
+      }
+      const account = await reconcileHostedAccount(
+        options.db,
+        options.hostedProvider,
+        adoption.user_id
+      );
       const prepared = await options.hostedProvider.prepareAuthorityImport({
         transferId: adoption.id,
+        accountId: account.providerAccountId,
         collectionId: adoption.collection_id,
         displayName: adoption.display_name,
         token: importToken,

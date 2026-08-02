@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
+import { reconcileHostedAccount } from "../../entitlements.js";
 import type { HostedAuthorityRegistry } from "../../hosted.js";
 import {
   HostedProviderResponseError,
@@ -137,8 +138,14 @@ export function registerLocalToHostedTransferRoutes(
       }
       const transferId = transfer.id;
       const importToken = randomToken("ati");
+      const account = await reconcileHostedAccount(
+        options.db,
+        options.hostedProvider,
+        connector.user_id
+      );
       const prepared = await options.hostedProvider.prepareAuthorityImport({
         transferId,
+        accountId: account.providerAccountId,
         collectionId: local.local_id,
         displayName: local.display_name,
         token: importToken,

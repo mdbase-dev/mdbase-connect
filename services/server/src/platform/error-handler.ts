@@ -7,6 +7,7 @@ import {
   IdentityRemovalForbiddenError
 } from "../account-management.js";
 import { AccountUnavailableError } from "../external-auth.js";
+import { HostedEntitlementRequiredError } from "../entitlements.js";
 import { GitHubIdentityError } from "../github-auth.js";
 import { GoogleIdentityError } from "../google-auth.js";
 import {
@@ -99,6 +100,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
     if (error instanceof HostedProviderUnavailableError) {
       request.log.error({ error: error.cause }, "Hosted provider is unavailable");
       return reply.code(503).send(apiError("hosted_provider_unavailable", error.message));
+    }
+    if (error instanceof HostedEntitlementRequiredError) {
+      return reply.code(403).send(apiError(
+        "hosted_entitlement_required",
+        error.message
+      ));
     }
     if (error instanceof GitHubIdentityError) {
       request.log.warn({ error: error.message }, "GitHub authentication failed");
