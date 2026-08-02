@@ -207,6 +207,7 @@ export type AppManifest = WebAppManifest | PortableAppManifest;
 
 export interface RegisteredApplicationManifest {
   manifest: AppManifest;
+  digest: string;
   canonicalIdentity: string;
   familyIdentity: string;
 }
@@ -233,6 +234,7 @@ export function registerApplicationManifest(
     const digest = canonicalSha256(manifest).slice("sha256:".length);
     return {
       manifest,
+      digest,
       canonicalIdentity: `bundle:${parsed.id}:sha256:${digest}`,
       familyIdentity: `bundle:${parsed.id}`
     };

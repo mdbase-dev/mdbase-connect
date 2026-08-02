@@ -7,7 +7,7 @@ import type {
   ContractRequirement,
   FileCapability,
   GrantEncryption,
-  GrantPolicy,
+  GrantSummary,
   GrantScope,
   NotificationCriterion
 } from "@mdbase-dev/connect-protocol";
@@ -131,11 +131,11 @@ export async function syncHostedNotificationGrant(
     await provider.revokeNotificationGrant(row.collection_id, row.id);
     return;
   }
-  const grant: GrantPolicy = {
+  const grant: GrantSummary = {
     id: row.id,
     application_id: row.application_id,
     collection_id: row.collection_id,
-    operations: row.operations as GrantPolicy["operations"],
+    operations: row.operations as GrantSummary["operations"],
     scope: row.scope,
     application_name: row.application_name,
     application_homepage: row.application_homepage,

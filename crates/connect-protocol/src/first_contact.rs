@@ -1,5 +1,8 @@
 use crate::crypto::RelayIdentity;
-use crate::FIRST_CONTACT_PROTOCOL_VERSION;
+use crate::{
+    ApplicationFileRequirement, FileAction, FileCapabilityKind, FileScope, GrantPolicy,
+    FILE_PROTOCOL_VERSION, FIRST_CONTACT_PROTOCOL_VERSION,
+};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use hkdf::Hkdf;
@@ -59,7 +62,9 @@ pub enum ApplicationAuthorizationFlow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationAuthorizationBinding {
     pub protocol_version: u32,
+    pub authorization_id: Uuid,
     pub application_id: Uuid,
+    pub application_manifest_digest: String,
     pub application_installation_id: Uuid,
     pub installation_agreement_public_key: String,
     pub installation_signing_public_key: String,
@@ -67,12 +72,16 @@ pub struct ApplicationAuthorizationBinding {
     pub grant_signing_public_key: String,
     pub flow: ApplicationAuthorizationFlow,
     pub authorization_nonce: String,
+    pub issued_at: String,
+    pub expires_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     pub code_challenge: String,
     pub requested_operations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_files: Option<ApplicationFileRequirement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
 }
@@ -151,7 +160,14 @@ impl ApplicationAuthorizationBinding {
         let keys = self.validated_keys()?;
         let nonce = canonical_base64(&self.authorization_nonce, 32)?;
         if canonical_base64(&self.code_challenge, 32).is_err()
-            || self.requested_operations.is_empty()
+            || self.issued_at.is_empty()
+            || self.issued_at.len() > 40
+            || self.issued_at.as_bytes().contains(&0)
+            || self.expires_at.is_empty()
+            || self.expires_at.len() > 40
+            || self.expires_at.as_bytes().contains(&0)
+            || !is_hex_sha256(&self.application_manifest_digest)
+            || (self.requested_operations.is_empty() && self.requested_files.is_none())
             || self
                 .requested_operations
                 .iter()
@@ -165,6 +181,7 @@ impl ApplicationAuthorizationBinding {
         {
             return Err(FirstContactError::InvalidAuthorizationProof);
         }
+        validate_requested_files(self.requested_files.as_ref())?;
         match self.flow {
             ApplicationAuthorizationFlow::AuthorizationCode
                 if self.redirect_uri.is_none() || self.state.is_none() =>
@@ -188,6 +205,11 @@ impl ApplicationAuthorizationBinding {
         transcript.extend_from_slice(AUTHORIZATION_PROOF_DOMAIN);
         transcript.extend_from_slice(&self.protocol_version.to_be_bytes());
         append_field(&mut transcript, self.application_id.as_bytes());
+        append_field(&mut transcript, self.authorization_id.as_bytes());
+        append_field(
+            &mut transcript,
+            &hex_sha256(&self.application_manifest_digest)?,
+        );
         append_field(&mut transcript, self.application_installation_id.as_bytes());
         append_field(&mut transcript, &keys.installation_agreement);
         append_field(&mut transcript, &keys.installation_signing);
@@ -201,6 +223,8 @@ impl ApplicationAuthorizationBinding {
             },
         );
         append_field(&mut transcript, &nonce);
+        append_field(&mut transcript, self.issued_at.as_bytes());
+        append_field(&mut transcript, self.expires_at.as_bytes());
         append_optional_string(&mut transcript, self.redirect_uri.as_deref());
         append_optional_string(&mut transcript, self.state.as_deref());
         append_field(&mut transcript, self.code_challenge.as_bytes());
@@ -208,6 +232,7 @@ impl ApplicationAuthorizationBinding {
         for operation in &self.requested_operations {
             append_field(&mut transcript, operation.as_bytes());
         }
+        append_requested_files(&mut transcript, self.requested_files.as_ref());
         append_optional_uuid(&mut transcript, self.collection_id);
         Ok(transcript)
     }
@@ -254,6 +279,68 @@ impl ApplicationAuthorizationProof {
         verifier
             .verify(&message, &signature)
             .map_err(|_| FirstContactError::InvalidAuthorizationProof)
+    }
+}
+
+impl GrantPolicy {
+    /// Validate the app-signed authorization ceiling and exact first-contact identity without
+    /// consulting connector-local trust state or the authorization expiry clock.
+    pub fn validate_application_security(&self) -> Result<(), FirstContactError> {
+        self.application_authorization.verify()?;
+        self.first_contact.validate()?;
+        let authorization = &self.application_authorization.binding;
+        let encryption = self
+            .encryption
+            .as_ref()
+            .ok_or(FirstContactError::InvalidAuthorizationProof)?;
+        let flow_matches = match authorization.flow {
+            ApplicationAuthorizationFlow::AuthorizationCode => {
+                self.application_distribution == "web"
+            }
+            ApplicationAuthorizationFlow::DeviceCode => self.application_distribution == "portable",
+        };
+        let files_match = match (
+            authorization.requested_files.as_ref(),
+            self.file_capability.as_ref(),
+        ) {
+            (None, None) => true,
+            (Some(requested), Some(granted)) => {
+                granted.kind == FileCapabilityKind::Files
+                    && granted.protocol_version == FILE_PROTOCOL_VERSION
+                    && granted.actions == requested.actions
+                    && granted.scope == requested.scope
+            }
+            _ => false,
+        };
+        if authorization.application_id != self.application_id
+            || self.first_contact.application_id != self.application_id
+            || self.first_contact.application_installation_id
+                != authorization.application_installation_id
+            || self.first_contact.application_agreement_public_key
+                != authorization.installation_agreement_public_key
+            || self.first_contact.application_signing_public_key
+                != authorization.installation_signing_public_key
+            || self.first_contact.connector_id != encryption.connector_id
+            || self.first_contact.connector_agreement_public_key
+                != encryption.connector_agreement_public_key
+            || authorization.grant_agreement_public_key
+                != encryption.application_agreement_public_key
+            || encryption.collection_id != self.collection_id
+            || authorization
+                .collection_id
+                .is_some_and(|collection_id| collection_id != self.collection_id)
+            || self.operations.iter().any(|operation| {
+                !authorization
+                    .requested_operations
+                    .iter()
+                    .any(|requested| requested == operation)
+            })
+            || !flow_matches
+            || !files_match
+        {
+            return Err(FirstContactError::InvalidAuthorizationProof);
+        }
+        Ok(())
     }
 }
 
@@ -394,6 +481,93 @@ fn append_optional_uuid(output: &mut Vec<u8>, value: Option<Uuid>) {
         }
         None => output.push(0),
     }
+}
+
+fn validate_requested_files(
+    files: Option<&ApplicationFileRequirement>,
+) -> Result<(), FirstContactError> {
+    let Some(files) = files else {
+        return Ok(());
+    };
+    if files.actions.is_empty()
+        || files
+            .actions
+            .iter()
+            .map(file_action_name)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != files.actions.len()
+    {
+        return Err(FirstContactError::InvalidAuthorizationProof);
+    }
+    if let FileScope::SelectedFolders { folders } = &files.scope {
+        if folders.is_empty()
+            || folders
+                .iter()
+                .any(|folder| folder.is_empty() || folder.as_bytes().contains(&0))
+            || folders
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != folders.len()
+        {
+            return Err(FirstContactError::InvalidAuthorizationProof);
+        }
+    }
+    Ok(())
+}
+
+fn append_requested_files(output: &mut Vec<u8>, files: Option<&ApplicationFileRequirement>) {
+    let Some(files) = files else {
+        output.push(0);
+        return;
+    };
+    output.push(1);
+    output.extend_from_slice(&(files.actions.len() as u32).to_be_bytes());
+    for action in &files.actions {
+        append_field(output, file_action_name(action).as_bytes());
+    }
+    match &files.scope {
+        FileScope::Collection => append_field(output, b"collection"),
+        FileScope::SelectedFolders { folders } => {
+            append_field(output, b"selected_folders");
+            output.extend_from_slice(&(folders.len() as u32).to_be_bytes());
+            for folder in folders {
+                append_field(output, folder.as_bytes());
+            }
+        }
+    }
+}
+
+fn file_action_name(action: &FileAction) -> &'static str {
+    match action {
+        FileAction::List => "list",
+        FileAction::Read => "read",
+        FileAction::Add => "add",
+        FileAction::Replace => "replace",
+        FileAction::Move => "move",
+        FileAction::Delete => "delete",
+    }
+}
+
+fn is_hex_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+}
+
+fn hex_sha256(value: &str) -> Result<[u8; 32], FirstContactError> {
+    if !is_hex_sha256(value) {
+        return Err(FirstContactError::InvalidAuthorizationProof);
+    }
+    let mut output = [0_u8; 32];
+    for (index, byte) in output.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| FirstContactError::InvalidAuthorizationProof)?;
+    }
+    Ok(output)
 }
 
 fn format_sas(bytes: [u8; 5]) -> String {
@@ -543,6 +717,22 @@ mod tests {
             hex(&Sha256::digest(message)),
             fixture["signing_message_sha256"].as_str().unwrap()
         );
+        let signing_key = SigningKey::from_slice(
+            &URL_SAFE_NO_PAD
+                .decode(
+                    fixture["installation_signing_private_key"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let signature: Signature = signing_key.sign(&binding.signing_message().unwrap());
+        let signature = signature.normalize_s().unwrap_or(signature);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+            fixture["signature"].as_str().unwrap()
+        );
     }
 
     #[test]
@@ -568,6 +758,7 @@ mod tests {
             binding.installation_signing_public_key
         );
         let signature: Signature = signing_key.sign(&binding.signing_message().unwrap());
+        let signature = signature.normalize_s().unwrap_or(signature);
         let proof = ApplicationAuthorizationProof {
             binding: binding.clone(),
             signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),

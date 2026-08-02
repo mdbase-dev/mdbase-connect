@@ -216,6 +216,7 @@ impl AgentState {
             }
             RelayMessage::AuthorizationActivationRequest {
                 request_id,
+                authorization_id,
                 collection_id,
                 requirements,
                 provisions,
@@ -223,6 +224,37 @@ impl AgentState {
                 mut grant,
                 ..
             } => {
+                match self.ensure_activation_trust(authorization_id, &grant) {
+                    Ok(super::trust::ActivationTrust::Trusted) => {}
+                    Ok(super::trust::ActivationTrust::Required(trust)) => {
+                        return Some(RelayMessage::AuthorizationActivationResponse {
+                            protocol_version: CONTROL_PROTOCOL_VERSION,
+                            request_id,
+                            ok: false,
+                            contracts: Vec::new(),
+                            contract_setups: Vec::new(),
+                            error: Some(ControlError {
+                                code: "trust_required".to_string(),
+                                message: "Confirm this application's authentication string on the connector before access can start.".to_string(),
+                                details: serde_json::to_value(trust).ok(),
+                            }),
+                        });
+                    }
+                    Err(error) => {
+                        return Some(RelayMessage::AuthorizationActivationResponse {
+                            protocol_version: CONTROL_PROTOCOL_VERSION,
+                            request_id,
+                            ok: false,
+                            contracts: Vec::new(),
+                            contract_setups: Vec::new(),
+                            error: Some(ControlError {
+                                code: error.code().to_string(),
+                                message: error.to_string(),
+                                details: None,
+                            }),
+                        });
+                    }
+                }
                 let result = (|| {
                     if self.registry.paused()? {
                         return Err(ConnectError::AccessDenied(

@@ -4,8 +4,14 @@ import type {
   CollectionFileDescriptor,
   FileCapability
 } from "./files.js";
+import type { CollectionOperation } from "./operations.js";
+import type {
+  ApplicationAuthorizationProof
+} from "./application-authorization.js";
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
+export * from "./operations.js";
+export * from "./application-authorization.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 1 as const;
@@ -17,6 +23,7 @@ export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
+  "application-trust-v1",
   "authorization-activation",
   "encrypted-relay",
   "policy-ack"
@@ -70,32 +77,6 @@ export const CONNECT_SCHEMA_IDS = {
   files: "https://mdbase.dev/connect/schemas/files.v1.json",
   sync: "https://mdbase.dev/connect/schemas/sync.v1.json"
 } as const;
-
-export type CollectionOperation =
-  | "describe"
-  | "changes"
-  | "read"
-  | "query"
-  | "list_views"
-  | "execute_view"
-  | "read_view_source"
-  | "create_view_source"
-  | "update_view_source"
-  | "delete_view_source"
-  | "validate"
-  | "create"
-  | "update"
-  | "delete"
-  | "rename"
-  | "read_type"
-  | "create_type"
-  | "update_type"
-  | "install_type_pack"
-  | "list_timers"
-  | "put_timer"
-  | "cancel_timer"
-  | "reconcile_timers"
-  | "sync";
 
 export interface NotificationCriterion {
   /** Stable, manifest-owned identifier selected by an installation. */
@@ -368,7 +349,15 @@ export interface GrantPolicy {
   created_at: string;
   encryption?: GrantEncryption;
   file_capability?: FileCapability;
+  first_contact: FirstContactBinding;
+  application_authorization: ApplicationAuthorizationProof;
 }
+
+/** Presentation-only grant shape used outside a local authorization boundary. */
+export type GrantSummary = Omit<
+  GrantPolicy,
+  "first_contact" | "application_authorization"
+>;
 
 export interface GrantEncryption {
   protocol_version: 1;
@@ -389,30 +378,6 @@ export interface FirstContactBinding {
   application_signing_public_key: string;
   connector_id: string;
   connector_agreement_public_key: string;
-}
-
-export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
-
-export interface ApplicationAuthorizationBinding {
-  protocol_version: typeof FIRST_CONTACT_PROTOCOL_VERSION;
-  application_id: string;
-  application_installation_id: string;
-  installation_agreement_public_key: string;
-  installation_signing_public_key: string;
-  grant_agreement_public_key: string;
-  grant_signing_public_key: string;
-  flow: ApplicationAuthorizationFlow;
-  authorization_nonce: string;
-  redirect_uri?: string;
-  state?: string;
-  code_challenge: string;
-  requested_operations: CollectionOperation[];
-  collection_id?: string;
-}
-
-export interface ApplicationAuthorizationProof {
-  binding: ApplicationAuthorizationBinding;
-  signature: string;
 }
 
 export interface EncryptedRelayEnvelope {

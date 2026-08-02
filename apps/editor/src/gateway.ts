@@ -20,6 +20,7 @@ import { persistedBody, titlePatch } from "./note";
 import type {
   CollectionGateway,
   CollectionAuthorizationTarget,
+  CollectionAuthorizationOptions,
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
@@ -138,8 +139,11 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.readySummary();
   }
 
-  async authorize(target: CollectionAuthorizationTarget): Promise<void> {
-    unwrapConnectOutcome(await this.session.authorize(target));
+  async authorize(
+    target: CollectionAuthorizationTarget,
+    options: CollectionAuthorizationOptions = {}
+  ): Promise<void> {
+    unwrapConnectOutcome(await this.session.authorize(target, options));
   }
 
   forgetConnection(collectionId: string): void {

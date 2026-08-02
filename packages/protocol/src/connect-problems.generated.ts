@@ -41,12 +41,14 @@ export const CONNECT_PROBLEM_CATALOG = {
   "file_not_found": { category: "conflict", recovery: "refresh" },
   "file_source_mismatch": { category: "conflict", recovery: "refresh" },
   "file_upload_incomplete": { category: "conflict", recovery: "retry" },
+  "first_contact_handler_required": { category: "compatibility", recovery: "upgrade_application" },
   "hosted_provider_unavailable": { category: "availability", recovery: "retry" },
   "insufficient_access": { category: "authorization", recovery: "reauthorize" },
   "invalid_application_manifest": { category: "validation", recovery: "fix_request" },
   "invalid_callback": { category: "validation", recovery: "fix_request" },
   "invalid_device_authorization_response": { category: "integrity", recovery: "contact_support" },
   "invalid_encrypted_response": { category: "integrity", recovery: "contact_support" },
+  "invalid_first_contact": { category: "integrity", recovery: "contact_support" },
   "invalid_loopback_url": { category: "validation", recovery: "fix_request" },
   "invalid_mutation_id": { category: "validation", recovery: "fix_request" },
   "invalid_operation_response": { category: "integrity", recovery: "contact_support" },
@@ -171,6 +173,7 @@ export interface ConnectProblemDetailsByCode {
   "file_not_found": undefined;
   "file_source_mismatch": undefined;
   "file_upload_incomplete": undefined;
+  "first_contact_handler_required": undefined;
   "hosted_provider_unavailable": undefined;
   "insufficient_access": {
   "required_operations": Array<string>;
@@ -181,6 +184,7 @@ export interface ConnectProblemDetailsByCode {
   "invalid_callback": undefined;
   "invalid_device_authorization_response": undefined;
   "invalid_encrypted_response": undefined;
+  "invalid_first_contact": undefined;
   "invalid_loopback_url": undefined;
   "invalid_mutation_id": undefined;
   "invalid_operation_response": undefined;
@@ -464,6 +468,12 @@ export interface ConnectProblemByCode {
     recovery: "retry";
     details?: never;
   };
+  "first_contact_handler_required": ConnectProblemBase & {
+    code: "first_contact_handler_required";
+    category: "compatibility";
+    recovery: "upgrade_application";
+    details?: never;
+  };
   "hosted_provider_unavailable": ConnectProblemBase & {
     code: "hosted_provider_unavailable";
     category: "availability";
@@ -496,6 +506,12 @@ export interface ConnectProblemByCode {
   };
   "invalid_encrypted_response": ConnectProblemBase & {
     code: "invalid_encrypted_response";
+    category: "integrity";
+    recovery: "contact_support";
+    details?: never;
+  };
+  "invalid_first_contact": ConnectProblemBase & {
+    code: "invalid_first_contact";
     category: "integrity";
     recovery: "contact_support";
     details?: never;

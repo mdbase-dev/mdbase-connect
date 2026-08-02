@@ -578,12 +578,39 @@ mod tests {
             .create(state_dir.path().join("collection"), Some("Private notes"))
             .unwrap();
         let grant_id = Uuid::new_v4();
+        let application_id = Uuid::new_v4();
+        let connector_id = Uuid::new_v4();
+        let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
+        let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
+        let operations = vec!["changes".to_string()];
+        let encryption = mdbase_connect_protocol::GrantEncryption {
+            protocol_version: mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
+            key_id: "notification-test".to_string(),
+            scope_epoch: 1,
+            connector_id,
+            collection_id: collection.id,
+            application_agreement_public_key: application.public_key(),
+            connector_agreement_public_key: connector.public_key(),
+        };
+        let security = crate::test_support::application_security(
+            application_id,
+            Uuid::new_v4(),
+            collection.id,
+            &operations,
+            "web",
+            connector_id,
+            &connector,
+            application.public_key(),
+            None,
+        );
+        crate::test_support::trust_application(&registry, &security, "web");
         registry
             .replace_grants(&[GrantPolicy {
                 id: grant_id,
-                application_id: Uuid::new_v4(),
+                application_id,
                 collection_id: collection.id,
-                operations: vec!["changes".to_string()],
+                operations,
                 scope: GrantScope::full_collection(),
                 application_name: "Tasks".to_string(),
                 application_distribution: "web".to_string(),
@@ -625,8 +652,10 @@ mod tests {
                     },
                 ],
                 created_at: "2026-07-24T00:00:00Z".to_string(),
-                encryption: None,
+                encryption: Some(encryption),
                 file_capability: None,
+                first_contact: security.first_contact,
+                application_authorization: security.proof,
             }])
             .unwrap();
 
@@ -768,12 +797,39 @@ mod tests {
             .create(state_dir.path().join("collection"), Some("Tasks"))
             .unwrap();
         let grant_id = Uuid::new_v4();
+        let application_id = Uuid::new_v4();
+        let connector_id = Uuid::new_v4();
+        let connector = mdbase_connect_protocol::crypto::RelayIdentity::generate();
+        let application = mdbase_connect_protocol::crypto::RelayIdentity::generate();
+        let operations = vec!["reconcile_timers".to_string()];
+        let encryption = mdbase_connect_protocol::GrantEncryption {
+            protocol_version: mdbase_connect_protocol::ENCRYPTED_RELAY_PROTOCOL_VERSION,
+            suite: mdbase_connect_protocol::RELAY_ENCRYPTION_SUITE.to_string(),
+            key_id: "timer-test".to_string(),
+            scope_epoch: 1,
+            connector_id,
+            collection_id: collection.id,
+            application_agreement_public_key: application.public_key(),
+            connector_agreement_public_key: connector.public_key(),
+        };
+        let security = crate::test_support::application_security(
+            application_id,
+            Uuid::new_v4(),
+            collection.id,
+            &operations,
+            "web",
+            connector_id,
+            &connector,
+            application.public_key(),
+            None,
+        );
+        crate::test_support::trust_application(&registry, &security, "web");
         registry
             .replace_grants(&[GrantPolicy {
                 id: grant_id,
-                application_id: Uuid::new_v4(),
+                application_id,
                 collection_id: collection.id,
-                operations: vec!["reconcile_timers".to_string()],
+                operations,
                 scope: GrantScope::full_collection(),
                 application_name: "Tasks".to_string(),
                 application_distribution: "web".to_string(),
@@ -798,8 +854,10 @@ mod tests {
                     },
                 }],
                 created_at: "2026-07-25T00:00:00Z".to_string(),
-                encryption: None,
+                encryption: Some(encryption),
                 file_capability: None,
+                first_contact: security.first_contact,
+                application_authorization: security.proof,
             }])
             .unwrap();
         let grant = registry.grant_context(grant_id).unwrap().unwrap();

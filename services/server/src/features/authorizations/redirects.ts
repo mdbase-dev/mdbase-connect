@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DatabasePool } from "../../db.js";
+import type { DatabaseQueryable } from "../../db.js";
 import { randomToken, tokenHash } from "../../security.js";
 
 export function deniedAuthorizationRedirect(input: { redirect_uri: string; state: string | null }): string {
@@ -21,7 +21,7 @@ export function normalizedApplicationOrigin(value: string): string {
 }
 
 export async function createAuthorizationRedirect(
-  db: DatabasePool,
+  db: DatabaseQueryable,
   publicUrl: string,
   input: {
     application_id: string;

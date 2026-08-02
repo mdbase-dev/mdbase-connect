@@ -3,6 +3,7 @@ import type {
   CollectionChangesPage,
   CollectionDescription,
   CollectionOperation,
+  FirstContactBinding,
   CollectionTypeDocument,
   CreateViewSourceInput,
   DeleteViewSourceInput,
@@ -122,6 +123,11 @@ export interface MdbaseAuthorizeOptions {
   returnTo?: string;
   /** Receives the short code even when the SDK also opens the approval page. */
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
+  /**
+   * Displays the independently derived first-contact code. Keep it visible
+   * while the user compares and accepts the same code on the connector.
+   */
+  onFirstContact?: (challenge: MdbaseFirstContactChallenge) => void | Promise<void>;
   /** Replace the default popup for a downloaded application's approval page. */
   openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
   /** Stop polling and discard the unapproved, in-memory key. */
@@ -132,8 +138,16 @@ export interface MdbaseConnectionAuthorizeOptions {
   operations?: CollectionOperation[];
   returnTo?: string;
   onDeviceCode?: (authorization: MdbaseDeviceAuthorization) => void;
+  onFirstContact?: (challenge: MdbaseFirstContactChallenge) => void | Promise<void>;
   openVerification?: (authorization: MdbaseDeviceAuthorization) => void | Promise<void>;
   signal?: AbortSignal;
+}
+
+export interface MdbaseFirstContactChallenge {
+  binding: FirstContactBinding;
+  authenticationString: string;
+  applicationId: string;
+  connectorId: string;
 }
 
 export interface MdbaseConnectEnvironment {
@@ -301,7 +315,7 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
 
   async requestOperations(
     requiredOperations: CollectionOperation[],
-    options: Pick<MdbaseConnectionAuthorizeOptions, "returnTo"> = {}
+    options: Omit<MdbaseConnectionAuthorizeOptions, "operations"> = {}
   ): Promise<
     ConnectOutcome<
       MdbaseAuthorizationOutcome<Frontmatter>

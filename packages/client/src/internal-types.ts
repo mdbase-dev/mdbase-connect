@@ -1,5 +1,6 @@
 import type {
   ApplicationNotifications,
+  ApplicationRequirements,
   CollectionOperation,
   EncryptedRelayOperationRequest,
   GrantEncryption,
@@ -10,11 +11,13 @@ import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {
   id: string;
+  manifest_digest: string;
   name: string;
   distribution?: "web" | "portable";
   homepage?: string;
   project_url?: string;
   notifications?: ApplicationNotifications;
+  requirements: ApplicationRequirements;
 }
 
 export interface StoredAuthorization {
@@ -27,6 +30,8 @@ export interface StoredAuthorization {
   collectionId?: string;
   returnTo?: string;
   keyHandle?: string;
+  installationKeyHandle?: string;
+  authorizationId?: string;
   applicationAgreementPublicKey?: string;
   applicationSigningPublicKey?: string;
 }

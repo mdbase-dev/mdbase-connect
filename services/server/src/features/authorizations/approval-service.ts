@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
   ApplicationNotifications,
+  ApplicationAuthorizationProof,
   ApplicationProvisions,
   ApplicationRequirements,
   CollectionContractDescriptor,
@@ -9,8 +10,7 @@ import type {
   ContractRequirement,
   ContractSetupChoice,
   GrantEncryption,
-  GrantPolicy,
-  GrantScope
+  GrantPolicy
 } from "@mdbase-dev/connect-protocol";
 import {
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
@@ -25,23 +25,18 @@ import type { DatabasePool } from "../../db.js";
 import { contractRequirements } from "../../hosted.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
-import {
-  fileCapabilityForRequirements,
-  planCollectionGrant
-} from "../../grant-planner.js";
-import { RelayHub } from "../../relay.js";
+import { planCollectionGrant } from "../../grant-planner.js";
+import { ConnectorOperationError, RelayHub } from "../../relay.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import {
   allowedTypesForRequirements,
   assertCollectionSupportsOperations,
-  assertOperationsAllowedByRequirements,
   contractsSatisfy,
   requiredContractsForRequirements,
   requiredTypePackProvisions,
-  requiresHostedCollection,
-  scopeForRequirements
+  requiresHostedCollection
 } from "../grants/policy.js";
 import { syncHostedNotificationGrant } from "../grants/service.js";
 import {
@@ -86,6 +81,7 @@ export async function approvePortalAuthorization(
       relay_protocol: number | null;
       application_agreement_public_key: string | null;
       application_signing_public_key: string | null;
+      application_authorization: ApplicationAuthorizationProof | null;
       flow: "authorization_code" | "device_code";
       redirect_uri: string | null;
       collection_id: string | null;
@@ -97,7 +93,8 @@ export async function approvePortalAuthorization(
               a.project_url AS application_project_url, a.icon AS application_icon,
               ar.requested_operations, a.requirements, a.provisions, a.notifications,
               ar.relay_protocol, ar.application_agreement_public_key,
-              ar.application_signing_public_key, ar.flow, ar.redirect_uri,
+              ar.application_signing_public_key, ar.application_authorization,
+              ar.flow, ar.redirect_uri,
               ar.collection_id, ar.grant_id, ar.activation_started_at
        FROM authorization_requests ar
        JOIN applications a ON a.id = ar.application_id
@@ -137,16 +134,13 @@ export async function approvePortalAuthorization(
       );
     }
     if (
-      pending.distribution === "portable"
-      && (
-        pending.flow !== "device_code"
-        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
-        || !pending.application_agreement_public_key
-        || !pending.application_signing_public_key
-      )
+      !pending.application_authorization
+      || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
+      || !pending.application_agreement_public_key
+      || !pending.application_signing_public_key
     ) {
       throw new RequestValidationError(
-        "Downloaded applications require a key-bound device authorization request."
+        "Local access requires a signed, encrypted application authorization request."
       );
     }
     if (pending.flow === "device_code" && pending.distribution !== "portable") {
@@ -217,24 +211,33 @@ export async function approvePortalAuthorization(
     const operations = plan.operations;
     assertCollectionSupportsOperations(selected.spec_version, operations);
     const scope = plan.scope;
-    let encryption: GrantEncryption | undefined;
-    if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
-      if (!pending.application_agreement_public_key || !selected.relay_public_key) {
-        throw new RequestValidationError(
-          "Encrypted relay protocol 1 requires an up-to-date connector."
-        );
-      }
-      encryption = {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
-        suite: RELAY_ENCRYPTION_SUITE,
-        key_id: `enc_${randomUUID()}`,
-        scope_epoch: 1,
-        connector_id: selected.connector_id,
-        collection_id: selected.local_id,
-        application_agreement_public_key: pending.application_agreement_public_key,
-        connector_agreement_public_key: selected.relay_public_key
-      };
+    if (!selected.relay_public_key) {
+      throw new RequestValidationError(
+        "First-contact authorization requires an up-to-date connector."
+      );
     }
+    const encryption: GrantEncryption = {
+      protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
+      suite: RELAY_ENCRYPTION_SUITE,
+      key_id: `enc_${randomUUID()}`,
+      scope_epoch: 1,
+      connector_id: selected.connector_id,
+      collection_id: selected.local_id,
+      application_agreement_public_key: pending.application_agreement_public_key,
+      connector_agreement_public_key: selected.relay_public_key
+    };
+    const firstContact = {
+      protocol_version: 1 as const,
+      application_id: pending.application_id,
+      application_installation_id:
+        pending.application_authorization.binding.application_installation_id,
+      application_agreement_public_key:
+        pending.application_authorization.binding.installation_agreement_public_key,
+      application_signing_public_key:
+        pending.application_authorization.binding.installation_signing_public_key,
+      connector_id: selected.connector_id,
+      connector_agreement_public_key: selected.relay_public_key
+    };
     const applicationOrigin = pending.flow === "device_code"
       ? "null"
       : applicationOriginForRedirect(
@@ -244,8 +247,10 @@ export async function approvePortalAuthorization(
     const inserted = await connection.query<{ created_at: string | Date }>(
       `INSERT INTO grants
          (id, user_id, application_id, collection_id, operations, scope, encryption,
-          file_capability, application_origin, notification_criteria, activated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, NULL)
+          file_capability, application_origin, notification_criteria,
+          application_authorization, first_contact, activated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
+               $9, $10::jsonb, $11::jsonb, $12::jsonb, NULL)
        RETURNING created_at`,
       [
         grantId,
@@ -257,14 +262,32 @@ export async function approvePortalAuthorization(
         encryption ? JSON.stringify(encryption) : null,
         plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
         applicationOrigin,
-        JSON.stringify(pending.notifications.criteria)
+        JSON.stringify(pending.notifications.criteria),
+        JSON.stringify(pending.application_authorization),
+        JSON.stringify(firstContact)
       ]
     );
     await connection.query(
       `UPDATE authorization_requests
-       SET grant_id = $2, activation_started_at = now()
+       SET grant_id = $2,
+           activation_started_at = now(),
+           first_contact = $3::jsonb,
+           portal_approved_at = COALESCE(portal_approved_at, now()),
+           approval_snapshot = $4::jsonb,
+           trust_required_at = NULL
        WHERE id = $1`,
-      [input.requestId, grantId]
+      [
+        input.requestId,
+        grantId,
+        JSON.stringify(firstContact),
+        JSON.stringify({
+          version: 1,
+          offer_id: input.offerId,
+          collection_id: input.collectionId,
+          operations: input.operations,
+          contract_setups: input.contractSetups
+        })
+      ]
     );
     connectorId = selected.connector_id;
     localCollectionId = selected.local_id;
@@ -288,8 +311,10 @@ export async function approvePortalAuthorization(
       collection_name: selected.display_name,
       notification_criteria: pending.notifications.criteria,
       created_at: new Date(inserted.rows[0].created_at).toISOString(),
-      ...(encryption ? { encryption } : {}),
-      ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {})
+      encryption,
+      ...(plan.fileCapability ? { file_capability: plan.fileCapability } : {}),
+      first_contact: firstContact,
+      application_authorization: pending.application_authorization
     };
     await connection.query("COMMIT");
   } catch (error) {
@@ -316,6 +341,14 @@ export async function approvePortalAuthorization(
     );
   } catch (error) {
     await abandonPendingAuthorizationGrant(db, input.requestId, grantId);
+    if (error instanceof ConnectorOperationError && error.code === "trust_required") {
+      await db.query(
+        `UPDATE authorization_requests
+         SET trust_required_at = now()
+         WHERE id = $1 AND completed_at IS NULL AND denied_at IS NULL`,
+        [input.requestId]
+      );
+    }
     await relay.pushPolicy(connectorId);
     throw error;
   }
@@ -378,6 +411,67 @@ export async function approvePortalAuthorization(
     source: "portal_live_offer"
   });
   return true;
+}
+
+/**
+ * Retry the exact local-collection decision already recorded by the portal.
+ * This is intentionally unavailable until the connector has rejected the
+ * first activation with `trust_required`; polling cannot create or change a
+ * user's approval decision.
+ */
+export async function resumePortalAuthorization(
+  db: DatabasePool,
+  relay: RelayHub,
+  requestId: string
+): Promise<boolean> {
+  const stored = await db.query<{
+    user_id: string;
+    approval_snapshot: unknown;
+  }>(
+    `SELECT user_id, approval_snapshot
+     FROM authorization_requests
+     WHERE id = $1 AND portal_approved_at IS NOT NULL
+       AND trust_required_at IS NOT NULL
+       AND completed_at IS NULL AND denied_at IS NULL
+       AND expires_at > now()`,
+    [requestId]
+  );
+  const row = stored.rows[0];
+  if (!row) return false;
+  const snapshot = parseApprovalSnapshot(row.approval_snapshot);
+  return approvePortalAuthorization(db, relay, {
+    requestId,
+    userId: row.user_id,
+    offerId: snapshot.offer_id,
+    collectionId: snapshot.collection_id,
+    operations: snapshot.operations,
+    contractSetups: snapshot.contract_setups
+  });
+}
+
+interface ApprovalSnapshot {
+  version: 1;
+  offer_id: string;
+  collection_id: string;
+  operations: CollectionOperation[];
+  contract_setups: ContractSetupChoice[];
+}
+
+function parseApprovalSnapshot(value: unknown): ApprovalSnapshot {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RequestValidationError("The recorded approval decision is invalid.");
+  }
+  const snapshot = value as Partial<ApprovalSnapshot>;
+  if (
+    snapshot.version !== 1
+    || typeof snapshot.offer_id !== "string"
+    || typeof snapshot.collection_id !== "string"
+    || !Array.isArray(snapshot.operations)
+    || !Array.isArray(snapshot.contract_setups)
+  ) {
+    throw new RequestValidationError("The recorded approval decision is invalid.");
+  }
+  return snapshot as ApprovalSnapshot;
 }
 
 async function abandonPendingAuthorizationGrant(
@@ -472,179 +566,6 @@ function validateContractSetupChoices(
       "Choose starter or existing-type setup for each missing contract only."
     );
   }
-}
-
-export async function approveAuthorization(
-  db: DatabasePool,
-  relay: RelayHub,
-  input: {
-    requestId: string;
-    userId: string;
-    connectorId: string;
-    collectionId: string;
-    operations: string[];
-    source: "connector" | "portal";
-  }
-): Promise<boolean> {
-  const connection = await db.connect();
-  const grantId = randomUUID();
-  let scope: GrantScope;
-  try {
-    await connection.query("BEGIN");
-    const authorization = await connection.query<{
-    application_id: string;
-    distribution: "web" | "portable";
-    application_homepage: string;
-    requested_operations: string[];
-    requirements: ApplicationRequirements;
-    notifications: ApplicationNotifications;
-    relay_protocol: number | null;
-    application_agreement_public_key: string | null;
-    application_signing_public_key: string | null;
-    flow: "authorization_code" | "device_code";
-    redirect_uri: string | null;
-    collection_id: string | null;
-  }>(
-    `SELECT ar.application_id, a.distribution, a.homepage AS application_homepage,
-            ar.requested_operations, a.requirements, a.notifications,
-            ar.relay_protocol, ar.application_agreement_public_key,
-            ar.application_signing_public_key, ar.flow, ar.redirect_uri,
-            ar.collection_id
-     FROM authorization_requests ar
-     JOIN applications a ON a.id = ar.application_id
-     WHERE ar.id = $1 AND ar.user_id = $2 AND ar.completed_at IS NULL
-       AND ar.grant_id IS NULL AND ar.denied_at IS NULL AND ar.expires_at > now()
-     FOR UPDATE`,
-    [input.requestId, input.userId]
-    );
-    const pending = authorization.rows[0];
-    if (!pending) {
-      await connection.query("ROLLBACK");
-      return false;
-    }
-    if (
-      pending.distribution === "portable"
-      && (
-        pending.flow !== "device_code"
-        || pending.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
-        || !pending.application_agreement_public_key
-        || !pending.application_signing_public_key
-      )
-    ) {
-      throw new RequestValidationError(
-        "Downloaded applications require a key-bound device authorization request."
-      );
-    }
-    if (pending.flow === "device_code" && pending.distribution !== "portable") {
-      throw new RequestValidationError(
-        "Device authorization is reserved for downloaded applications."
-      );
-    }
-    if (requiresHostedCollection(pending.requirements)) {
-      throw new RequestValidationError("This application requires an mdbase cloud collection.");
-    }
-    if (input.operations.some((operation) => !pending.requested_operations.includes(operation))) {
-      throw new RequestValidationError("Approved operations must be requested by the application.");
-    }
-    assertOperationsAllowedByRequirements(input.operations, pending.requirements);
-    const collection = await connection.query<{
-    contracts: CollectionContractDescriptor[];
-    local_id: string;
-    relay_public_key: string | null;
-    spec_version: string;
-    }>(
-    `SELECT col.contracts, col.local_id, col.spec_version, con.relay_public_key
-     FROM collections col JOIN connectors con ON con.id = col.connector_id
-     WHERE col.id = $1 AND col.connector_id = $2 AND col.enabled = true
-       AND col.present = true AND col.authority_state = 'active'
-       AND con.revoked_at IS NULL`,
-    [input.collectionId, input.connectorId]
-    );
-    scope = scopeForRequirements(
-      pending.requirements,
-      collection.rows[0]?.contracts ?? []
-    );
-    const fileCapability = fileCapabilityForRequirements(pending.requirements);
-    if (!collection.rows[0]) {
-      throw new RequestValidationError(
-        "This collection does not provide the contracts required by the application."
-      );
-    }
-    if (
-      pending.collection_id
-      && pending.collection_id !== collection.rows[0].local_id
-    ) {
-      throw new RequestValidationError(
-        "This authorization request is restricted to a different collection."
-      );
-    }
-    assertCollectionSupportsOperations(collection.rows[0].spec_version, input.operations);
-    if (!contractsSatisfy(
-      collection.rows[0].contracts,
-      requiredContractsForRequirements(pending.requirements)
-    )) {
-      throw new RequestValidationError(
-        "This collection does not provide the contracts required by the application."
-      );
-    }
-    let encryption: GrantEncryption | null = null;
-    if (pending.relay_protocol === ENCRYPTED_RELAY_PROTOCOL_VERSION) {
-      if (!pending.application_agreement_public_key || !collection.rows[0].relay_public_key) {
-        throw new RequestValidationError(
-          "Encrypted relay protocol 1 requires an up-to-date connector."
-        );
-      }
-      encryption = {
-        protocol_version: ENCRYPTED_RELAY_PROTOCOL_VERSION,
-        suite: RELAY_ENCRYPTION_SUITE,
-        key_id: `enc_${randomUUID()}`,
-        scope_epoch: 1,
-        connector_id: input.connectorId,
-        collection_id: collection.rows[0].local_id,
-        application_agreement_public_key: pending.application_agreement_public_key,
-        connector_agreement_public_key: collection.rows[0].relay_public_key
-      };
-    }
-    await connection.query(
-    `INSERT INTO grants
-       (id, user_id, application_id, collection_id, operations, scope, encryption,
-        file_capability, application_origin, notification_criteria)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb)`,
-    [
-      grantId,
-      input.userId,
-      pending.application_id,
-      input.collectionId,
-      JSON.stringify(input.operations),
-      JSON.stringify(scope),
-      encryption ? JSON.stringify(encryption) : null,
-      fileCapability ? JSON.stringify(fileCapability) : null,
-      pending.flow === "device_code"
-        ? "null"
-        : applicationOriginForRedirect(pending.redirect_uri!, pending.application_homepage),
-      JSON.stringify(pending.notifications.criteria)
-    ]
-    );
-    await connection.query(
-      "UPDATE authorization_requests SET completed_at = now(), grant_id = $2 WHERE id = $1",
-      [input.requestId, grantId]
-    );
-    await connection.query("COMMIT");
-  } catch (error) {
-    await connection.query("ROLLBACK");
-    throw error;
-  } finally {
-    connection.release();
-  }
-  await relay.pushPolicy(input.connectorId);
-  await audit(db, input.userId, "authorization.approved", input.requestId, {
-    connector_id: input.connectorId,
-    collection_id: input.collectionId,
-    operations: input.operations,
-    scope,
-    source: input.source
-  });
-  return true;
 }
 
 export async function approveHostedAuthorization(

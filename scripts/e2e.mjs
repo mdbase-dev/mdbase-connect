@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +15,9 @@ import {
 } from "../packages/client/dist/crypto.js";
 import {
   MdbaseConnect,
+  applicationInstallationId,
+  deriveFirstContactSas,
+  signApplicationAuthorization,
   unwrapConnectOutcome
 } from "../packages/client/dist/index.js";
 
@@ -87,16 +90,17 @@ try {
     body: { manifest: manifest.applicationManifest }
   });
   const appId = application.body.application.id;
-  const applicationKey = await applicationKeyStore.create("e2e-grant");
   const verifier = "end-to-end-pkce-verifier-with-forty-three-characters";
-  const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const authorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${challenge}&code_challenge_method=S256&state=e2e&operations=describe,changes,read,query,create,update&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(applicationKey.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(applicationKey.signingPublicKey)}`,
-    { headers: { cookie }, redirect: "manual" }
-  );
-  if (authorize.status !== 302) throw new Error(`Authorization start returned HTTP ${authorize.status}`);
-  const authorizationId = authorize.headers.get("location")?.split("/").at(-1);
-  if (!authorizationId) throw new Error("Authorization request ID missing");
+  const initialAuthorization = await startSignedWebAuthorization({
+    application: application.body.application,
+    redirectUri: manifest.redirectUri,
+    verifier,
+    state: "e2e",
+    operations: ["describe", "changes", "read", "query", "create", "update"],
+    cookie
+  });
+  const authorizationId = initialAuthorization.id;
+  const applicationKey = initialAuthorization.grantKey;
 
   onboardingBrowser = await chromium.launch({ headless: true });
   onboardingContext = await onboardingBrowser.newContext();
@@ -261,30 +265,17 @@ secret: connector scope test
   }, "collection metadata did not reach the portal");
   const collection = dashboard.collections[0];
 
-  await poll(async () => {
-    const snapshot = await cliJson(["access", "snapshot"]);
-    return snapshot.result?.pending_authorizations?.some((pending) => pending.id === authorizationId)
-      ? snapshot
-      : null;
-  }, "authorization request did not reach the local connector controls");
-  await cliJson([
-    "access", "approve", authorizationId, collection.local_id,
-    "--operations", "describe,changes,read,query,create,update"
-  ]);
-  const completed = await poll(async () => {
-    const current = await request(`/v1/authorization-requests/${authorizationId}/status`, { cookie });
-    return current.body.redirect_uri ? current : null;
-  }, "approved authorization did not return to the browser");
-  const callback = new URL(completed.body.redirect_uri);
-  await onboardingPage.waitForURL(
-    (url) => url.href.startsWith(manifest.redirectUri),
-    { timeout: 10_000 }
+  await onboardingPage.goto(`${serverUrl}/authorize/${authorizationId}`);
+  const collectionChoice = onboardingPage.locator(
+    `.collection-choice-list input[value="${collection.id}"]`
   );
-  const continuedCallback = new URL(onboardingPage.url());
-  if (!continuedCallback.searchParams.get("code")
-      || continuedCallback.searchParams.get("state") !== "e2e") {
-    throw new Error("The waiting browser page did not continue with the approved request");
-  }
+  await collectionChoice.waitFor({ state: "visible" });
+  await collectionChoice.check();
+  await onboardingPage.getByRole("button", { name: "Allow MVP Workout App" }).click();
+  await onboardingPage.getByRole("heading", {
+    name: "Compare the first-contact code."
+  }).waitFor();
+  const callback = await finishSignedWebAuthorization(initialAuthorization);
   await onboardingContext.close();
   await onboardingBrowser.close();
   onboardingContext = undefined;
@@ -338,16 +329,15 @@ secret: connector scope test
   }, "same-name collection metadata did not reach the portal");
 
   const portalVerifier = "portal-live-offer-pkce-verifier-with-forty-three-characters";
-  const portalChallenge = createHash("sha256").update(portalVerifier).digest("base64url");
-  const portalAuthorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${portalChallenge}&code_challenge_method=S256&state=portal-e2e&operations=describe`,
-    { headers: { cookie }, redirect: "manual" }
-  );
-  if (portalAuthorize.status !== 302) {
-    throw new Error(`Portal authorization start returned HTTP ${portalAuthorize.status}`);
-  }
-  const portalAuthorizationId = portalAuthorize.headers.get("location")?.split("/").at(-1);
-  if (!portalAuthorizationId) throw new Error("Portal authorization request ID missing");
+  const portalAuthorization = await startSignedWebAuthorization({
+    application: application.body.application,
+    redirectUri: manifest.redirectUri,
+    verifier: portalVerifier,
+    state: "portal-e2e",
+    operations: ["describe"],
+    cookie
+  });
+  const portalAuthorizationId = portalAuthorization.id;
   const portalRequest = await request(
     `/v1/authorization-requests/${portalAuthorizationId}`,
     { cookie }
@@ -400,23 +390,12 @@ secret: connector scope test
   } finally {
     await portalBrowser.close();
   }
-  await request(`/v1/authorization-requests/${portalAuthorizationId}/approve`, {
-    method: "POST",
-    cookie,
-    body: {
-      collection_id: portalOffer.id,
-      offer_id: portalOffer.offer_id,
-      operations: ["describe"]
-    }
+  await approvePortalAuthorization(portalAuthorizationId, cookie, {
+    collection_id: portalOffer.id,
+    offer_id: portalOffer.offer_id,
+    operations: ["describe"]
   });
-  const portalCompleted = await poll(async () => {
-    const current = await request(
-      `/v1/authorization-requests/${portalAuthorizationId}/status`,
-      { cookie }
-    );
-    return current.body.redirect_uri ? current : null;
-  }, "portal-approved local authorization did not complete");
-  const portalCallback = new URL(portalCompleted.body.redirect_uri);
+  const portalCallback = await finishSignedWebAuthorization(portalAuthorization);
   const portalToken = await request("/oauth/token", {
     method: "POST",
     form: {
@@ -427,20 +406,12 @@ secret: connector scope test
       code_verifier: portalVerifier
     }
   });
-  const portalDescription = await fetch(
-    `${serverUrl}/v1/authorities/${collection.id}/operations/describe`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${portalToken.body.access_token}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        protocol_version: 1,
-        request_id: crypto.randomUUID(),
-        input: {}
-      })
-    }
+  const portalDescription = await signedGrantOperation(
+    portalAuthorization,
+    portalToken.body,
+    collection.id,
+    "describe",
+    {}
   );
   const portalDescriptionBody = await portalDescription.json();
   if (portalDescription.status !== 200
@@ -545,15 +516,15 @@ implements:
     }
   });
   const setupVerifier = "contract-setup-e2e-verifier-with-forty-three-characters";
-  const setupChallenge = createHash("sha256").update(setupVerifier).digest("base64url");
-  const setupAuthorize = await fetch(
-    `${serverUrl}/oauth/authorize?client_id=${setupApplication.body.application.id}&redirect_uri=${encodeURIComponent(manifest.redirectUri)}&code_challenge=${setupChallenge}&code_challenge_method=S256&state=setup-e2e&operations=describe,query`,
-    { headers: { cookie }, redirect: "manual" }
-  );
-  const setupAuthorizationId = setupAuthorize.headers.get("location")?.split("/").at(-1);
-  if (setupAuthorize.status !== 302 || !setupAuthorizationId) {
-    throw new Error(`Contract-setup authorization did not start: HTTP ${setupAuthorize.status}`);
-  }
+  const setupAuthorization = await startSignedWebAuthorization({
+    application: setupApplication.body.application,
+    redirectUri: manifest.redirectUri,
+    verifier: setupVerifier,
+    state: "setup-e2e",
+    operations: ["describe", "query"],
+    cookie
+  });
+  const setupAuthorizationId = setupAuthorization.id;
   const setupRequest = await poll(async () => {
     const current = await request(
       `/v1/authorization-requests/${setupAuthorizationId}`,
@@ -613,30 +584,19 @@ implements:
   } finally {
     await setupBrowser.close();
   }
-  await request(`/v1/authorization-requests/${setupAuthorizationId}/approve`, {
-    method: "POST",
-    cookie,
-    body: {
-      collection_id: setupOffer.id,
-      offer_id: setupOffer.offer_id,
-      operations: ["describe", "query"],
-      contract_setups: [{
-        contract: { id: "planning.item", version: "1.0.0" },
-        mode: "existing",
-        type_name: "workout",
-        type_revision: workoutCandidate.revision,
-        fields: { title: "title", status: "status" }
-      }]
-    }
+  await approvePortalAuthorization(setupAuthorizationId, cookie, {
+    collection_id: setupOffer.id,
+    offer_id: setupOffer.offer_id,
+    operations: ["describe", "query"],
+    contract_setups: [{
+      contract: { id: "planning.item", version: "1.0.0" },
+      mode: "existing",
+      type_name: "workout",
+      type_revision: workoutCandidate.revision,
+      fields: { title: "title", status: "status" }
+    }]
   });
-  const setupCompleted = await poll(async () => {
-    const current = await request(
-      `/v1/authorization-requests/${setupAuthorizationId}/status`,
-      { cookie }
-    );
-    return current.body.redirect_uri ? current : null;
-  }, "contract setup did not activate its grant");
-  const setupCallback = new URL(setupCompleted.body.redirect_uri);
+  const setupCallback = await finishSignedWebAuthorization(setupAuthorization);
   const setupToken = await request("/oauth/token", {
     method: "POST",
     form: {
@@ -662,20 +622,12 @@ implements:
       updatedWorkoutType
     })}`);
   }
-  const setupQuery = await fetch(
-    `${serverUrl}/v1/authorities/${collection.id}/operations/query`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${setupToken.body.access_token}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        protocol_version: 1,
-        request_id: crypto.randomUUID(),
-        input: { limit: 1 }
-      })
-    }
+  const setupQuery = await signedGrantOperation(
+    setupAuthorization,
+    setupToken.body,
+    collection.id,
+    "query",
+    { limit: 1 }
   );
   const setupQueryBody = await setupQuery.json();
   const setupResult = setupQueryBody.result?.result?.results?.[0];
@@ -690,7 +642,7 @@ implements:
 
   relayContext = {
     store: applicationKeyStore,
-    handle: "e2e-grant",
+    handle: applicationKey.handle,
     binding: {
       grantId: token.body.grant_id,
       applicationId: appId,
@@ -739,7 +691,7 @@ implements:
     grantId: refreshed.body.grant_id,
     encryption: refreshed.body.encryption,
     applicationOrigin: refreshed.body.application_origin,
-    keyHandle: "e2e-grant",
+    keyHandle: applicationKey.handle,
     savedAt: Date.now()
   }));
   sdkStorage.setItem(`${sdkStoragePrefix}:connections`, JSON.stringify({
@@ -832,38 +784,38 @@ implements:
     });
     const browserAppId = browserApplication.body.application.id;
     const browserVerifier = "browser-end-to-end-pkce-verifier-forty-three-chars";
-    const browserChallenge = createHash("sha256").update(browserVerifier).digest("base64url");
     const browserOperations = [
       "describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename",
       "read_type", "create_type", "update_type", "list_views", "execute_view"
     ];
-    const browserAuthorize = await fetch(
-      `${serverUrl}/oauth/authorize?client_id=${browserAppId}&redirect_uri=${encodeURIComponent(manifest.browserRedirectUri)}&code_challenge=${browserChallenge}&code_challenge_method=S256&state=browser-e2e&operations=${browserOperations.join(",")}&relay_protocol=1&application_agreement_public_key=${encodeURIComponent(browserKeys.agreementPublicKey)}&application_signing_public_key=${encodeURIComponent(browserKeys.signingPublicKey)}`,
-      { headers: { cookie }, redirect: "manual" }
-    );
-    if (browserAuthorize.status !== 302) {
-      throw new Error(`Browser authorization start returned HTTP ${browserAuthorize.status}`);
-    }
-    const browserAuthorizationId = browserAuthorize.headers.get("location")?.split("/").at(-1);
-    if (!browserAuthorizationId) throw new Error("Browser authorization request ID missing");
-    await poll(async () => {
-      const snapshot = await cliJson(["access", "snapshot"]);
-      return snapshot.result?.pending_authorizations?.some(
-        (pending) => pending.id === browserAuthorizationId
-      ) ? snapshot : null;
-    }, "browser authorization request did not reach the local connector controls");
-    await cliJson([
-      "access", "approve", browserAuthorizationId, collection.local_id,
-      "--operations", browserOperations.join(",")
-    ]);
-    const browserCompleted = await poll(async () => {
+    const browserAuthorization = await startSignedWebAuthorization({
+      application: browserApplication.body.application,
+      redirectUri: manifest.browserRedirectUri,
+      verifier: browserVerifier,
+      state: "browser-e2e",
+      operations: browserOperations,
+      cookie,
+      grantKey: browserKeys
+    });
+    const browserAuthorizationId = browserAuthorization.id;
+    const browserRequest = await poll(async () => {
       const current = await request(
-        `/v1/authorization-requests/${browserAuthorizationId}/status`,
+        `/v1/authorization-requests/${browserAuthorizationId}`,
         { cookie }
       );
-      return current.body.redirect_uri ? current : null;
-    }, "approved browser authorization did not return to the browser");
-    const browserCallback = new URL(browserCompleted.body.redirect_uri);
+      return current.body.collections?.some((candidate) => candidate.id === collection.id)
+        ? current
+        : null;
+    }, "browser collection offer did not reach the portal");
+    const browserOffer = browserRequest.body.collections.find(
+      (candidate) => candidate.id === collection.id
+    );
+    await approvePortalAuthorization(browserAuthorizationId, cookie, {
+      collection_id: browserOffer.id,
+      offer_id: browserOffer.offer_id,
+      operations: browserOperations
+    });
+    const browserCallback = await finishSignedWebAuthorization(browserAuthorization);
     const browserToken = await request("/oauth/token", {
       method: "POST",
       form: {
@@ -954,6 +906,9 @@ implements:
         globalThis.portableHarness.authorization = authorization;
         document.querySelector("#code").textContent = authorization.userCode;
       },
+      onFirstContact(challenge) {
+        globalThis.portableHarness.firstContact = challenge;
+      },
       openVerification() {}
     }).then(async (authorizationOutcome) => {
       const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
@@ -996,13 +951,32 @@ implements:
       cookie,
       body: { user_code: portableAuthorization.userCode }
     });
+    const portableRequest = await poll(async () => {
+      const current = await request(
+        `/v1/authorization-requests/${portableClaim.body.request_id}`,
+        { cookie }
+      );
+      return current.body.collections?.some((candidate) => candidate.id === collection.id)
+        ? current
+        : null;
+    }, "portable collection offer did not reach the portal");
+    const portableOffer = portableRequest.body.collections.find(
+      (candidate) => candidate.id === collection.id
+    );
+    await approvePortalAuthorization(portableClaim.body.request_id, cookie, {
+      collection_id: portableOffer.id,
+      offer_id: portableOffer.offer_id,
+      operations: ["describe", "query"]
+    });
+    await portablePage.waitForFunction(
+      () => Boolean(globalThis.portableHarness.firstContact)
+    );
+    const portableFirstContact = await portablePage.evaluate(
+      () => globalThis.portableHarness.firstContact
+    );
     await cliJson([
-      "access",
-      "approve",
-      portableClaim.body.request_id,
-      collection.local_id,
-      "--operations",
-      "describe,query"
+      "trust", "accept", portableClaim.body.request_id,
+      "--code", portableFirstContact.authenticationString
     ]);
     await portablePage.waitForFunction(
       () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
@@ -1210,6 +1184,137 @@ implements:
   await rm(scratch, { recursive: true, force: true });
 }
 
+async function startSignedWebAuthorization({
+  application,
+  redirectUri,
+  verifier,
+  state,
+  operations,
+  cookie,
+  grantKey,
+  collectionId
+}) {
+  const authorizationId = randomUUID();
+  const installationHandle = `e2e-installation:${application.id}`;
+  const installationKey = await applicationKeyStore.get(installationHandle)
+    ?? await applicationKeyStore.create(installationHandle);
+  const authorizationGrantKey = grantKey
+    ?? await applicationKeyStore.create(`e2e-grant:${authorizationId}`);
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const issuedAt = new Date();
+  const proof = await signApplicationAuthorization({
+    protocol_version: 1,
+    authorization_id: authorizationId,
+    application_id: application.id,
+    application_manifest_digest: application.manifest_digest,
+    application_installation_id: await applicationInstallationId(installationKey),
+    installation_agreement_public_key: installationKey.agreementPublicKey,
+    installation_signing_public_key: installationKey.signingPublicKey,
+    grant_agreement_public_key: authorizationGrantKey.agreementPublicKey,
+    grant_signing_public_key: authorizationGrantKey.signingPublicKey,
+    flow: "authorization_code",
+    authorization_nonce: randomBytes(32).toString("base64url"),
+    issued_at: issuedAt.toISOString(),
+    expires_at: new Date(issuedAt.getTime() + 10 * 60 * 1_000).toISOString(),
+    redirect_uri: redirectUri,
+    state,
+    code_challenge: challenge,
+    requested_operations: operations,
+    ...(collectionId ? { collection_id: collectionId } : {})
+  }, installationKey);
+  const started = await request("/oauth/authorization_request", {
+    method: "POST",
+    form: {
+      client_id: application.id,
+      redirect_uri: redirectUri,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      state,
+      operations: operations.join(","),
+      ...(collectionId ? { collection_id: collectionId } : {}),
+      application_authorization: JSON.stringify(proof)
+    }
+  });
+  if (started.body.authorization_id !== authorizationId) {
+    throw new Error("The authorization service changed the signed authorization identity");
+  }
+  const claimed = await fetch(started.body.authorization_uri, {
+    headers: { cookie },
+    redirect: "manual"
+  });
+  if (claimed.status !== 302) {
+    throw new Error(`Authorization claim returned HTTP ${claimed.status}`);
+  }
+  const claimedId = claimed.headers.get("location")?.split("/").at(-1);
+  if (claimedId !== authorizationId) {
+    throw new Error("The portal did not claim the exact signed authorization request");
+  }
+  return {
+    id: authorizationId,
+    application,
+    installationKey,
+    grantKey: authorizationGrantKey,
+    redirectUri,
+    verifier,
+    state
+  };
+}
+
+async function authorizationPoll(authorization) {
+  const response = await fetch(`${serverUrl}/oauth/authorization_status`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: authorization.application.id,
+      authorization_id: authorization.id,
+      code_verifier: authorization.verifier
+    })
+  });
+  const body = await response.json();
+  if (response.ok) return { complete: body };
+  if (body.error === "authorization_pending" || body.error === "slow_down") {
+    return { pending: body };
+  }
+  throw new Error(`Authorization poll returned HTTP ${response.status}: ${JSON.stringify(body)}`);
+}
+
+async function finishSignedWebAuthorization(authorization) {
+  let trustAccepted = false;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const status = await authorizationPoll(authorization);
+    if (status.complete) return new URL(status.complete.authorization_redirect);
+    if (status.pending?.first_contact && !trustAccepted) {
+      const code = await deriveFirstContactSas(
+        status.pending.first_contact,
+        "application",
+        authorization.installationKey
+      );
+      await cliJson(["trust", "accept", authorization.id, "--code", code]);
+      trustAccepted = true;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_100));
+  }
+  throw new Error("Application polling did not complete after portal approval and local trust");
+}
+
+async function approvePortalAuthorization(authorizationId, cookie, decision) {
+  const response = await fetch(
+    `${serverUrl}/v1/authorization-requests/${authorizationId}/approve`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(decision)
+    }
+  );
+  const body = await response.json();
+  if (response.ok || (response.status === 409 && body.error?.code === "trust_required")) {
+    return body;
+  }
+  throw new Error(
+    `Portal approval returned HTTP ${response.status}: ${JSON.stringify(body)}`
+  );
+}
+
 async function cliJson(args) {
   const translated = [...args];
   if (translated[0] === "access" && translated[1] === "snapshot") {
@@ -1301,6 +1406,45 @@ async function rawEncryptedEnvelope(collectionId, operation, accessToken, envelo
     },
     body: JSON.stringify(envelope)
   });
+}
+
+async function signedGrantOperation(
+  authorization,
+  token,
+  collectionId,
+  operation,
+  input
+) {
+  const binding = {
+    grantId: token.grant_id,
+    applicationId: authorization.application.id,
+    encryption: token.encryption
+  };
+  const encryptedRequest = await encryptRelayRequest(
+    applicationKeyStore,
+    authorization.grantKey.handle,
+    binding,
+    operation,
+    input
+  );
+  const response = await rawEncryptedEnvelope(
+    collectionId,
+    operation,
+    token.access_token,
+    encryptedRequest
+  );
+  const body = await response.json();
+  if (!response.ok) return syntheticResponse(response.status, body);
+  const decrypted = await decryptRelayResponse(
+    applicationKeyStore,
+    authorization.grantKey.handle,
+    binding,
+    encryptedRequest,
+    body.envelope
+  );
+  return decrypted.ok
+    ? syntheticResponse(200, { ok: true, result: decrypted.result })
+    : syntheticResponse(403, { ok: false, problem: decrypted.problem });
 }
 
 async function rawDirectEnvelope(envelope) {

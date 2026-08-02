@@ -16,7 +16,6 @@ import { join, resolve } from "node:path";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { ensureAgentReady, type AgentPing } from "./agent-startup";
-import { contractSetupInput } from "./contract-setup-input";
 import { AgentControlError, requestAgent } from "./control-client";
 import { routeForDeepLink } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
@@ -362,6 +361,24 @@ function registerIpc(): void {
     const accountUrl = new URL("/account", validateServerUrl(configuration.server_url));
     await shell.openExternal(accountUrl.href);
   });
+  ipcMain.handle("connect:authorizations:open", async (event, requestId: unknown) => {
+    trustedIpc(event);
+    if (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/iu.test(requestId)) {
+      throw new Error("Invalid authorization request.");
+    }
+    const configuration = await requestReadyAgent<{
+      configured: boolean;
+      server_url: string | null;
+    }>("account.configuration");
+    if (!configuration.configured || !configuration.server_url) {
+      throw new Error("Connect this computer to a portal first.");
+    }
+    const authorizationUrl = new URL(
+      `/authorize/${encodeURIComponent(requestId)}`,
+      validateServerUrl(configuration.server_url)
+    );
+    await shell.openExternal(authorizationUrl.href);
+  });
   ipcMain.handle("connect:cloud:set", async (event, input: unknown) => {
     trustedIpc(event);
     if (!input || typeof input !== "object") throw new Error("Invalid cloud connection input.");
@@ -471,6 +488,35 @@ function registerIpc(): void {
     if (typeof paused !== "boolean") throw new Error("Invalid pause setting.");
     return requestReadyAgent("access.pause", { paused }, 10_000);
   });
+  ipcMain.handle("connect:trust:snapshot", async (event) => {
+    trustedIpc(event);
+    return requestReadyAgent("application-trust.snapshot", undefined, 8_000);
+  });
+  ipcMain.handle("connect:trust:accept", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid first-contact confirmation.");
+    if (
+      typeof value.requestId !== "string"
+      || typeof value.authenticationString !== "string"
+      || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/u.test(value.authenticationString)
+    ) {
+      throw new Error("Enter the exact eight-character first-contact code.");
+    }
+    return requestReadyAgent("application-trust.accept", {
+      request_id: value.requestId,
+      authentication_string: value.authenticationString
+    }, 10_000);
+  });
+  ipcMain.handle("connect:trust:reject", async (event, requestId: unknown) => {
+    trustedIpc(event);
+    if (typeof requestId !== "string") throw new Error("Invalid first-contact request.");
+    return requestReadyAgent("application-trust.reject", { request_id: requestId }, 10_000);
+  });
+  ipcMain.handle("connect:trust:revoke", async (event, trustId: unknown) => {
+    trustedIpc(event);
+    if (typeof trustId !== "string") throw new Error("Invalid application trust.");
+    return requestReadyAgent("application-trust.revoke", { id: trustId }, 10_000);
+  });
   ipcMain.handle("connect:account:rename-computer", async (event, name: unknown) => {
     trustedIpc(event);
     if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {
@@ -490,34 +536,6 @@ function registerIpc(): void {
     trustedIpc(event);
     if (typeof grantId !== "string") throw new Error("Invalid grant ID.");
     return requestReadyAgent("grants.revoke", { grant_id: grantId }, 10_000);
-  });
-  ipcMain.handle("connect:authorizations:approve", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid authorization decision.");
-    if (typeof value.requestId !== "string" || typeof value.collectionId !== "string") {
-      throw new Error("Choose a collection for this request.");
-    }
-    const operations = stringArray(value.operations, "Choose at least one operation.");
-    const contractSetups = contractSetupInput(value.contractSetups);
-    return requestReadyAgent(
-      "authorizations.approve",
-      {
-        request_id: value.requestId,
-        collection_id: value.collectionId,
-        operations,
-        contract_setups: contractSetups
-      },
-      10_000
-    );
-  });
-  ipcMain.handle("connect:authorizations:deny", async (event, requestId: unknown) => {
-    trustedIpc(event);
-    if (typeof requestId !== "string") throw new Error("Invalid authorization request.");
-    return requestReadyAgent(
-      "authorizations.deny",
-      { request_id: requestId },
-      10_000
-    );
   });
   ipcMain.handle("connect:activity:list", async (event, limit: unknown) => {
     trustedIpc(event);
@@ -558,24 +576,6 @@ function registerIpc(): void {
     return requestReadyAgent(
       "hosted.collections.delete",
       { collection_id: collectionId },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:authorization-approve", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid authorization decision.");
-    if (typeof value.requestId !== "string" || typeof value.collectionId !== "string") {
-      throw new Error("Choose a hosted collection for this request.");
-    }
-    const contractSetups = contractSetupInput(value.contractSetups);
-    return requestReadyAgent(
-      "hosted.authorizations.approve",
-      {
-        request_id: value.requestId,
-        collection_id: value.collectionId,
-        operations: stringArray(value.operations, "Choose at least one operation."),
-        contract_setups: contractSetups
-      },
       30_000
     );
   });

@@ -1,9 +1,11 @@
 import { once } from "node:events";
+import { createECDH } from "node:crypto";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import { pkceChallenge } from "./security.js";
+import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -46,6 +48,7 @@ describe("live connector-mediated authorization", () => {
     });
     expect(registered.statusCode).toBe(200);
     const applicationId = registered.json().application.id as string;
+    const manifestDigest = registered.json().application.manifest_digest as string;
     const connector = (await app.inject({
       method: "POST",
       url: "/v1/connectors",
@@ -65,6 +68,7 @@ describe("live connector-mediated authorization", () => {
       url: "/v1/connectors/sync",
       headers: { authorization: `Bearer ${connector.token}` },
       payload: {
+        relay_public_key: p256PublicKey(),
         inventory_revision: 1,
         collections: [{
           id: localCollectionId,
@@ -103,7 +107,7 @@ describe("live connector-mediated authorization", () => {
       if (socket.readyState === WebSocket.OPEN) socket.close();
     });
     const relayMessages: Array<Record<string, unknown>> = [];
-    let rejectActivation = false;
+    let activationError: { code: string; message: string } | null = null;
     let holdActivation = true;
     let releaseActivation!: () => void;
     let activationReceived!: () => void;
@@ -119,6 +123,7 @@ describe("live connector-mediated authorization", () => {
         protocol_version: 1,
         connector_version: "0.1.0-test",
         capabilities: [
+          "application-trust-v1",
           "authorization-activation",
           "encrypted-relay",
           "policy-ack"
@@ -154,7 +159,7 @@ describe("live connector-mediated authorization", () => {
       if (message.type === "authorization_activation_request") {
         activationReceived();
         if (holdActivation) await activationGate;
-        socket.send(JSON.stringify(rejectActivation
+        socket.send(JSON.stringify(activationError
           ? {
               type: "authorization_activation_response",
               protocol_version: 1,
@@ -162,10 +167,7 @@ describe("live connector-mediated authorization", () => {
               ok: false,
               contracts: [],
               contract_setups: [],
-              error: {
-                code: "access_paused",
-                message: "Remote access was paused before activation."
-              }
+              error: activationError
             }
           : {
               type: "authorization_activation_response",
@@ -179,7 +181,13 @@ describe("live connector-mediated authorization", () => {
     });
     await once(socket, "open");
 
-    const firstRequestId = await createAuthorizationRequest(app, applicationId, cookie, "one");
+    const firstRequestId = await createAuthorizationRequest(
+      app,
+      applicationId,
+      manifestDigest,
+      cookie,
+      "one"
+    );
     const offered = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${firstRequestId}`,
@@ -263,15 +271,109 @@ describe("live connector-mediated authorization", () => {
     expect(active.rows[0].activated_at).not.toBeNull();
     expect(active.rows[0].completed_at).not.toBeNull();
 
-    rejectActivation = true;
+    activationError = {
+      code: "trust_required",
+      message: "Confirm the first-contact authentication string locally."
+    };
     holdActivation = false;
+    const trustRequestId = await createAuthorizationRequest(
+      app,
+      applicationId,
+      manifestDigest,
+      cookie,
+      "trust"
+    );
+    const secondOffer = (await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${trustRequestId}`,
+      headers: { cookie }
+    })).json().collections[0];
+    const trustRequired = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${trustRequestId}/approve`,
+      headers: { cookie },
+      payload: {
+        collection_id: serverCollectionId,
+        offer_id: secondOffer.offer_id,
+        operations: ["describe"]
+      }
+    });
+    expect(trustRequired.statusCode).toBe(409);
+    expect(trustRequired.json().error).toMatchObject({
+      code: "trust_required"
+    });
+    const waitingForTrust = await app.inject({
+      method: "GET",
+      url: `/v1/authorization-requests/${trustRequestId}/status`,
+      headers: { cookie }
+    });
+    expect(waitingForTrust.json()).toMatchObject({
+      status: "trust_required",
+      first_contact: {
+        application_id: applicationId,
+        connector_id: connector.connector.id
+      }
+    });
+    const trustVerifier = "live-connector-verifier-trust-that-is-long-enough-000001";
+    const applicationWaiting = await app.inject({
+      method: "POST",
+      url: "/oauth/authorization_status",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        authorization_id: trustRequestId,
+        code_verifier: trustVerifier
+      }).toString()
+    });
+    expect(applicationWaiting.statusCode).toBe(400);
+    expect(applicationWaiting.json()).toMatchObject({
+      error: "authorization_pending",
+      first_contact: {
+        application_id: applicationId,
+        connector_id: connector.connector.id
+      }
+    });
+    activationError = null;
+    const durableTrustWait = await db.query(
+      `SELECT grant_id, completed_at, poll_consumed_at, trust_required_at
+       FROM authorization_requests WHERE id = $1`,
+      [trustRequestId]
+    );
+    expect(durableTrustWait.rows[0]).toMatchObject({
+      grant_id: null,
+      completed_at: null,
+      poll_consumed_at: null,
+      trust_required_at: expect.anything()
+    });
+    await db.query(
+      "UPDATE authorization_requests SET last_polled_at = NULL WHERE id = $1",
+      [trustRequestId]
+    );
+    const resumed = await app.inject({
+      method: "POST",
+      url: "/oauth/authorization_status",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        client_id: applicationId,
+        authorization_id: trustRequestId,
+        code_verifier: trustVerifier
+      }).toString()
+    });
+    expect(resumed.statusCode, JSON.stringify(resumed.json())).toBe(200);
+    expect(resumed.json().authorization_redirect).toContain("code=");
+
+    activationError = {
+      code: "access_paused",
+      message: "Remote access was paused before activation."
+    };
     const rejectedRequestId = await createAuthorizationRequest(
       app,
       applicationId,
+      manifestDigest,
       cookie,
-      "two"
+      "rejected"
     );
-    const secondOffer = (await app.inject({
+    const rejectedOffer = (await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${rejectedRequestId}`,
       headers: { cookie }
@@ -282,14 +384,13 @@ describe("live connector-mediated authorization", () => {
       headers: { cookie },
       payload: {
         collection_id: serverCollectionId,
-        offer_id: secondOffer.offer_id,
+        offer_id: rejectedOffer.offer_id,
         operations: ["describe"]
       }
     });
     expect(rejected.statusCode).toBe(409);
     expect(rejected.json().error).toMatchObject({
-      code: "access_paused",
-      message: "Remote access was paused before activation."
+      code: "access_paused"
     });
     const abandoned = await db.query<{
       grant_id: string | null;
@@ -358,16 +459,49 @@ describe("live connector-mediated authorization", () => {
   });
 });
 
+function p256PublicKey(): string {
+  const key = createECDH("prime256v1");
+  key.generateKeys();
+  return key.getPublicKey(undefined, "uncompressed").toString("base64url");
+}
+
 async function createAuthorizationRequest(
   app: Awaited<ReturnType<typeof buildApp>>["app"],
   applicationId: string,
+  manifestDigest: string,
   cookie: string,
   suffix: string
 ): Promise<string> {
   const verifier = `live-connector-verifier-${suffix}-that-is-long-enough-000001`;
+  const state = `live-${suffix}`;
+  const proof = await testApplicationAuthorization({
+    applicationId,
+    applicationManifestDigest: manifestDigest,
+    flow: "authorization_code",
+    redirectUri: "http://localhost:4180/callback",
+    state,
+    codeChallenge: pkceChallenge(verifier),
+    requestedOperations: ["describe"]
+  });
+  const started = await app.inject({
+    method: "POST",
+    url: "/oauth/authorization_request",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    payload: new URLSearchParams({
+      client_id: applicationId,
+      redirect_uri: "http://localhost:4180/callback",
+      code_challenge: pkceChallenge(verifier),
+      code_challenge_method: "S256",
+      state,
+      operations: "describe",
+      application_authorization: JSON.stringify(proof)
+    }).toString()
+  });
+  expect(started.statusCode, JSON.stringify(started.json())).toBe(200);
+  const authorizationUri = new URL(started.json().authorization_uri);
   const authorization = await app.inject({
     method: "GET",
-    url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent("http://localhost:4180/callback")}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe`,
+    url: `${authorizationUri.pathname}${authorizationUri.search}`,
     headers: { cookie }
   });
   expect(authorization.statusCode).toBe(302);

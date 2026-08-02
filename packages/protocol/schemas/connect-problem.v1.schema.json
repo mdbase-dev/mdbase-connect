@@ -1681,6 +1681,46 @@
           "const": 1
         },
         "code": {
+          "const": "first_contact_handler_required"
+        },
+        "category": {
+          "const": "compatibility"
+        },
+        "recovery": {
+          "const": "upgrade_application"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
           "const": "hosted_provider_unavailable"
         },
         "category": {
@@ -1912,6 +1952,46 @@
         },
         "code": {
           "const": "invalid_encrypted_response"
+        },
+        "category": {
+          "const": "integrity"
+        },
+        "recovery": {
+          "const": "contact_support"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_outcome": {
+          "enum": [
+            "not_sent",
+            "rejected",
+            "unknown"
+          ]
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "problem_version",
+        "code",
+        "category",
+        "recovery",
+        "message"
+      ],
+      "properties": {
+        "problem_version": {
+          "const": 1
+        },
+        "code": {
+          "const": "invalid_first_contact"
         },
         "category": {
           "const": "integrity"

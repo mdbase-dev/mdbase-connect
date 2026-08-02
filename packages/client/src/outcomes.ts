@@ -128,8 +128,10 @@ export type AuthorizationProblemCode =
   | "device_authorization_failed"
   | "encryption_required"
   | "expired_token"
+  | "first_contact_handler_required"
   | "invalid_callback"
   | "invalid_device_authorization_response"
+  | "invalid_first_contact"
   | "invalid_token_response"
   | "scope_denied"
   | "token_exchange_failed";
@@ -156,8 +158,10 @@ export const AUTHORIZATION_PROBLEM_CODES = [
   "device_authorization_failed",
   "encryption_required",
   "expired_token",
+  "first_contact_handler_required",
   "invalid_callback",
   "invalid_device_authorization_response",
+  "invalid_first_contact",
   "invalid_token_response",
   "scope_denied",
   "token_exchange_failed"

@@ -4,24 +4,7 @@ use super::*;
 fn policy_snapshot_replaces_previous_local_authority() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let grant = GrantPolicy {
-        id: Uuid::new_v4(),
-        application_id: Uuid::new_v4(),
-        collection_id: Uuid::new_v4(),
-        operations: vec!["read".to_string(), "query".to_string()],
-        scope: GrantScope::full_collection(),
-        application_name: "Workout Tracker".to_string(),
-        application_distribution: "web".to_string(),
-        application_homepage: "https://workouts.example".to_string(),
-        application_project_url: None,
-        application_origin: "https://workouts.example".to_string(),
-        application_icon: None,
-        collection_name: "Workouts".to_string(),
-        notification_criteria: Vec::new(),
-        created_at: "2026-07-19T00:00:00Z".to_string(),
-        encryption: None,
-        file_capability: None,
-    };
+    let grant = trusted_test_grant(&registry, vec!["read".to_string(), "query".to_string()]);
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();
@@ -41,6 +24,45 @@ fn policy_snapshot_replaces_previous_local_authority() {
     assert!(!registry
         .authorizes(grant.id, grant.application_id, grant.collection_id, "read")
         .unwrap());
+}
+
+#[test]
+fn policy_snapshots_fail_closed_after_tampering_or_local_trust_revocation() {
+    let state = tempdir().unwrap();
+    let registry = CollectionRegistry::open(state.path()).unwrap();
+    let grant = trusted_test_grant(&registry, vec!["read".to_string()]);
+    registry
+        .replace_grants(std::slice::from_ref(&grant))
+        .unwrap();
+
+    let mut expanded = grant.clone();
+    expanded.operations.push("update".to_string());
+    assert!(matches!(
+        registry.replace_grants(&[expanded]),
+        Err(ConnectError::InvalidInput(_))
+    ));
+    assert!(registry
+        .authorizes(grant.id, grant.application_id, grant.collection_id, "read")
+        .unwrap());
+
+    let mut substituted = grant.clone();
+    substituted.first_contact.application_signing_public_key = substituted
+        .application_authorization
+        .binding
+        .grant_signing_public_key
+        .clone();
+    assert!(matches!(
+        registry.replace_grants(&[substituted]),
+        Err(ConnectError::InvalidInput(_))
+    ));
+
+    let trust_id = registry.application_trusts().unwrap()[0].id;
+    assert!(registry.revoke_application_trust(trust_id).unwrap());
+    assert!(registry.list_grants().unwrap().is_empty());
+    assert!(matches!(
+        registry.replace_grants(&[grant]),
+        Err(ConnectError::AccessDenied(_))
+    ));
 }
 
 #[test]
@@ -203,33 +225,7 @@ fn development_registry_upgrade_adds_origin_receipts_and_a_safe_reorder_floor() 
 fn policy_rotation_prunes_only_obsolete_encrypted_replay_windows() {
     let state = tempdir().unwrap();
     let registry = CollectionRegistry::open(state.path()).unwrap();
-    let mut grant = GrantPolicy {
-        id: Uuid::new_v4(),
-        application_id: Uuid::new_v4(),
-        collection_id: Uuid::new_v4(),
-        operations: vec!["read".to_string()],
-        scope: GrantScope::full_collection(),
-        application_name: "Encrypted app".to_string(),
-        application_distribution: "web".to_string(),
-        application_homepage: "https://app.example".to_string(),
-        application_project_url: None,
-        application_origin: "https://app.example".to_string(),
-        application_icon: None,
-        collection_name: "Collection".to_string(),
-        notification_criteria: Vec::new(),
-        created_at: "2026-07-21T00:00:00Z".to_string(),
-        encryption: Some(mdbase_connect_protocol::GrantEncryption {
-            protocol_version: 1,
-            suite: "P256-HKDF-SHA256-AES256GCM".to_string(),
-            key_id: "key-1".to_string(),
-            scope_epoch: 1,
-            connector_id: Uuid::new_v4(),
-            collection_id: Uuid::new_v4(),
-            application_agreement_public_key: "application-key".to_string(),
-            connector_agreement_public_key: "connector-key".to_string(),
-        }),
-        file_capability: None,
-    };
+    let mut grant = trusted_test_grant(&registry, vec!["read".to_string()]);
     registry
         .replace_grants(std::slice::from_ref(&grant))
         .unwrap();

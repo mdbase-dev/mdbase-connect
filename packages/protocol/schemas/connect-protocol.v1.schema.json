@@ -202,7 +202,7 @@
     "grantPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "application_id", "collection_id", "operations", "scope", "application_name", "application_homepage", "collection_name", "created_at"],
+      "required": ["id", "application_id", "collection_id", "operations", "scope", "application_name", "application_distribution", "application_homepage", "application_origin", "collection_name", "created_at", "encryption", "first_contact", "application_authorization"],
       "properties": {
         "id": { "$ref": "#/$defs/uuid" },
         "application_id": { "$ref": "#/$defs/uuid" },
@@ -230,8 +230,69 @@
         "encryption": { "$ref": "#/$defs/grantEncryption" },
         "file_capability": {
           "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/fileCapability"
-        }
+        },
+        "first_contact": { "$ref": "#/$defs/firstContactBinding" },
+        "application_authorization": { "$ref": "#/$defs/applicationAuthorizationProof" }
       }
+    },
+    "firstContactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "application_id", "application_installation_id", "application_agreement_public_key", "application_signing_public_key", "connector_id", "connector_agreement_public_key"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "application_id": { "$ref": "#/$defs/uuid" },
+        "application_installation_id": { "$ref": "#/$defs/uuid" },
+        "application_agreement_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "application_signing_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "connector_id": { "$ref": "#/$defs/uuid" },
+        "connector_agreement_public_key": { "$ref": "#/$defs/p256PublicKey" }
+      }
+    },
+    "applicationAuthorizationProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding", "signature"],
+      "properties": {
+        "binding": { "$ref": "#/$defs/applicationAuthorizationBinding" },
+        "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+      }
+    },
+    "applicationAuthorizationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "authorization_id", "application_id", "application_manifest_digest", "application_installation_id", "installation_agreement_public_key", "installation_signing_public_key", "grant_agreement_public_key", "grant_signing_public_key", "flow", "authorization_nonce", "issued_at", "expires_at", "code_challenge", "requested_operations"],
+      "properties": {
+        "protocol_version": { "const": 1 },
+        "authorization_id": { "$ref": "#/$defs/uuid" },
+        "application_id": { "$ref": "#/$defs/uuid" },
+        "application_manifest_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "application_installation_id": { "$ref": "#/$defs/uuid" },
+        "installation_agreement_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "installation_signing_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "grant_agreement_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "grant_signing_public_key": { "$ref": "#/$defs/p256PublicKey" },
+        "flow": { "enum": ["authorization_code", "device_code"] },
+        "authorization_nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+        "issued_at": { "type": "string", "format": "date-time" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "redirect_uri": { "type": "string", "format": "uri" },
+        "state": { "type": "string", "maxLength": 500 },
+        "code_challenge": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+        "requested_operations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/operation" }
+        },
+        "requested_files": {
+          "$ref": "https://mdbase.dev/connect/schemas/files.v1.json#/$defs/applicationFileRequirement"
+        },
+        "collection_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "p256PublicKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{87}$"
     },
     "authorizationCollectionOffer": {
       "type": "object",

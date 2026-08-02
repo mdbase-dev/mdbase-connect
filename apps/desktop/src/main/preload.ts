@@ -1,17 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 
-type ContractSetupChoice =
-  | { contract: { id: string; version: string }; mode: "starter" }
-  | {
-      contract: { id: string; version: string };
-      mode: "existing";
-      type_name: string;
-      type_revision: string;
-      fields: Record<string, string>;
-      binding?: Record<string, unknown>;
-    };
-
 type DesktopSelectiveSyncPolicy = {
   file_classes: Array<"image" | "audio" | "video" | "pdf" | "other">;
   excluded_folders: string[];
@@ -52,6 +41,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),
   openAccount: () => ipcRenderer.invoke("connect:account:open"),
+  openAuthorization: (requestId: string) =>
+    ipcRenderer.invoke("connect:authorizations:open", requestId),
   setCloudConfig: (input: { serverUrl: string; connectorToken: string }) =>
     ipcRenderer.invoke("connect:cloud:set", input),
   clearCloudConfig: () => ipcRenderer.invoke("connect:cloud:clear"),
@@ -60,20 +51,19 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   pairingStatus: (pairingId: string) => ipcRenderer.invoke("connect:pairing:status", pairingId),
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
+  applicationTrustSnapshot: () => ipcRenderer.invoke("connect:trust:snapshot"),
+  acceptApplicationTrust: (input: { requestId: string; authenticationString: string }) =>
+    ipcRenderer.invoke("connect:trust:accept", input),
+  rejectApplicationTrust: (requestId: string) =>
+    ipcRenderer.invoke("connect:trust:reject", requestId),
+  revokeApplicationTrust: (trustId: string) =>
+    ipcRenderer.invoke("connect:trust:revoke", trustId),
   renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
   createGrant: (input: { applicationId: string; collectionId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:create", input),
   updateGrant: (input: { grantId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:grants:update", input),
   revokeGrant: (grantId: string) => ipcRenderer.invoke("connect:grants:revoke", grantId),
-  approveAuthorization: (input: {
-    requestId: string;
-    collectionId: string;
-    operations: string[];
-    contractSetups?: ContractSetupChoice[];
-  }) =>
-    ipcRenderer.invoke("connect:authorizations:approve", input),
-  denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
   listActivity: (limit = 100) => ipcRenderer.invoke("connect:activity:list", limit),
   hostedSnapshot: () => ipcRenderer.invoke("connect:hosted:snapshot"),
   createHostedCollection: (name: string) => ipcRenderer.invoke("connect:hosted:create", name),
@@ -81,12 +71,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:hosted:rename", input),
   deleteHostedCollection: (collectionId: string) =>
     ipcRenderer.invoke("connect:hosted:delete", collectionId),
-  approveHostedAuthorization: (input: {
-    requestId: string;
-    collectionId: string;
-    operations: string[];
-    contractSetups?: ContractSetupChoice[];
-  }) => ipcRenderer.invoke("connect:hosted:authorization-approve", input),
   updateHostedGrant: (input: { grantId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:hosted:grant-update", input),
   revokeHostedGrant: (grantId: string) =>

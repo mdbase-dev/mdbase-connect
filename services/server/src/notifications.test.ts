@@ -442,8 +442,10 @@ async function notificationFixture(
   await db.query(
     `INSERT INTO grants
        (id, user_id, application_id, ${hosted ? "hosted_collection_id" : "collection_id"},
-        operations, scope, application_origin, notification_criteria)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb)`,
+        operations, scope, application_origin, notification_criteria,
+        application_authorization, first_contact)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb,
+             '{}'::jsonb, '{}'::jsonb)`,
     [
       grantId,
       userId,

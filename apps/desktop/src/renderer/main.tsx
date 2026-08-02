@@ -8,24 +8,12 @@ import {
   groupAuthorizationOperations,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
-import {
-  assessMapping,
-  contractFields,
-  provisionedContract,
-  typeFields,
-  type SetupType
-} from "@mdbase/connect-ui/contract-setup";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
 import { presentConnection } from "./connection-state.mjs";
-import { NotificationAccess, RequestPermissionChoices } from "./authorization-components";
-import {
-  ContractSetupEditor,
-  initialContractSetupChoice,
-  type ContractSetupChoice
-} from "./contract-setup-editor";
+import { RequestPermissionChoices } from "./authorization-components";
 import { ConnectionProgress, Overview } from "./overview-view";
 import {
   AccessControl,
@@ -40,16 +28,11 @@ import {
 } from "./ui-components";
 import {
   allOperations,
-  hasContract,
   host,
-  hostedCollectionCompatible,
   message,
-  neededProvisions,
   plural,
-  provisionNames,
   relativeTime,
   scopeDescription,
-  type AuthorizationCollection,
   type Route
 } from "./view-model";
 import "./styles.css";
@@ -97,6 +80,7 @@ function App() {
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
+  const [applicationTrust, setApplicationTrust] = useState<ApplicationTrustSnapshot>({ pending: [], trusted: [] });
   const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
   const [mirrors, setMirrors] = useState<DesktopMirrorSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -120,6 +104,7 @@ function App() {
         window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
         window.mdbaseConnect.getCloudConfig().then(setCloud),
         window.mdbaseConnect.accessSnapshot().then(setAccess),
+        window.mdbaseConnect.applicationTrustSnapshot().then(setApplicationTrust),
         window.mdbaseConnect.listActivity(100).then(setActivity),
         window.mdbaseConnect.hostedSnapshot().then(setHosted).catch(() => {
           setHosted((current) => ({ ...current, online: false }));
@@ -265,7 +250,7 @@ function App() {
       <ProductSidebar
         route={route}
         collectionCount={collectionCount}
-        pendingCount={combinedAccess.pending_authorizations.length}
+        pendingCount={combinedAccess.pending_authorizations.length + applicationTrust.pending.length}
         connection={connection}
         computerName={`${access.account?.connector_name ?? "This computer"} · ${collectionCount} ${plural(collectionCount, "collection", "collections")}`}
         onSelect={selectRoute}
@@ -320,20 +305,10 @@ function App() {
           <Access
             cloud={cloud}
             access={combinedAccess}
-            collections={collections}
-            hostedCollections={hosted.hosted_collections}
-            canCreateHosted={hosted.hosted_collections_available !== false}
+            applicationTrust={applicationTrust}
             focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
             resumeAuthorization={authorizationTarget !== null}
             busy={busy}
-            onAddCollection={() => void addExisting()}
-            onCreateCollection={() => setCreateOpen(true)}
-            onAuthorizationHandled={(requestId) => {
-              if (authorizationTarget === requestId || authorizationTarget === "pending") {
-                setAuthorizationTarget(null);
-                localStorage.removeItem(RESUME_AUTHORIZATION_KEY);
-              }
-            }}
             onAct={act}
             onNotice={setNotice}
           />
@@ -382,18 +357,13 @@ function App() {
   );
 }
 
-function Access({ cloud, access, collections, hostedCollections, canCreateHosted, focusedRequestId, resumeAuthorization, busy, onAddCollection, onCreateCollection, onAuthorizationHandled, onAct, onNotice }: {
+function Access({ cloud, access, applicationTrust, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
-  collections: CollectionSummary[];
-  hostedCollections: HostedCollectionSummary[];
-  canCreateHosted: boolean;
+  applicationTrust: ApplicationTrustSnapshot;
   focusedRequestId: string | null;
   resumeAuthorization: boolean;
   busy: boolean;
-  onAddCollection(): void;
-  onCreateCollection(): void;
-  onAuthorizationHandled(requestId: string): void;
   onAct(action: () => Promise<void>): Promise<void>;
   onNotice(value: string): void;
 }) {
@@ -404,25 +374,24 @@ function Access({ cloud, access, collections, hostedCollections, canCreateHosted
   if (!cloud.configured) return <PairingPanel resumeAuthorization={resumeAuthorization} />;
   return (
     <div className="workspace-stack">
+      <ApplicationTrustSection
+        snapshot={applicationTrust}
+        busy={busy}
+        onAct={onAct}
+        onNotice={onNotice}
+      />
       <section>
-        <SectionHeading title="Pending requests" note="An application cannot continue until you decide here." count={access.pending_authorizations.length} />
+        <SectionHeading title="Portal approvals" note="Collection choice and permissions stay in the portal; this computer never substitutes a local approval." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
-          <Empty title="No applications are waiting" text="New connection requests from websites and downloaded files will appear here." />
+          <Empty title="No portal approvals are waiting" text="New connection requests are reviewed in the portal. First-contact verification appears separately above when needed." />
         ) : (
           <div className="request-list">
-            {pendingAuthorizations.map((request) => <AuthorizationRequest
+            {pendingAuthorizations.map((request) => <PortalApprovalRequest
               key={request.id}
               request={request}
-              collections={collections}
-              hostedCollections={hostedCollections}
-              canCreateHosted={canCreateHosted}
               focused={request.id === focusedRequestId}
               busy={busy}
-              onAddCollection={onAddCollection}
-              onCreateCollection={onCreateCollection}
-              onHandled={onAuthorizationHandled}
               onAct={onAct}
-              onNotice={onNotice}
             />)}
           </div>
         )}
@@ -441,6 +410,96 @@ function Access({ cloud, access, collections, hostedCollections, canCreateHosted
 
     </div>
   );
+}
+
+function ApplicationTrustSection({ snapshot, busy, onAct, onNotice }: {
+  snapshot: ApplicationTrustSnapshot;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  return <section className="application-trust-section">
+    <SectionHeading
+      title="First-contact verification"
+      note="Portal approval records the collection and permissions. This local comparison verifies the application installation."
+      count={snapshot.pending.length}
+    />
+    {snapshot.pending.length > 0 ? <div className="trust-request-list">
+      {snapshot.pending.map((request) => {
+        const presentation = request.presentation;
+        const origin = presentation.application_distribution === "portable"
+          ? presentation.application_project_url
+            ? `Downloaded file · ${host(presentation.application_project_url)}`
+            : "Downloaded file"
+          : host(presentation.application_homepage);
+        return <article className="trust-request" key={request.request_id}>
+          <div className="trust-request-copy">
+            <h3>{presentation.application_name}</h3>
+            <code>{origin}</code>
+            <p>Compare this code with the code shown by the application. Trust it only when every character matches.</p>
+          </div>
+          <code className="trust-authentication-string" aria-label="First-contact code">
+            {request.authentication_string}
+          </code>
+          <div className="trust-request-actions">
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
+              await window.mdbaseConnect.rejectApplicationTrust(request.request_id);
+              onNotice(`${presentation.application_name} was rejected on this computer.`);
+            })}>Reject</button>
+            <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
+              await window.mdbaseConnect.acceptApplicationTrust({
+                requestId: request.request_id,
+                authenticationString: request.authentication_string
+              });
+              onNotice(`${presentation.application_name} was verified on this computer.`);
+            })}>Codes match — trust application</button>
+          </div>
+          <small>Expires {relativeTime(request.expires_at)}</small>
+        </article>;
+      })}
+    </div> : <p className="trust-empty">No application installations are waiting for local verification.</p>}
+
+    {snapshot.trusted.length > 0 && <details className="trusted-installations">
+      <summary>Trusted installations <span>{snapshot.trusted.length}</span></summary>
+      <div>{snapshot.trusted.map((trust) => <div className="trusted-installation-row" key={trust.id}>
+        <div>
+          <strong>{trust.presentation.application_name}</strong>
+          <small>Last used {relativeTime(trust.last_used_at)}</small>
+        </div>
+        <button className="quiet-action danger" disabled={busy} onClick={() => {
+          if (!window.confirm(`Revoke local trust for ${trust.presentation.application_name}? Its local collection access will stop immediately.`)) return;
+          void onAct(async () => {
+            await window.mdbaseConnect.revokeApplicationTrust(trust.id);
+            onNotice(`${trust.presentation.application_name} is no longer trusted on this computer.`);
+          });
+        }}>Revoke trust</button>
+      </div>)}</div>
+    </details>}
+  </section>;
+}
+
+function PortalApprovalRequest({ request, focused, busy, onAct }: {
+  request: PendingAuthorization;
+  focused: boolean;
+  busy: boolean;
+  onAct(action: () => Promise<void>): Promise<void>;
+}) {
+  const identity = request.application_distribution === "portable"
+    ? request.application_project_url
+      ? `Downloaded file · ${host(request.application_project_url)}`
+      : "Downloaded file"
+    : host(request.application_homepage);
+  return <article className={`portal-approval-row ${focused ? "focused-request" : ""}`}>
+    <div>
+      <h3>{request.application_name}</h3>
+      <code>{identity}</code>
+      <small>Expires {relativeTime(request.expires_at)}</small>
+    </div>
+    <p>Choose the collection and review the exact permissions in the portal. If this is a new application installation, local code comparison follows separately.</p>
+    <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
+      await window.mdbaseConnect.openAuthorization(request.id);
+    })}>Review in portal</button>
+  </article>;
 }
 
 function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
@@ -484,290 +543,6 @@ function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
         </div>
       </div>
     </details>
-  );
-}
-
-function AuthorizationRequest({ request, collections, hostedCollections, canCreateHosted, focused, busy, onAddCollection, onCreateCollection, onHandled, onAct, onNotice }: {
-  request: PendingAuthorization;
-  collections: CollectionSummary[];
-  hostedCollections: HostedCollectionSummary[];
-  canCreateHosted: boolean;
-  focused: boolean;
-  busy: boolean;
-  onAddCollection(): void;
-  onCreateCollection(): void;
-  onHandled(requestId: string): void;
-  onAct(action: () => Promise<void>): Promise<void>;
-  onNotice(value: string): void;
-}) {
-  const [creatingHosted, setCreatingHosted] = useState(false);
-  const [hostedName, setHostedName] = useState("");
-  const [createdHostedCollection, setCreatedHostedCollection] = useState<HostedCollectionSummary | null>(null);
-  const authorizationHostedCollections = useMemo(() => {
-    const combined = new Map(hostedCollections.map((collection) => [collection.id, collection]));
-    if (createdHostedCollection && !combined.has(createdHostedCollection.id)) {
-      combined.set(createdHostedCollection.id, createdHostedCollection);
-    }
-    return [...combined.values()];
-  }, [createdHostedCollection, hostedCollections]);
-  const available = useMemo<AuthorizationCollection[]>(() => [
-    ...collections
-      .filter((collection) =>
-        request.requirements.collection_kind !== "hosted"
-        && (
-          request.compatible_collection_ids.includes(collection.id)
-          || request.provisionable_collection_ids.includes(collection.id)
-        )
-      )
-      .map((collection) => ({
-        ...collection,
-        kind: "local" as const,
-        provisionable: request.provisionable_collection_ids.includes(collection.id),
-        types: (request.collection_types ?? [])
-          .find((candidate) => candidate.collection_id === collection.id)?.types ?? []
-      })),
-    ...authorizationHostedCollections
-      .filter((collection) =>
-        collection.authority_state === "active"
-        && hostedCollectionCompatible(request, collection)
-      )
-      .map((collection) => ({
-        id: collection.id,
-        display_name: collection.display_name,
-        spec_version: collection.spec_version,
-        contracts: collection.contracts,
-        kind: "hosted" as const,
-        types: collection.types ?? [],
-        provisionable: request.requirements.contracts.some(
-          (requirement) => !hasContract(collection.contracts, requirement)
-        )
-      }))
-  ], [
-    collections,
-    authorizationHostedCollections,
-    request.compatible_collection_ids,
-    request.collection_types,
-    request.provisionable_collection_ids,
-    request.requirements,
-    request.provisions,
-    request.requested_operations
-  ]);
-  const selectable = useMemo(
-    () => request.collection_id
-      ? available.filter((collection) => collection.id === request.collection_id)
-      : available,
-    [available, request.collection_id]
-  );
-  const [collectionId, setCollectionId] = useState(selectable[0]?.id ?? "");
-  const [operations, setOperations] = useState(request.requested_operations);
-  const selected = selectable.find((collection) => collection.id === collectionId);
-  const setup = selected?.provisionable
-    ? neededProvisions(request.requirements, request.provisions, selected)
-    : [];
-  const setupContracts = useMemo(() => selected
-    ? request.requirements.contracts.flatMap((required) => {
-        if (selected.contracts.some((contract) => hasContract([contract], required))) return [];
-        const contract = provisionedContract(required, request.provisions.type_packs);
-        return contract ? [contract] : [];
-      })
-    : [], [request.provisions.type_packs, request.requirements.contracts, selected]);
-  const setupTypes = useMemo<SetupType[]>(() => selected?.types ?? [], [selected]);
-  const setupIdentity = [
-    collectionId,
-    ...setupContracts.map((contract) => `${contract.id}@${contract.version}`),
-    ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`)
-  ].join("|");
-  const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({});
-  const permissionGroups = useMemo(
-    () => groupAuthorizationOperations(request.requested_operations),
-    [request.requested_operations]
-  );
-  const permissionCount = permissionGroups.reduce(
-    (count, group) => count + group.operations.length,
-    0
-  );
-  const selectedPermissionCount = permissionGroups.reduce(
-    (count, group) =>
-      count + group.operations.filter((operation) => operations.includes(operation.id)).length,
-    0
-  );
-  useEffect(() => {
-    if (!selectable.some((collection) => collection.id === collectionId)) {
-      setCollectionId(selectable[0]?.id ?? "");
-    }
-  }, [collectionId, selectable]);
-  useEffect(() => {
-    setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [
-      `${contract.id}@${contract.version}`,
-      initialContractSetupChoice(contract, setupTypes)
-    ])));
-  }, [setupIdentity]);
-  const setupReady = setupContracts.every((contract) => {
-    const choice = setupChoices[`${contract.id}@${contract.version}`];
-    if (!choice) return false;
-    if (choice.mode === "starter") return true;
-    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
-    if (!type?.revision) return false;
-    const availableFields = typeFields(type);
-    if (contractFields(contract).some((field) => {
-      const mapped = choice.fields[field.reference];
-      return assessMapping(
-        field,
-        availableFields.find((candidate) => candidate.reference === mapped)
-      ).level === "error";
-    })) return false;
-    const requiredBinding = Array.isArray(contract.binding_schema?.required)
-      ? contract.binding_schema.required.filter((field): field is string => typeof field === "string")
-      : [];
-    return requiredBinding.every((field) => {
-      const value = choice.binding[field];
-      return value !== undefined && value !== null && value !== "";
-    });
-  });
-  const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => {
-    const choice = setupChoices[`${contract.id}@${contract.version}`];
-    if (!choice) return [];
-    if (choice.mode === "starter") return [{
-      contract: { id: contract.id, version: contract.version },
-      mode: "starter" as const
-    }];
-    const type = setupTypes.find((candidate) => candidate.name === choice.typeName);
-    if (!type?.revision) return [];
-    return [{
-      contract: { id: contract.id, version: contract.version },
-      mode: "existing" as const,
-      type_name: type.name,
-      type_revision: type.revision,
-      fields: choice.fields,
-      ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {})
-    }];
-  });
-  async function createHostedCollection(event: React.FormEvent) {
-    event.preventDefault();
-    const displayName = hostedName.trim();
-    if (!displayName) return;
-    let created: HostedCollectionSummary | undefined;
-    await onAct(async () => {
-      const result = await window.mdbaseConnect.createHostedCollection(displayName);
-      created = result.collection;
-    });
-    if (!created) return;
-    setCreatedHostedCollection(created);
-    setCollectionId(created.id);
-    setCreatingHosted(false);
-    setHostedName("");
-    onNotice(`${created.display_name} was created and selected. Application access is not allowed yet.`);
-  }
-  return (
-    <article className={`request-panel ${focused ? "focused-request" : ""}`} id={`authorization-${request.id}`}>
-      <div className="request-identity"><p className="eyebrow">Access request</p><h3>{request.application_name}</h3><code>{request.application_distribution === "portable" ? `Downloaded HTML file${request.application_project_url ? ` · ${host(request.application_project_url)}` : ""}` : host(request.application_homepage)}</code>{request.application_distribution === "portable" ? <small className="portable-request-warning">Unverified file origin. Only allow it if you intentionally opened the file{request.user_code ? ` and it shows ${request.user_code}` : ""}.</small> : <small>Only continue if you recognize this exact site. An approved application can use the selected data until you revoke it.</small>}<small>Expires {relativeTime(request.expires_at)}</small>{request.requirements.contracts.length > 0 && <small>{scopeDescription(request.requirements.contracts)}</small>}</div>
-      <div className="request-decision">
-        <section className="request-section">
-          <div><strong>Collection</strong><small>{request.collection_id ? `${request.application_name} requested this specific collection.` : `Choose where ${request.application_name} can work.`}</small></div>
-          <div className="request-section-content">
-            <label><span>Collection</span><select value={collectionId} disabled={selectable.length === 0 || busy} onChange={(event) => setCollectionId(event.target.value)}>{selectable.length === 0 && <option value="">No compatible collection</option>}{selectable.map((collection) => <option key={collection.id} value={collection.id}>{collection.display_name} · {collection.kind === "hosted" ? "Hosted by mdbase" : "on this computer"}{collection.provisionable ? " · setup required" : ""}</option>)}</select></label>
-            {selectable.length === 0 && <small>{request.collection_id ? "The collection requested by this application is not available." : "No collection is ready for this application yet. Add a compatible folder or create a collection without restarting the request."}</small>}
-            {selectable.length === 0 && request.requirements.collection_kind !== "hosted" && (
-              <div className="request-prerequisite-actions">
-                <button className="button primary" type="button" disabled={busy} onClick={onAddCollection}>Add a folder</button>
-                <button className="button secondary" type="button" disabled={busy} onClick={onCreateCollection}>Create collection</button>
-              </div>
-            )}
-            {canCreateHosted && !request.collection_id && (creatingHosted ? (
-              <form
-                className="request-collection-create"
-                id={`create-hosted-${request.id}`}
-                onSubmit={(event) => void createHostedCollection(event)}
-              >
-                <label>
-                  <span>New collection name</span>
-                  <input
-                    autoFocus
-                    maxLength={200}
-                    value={hostedName}
-                    disabled={busy}
-                    placeholder="Workouts"
-                    onChange={(event) => setHostedName(event.target.value)}
-                  />
-                </label>
-                <p>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately below.</p>
-                <div>
-                  <button className="quiet-action" type="button" disabled={busy} onClick={() => {
-                    setCreatingHosted(false);
-                    setHostedName("");
-                  }}>Cancel</button>
-                  <button className="button secondary" disabled={busy || !hostedName.trim()}>{busy ? "Creating…" : "Create collection"}</button>
-                </div>
-              </form>
-            ) : (
-              <div className="request-collection-action">
-                <button
-                  className="button secondary"
-                  type="button"
-                  aria-controls={`create-hosted-${request.id}`}
-                  disabled={busy}
-                  onClick={() => setCreatingHosted(true)}
-                >Create hosted collection</button>
-              </div>
-            ))}
-            {setup.length > 0 && <small>{setupTypes.length > 0
-              ? `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type below, or use an existing type.`
-              : `Setup is required before access can become active. Add ${provisionNames(setup)}’s starter type.`}</small>}
-          </div>
-        </section>
-        {setupContracts.length > 0 && <section className="request-section contract-setup-section">
-          <div><strong>Choose type setup</strong><small>Add a starter type, or match meanings in one you already use. Nothing changes until you approve and the collection validates.</small></div>
-          <div className="request-section-content contract-setup-list">
-            {setupContracts.map((contract) => {
-              const key = `${contract.id}@${contract.version}`;
-              const choice = setupChoices[key];
-              return choice && <ContractSetupEditor
-                key={key}
-                applicationName={request.application_name}
-                contract={contract}
-                types={setupTypes}
-                value={choice}
-                disabled={busy}
-                onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))}
-              />;
-            })}
-          </div>
-        </section>}
-        <section className="request-section">
-          <div><strong>Permissions</strong><small>{permissionCount} specific actions across {permissionGroups.length} {permissionGroups.length === 1 ? "category" : "categories"}.</small></div>
-          <RequestPermissionChoices groups={permissionGroups} selected={operations} onChange={setOperations} />
-        </section>
-        <NotificationAccess notifications={request.notifications} />
-        <footer className="request-footer">
-          <p>{selected
-            ? `${request.application_name} will use ${selected.display_name}, ${selected.kind === "hosted" ? "hosted by mdbase" : "on this computer"}, until you revoke access.`
-            : `Choose a compatible collection before allowing ${request.application_name}.`}</p>
-          <div className="decision-actions">
-            <button className="button secondary danger-text" disabled={busy} onClick={() => void onAct(async () => { await window.mdbaseConnect.denyAuthorization(request.id); onHandled(request.id); onNotice(`${request.application_name} was denied.`); })}>Deny</button>
-            <button className="button primary" disabled={busy || !selected || selectedPermissionCount === 0 || !setupReady} onClick={() => void onAct(async () => {
-              if (!selected) return;
-              if (selected.kind === "hosted") {
-                await window.mdbaseConnect.approveHostedAuthorization({
-                  requestId: request.id,
-                  collectionId,
-                  operations,
-                  contractSetups
-                });
-              } else {
-                await window.mdbaseConnect.approveAuthorization({
-                  requestId: request.id,
-                  collectionId,
-                  operations,
-                  contractSetups
-                });
-              }
-              onHandled(request.id);
-              onNotice(`${request.application_name} is connected to ${selected.display_name}. Return to the application to continue.`);
-            })}>{setup.length > 0 ? `Set up and allow ${request.application_name}` : `Allow ${request.application_name}`}</button>
-          </div>
-        </footer>
-      </div>
-    </article>
   );
 }
 

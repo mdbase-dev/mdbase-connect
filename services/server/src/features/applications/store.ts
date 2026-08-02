@@ -9,6 +9,7 @@ import type { RegisteredApplicationManifest } from "../../manifest.js";
 
 export interface RegisteredApplication {
   id: string;
+  manifest_digest: string;
   distribution: "web" | "portable";
   name: string;
   homepage: string;
@@ -28,13 +29,15 @@ export async function upsertApplication(
 ): Promise<RegisteredApplication> {
   const application = await db.query<RegisteredApplication>(
     `INSERT INTO applications
-       (id, canonical_identity, family_identity, manifest_version, distribution, name, homepage,
+       (id, canonical_identity, family_identity, manifest_version, manifest_digest,
+        distribution, name, homepage,
         project_url, icon, redirect_uris, requirements, provisions, notifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb,
-             $12::jsonb, $13::jsonb)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb,
+             $13::jsonb, $14::jsonb)
      ON CONFLICT(canonical_identity) DO UPDATE SET
        family_identity = excluded.family_identity,
        manifest_version = excluded.manifest_version,
+       manifest_digest = excluded.manifest_digest,
        distribution = excluded.distribution,
        name = excluded.name,
        homepage = excluded.homepage,
@@ -45,13 +48,14 @@ export async function upsertApplication(
        provisions = excluded.provisions,
        notifications = excluded.notifications,
        updated_at = now()
-     RETURNING id, distribution, name, homepage, project_url, icon, redirect_uris,
+     RETURNING id, manifest_digest, distribution, name, homepage, project_url, icon, redirect_uris,
                canonical_identity, family_identity, requirements, provisions, notifications`,
     [
       randomUUID(),
       discovered.canonicalIdentity,
       discovered.familyIdentity,
       discovered.manifest.manifest_version,
+      discovered.digest,
       discovered.manifest.distribution === "portable" ? "portable" : "web",
       discovered.manifest.name,
       discovered.manifest.distribution === "portable"

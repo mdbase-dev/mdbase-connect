@@ -33,7 +33,14 @@ if (!started.ok) {
   return;
 }
 if (session.getSnapshot().status === "unselected") {
-  const authorized = await session.authorize("choose");
+  const authorized = await session.authorize("choose", {
+    onFirstContact: ({ authenticationString }) => {
+      showPersistentSecurityPrompt({
+        title: "Compare with mdbase connect",
+        code: authenticationString
+      });
+    }
+  });
   if (!authorized.ok) {
     renderProblem(authorized.problem);
     return;
@@ -72,15 +79,15 @@ problem model, setup failures, mutation uncertainty, and UI guidance.
 
 `MdbaseConnect` is the application-level authorization registry.
 `MdbaseSession` is the normal application boundary: it owns active collection
-selection, authorization callback completion, access capabilities, and one
+selection, authorization completion, access capabilities, and one
 reactive snapshot. Use `getSnapshot()` and `subscribe()` directly or through
 your framework's external-store integration. A snapshot is `unselected`,
 `ready`, or `unavailable`; an unavailable bookmark includes the explicit
 collection ID and reason instead of collapsing every recovery state to `null`.
 
 `MdbaseBrowserSelection` keeps the stable collection ID in
-`?collection=<id>`, preserves unrelated path/query/hash and router state,
-restores authorization callbacks safely, and reports browser back/forward
+`?collection=<id>`, preserves unrelated path/query/hash and router state, and
+reports browser back/forward
 changes to the session. The session auto-selects only when exactly one saved
 connection exists. Switching is state-driven and must not reload the page:
 
@@ -103,6 +110,16 @@ await session.authorize({ collectionId }); // exact adoption/migration target
 Collection IDs are opaque non-secret locators that may appear in browser
 history and logs. Grants remain the authorization boundary, and names are
 display text that may change.
+
+When the chosen collection is owned by a computer that has not seen this
+application installation before, `onFirstContact` is required. The SDK derives
+the eight-character value locally from the application's non-extractable
+installation key and the connector key; it never accepts a value supplied by
+the control plane. Keep the value visible while the user compares and accepts
+the exact same value in mdbase connect. Headless operators use
+`mdbase connect trust list`, `trust show <id>`, and
+`trust accept <id> --code XXXX-XXXX`. Hosted-only authorization does not invoke
+this callback.
 
 Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web
@@ -378,12 +395,13 @@ Authorization is retained in `localStorage` by default. Access tokens are
 renewed with rotating refresh tokens; passing a custom `Storage` implementation
 allows a host to choose another persistence boundary.
 
-Native shells can pass `navigate` to open the authorization URL in the system
+Native shells can pass `navigate` to open the approval URL in the system
 browser and list a reverse-domain callback such as
 `dev.mdbase.worklog://auth/mdbase/callback` in the bundled declaration. Its
-scheme must match the declaration ID. PKCE remains mandatory. Call
-`completeAuthorization(callbackUrl)` when the application receives the deep
-link.
+scheme must match the declaration ID. The application remains alive, polls the
+PKCE-bound status endpoint, displays first contact when required, and receives
+the completed connection directly from `authorize()`; the browser does not
+carry credentials back through a deep link.
 
 New authorizations require encrypted relay protocol 1 by default. The SDK keeps
 independent non-extractable P-256 ECDH agreement and ECDSA signing keys plus an

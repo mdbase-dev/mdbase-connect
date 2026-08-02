@@ -14,13 +14,14 @@ test("chooses a remote authority collection and performs CRUD through its provid
 
   await page.goto("/");
   await expect(page.getByText("Choose the collection you want to write in.")).toBeVisible();
+  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
-  const collection = page.getByRole("combobox", { name: "Collection" });
+  const approval = await popupPromise;
+  await expect(approval).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const collection = approval.getByRole("combobox", { name: "Collection" });
   await expect(collection).toHaveValue(collectionId);
   await expect(collection).toContainText("Hosted writing · Hosted by mdbase");
-  await page.getByRole("button", { name: "Allow access" }).click();
+  await approval.getByRole("button", { name: "Allow access" }).click();
 
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
@@ -65,18 +66,22 @@ test("returns to the newly chosen remote authority when switching collections", 
   await authority.install();
 
   await page.goto("/");
+  const firstPopupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  await page.getByRole("button", { name: "Allow access" }).click();
+  const firstApproval = await firstPopupPromise;
+  await firstApproval.getByRole("button", { name: "Allow access" }).click();
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
 
   await page.getByRole("button", {
     name: "Switch collection, current collection Hosted writing"
   }).click();
+  const secondPopupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose another collection" }).click();
 
-  const collection = page.getByRole("combobox", { name: "Collection" });
+  const secondApproval = await secondPopupPromise;
+  const collection = secondApproval.getByRole("combobox", { name: "Collection" });
   await collection.selectOption(secondCollectionId);
-  await page.getByRole("button", { name: "Allow access" }).click();
+  await secondApproval.getByRole("button", { name: "Allow access" }).click();
 
   await expect(page).toHaveURL(new RegExp(`collection=${secondCollectionId}`));
   await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();
@@ -105,6 +110,11 @@ class RemoteAuthorityHarness {
   controlPlaneOperations = 0;
   private sequence = 1;
   private proofPublicKey: string | null = null;
+  private readonly authorizations = new Map<string, {
+    redirectUri: string;
+    state: string;
+    collectionId?: string;
+  }>();
   private readonly records = new Map<string, AuthorityRecord>();
 
   constructor(private readonly page: Page) {
@@ -117,8 +127,8 @@ class RemoteAuthorityHarness {
   }
 
   async install() {
-    await this.page.route("https://connect.mdbase.dev/**", (route) => this.control(route));
-    await this.page.route(`${providerOrigin}/**`, (route) => this.provider(route));
+    await this.page.context().route("https://connect.mdbase.dev/**", (route) => this.control(route));
+    await this.page.context().route(`${providerOrigin}/**`, (route) => this.provider(route));
   }
 
   private async control(route: Route) {
@@ -134,20 +144,60 @@ class RemoteAuthorityHarness {
       return json(route, {
         application: {
           id: "40000000-0000-4000-8000-000000000004",
+          manifest_digest: "0".repeat(64),
           name: "mdbase editor",
-          homepage: "http://127.0.0.1:4174/"
+          homepage: "http://127.0.0.1:4174/",
+          requirements: { contracts: [], access: "full_collection" }
         }
       });
     }
+    if (url.pathname === "/oauth/authorization_request") {
+      const form = new URLSearchParams(request.postData() ?? "");
+      const proof = JSON.parse(form.get("application_authorization") ?? "null");
+      const authorizationId = proof.binding.authorization_id as string;
+      this.proofPublicKey = proof.binding.grant_signing_public_key;
+      this.authorizations.set(authorizationId, {
+        redirectUri: form.get("redirect_uri")!,
+        state: form.get("state")!
+      });
+      return json(route, {
+        authorization_id: authorizationId,
+        authorization_uri: `https://connect.mdbase.dev/oauth/authorize?request_id=${authorizationId}`,
+        expires_in: 600,
+        interval: 1
+      });
+    }
     if (url.pathname === "/oauth/authorize") {
-      this.proofPublicKey = url.searchParams.get(
-        "application_signing_public_key",
-      );
-      expect(this.proofPublicKey).toEqual(expect.any(String));
+      const authorizationId = url.searchParams.get("request_id")!;
       return route.fulfill({
         contentType: "text/html; charset=utf-8",
-        body: authorizationPage(url)
+        body: authorizationPage(authorizationId)
       });
+    }
+    if (url.pathname === "/test/approve") {
+      const authorization = this.authorizations.get(url.searchParams.get("request_id")!);
+      if (!authorization) return json(route, { error: "not_found" }, 404);
+      authorization.collectionId = url.searchParams.get("collection_id")!;
+      return json(route, { ok: true });
+    }
+    if (url.pathname === "/oauth/authorization_status") {
+      const form = new URLSearchParams(request.postData() ?? "");
+      const authorization = this.authorizations.get(form.get("authorization_id")!);
+      if (!authorization?.collectionId) {
+        return json(route, {
+          error: "authorization_pending",
+          error_description: "The user has not completed the authorization request."
+        }, 400);
+      }
+      const callback = new URL(authorization.redirectUri);
+      callback.searchParams.set(
+        "code",
+        authorization.collectionId === secondCollectionId
+          ? "hosted-code-second"
+          : "hosted-code"
+      );
+      callback.searchParams.set("state", authorization.state);
+      return json(route, { authorization_redirect: callback.href });
     }
     if (url.pathname === "/oauth/token") {
       const code = new URLSearchParams(request.postData() ?? "").get("code");
@@ -159,6 +209,7 @@ class RemoteAuthorityHarness {
         expires_in: 3_600,
         refresh_expires_in: 2_592_000,
         collection_id: selectedSecondCollection ? secondCollectionId : collectionId,
+        collection_name: selectedSecondCollection ? "Research" : "Hosted writing",
         operations: ["describe", "changes", "read", "query", "validate", "create", "update", "delete", "rename"],
         scope: { contracts: [], access: "full_collection" },
         grant_id: selectedSecondCollection ? secondGrantId : grantId,
@@ -324,9 +375,7 @@ class RemoteAuthorityHarness {
   }
 }
 
-function authorizationPage(url: URL): string {
-  const redirectUri = JSON.stringify(url.searchParams.get("redirect_uri"));
-  const state = JSON.stringify(url.searchParams.get("state"));
+function authorizationPage(authorizationId: string): string {
   return `<!doctype html>
     <html><body>
       <main>
@@ -340,12 +389,10 @@ function authorizationPage(url: URL): string {
         <button id="allow">Allow access</button>
       </main>
       <script>
-        document.getElementById("allow").addEventListener("click", () => {
-          const callback = new URL(${redirectUri});
+        document.getElementById("allow").addEventListener("click", async () => {
           const collection = document.querySelector("select").value;
-          callback.searchParams.set("code", collection === "${secondCollectionId}" ? "hosted-code-second" : "hosted-code");
-          callback.searchParams.set("state", ${state});
-          location.href = callback.href;
+          await fetch("/test/approve?request_id=${authorizationId}&collection_id=" + encodeURIComponent(collection));
+          document.querySelector("main").innerHTML = "<h1>Access approved</h1><p>Return to the application.</p>";
         });
       </script>
     </body></html>`;

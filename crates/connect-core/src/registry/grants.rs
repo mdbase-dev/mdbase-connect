@@ -2,6 +2,10 @@ use super::*;
 
 impl CollectionRegistry {
     pub fn replace_grants(&self, grants: &[GrantPolicy]) -> Result<(), ConnectError> {
+        let validation = self.connection()?;
+        for grant in grants {
+            validate_grant_application_trust(&validation, grant)?;
+        }
         let active_crypto_keys = grants
             .iter()
             .filter_map(|grant| {
@@ -20,8 +24,9 @@ impl CollectionRegistry {
                    (id, application_id, collection_id, operations, scope, application_name,
                     application_distribution, application_homepage, application_project_url,
                     application_origin, application_icon, collection_name, created_at, encryption,
-                    file_capability, notification_criteria)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                    file_capability, notification_criteria, first_contact,
+                    application_authorization)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             )?;
             for grant in grants {
                 statement.execute(params![
@@ -49,6 +54,8 @@ impl CollectionRegistry {
                         .map(serde_json::to_string)
                         .transpose()?,
                     serde_json::to_string(&grant.notification_criteria)?,
+                    serde_json::to_string(&grant.first_contact)?,
+                    serde_json::to_string(&grant.application_authorization)?,
                 ])?;
             }
         }
@@ -91,13 +98,15 @@ impl CollectionRegistry {
 
     pub fn upsert_grant(&self, grant: &GrantPolicy) -> Result<(), ConnectError> {
         let connection = self.connection()?;
+        validate_grant_application_trust(&connection, grant)?;
         connection.execute(
             "INSERT INTO grants
                (id, application_id, collection_id, operations, scope, application_name,
                 application_distribution, application_homepage, application_project_url,
                 application_origin, application_icon, collection_name, created_at, encryption,
-                file_capability, notification_criteria)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+                file_capability, notification_criteria, first_contact,
+                application_authorization)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
              ON CONFLICT(id) DO UPDATE SET
                application_id = excluded.application_id,
                collection_id = excluded.collection_id,
@@ -114,6 +123,8 @@ impl CollectionRegistry {
                encryption = excluded.encryption,
                file_capability = excluded.file_capability,
                notification_criteria = excluded.notification_criteria,
+               first_contact = excluded.first_contact,
+               application_authorization = excluded.application_authorization,
                updated_at = CURRENT_TIMESTAMP",
             params![
                 grant.id.to_string(),
@@ -140,6 +151,8 @@ impl CollectionRegistry {
                     .map(serde_json::to_string)
                     .transpose()?,
                 serde_json::to_string(&grant.notification_criteria)?,
+                serde_json::to_string(&grant.first_contact)?,
+                serde_json::to_string(&grant.application_authorization)?,
             ],
         )?;
         if let Some(encryption) = &grant.encryption {
@@ -164,32 +177,6 @@ impl CollectionRegistry {
             )?;
         }
         Ok(())
-    }
-
-    pub fn replace_grant_summaries(&self, grants: &[GrantSummary]) -> Result<(), ConnectError> {
-        self.replace_grants(
-            &grants
-                .iter()
-                .map(|grant| GrantPolicy {
-                    id: grant.id,
-                    application_id: grant.application_id,
-                    collection_id: grant.collection_id,
-                    operations: grant.operations.clone(),
-                    scope: grant.scope.clone(),
-                    application_name: grant.application_name.clone(),
-                    application_distribution: grant.application_distribution.clone(),
-                    application_homepage: grant.application_homepage.clone(),
-                    application_project_url: grant.application_project_url.clone(),
-                    application_origin: grant.application_origin.clone(),
-                    application_icon: grant.application_icon.clone(),
-                    collection_name: grant.collection_name.clone(),
-                    notification_criteria: grant.notification_criteria.clone(),
-                    created_at: grant.created_at.clone(),
-                    encryption: grant.encryption.clone(),
-                    file_capability: grant.file_capability.clone(),
-                })
-                .collect::<Vec<_>>(),
-        )
     }
 
     pub fn list_grants(&self) -> Result<Vec<GrantSummary>, ConnectError> {
@@ -301,4 +288,28 @@ impl CollectionRegistry {
         let operations: Vec<String> = serde_json::from_str(&operations)?;
         Ok(operations.iter().any(|allowed| allowed == operation))
     }
+}
+
+fn validate_grant_application_trust(
+    connection: &rusqlite::Connection,
+    grant: &GrantPolicy,
+) -> Result<(), ConnectError> {
+    grant.validate_application_security().map_err(|error| {
+        invalid_grant_security(format!(
+            "grant does not match its application proof: {error}"
+        ))
+    })?;
+    if !super::application_trust::is_trusted(connection, &grant.first_contact)? {
+        return Err(ConnectError::AccessDenied(
+            "This application installation has not passed first-contact verification.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn invalid_grant_security(message: impl Into<String>) -> ConnectError {
+    ConnectError::InvalidInput(format!(
+        "Invalid application authorization: {}",
+        message.into()
+    ))
 }

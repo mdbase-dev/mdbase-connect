@@ -1,0 +1,242 @@
+import type { ApplicationFileRequirement } from "./files.js";
+import type { CollectionOperation } from "./operations.js";
+
+export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
+
+export interface ApplicationAuthorizationBinding {
+  protocol_version: 1;
+  authorization_id: string;
+  application_id: string;
+  application_manifest_digest: string;
+  application_installation_id: string;
+  installation_agreement_public_key: string;
+  installation_signing_public_key: string;
+  grant_agreement_public_key: string;
+  grant_signing_public_key: string;
+  flow: ApplicationAuthorizationFlow;
+  authorization_nonce: string;
+  issued_at: string;
+  expires_at: string;
+  redirect_uri?: string;
+  state?: string;
+  code_challenge: string;
+  requested_operations: CollectionOperation[];
+  requested_files?: ApplicationFileRequirement;
+  collection_id?: string;
+}
+
+export interface ApplicationAuthorizationProof {
+  binding: ApplicationAuthorizationBinding;
+  signature: string;
+}
+
+const INSTALLATION_ID_DOMAIN = new TextEncoder().encode(
+  "mdbase-connect application installation id v1\0"
+);
+const AUTHORIZATION_PROOF_DOMAIN = new TextEncoder().encode(
+  "mdbase-connect application authorization proof\0"
+);
+
+export async function applicationInstallationIdFromPublicKeys(
+  agreementPublicKey: string,
+  signingPublicKey: string
+): Promise<string> {
+  const agreement = publicKey(agreementPublicKey);
+  const signing = publicKey(signingPublicKey);
+  if (equalBytes(agreement, signing)) {
+    throw new Error("Application installation agreement and signing keys must be distinct.");
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    concat([INSTALLATION_ID_DOMAIN, field(agreement), field(signing)]) as BufferSource
+  ));
+  const id = digest.slice(0, 16);
+  id[6] = (id[6]! & 0x0f) | 0x80;
+  id[8] = (id[8]! & 0x3f) | 0x80;
+  return [
+    hex(id.slice(0, 4)),
+    hex(id.slice(4, 6)),
+    hex(id.slice(6, 8)),
+    hex(id.slice(8, 10)),
+    hex(id.slice(10, 16))
+  ].join("-");
+}
+
+export function authorizationSigningMessage(
+  binding: ApplicationAuthorizationBinding
+): Uint8Array {
+  const keys = [
+    publicKey(binding.installation_agreement_public_key),
+    publicKey(binding.installation_signing_public_key),
+    publicKey(binding.grant_agreement_public_key),
+    publicKey(binding.grant_signing_public_key)
+  ];
+  if (keys.some((key, index) =>
+    keys.slice(index + 1).some((other) => equalBytes(key, other)))) {
+    throw new Error("Application authorization keys must be distinct.");
+  }
+  const nonce = canonicalBase64(binding.authorization_nonce);
+  const challenge = canonicalBase64(binding.code_challenge);
+  if (
+    binding.protocol_version !== 1
+    || nonce.byteLength !== 32
+    || !/^[0-9a-f]{64}$/u.test(binding.application_manifest_digest)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.issued_at)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(binding.expires_at)
+    || challenge.byteLength !== 32
+    || (binding.requested_operations.length === 0 && binding.requested_files === undefined)
+    || new Set(binding.requested_operations).size !== binding.requested_operations.length
+    || binding.requested_operations.some((operation) => !operation || operation.includes("\0"))
+    || (binding.flow === "authorization_code"
+      ? binding.redirect_uri === undefined || binding.state === undefined
+      : binding.flow === "device_code"
+        ? binding.redirect_uri !== undefined || binding.state !== undefined
+        : true)
+  ) {
+    throw new Error("Application authorization binding is invalid.");
+  }
+  validateRequestedFiles(binding.requested_files);
+  const operationFields = binding.requested_operations.map((operation) =>
+    field(new TextEncoder().encode(operation)));
+  return concat([
+    AUTHORIZATION_PROOF_DOMAIN,
+    u32(binding.protocol_version),
+    field(uuidBytes(binding.application_id)),
+    field(uuidBytes(binding.authorization_id)),
+    field(hexBytes(binding.application_manifest_digest)),
+    field(uuidBytes(binding.application_installation_id)),
+    ...keys.map(field),
+    field(new TextEncoder().encode(binding.flow)),
+    field(nonce),
+    field(new TextEncoder().encode(binding.issued_at)),
+    field(new TextEncoder().encode(binding.expires_at)),
+    optionalString(binding.redirect_uri),
+    optionalString(binding.state),
+    field(new TextEncoder().encode(binding.code_challenge)),
+    u32(operationFields.length),
+    ...operationFields,
+    requestedFiles(binding.requested_files),
+    optionalUuid(binding.collection_id)
+  ]);
+}
+
+function validateRequestedFiles(
+  files: ApplicationAuthorizationBinding["requested_files"]
+): void {
+  if (files === undefined) return;
+  if (
+    files.actions.length === 0
+    || new Set(files.actions).size !== files.actions.length
+    || (files.scope.kind === "selected_folders"
+      && (files.scope.folders.length === 0
+        || new Set(files.scope.folders).size !== files.scope.folders.length
+        || files.scope.folders.some((folder) => !folder || folder.includes("\0"))))
+  ) {
+    throw new Error("Application authorization file request is invalid.");
+  }
+}
+
+function requestedFiles(
+  files: ApplicationAuthorizationBinding["requested_files"]
+): Uint8Array {
+  if (files === undefined) return new Uint8Array([0]);
+  const actions = files.actions.map((action) => field(new TextEncoder().encode(action)));
+  return concat([
+    new Uint8Array([1]),
+    u32(actions.length),
+    ...actions,
+    field(new TextEncoder().encode(files.scope.kind)),
+    ...(files.scope.kind === "selected_folders"
+      ? [
+          u32(files.scope.folders.length),
+          ...files.scope.folders.map((folder) => field(new TextEncoder().encode(folder)))
+        ]
+      : [])
+  ]);
+}
+
+function optionalString(value: string | undefined): Uint8Array {
+  return value === undefined
+    ? new Uint8Array([0])
+    : concat([new Uint8Array([1]), field(new TextEncoder().encode(value))]);
+}
+
+function optionalUuid(value: string | undefined): Uint8Array {
+  return value === undefined
+    ? new Uint8Array([0])
+    : concat([new Uint8Array([1]), field(uuidBytes(value))]);
+}
+
+function publicKey(value: string): Uint8Array {
+  const key = canonicalBase64(value);
+  if (key.byteLength !== 65 || key[0] !== 4) {
+    throw new Error("Application authorization public key is invalid.");
+  }
+  return key;
+}
+
+function canonicalBase64(value: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error("Invalid base64url value.");
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const decoded = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+  if (base64Url(decoded) !== value) throw new Error("Non-canonical base64url value.");
+  return decoded;
+}
+
+function uuidBytes(value: string): Uint8Array {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)) {
+    throw new Error("Invalid UUID value.");
+  }
+  const compact = value.replaceAll("-", "");
+  return hexBytes(compact);
+}
+
+function hexBytes(value: string): Uint8Array {
+  if (!/^[0-9a-f]+$/u.test(value) || value.length % 2 !== 0) {
+    throw new Error("Invalid hexadecimal value.");
+  }
+  return Uint8Array.from(
+    { length: value.length / 2 },
+    (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16)
+  );
+}
+
+function field(value: Uint8Array): Uint8Array {
+  return concat([u32(value.byteLength), value]);
+}
+
+function u32(value: number): Uint8Array {
+  const output = new Uint8Array(4);
+  new DataView(output.buffer).setUint32(0, value, false);
+  return output;
+}
+
+function concat(values: Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(values.reduce(
+    (length, value) => length + value.byteLength,
+    0
+  ));
+  let offset = 0;
+  for (const value of values) {
+    output.set(value, offset);
+    offset += value.byteLength;
+  }
+  return output;
+}
+
+function base64Url(value: Uint8Array): string {
+  return btoa(String.fromCharCode(...value))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength
+    && left.every((value, index) => value === right[index]);
+}
+
+function hex(value: Uint8Array): string {
+  return [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}

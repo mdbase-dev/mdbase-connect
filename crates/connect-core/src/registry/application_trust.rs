@@ -229,10 +229,54 @@ impl CollectionRegistry {
     }
 
     pub fn revoke_application_trust(&self, trust_id: Uuid) -> Result<bool, ConnectError> {
-        Ok(self.connection()?.execute(
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let binding = transaction
+            .query_row(
+                "SELECT binding FROM application_trusts WHERE id = ?1",
+                [trust_id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| serde_json::from_str::<FirstContactBinding>(&value))
+            .transpose()?;
+        let Some(binding) = binding else {
+            transaction.commit()?;
+            return Ok(false);
+        };
+        let identity = identity_params(&binding);
+        for table in ["grant_crypto_state", "grant_crypto_requests"] {
+            transaction.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE grant_id IN (
+                       SELECT id FROM grants
+                       WHERE json_extract(first_contact, '$.application_id') = ?1
+                         AND json_extract(first_contact, '$.application_installation_id') = ?2
+                         AND json_extract(first_contact, '$.connector_id') = ?3
+                     )"
+                ),
+                identity.clone(),
+            )?;
+        }
+        transaction.execute(
+            "DELETE FROM grants
+             WHERE json_extract(first_contact, '$.application_id') = ?1
+               AND json_extract(first_contact, '$.application_installation_id') = ?2
+               AND json_extract(first_contact, '$.connector_id') = ?3",
+            identity.clone(),
+        )?;
+        transaction.execute(
+            "DELETE FROM pending_application_trusts
+             WHERE application_id = ?1 AND application_installation_id = ?2
+               AND connector_id = ?3",
+            identity,
+        )?;
+        transaction.execute(
             "DELETE FROM application_trusts WHERE id = ?1",
             [trust_id.to_string()],
-        )? == 1)
+        )?;
+        transaction.commit()?;
+        Ok(true)
     }
 }
 
@@ -245,13 +289,10 @@ fn validate_request(request: &ApplicationTrustRequest) -> Result<(), ConnectErro
             "The first-contact request is expired or has an invalid lifetime.".to_string(),
         ));
     }
+    let distribution = request.presentation.application_distribution.as_str();
     if request.presentation.application_name.trim().is_empty()
-        || request
-            .presentation
-            .application_distribution
-            .trim()
-            .is_empty()
-        || request.presentation.application_homepage.trim().is_empty()
+        || !matches!(distribution, "web" | "portable")
+        || (distribution == "web" && request.presentation.application_homepage.trim().is_empty())
     {
         return Err(ConnectError::InvalidInput(
             "The first-contact request is missing application presentation metadata.".to_string(),
@@ -294,7 +335,7 @@ fn identity_params(binding: &FirstContactBinding) -> [String; 3] {
     ]
 }
 
-fn is_trusted(
+pub(super) fn is_trusted(
     connection: &Connection,
     binding: &FirstContactBinding,
 ) -> Result<bool, ConnectError> {

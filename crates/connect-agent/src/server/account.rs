@@ -333,10 +333,7 @@ impl AgentState {
             .map_err(ConnectError::from);
         };
         let mut snapshot = match cloud.snapshot().await {
-            Ok(snapshot) => {
-                self.registry.replace_grant_summaries(&snapshot.grants)?;
-                snapshot
-            }
+            Ok(snapshot) => snapshot,
             Err(error) => {
                 tracing::debug!(%error, "cloud control snapshot unavailable; using local cache");
                 mdbase_connect_protocol::AccessSnapshot {

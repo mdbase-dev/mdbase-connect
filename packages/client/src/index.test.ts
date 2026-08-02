@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPkce,
+  deriveFirstContactSas,
   MdbaseBrowserSelection,
   MdbaseCollectionClient,
   MdbaseConnect,
@@ -32,6 +33,21 @@ afterEach(() => {
 });
 
 const TEST_COLLECTION_ID = "00000000-0000-0000-0000-000000000002";
+const TEST_APPLICATION_ID = "00000000-0000-0000-0000-000000000001";
+const TEST_MANIFEST_DIGEST = "0".repeat(64);
+
+function registeredApplication(
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    id: TEST_APPLICATION_ID,
+    manifest_digest: TEST_MANIFEST_DIGEST,
+    name: "Tasks",
+    homepage: "https://tasks.example/",
+    requirements: { contracts: [] },
+    ...overrides
+  };
+}
 const WORK_ITEM_CONTRACT = {
   contract_type: "record",
   id: "example.work-item",
@@ -527,24 +543,37 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     const opened = vi.fn();
     const shown: string[] = [];
+    const firstContactShown: string[] = [];
+    const connectorKeys = new MemoryGrantKeyStore();
+    const connectorIdentity = await connectorKeys.create("connector");
+    const connectorId = "01933333-3333-7333-8333-333333333333";
     let applicationAgreementPublicKey = "";
+    let firstContact: import("@mdbase-dev/connect-protocol").FirstContactBinding;
     let polls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: {
-            id: "00000000-0000-0000-0000-000000000001",
+          application: registeredApplication({
             name: "Portable notes",
             distribution: "portable",
             project_url: "https://apps.example/portable"
-          }
+          })
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
         const form = new URLSearchParams(String(init?.body));
-        applicationAgreementPublicKey = form.get("application_agreement_public_key")!;
-        expect(form.get("relay_protocol")).toBe("1");
+        const proof = JSON.parse(form.get("application_authorization")!);
+        applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
+        firstContact = {
+          protocol_version: 1,
+          application_id: proof.binding.application_id,
+          application_installation_id: proof.binding.application_installation_id,
+          application_agreement_public_key: proof.binding.installation_agreement_public_key,
+          application_signing_public_key: proof.binding.installation_signing_public_key,
+          connector_id: connectorId,
+          connector_agreement_public_key: connectorIdentity.agreementPublicKey
+        };
         expect(form.get("operations")).toBe("describe,query");
         return jsonResponse({
           device_code: "device-secret",
@@ -563,7 +592,8 @@ describe("provider-neutral collection client", () => {
         if (polls === 1) {
           return jsonResponse({
             error: "authorization_pending",
-            error_description: "Pending."
+            error_description: "Pending.",
+            first_contact: firstContact
           }, 400);
         }
         return jsonResponse({
@@ -583,10 +613,10 @@ describe("provider-neutral collection client", () => {
             suite: "P256-HKDF-SHA256-AES256GCM",
             key_id: "portable-key",
             scope_epoch: 1,
-            connector_id: "01933333-3333-7333-8333-333333333333",
+            connector_id: connectorId,
             collection_id: portableCollectionId,
             application_agreement_public_key: applicationAgreementPublicKey,
-            connector_agreement_public_key: "BFmPz3M5jSOhCzJfU3NTx_JYnNsIs_L-9fY0m7yRLJKPiGNmzF8NYdylXsClXhuDl1nlueHBMWtZGLnEorD_g18"
+            connector_agreement_public_key: connectorIdentity.agreementPublicKey
           }
         });
       }
@@ -602,11 +632,13 @@ describe("provider-neutral collection client", () => {
     const authorization = connect.authorize({
       operations: ["describe", "query"],
       onDeviceCode: ({ userCode }) => shown.push(userCode),
+      onFirstContact: ({ authenticationString }) => firstContactShown.push(authenticationString),
       openVerification: opened
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     expect(shown).toEqual(["ABCD-EFGH"]);
     await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(firstContactShown).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(authorization).resolves.toMatchObject({
@@ -614,6 +646,9 @@ describe("provider-neutral collection client", () => {
       value: { connection: { collectionId: portableCollectionId } }
     });
     expect(connect.connections()).toHaveLength(1);
+    expect(firstContactShown).toEqual([
+      await deriveFirstContactSas(firstContact!, "connector", connectorIdentity)
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -628,16 +663,25 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: {
-            id: "00000000-0000-0000-0000-000000000001",
+          application: registeredApplication({
             name: "Portable hosted notes",
-            distribution: "portable"
-          }
+            distribution: "portable",
+            requirements: {
+              contracts: [],
+              access: "full_collection",
+              collection_kind: "hosted",
+              files: {
+                actions: ["list", "read"],
+                scope: { kind: "collection" }
+              }
+            }
+          })
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationSigningPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_signing_public_key")!;
+        applicationSigningPublicKey = JSON.parse(
+          new URLSearchParams(String(init?.body)).get("application_authorization")!
+        ).binding.grant_signing_public_key;
         return jsonResponse({
           device_code: "hosted-device-secret",
           user_code: "HOST-CODE",
@@ -735,11 +779,10 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({
-        application: {
-          id: "00000000-0000-0000-0000-000000000001",
+        application: registeredApplication({
           name: "Portable notes",
           distribution: "portable"
-        }
+        })
       }))
       .mockResolvedValueOnce(jsonResponse({
         device_code: "device-secret",
@@ -777,16 +820,16 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: {
-            id: "00000000-0000-0000-0000-000000000001",
+          application: registeredApplication({
             name: "Portable notes",
             distribution: "portable"
-          }
+          })
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationAgreementPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_agreement_public_key")!;
+        applicationAgreementPublicKey = JSON.parse(
+          new URLSearchParams(String(init?.body)).get("application_authorization")!
+        ).binding.grant_agreement_public_key;
         return jsonResponse({
           device_code: "device-secret",
           user_code: "ABCD-EFGH",
@@ -850,16 +893,16 @@ describe("provider-neutral collection client", () => {
       const url = String(request);
       if (url.endsWith("/v1/apps/register")) {
         return jsonResponse({
-          application: {
-            id: "00000000-0000-0000-0000-000000000001",
+          application: registeredApplication({
             name: "Portable notes",
             distribution: "portable"
-          }
+          })
         });
       }
       if (url.endsWith("/oauth/device_authorization")) {
-        applicationSigningPublicKey = new URLSearchParams(String(init?.body))
-          .get("application_signing_public_key")!;
+        applicationSigningPublicKey = JSON.parse(
+          new URLSearchParams(String(init?.body)).get("application_authorization")!
+        ).binding.grant_signing_public_key;
         return jsonResponse({
           device_code: "device-secret",
           user_code: "ABCD-EFGH",
@@ -1991,13 +2034,20 @@ describe("authorization renewal", () => {
   it("passes an exact collection target and return location through authorization", async () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      application: {
-        id: "00000000-0000-0000-0000-000000000001",
-        name: "Tasks",
-        homepage: "https://tasks.example/"
+    let authorizationForm: URLSearchParams | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request).endsWith("/v1/apps/register")) {
+        return jsonResponse({ application: registeredApplication() });
       }
-    }));
+      authorizationForm = new URLSearchParams(String(init?.body));
+      const proof = JSON.parse(authorizationForm.get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600,
+        interval: 30
+      });
+    });
     const manager = new MdbaseConnect({
       serverUrl: "https://connect.example",
       manifest: {
@@ -2009,25 +2059,33 @@ describe("authorization renewal", () => {
       },
       redirectUri: "https://tasks.example/callback",
       storage,
+      keyStore: new MemoryGrantKeyStore(),
       relayEncryption: "disabled",
       navigate
     });
 
-    void manager.authorize({
+    const controller = new AbortController();
+    const outcome = manager.authorize({
       operations: ["query"],
       target: { kind: "collection", collectionId: TEST_COLLECTION_ID },
-      returnTo: "/today?filter=open"
+      returnTo: "/today?filter=open",
+      signal: controller.signal
     });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
 
-    const authorization = new URL(navigate.mock.calls[0][0]);
-    expect(authorization.searchParams.get("collection_id")).toBe(TEST_COLLECTION_ID);
-    const state = authorization.searchParams.get("state")!;
+    expect(authorizationForm?.get("collection_id")).toBe(TEST_COLLECTION_ID);
+    const proof = JSON.parse(authorizationForm!.get("application_authorization")!);
+    const state = proof.binding.state;
     expect(JSON.parse(storage.getItem(
       `mdbase-connect:https://connect.example:bundle:dev.tasks:pending:${state}`
     )!)).toMatchObject({
       collectionId: TEST_COLLECTION_ID,
       returnTo: "/today?filter=open"
+    });
+    controller.abort();
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      problem: { code: "authorization_cancelled" }
     });
   });
 
@@ -2148,28 +2206,36 @@ describe("authorization renewal", () => {
       expiresAt: Date.now() + 60_000,
       refreshExpiresAt: Date.now() + 120_000
     }));
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) =>
-      String(request) === manifestUrl
-        ? jsonResponse({
+    let authorizationForm: URLSearchParams | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",
             name: "Worklog",
             homepage: "https://tasks.example",
             redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
-          })
-        : jsonResponse({
-            application: {
-              id: "00000000-0000-0000-0000-000000000001",
+          });
+      if (String(request).endsWith("/v1/apps/register")) return jsonResponse({
+            application: registeredApplication({
               name: "Worklog",
               homepage: "https://tasks.example"
-            }
-          })
-    );
+            })
+          });
+      authorizationForm = new URLSearchParams(String(init?.body));
+      const proof = JSON.parse(authorizationForm.get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600,
+        interval: 30
+      });
+    });
     const manager = new MdbaseConnect({
       serverUrl,
       manifest: manifestUrl,
       redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
+      keyStore: new MemoryGrantKeyStore(),
       relayEncryption: "disabled",
       navigate
     });
@@ -2186,9 +2252,14 @@ describe("authorization renewal", () => {
     await connect.requestOperations(["read"]);
     expect(navigate).not.toHaveBeenCalled();
 
-    void connect.requestOperations(["read", "update"]);
+    const controller = new AbortController();
+    const outcome = connect.requestOperations(["read", "update"], {
+      signal: controller.signal
+    });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
-    expect(new URL(navigate.mock.calls[0][0]).searchParams.get("operations")).toBe("query,read,update");
+    expect(authorizationForm?.get("operations")).toBe("query,read,update");
+    controller.abort();
+    await outcome;
   });
 
   it("attaches the exact capability gap to insufficient-access errors", async () => {
@@ -2233,36 +2304,50 @@ describe("authorization renewal", () => {
     const storage = new MemoryStorage();
     const navigate = vi.fn();
     const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (request) =>
-      String(request) === manifestUrl
-        ? jsonResponse({
+    let authorizationForm: URLSearchParams | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
+      if (String(request) === manifestUrl) return jsonResponse({
             manifest_version: 1,
             id: "dev.worklog.app",
             name: "Worklog",
             homepage: "https://tasks.example",
             redirect_uris: ["dev.worklog.app://auth/mdbase/callback"]
-          })
-        : jsonResponse({
-            application: {
-              id: "00000000-0000-0000-0000-000000000001",
+          });
+      if (String(request).endsWith("/v1/apps/register")) return jsonResponse({
+            application: registeredApplication({
               name: "Worklog",
               homepage: "https://tasks.example"
-            }
-          })
-    );
+            })
+          });
+      authorizationForm = new URLSearchParams(String(init?.body));
+      const proof = JSON.parse(authorizationForm.get("application_authorization")!);
+      return jsonResponse({
+        authorization_id: proof.binding.authorization_id,
+        authorization_uri: `https://connect.example/oauth/authorize?request_id=${proof.binding.authorization_id}`,
+        expires_in: 600,
+        interval: 30
+      });
+    });
     const connect = new MdbaseConnect({
       serverUrl: "https://connect.example",
       manifest: manifestUrl,
       redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
+      keyStore: new MemoryGrantKeyStore(),
       relayEncryption: "disabled",
       navigate
     });
 
-    void connect.authorize({ operations: ["query"] });
+    const controller = new AbortController();
+    const outcome = connect.authorize({
+      operations: ["query"],
+      signal: controller.signal
+    });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
-    expect(new URL(navigate.mock.calls[0][0]).searchParams.get("redirect_uri"))
+    expect(authorizationForm?.get("redirect_uri"))
       .toBe("dev.worklog.app://auth/mdbase/callback");
+    controller.abort();
+    await outcome;
   });
 
   it("sends hosted operations directly to the provider with its scoped capability", async () => {

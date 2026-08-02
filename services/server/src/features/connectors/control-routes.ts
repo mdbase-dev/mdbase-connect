@@ -69,7 +69,8 @@ export function registerConnectorControlRoutes(
          ON hinted.local_id = ar.collection_id
         AND hinted.connector_id = $2
        WHERE ar.user_id = $1 AND ar.completed_at IS NULL
-         AND ar.denied_at IS NULL AND ar.expires_at > now()
+         AND ar.denied_at IS NULL AND ar.portal_approved_at IS NULL
+         AND ar.expires_at > now()
        ORDER BY ar.expires_at`,
       [connector.user_id, connector.id]
     );

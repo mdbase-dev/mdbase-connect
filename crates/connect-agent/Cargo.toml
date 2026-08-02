@@ -35,5 +35,8 @@ url.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
+base64.workspace = true
+p256.workspace = true
+rand_core.workspace = true
 rusqlite.workspace = true
 tower = { version = "0.5", features = ["util"] }

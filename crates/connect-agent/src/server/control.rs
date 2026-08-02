@@ -153,11 +153,6 @@ impl AgentState {
             ControlCommand::GrantRevoke(params) => match self.cloud() {
                 Ok(cloud) => {
                     let result = cloud.revoke_grant(&params).await;
-                    if result.is_ok() {
-                        if let Ok(snapshot) = cloud.snapshot().await {
-                            let _ = self.registry.replace_grant_summaries(&snapshot.grants);
-                        }
-                    }
                     result
                 }
                 Err(error) => Err(error),

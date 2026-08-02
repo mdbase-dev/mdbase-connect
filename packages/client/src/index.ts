@@ -26,7 +26,8 @@ export {
 
 export * from "./authorization-types.js";
 export * from "./collection-client.js";
-export * from "./connect.js";
+export * from "./connect-options.js";
+export * from "./mdbase-connect.js";
 export * from "./connection.js";
 export * from "./connection-types.js";
 export * from "./errors.js";

@@ -17,7 +17,7 @@ test("recovers from a stale local grant without bypassing the connector", async 
       }
     }, 403);
   });
-  await page.route(`${serverUrl}/**`, async (route) => {
+  await page.context().route(`${serverUrl}/**`, async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/v1/apps/register") {
       expect(route.request().postDataJSON()).toMatchObject({
@@ -29,9 +29,23 @@ test("recovers from a stale local grant without bypassing the connector", async 
       await json(route, {
         application: {
           id: "20000000-0000-4000-8000-000000000002",
+          manifest_digest: "0".repeat(64),
           name: "mdbase editor",
-          homepage: "http://127.0.0.1"
+          homepage: "http://127.0.0.1",
+          requirements: { contracts: [], access: "full_collection" }
         }
+      });
+      return;
+    }
+    if (url.pathname === "/oauth/authorization_request") {
+      const form = new URLSearchParams(route.request().postData() ?? "");
+      const proof = JSON.parse(form.get("application_authorization") ?? "null");
+      const authorizationId = proof.binding.authorization_id as string;
+      await json(route, {
+        authorization_id: authorizationId,
+        authorization_uri: `${serverUrl}/oauth/authorize?request_id=${authorizationId}`,
+        expires_in: 600,
+        interval: 5
       });
       return;
     }
@@ -176,9 +190,10 @@ test("recovers from a stale local grant without bypassing the connector", async 
     );
   }, { configuredServerUrl: serverUrl, configuredManifestPath: manifestPath })).toBeNull();
 
+  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-
-  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const approval = await popupPromise;
+  await expect(approval).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
 });
 
 async function json(route: Route, body: unknown, status = 200): Promise<void> {

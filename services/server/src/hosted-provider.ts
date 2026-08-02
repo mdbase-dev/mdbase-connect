@@ -3,7 +3,7 @@ import type {
   CollectionTypeDescriptor,
   ContractSetupChoice,
   FileCapability,
-  GrantPolicy,
+  GrantSummary,
   TypePackProvision
 } from "@mdbase-dev/connect-protocol";
 import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
@@ -315,7 +315,7 @@ export class HostedProviderClient {
     await this.request("DELETE", `/internal/v1/replicas/${encodeURIComponent(replicaId)}`);
   }
 
-  async upsertNotificationGrant(collectionId: string, grant: GrantPolicy): Promise<void> {
+  async upsertNotificationGrant(collectionId: string, grant: GrantSummary): Promise<void> {
     await this.request(
       "PUT",
       `/internal/v1/collections/${encodeURIComponent(collectionId)}/notification-grants/${encodeURIComponent(grant.id)}`,

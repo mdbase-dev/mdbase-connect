@@ -8,13 +8,21 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(response.status, body?.error?.message ?? `Request failed with HTTP ${response.status}.`);
+    throw new ApiError(
+      response.status,
+      body?.error?.message ?? `Request failed with HTTP ${response.status}.`,
+      typeof body?.error?.code === "string" ? body.error.code : undefined
+    );
   }
   return body as T;
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string
+  ) {
     super(message);
   }
 }

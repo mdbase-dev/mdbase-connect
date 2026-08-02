@@ -8,6 +8,46 @@ interface AgentStatus {
   loopback_port?: number;
 }
 
+interface ApplicationTrustPresentation {
+  application_name: string;
+  application_distribution: "web" | "portable";
+  application_homepage: string;
+  application_project_url?: string;
+  application_icon?: string;
+}
+
+interface FirstContactBinding {
+  protocol_version: 1;
+  application_id: string;
+  application_installation_id: string;
+  application_agreement_public_key: string;
+  application_signing_public_key: string;
+  connector_id: string;
+  connector_agreement_public_key: string;
+}
+
+interface PendingApplicationTrust {
+  request_id: string;
+  binding: FirstContactBinding;
+  presentation: ApplicationTrustPresentation;
+  authentication_string: string;
+  created_at: string;
+  expires_at: string;
+}
+
+interface ApplicationTrust {
+  id: string;
+  binding: FirstContactBinding;
+  presentation: ApplicationTrustPresentation;
+  trusted_at: string;
+  last_used_at: string;
+}
+
+interface ApplicationTrustSnapshot {
+  pending: PendingApplicationTrust[];
+  trusted: ApplicationTrust[];
+}
+
 interface CollectionSummary {
   id: string;
   display_name: string;
@@ -44,17 +84,6 @@ interface CollectionTypeDescriptor {
   revision?: string;
   schema: Record<string, unknown>;
 }
-
-type ContractSetupRequestChoice =
-  | { contract: ContractRequirement; mode: "starter" }
-  | {
-      contract: ContractRequirement;
-      mode: "existing";
-      type_name: string;
-      type_revision: string;
-      fields: Record<string, string>;
-      binding?: Record<string, unknown>;
-    };
 
 interface ApplicationRequirements {
   contracts: ContractRequirement[];
@@ -343,6 +372,7 @@ interface Window {
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;
     openAccount(): Promise<void>;
+    openAuthorization(requestId: string): Promise<void>;
     setCloudConfig(input: { serverUrl: string; connectorToken: string }): Promise<CloudSetting>;
     clearCloudConfig(): Promise<CloudSetting>;
     beginPairing(input: { serverUrl: string; connectorName: string }): Promise<{
@@ -353,28 +383,22 @@ interface Window {
     pairingStatus(pairingId: string): Promise<{ status: "pending" | "paired"; connector?: { id: string; name: string } }>;
     accessSnapshot(): Promise<AccessSnapshot>;
     setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
+    applicationTrustSnapshot(): Promise<ApplicationTrustSnapshot>;
+    acceptApplicationTrust(input: {
+      requestId: string;
+      authenticationString: string;
+    }): Promise<ApplicationTrust>;
+    rejectApplicationTrust(requestId: string): Promise<{ ok: true }>;
+    revokeApplicationTrust(trustId: string): Promise<{ ok: true }>;
     renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;
     createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
     revokeGrant(grantId: string): Promise<unknown>;
-    approveAuthorization(input: {
-      requestId: string;
-      collectionId: string;
-      operations: string[];
-      contractSetups?: ContractSetupRequestChoice[];
-    }): Promise<unknown>;
-    denyAuthorization(requestId: string): Promise<unknown>;
     listActivity(limit?: number): Promise<ActivityEntry[]>;
     hostedSnapshot(): Promise<HostedControlSnapshot>;
     createHostedCollection(name: string): Promise<{ collection: HostedCollectionSummary }>;
     renameHostedCollection(input: { collectionId: string; name: string }): Promise<{ collection: { id: string; display_name: string } }>;
     deleteHostedCollection(collectionId: string): Promise<{ ok: true }>;
-    approveHostedAuthorization(input: {
-      requestId: string;
-      collectionId: string;
-      operations: string[];
-      contractSetups?: ContractSetupRequestChoice[];
-    }): Promise<{ ok: true }>;
     updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
     revokeHostedGrant(grantId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;
     revokeHostedReplica(replicaId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;

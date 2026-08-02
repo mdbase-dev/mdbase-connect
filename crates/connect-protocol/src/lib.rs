@@ -35,9 +35,14 @@ pub const RELAY_HANDSHAKE_TIMEOUT_SECONDS: u64 = 5;
 pub const RELAY_INCOMPATIBLE_CLOSE_CODE: u16 = 4406;
 pub const CONTRACT_SETUP_CAPABILITY: &str = "contract-setup-v1";
 pub const FILE_RELAY_CAPABILITY: &str = "file-relay-v1";
-pub const RELAY_REQUIRED_CAPABILITIES: &[&str] =
-    &["authorization-activation", "encrypted-relay", "policy-ack"];
+pub const RELAY_REQUIRED_CAPABILITIES: &[&str] = &[
+    "application-trust-v1",
+    "authorization-activation",
+    "encrypted-relay",
+    "policy-ack",
+];
 pub const RELAY_CAPABILITIES: &[&str] = &[
+    "application-trust-v1",
     "authorization-activation",
     "encrypted-relay",
     "policy-ack",

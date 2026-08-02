@@ -4,6 +4,8 @@ mod mirrors;
 mod relay;
 mod runtime_notifications;
 mod server;
+#[cfg(test)]
+mod test_support;
 mod watcher;
 
 use cloud::CloudControlClient;

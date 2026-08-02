@@ -53,6 +53,8 @@ impl CollectionRegistry {
                 notification_criteria TEXT NOT NULL DEFAULT '[]',
                 encryption TEXT,
                 file_capability TEXT,
+                first_contact TEXT NOT NULL,
+                application_authorization TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -291,6 +293,8 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
             "ALTER TABLE grants ADD COLUMN file_capability TEXT",
+            "ALTER TABLE grants ADD COLUMN first_contact TEXT",
+            "ALTER TABLE grants ADD COLUMN application_authorization TEXT",
             "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE collection_file_transfers ADD COLUMN owner_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'",
             "ALTER TABLE collections ADD COLUMN description TEXT",
@@ -312,6 +316,14 @@ impl CollectionRegistry {
         }
         connection.execute(
             "DELETE FROM grants WHERE json_extract(scope, '$.access') IS NULL",
+            [],
+        )?;
+        // First-contact trust is a deliberate pre-release protocol break. Old local grants have
+        // no app-signed installation binding and cannot be upgraded safely; they must be
+        // authorized again through the normal portal flow.
+        connection.execute(
+            "DELETE FROM grants
+             WHERE first_contact IS NULL OR application_authorization IS NULL",
             [],
         )?;
         // Registries created before the bounded replay window cannot safely distinguish a fresh

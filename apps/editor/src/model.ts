@@ -4,6 +4,7 @@ import type {
   CollectionTypeDocument,
   JsonObject,
   MdbaseDiagnostic,
+  MdbaseFirstContactChallenge,
   MutationProgress,
   MdbaseUnavailableReason,
   RenamePreflightResult,
@@ -131,7 +132,10 @@ export interface CollectionGateway {
   selectConnection(collectionId: string): ConnectionSummary;
   checkDirectAccess(): Promise<ConnectionSummary | null>;
   requestDirectAccess(): Promise<ConnectionSummary | null>;
-  authorize(target: CollectionAuthorizationTarget): Promise<void>;
+  authorize(
+    target: CollectionAuthorizationTarget,
+    options?: CollectionAuthorizationOptions
+  ): Promise<void>;
   forgetConnection(collectionId: string): void;
   describe(): Promise<CollectionDescription>;
   list(options?: NoteIndexRequest): Promise<NoteIndexResult>;
@@ -152,6 +156,11 @@ export interface CollectionGateway {
   updateType(document: CollectionTypeDocument, source: string): Promise<CollectionTypeDocument>;
   installTypePack(provision: TypePackProvision): Promise<TypePackInstallResult>;
   watch(onChange: (change?: CollectionChange) => void, signal: AbortSignal, onStatus?: (status: WatchStatus) => void): Promise<void>;
+}
+
+export interface CollectionAuthorizationOptions {
+  signal?: AbortSignal;
+  onFirstContact?: (challenge: MdbaseFirstContactChallenge) => void | Promise<void>;
 }
 
 export type TypeDocument = CollectionTypeDocument;

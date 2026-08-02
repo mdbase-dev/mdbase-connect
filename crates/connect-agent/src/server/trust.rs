@@ -1,10 +1,88 @@
 use super::*;
+use mdbase_connect_core::ApplicationTrustRequestDisposition;
 use mdbase_connect_protocol::{
-    ApplicationTrustAcceptParams, ApplicationTrustRequest, ApplicationTrustSnapshot,
-    FirstContactRole, PendingApplicationTrust,
+    ApplicationTrustAcceptParams, ApplicationTrustPresentation, ApplicationTrustRequest,
+    ApplicationTrustSnapshot, FirstContactRole, GrantPolicy, PendingApplicationTrust,
 };
 
+pub(super) enum ActivationTrust {
+    Trusted,
+    Required(ApplicationTrustRequest),
+}
+
 impl AgentState {
+    pub(super) fn ensure_activation_trust(
+        &self,
+        authorization_id: uuid::Uuid,
+        grant: &GrantPolicy,
+    ) -> Result<ActivationTrust, ConnectError> {
+        grant
+            .validate_application_security()
+            .map_err(invalid_trust_binding)?;
+        let authorization = &grant.application_authorization.binding;
+        if authorization.authorization_id != authorization_id {
+            return Err(ConnectError::AccessDenied(
+                "The activation names a different application authorization request.".to_string(),
+            ));
+        }
+        if grant.first_contact.connector_agreement_public_key != self.relay_public_key() {
+            return Err(ConnectError::AccessDenied(
+                "The activation is bound to a different connector identity.".to_string(),
+            ));
+        }
+        let issued_at = chrono::DateTime::parse_from_rfc3339(&authorization.issued_at)
+            .map(|value| value.with_timezone(&chrono::Utc))
+            .map_err(|_| {
+                ConnectError::InvalidInput(
+                    "The application authorization issue time is invalid.".to_string(),
+                )
+            })?;
+        let expires_at = chrono::DateTime::parse_from_rfc3339(&authorization.expires_at)
+            .map(|value| value.with_timezone(&chrono::Utc))
+            .map_err(|_| {
+                ConnectError::InvalidInput(
+                    "The application authorization expiry is invalid.".to_string(),
+                )
+            })?;
+        let now = chrono::Utc::now();
+        if expires_at <= now
+            || expires_at <= issued_at
+            || expires_at - issued_at > chrono::Duration::minutes(15)
+            || issued_at > now + chrono::Duration::minutes(2)
+        {
+            return Err(ConnectError::AccessDenied(
+                "The application authorization is expired or has an invalid lifetime.".to_string(),
+            ));
+        }
+        let request = ApplicationTrustRequest {
+            request_id: authorization_id,
+            binding: grant.first_contact.clone(),
+            presentation: ApplicationTrustPresentation {
+                application_name: grant.application_name.clone(),
+                application_distribution: grant.application_distribution.clone(),
+                application_homepage: grant.application_homepage.clone(),
+                application_project_url: grant.application_project_url.clone(),
+                application_icon: grant.application_icon.clone(),
+            },
+            created_at: authorization.issued_at.clone(),
+            expires_at: authorization.expires_at.clone(),
+        };
+        match self.registry.record_application_trust_request(&request)? {
+            ApplicationTrustRequestDisposition::AlreadyTrusted => {
+                if !self
+                    .registry
+                    .touch_application_trust(&grant.first_contact)?
+                {
+                    return Err(ConnectError::AccessDenied(
+                        "Application trust changed while activation was being checked.".to_string(),
+                    ));
+                }
+                Ok(ActivationTrust::Trusted)
+            }
+            ApplicationTrustRequestDisposition::Pending => Ok(ActivationTrust::Required(request)),
+        }
+    }
+
     pub(super) fn application_trust_snapshot(&self) -> Result<serde_json::Value, ConnectError> {
         let pending = self
             .registry

@@ -209,6 +209,33 @@ h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; letter-spa
 .empty-state .text-action { margin-left: -7px; }
 
 .request-list { display: grid; margin-top: 10px; }
+.portal-approval-row { display: grid; grid-template-columns: minmax(160px, 0.42fr) minmax(240px, 1fr) auto; align-items: center; gap: 24px; min-height: 82px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.portal-approval-row:first-child { border-top: 1px solid var(--line); }
+.portal-approval-row > div { display: grid; gap: 3px; min-width: 0; }
+.portal-approval-row h3 { margin: 0; overflow: hidden; font-size: var(--type-row-title); text-overflow: ellipsis; white-space: nowrap; }
+.portal-approval-row code, .portal-approval-row small { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; white-space: nowrap; }
+.portal-approval-row p { max-width: 60ch; margin: 0; color: var(--muted); font-size: var(--type-supporting); line-height: 1.5; }
+.portal-approval-row.focused-request { scroll-margin-top: 28px; outline: 1px solid var(--line-strong); outline-offset: 8px; }
+.application-trust-section { margin-bottom: 8px; }
+.trust-request-list { display: grid; margin-top: 10px; border-top: 1px solid var(--line); }
+.trust-request { display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 14px 28px; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.trust-request-copy { display: grid; gap: 3px; min-width: 0; }
+.trust-request-copy h3 { margin: 0; overflow: hidden; font-size: var(--type-row-title); text-overflow: ellipsis; white-space: nowrap; }
+.trust-request-copy > code { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; white-space: nowrap; }
+.trust-request-copy p { max-width: 62ch; margin: 7px 0 0; color: var(--muted); font-size: var(--type-supporting); line-height: 1.5; }
+.trust-authentication-string { min-width: 194px; padding: 12px 16px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--hover); color: var(--ink); font-size: 25px; font-weight: 700; letter-spacing: 0.12em; text-align: center; }
+.trust-request-actions { grid-column: 2; grid-row: 2; display: flex; justify-content: flex-end; gap: 8px; }
+.trust-request > small { grid-column: 1; grid-row: 2; align-self: center; color: var(--muted); font-size: var(--type-metadata); }
+.trust-empty { margin: 0; padding: 20px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--type-supporting); }
+.trusted-installations { border-bottom: 1px solid var(--line); }
+.trusted-installations > summary { display: flex; justify-content: space-between; align-items: center; min-height: 48px; color: var(--ink); font-size: var(--type-supporting); font-weight: 700; cursor: pointer; }
+.trusted-installations > summary span { color: var(--muted); font-family: var(--mono); font-size: var(--type-metadata); font-weight: 500; }
+.trusted-installations > div { border-top: 1px solid var(--line); }
+.trusted-installation-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 56px; border-bottom: 1px solid var(--line); }
+.trusted-installation-row:last-child { border-bottom: 0; }
+.trusted-installation-row > div { display: grid; gap: 3px; min-width: 0; }
+.trusted-installation-row strong { overflow: hidden; font-size: var(--type-supporting); text-overflow: ellipsis; white-space: nowrap; }
+.trusted-installation-row small { color: var(--muted); font-size: var(--type-metadata); }
 .request-panel { display: grid; grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr); align-items: start; gap: 32px; padding: 22px 0; border-bottom: 1px solid var(--line); background: var(--paper); }
 .request-panel:first-child { border-top: 1px solid var(--line); }
 .request-panel.focused-request { scroll-margin-top: 28px; outline: 1px solid var(--line-strong); outline-offset: 10px; }
@@ -391,6 +418,12 @@ fieldset legend { margin-bottom: 6px; }
   .copy-registration { grid-template-columns: 1fr; gap: 16px; }
   .copy-registration-actions { justify-content: flex-end; }
   .identity-conflict-details > div { grid-template-columns: 120px minmax(0, 1fr); }
+  .portal-approval-row { grid-template-columns: 1fr; gap: 10px; padding: 18px 0; }
+  .portal-approval-row .button { justify-self: start; }
+  .trust-request { grid-template-columns: 1fr; }
+  .trust-authentication-string { justify-self: stretch; }
+  .trust-request > small, .trust-request-actions { grid-column: 1; grid-row: auto; }
+  .trust-request-actions { justify-content: flex-start; flex-wrap: wrap; }
 }
 @media (max-width: 760px) {
   .content { padding-top: 30px; }

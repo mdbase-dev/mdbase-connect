@@ -104,10 +104,6 @@ export function registerConnectorGrantRoutes(
       collection.rows[0].spec_version,
       input.operations
     );
-    const scope = scopeForRequirements(
-      application.rows[0].requirements,
-      collection.rows[0].contracts
-    );
     if (!contractsSatisfy(
       collection.rows[0].contracts,
       requiredContractsForRequirements(application.rows[0].requirements)
@@ -117,22 +113,10 @@ export function registerConnectorGrantRoutes(
         "This collection does not provide the contracts required by the application."
       ));
     }
-    const grant = await createOrUpdateGrant(options.db, {
-      userId: connector.user_id,
-      applicationId: input.application_id,
-      collectionId: collection.rows[0].id,
-      operations: input.operations,
-      scope,
-      fileCapability: fileCapabilityForRequirements(application.rows[0].requirements),
-      applicationOrigin: new URL(application.rows[0].homepage).origin,
-      notificationCriteria: application.rows[0].notifications.criteria
-    });
-    await options.relay.pushPolicy(connector.id);
-    await audit(options.db, connector.user_id, "grant.created", grant.id, {
-      ...input,
-      connector_id: connector.id
-    });
-    return reply.code(201).send({ grant });
+    return reply.code(409).send(apiError(
+      "application_authorization_required",
+      "Start the application's signed authorization flow before granting local access."
+    ));
   });
 
   app.patch("/v1/connectors/grants/:grantId", async (request, reply) => {

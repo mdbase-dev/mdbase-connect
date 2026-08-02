@@ -28,13 +28,15 @@ import { CollectionRail } from "./CollectionRail";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
 import { ConfirmDialog } from "./Dialog";
+import { FirstContactDialog } from "./FirstContactDialog";
 import {
   loadContractCatalog,
   loadTypePackProvision,
-  type ContractCatalog,
   type ContractCatalogPack
 } from "./contract-catalog";
+import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
 import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
+import { useCollectionAuthorization } from "./collection-authorization";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
 import {
@@ -104,15 +106,6 @@ const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => 
 const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => ({ default: module.NewNoteComposer })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
 
-type AppPhase = "starting" | "disconnected" | "loading" | "ready";
-type MobilePane = "collections" | "notes" | "editor";
-type Surface = "notes" | "types" | "settings";
-type ConnectionState = "connected" | "reconnecting";
-type ContractCatalogLoadState =
-  | { status: "idle" | "loading" }
-  | { status: "ready"; catalog: ContractCatalog }
-  | { status: "error"; message: string };
-
 interface Confirmation {
   title: string;
   body: ReactNode;
@@ -120,18 +113,6 @@ interface Confirmation {
   cancelLabel?: string;
   tone?: "default" | "danger";
   onConfirm: () => void | Promise<void>;
-}
-
-interface MobileHistoryState {
-  mdbaseEditor: true;
-  pane: MobilePane;
-  surface: Surface;
-}
-
-interface CreationContext {
-  folder?: string;
-  tag?: string;
-  type?: string;
 }
 
 interface RenamePlan {
@@ -587,6 +568,13 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     }
   }, [gateway, indexController, openNote, refreshDescription]);
 
+  const { authorizeCollection, firstContact } = useCollectionAuthorization({
+    gateway,
+    phase,
+    start,
+    setSessionSnapshot
+  });
+
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
     void loadContentIndex();
@@ -867,7 +855,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
 
   async function connectCollection() {
     setNotice(undefined);
-    try { await gateway.authorize("selected"); } catch (error) { setNotice(gatewayError(error)); }
+    try { await authorizeCollection("selected"); } catch (error) { setNotice(gatewayError(error)); }
   }
 
   async function connectFromConnectScreen() {
@@ -876,9 +864,9 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       const snapshot = gateway.sessionSnapshot();
       if (snapshot.status === "unavailable"
         || (snapshot.status === "ready" && missingCoreOperations(snapshot.connection).length > 0)) {
-        await gateway.authorize("selected");
+        await authorizeCollection("selected");
       }
-      else await gateway.authorize("choose");
+      else await authorizeCollection("choose");
     } catch (error) {
       setNotice(gatewayError(error));
     }
@@ -950,7 +938,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       clearCollectionWorkspace();
       if (missingCoreOperations(selected).length > 0) {
         setPhase("disconnected");
-        await gateway.authorize("selected");
+        await authorizeCollection("selected");
         return;
       }
       setPhase("loading");
@@ -985,7 +973,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     setCollectionSwitcherOpen(false);
     try {
       await flushCollectionWork();
-      await gateway.authorize("choose");
+      await authorizeCollection("choose");
     } catch (error) {
       setNotice(gatewayError(error));
     }
@@ -1776,6 +1764,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
     />}
+    {firstContact && <FirstContactDialog
+      challenge={firstContact.challenge}
+      onCancel={firstContact.cancel}
+    />}
   </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
 
@@ -2168,6 +2160,10 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       tone={confirmation.tone}
       onConfirm={confirmation.onConfirm}
       onClose={() => setConfirmation(undefined)}
+    />}
+    {firstContact && <FirstContactDialog
+      challenge={firstContact.challenge}
+      onCancel={firstContact.cancel}
     />}
     <NotePreviewCard preview={notePreviewController.preview} />
   </div>;

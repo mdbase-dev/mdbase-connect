@@ -15,6 +15,7 @@ import {
   HostedProviderUnavailableError
 } from "../hosted-provider.js";
 import { ApplicationManifestError } from "../manifest.js";
+import { ApplicationAuthorizationError } from "../application-authorization.js";
 import {
   AuthenticationPolicyIncompleteError,
   InvalidInvitationError,
@@ -46,6 +47,12 @@ export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApplicationManifestError) {
       return reply.code(400).send(apiError("invalid_application_manifest", error.message));
+    }
+    if (error instanceof ApplicationAuthorizationError) {
+      return reply.code(400).send(apiError(
+        "invalid_application_authorization",
+        error.message
+      ));
     }
     if (error instanceof ZodError) {
       return reply.code(400).send(apiError(

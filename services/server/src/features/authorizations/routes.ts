@@ -11,6 +11,7 @@ import type {
 import { ENCRYPTED_RELAY_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { verifyApplicationAuthorization } from "../../application-authorization.js";
 import {
   accessView,
   COLLECTION_OPERATIONS,
@@ -22,7 +23,6 @@ import {
   listHostedCollectionsVisibleToUser,
   resolveHostedCollection
 } from "../../collection-catalog.js";
-import type { DatabasePool } from "../../db.js";
 import {
   contractRequirements,
   effectiveHostedContractDescriptors,
@@ -32,25 +32,14 @@ import type { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedReplicaCollectionOperations } from "../../hosted-replica-policy.js";
 import { planCollectionGrant } from "../../grant-planner.js";
 import {
-  AuthorityProofError,
-  verifyAuthorityRequestProof
-} from "../../authority-proof.js";
-import type { RelayHub } from "../../relay.js";
-import {
   canonicalUserCode,
-  isP256PublicKey,
-  pkceChallenge,
   randomToken,
   randomUserCode,
-  safeEqual,
   tokenHash
 } from "../../security.js";
-import {
-  collectionContractDescriptorSchema,
-  contractSetupChoiceSchema
-} from "../../protocol-schemas.js";
+import { contractSetupChoiceSchema } from "../../protocol-schemas.js";
 import { audit } from "../../platform/audit-events.js";
-import { apiError, oauthError } from "../../platform/http-errors.js";
+import { apiError } from "../../platform/http-errors.js";
 import {
   authenticatedUser,
   requireConnector,
@@ -68,32 +57,16 @@ import {
 import { createOrUpdateGrant } from "../grants/service.js";
 import { liveAuthorizationCollections } from "./local-collections.js";
 import {
-  approveAuthorization,
   approveHostedAuthorization,
   approvePortalAuthorization,
   denyAuthorization
 } from "./approval-service.js";
-import {
-  createAuthorizationRedirect,
-  deniedAuthorizationRedirect
-} from "./redirects.js";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
-import { issueApplicationTokens } from "./token-service.js";
+import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
+import type { AuthorizationRouteOptions } from "./route-options.js";
 
 const operationSchema = z.enum(COLLECTION_OPERATIONS);
-const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
-const DEVICE_AUTHORIZATION_SECONDS = 600;
 const DEVICE_POLL_INTERVAL_SECONDS = 5;
-
-interface AuthorizationRouteOptions {
-  db: DatabasePool;
-  relay: RelayHub;
-  publicUrl: string;
-  tailscaleAuth?: boolean;
-  hostedCollections?: boolean;
-  hostedProvider?: HostedProviderClient;
-  drainProviderRevocations(): Promise<void>;
-}
 
 export function registerAuthorizationRoutes(
   app: FastifyInstance,
@@ -105,51 +78,21 @@ export function registerAuthorizationRoutes(
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
-    const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
-    const input = z.object({
-      collection_id: z.uuid(),
-      operations: z.array(operationSchema),
-      contracts: z.array(collectionContractDescriptorSchema).max(100).optional()
-    }).parse(request.body);
-    if (input.contracts) {
-      await options.db.query(
-        `UPDATE collections SET contracts = $3::jsonb, last_seen_at = now()
-         WHERE connector_id = $1 AND local_id = $2 AND enabled = true
-           AND present = true AND authority_state = 'active'`,
-        [connector.id, input.collection_id, JSON.stringify(input.contracts)]
-      );
-    }
-    const collection = await options.db.query<{ id: string }>(
-      `SELECT id FROM collections
-       WHERE connector_id = $1 AND local_id = $2 AND enabled = true
-         AND present = true AND authority_state = 'active'`,
-      [connector.id, input.collection_id]
-    );
-    if (!collection.rows[0]) return reply.code(404).send(apiError("collection_not_found", "Collection is not available on this computer."));
-    const result = await approveAuthorization(options.db, relay, {
-      requestId,
-      userId: connector.user_id,
-      connectorId: connector.id,
-      collectionId: collection.rows[0].id,
-      operations: input.operations,
-      source: "connector"
-    });
-    if (!result) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
-    return { ok: true };
+    z.object({ requestId: z.uuid() }).parse(request.params);
+    return reply.code(409).send(apiError(
+      "portal_activation_required",
+      "Approve this signed request in the portal; local first-contact trust is confirmed through the connector control interface."
+    ));
   });
 
   app.post("/v1/connectors/authorization-requests/:requestId/deny", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
-    const { requestId } = z.object({ requestId: z.uuid() }).parse(request.params);
-    const denied = await denyAuthorization(options.db, {
-      requestId,
-      userId: connector.user_id,
-      connectorId: connector.id,
-      source: "connector"
-    });
-    if (!denied) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
-    return { ok: true };
+    z.object({ requestId: z.uuid() }).parse(request.params);
+    return reply.code(409).send(apiError(
+      "portal_activation_required",
+      "Deny this request in the portal; reject first-contact application trust through the connector control interface."
+    ));
   });
 
   app.post("/oauth/device_authorization", {
@@ -161,30 +104,22 @@ export function registerAuthorizationRoutes(
       collection_id: z.uuid().optional(),
       code_challenge: z.string().min(43).max(128),
       code_challenge_method: z.literal("S256"),
-      relay_protocol: z.coerce.number().int(),
-      application_agreement_public_key: z.string().min(80).max(200),
-      application_signing_public_key: z.string().min(80).max(200)
+      application_authorization: z.string().min(1).max(16_384)
     }).strict().parse(request.body);
-    if (
-      input.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
-      || !isP256PublicKey(input.application_agreement_public_key)
-      || !isP256PublicKey(input.application_signing_public_key)
-      || input.application_agreement_public_key === input.application_signing_public_key
-    ) {
-      return reply.code(400).send(apiError(
-        "invalid_encryption_request",
-        "Portable authorization requires encrypted relay protocol 1 and independent P-256 agreement and signing keys."
-      ));
-    }
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
+      manifest_digest: string | null;
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, distribution, requirements FROM applications WHERE id = $1",
+      "SELECT id, distribution, manifest_digest, requirements FROM applications WHERE id = $1",
       [input.client_id]
     );
-    if (!application.rows[0] || application.rows[0].distribution !== "portable") {
+    if (
+      !application.rows[0]
+      || application.rows[0].distribution !== "portable"
+      || !application.rows[0].manifest_digest
+    ) {
       return reply.code(400).send(apiError(
         "invalid_client",
         "Only a registered portable application can use device authorization."
@@ -204,18 +139,34 @@ export function registerAuthorizationRoutes(
       requestedOperations,
       application.rows[0].requirements
     );
-    const authorizationId = randomUUID();
+    const proof = await verifyApplicationAuthorization(
+      input.application_authorization,
+      {
+        applicationId: input.client_id,
+        applicationManifestDigest: application.rows[0].manifest_digest,
+        flow: "device_code",
+        codeChallenge: input.code_challenge,
+        requestedOperations,
+        requestedFiles: application.rows[0].requirements.files,
+        collectionId: input.collection_id
+      }
+    );
+    const authorizationId = proof.binding.authorization_id;
     const deviceCode = randomToken("device");
     const userCode = randomUserCode();
-    await options.db.query(
+    const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, flow, redirect_uri, state, code_challenge,
           requested_operations, collection_id, relay_protocol,
           application_agreement_public_key, application_signing_public_key,
+          application_authorization,
           device_code_hash, user_code, user_code_hash,
           poll_interval_seconds, expires_at)
        VALUES ($1, NULL, $2, 'device_code', NULL, NULL, $3, $4::jsonb, $5, $6,
-               $7, $8, $9, $10, $11, $12, now() + interval '10 minutes')`,
+               $7, $8, $9::jsonb, $10, $11, $12, $13,
+               $14::timestamptz)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
       [
         authorizationId,
         input.client_id,
@@ -223,21 +174,32 @@ export function registerAuthorizationRoutes(
         JSON.stringify(requestedOperations),
         input.collection_id ?? null,
         ENCRYPTED_RELAY_PROTOCOL_VERSION,
-        input.application_agreement_public_key,
-        input.application_signing_public_key,
+        proof.binding.grant_agreement_public_key,
+        proof.binding.grant_signing_public_key,
+        JSON.stringify(proof),
         tokenHash(deviceCode),
         userCode,
         tokenHash(canonicalUserCode(userCode)),
-        DEVICE_POLL_INTERVAL_SECONDS
+        DEVICE_POLL_INTERVAL_SECONDS,
+        proof.binding.expires_at
       ]
     );
+    if (!inserted.rows[0]) {
+      return reply.code(400).send(apiError(
+        "invalid_application_authorization",
+        "The application authorization request has already been used."
+      ));
+    }
     const verificationUri = `${publicUrl}/device`;
     return reply.header("cache-control", "no-store").send({
       device_code: deviceCode,
       user_code: userCode,
       verification_uri: verificationUri,
       verification_uri_complete: `${verificationUri}?user_code=${encodeURIComponent(userCode)}`,
-      expires_in: DEVICE_AUTHORIZATION_SECONDS,
+      expires_in: Math.max(
+        1,
+        Math.floor((Date.parse(proof.binding.expires_at) - Date.now()) / 1_000)
+      ),
       interval: DEVICE_POLL_INTERVAL_SECONDS
     });
   });
@@ -305,26 +267,10 @@ export function registerAuthorizationRoutes(
         "This collection does not provide the contracts required by the application."
       ));
     }
-    const plan = planCollectionGrant({
-      requestedOperations: input.operations,
-      applicationOperationCeiling: input.operations,
-      requirements: application.rows[0].requirements,
-      availableContracts: ownership.rows[0].contracts,
-      access: collectionAccess
-    });
-    const grant = await createOrUpdateGrant(options.db, {
-      userId: user.id,
-      applicationId: input.application_id,
-      collectionId: ownership.rows[0].id,
-      operations: plan.operations,
-      scope: plan.scope,
-      fileCapability: plan.fileCapability,
-      applicationOrigin: new URL(application.rows[0].homepage).origin,
-      notificationCriteria: application.rows[0].notifications.criteria
-    });
-    await relay.pushPolicy(ownership.rows[0].connector_id);
-    await audit(options.db, user.id, "grant.created", grant.id, input);
-    return reply.code(201).send({ grant });
+    return reply.code(409).send(apiError(
+      "application_authorization_required",
+      "Start the application's signed authorization flow before granting local access."
+    ));
   });
 
   app.patch("/v1/grants/:grantId", async (request, reply) => {
@@ -399,58 +345,39 @@ export function registerAuthorizationRoutes(
     return { grant: updated.rows[0] };
   });
 
-  app.get("/oauth/authorize", async (request, reply) => {
-    const query = z.object({
+  app.post("/oauth/authorization_request", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    const input = z.object({
       client_id: z.uuid(),
       redirect_uri: z.url(),
       code_challenge: z.string().min(43).max(128),
       code_challenge_method: z.literal("S256"),
-      state: z.string().max(500).optional(),
+      state: z.string().min(1).max(500),
       operations: z.string().default("read,query"),
       collection_id: z.uuid().optional(),
-      relay_protocol: z.coerce.number().int().optional(),
-      application_agreement_public_key: z.string().min(80).max(200).optional(),
-      application_signing_public_key: z.string().min(80).max(200).optional()
-    }).parse(request.query);
-    const encryptionRequested = query.relay_protocol !== undefined
-      || query.application_agreement_public_key !== undefined
-      || query.application_signing_public_key !== undefined;
-    if (encryptionRequested && (
-      query.relay_protocol !== ENCRYPTED_RELAY_PROTOCOL_VERSION
-      || !query.application_agreement_public_key
-      || !isP256PublicKey(query.application_agreement_public_key)
-      || !query.application_signing_public_key
-      || !isP256PublicKey(query.application_signing_public_key)
-      || query.application_agreement_public_key === query.application_signing_public_key
-    )) {
-      return reply.code(400).send(apiError(
-        "invalid_encryption_request",
-        "Encrypted relay authorization requires protocol 1 and independent P-256 agreement and signing keys."
-      ));
-    }
+      application_authorization: z.string().min(1).max(16_384)
+    }).strict().parse(request.body);
     const application = await options.db.query<{
       id: string;
       distribution: "web" | "portable";
+      manifest_digest: string | null;
       redirect_uris: string[];
       requirements: ApplicationRequirements;
     }>(
-      "SELECT id, distribution, redirect_uris, requirements FROM applications WHERE id = $1",
-      [query.client_id]
+      "SELECT id, distribution, manifest_digest, redirect_uris, requirements FROM applications WHERE id = $1",
+      [input.client_id]
     );
     if (
       !application.rows[0]
       || application.rows[0].distribution !== "web"
-      || !application.rows[0].redirect_uris.includes(query.redirect_uri)
+      || !application.rows[0].manifest_digest
+      || !application.rows[0].redirect_uris.includes(input.redirect_uri)
     ) {
       return reply.code(400).send(apiError("invalid_client", "Unknown application or redirect URI."));
     }
-    const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
-    if (!user) {
-      const returnTo = `${publicUrl}${request.url}`;
-      return reply.redirect(`/login?return_to=${encodeURIComponent(returnTo)}`);
-    }
     const requestedOperations = [...new Set(
-      query.operations.split(",").map((value) => value.trim()).filter(Boolean)
+      input.operations.split(",").map((value) => value.trim()).filter(Boolean)
     )].map((value) => operationSchema.parse(value));
     if (requestedOperations.length === 0 && !application.rows[0].requirements.files) {
       return reply.code(400).send(apiError(
@@ -459,30 +386,90 @@ export function registerAuthorizationRoutes(
       ));
     }
     assertOperationsAllowedByRequirements(requestedOperations, application.rows[0].requirements);
-    const authorizationId = randomUUID();
-    await options.db.query(
+    const proof = await verifyApplicationAuthorization(
+      input.application_authorization,
+      {
+        applicationId: input.client_id,
+        applicationManifestDigest: application.rows[0].manifest_digest,
+        flow: "authorization_code",
+        redirectUri: input.redirect_uri,
+        state: input.state,
+        codeChallenge: input.code_challenge,
+        requestedOperations,
+        requestedFiles: application.rows[0].requirements.files,
+        collectionId: input.collection_id
+      }
+    );
+    const authorizationId = proof.binding.authorization_id;
+    const inserted = await options.db.query(
       `INSERT INTO authorization_requests
          (id, user_id, application_id, redirect_uri, state, code_challenge,
           requested_operations, collection_id, relay_protocol,
           application_agreement_public_key, application_signing_public_key,
+          application_authorization,
           expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11,
-               now() + interval '10 minutes')`,
+               $12::jsonb, $13::timestamptz)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
       [
         authorizationId,
-        user.id,
-        query.client_id,
-        query.redirect_uri,
-        query.state ?? null,
-        query.code_challenge,
+        null,
+        input.client_id,
+        input.redirect_uri,
+        input.state,
+        input.code_challenge,
         JSON.stringify(requestedOperations),
-        query.collection_id ?? null,
-        query.relay_protocol ?? null,
-        query.application_agreement_public_key ?? null,
-        query.application_signing_public_key ?? null
+        input.collection_id ?? null,
+        ENCRYPTED_RELAY_PROTOCOL_VERSION,
+        proof.binding.grant_agreement_public_key,
+        proof.binding.grant_signing_public_key,
+        JSON.stringify(proof),
+        proof.binding.expires_at
       ]
     );
-    return reply.redirect(`/authorize/${authorizationId}`);
+    if (!inserted.rows[0]) {
+      return reply.code(400).send(apiError(
+        "invalid_application_authorization",
+        "The application authorization request has already been used."
+      ));
+    }
+    return reply.header("cache-control", "no-store").send({
+      authorization_id: authorizationId,
+      authorization_uri: `${publicUrl}/oauth/authorize?request_id=${encodeURIComponent(authorizationId)}`,
+      expires_in: Math.max(
+        1,
+        Math.floor((Date.parse(proof.binding.expires_at) - Date.now()) / 1_000)
+      ),
+      interval: 2
+    });
+  });
+
+  app.get("/oauth/authorize", async (request, reply) => {
+    const { request_id: requestId } = z.object({
+      request_id: z.uuid()
+    }).strict().parse(request.query);
+    const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
+    if (!user) {
+      const returnTo = `${publicUrl}${request.url}`;
+      return reply.redirect(`/login?return_to=${encodeURIComponent(returnTo)}`);
+    }
+    const claimed = await options.db.query<{ id: string }>(
+      `UPDATE authorization_requests SET user_id = $2
+       WHERE id = $1 AND flow = 'authorization_code'
+         AND expires_at > now() AND denied_at IS NULL
+         AND poll_consumed_at IS NULL
+         AND (user_id IS NULL OR user_id = $2)
+       RETURNING id`,
+      [requestId, user.id]
+    );
+    if (!claimed.rows[0]) {
+      return reply.code(404).send(apiError(
+        "authorization_not_found",
+        "Authorization request expired or was not found."
+      ));
+    }
+    return reply.redirect(`/authorize/${requestId}`);
   });
 
   app.post("/v1/device-authorization-requests/lookup", {
@@ -616,12 +603,14 @@ export function registerAuthorizationRoutes(
       application_id: string;
       grant_id: string | null;
       activation_started_at: string | null;
+      trust_required_at: string | null;
+      first_contact: unknown | null;
       redirect_uri: string | null;
       state: string | null;
       code_challenge: string | null;
     }>(
       `SELECT completed_at, denied_at, expires_at, application_id, grant_id,
-              activation_started_at,
+              activation_started_at, trust_required_at, first_contact,
               flow, redirect_uri, state, code_challenge
        FROM authorization_requests
        WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
@@ -630,28 +619,19 @@ export function registerAuthorizationRoutes(
     const value = authorization.rows[0];
     if (!value) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     if (value.denied_at) {
-      return value.flow === "device_code"
-        ? { status: "denied" }
-        : { status: "denied", redirect_uri: deniedAuthorizationRedirect({
-            redirect_uri: value.redirect_uri!,
-            state: value.state
-          }) };
+      return { status: "denied" };
     }
     if (value.completed_at && value.grant_id) {
-      if (value.flow === "device_code") return { status: "approved" };
-      return {
-        status: "approved",
-        redirect_uri: await createAuthorizationRedirect(options.db, publicUrl, {
-          application_id: value.application_id,
-          redirect_uri: value.redirect_uri!,
-          state: value.state,
-          code_challenge: value.code_challenge!,
-          grant_id: value.grant_id
-        })
-      };
+      return { status: "approved" };
     }
     if (value.grant_id && value.activation_started_at) {
       return { status: "setting_up" };
+    }
+    if (value.trust_required_at && value.first_contact) {
+      return {
+        status: "trust_required",
+        first_contact: value.first_contact
+      };
     }
     return { status: "pending" };
   });
@@ -728,212 +708,7 @@ export function registerAuthorizationRoutes(
     return { ok: true };
   });
 
-  app.post("/oauth/token", async (request, reply) => {
-    const input = z.discriminatedUnion("grant_type", [
-      z.object({
-        grant_type: z.literal("authorization_code"),
-        code: z.string().min(1),
-        client_id: z.uuid(),
-        redirect_uri: z.url(),
-        code_verifier: z.string().min(43).max(128)
-      }),
-      z.object({
-        grant_type: z.literal("refresh_token"),
-        refresh_token: z.string().min(1),
-        client_id: z.uuid()
-      }),
-      z.object({
-        grant_type: z.literal(DEVICE_GRANT_TYPE),
-        device_code: z.string().min(1),
-        client_id: z.uuid(),
-        code_verifier: z.string().min(43).max(128)
-      })
-    ]).parse(request.body);
-
-    if (input.grant_type === DEVICE_GRANT_TYPE) {
-      reply.header("cache-control", "no-store");
-      const device = await options.db.query<{
-        id: string;
-        application_id: string;
-        grant_id: string | null;
-        code_challenge: string;
-        denied_at: string | null;
-        completed_at: string | null;
-        expires_at: string | Date;
-        device_consumed_at: string | null;
-      }>(
-        `SELECT id, application_id, grant_id, code_challenge, denied_at,
-                completed_at, expires_at, device_consumed_at
-         FROM authorization_requests
-         WHERE flow = 'device_code' AND device_code_hash = $1`,
-        [tokenHash(input.device_code)]
-      );
-      const pending = device.rows[0];
-      if (
-        !pending
-        || pending.application_id !== input.client_id
-        || !safeEqual(pending.code_challenge, pkceChallenge(input.code_verifier))
-        || pending.device_consumed_at
-      ) {
-        return reply.code(400).send(oauthError(
-          "invalid_grant",
-          "The device authorization is invalid or has already been used."
-        ));
-      }
-      if (new Date(pending.expires_at).getTime() <= Date.now()) {
-        return reply.code(400).send(oauthError(
-          "expired_token",
-          "The device authorization has expired."
-        ));
-      }
-      const acceptedPoll = await options.db.query(
-        `UPDATE authorization_requests SET last_polled_at = now()
-         WHERE id = $1 AND device_consumed_at IS NULL
-           AND (
-             last_polled_at IS NULL
-             OR last_polled_at <= now() - interval '5 seconds'
-           )
-         RETURNING id`,
-        [pending.id]
-      );
-      if (!acceptedPoll.rows[0]) {
-        return reply.code(400).send(oauthError(
-          "slow_down",
-          "Poll no more often than the interval returned by the device authorization endpoint."
-        ));
-      }
-      if (pending.denied_at) {
-        return reply.code(400).send(oauthError(
-          "access_denied",
-          "Collection access was not approved."
-        ));
-      }
-      if (!pending.completed_at || !pending.grant_id) {
-        return reply.code(400).send(oauthError(
-          "authorization_pending",
-          "The user has not completed the authorization request."
-        ));
-      }
-      const connection = await options.db.connect();
-      try {
-        await connection.query("BEGIN");
-        const consumed = await connection.query<{ grant_id: string }>(
-          `UPDATE authorization_requests SET device_consumed_at = now()
-           WHERE id = $1 AND device_consumed_at IS NULL
-           RETURNING grant_id`,
-          [pending.id]
-        );
-        if (!consumed.rows[0]) {
-          await connection.query("ROLLBACK");
-          return reply.code(400).send(oauthError(
-            "invalid_grant",
-            "The device authorization has already been used."
-          ));
-        }
-        const tokens = await issueApplicationTokens(
-          connection,
-          options.hostedProvider,
-          consumed.rows[0].grant_id
-        );
-        await connection.query("COMMIT");
-        return tokens;
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        throw error;
-      } finally {
-        connection.release();
-      }
-    }
-
-    if (input.grant_type === "authorization_code") {
-      const code = await options.db.query<{
-        id: string;
-        grant_id: string;
-        application_id: string;
-        redirect_uri: string;
-        code_challenge: string;
-      }>(
-        `SELECT ac.id, ac.grant_id, ac.application_id, ac.redirect_uri,
-                ac.code_challenge
-         FROM authorization_codes ac
-         JOIN grants g ON g.id = ac.grant_id
-         JOIN users u ON u.id = g.user_id
-         WHERE ac.code_hash = $1 AND ac.used_at IS NULL
-           AND ac.expires_at > now() AND g.revoked_at IS NULL
-           AND u.suspended_at IS NULL`,
-        [tokenHash(input.code)]
-      );
-      const authorizationCode = code.rows[0];
-      if (!authorizationCode
-        || authorizationCode.application_id !== input.client_id
-        || authorizationCode.redirect_uri !== input.redirect_uri
-        || !safeEqual(authorizationCode.code_challenge, pkceChallenge(input.code_verifier))) {
-        return reply.code(400).send(apiError("invalid_grant", "Authorization code is invalid or expired."));
-      }
-      const consumed = await options.db.query(
-        "UPDATE authorization_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id",
-        [authorizationCode.id]
-      );
-      if (!consumed.rows[0]) {
-        return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
-      }
-      return issueApplicationTokens(options.db, options.hostedProvider, authorizationCode.grant_id);
-    }
-
-    const refresh = await options.db.query<{
-      id: string;
-      grant_id: string;
-      proof_public_key: string | null;
-    }>(
-      `SELECT rt.id, rt.grant_id, g.proof_public_key
-       FROM refresh_tokens rt
-       JOIN grants g ON g.id = rt.grant_id
-       JOIN users u ON u.id = g.user_id
-       WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
-         AND rt.expires_at > now() AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL AND g.application_id = $2
-         AND u.suspended_at IS NULL`,
-      [tokenHash(input.refresh_token), input.client_id]
-    );
-    const current = refresh.rows[0];
-    if (!current) {
-      return reply.code(400).send(apiError("invalid_grant", "Refresh token is invalid or expired."));
-    }
-    if (current.proof_public_key) {
-      const refreshBody = new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: input.refresh_token,
-        client_id: input.client_id
-      }).toString();
-      try {
-        verifyAuthorityRequestProof(
-          request.headers,
-          current.proof_public_key,
-          {
-            method: "POST",
-            target: "/oauth/token",
-            body: refreshBody,
-            credential: input.refresh_token
-          }
-        );
-      } catch (error) {
-        if (!(error instanceof AuthorityProofError)) throw error;
-        return reply.code(400).send(oauthError(
-          "invalid_grant",
-          "The refresh request is not signed by the approved application key."
-        ));
-      }
-    }
-    const rotated = await options.db.query(
-      `UPDATE refresh_tokens SET used_at = now()
-       WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL RETURNING id`,
-      [current.id]
-    );
-    if (!rotated.rows[0]) {
-      return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
-    }
-    return issueApplicationTokens(options.db, options.hostedProvider, current.grant_id);
-  });
+  registerAuthorizationPollingRoutes(app, options);
 }
 
 async function hostedTypeCandidates(

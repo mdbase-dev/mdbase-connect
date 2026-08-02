@@ -30,8 +30,11 @@ An application installation owns a stable, non-extractable P-256 agreement key
 and a separate P-256 signing key. These keys are distinct from the fresh keys
 used by an individual grant. Authorization requests carry both installation
 public keys, the grant public keys, and an installation-key signature over the
-canonical request. Downloaded applications must provide a durable secure key
-store; an ephemeral process-local identity is not sufficient.
+canonical request. Packaged applications must provide a durable secure key
+store. An opaque downloaded HTML file without host-provided storage is treated
+as a new application installation for each process and must repeat first
+contact; an ephemeral identity is never allowed to inherit an earlier trust
+record.
 
 A connector installation continues to use its long-lived P-256 agreement key
 from the operating-system secret store. Its local registry stores trusted

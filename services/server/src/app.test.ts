@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import type {
   ApplicationRequirements,
+  CollectionOperation,
   MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import {
@@ -19,6 +20,7 @@ import { createDatabase } from "./db.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { authorityProofMessage } from "./authority-proof.js";
 import { pkceChallenge, tokenHash } from "./security.js";
+import { testApplicationAuthorization } from "./application-authorization.test-helper.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -186,8 +188,9 @@ describe("mdbase connect server", () => {
     );
     await db.query(
       `INSERT INTO grants
-         (id, user_id, application_id, collection_id, operations)
-       VALUES ($1, $2, $3, $4, '["read"]'::jsonb)`,
+         (id, user_id, application_id, collection_id, operations,
+          application_authorization, first_contact)
+       VALUES ($1, $2, $3, $4, '["read"]'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [grantId, userId, applicationId, collectionId]
     );
     await db.query(
@@ -482,13 +485,15 @@ describe("mdbase connect server", () => {
       contracts: [{ id: "workout.record", version: "1.0.0" }]
     });
     const applicationId = discovered.json().application.id as string;
+    const applicationManifestDigest =
+      discovered.json().application.manifest_digest as string;
     const invalidEncryption = await app.inject({
       method: "GET",
       url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${"a".repeat(43)}&code_challenge_method=S256&relay_protocol=3&application_agreement_public_key=${"A".repeat(87)}`,
       headers: { cookie }
     });
     expect(invalidEncryption.statusCode).toBe(400);
-    expect(invalidEncryption.json().error.code).toBe("invalid_encryption_request");
+    expect(invalidEncryption.json().error.code).toBe("invalid_request");
     const reusedApplicationKey = p256PublicKey();
     const reusedEncryptionKey = await app.inject({
       method: "GET",
@@ -496,16 +501,18 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     expect(reusedEncryptionKey.statusCode).toBe(400);
-    expect(reusedEncryptionKey.json().error.code).toBe("invalid_encryption_request");
+    expect(reusedEncryptionKey.json().error.code).toBe("invalid_request");
     const legacyCompatibleGrantId = "325cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const legacyIncompatibleGrantId = "425cc8cf-dad5-4fc9-b0bc-a1c92e99f3ed";
     const user = await db.query<{ id: string }>("SELECT id FROM users WHERE email = $1", [
       "callum@example.com"
     ]);
     await db.query(
-      `INSERT INTO grants (id, user_id, application_id, collection_id, operations, scope)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb),
-              ($7, $2, $3, $8, $5::jsonb, $9::jsonb)`,
+      `INSERT INTO grants
+         (id, user_id, application_id, collection_id, operations, scope,
+          application_authorization, first_contact)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, '{}'::jsonb, '{}'::jsonb),
+              ($7, $2, $3, $8, $5::jsonb, $9::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [
         legacyCompatibleGrantId,
         user.rows[0].id,
@@ -539,6 +546,10 @@ describe("mdbase connect server", () => {
     );
     expect(reconciled.rows.find((grant) => grant.id === legacyIncompatibleGrantId)?.revoked_at)
       .not.toBeNull();
+    await db.query("DELETE FROM grants WHERE id IN ($1, $2)", [
+      legacyCompatibleGrantId,
+      legacyIncompatibleGrantId
+    ]);
     const incompatibleGrant = await app.inject({
       method: "POST",
       url: "/v1/connectors/grants",
@@ -561,22 +572,30 @@ describe("mdbase connect server", () => {
         operations: ["read"]
       }
     });
-    expect(legacyGrant.statusCode).toBe(201);
+    expect(legacyGrant.statusCode).toBe(409);
+    expect(legacyGrant.json().error.code).toBe("application_authorization_required");
 
-    const overbroadAuthorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("view-scope-verifier-that-is-long-enough-000001")}&code_challenge_method=S256&operations=list_views,execute_view`,
-      headers: { cookie }
+    const overbroadAuthorization = await postWebAuthorization(app, {
+        applicationId,
+        applicationManifestDigest,
+        redirectUri: manifestServer.redirectUri,
+        verifier: "view-scope-verifier-that-is-long-enough-000001",
+        state: "overbroad",
+        operations: ["list_views", "execute_view"]
     });
     expect(overbroadAuthorization.statusCode).toBe(400);
     expect(overbroadAuthorization.json().error.message).toContain("full collection access");
 
     const verifier = "local-connector-verifier-that-is-long-enough-00001";
     const state = "test-state";
-    const authorize = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${state}&operations=read,query&collection_id=${collectionId}`,
-      headers: { cookie }
+    const authorize = await startWebAuthorization(app, cookie, {
+        applicationId,
+        applicationManifestDigest,
+        redirectUri: manifestServer.redirectUri,
+        verifier,
+        state,
+        operations: ["read", "query"],
+        collectionId
     });
     expect(authorize.statusCode).toBe(302);
     const requestId = authorize.headers.location!.split("/").at(-1)!;
@@ -626,10 +645,9 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: { collection_id: legacyLocalCollectionId, operations: ["read", "query"] }
     });
-    expect(connectorLegacyApproval.statusCode).toBe(400);
-    expect(connectorLegacyApproval.json().error.message).toContain(
-      "restricted to a different collection"
-    );
+    expect(connectorLegacyApproval.statusCode).toBe(409);
+    expect(connectorLegacyApproval.json().error.code)
+      .toBe("portal_activation_required");
 
     const approved = await app.inject({
       method: "POST",
@@ -637,123 +655,17 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: { collection_id: localCollectionId, operations: ["read", "query"] }
     });
-    expect(approved.statusCode).toBe(200);
-    expect(approved.json()).toEqual({ ok: true });
-
-    const completed = await app.inject({
-      method: "GET",
-      url: `/v1/authorization-requests/${requestId}/status`,
-      headers: { cookie }
-    });
-    expect(completed.statusCode).toBe(200);
-    expect(completed.json().status).toBe("approved");
-    const redirect = new URL(completed.json().redirect_uri);
-    expect(redirect.searchParams.get("state")).toBe(state);
-
-    const token = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: redirect.searchParams.get("code")!,
-        client_id: applicationId,
-        redirect_uri: manifestServer.redirectUri,
-        code_verifier: verifier
-      }).toString()
-    });
-    expect(token.statusCode).toBe(200);
-    expect(token.json().collection_id).toBe(collectionId);
-    expect(token.json().operations).toEqual(["read", "query"]);
-    expect(token.json().scope).toEqual({
-      access: "contract",
-      contracts: [contractDescriptor()]
-    });
-    expect(token.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
-    expect(token.json().refresh_token).toMatch(/^ref_/);
-
-    const nativeVerifier = "native-verifier-that-is-long-enough-for-pkce-00001";
-    const nativeAuthorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.nativeRedirectUri)}&code_challenge=${pkceChallenge(nativeVerifier)}&code_challenge_method=S256&state=native-state&operations=read`,
-      headers: { cookie }
-    });
-    expect(nativeAuthorization.statusCode).toBe(302);
-    const nativeRequestId = nativeAuthorization.headers.location!.split("/").at(-1)!;
-    const nativeApproved = await app.inject({
-      method: "POST",
-      url: `/v1/connectors/authorization-requests/${nativeRequestId}/approve`,
-      headers: { authorization: `Bearer ${connector.token}` },
-      payload: { collection_id: localCollectionId, operations: ["read"] }
-    });
-    expect(nativeApproved.statusCode).toBe(200);
-    const nativeStatus = await app.inject({
-      method: "GET",
-      url: `/v1/authorization-requests/${nativeRequestId}/status`,
-      headers: { cookie }
-    });
-    const nativeRedirect = new URL(nativeStatus.json().redirect_uri);
-    expect(nativeRedirect.protocol).toBe("dev.mdbase.workouts:");
-    expect(nativeRedirect.searchParams.get("state")).toBe("native-state");
-    const nativeToken = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: nativeRedirect.searchParams.get("code")!,
-        client_id: applicationId,
-        redirect_uri: manifestServer.nativeRedirectUri,
-        code_verifier: nativeVerifier
-      }).toString()
-    });
-    expect(nativeToken.statusCode).toBe(200);
-    expect(nativeToken.json().application_origin).toBe(new URL(manifestServer.redirectUri).origin);
-
-    const refreshed = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.json().refresh_token,
-        client_id: applicationId
-      }).toString()
-    });
-    expect(refreshed.statusCode).toBe(200);
-    expect(refreshed.json().access_token).not.toBe(token.json().access_token);
-    expect(refreshed.json().refresh_token).not.toBe(token.json().refresh_token);
-    const reusedRefresh = await app.inject({
-      method: "POST",
-      url: "/oauth/token",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.json().refresh_token,
-        client_id: applicationId
-      }).toString()
-    });
-    expect(reusedRefresh.statusCode).toBe(400);
-    expect(reusedRefresh.json().error.code).toBe("invalid_grant");
-
-    const operation = await app.inject({
-      method: "POST",
-      url: `/v1/authorities/${collectionId}/operations/query`,
-      headers: { authorization: `Bearer ${refreshed.json().access_token}` },
-      payload: {
-        protocol_version: 1,
-        request_id: "01911111-1111-7111-8111-111111111111",
-        input: { types: ["workout"] }
-      }
-    });
-    expect(operation.statusCode).toBe(503);
-    expect(operation.json().error.code).toBe("connector_offline");
+    expect(approved.statusCode).toBe(409);
+    expect(approved.json().error.code).toBe("portal_activation_required");
 
     const deniedState = "denied-state";
-    const deniedAuthorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=${deniedState}&operations=read`,
-      headers: { cookie }
+    const deniedAuthorization = await startWebAuthorization(app, cookie, {
+        applicationId,
+        applicationManifestDigest,
+        redirectUri: manifestServer.redirectUri,
+        verifier,
+        state: deniedState,
+        operations: ["read"]
     });
     const deniedRequestId = deniedAuthorization.headers.location!.split("/").at(-1)!;
     const denied = await app.inject({
@@ -761,32 +673,38 @@ describe("mdbase connect server", () => {
       url: `/v1/connectors/authorization-requests/${deniedRequestId}/deny`,
       headers: { authorization: `Bearer ${connector.token}` }
     });
-    expect(denied.statusCode).toBe(200);
-    expect(denied.json()).toEqual({ ok: true });
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json().error.code).toBe("portal_activation_required");
+    const portalDenied = await app.inject({
+      method: "POST",
+      url: `/v1/authorization-requests/${deniedRequestId}/deny`,
+      headers: { cookie }
+    });
+    expect(portalDenied.statusCode).toBe(200);
     const deniedStatus = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${deniedRequestId}/status`,
       headers: { cookie }
     });
-    const deniedRedirect = new URL(deniedStatus.json().redirect_uri);
-    expect(deniedStatus.json().status).toBe("denied");
-    expect(deniedRedirect.searchParams.get("error")).toBe("access_denied");
-    expect(deniedRedirect.searchParams.get("state")).toBe(deniedState);
+    expect(deniedStatus.json()).toEqual({ status: "denied" });
 
-    const portalAuthorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&state=portal-approval&operations=read,query`,
-      headers: { cookie }
+    const portalAuthorization = await startWebAuthorization(app, cookie, {
+        applicationId,
+        applicationManifestDigest,
+        redirectUri: manifestServer.redirectUri,
+        verifier,
+        state: "portal-approval",
+        operations: ["read", "query"]
     });
     const portalRequestId = portalAuthorization.headers.location!.split("/").at(-1)!;
     const waitingDashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
-    expect(waitingDashboard.json().pending_authorizations).toEqual([
+    expect(waitingDashboard.json().pending_authorizations).toContainEqual(
       expect.objectContaining({
         id: portalRequestId,
         application_name: "Workout Tracker",
         available_collections: []
       })
-    ]);
+    );
     const portalApproved = await app.inject({
       method: "POST",
       url: `/v1/authorization-requests/${portalRequestId}/approve`,
@@ -800,28 +718,28 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: { collection_id: localCollectionId, operations: ["read"] }
     });
-    expect(locallyApproved.statusCode).toBe(200);
-    expect(locallyApproved.json()).toEqual({ ok: true });
+    expect(locallyApproved.statusCode).toBe(409);
+    expect(locallyApproved.json().error.code).toBe("portal_activation_required");
+    await db.query(
+      "UPDATE authorization_requests SET portal_approved_at = now() WHERE id = $1",
+      [portalRequestId]
+    );
     const policyAfterPortalApproval = await app.inject({
       method: "GET",
       url: "/v1/connectors/control",
       headers: { authorization: `Bearer ${connector.token}` }
     });
-    expect(policyAfterPortalApproval.json().grants).toContainEqual(
-      expect.objectContaining({
-        collection_id: localCollectionId,
-        operations: ["read"],
-        application_origin: new URL(manifestServer.redirectUri).origin
-      })
+    expect(policyAfterPortalApproval.json().grants).toEqual([]);
+    expect(policyAfterPortalApproval.json().pending_authorizations).not.toContainEqual(
+      expect.objectContaining({ id: portalRequestId })
     );
-    expect(policyAfterPortalApproval.json().pending_authorizations).toHaveLength(0);
 
     const dashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
     expect(dashboard.statusCode).toBe(200);
     expect(dashboard.json().collections).toContainEqual(
       expect.objectContaining({ display_name: "Workouts" })
     );
-    expect(dashboard.json().grants[0].application_name).toBe("Workout Tracker");
+    expect(dashboard.json().grants).toEqual([]);
 
     const renamedComputer = await app.inject({
       method: "PATCH",
@@ -850,32 +768,9 @@ describe("mdbase connect server", () => {
         operations: ["read", "query"]
       }
     });
-    expect(broadenedForTest.statusCode).toBe(201);
-    const managedGrantId = broadenedForTest.json().grant.id as string;
-    const narrowed = await app.inject({
-      method: "PATCH",
-      url: `/v1/grants/${managedGrantId}`,
-      headers: { cookie },
-      payload: { operations: ["read"] }
-    });
-    expect(narrowed.statusCode).toBe(200);
-    expect(narrowed.json().grant.operations).toEqual(["read"]);
-    const permissionExpansion = await app.inject({
-      method: "PATCH",
-      url: `/v1/grants/${managedGrantId}`,
-      headers: { cookie },
-      payload: { operations: ["read", "query"] }
-    });
-    expect(permissionExpansion.statusCode).toBe(409);
-    expect(permissionExpansion.json().error.code).toBe("permission_expansion_requires_approval");
-    const narrowedPolicy = await app.inject({
-      method: "GET",
-      url: "/v1/connectors/control",
-      headers: { authorization: `Bearer ${connector.token}` }
-    });
-    expect(narrowedPolicy.json().grants).toContainEqual(
-      expect.objectContaining({ id: managedGrantId, operations: ["read"] })
-    );
+    expect(broadenedForTest.statusCode).toBe(409);
+    expect(broadenedForTest.json().error.code)
+      .toBe("application_authorization_required");
   });
 
   it("authorizes portable v1 applications with a single-use key-bound device flow", async () => {
@@ -954,10 +849,18 @@ describe("mdbase connect server", () => {
       project_url: "https://apps.example/portable-notes"
     });
     const applicationId = registration.json().application.id as string;
-
-    const applicationAgreementPublicKey = p256PublicKey();
-    const applicationSigningPublicKey = p256PublicKey();
+    const applicationManifestDigest =
+      registration.json().application.manifest_digest as string;
     const verifier = "portable-verifier-that-is-long-enough-for-pkce-0001";
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["describe", "query"],
+      collectionId
+    });
+    const applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
     const device = await app.inject({
       method: "POST",
       url: "/oauth/device_authorization",
@@ -971,9 +874,7 @@ describe("mdbase connect server", () => {
         collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
-        relay_protocol: "1",
-        application_agreement_public_key: applicationAgreementPublicKey,
-        application_signing_public_key: applicationSigningPublicKey
+        application_authorization: JSON.stringify(proof)
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -981,7 +882,7 @@ describe("mdbase connect server", () => {
     expect(device.headers["cache-control"]).toContain("no-store");
     expect(device.json()).toMatchObject({
       verification_uri: "http://connect.test/device",
-      expires_in: 600,
+      expires_in: expect.any(Number),
       interval: 5
     });
     expect(device.json().user_code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
@@ -995,7 +896,7 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     expect(webAuthorizeBypass.statusCode).toBe(400);
-    expect(webAuthorizeBypass.json().error.code).toBe("invalid_client");
+    expect(webAuthorizeBypass.json().error.code).toBe("invalid_request");
 
     const manualGrantBypass = await app.inject({
       method: "POST",
@@ -1096,13 +997,14 @@ describe("mdbase connect server", () => {
       headers: { authorization: `Bearer ${connector.token}` },
       payload: { collection_id: localCollectionId, operations: ["describe", "query"] }
     });
-    expect(approved.statusCode).toBe(200);
+    expect(approved.statusCode).toBe(409);
+    expect(approved.json().error.code).toBe("portal_activation_required");
     const status = await app.inject({
       method: "GET",
       url: `/v1/authorization-requests/${requestId}/status`,
       headers: { cookie }
     });
-    expect(status.json()).toEqual({ status: "approved" });
+    expect(status.json()).toEqual({ status: "pending" });
 
     const wrongVerifier = await pollDeviceToken(app, {
       applicationId,
@@ -1119,48 +1021,15 @@ describe("mdbase connect server", () => {
       deviceCode: device.json().device_code,
       verifier
     });
-    expect(token.statusCode).toBe(200);
-    expect(token.json()).toMatchObject({
-      collection_id: collectionId,
-      application_origin: "null",
-      operations: ["describe", "query"],
-      encryption: {
-        protocol_version: 1,
-        connector_id: connector.connector.id,
-        collection_id: localCollectionId,
-        application_agreement_public_key: applicationAgreementPublicKey
-      }
-    });
-    const policy = await app.inject({
-      method: "GET",
-      url: "/v1/connectors/control",
-      headers: { authorization: `Bearer ${connector.token}` }
-    });
-    expect(policy.json().grants).toContainEqual(expect.objectContaining({
-      application_distribution: "portable",
-      application_project_url: "https://apps.example/portable-notes",
-      application_origin: "null"
-    }));
-    expect((await pollDeviceToken(app, {
+    expect(token.json()).toMatchObject({ error: "authorization_pending" });
+
+    const deniedProof = await testApplicationAuthorization({
       applicationId,
-      deviceCode: device.json().device_code,
-      verifier
-    })).json()).toMatchObject({ error: "invalid_grant" });
-
-    const mutated = await app.inject({
-      method: "POST",
-      url: "/v1/apps/register",
-      payload: { manifest: { ...manifest, name: "Portable notes changed" } }
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["query"]
     });
-    expect(mutated.json().application.id).not.toBe(applicationId);
-    expect((await pollDeviceToken(app, {
-      applicationId: mutated.json().application.id,
-      deviceCode: device.json().device_code,
-      verifier
-    })).json()).toMatchObject({ error: "invalid_grant" });
-
-    const deniedKey = createECDH("prime256v1");
-    deniedKey.generateKeys();
     const deniedDevice = await app.inject({
       method: "POST",
       url: "/oauth/device_authorization",
@@ -1170,11 +1039,7 @@ describe("mdbase connect server", () => {
         operations: "query",
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
-        relay_protocol: "1",
-        application_agreement_public_key: deniedKey
-          .getPublicKey(undefined, "uncompressed")
-          .toString("base64url"),
-        application_signing_public_key: p256PublicKey()
+        application_authorization: JSON.stringify(deniedProof)
       }).toString()
     });
     const deniedLookup = await app.inject({
@@ -1194,8 +1059,13 @@ describe("mdbase connect server", () => {
       verifier
     })).json()).toMatchObject({ error: "access_denied" });
 
-    const expiringKey = createECDH("prime256v1");
-    expiringKey.generateKeys();
+    const expiringProof = await testApplicationAuthorization({
+      applicationId,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["query"]
+    });
     const expiredDevice = await app.inject({
       method: "POST",
       url: "/oauth/device_authorization",
@@ -1205,11 +1075,7 @@ describe("mdbase connect server", () => {
         operations: "query",
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
-        relay_protocol: "1",
-        application_agreement_public_key: expiringKey
-          .getPublicKey(undefined, "uncompressed")
-          .toString("base64url"),
-        application_signing_public_key: p256PublicKey()
+        application_authorization: JSON.stringify(expiringProof)
       }).toString()
     });
     await db.query(
@@ -1284,6 +1150,8 @@ describe("mdbase connect server", () => {
     });
     expect(registration.statusCode, JSON.stringify(registration.json())).toBe(200);
     const applicationId = registration.json().application.id as string;
+    const applicationManifestDigest =
+      registration.json().application.manifest_digest as string;
     const applicationAgreementPublicKey = p256PublicKey();
     const applicationSigningKeys = generateKeyPairSync("ec", {
       namedCurve: "prime256v1"
@@ -1297,6 +1165,16 @@ describe("mdbase connect server", () => {
       Buffer.from(applicationSigningJwk.y!, "base64url")
     ]).toString("base64url");
     const verifier = "portable-hosted-verifier-that-is-long-enough-0001";
+    const proof = await testApplicationAuthorization({
+      applicationId,
+      applicationManifestDigest,
+      flow: "device_code",
+      codeChallenge: pkceChallenge(verifier),
+      requestedOperations: ["describe", "query", "create", "update", "sync"],
+      collectionId,
+      grantAgreementPublicKey: applicationAgreementPublicKey,
+      grantSigningPublicKey: applicationSigningPublicKey
+    });
     const device = await app.inject({
       method: "POST",
       url: "/oauth/device_authorization",
@@ -1310,9 +1188,7 @@ describe("mdbase connect server", () => {
         collection_id: collectionId,
         code_challenge: pkceChallenge(verifier),
         code_challenge_method: "S256",
-        relay_protocol: "1",
-        application_agreement_public_key: applicationAgreementPublicKey,
-        application_signing_public_key: applicationSigningPublicKey
+        application_authorization: JSON.stringify(proof)
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
@@ -1698,13 +1574,17 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     const applicationId = discovered.json().application.id as string;
+    const applicationManifestDigest =
+      discovered.json().application.manifest_digest as string;
     const verifier = "hosted-unrestricted-verifier-that-is-long-enough-0001";
-    const applicationAgreementPublicKey = p256PublicKey();
-    const applicationSigningPublicKey = p256PublicKey();
-    const authorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge(verifier)}&code_challenge_method=S256&operations=describe,query,create,update,sync&relay_protocol=1&application_agreement_public_key=${applicationAgreementPublicKey}&application_signing_public_key=${applicationSigningPublicKey}`,
-      headers: { cookie }
+    const state = "hosted-unrestricted";
+    const authorization = await startWebAuthorization(app, cookie, {
+      applicationId,
+      applicationManifestDigest,
+      redirectUri: manifestServer.redirectUri,
+      verifier,
+      state,
+      operations: ["describe", "query", "create", "update", "sync"]
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
     const pending = await app.inject({
@@ -1953,14 +1833,19 @@ describe("mdbase connect server", () => {
       payload: { manifest: manifestServer.manifest }
     });
     const applicationId = discovered.json().application.id as string;
+    const applicationManifestDigest =
+      discovered.json().application.manifest_digest as string;
     expect(discovered.json().application.provisions.type_packs[0].manifest.id)
       .toBe("example.workouts");
-    const applicationAgreementPublicKey = p256PublicKey();
-    const applicationSigningPublicKey = p256PublicKey();
-    const authorization = await app.inject({
-      method: "GET",
-      url: `/oauth/authorize?client_id=${applicationId}&redirect_uri=${encodeURIComponent(manifestServer.redirectUri)}&code_challenge=${pkceChallenge("hosted-provision-verifier-that-is-long-enough-0001")}&code_challenge_method=S256&operations=read,query,create&relay_protocol=1&application_agreement_public_key=${applicationAgreementPublicKey}&application_signing_public_key=${applicationSigningPublicKey}`,
-      headers: { cookie }
+    const verifier = "hosted-provision-verifier-that-is-long-enough-0001";
+    const state = "hosted-provision";
+    const authorization = await startWebAuthorization(app, cookie, {
+      applicationId,
+      applicationManifestDigest,
+      redirectUri: manifestServer.redirectUri,
+      verifier,
+      state,
+      operations: ["read", "query", "create"]
     });
     const requestId = authorization.headers.location!.split("/").at(-1)!;
     const pending = await app.inject({
@@ -2105,6 +1990,61 @@ function pollDeviceToken(
       client_id: input.applicationId,
       code_verifier: input.verifier
     }).toString()
+  });
+}
+
+async function postWebAuthorization(
+  app: Awaited<ReturnType<typeof buildApp>>["app"],
+  input: {
+  applicationId: string;
+  applicationManifestDigest: string;
+  redirectUri: string;
+  verifier: string;
+  state: string;
+  operations: CollectionOperation[];
+  collectionId?: string;
+  }
+) {
+  const challenge = pkceChallenge(input.verifier);
+  const proof = await testApplicationAuthorization({
+    applicationId: input.applicationId,
+    applicationManifestDigest: input.applicationManifestDigest,
+    flow: "authorization_code",
+    redirectUri: input.redirectUri,
+    state: input.state,
+    codeChallenge: challenge,
+    requestedOperations: input.operations,
+    ...(input.collectionId ? { collectionId: input.collectionId } : {})
+  });
+  return app.inject({
+    method: "POST",
+    url: "/oauth/authorization_request",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    payload: new URLSearchParams({
+    client_id: input.applicationId,
+    redirect_uri: input.redirectUri,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: input.state,
+    operations: input.operations.join(","),
+    application_authorization: JSON.stringify(proof),
+    ...(input.collectionId ? { collection_id: input.collectionId } : {})
+    }).toString()
+  });
+}
+
+async function startWebAuthorization(
+  app: Awaited<ReturnType<typeof buildApp>>["app"],
+  cookie: string,
+  input: Parameters<typeof postWebAuthorization>[1]
+) {
+  const started = await postWebAuthorization(app, input);
+  expect(started.statusCode, JSON.stringify(started.json())).toBe(200);
+  const authorizationUri = new URL(started.json().authorization_uri);
+  return app.inject({
+    method: "GET",
+    url: `${authorizationUri.pathname}${authorizationUri.search}`,
+    headers: { cookie }
   });
 }
 

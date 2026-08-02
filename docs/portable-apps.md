@@ -48,7 +48,11 @@ The SDK uses OAuth device authorization with PKCE:
 4. The signed-in user confirms the same code, reviews the unverified downloaded
    file warning, selects a compatible local or hosted collection, and narrows
    the operations.
-5. The SDK polls at the server-provided interval. Every successful response is
+5. For a first connection to a computer-owned collection, the application and
+   connector independently derive the same first-contact value. The file keeps
+   its value visible through `onFirstContact`; the user accepts the exact match
+   locally in mdbase connect (or with `mdbase connect trust` on a headless host).
+6. The SDK polls at the server-provided interval. Every successful response is
    bound to the opaque application origin `null`. A local grant must also
    contain the application agreement public key and encrypted relay protocol 1;
    a hosted grant instead contains a scoped provider capability bound to the
@@ -144,6 +148,10 @@ or omit SRI in a downloaded application.
       onDeviceCode: ({ userCode }) => {
         document.querySelector("#code").textContent =
           `Confirm ${userCode} in mdbase Connect`;
+      },
+      onFirstContact: ({ authenticationString }) => {
+        document.querySelector("#code").textContent =
+          `Compare with mdbase Connect: ${authenticationString}`;
       }
     });
     if (!authorization.ok) {
@@ -170,3 +178,8 @@ Authorization must start from a user gesture so browsers permit the approval
 popup. If a caller supplies `openVerification`, it is responsible for showing
 or opening the verification URL. If the default popup is blocked, the SDK
 returns an `approval_window_blocked` problem with the verification details.
+An opaque `file://` application uses an in-memory installation identity unless
+its host supplies a durable `keyStore`; in that mode, a new process is a new
+application installation and local first contact is deliberately required
+again. Packaged desktop/headless hosts should provide durable OS-protected key
+storage.
