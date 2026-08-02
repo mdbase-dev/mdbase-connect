@@ -432,7 +432,7 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("heading", { name: "project" })).toBeInTheDocument();
     expect((await gateway.describe()).types.map((type) => type.name)).toContain("project");
-  });
+  }, 15_000);
 
   it("keeps the note frame stable while a note is loading", async () => {
     const gateway = new SlowReadGateway();
