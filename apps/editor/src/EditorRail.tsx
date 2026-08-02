@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  ArrowLeftIcon as ArrowLeft,
   BracketsCurlyIcon as Braces,
   CaretDownIcon as ChevronDown,
   GearSixIcon as Settings,
@@ -26,6 +27,7 @@ export function EditorRail({
   settings,
   connectHref,
   connectCount,
+  mobileReturn,
   onSwitch,
   onCollapse,
   children,
@@ -40,6 +42,7 @@ export function EditorRail({
   settings: RailDestination;
   connectHref: string;
   connectCount?: number;
+  mobileReturn?: RailDestination & { label: string };
   onSwitch: () => void;
   onCollapse?: () => void;
   children?: ReactNode;
@@ -48,6 +51,7 @@ export function EditorRail({
   return <aside className="collection-rail" aria-label="Collection navigation">
     <div className="rail-header"><Wordmark />{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
+      {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <button className="collection-name" aria-label={`Switch collection, current collection ${collectionName}`} onClick={onSwitch}><span>{collectionName}</span><ChevronDown aria-hidden="true" /></button>
       <RailLink destination={notes} selected={surface === "notes"} label="Notes" ariaLabel={noteCount === undefined ? "Notes" : `Notes, ${noteCount} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} />
       <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />

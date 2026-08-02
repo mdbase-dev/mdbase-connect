@@ -272,7 +272,7 @@ try {
     .locator("details.connect-grant")
     .filter({ hasText: "Docker fixture" });
   await portalGrant.locator(":scope > summary").click();
-  await portalPage.evaluate(() => { window.confirm = () => true; });
+  await portalGrant.getByRole("button", { name: "Revoke", exact: true }).click();
   await portalGrant.getByRole("button", { name: "Revoke", exact: true }).click();
   await portalApplication.waitFor({ state: "detached" });
   await waitForValue(

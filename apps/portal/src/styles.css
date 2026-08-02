@@ -2016,6 +2016,11 @@ select {
   font-size: 0.78rem;
 }
 
+.loading .product-brand-mark {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
 @media (max-width: 760px) {
   .account-main {
     padding: 2.5rem 1.5rem 4rem;

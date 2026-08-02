@@ -38,6 +38,9 @@ export interface AccountData {
   storage: {
     status: "available" | "partial" | "unavailable";
     total_content_bytes: number | null;
+    total_file_bytes: number | null;
+    total_storage_bytes: number | null;
+    total_stored_file_bytes: number | null;
     total_records: number | null;
     collections: Array<{
       id: string;
@@ -49,6 +52,13 @@ export interface AccountData {
         max_records: number;
         max_content_bytes: number;
         max_document_bytes: number;
+        file_count: number;
+        file_bytes: number;
+        stored_file_bytes: number;
+        max_files: number;
+        max_file_bytes: number;
+        max_stored_file_bytes: number;
+        max_single_file_bytes: number;
       };
     }>;
   };
@@ -100,6 +110,31 @@ export interface HostedCollection {
 
 export interface ManagementOverview {
   user: { id: string; name: string; email: string | null; login: string | null };
+  subscription: null | {
+    kind: "beta" | "entitled";
+    profiles: string[];
+    permanent: boolean;
+    limits: {
+      hosted_storage_bytes: number;
+      retained_file_bytes: number;
+      max_document_bytes: number;
+      max_single_file_bytes: number;
+      max_replicas_per_collection: number;
+      max_hosted_collections: number;
+      max_files_per_collection: number;
+    };
+    usage: null | {
+      hosted_collections: number;
+      live_content_bytes: number;
+      live_file_bytes: number;
+      live_storage_bytes: number;
+      retained_file_bytes: number;
+    };
+    reconciliation: null | {
+      entitlement_revision: number;
+      provider_revision: number;
+    };
+  };
   hosted_collections_available?: boolean;
   authentication: {
     provider: "google" | "github" | "password" | "tailscale" | "session";

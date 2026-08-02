@@ -2479,7 +2479,7 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     await page.getByRole("button", { name: "New hosted collection" }).click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
-    await page.getByRole("button", { name: "All collections" }).click();
+    await page.getByRole("link", { name: "All collections" }).click();
     const row = page.locator(".connect-collection-row").filter({
       hasText: "Browser E2E collection"
     });
@@ -2549,28 +2549,29 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
     assert.equal(browserStatus.state, "up_to_date");
 
     await page.goto(controlUrl);
-    await page.getByRole("button", { name: "All collections" }).click();
+    await page.getByRole("link", { name: "All collections" }).click();
     const connectedRow = page.locator(".connect-collection-row").filter({
       hasText: "Browser E2E collection"
     });
     await connectedRow.getByText("Synced folders", { exact: true }).click();
     await expect(connectedRow).toContainText("Browser writable mirror");
     await expect(connectedRow).toContainText("Two-way sync");
-    await page.evaluate(() => {
-      window.confirm = () => true;
-      window.prompt = () => "Browser renamed collection";
-    });
     await connectedRow.getByRole("button", { name: "Revoke" }).click();
+    await connectedRow.getByRole("button", { name: "Revoke", exact: true }).click();
     await expect(connectedRow.getByText("Browser writable mirror")).toHaveCount(0, {
       timeout: 20_000
     });
 
     await connectedRow.getByRole("button", { name: "Rename" }).click();
+    await connectedRow.getByLabel("Rename Browser E2E collection")
+      .fill("Browser renamed collection");
+    await connectedRow.getByRole("button", { name: "Save", exact: true }).click();
     const renamedRow = page.locator(".connect-collection-row").filter({
       hasText: "Browser renamed collection"
     });
     await expect(renamedRow).toBeVisible({ timeout: 20_000 });
     await renamedRow.getByRole("button", { name: "Delete" }).click();
+    await renamedRow.getByRole("button", { name: "Delete permanently" }).click();
     await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0, {
       timeout: 20_000
     });
@@ -2590,7 +2591,7 @@ async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirector
       (collection) => collection.display_name === "Account deletion collection"
     ).id;
 
-    await page.getByRole("button", { name: "Account & sessions" }).click();
+    await page.getByRole("link", { name: "Account & sessions" }).click();
     await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
     await expect(page.getByRole("main").getByText(
       "Account deletion collection",

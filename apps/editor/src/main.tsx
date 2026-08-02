@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { ConnectCollectionGateway } from "./gateway";
+import "@mdbase/connect-ui/motion.css";
 import "./phosphor-icons.generated.css";
 import "./styles.css";
 

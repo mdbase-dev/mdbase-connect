@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   mdbaseMarkAccentRect,
   mdbaseMarkInkRects,
+  mdbaseMarkMotionClass,
+  mdbaseMarkMotions,
   type MdbaseMarkRect
 } from "./brand.ts";
 
@@ -30,4 +32,10 @@ test("keeps key and fence proportions aligned", () => {
 
   assert.equal(firstKey.width + gap, dash.width);
   assert.equal(secondKey.width, dash.width + gap);
+});
+
+test("exposes only the adopted product motion vocabulary", () => {
+  assert.deepEqual(mdbaseMarkMotions, ["bootstrap", "unfold", "rebalance", "conveyor"]);
+  assert.equal(mdbaseMarkMotionClass(), "");
+  assert.equal(mdbaseMarkMotionClass("rebalance"), " mdbase-motion-rebalance");
 });

@@ -1,7 +1,10 @@
 import {
   MDBASE_MARK_VIEW_BOX,
   mdbaseMarkAccentRect,
-  mdbaseMarkInkRects
+  mdbaseMarkInkRects,
+  mdbaseMarkMotionClass,
+  type MdbaseMarkMotion,
+  type MdbaseMarkRect
 } from "@mdbase/connect-ui/brand";
 import {
   applyThemePreference,
@@ -9,7 +12,7 @@ import {
   saveThemePreference,
   type ThemePreference
 } from "@mdbase/connect-ui/theme";
-import { type MouseEvent, useEffect, useRef, useState } from "react";
+import { type MouseEvent, useEffect, useId, useRef, useState } from "react";
 
 const themeChoices: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: "System" },
@@ -176,12 +179,47 @@ export function useSystemTheme() {
     return () => media.removeEventListener("change", update);
   }, []);
 }
-export function PageBrand({ label, themePicker = true }: { label: string; themePicker?: boolean }) { return <div className="page-brand-row"><div className="page-brand"><Brand /><span>{label}</span></div>{themePicker && <ThemeMenu />}</div>; }
-export function Brand({ productLabel = false }: { productLabel?: boolean }) { return <div className="product-brand"><MdbaseMark /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
-function MdbaseMark() { return <svg className="product-brand-mark" viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false"><g className="product-brand-mark-ink">{mdbaseMarkInkRects.map((rect) => <rect key={`${rect.x}-${rect.y}`} {...rect} />)}</g><rect className="product-brand-mark-accent" {...mdbaseMarkAccentRect} /></svg>; }
+export function PageBrand({ label, themePicker = true, markMotion }: { label: string; themePicker?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="page-brand-row"><div className="page-brand"><Brand markMotion={markMotion} /><span>{label}</span></div>{themePicker && <ThemeMenu />}</div>; }
+export function Brand({ productLabel = false, markMotion }: { productLabel?: boolean; markMotion?: MdbaseMarkMotion }) { return <div className="product-brand"><MdbaseMark motion={markMotion} /><strong>mdbase</strong>{productLabel && <span className="product-brand-label">connect</span>}</div>; }
+
+const conveyorXs = [-6, 22, 50, 78, 106] as const;
+
+function MarkSegment({ rect, index, accent = false }: {
+  rect: MdbaseMarkRect;
+  index: number;
+  accent?: boolean;
+}) {
+  return <rect
+    className={`mdbase-mark-segment mdbase-mark-segment-${index} ${accent ? "mdbase-mark-accent product-brand-mark-accent" : "mdbase-mark-ink"}`}
+    pathLength={1}
+    {...rect}
+  />;
+}
+
+function MdbaseMark({ motion }: { motion?: MdbaseMarkMotion }) {
+  const clipId = `mdbase-fences-${useId().replaceAll(":", "")}`;
+  return <svg className={`product-brand-mark mdbase-motion-mark${mdbaseMarkMotionClass(motion)}`} viewBox={MDBASE_MARK_VIEW_BOX} aria-hidden="true" focusable="false">
+    <defs><clipPath id={clipId}><rect x="22" y="22" width="76" height="10" rx="2" /><rect x="22" y="88" width="76" height="10" rx="2" /></clipPath></defs>
+    <g className="mdbase-mark-fence mdbase-mark-fence-top product-brand-mark-ink">
+      {mdbaseMarkInkRects.slice(0, 3).map((rect, index) => <MarkSegment key={`${rect.x}-${rect.y}`} rect={rect} index={index + 1} />)}
+    </g>
+    <g className="mdbase-mark-row mdbase-mark-row-top">
+      <MarkSegment rect={mdbaseMarkInkRects[3]} index={4} />
+      <MarkSegment rect={mdbaseMarkAccentRect} index={5} accent />
+    </g>
+    <g className="mdbase-mark-row mdbase-mark-row-bottom product-brand-mark-ink">
+      <MarkSegment rect={mdbaseMarkInkRects[4]} index={6} />
+      <MarkSegment rect={mdbaseMarkInkRects[5]} index={7} />
+    </g>
+    <g className="mdbase-mark-fence mdbase-mark-fence-bottom product-brand-mark-ink">
+      {mdbaseMarkInkRects.slice(6).map((rect, index) => <MarkSegment key={`${rect.x}-${rect.y}`} rect={rect} index={index + 8} />)}
+    </g>
+    <g clipPath={`url(#${clipId})`}><g className="mdbase-mark-conveyor-track">{conveyorXs.flatMap((x) => [22, 88].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="20" height="10" rx="2" />))}</g></g>
+  </svg>;
+}
 export function SectionHeading({ title, note, count }: { title: string; note: string; count?: number }) { return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{count}</span>}</div>; }
 export function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
-export function Loading({ error = "" }: { error?: string }) { return <main className="loading"><Brand /><p>{error || "Opening mdbase connect…"}</p></main>; }
+export function Loading({ error = "" }: { error?: string }) { return <main className="loading" aria-busy={!error}><Brand productLabel markMotion={error ? undefined : "bootstrap"} /><p>{error || "Opening mdbase connect…"}</p></main>; }
 
 function ThemeGlyph({ preference }: { preference: ThemePreference }) {
   if (preference === "light") return <svg className="theme-glyph" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3" /><path d="M10 2.4v1.2M10 16.4v1.2M2.4 10h1.2M16.4 10h1.2M4.6 4.6l.9.9M14.5 14.5l.9.9M15.4 4.6l-.9.9M5.5 14.5l-.9.9" /></svg>;

@@ -5,7 +5,12 @@ import {
   type ConnectManagementClient,
   type ManagementOverview
 } from "@mdbase/connect-management";
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  ConnectEmpty as Empty,
+  ConnectPage as Page,
+  ConnectSectionTitle as SectionTitle
+} from "./ConnectPrimitives";
 import { GoogleIdentityButton } from "./GoogleIdentityButton";
 
 export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted }: {
@@ -18,7 +23,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const [account, setAccount] = useState<AccountData>();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState("");
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const busyRef = useRef(new Set<string>());
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -59,7 +65,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }, []);
 
   async function run(id: string, action: () => Promise<void>, success?: string): Promise<boolean> {
-    setBusy(id);
+    if (!beginOperation(id)) return false;
     setError("");
     setNotice("");
     try {
@@ -71,8 +77,20 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       setError(errorMessage(reason));
       return false;
     } finally {
-      setBusy("");
+      finishOperation(id);
     }
+  }
+
+  function beginOperation(id: string): boolean {
+    if (busyRef.current.has(id)) return false;
+    busyRef.current.add(id);
+    setBusy(new Set(busyRef.current));
+    return true;
+  }
+
+  function finishOperation(id: string): void {
+    busyRef.current.delete(id);
+    setBusy(new Set(busyRef.current));
   }
 
   async function changePassword(event: FormEvent) {
@@ -93,7 +111,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
   async function deleteAccount(event: FormEvent) {
     event.preventDefault();
-    setBusy("delete");
+    if (!beginOperation("delete")) return;
     setError("");
     try {
       await client.deleteAccount({
@@ -110,7 +128,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       onDeleted();
     } catch (reason) {
       setError(errorMessage(reason));
-      setBusy("");
+      finishOperation("delete");
     }
   }
 
@@ -141,10 +159,11 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
     <section>
       <SectionTitle title="Hosted storage" note="Local collection files stay on your computers and are not measured here." />
+      {overview.subscription && <SubscriptionStorage subscription={overview.subscription} fallbackStorage={account.storage} />}
       <div className="connect-account-list">
         <div className="connect-account-row">
           <div><strong>Used by hosted collections</strong><small>{storageDetail(account)}</small></div>
-          <span>{account.storage.total_content_bytes === null ? "Unavailable" : formatBytes(account.storage.total_content_bytes)}</span>
+          <span>{account.storage.total_storage_bytes === null ? "Unavailable" : formatBytes(account.storage.total_storage_bytes)}</span>
         </div>
         {account.storage.collections.map((collection) => <StorageRow key={collection.id} collection={collection} />)}
       </div>
@@ -161,7 +180,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
               {!identity && provider === "github" && <a className="connect-account-action" href={client.githubAccountFlowUrl("link")}>Connect</a>}
               {!identity && provider === "google" && googleAction !== "link" && <button className="connect-account-action" onClick={() => setGoogleAction("link")}>Connect</button>}
               {!identity && provider === "google" && googleAction === "link" && <GoogleIdentityButton client={client} purpose="link" onComplete={googleCompleted} onError={googleFailed} />}
-              {identity && <button className="connect-account-action" disabled={!identity.removable || busy === `disconnect-${provider}`} title={!identity.removable ? identity.current ? "This method is used by the current session." : "This is your only sign-in method." : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), `${providerLabel(provider)} disconnected.`)}>{busy === `disconnect-${provider}` ? "Disconnecting…" : "Disconnect"}</button>}
+              {identity && <button className="connect-account-action" disabled={!identity.removable || busy.has(`disconnect-${provider}`)} title={!identity.removable ? identity.current ? "This method is used by the current session." : "This is your only sign-in method." : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), `${providerLabel(provider)} disconnected.`)}>{busy.has(`disconnect-${provider}`) ? "Disconnecting…" : "Disconnect"}</button>}
             </div>
           </div>;
         })}
@@ -174,19 +193,19 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
             <label><span>New password</span><input type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
             <p className="connect-muted" id="account-password-guidance">Use at least 15 characters. Spaces are welcome.</p>
             <label><span>Confirm new password</span><input type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
-            <button className="connect-primary-action" disabled={busy === "password"}>{busy === "password" ? "Changing password…" : "Change password"}</button>
+            <button className="connect-primary-action" disabled={busy.has("password")}>{busy.has("password") ? "Changing password…" : "Change password"}</button>
           </form>}
         </div>}
       </div>}
     </section>
 
     {account.authentication.managed && <section>
-      <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy === "sessions-others"} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
+      <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
       {!sessions && <p className="connect-muted">Checking active sessions…</p>}
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
         <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy === `session-${session.id}`} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
+        {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
       </div>)}
       <button className="connect-sign-out" onClick={() => void client.logout().then(() => { location.href = loginUrl(client); })}>Sign out of this browser</button>
     </section>}
@@ -216,32 +235,57 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>}
         {reauthenticationToken && <p className="connect-current" role="status">Identity confirmed for this deletion.</p>}
         <label><span>Type DELETE to confirm</span><input autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
-        <div className="connect-account-actions"><button type="button" className="connect-account-action" disabled={busy === "delete"} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}>Cancel</button><button className="connect-account-danger" disabled={busy === "delete" || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy === "delete" ? "Deleting account…" : "Delete account permanently"}</button></div>
+        <div className="connect-account-actions"><button type="button" className="connect-account-action" disabled={busy.has("delete")} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}>Cancel</button><button className="connect-account-danger" disabled={busy.has("delete") || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy.has("delete") ? "Deleting account…" : "Delete account permanently"}</button></div>
       </form>}
     </section>
   </Page>;
 }
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
-  return <main className="connect-deleted-account"><div><p>Account deleted</p><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
-}
-
-function Page({ title, intro, children }: { title: string; intro: string; children: ReactNode }) {
-  return <div className="connect-page"><header><p>mdbase Connect</p><h1>{title}</h1><span>{intro}</span></header>{children}</div>;
-}
-
-function SectionTitle({ title, note, count, action }: { title: string; note?: string; count?: number; action?: ReactNode }) {
-  return <header className="connect-section-title"><div><h2>{title}</h2>{count !== undefined && <span>{count}</span>}</div>{note && <p>{note}</p>}{action}</header>;
-}
-
-function Empty({ title, body }: { title: string; body: string }) {
-  return <div className="connect-empty"><div><strong>{title}</strong><p>{body}</p></div></div>;
+  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {
   const usage = collection.usage;
-  const percentage = usage && usage.max_content_bytes > 0 ? Math.min(100, usage.content_bytes / usage.max_content_bytes * 100) : 0;
-  return <div className="connect-account-row connect-storage-row"><div><strong>{collection.display_name}</strong><small>{usage ? `${pluralLabel(usage.record_count, "record", "records")} · ${formatBytes(usage.content_bytes)} of ${formatBytes(usage.max_content_bytes)}` : "Usage temporarily unavailable"}</small></div>{usage && <div className="connect-storage-progress" role="progressbar" aria-label={`${collection.display_name} storage`} aria-valuemin={0} aria-valuemax={usage.max_content_bytes} aria-valuenow={usage.content_bytes}><span style={{ width: `${percentage}%` }} /></div>}</div>;
+  const liveBytes = usage ? usage.content_bytes + usage.file_bytes : null;
+  return <div className="connect-account-row">
+    <div>
+      <strong>{collection.display_name}</strong>
+      <small>{usage
+        ? `${pluralLabel(usage.record_count, "record", "records")} · ${pluralLabel(usage.file_count, "file", "files")} · ${formatBytes(usage.content_bytes)} Markdown · ${formatBytes(usage.file_bytes)} files`
+        : "Usage temporarily unavailable"}</small>
+    </div>
+    <span>{liveBytes === null ? "Unavailable" : formatBytes(liveBytes)}</span>
+  </div>;
+}
+
+function SubscriptionStorage({ subscription, fallbackStorage }: {
+  subscription: NonNullable<ManagementOverview["subscription"]>;
+  fallbackStorage: AccountData["storage"];
+}) {
+  const liveStorageBytes = subscription.usage?.live_storage_bytes ?? fallbackStorage.total_storage_bytes;
+  const liveContentBytes = subscription.usage?.live_content_bytes ?? fallbackStorage.total_content_bytes;
+  const liveFileBytes = subscription.usage?.live_file_bytes ?? fallbackStorage.total_file_bytes;
+  const limit = subscription.limits.hosted_storage_bytes;
+  const percentage = liveStorageBytes !== null && limit > 0
+    ? Math.min(100, liveStorageBytes / limit * 100)
+    : 0;
+  const tier = subscription.kind === "beta" ? "Beta" : "Included storage";
+  const permanence = subscription.permanent ? "Permanent allowance" : "Current allowance";
+  return <div className="connect-subscription-storage">
+    <div className="connect-subscription-heading">
+      <div><strong>{tier}</strong><small>{permanence}</small></div>
+      <span>{liveStorageBytes === null ? "Usage unavailable" : `${formatBytes(liveStorageBytes)} of ${formatBytes(limit)}`}</span>
+    </div>
+    {liveStorageBytes !== null && <div className="connect-storage-progress" role="progressbar" aria-label={`${tier} hosted storage`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={liveStorageBytes} aria-valuetext={`${formatBytes(liveStorageBytes)} of ${formatBytes(limit)} used`}><span style={{ width: `${percentage}%` }} /></div>}
+    <p>{liveContentBytes === null || liveFileBytes === null
+      ? "Markdown and file usage is temporarily unavailable."
+      : `${formatBytes(liveContentBytes)} Markdown · ${formatBytes(liveFileBytes)} files`}</p>
+    {subscription.limits.retained_file_bytes > 0 && <p>{subscription.usage
+      ? `${formatBytes(subscription.usage.retained_file_bytes)} of ${formatBytes(subscription.limits.retained_file_bytes)} retained file storage`
+      : `${formatBytes(subscription.limits.retained_file_bytes)} retained file storage included`}</p>}
+    <p>Documents up to {formatBytes(subscription.limits.max_document_bytes)} · files up to {formatBytes(subscription.limits.max_single_file_bytes)} · {pluralLabel(subscription.limits.max_replicas_per_collection, "synced folder", "synced folders")} per collection</p>
+  </div>;
 }
 
 function tokenFromFragment(): string | null {
@@ -253,7 +297,8 @@ function storageDetail(account: AccountData): string {
   const collections = pluralLabel(account.storage.collections.length, "hosted collection", "hosted collections");
   if (account.storage.status === "unavailable") return `${collections} · usage temporarily unavailable`;
   const records = pluralLabel(account.storage.total_records ?? 0, "record", "records");
-  return `${collections} · ${records}${account.storage.status === "partial" ? " · partial usage" : ""}`;
+  const files = account.storage.collections.reduce((total, collection) => total + (collection.usage?.file_count ?? 0), 0);
+  return `${collections} · ${records} · ${pluralLabel(files, "file", "files")}${account.storage.status === "partial" ? " · partial usage" : ""}`;
 }
 
 function providerLabel(provider: string): string {
@@ -309,6 +354,6 @@ function loginUrl(client: ConnectManagementClient): string {
 function errorMessage(value: unknown): string {
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
-    ? "Connect could not be reached. Check your connection and try again."
+    ? "mdbase connect could not be reached. Check your connection and try again."
     : detail;
 }

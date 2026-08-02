@@ -71,6 +71,7 @@ async function auditPortalLogin() {
 async function auditEditorConnect() {
   const page = await browser.newPage();
   const errors = watchPageErrors(page);
+  const now = new Date().toISOString();
   await page.route("**/v1/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname === "/v1/me") {
@@ -81,6 +82,28 @@ async function auditEditorConnect() {
             name: "Example User",
             email: "user@example.com",
             login: "example"
+          },
+          subscription: {
+            kind: "beta",
+            profiles: ["beta_v1"],
+            permanent: true,
+            limits: {
+              hosted_storage_bytes: 1_073_741_824,
+              retained_file_bytes: 2_147_483_648,
+              max_document_bytes: 2_097_152,
+              max_single_file_bytes: 262_144_000,
+              max_replicas_per_collection: 10,
+              max_hosted_collections: 250,
+              max_files_per_collection: 10_000
+            },
+            usage: {
+              hosted_collections: 1,
+              live_content_bytes: 4_096,
+              live_file_bytes: 10_485_760,
+              live_storage_bytes: 10_489_856,
+              retained_file_bytes: 2_097_152
+            },
+            reconciliation: { entitlement_revision: 1, provider_revision: 1 }
           },
           hosted_collections_available: true,
           authentication: { provider: "github", registration: "open" },
@@ -97,14 +120,109 @@ async function auditEditorConnect() {
             last_seen_at: new Date().toISOString()
           }],
           hosted_collections: [],
-          grants: [],
-          pending_authorizations: []
+          grants: [{
+            id: "grant-active",
+            operations: ["read", "query", "update"],
+            scope: { contracts: [], access: "full_collection" },
+            created_at: now,
+            revoked_at: null,
+            revocation_status: "active",
+            collection_id: "22222222-2222-4222-8222-222222222222",
+            collection_name: "Accessibility collection",
+            collection_kind: "local",
+            application_id: "photo-catalog",
+            application_name: "Photo catalog",
+            distribution: "web",
+            homepage: "https://photos.example",
+            project_url: null,
+            application_origin: "https://photos.example",
+            icon: null
+          }, {
+            id: "grant-revoking",
+            operations: ["read"],
+            scope: { contracts: [], access: "full_collection" },
+            created_at: now,
+            revoked_at: now,
+            revocation_status: "revoking",
+            collection_id: "22222222-2222-4222-8222-222222222222",
+            collection_name: "Accessibility collection",
+            collection_kind: "local",
+            application_id: "archive-tool",
+            application_name: "Archive tool",
+            distribution: "web",
+            homepage: "https://archive.example",
+            project_url: null,
+            application_origin: "https://archive.example",
+            icon: null
+          }],
+          pending_authorizations: [{
+            id: "pending-request",
+            flow: "authorization_code",
+            requested_operations: ["read"],
+            collection_id: "22222222-2222-4222-8222-222222222222",
+            expires_at: "2099-08-01T00:00:00.000Z",
+            application_id: "reading-list",
+            application_name: "Reading list",
+            distribution: "web",
+            homepage: "https://reading.example",
+            project_url: null,
+            icon: null
+          }]
         }
       });
       return;
     }
     if (pathname === "/v1/account/sessions") {
-      await route.fulfill({ json: { sessions: [] } });
+      await route.fulfill({ json: { sessions: [{
+        id: "current-session",
+        provider: "password",
+        client_name: "Accessibility browser",
+        created_at: now,
+        last_seen_at: now,
+        expires_at: "2099-08-01T00:00:00.000Z",
+        current: true
+      }] } });
+      return;
+    }
+    if (pathname === "/v1/account") {
+      await route.fulfill({ json: {
+        user: { id: "user", name: "Example User", email: "user@example.com", login: "example" },
+        authentication: {
+          managed: true,
+          current_provider: "password",
+          available_providers: { github: false, google: false, password: true },
+          identities: [],
+          password: { configured: true, email: "user@example.com", current: true, change_available: true }
+        },
+        storage: {
+          status: "available",
+          total_content_bytes: 4_096,
+          total_file_bytes: 10_485_760,
+          total_storage_bytes: 10_489_856,
+          total_stored_file_bytes: 12_582_912,
+          total_records: 2,
+          collections: [{
+            id: "hosted",
+            display_name: "Hosted research",
+            usage: {
+              collection_id: "hosted",
+              record_count: 2,
+              content_bytes: 4_096,
+              max_records: 100_000,
+              max_content_bytes: 1_073_741_824,
+              max_document_bytes: 2_097_152,
+              file_count: 2,
+              file_bytes: 10_485_760,
+              stored_file_bytes: 12_582_912,
+              max_files: 10_000,
+              max_file_bytes: 1_073_741_824,
+              max_stored_file_bytes: 2_147_483_648,
+              max_single_file_bytes: 262_144_000
+            }
+          }]
+        },
+        deletion: { available: true, hosted_collections: 1, local_collections: 1, computers: 1, development_confirmation: true }
+      } });
       return;
     }
     await route.fulfill({ json: {} });
@@ -112,6 +230,23 @@ async function auditEditorConnect() {
   await page.goto(`${servers[2].origin}/connect`);
   await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
   await auditPage(page, "editor Connect workspace", { keyboard: true });
+
+  await page.getByRole("link", { name: "App access" }).click();
+  await page.getByRole("heading", { name: "Application access" }).waitFor();
+  await page.getByText("Photo catalog", { exact: true }).click();
+  await page.getByText("Permissions", { exact: true }).click();
+  await auditPage(page, "editor Connect expanded permissions", { keyboard: true });
+
+  await page.getByRole("link", { name: "Account & sessions" }).click();
+  await page.getByRole("heading", { name: "Hosted storage" }).waitFor();
+  await page.getByRole("button", { name: "Change password" }).click();
+  await page.getByRole("button", { name: "Delete account…" }).click();
+  await auditPage(page, "editor Connect account forms", { keyboard: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
+  await page.getByRole("link", { name: "Back to editor" }).waitFor();
+  await auditPage(page, "editor Connect mobile navigation", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -405,6 +540,11 @@ async function auditPage(page, label, options = {}) {
 
   const structuralProblems = await page.evaluate(() => {
     const visible = (element) => {
+      const closedDetails = element.closest("details:not([open])");
+      if (closedDetails) {
+        const summary = closedDetails.querySelector(":scope > summary");
+        if (!summary?.contains(element)) return false;
+      }
       const style = getComputedStyle(element);
       const bounds = element.getBoundingClientRect();
       return style.visibility !== "hidden"
@@ -421,7 +561,7 @@ async function auditPage(page, label, options = {}) {
       .map(([id]) => id);
     const unnamedControls = [
       ...document.querySelectorAll(
-        "button, a[href], input, select, textarea, [role=button], [role=switch]"
+        "button, a[href], input, select, textarea, summary, [role=button], [role=switch]"
       )
     ].filter((element) => {
       if (!visible(element) || element.matches(":disabled")) return false;
@@ -503,6 +643,11 @@ async function auditPage(page, label, options = {}) {
 async function assertKeyboardReachability(page, label) {
   const expected = await page.evaluate(() => {
     const visible = (element) => {
+      const closedDetails = element.closest("details:not([open])");
+      if (closedDetails) {
+        const summary = closedDetails.querySelector(":scope > summary");
+        if (!summary?.contains(element)) return false;
+      }
       const style = getComputedStyle(element);
       const bounds = element.getBoundingClientRect();
       return style.visibility !== "hidden"
@@ -512,12 +657,12 @@ async function assertKeyboardReachability(page, label) {
     };
     return [
       ...document.querySelectorAll(
-        "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)"
+        "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary"
       )
     ].filter(visible).map((element, index) => {
       const id = `a11y-${index}`;
       element.setAttribute("data-a11y-test", id);
-      return id;
+      return { id, element: element.outerHTML.slice(0, 180) };
     });
   });
   await page.evaluate(() => {
@@ -527,18 +672,17 @@ async function assertKeyboardReachability(page, label) {
     document.body.focus();
   });
   const reached = new Set();
-  for (let index = 0; index < expected.length + 2; index += 1) {
+  for (let index = 0; index < expected.length * 2 + 2 && reached.size < expected.length; index += 1) {
     await page.keyboard.press("Tab");
     const active = await page.evaluate(() =>
       document.activeElement?.getAttribute("data-a11y-test") ?? ""
     );
     if (active) reached.add(active);
   }
-  assert.deepEqual(
-    [...reached].sort(),
-    [...expected].sort(),
-    `${label}: every visible control is keyboard reachable`
-  );
+  const expectedIds = expected.map(({ id }) => id);
+  const missing = expected.filter(({ id }) => !reached.has(id));
+  assert.deepEqual([...reached].sort(), expectedIds.sort(),
+    `${label}: every visible control is keyboard reachable; missing ${missing.map(({ element }) => element).join(", ")}`);
 }
 
 function watchPageErrors(page) {
