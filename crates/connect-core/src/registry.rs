@@ -29,6 +29,7 @@ const MIRROR_MARKER_DIRECTORY: &str = ".mdbase";
 const MIRROR_MARKER_FILE: &str = "connect-role.json";
 
 mod agent_state;
+mod application_trust;
 mod authority;
 mod collections;
 mod database;
@@ -42,6 +43,7 @@ mod operation_execution;
 mod operations;
 mod scope;
 
+pub use application_trust::ApplicationTrustRequestDisposition;
 pub use encrypted_requests::{encrypted_request_fingerprint, EncryptedRequestClaim};
 use identity::{
     assert_local_authority_folder, clear_collection_identity, collection_display_name,

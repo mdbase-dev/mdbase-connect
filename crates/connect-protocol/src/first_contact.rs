@@ -43,6 +43,10 @@ pub enum FirstContactError {
 }
 
 impl FirstContactBinding {
+    pub fn validate(&self) -> Result<(), FirstContactError> {
+        self.validated_keys().map(|_| ())
+    }
+
     pub fn derive_sas(
         &self,
         identity: &RelayIdentity,
@@ -99,6 +103,35 @@ impl FirstContactBinding {
         append_field(&mut transcript, &keys.connector);
         transcript
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationTrustPresentation {
+    pub application_name: String,
+    pub application_distribution: String,
+    pub application_homepage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_project_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_icon: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationTrustRequest {
+    pub request_id: Uuid,
+    pub binding: FirstContactBinding,
+    pub presentation: ApplicationTrustPresentation,
+    pub created_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationTrust {
+    pub id: Uuid,
+    pub binding: FirstContactBinding,
+    pub presentation: ApplicationTrustPresentation,
+    pub trusted_at: String,
+    pub last_used_at: String,
 }
 
 struct ValidatedKeys {

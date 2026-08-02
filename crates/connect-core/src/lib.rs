@@ -15,8 +15,8 @@ pub use config::{
 pub use local_sync::{LocalReplica, LocalSyncStore};
 pub use registry::{
     collection_identity, default_control_endpoint, default_state_dir,
-    encrypted_request_fingerprint, mirror_collection_id, CollectionInvalidation,
-    CollectionRegistry, ConnectError, EncryptedRequestClaim,
+    encrypted_request_fingerprint, mirror_collection_id, ApplicationTrustRequestDisposition,
+    CollectionInvalidation, CollectionRegistry, ConnectError, EncryptedRequestClaim,
 };
 pub use secrets::SystemSecretStore;
 pub mod profiling;

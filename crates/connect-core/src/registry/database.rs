@@ -247,6 +247,34 @@ impl CollectionRegistry {
                 received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (grant_id, key_id, request_id)
             );
+            CREATE TABLE IF NOT EXISTS application_trusts (
+                id TEXT PRIMARY KEY,
+                application_id TEXT NOT NULL,
+                application_installation_id TEXT NOT NULL,
+                connector_id TEXT NOT NULL,
+                binding TEXT NOT NULL,
+                presentation TEXT NOT NULL,
+                trusted_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL,
+                UNIQUE (application_id, application_installation_id, connector_id)
+            );
+            CREATE TABLE IF NOT EXISTS pending_application_trusts (
+                request_id TEXT PRIMARY KEY,
+                application_id TEXT NOT NULL,
+                application_installation_id TEXT NOT NULL,
+                connector_id TEXT NOT NULL,
+                request TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS pending_application_trusts_expiry_idx
+                ON pending_application_trusts(expires_at);
+            CREATE INDEX IF NOT EXISTS pending_application_trusts_identity_idx
+                ON pending_application_trusts(
+                    application_id,
+                    application_installation_id,
+                    connector_id
+                );
             ",
         )?;
         // These upgrades preserve registries created by the first development MVP.
