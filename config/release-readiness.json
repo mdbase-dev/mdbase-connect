@@ -5,9 +5,12 @@
       "id": "first-contact-trust-decision",
       "title": "First-contact connector trust decision",
       "owner": "Product and security owners",
-      "status": "required",
-      "evidence": [],
-      "notes": "Ship an explicit user-verifiable trust decision or equivalent transparency mechanism for a connector first seen by an application."
+      "status": "complete",
+      "evidence": [
+        "https://github.com/mdbase-dev/mdbase-connect/pull/154",
+        "https://github.com/mdbase-dev/mdbase-connect/actions/runs/30750841856"
+      ],
+      "notes": "A signed authorization request and independently derived authentication string now require exact local confirmation on desktop or the headless CLI, separately from portal consent. Cross-runtime, real-browser, Electron, restart, mismatch, revocation, and policy tests passed in the recorded CI run."
     },
     {
       "id": "managed-key-service-and-rotation-drill",
