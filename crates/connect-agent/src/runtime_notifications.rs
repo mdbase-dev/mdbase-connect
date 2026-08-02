@@ -594,15 +594,17 @@ mod tests {
             connector_agreement_public_key: connector.public_key(),
         };
         let security = crate::test_support::application_security(
-            application_id,
-            Uuid::new_v4(),
-            collection.id,
-            &operations,
-            "web",
-            connector_id,
-            &connector,
-            application.public_key(),
-            None,
+            crate::test_support::TestApplicationSecurityParams {
+                application_id,
+                authorization_id: Uuid::new_v4(),
+                collection_id: collection.id,
+                operations: &operations,
+                distribution: "web",
+                connector_id,
+                connector_identity: &connector,
+                grant_agreement_public_key: application.public_key(),
+                file_capability: None,
+            },
         );
         crate::test_support::trust_application(&registry, &security, "web");
         registry
@@ -813,15 +815,17 @@ mod tests {
             connector_agreement_public_key: connector.public_key(),
         };
         let security = crate::test_support::application_security(
-            application_id,
-            Uuid::new_v4(),
-            collection.id,
-            &operations,
-            "web",
-            connector_id,
-            &connector,
-            application.public_key(),
-            None,
+            crate::test_support::TestApplicationSecurityParams {
+                application_id,
+                authorization_id: Uuid::new_v4(),
+                collection_id: collection.id,
+                operations: &operations,
+                distribution: "web",
+                connector_id,
+                connector_identity: &connector,
+                grant_agreement_public_key: application.public_key(),
+                file_capability: None,
+            },
         );
         crate::test_support::trust_application(&registry, &security, "web");
         registry

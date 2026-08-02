@@ -200,15 +200,17 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         connector_agreement_public_key: connector_identity.public_key(),
     };
     let security = crate::test_support::application_security(
-        application_id,
-        authorization_id,
-        collection.id,
-        &operations,
-        "web",
-        connector_id,
-        &connector_identity,
-        application_identity.public_key(),
-        None,
+        crate::test_support::TestApplicationSecurityParams {
+            application_id,
+            authorization_id,
+            collection_id: collection.id,
+            operations: &operations,
+            distribution: "web",
+            connector_id,
+            connector_identity: &connector_identity,
+            grant_agreement_public_key: application_identity.public_key(),
+            file_capability: None,
+        },
     );
     let grant = GrantPolicy {
         id: Uuid::new_v4(),
@@ -255,7 +257,7 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
             ..
         } if code == "trust_required"
             && details.as_ref().is_some_and(|value| value.get("binding").is_some())
-            && !details.as_ref().is_some_and(|value| value.get("authentication_string").is_some())
+            && details.as_ref().is_none_or(|value| value.get("authentication_string").is_none())
     ));
     registry.accept_application_trust(authorization_id).unwrap();
     let activation = state.handle_relay_message(activation_request()).unwrap();
@@ -301,15 +303,17 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
     };
     let operations = vec!["describe".to_string()];
     let security = crate::test_support::application_security(
-        application_id,
-        Uuid::new_v4(),
-        collection.id,
-        &operations,
-        "web",
-        connector_id,
-        &connector_identity,
-        application_identity.public_key(),
-        None,
+        crate::test_support::TestApplicationSecurityParams {
+            application_id,
+            authorization_id: Uuid::new_v4(),
+            collection_id: collection.id,
+            operations: &operations,
+            distribution: "web",
+            connector_id,
+            connector_identity: &connector_identity,
+            grant_agreement_public_key: application_identity.public_key(),
+            file_capability: None,
+        },
     );
     crate::test_support::trust_application(&registry, &security, "web");
     registry

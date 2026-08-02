@@ -17,17 +17,32 @@ pub(crate) struct TestApplicationSecurity {
     pub proof: ApplicationAuthorizationProof,
 }
 
+pub(crate) struct TestApplicationSecurityParams<'a> {
+    pub application_id: Uuid,
+    pub authorization_id: Uuid,
+    pub collection_id: Uuid,
+    pub operations: &'a [String],
+    pub distribution: &'a str,
+    pub connector_id: Uuid,
+    pub connector_identity: &'a RelayIdentity,
+    pub grant_agreement_public_key: String,
+    pub file_capability: Option<&'a FileCapability>,
+}
+
 pub(crate) fn application_security(
-    application_id: Uuid,
-    authorization_id: Uuid,
-    collection_id: Uuid,
-    operations: &[String],
-    distribution: &str,
-    connector_id: Uuid,
-    connector_identity: &RelayIdentity,
-    grant_agreement_public_key: String,
-    file_capability: Option<&FileCapability>,
+    params: TestApplicationSecurityParams<'_>,
 ) -> TestApplicationSecurity {
+    let TestApplicationSecurityParams {
+        application_id,
+        authorization_id,
+        collection_id,
+        operations,
+        distribution,
+        connector_id,
+        connector_identity,
+        grant_agreement_public_key,
+        file_capability,
+    } = params;
     let installation_agreement = RelayIdentity::generate();
     let installation_signing = SigningKey::random(&mut rand_core::OsRng);
     let grant_signing = SigningKey::random(&mut rand_core::OsRng);

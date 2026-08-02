@@ -724,15 +724,17 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
         scope: FileScope::Collection,
     };
     let security = crate::test_support::application_security(
-        application_id,
-        Uuid::new_v4(),
-        collection.id,
-        &operations,
-        distribution,
-        connector_id,
-        &connector,
-        application.public_key(),
-        Some(&file_capability),
+        crate::test_support::TestApplicationSecurityParams {
+            application_id,
+            authorization_id: Uuid::new_v4(),
+            collection_id: collection.id,
+            operations: &operations,
+            distribution,
+            connector_id,
+            connector_identity: &connector,
+            grant_agreement_public_key: application.public_key(),
+            file_capability: Some(&file_capability),
+        },
     );
     crate::test_support::trust_application(&registry, &security, distribution);
     registry

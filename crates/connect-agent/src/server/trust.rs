@@ -7,7 +7,7 @@ use mdbase_connect_protocol::{
 
 pub(super) enum ActivationTrust {
     Trusted,
-    Required(ApplicationTrustRequest),
+    Required(Box<ApplicationTrustRequest>),
 }
 
 impl AgentState {
@@ -79,7 +79,9 @@ impl AgentState {
                 }
                 Ok(ActivationTrust::Trusted)
             }
-            ApplicationTrustRequestDisposition::Pending => Ok(ActivationTrust::Required(request)),
+            ApplicationTrustRequestDisposition::Pending => {
+                Ok(ActivationTrust::Required(Box::new(request)))
+            }
         }
     }
 
