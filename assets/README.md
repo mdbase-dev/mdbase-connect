@@ -13,6 +13,10 @@ a small, delimited key-value record with its first value highlighted.
 | `mdbase-icon-mono.svg` | Single-color printing, masks, and inherited-color UI |
 | `mdbase-favicon.svg` | Tightly cropped browser icon |
 | `mdbase-app-icon.svg` | Square application-icon source |
+| `mdbase-app-icon-120.png` | Google Auth Platform branding upload |
+| `mdbase-app-icon-256.png` | General small application-icon export |
+| `mdbase-app-icon-512.png` | General large application-icon export |
+| `mdbase-app-icon-1024.png` | High-resolution application-icon export |
 
 The app icon is a source artifact, not a platform release bundle. Generate
 platform-specific PNG, ICO, or ICNS files from it during packaging so each
