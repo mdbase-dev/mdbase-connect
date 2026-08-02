@@ -13,6 +13,11 @@ export {
   GrantFileTransferCipher,
   type FileTransferBinding
 } from "./file-crypto.js";
+export {
+  deriveFirstContactSas,
+  FirstContactCryptoError,
+  type FirstContactRole
+} from "./first-contact.js";
 
 export * from "./authorization-types.js";
 export * from "./collection-client.js";
@@ -49,6 +54,7 @@ export type {
   ContractRequirement,
   DataContractViewIdentity,
   GrantScope,
+  FirstContactBinding,
   JsonObject,
   MdbaseAppManifest,
   NotificationCriterion,

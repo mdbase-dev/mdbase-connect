@@ -9,6 +9,7 @@ export * from "./files.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 1 as const;
+export const FIRST_CONTACT_PROTOCOL_VERSION = 1 as const;
 export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
@@ -377,6 +378,16 @@ export interface GrantEncryption {
   connector_id: string;
   collection_id: string;
   application_agreement_public_key: string;
+  connector_agreement_public_key: string;
+}
+
+export interface FirstContactBinding {
+  protocol_version: typeof FIRST_CONTACT_PROTOCOL_VERSION;
+  application_id: string;
+  application_installation_id: string;
+  application_agreement_public_key: string;
+  application_signing_public_key: string;
+  connector_id: string;
   connector_agreement_public_key: string;
 }
 
