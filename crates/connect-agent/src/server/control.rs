@@ -43,10 +43,7 @@ impl AgentState {
                 })
                 .expect("agent status must serialize")
             }),
-            ControlCommand::DaemonShutdown => {
-                self.request_shutdown();
-                Ok(serde_json::json!({"stopping": true}))
-            }
+            ControlCommand::DaemonShutdown => Ok(serde_json::json!({"stopping": true})),
             ControlCommand::CollectionList => self
                 .registry
                 .list()

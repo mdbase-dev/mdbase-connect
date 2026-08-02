@@ -146,6 +146,51 @@ async fn bounds_local_control_request_memory() {
     fs::remove_dir_all(test_root).unwrap();
 }
 
+#[tokio::test]
+async fn daemon_shutdown_is_requested_only_after_the_response_is_flushed() {
+    let test_root = std::env::temp_dir().join(format!(
+        "mdbase-connect-shutdown-response-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let registry = CollectionRegistry::open(&test_root).unwrap();
+    let watcher = CollectionWatchService::start(registry.clone());
+    let state = Arc::new(AgentState::new(registry, watcher, None));
+    let (mut client, server) = tokio::io::duplex(64);
+    let handler_state = state.clone();
+    let handler = tokio::spawn(handle_stream(server, handler_state));
+    let request = ControlRequest::new(ControlCommand::DaemonShutdown);
+
+    client
+        .write_all(format!("{}\n", serde_json::to_string(&request).unwrap()).as_bytes())
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            state.shutdown_requested()
+        )
+        .await
+        .is_err(),
+        "the daemon must stay alive while its response is backpressured"
+    );
+
+    let mut response = String::new();
+    BufReader::new(client)
+        .read_line(&mut response)
+        .await
+        .unwrap();
+    let response: ControlResponse = serde_json::from_str(&response).unwrap();
+    assert!(response.ok);
+    handler.await.unwrap().unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        state.shutdown_requested(),
+    )
+    .await
+    .expect("shutdown notification must follow the flushed response");
+    fs::remove_dir_all(test_root).unwrap();
+}
+
 #[test]
 fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
     let test_root = std::env::temp_dir().join(format!(

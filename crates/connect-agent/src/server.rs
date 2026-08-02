@@ -255,6 +255,7 @@ where
     if read == 0 {
         return Ok(());
     }
+    let mut shutdown_after_response = false;
     let response = if encoded_request.len() as u64 > MAX_LOCAL_CONTROL_REQUEST_BYTES
         || encoded_request.last() != Some(&b'\n')
     {
@@ -266,7 +267,15 @@ where
     } else {
         encoded_request.pop();
         match serde_json::from_slice::<ControlRequest>(&encoded_request) {
-            Ok(request) => state.execute(request).await,
+            Ok(request) => {
+                shutdown_after_response = matches!(
+                    &request.command,
+                    ControlCommand::DaemonShutdown
+                        | ControlCommand::AccountConfigure(_)
+                        | ControlCommand::AccountClear
+                );
+                state.execute(request).await
+            }
             Err(error) => ControlResponse::failure(
                 uuid::Uuid::nil(),
                 "invalid_request",
@@ -276,8 +285,15 @@ where
     };
     let mut encoded = serde_json::to_vec(&response).map_err(io::Error::other)?;
     encoded.push(b'\n');
-    writer.write_all(&encoded).await?;
-    Ok(())
+    let delivery = async {
+        writer.write_all(&encoded).await?;
+        writer.shutdown().await
+    }
+    .await;
+    if shutdown_after_response && response.ok {
+        state.request_shutdown();
+    }
+    delivery
 }
 
 #[cfg(unix)]
