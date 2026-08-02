@@ -56,8 +56,11 @@ states, or collection controls.
 The desktop app uses three persistent panes: a 176px collection rail, a 304px
 virtualized note list, and the editor. A properties inspector appears only when
 requested. Types reuse the list-and-document rhythm; settings become one quiet
-document rather than a dashboard. Mobile presents each level as a separate
-navigable screen.
+document rather than a dashboard. In the collection rail, Notes, Types, and
+Settings remain the primary editing group. Connect sits in a bottom-aligned
+Manage group above connection and account status, visibly secondary until a
+pending authorization count requires attention. Mobile presents each level as
+a separate navigable screen.
 
 ## Editing
 
