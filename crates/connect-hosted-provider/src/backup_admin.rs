@@ -27,6 +27,14 @@ pub struct BackupHoldInventory {
     pub latest_expiry: Option<DateTime<Utc>>,
 }
 
+#[derive(sqlx::FromRow)]
+struct BackupHoldInventoryRow {
+    observed_at: DateTime<Utc>,
+    active_holds: i64,
+    earliest_expiry: Option<DateTime<Utc>>,
+    latest_expiry: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct BackupHoldRelease {
     pub released: bool,
@@ -90,13 +98,11 @@ impl HostedBackupAdmin {
         let mut transaction = self.pool.begin().await?;
         lock_exclusive(&mut transaction).await?;
         remove_expired(&mut transaction).await?;
-        let (observed_at, active_holds, earliest_expiry, latest_expiry): (
-            DateTime<Utc>,
-            i64,
-            Option<DateTime<Utc>>,
-            Option<DateTime<Utc>>,
-        ) = sqlx::query_as(
-            r#"SELECT now(), count(*), min(expires_at), max(expires_at)
+        let row: BackupHoldInventoryRow = sqlx::query_as(
+            r#"SELECT now() AS observed_at,
+                      count(*) AS active_holds,
+                      min(expires_at) AS earliest_expiry,
+                      max(expires_at) AS latest_expiry
                FROM hosted_provider_backup_holds
                WHERE expires_at > now()"#,
         )
@@ -104,11 +110,11 @@ impl HostedBackupAdmin {
         .await?;
         transaction.commit().await?;
         Ok(BackupHoldInventory {
-            observed_at,
-            active_holds: u64::try_from(active_holds)
+            observed_at: row.observed_at,
+            active_holds: u64::try_from(row.active_holds)
                 .map_err(|_| ApiError::internal("The active backup hold count is invalid."))?,
-            earliest_expiry,
-            latest_expiry,
+            earliest_expiry: row.earliest_expiry,
+            latest_expiry: row.latest_expiry,
         })
     }
 }
