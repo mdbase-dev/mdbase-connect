@@ -39,8 +39,10 @@ pnpm --filter @mdbase/connect-desktop package
 ```
 
 The package command compiles the release daemon/CLI, creates the platform
-Electron bundle, and verifies that `app.asar` and the `mdbase`
-executable are both present.
+Electron bundle, and verifies that `app.asar` and the `mdbase` executable are
+both present. The release workflow also smoke-tests that exact native
+executable's CLI and foreground-daemon entry points, then publishes it as a
+standalone headless archive with the same tag-bound provenance and checksums.
 Run the packaged application once with a fresh user-data directory and complete
 pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.
@@ -66,12 +68,21 @@ whose filenames contain `UNSIGNED`. They are preview artifacts, not the
 canonical Windows installation channel. Windows will show Unknown Publisher or
 SmartScreen warnings for them. Checksums and GitHub OIDC-backed Sigstore bundles
 prove which workflow produced the files, but do not provide Authenticode trust.
+The standalone Windows headless archive follows the same `UNSIGNED` rule until
+an Authenticode publisher path is configured.
 
 Before company-backed publisher accounts are available, beta releases may also
 contain macOS DMG and ZIP files whose names contain `UNSIGNED`. They are neither
 Developer ID signed nor notarized and require a manual Gatekeeper override.
 Their bundled warning, checksums, and Sigstore bundles describe the exact
 trust boundary.
+
+Standalone macOS headless archives use the `mdbase` executable copied from the
+packaged application. A trusted archive is published only when that nested
+binary passes strict code-signature verification; otherwise its filename
+contains `UNSIGNED`. Linux headless archives are native release binaries with
+workflow identity, checksums, and Sigstore bundles. See
+[`headless.md`](headless.md) for the installation and daemon lifecycle.
 
 The `Desktop Release` workflow builds, verifies, signs, and publishes the
 installers for a version tag. To enable trusted macOS output, configure these

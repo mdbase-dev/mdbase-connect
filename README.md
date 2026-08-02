@@ -138,9 +138,11 @@ in the [Security policy](SECURITY.md) for suspected vulnerabilities.
 
 ## Command line
 
-The desktop app includes the unified `mdbase` CLI and background daemon. Direct
-collection commands are top-level; identity, authorization, mirroring, and
-daemon administration live under `mdbase connect`.
+The desktop app includes the unified `mdbase` CLI and background daemon. The
+same native executable is also published as a standalone headless archive for
+Linux, macOS, and Windows. Direct collection commands are top-level; identity,
+authorization, mirroring, and daemon administration live under
+`mdbase connect`.
 
 ```bash
 mdbase --root /path/to/notes query --types task
@@ -152,7 +154,8 @@ mdbase connect status
 
 Human-readable output is the default. Connect administration commands support
 `--json` for automation. See the [unified CLI guide](docs/unified-cli.md) for
-the full command model.
+the full command model and the [headless installation guide](docs/headless.md)
+for verified standalone installation and service operation.
 
 ## Self-hosting
 

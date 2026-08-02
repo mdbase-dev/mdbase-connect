@@ -308,6 +308,32 @@ jobs:
           fi
           test -n "$(find release-artifacts -type f -print -quit)"
 
+      - name: Stage canonical headless CLI and daemon
+        shell: bash
+        run: |
+          binary="target/release/mdbase"
+          filename_mode=standard
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            binary="target/release/mdbase.exe"
+            filename_mode=unsigned-preview
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            app_path="$(find apps/desktop/out -type d -name 'mdbase connect.app' -print -quit)"
+            test -n "$app_path"
+            binary="$app_path/Contents/Resources/mdbase"
+            if [ "$MACOS_RELEASE_MODE" = "signed" ]; then
+              codesign --verify --strict --verbose=2 "$binary"
+            else
+              filename_mode=unsigned-preview
+            fi
+          fi
+          node scripts/package-headless-cli.mjs \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "${{ steps.version.outputs.value }}" \
+            --binary "$binary" \
+            --output-directory release-artifacts \
+            --filename-mode "$filename_mode"
+
       - name: Sign and verify release artifact provenance
         shell: bash
         run: |
@@ -485,6 +511,91 @@ jobs:
             --notes "Files containing **UNSIGNED** are preview builds, not trusted platform releases. Windows will show Unknown Publisher or SmartScreen warnings. macOS will require a manual Privacy & Security override and has not been notarized. Checksums and GitHub OIDC-backed Sigstore bundles establish build provenance but do not replace platform signing." \
             --prerelease \
             --title "mdbase connect $GITHUB_REF_NAME"
+
+  headless-package-smoke:
+    if: github.event_name != 'push'
+    name: ${{ matrix.label }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Headless macOS Apple Silicon smoke test
+            os: macos-15
+            platform: macos
+            arch: arm64
+          - label: Headless macOS Intel smoke test
+            os: macos-15-intel
+            platform: macos
+            arch: x64
+          - label: Headless Windows smoke test
+            os: windows-2025
+            platform: windows
+            arch: x64
+          - label: Headless Linux smoke test
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+
+      - id: mdbase_revision
+        shell: bash
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.mdbase_revision.outputs.revision }}
+          path: mdbase-rs
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+
+      - name: Build and exercise the standalone release
+        shell: bash
+        run: |
+          cargo build --locked --release -p mdbase-cli
+          binary=target/release/mdbase
+          filename_mode=standard
+          executable_name=mdbase
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            binary=target/release/mdbase.exe
+            executable_name=mdbase.exe
+            filename_mode=unsigned-preview
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            filename_mode=unsigned-preview
+          fi
+          version="$(node -p "require('./package.json').version")"
+          node scripts/package-headless-cli.mjs \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "$version" \
+            --binary "$binary" \
+            --output-directory headless-artifacts \
+            --filename-mode "$filename_mode"
+          archive="$(find headless-artifacts -type f -name '*.tar.gz' -print -quit)"
+          test -n "$archive"
+          mkdir headless-extracted
+          tar -xzf "$archive" -C headless-extracted
+          packaged_binary="$(find headless-extracted -type f -name "$executable_name" -print -quit)"
+          test -n "$packaged_binary"
+          "$packaged_binary" --help >/dev/null
+          "$packaged_binary" connect daemon run --help >/dev/null
 
   windows-package-smoke:
     if: github.event_name != 'push'
