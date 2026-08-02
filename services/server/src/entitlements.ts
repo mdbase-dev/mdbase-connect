@@ -322,7 +322,7 @@ export async function grantOperatorEntitlement(
     await connection.query(
       `INSERT INTO audit_events
          (id, user_id, event_type, subject_id, metadata)
-       VALUES ($1, $2, 'entitlement.granted', $2, $3::jsonb)`,
+       VALUES ($1, $2, 'entitlement.granted', $4, $3::jsonb)`,
       [
         randomUUID(),
         input.userId,
@@ -333,7 +333,8 @@ export async function grantOperatorEntitlement(
           operation_id: input.operationId,
           changed,
           entitlement_revision: entitlementRevision
-        })
+        }),
+        input.userId
       ]
     );
     await connection.query("COMMIT");

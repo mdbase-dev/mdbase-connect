@@ -9,6 +9,11 @@ import {
   EmailDeliveryError,
   type EmailTransport
 } from "./email.js";
+import type {
+  HostedAccountLimits,
+  HostedAccountUsage,
+  HostedProviderClient
+} from "./hosted-provider.js";
 import { tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -409,8 +414,74 @@ describe("authentication operator command", () => {
     ], context) as { effective: { hostedStorageBytes: number }; grants: unknown[] };
     expect(shown.effective.hostedStorageBytes).toBe(1024 * 1024 * 1024);
     expect(shown.grants).toHaveLength(1);
+    const grantedAudit = await context.db.query<{
+      user_id: string;
+      subject_id: string;
+    }>(
+      `SELECT user_id, subject_id FROM audit_events
+       WHERE event_type = 'entitlement.granted' ORDER BY created_at`
+    );
+    expect(grantedAudit.rows).toEqual([
+      { user_id: userId, subject_id: userId },
+      { user_id: userId, subject_id: userId }
+    ]);
+
+    const provider = fakeHostedProvider();
+    const reconciled = await runAuthAdminCommand([
+      "entitlements", "reconcile",
+      "--user", userId,
+      "--operation-id", "20000000-0000-4000-8000-000000000090",
+      "--actor", "operator:test",
+      "--reason", "Reconcile private beta storage"
+    ], { ...context, hostedProvider: provider }) as {
+      reconciled: Array<{ user_id: string; reconciled_collections: number }>;
+    };
+    expect(reconciled.reconciled).toEqual([{
+      user_id: userId,
+      provider_account_id: expect.any(String),
+      entitlement_revision: 1,
+      reconciled_collections: 0,
+      usage: expect.objectContaining({ account_id: expect.any(String) })
+    }]);
+    const reconciledAudit = await context.db.query<{
+      user_id: string;
+      subject_id: string;
+    }>(
+      `SELECT user_id, subject_id FROM audit_events
+       WHERE event_type = 'entitlement.reconciled'`
+    );
+    expect(reconciledAudit.rows).toEqual([
+      { user_id: userId, subject_id: userId }
+    ]);
   });
 });
+
+function fakeHostedProvider(): HostedProviderClient {
+  let usage: HostedAccountUsage | undefined;
+  return {
+    async upsertAccount(
+      accountId: string,
+      entitlementRevision: number,
+      limits: HostedAccountLimits
+    ) {
+      usage = {
+        account_id: accountId,
+        entitlement_revision: entitlementRevision,
+        collection_count: 0,
+        live_content_bytes: 0,
+        live_file_bytes: 0,
+        retained_file_bytes: 0,
+        ...limits
+      };
+      return usage;
+    },
+    async reconcileCollectionAccount() {},
+    async accountUsage() {
+      if (!usage) throw new Error("Hosted account was not reconciled.");
+      return usage;
+    }
+  } as unknown as HostedProviderClient;
+}
 
 let messageSequence = 0;
 function randomMessageId(): string {

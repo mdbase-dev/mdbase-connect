@@ -223,7 +223,7 @@ async function reconcileEntitlements(
     await context.db.query(
       `INSERT INTO audit_events
          (id, user_id, event_type, subject_id, metadata)
-       VALUES ($1, $2, 'entitlement.reconciled', $2, $3::jsonb)`,
+       VALUES ($1, $2, 'entitlement.reconciled', $4, $3::jsonb)`,
       [
         randomUUID(),
         userId,
@@ -233,7 +233,8 @@ async function reconcileEntitlements(
           operation_id: operationId,
           entitlement_revision: result.entitlementRevision,
           reconciled_collections: result.reconciledCollections
-        })
+        }),
+        userId
       ]
     );
   }
