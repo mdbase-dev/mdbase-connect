@@ -1013,28 +1013,24 @@ try {
   try {
     const inlineStorage = memoryStorage();
     let inlineAuthorizationUrl;
-    Object.defineProperty(globalThis, "location", {
-      configurable: true,
-      value: { assign: (value) => { inlineAuthorizationUrl = value; } }
-    });
     const inlineSdk = new MdbaseConnect({
       serverUrl: controlUrl,
       manifest: inlineManifest.manifestUrl,
       redirectUri: inlineManifest.redirectUri,
       storage: inlineStorage,
-      keyStore: new MemoryGrantKeyStore()
+      keyStore: new MemoryGrantKeyStore(),
+      navigate: (value) => { inlineAuthorizationUrl = value; }
     });
-    unwrapConnectOutcome(await inlineSdk.authorize({
+    const inlineAuthorization = inlineSdk.authorize({
       operations: ["describe", "read", "query", "create", "update"]
-    }));
+    });
     await waitFor(() => inlineAuthorizationUrl, "SDK did not start inline hosted authorization");
-    const inlineCallback = await authorizeHostedApplicationByCreating(
+    await authorizeHostedApplicationByCreating(
       inlineAuthorizationUrl,
-      emptyCookie,
-      inlineManifest.origin
+      emptyCookie
     );
     const { connection: inlineConnection } = unwrapConnectOutcome(
-      await inlineSdk.completeAuthorization(inlineCallback)
+      await inlineAuthorization
     );
     const inlineToken = inlineStorage.token();
     assert.equal(
@@ -1073,32 +1069,28 @@ try {
   manifestServer = manifest.server;
   const storage = memoryStorage();
   let authorizationUrl;
-  Object.defineProperty(globalThis, "location", {
-    configurable: true,
-    value: { assign: (value) => { authorizationUrl = value; } }
-  });
   const hostedSdk = new MdbaseConnect({
     serverUrl: controlUrl,
     manifest: manifest.manifestUrl,
     redirectUri: manifest.redirectUri,
     storage,
-    keyStore: new MemoryGrantKeyStore()
+    keyStore: new MemoryGrantKeyStore(),
+    navigate: (value) => { authorizationUrl = value; }
   });
-  unwrapConnectOutcome(await hostedSdk.authorize({
+  const hostedAuthorization = hostedSdk.authorize({
     operations: [
       "describe", "changes", "read", "query", "list_views", "execute_view",
       "create", "update", "delete", "rename", "create_type"
     ]
-  }));
+  });
   await waitFor(() => authorizationUrl, "SDK did not start hosted authorization");
-  const callbackUrl = await authorizeHostedApplication(
+  await authorizeHostedApplication(
     authorizationUrl,
     cookie,
-    genericCollectionId,
-    manifest.origin
+    genericCollectionId
   );
   const { connection: hostedConnection } = unwrapConnectOutcome(
-    await hostedSdk.completeAuthorization(callbackUrl)
+    await hostedAuthorization
   );
   const storedHostedToken = storage.token();
   assert.equal(
@@ -3622,7 +3614,7 @@ async function countMarkdownFiles(root) {
   return count;
 }
 
-async function authorizeHostedApplication(authorizationUrl, cookie, collectionId, callbackOrigin) {
+async function authorizeHostedApplication(authorizationUrl, cookie, collectionId) {
   const browser = await chromium.launch({ headless: true });
   try {
     const separator = cookie.indexOf("=");
@@ -3646,21 +3638,19 @@ async function authorizeHostedApplication(authorizationUrl, cookie, collectionId
     await expect(page.getByRole("button", { name: "Create hosted collection" })).toBeVisible();
     await page.getByRole("button", { name: "Allow Hosted SDK E2E" }).click();
     const outcome = await Promise.race([
-      page.waitForURL(
-        (url) => url.origin === callbackOrigin && url.searchParams.has("code")
-      ).then(() => "approved"),
+      page.getByText("Access approved", { exact: true })
+        .waitFor({ state: "visible" }).then(() => "approved"),
       page.locator(".message.error").waitFor({ state: "visible" }).then(() => "error")
     ]);
     if (outcome === "error") {
       throw new Error(`Hosted authorization failed: ${await page.locator(".message.error").innerText()}`);
     }
-    return page.url();
   } finally {
     await browser.close();
   }
 }
 
-async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, callbackOrigin) {
+async function authorizeHostedApplicationByCreating(authorizationUrl, cookie) {
   const browser = await chromium.launch({ headless: true });
   try {
     const separator = cookie.indexOf("=");
@@ -3691,8 +3681,7 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie, ca
       name: /Add Workout Inline E2E’s starter type/
     })).toBeChecked();
     await page.getByRole("button", { name: "Set up and allow Workout Inline E2E" }).click();
-    await page.waitForURL((url) => url.origin === callbackOrigin && url.searchParams.has("code"));
-    return page.url();
+    await expect(page.getByText("Access approved", { exact: true })).toBeVisible();
   } finally {
     await browser.close();
   }
