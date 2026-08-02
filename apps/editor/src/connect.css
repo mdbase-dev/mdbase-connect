@@ -50,7 +50,7 @@
   margin: 0 10px 7px;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -163,8 +163,8 @@
   white-space: nowrap;
 }
 
-.connect-rail-account strong { font-size: 0.75rem; }
-.connect-rail-account small { color: var(--faint); font-size: 0.66rem; }
+.connect-rail-account strong { font-size: 0.8rem; }
+.connect-rail-account small { color: var(--faint); font-size: 0.75rem; }
 
 .connect-pending-banner {
   width: min(734px, calc(100% - 116px));
@@ -184,8 +184,8 @@
 .connect-pending-banner > svg { width: 16px; height: 16px; }
 .connect-pending-banner > span { min-width: 0; display: grid; gap: 2px; }
 .connect-pending-banner strong { font-size: 0.76rem; }
-.connect-pending-banner small { color: var(--muted); font-size: 0.68rem; }
-.connect-pending-banner b { color: var(--accent-strong); font-size: 0.7rem; white-space: nowrap; }
+.connect-pending-banner small { color: var(--muted); font-size: 0.75rem; }
+.connect-pending-banner b { color: var(--accent-strong); font-size: 0.75rem; white-space: nowrap; }
 
 .connect-main {
   min-width: 0;
@@ -672,9 +672,9 @@ button.danger:disabled {
   gap: 2px;
 }
 
-.connect-account-row strong { font-size: 12px; }
-.connect-account-row small { color: var(--muted); font-size: 10px; }
-.connect-account-row > span { color: var(--muted); font-size: 11px; text-align: right; }
+.connect-account-row strong { font-size: 0.82rem; }
+.connect-account-row small { color: var(--muted); font-size: 0.75rem; line-height: 1.4; }
+.connect-account-row > span { color: var(--muted); font-size: 0.75rem; text-align: right; }
 
 .connect-account-actions {
   display: flex;
@@ -686,7 +686,7 @@ button.danger:disabled {
 
 .connect-account-action,
 .connect-account-danger {
-  min-height: 32px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -811,7 +811,7 @@ button.danger:disabled {
   color: var(--muted);
   background: var(--white);
   font-family: var(--mono);
-  font-size: 0.66rem;
+  font-size: 0.75rem;
 }
 
 .connect-deleted-account {
@@ -828,15 +828,6 @@ button.danger:disabled {
   padding: 42px;
   border: 1px solid var(--line);
   background: var(--white);
-}
-
-.connect-deleted-account p {
-  margin: 0 0 10px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 .connect-deleted-account h1 { margin: 0; font-size: 27px; }
@@ -1032,8 +1023,8 @@ button.danger:disabled {
   }
 
   .connect-shell > .collection-rail .connection-footer {
-    width: 34px;
-    min-height: 34px;
+    width: 44px;
+    min-height: 44px;
     display: block;
     padding: 0;
     border: 0;
@@ -1045,8 +1036,8 @@ button.danger:disabled {
   }
 
   .connect-rail-account {
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     display: grid;
     grid-template-columns: 1fr;
     padding: 2px;
@@ -1090,7 +1081,7 @@ button.danger:disabled {
 
   .connect-mobile-nav-toggle small {
     color: var(--faint);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   .connect-nav > nav {

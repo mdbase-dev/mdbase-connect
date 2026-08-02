@@ -5,7 +5,7 @@ import {
   type ConnectManagementClient,
   type ManagementOverview
 } from "@mdbase/connect-management";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ConnectEmpty as Empty,
   ConnectPage as Page,
@@ -23,7 +23,8 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   const [account, setAccount] = useState<AccountData>();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState("");
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const busyRef = useRef(new Set<string>());
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -64,7 +65,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }, []);
 
   async function run(id: string, action: () => Promise<void>, success?: string): Promise<boolean> {
-    setBusy(id);
+    if (!beginOperation(id)) return false;
     setError("");
     setNotice("");
     try {
@@ -76,8 +77,20 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       setError(errorMessage(reason));
       return false;
     } finally {
-      setBusy("");
+      finishOperation(id);
     }
+  }
+
+  function beginOperation(id: string): boolean {
+    if (busyRef.current.has(id)) return false;
+    busyRef.current.add(id);
+    setBusy(new Set(busyRef.current));
+    return true;
+  }
+
+  function finishOperation(id: string): void {
+    busyRef.current.delete(id);
+    setBusy(new Set(busyRef.current));
   }
 
   async function changePassword(event: FormEvent) {
@@ -98,7 +111,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
   async function deleteAccount(event: FormEvent) {
     event.preventDefault();
-    setBusy("delete");
+    if (!beginOperation("delete")) return;
     setError("");
     try {
       await client.deleteAccount({
@@ -115,7 +128,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       onDeleted();
     } catch (reason) {
       setError(errorMessage(reason));
-      setBusy("");
+      finishOperation("delete");
     }
   }
 
@@ -167,7 +180,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
               {!identity && provider === "github" && <a className="connect-account-action" href={client.githubAccountFlowUrl("link")}>Connect</a>}
               {!identity && provider === "google" && googleAction !== "link" && <button className="connect-account-action" onClick={() => setGoogleAction("link")}>Connect</button>}
               {!identity && provider === "google" && googleAction === "link" && <GoogleIdentityButton client={client} purpose="link" onComplete={googleCompleted} onError={googleFailed} />}
-              {identity && <button className="connect-account-action" disabled={!identity.removable || busy === `disconnect-${provider}`} title={!identity.removable ? identity.current ? "This method is used by the current session." : "This is your only sign-in method." : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), `${providerLabel(provider)} disconnected.`)}>{busy === `disconnect-${provider}` ? "Disconnecting…" : "Disconnect"}</button>}
+              {identity && <button className="connect-account-action" disabled={!identity.removable || busy.has(`disconnect-${provider}`)} title={!identity.removable ? identity.current ? "This method is used by the current session." : "This is your only sign-in method." : undefined} onClick={() => void run(`disconnect-${provider}`, () => client.disconnectIdentity(provider), `${providerLabel(provider)} disconnected.`)}>{busy.has(`disconnect-${provider}`) ? "Disconnecting…" : "Disconnect"}</button>}
             </div>
           </div>;
         })}
@@ -180,19 +193,19 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
             <label><span>New password</span><input type="password" autoComplete="new-password" minLength={15} required aria-describedby="account-password-guidance" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
             <p className="connect-muted" id="account-password-guidance">Use at least 15 characters. Spaces are welcome.</p>
             <label><span>Confirm new password</span><input type="password" autoComplete="new-password" minLength={15} required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></label>
-            <button className="connect-primary-action" disabled={busy === "password"}>{busy === "password" ? "Changing password…" : "Change password"}</button>
+            <button className="connect-primary-action" disabled={busy.has("password")}>{busy.has("password") ? "Changing password…" : "Change password"}</button>
           </form>}
         </div>}
       </div>}
     </section>
 
     {account.authentication.managed && <section>
-      <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy === "sessions-others"} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
+      <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
       {!sessions && <p className="connect-muted">Checking active sessions…</p>}
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
         <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small></div>
         <span>{providerLabel(session.provider)}</span>
-        {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy === `session-${session.id}`} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
+        {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
       </div>)}
       <button className="connect-sign-out" onClick={() => void client.logout().then(() => { location.href = loginUrl(client); })}>Sign out of this browser</button>
     </section>}
@@ -222,14 +235,14 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         </div>}
         {reauthenticationToken && <p className="connect-current" role="status">Identity confirmed for this deletion.</p>}
         <label><span>Type DELETE to confirm</span><input autoComplete="off" spellCheck={false} value={deletionConfirmation} onChange={(event) => setDeletionConfirmation(event.target.value)} /></label>
-        <div className="connect-account-actions"><button type="button" className="connect-account-action" disabled={busy === "delete"} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}>Cancel</button><button className="connect-account-danger" disabled={busy === "delete" || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy === "delete" ? "Deleting account…" : "Delete account permanently"}</button></div>
+        <div className="connect-account-actions"><button type="button" className="connect-account-action" disabled={busy.has("delete")} onClick={() => { setDeletionOpen(false); setDeletionConfirmation(""); setDeletionPassword(""); }}>Cancel</button><button className="connect-account-danger" disabled={busy.has("delete") || deletionConfirmation !== "DELETE" || !deletionAuthorized}>{busy.has("delete") ? "Deleting account…" : "Delete account permanently"}</button></div>
       </form>}
     </section>
   </Page>;
 }
 
 export function DeletedAccount({ client }: { client: ConnectManagementClient }) {
-  return <main className="connect-deleted-account"><div><p>Account deleted</p><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
+  return <main className="connect-deleted-account"><div><h1>Your account has been deleted.</h1><span>Hosted data and access credentials were removed. Any local collection and mirror files remain on your computers.</span><a className="connect-account-action" href={new URL("/login", client.baseUrl).href}>Return to sign in</a></div></main>;
 }
 
 function StorageRow({ collection }: { collection: AccountData["storage"]["collections"][number] }) {

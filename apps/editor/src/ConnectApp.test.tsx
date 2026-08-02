@@ -60,6 +60,8 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("link", { name: "Storage & sync" }));
     await waitFor(() => expect(location.pathname).toBe("/connect/storage"));
     expect(screen.getByRole("heading", { name: "Storage & sync" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Storage & sync" })).toHaveFocus();
+    expect(document.title).toBe("Storage & sync - mdbase connect");
   });
 
   it("opens the only collection directly and records its context in the URL", async () => {
@@ -124,6 +126,39 @@ describe("ConnectApp", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
     expect(input).toHaveValue("Field notes");
     expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+  });
+
+  it("renames inline and confirms destructive collection actions in the page", async () => {
+    overview.hosted_collections = [hostedCollection()];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "All collections" }));
+
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    const rename = screen.getByLabelText("Rename Hosted research");
+    await user.clear(rename);
+    await user.type(rename, "Shared research");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByLabelText("Rename Hosted research")).not.toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH" && init.body === JSON.stringify({ display_name: "Shared research" }))).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("group", { name: /Delete Hosted research and all of its hosted data/ })).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
+  });
+
+  it("offers recovery actions when no computer is connected", async () => {
+    overview.connectors = [];
+    overview.collections = [];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "Computers" }));
+
+    expect(await screen.findByText("No computers connected")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.getByRole("link", { name: "Install the latest release" })).toHaveAttribute("href", "https://github.com/mdbase-dev/mdbase-connect/releases/latest");
   });
 
   it("shows each pending request once and describes application access plainly", async () => {
@@ -239,6 +274,22 @@ function secondCollection(): ManagementOverview["collections"][number] {
   return {
     id: "collection-two", connector_id: "computer", local_id: "local-two", connector_name: "Home computer",
     display_name: "Research notes", spec_version: "1", enabled: true, contracts: [], last_seen_at: new Date().toISOString()
+  };
+}
+
+function hostedCollection(): ManagementOverview["hosted_collections"][number] {
+  return {
+    id: "hosted",
+    display_name: "Hosted research",
+    template: "mdbase",
+    provider_url: "https://storage.example",
+    spec_version: "1",
+    contracts: [],
+    authority_state: "active",
+    authority_epoch: 1,
+    transferred_collection_id: null,
+    created_at: new Date().toISOString(),
+    replicas: []
   };
 }
 
