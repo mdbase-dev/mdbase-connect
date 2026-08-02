@@ -862,7 +862,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           </div>
           <div className="portal-connection-actions">
             <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage account in portal</button>
-            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Disconnect this computer from your account? Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Disconnect computer</button>
+            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Forget this account on this computer? This removes the saved account credential from this computer. Connecting again will create a new computer entry. Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Forget account on this computer…</button>
           </div>
         </section>
       )}
