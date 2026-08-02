@@ -169,6 +169,31 @@ describe("invite-only password accounts", () => {
     expect(entitlement.rows[0]?.provider_account_id).toMatch(
       /^[0-9a-f-]{36}$/u
     );
+    const welcome = await db.query<{
+      message_kind: string;
+      template_version: number;
+      category: string;
+      state: string;
+      scheduled_for: Date;
+      created_at: Date;
+    }>(
+      `SELECT message_kind, template_version, category, state,
+              scheduled_for, created_at
+       FROM email_jobs WHERE user_id = $1`,
+      [accepted.user.id]
+    );
+    expect(welcome.rows).toHaveLength(1);
+    expect(welcome.rows[0]).toMatchObject({
+      message_kind: "beta_welcome",
+      template_version: 1,
+      category: "onboarding",
+      state: "scheduled"
+    });
+    const welcomeDelayMs =
+      welcome.rows[0]!.scheduled_for.getTime()
+        - welcome.rows[0]!.created_at.getTime();
+    expect(welcomeDelayMs).toBeGreaterThanOrEqual(86_399_000);
+    expect(welcomeDelayMs).toBeLessThanOrEqual(86_401_000);
   });
 
   it("supports password login without exposing unknown, wrong, or suspended accounts", async () => {

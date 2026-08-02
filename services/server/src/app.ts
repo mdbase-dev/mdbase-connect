@@ -13,6 +13,8 @@ import { AuthenticationPolicyStore } from "./authentication-policy.js";
 import type { DatabasePool } from "./db.js";
 import type { EmailTransport } from "./email.js";
 import { registerResendWebhookRoute } from "./email-provider-webhooks.js";
+import { renderScheduledEmail } from "./beta-welcome-email.js";
+import { ScheduledEmailWorker } from "./scheduled-email.js";
 import type { GitHubAuthConfig } from "./github-auth.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { HostedAuthorityRegistry } from "./hosted.js";
@@ -115,6 +117,18 @@ export async function buildApp(options: BuildOptions) {
         (error) => app.log.error({ err: error }, "notification delivery worker failed")
       )
     : undefined;
+  const scheduledEmails = options.emailTransport
+    ? new ScheduledEmailWorker(
+        options.db,
+        options.emailTransport,
+        renderScheduledEmail,
+        undefined,
+        (error) => app.log.error(
+          { err: error },
+          "scheduled email delivery worker failed"
+        )
+      )
+    : undefined;
   if (options.hostedProvider && options.hostedReferenceAuthority) {
     throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
   }
@@ -182,6 +196,7 @@ export async function buildApp(options: BuildOptions) {
   );
 
   app.addHook("onClose", async () => {
+    await scheduledEmails?.close();
     await providerRevocations?.close();
     await notifications?.close();
     await relay.close();
@@ -405,6 +420,8 @@ export async function buildApp(options: BuildOptions) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     });
   }
+
+  scheduledEmails?.start();
 
   return { app, relay };
 }

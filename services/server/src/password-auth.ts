@@ -18,9 +18,11 @@ import {
 } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
 import {
+  BETA_ENTITLEMENT_PROFILE,
   attachInvitationEntitlement,
   materializeInvitationEntitlement
 } from "./entitlements.js";
+import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;
@@ -342,6 +344,12 @@ export class PasswordAccountService {
         row.id,
         row.entitlement_profile
       );
+      if (row.entitlement_profile === BETA_ENTITLEMENT_PROFILE) {
+        await scheduleBetaWelcomeEmail(connection, {
+          userId,
+          emailIdentityId
+        });
+      }
       await connection.query(
         `INSERT INTO sessions
            (id, user_id, token_hash, provider, account_session_epoch,
