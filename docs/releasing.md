@@ -114,9 +114,9 @@ and production; tag creation never rebuilds them.
 The tag must exactly match every package and the Rust workspace version:
 
 ```bash
-pnpm version:check v0.1.0-beta.22
-git tag -a v0.1.0-beta.22 -m "mdbase connect 0.1.0-beta.22"
-git push origin v0.1.0-beta.22
+pnpm version:check v0.1.0-beta.23
+git tag -a v0.1.0-beta.23 -m "mdbase connect 0.1.0-beta.23"
+git push origin v0.1.0-beta.23
 ```
 
 The tag starts the only full desktop build. The four platform builders do not
