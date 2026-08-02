@@ -25,7 +25,7 @@ pub use first_contact::*;
 pub use relay::*;
 pub use sync::*;
 pub const CONTROL_PROTOCOL_VERSION: u32 = 1;
-pub const LOCAL_CONTROL_PROTOCOL_VERSION: u32 = 1;
+pub const LOCAL_CONTROL_PROTOCOL_VERSION: u32 = 2;
 pub const ENCRYPTED_RELAY_PROTOCOL_VERSION: u32 = 1;
 pub const FIRST_CONTACT_PROTOCOL_VERSION: u32 = 1;
 pub const LOOPBACK_PROTOCOL_VERSION: u32 = 1;

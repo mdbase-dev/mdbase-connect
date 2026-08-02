@@ -54,6 +54,16 @@ pub enum ControlCommand {
     AccessSnapshot,
     #[serde(rename = "access.pause")]
     AccessPause(AccessPauseParams),
+    #[serde(rename = "application-trust.snapshot")]
+    ApplicationTrustSnapshot,
+    #[serde(rename = "application-trust.show")]
+    ApplicationTrustShow(ApplicationTrustIdParams),
+    #[serde(rename = "application-trust.accept")]
+    ApplicationTrustAccept(ApplicationTrustAcceptParams),
+    #[serde(rename = "application-trust.reject")]
+    ApplicationTrustReject(ApplicationTrustRequestIdParams),
+    #[serde(rename = "application-trust.revoke")]
+    ApplicationTrustRevoke(ApplicationTrustIdParams),
     #[serde(rename = "account.rename-computer")]
     AccountRenameComputer(ComputerNameParams),
     #[serde(rename = "account.configure")]
@@ -162,6 +172,22 @@ pub struct CollectionOperationParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessPauseParams {
     pub paused: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplicationTrustIdParams {
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplicationTrustRequestIdParams {
+    pub request_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplicationTrustAcceptParams {
+    pub request_id: Uuid,
+    pub authentication_string: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

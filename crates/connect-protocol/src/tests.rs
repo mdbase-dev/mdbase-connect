@@ -323,7 +323,7 @@ fn control_request_has_stable_wire_shape() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "method": "collections.list"
         })
     );
@@ -383,7 +383,7 @@ fn copied_collection_registration_has_an_explicit_wire_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "method": "collections.add-copy",
             "params": { "path": "/collections/notes-copy" }
         })
@@ -408,7 +408,7 @@ fn mirror_file_preferences_have_an_explicit_control_command() {
         serde_json::to_value(request).unwrap(),
         serde_json::json!({
             "id": "00000000-0000-0000-0000-000000000000",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "method": "mirrors.configure-selective-sync",
             "params": {
                 "replica_id": replica_id,

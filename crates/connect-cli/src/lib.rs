@@ -19,7 +19,8 @@ use mdbase_connect_core::{
 };
 use mdbase_connect_daemon::{run as run_daemon, DaemonOptions};
 use mdbase_connect_protocol::{
-    AccessPauseParams, ActivityListParams, AuthorityTarget, AuthorizationApproveParams,
+    AccessPauseParams, ActivityListParams, ApplicationTrustAcceptParams, ApplicationTrustIdParams,
+    ApplicationTrustRequestIdParams, AuthorityTarget, AuthorizationApproveParams,
     AuthorizationIdParams, CollectionAuthorityTransferParams, CollectionCreateParams,
     CollectionIdParams, CollectionOperationParams, CollectionPathParams, ControlCommand,
     ControlRequest, ControlResponse, FileMediaClass, GrantIdParams, GrantUpdateParams,
@@ -189,6 +190,10 @@ enum ConnectCommand {
     #[command(subcommand)]
     Access(AccessCommand),
 
+    /// Verify and manage trusted application installations.
+    #[command(subcommand)]
+    Trust(TrustCommand),
+
     /// Show recent privacy-minimal connector activity.
     Activity {
         #[arg(long, default_value_t = 100)]
@@ -271,6 +276,24 @@ enum AccessCommand {
     Revoke {
         grant_id: Uuid,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum TrustCommand {
+    /// List pending first-contact requests and trusted applications.
+    List,
+    /// Show one pending request or trusted application by exact ID.
+    Show { id: Uuid },
+    /// Trust an application after comparing its displayed authentication string.
+    Accept {
+        request_id: Uuid,
+        #[arg(long, value_name = "XXXX-XXXX")]
+        code: String,
+    },
+    /// Reject a pending first-contact request.
+    Reject { request_id: Uuid },
+    /// Revoke an established application trust.
+    Revoke { trust_id: Uuid },
 }
 
 #[derive(Debug, Subcommand)]

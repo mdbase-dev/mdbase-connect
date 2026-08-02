@@ -42,6 +42,7 @@ mod account;
 mod control;
 mod files;
 mod operations;
+mod trust;
 
 impl AgentState {
     #[cfg(test)]

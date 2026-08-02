@@ -65,6 +65,8 @@ pub(super) enum OutputKind {
     Collections,
     Collection,
     Access,
+    TrustList,
+    TrustDetail,
     Activity,
     Account,
     Mirrors,
@@ -172,6 +174,8 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
                 grants.len()
             )
         }
+        OutputKind::TrustList => render_trust_list(value),
+        OutputKind::TrustDetail => render_trust_detail(value),
         OutputKind::Activity => render_rows(
             value.as_array().map(Vec::as_slice).unwrap_or(&[]),
             &["TIME", "ACTION", "OUTCOME"],
@@ -233,6 +237,78 @@ pub(super) fn render_human(kind: OutputKind, value: &Value) -> String {
             }
         }
     }
+}
+
+fn render_trust_list(value: &Value) -> String {
+    let mut rows = Vec::new();
+    if let Some(pending) = value["pending"].as_array() {
+        rows.extend(pending.iter().map(|trust| {
+            serde_json::json!({
+                "application": trust.pointer("/presentation/application_name")
+                    .and_then(Value::as_str).unwrap_or("Application"),
+                "state": "pending",
+                "code": trust["authentication_string"],
+                "id": trust["request_id"],
+            })
+        }));
+    }
+    if let Some(trusted) = value["trusted"].as_array() {
+        rows.extend(trusted.iter().map(|trust| {
+            serde_json::json!({
+                "application": trust.pointer("/presentation/application_name")
+                    .and_then(Value::as_str).unwrap_or("Application"),
+                "state": "trusted",
+                "code": "—",
+                "id": trust["id"],
+            })
+        }));
+    }
+    render_rows(
+        &rows,
+        &["APPLICATION", "STATE", "CODE", "ID"],
+        |item| {
+            vec![
+                text(item, "application"),
+                text(item, "state"),
+                text(item, "code"),
+                text(item, "id"),
+            ]
+        },
+        "No pending or trusted application installations.",
+    )
+}
+
+fn render_trust_detail(value: &Value) -> String {
+    let state = value["state"].as_str().unwrap_or("unknown");
+    let trust = value.get("trust").unwrap_or(value);
+    let presentation = trust.get("presentation").unwrap_or(&Value::Null);
+    let binding = trust.get("binding").unwrap_or(&Value::Null);
+    let id = if state == "pending" {
+        text(trust, "request_id")
+    } else {
+        text(trust, "id")
+    };
+    let mut lines = vec![
+        format!("Application: {}", text(presentation, "application_name")),
+        format!("State: {state}"),
+        format!("ID: {id}"),
+        format!(
+            "Installation: {}",
+            text(binding, "application_installation_id")
+        ),
+        format!("Connector: {}", text(binding, "connector_id")),
+    ];
+    if state == "pending" {
+        lines.push(format!(
+            "Authentication string: {}",
+            text(trust, "authentication_string")
+        ));
+        lines.push(format!("Expires: {}", text(trust, "expires_at")));
+    } else {
+        lines.push(format!("Trusted: {}", text(trust, "trusted_at")));
+        lines.push(format!("Last used: {}", text(trust, "last_used_at")));
+    }
+    lines.join("\n")
 }
 
 fn mirror_selective_sync(value: &Value) -> String {

@@ -134,6 +134,19 @@ pub struct ApplicationTrust {
     pub last_used_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingApplicationTrust {
+    #[serde(flatten)]
+    pub request: ApplicationTrustRequest,
+    pub authentication_string: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationTrustSnapshot {
+    pub pending: Vec<PendingApplicationTrust>,
+    pub trusted: Vec<ApplicationTrust>,
+}
+
 struct ValidatedKeys {
     application_agreement: Vec<u8>,
     application_signing: Vec<u8>,

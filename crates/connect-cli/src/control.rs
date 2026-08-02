@@ -202,6 +202,29 @@ pub(super) fn control_command(
             ControlCommand::GrantRevoke(GrantIdParams { grant_id }),
             OutputKind::Generic,
         ),
+        ConnectCommand::Trust(TrustCommand::List) => (
+            ControlCommand::ApplicationTrustSnapshot,
+            OutputKind::TrustList,
+        ),
+        ConnectCommand::Trust(TrustCommand::Show { id }) => (
+            ControlCommand::ApplicationTrustShow(ApplicationTrustIdParams { id }),
+            OutputKind::TrustDetail,
+        ),
+        ConnectCommand::Trust(TrustCommand::Accept { request_id, code }) => (
+            ControlCommand::ApplicationTrustAccept(ApplicationTrustAcceptParams {
+                request_id,
+                authentication_string: code,
+            }),
+            OutputKind::TrustDetail,
+        ),
+        ConnectCommand::Trust(TrustCommand::Reject { request_id }) => (
+            ControlCommand::ApplicationTrustReject(ApplicationTrustRequestIdParams { request_id }),
+            OutputKind::Generic,
+        ),
+        ConnectCommand::Trust(TrustCommand::Revoke { trust_id }) => (
+            ControlCommand::ApplicationTrustRevoke(ApplicationTrustIdParams { id: trust_id }),
+            OutputKind::Generic,
+        ),
         ConnectCommand::Activity { limit } => (
             ControlCommand::ActivityList(ActivityListParams {
                 limit: limit.clamp(1, 500),
