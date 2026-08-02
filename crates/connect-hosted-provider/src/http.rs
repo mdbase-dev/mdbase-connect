@@ -1027,12 +1027,14 @@ mod tests {
     fn collection_creation_requires_a_display_name() {
         assert!(
             serde_json::from_value::<CreateCollectionRequest>(serde_json::json!({
+                "account_id": Uuid::new_v4(),
                 "collection_id": Uuid::new_v4(),
                 "template": "tasknotes"
             }))
             .is_err()
         );
         let input: CreateCollectionRequest = serde_json::from_value(serde_json::json!({
+            "account_id": Uuid::new_v4(),
             "collection_id": Uuid::new_v4(),
             "template": "mdbase",
             "display_name": "Worklog"
