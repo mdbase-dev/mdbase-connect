@@ -91,6 +91,41 @@ describe("ConnectApp", () => {
     await waitFor(() => expect(new URLSearchParams(location.search).get("collection")).toBe("collection-two"));
   });
 
+  it("does not claim an enabled collection is connected when its computer is offline", async () => {
+    overview.connectors[0].last_seen_at = new Date(Date.now() - 60_000).toISOString();
+    render(<ConnectApp />);
+
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
+    expect(screen.getByText("Open mdbase connect on Home computer to make this collection available.")).toBeInTheDocument();
+    expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
+  });
+
+  it("keeps collection input open after a failed creation", async () => {
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("button", { name: "All collections" }));
+    await user.click(await screen.findByRole("button", { name: "New hosted collection" }));
+
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/hosted/collections" && init?.method === "POST") {
+        return Promise.resolve(Response.json({ error: { message: "Storage is temporarily unavailable." } }, { status: 503 }));
+      }
+      return originalFetch(input, init);
+    });
+    const input = screen.getByLabelText("Collection name");
+    await user.clear(input);
+    await user.type(input, "Field notes");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
+    expect(input).toHaveValue("Field notes");
+    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+  });
+
   it("shows each pending request once and describes application access plainly", async () => {
     const now = new Date().toISOString();
     overview.pending_authorizations = [{
