@@ -241,7 +241,7 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Permanent allowance")).toBeInTheDocument();
     expect(screen.getByText("10 MB of 1 GB")).toBeInTheDocument();
     expect(screen.getByText("4 KB Markdown · 10 MB files")).toBeInTheDocument();
-    expect(screen.getByText("2 MB of 1 GB retained file storage")).toBeInTheDocument();
+    expect(screen.getByText("2 MB of 2 GB retained file storage")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument();
     expect(screen.getByText("Local collection files stay on your computers and are not measured here.")).toBeInTheDocument();
 
@@ -265,7 +265,7 @@ function overviewFixture(): ManagementOverview {
       permanent: true,
       limits: {
         hosted_storage_bytes: 1_073_741_824,
-        retained_file_bytes: 1_073_741_824,
+        retained_file_bytes: 2_147_483_648,
         max_document_bytes: 2_097_152,
         max_single_file_bytes: 262_144_000,
         max_replicas_per_collection: 10,

@@ -65,6 +65,7 @@
   border-radius: 6px;
   color: var(--muted);
   text-align: left;
+  text-decoration: none;
 }
 
 .connect-nav > nav > .connect-nav-group > a span,
@@ -93,10 +94,6 @@
 
 .connect-nav > nav > .connect-nav-group > a.selected strong {
   font-weight: 700;
-}
-
-.connect-nav > nav > .connect-nav-group > a {
-  text-decoration: none;
 }
 
 .connect-avatar {
@@ -746,10 +743,6 @@ button.danger:disabled {
   font-weight: 400;
 }
 
-.connect-storage-row {
-  grid-template-columns: minmax(190px, 1fr) minmax(112px, 190px);
-}
-
 .connect-storage-progress {
   height: 4px;
   overflow: hidden;
@@ -1150,7 +1143,6 @@ button.danger:disabled {
   }
 
   .connect-account-row,
-  .connect-storage-row,
   .connect-account-row-main {
     grid-template-columns: 1fr;
     gap: 8px;

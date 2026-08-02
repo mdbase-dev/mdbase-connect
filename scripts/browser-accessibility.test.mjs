@@ -89,7 +89,7 @@ async function auditEditorConnect() {
             permanent: true,
             limits: {
               hosted_storage_bytes: 1_073_741_824,
-              retained_file_bytes: 1_073_741_824,
+              retained_file_bytes: 2_147_483_648,
               max_document_bytes: 2_097_152,
               max_single_file_bytes: 262_144_000,
               max_replicas_per_collection: 10,
