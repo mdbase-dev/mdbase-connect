@@ -22,14 +22,18 @@ function fail(message) {
   throw new Error(message);
 }
 
-function run(command, args) {
+function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     stdio: "pipe",
-    timeout: 30_000
+    timeout: 30_000,
+    ...options
   });
   if (result.error || result.status !== 0) {
-    fail(`Command failed while packaging the headless CLI: ${basename(command)} ${args.join(" ")}`);
+    const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`;
+    fail(
+      `Command failed while packaging the headless CLI: ${basename(command)} ${args.join(" ")} (${detail})`
+    );
   }
 }
 
@@ -88,7 +92,12 @@ export async function packageHeadlessCli({
         throw error;
       }
     }
-    run("tar", ["-czf", artifactPath, "-C", temporaryRoot, packageName]);
+    // Keep native Windows drive-qualified paths away from bsdtar's command line;
+    // some builds interpret the colon as remote-archive syntax. Create the archive
+    // beside the package using simple relative names, then copy it atomically.
+    const temporaryArtifact = join(temporaryRoot, artifactName);
+    run("tar", ["-czf", artifactName, packageName], { cwd: temporaryRoot });
+    await copyFile(temporaryArtifact, artifactPath, constants.COPYFILE_EXCL);
     const artifact = await stat(artifactPath);
     if (!artifact.isFile() || artifact.size === 0) {
       fail("The headless CLI archive is empty.");
