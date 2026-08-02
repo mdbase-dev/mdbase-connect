@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AccountData, ManagementOverview } from "@mdbase/connect-management";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,7 +22,11 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("ConnectApp", () => {
   it("opens account management without requesting a collection grant", async () => {
@@ -101,6 +105,26 @@ describe("ConnectApp", () => {
     expect(screen.getAllByText("Offline").length).toBeGreaterThan(0);
     expect(screen.getByText("Open mdbase connect on Home computer to make this collection available.")).toBeInTheDocument();
     expect(screen.queryByText("The editor can reach this collection now.")).not.toBeInTheDocument();
+  });
+
+  it("pauses background refresh while the page is hidden and refreshes on return", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.useFakeTimers();
+    render(<ConnectApp />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const overviewCalls = () => vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/v1/me").length;
+    expect(overviewCalls()).toBe(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(overviewCalls()).toBe(1);
+
+    visibility.mockReturnValue("visible");
+    await act(async () => {
+      fireEvent(document, new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(overviewCalls()).toBe(2);
   });
 
   it("keeps collection input open after a failed creation", async () => {
