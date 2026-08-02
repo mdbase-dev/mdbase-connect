@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import {
   AuthenticationPolicyStore,
@@ -183,7 +184,12 @@ async function reconcileEntitlements(
       "Entitlement reconciliation requires a configured hosted provider."
     );
   }
-  const flags = parseFlags(argv, new Set(["user", "all"]));
+  const flags = parseFlags(argv, new Set([
+    "user", "all", "operation-id", "actor", "reason"
+  ]));
+  const operationId = requiredFlag(flags, "operation-id");
+  const actor = requiredFlag(flags, "actor");
+  const reason = requiredFlag(flags, "reason");
   const all = flags.has("all")
     && enabledFlag(requiredFlag(flags, "all"), "all");
   if (all === flags.has("user")) {
@@ -214,8 +220,24 @@ async function reconcileEntitlements(
       reconciled_collections: result.reconciledCollections,
       usage: result.usage
     });
+    await context.db.query(
+      `INSERT INTO audit_events
+         (id, user_id, event_type, subject_id, metadata)
+       VALUES ($1, $2, 'entitlement.reconciled', $2, $3::jsonb)`,
+      [
+        randomUUID(),
+        userId,
+        JSON.stringify({
+          actor,
+          reason,
+          operation_id: operationId,
+          entitlement_revision: result.entitlementRevision,
+          reconciled_collections: result.reconciledCollections
+        })
+      ]
+    );
   }
-  return { reconciled };
+  return { operation_id: operationId, reconciled };
 }
 
 export class AuthAdminUsageError extends Error {
@@ -903,7 +925,7 @@ export function usage(): string {
     "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled)",
+    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
     "  auth-admin users show --user <uuid|email>",
     "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
