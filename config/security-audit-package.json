@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 1,
+  "status": "internal-preparation",
+  "asOf": "2026-08-03",
+  "independentReview": false,
+  "scope": {
+    "repository": "mdbase-dev/mdbase-connect",
+    "included": [
+      "application authorization and first-contact trust",
+      "relay encryption and replay protection",
+      "local connector authorization",
+      "hosted-provider authorization and encryption",
+      "managed key wrapping and rotation",
+      "release artifact integrity"
+    ],
+    "excluded": [
+      "mdbase-rs collection semantics except where invoked at an authority boundary",
+      "cloud infrastructure implementation, which is maintained in the private mdbase-cloud-ops repository",
+      "an independent security assessment or penetration test"
+    ]
+  },
+  "trustBoundaries": [
+    {
+      "id": "application-authorization",
+      "title": "Application-signed authorization ceiling",
+      "authority": "The application installation signs the maximum requested authority; the portal may narrow it but cannot broaden it.",
+      "sources": [
+        "crates/connect-protocol/src/first_contact.rs",
+        "packages/protocol/src/application-authorization.ts",
+        "services/server/src/application-authorization.ts",
+        "services/server/src/features/authorizations/approval-service.ts"
+      ],
+      "tests": [
+        "crates/connect-protocol/src/tests.rs",
+        "services/server/src/application-authorization.test.ts",
+        "services/server/src/live-authorization.test.ts"
+      ],
+      "fixtures": [
+        "packages/protocol/test/fixtures/application-authorization-v1.json"
+      ]
+    },
+    {
+      "id": "first-contact-sas",
+      "title": "First-contact application-to-connector authentication",
+      "authority": "The application and connector derive the authentication string independently; only the local connector can persist installation trust.",
+      "sources": [
+        "crates/connect-protocol/src/first_contact.rs",
+        "packages/client/src/first-contact.ts",
+        "crates/connect-core/src/registry/application_trust.rs",
+        "crates/connect-agent/src/server/trust.rs"
+      ],
+      "tests": [
+        "packages/client/src/first-contact.test.ts",
+        "crates/connect-core/src/registry/tests/security_state.rs",
+        "crates/connect-agent/src/server/tests.rs"
+      ],
+      "fixtures": [
+        "packages/protocol/test/fixtures/first-contact-v1.json"
+      ]
+    },
+    {
+      "id": "relay-encryption",
+      "title": "Application-to-connector encrypted relay",
+      "authority": "The control plane routes authenticated ciphertext; the connector decrypts and then applies its exact local grant.",
+      "sources": [
+        "crates/connect-protocol/src/crypto.rs",
+        "packages/client/src/crypto.ts",
+        "services/server/src/relay.ts",
+        "crates/connect-agent/src/server/operations.rs"
+      ],
+      "tests": [
+        "packages/client/src/crypto.test.ts",
+        "crates/connect-protocol/src/tests.rs",
+        "scripts/relay-e2e.mjs"
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "local-policy",
+      "title": "Local connector policy enforcement",
+      "authority": "The user-owned connector is the final authorization and filesystem boundary for computer-owned collections.",
+      "sources": [
+        "crates/connect-core/src/registry/grants.rs",
+        "crates/connect-agent/src/server/operations.rs",
+        "crates/connect-agent/src/server/files.rs"
+      ],
+      "tests": [
+        "crates/connect-core/src/registry/tests/security_state.rs",
+        "crates/connect-agent/src/server/tests.rs",
+        "scripts/e2e.mjs"
+      ],
+      "fixtures": [
+        "packages/protocol/test/fixtures/file-frame-v1.json",
+        "packages/protocol/test/fixtures/relay-file-v1.json"
+      ]
+    },
+    {
+      "id": "control-plane-policy",
+      "title": "Control-plane authentication, consent, and routing",
+      "authority": "The portal selects and narrows grants; server routing checks cannot replace the final connector or hosted-provider check.",
+      "sources": [
+        "services/server/src/features/authorizations/routes.ts",
+        "services/server/src/features/authorizations/approval-service.ts",
+        "services/server/src/features/connectors/relay-route.ts",
+        "services/server/src/relay.ts"
+      ],
+      "tests": [
+        "services/server/src/live-authorization.test.ts",
+        "services/server/src/relay-broker.test.ts",
+        "scripts/relay-e2e.mjs"
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "hosted-encryption",
+      "title": "Hosted-provider authorization and content encryption",
+      "authority": "The hosted provider verifies the exact replica capability and proof before decrypting and executing through mdbase-rs.",
+      "sources": [
+        "crates/connect-hosted-provider/src/provider/capabilities.rs",
+        "crates/connect-hosted-provider/src/provider/crypto_state.rs",
+        "crates/connect-hosted-provider/src/symmetric_crypto.rs",
+        "services/server/src/authority-proof.ts"
+      ],
+      "tests": [
+        "crates/connect-hosted-provider/src/provider/tests.rs",
+        "services/server/src/authority-proof.test.ts",
+        "scripts/hosted-provider-e2e.mjs",
+        "scripts/hosted-files-e2e.mjs"
+      ],
+      "fixtures": [
+        "packages/protocol/test/fixtures/file-crypto-v1.json"
+      ]
+    },
+    {
+      "id": "managed-key-wrapping",
+      "title": "Hosted data-key wrapping",
+      "authority": "AWS KMS wraps only per-collection data keys under an exact environment, purpose, collection, and envelope-version context.",
+      "sources": [
+        "crates/connect-hosted-provider/src/key_wrapping/mod.rs",
+        "crates/connect-hosted-provider/src/key_wrapping/envelope.rs",
+        "crates/connect-hosted-provider/src/key_wrapping/aws.rs",
+        "crates/connect-hosted-provider/src/key_admin.rs"
+      ],
+      "tests": [
+        "crates/connect-hosted-provider/src/key_wrapping/tests.rs",
+        "crates/connect-hosted-provider/src/key_admin.rs"
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "release-integrity",
+      "title": "Immutable release and artifact integrity",
+      "authority": "Release workflows build from an immutable tag and publish checksummed, attestable artifacts; unsigned previews are labelled explicitly.",
+      "sources": [
+        ".github/workflows/desktop-release.yml",
+        ".github/workflows/publish-images.yml",
+        "scripts/package-headless-cli.mjs",
+        "docs/releasing.md"
+      ],
+      "tests": [
+        "scripts/lib/package-headless-cli.test.mjs",
+        "scripts/package-audit.mjs"
+      ],
+      "fixtures": []
+    }
+  ],
+  "cryptographicConstructions": [
+    {
+      "id": "authorization-proof-v1",
+      "construction": "P-256 ECDSA with SHA-256 and canonical 64-byte IEEE-P1363 low-S signatures over a domain-separated, length-delimited transcript",
+      "binding": "protocol, authorization, application, manifest, installation and grant keys, flow, nonce, lifetime, redirect and state, PKCE challenge, requested operations and files, and optional collection",
+      "source": "crates/connect-protocol/src/first_contact.rs"
+    },
+    {
+      "id": "first-contact-v1",
+      "construction": "P-256 ECDH; transcript SHA-256 as HKDF-SHA-256 salt; domain-separated HKDF info; 40 derived bits rendered as eight Crockford Base32 characters",
+      "binding": "protocol, application and installation identity and keys, connector identity and key",
+      "source": "crates/connect-protocol/src/first_contact.rs"
+    },
+    {
+      "id": "relay-encryption-v1",
+      "construction": "P-256 ECDH, separate HKDF-SHA-256 request and response keys, AES-256-GCM, and a monotonic counter encoded into the 96-bit nonce",
+      "binding": "protocol, suite, grant, application, connector, collection, scope epoch, key ID, request ID, direction, operation, and counter",
+      "source": "crates/connect-protocol/src/crypto.rs"
+    },
+    {
+      "id": "hosted-content-v1",
+      "construction": "Random 256-bit per-collection DEK with AES-256-GCM and a random 96-bit nonce; HMAC-SHA-256 keyed path tokens",
+      "binding": "kind-specific associated data binds ciphertext to collection, resource, record, file, sequence, replica, mutation, transfer, or import identity",
+      "source": "crates/connect-hosted-provider/src/provider/crypto_state.rs"
+    },
+    {
+      "id": "authority-request-proof-v1",
+      "construction": "P-256 ECDSA with SHA-256 over a newline-delimited request transcript with canonical base64url fields and a five-minute freshness window",
+      "binding": "method, target, body digest, credential digest, timestamp, and UUID nonce",
+      "source": "services/server/src/authority-proof.ts"
+    },
+    {
+      "id": "aws-kms-v1",
+      "construction": "AWS KMS symmetric Encrypt/Decrypt of locally generated 256-bit DEKs in a bounded self-describing envelope containing the immutable key ARN",
+      "binding": "service, environment, purpose, collection identity where applicable, and envelope version",
+      "source": "crates/connect-hosted-provider/src/key_wrapping/aws.rs"
+    }
+  ],
+  "controlPlaneVisibility": {
+    "permitted": [
+      "opaque account, application, connector, grant, collection, and routing identifiers",
+      "requested operation and exact grant policy",
+      "protocol, replay counter, timing, status, and bounded ciphertext sizes",
+      "hosted metadata explicitly documented in docs/encryption.md"
+    ],
+    "prohibited": [
+      "absolute local collection paths",
+      "local record or file payloads",
+      "relay operation inputs, results, or connector diagnostics in plaintext",
+      "tokens, private keys, unwrapped data keys, credentials, and proof signatures in logs"
+    ]
+  },
+  "reproduction": [
+    "cargo test --workspace",
+    "pnpm typecheck",
+    "pnpm test",
+    "pnpm e2e",
+    "pnpm e2e:relay",
+    "pnpm e2e:provider",
+    "pnpm e2e:files",
+    "pnpm e2e:desktop:container",
+    "pnpm test:browser-storage",
+    "pnpm package:audit",
+    "pnpm check:release-readiness"
+  ],
+  "operationalEvidence": [
+    {
+      "id": "first-contact-live-boundary",
+      "references": [
+        "https://github.com/mdbase-dev/mdbase-connect/pull/154",
+        "https://github.com/mdbase-dev/mdbase-connect/actions/runs/30750841856"
+      ]
+    },
+    {
+      "id": "managed-key-implementation-and-staging-rotation",
+      "references": [
+        "https://github.com/mdbase-dev/mdbase-connect/pull/157",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/43",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/44",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/49",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/50"
+      ]
+    }
+  ],
+  "knownLimitations": [
+    {
+      "id": "independent-audit-pending",
+      "description": "This package has not been reviewed by an independent security assessor."
+    },
+    {
+      "id": "endpoint-compromise",
+      "description": "The design does not protect plaintext after an authorized application receives it or an unlocked collection from a fully compromised user account."
+    },
+    {
+      "id": "control-plane-metadata",
+      "description": "Relay routing metadata, operation names, timing, network addresses, and ciphertext sizes remain observable."
+    },
+    {
+      "id": "standard-hosted-provider-trust",
+      "description": "The standard hosted provider can decrypt collection content; private zero-knowledge hosting is not implemented."
+    },
+    {
+      "id": "human-sas-comparison",
+      "description": "First-contact protection depends on independent endpoint displays and an accurate human comparison of a 40-bit short authentication string."
+    },
+    {
+      "id": "no-key-transparency",
+      "description": "There is no append-only public key-transparency log."
+    },
+    {
+      "id": "native-app-key-storage",
+      "description": "A future native application SDK still needs platform-keystore storage; browser keys are non-extractable and the desktop is a daemon presentation client."
+    },
+    {
+      "id": "render-static-aws-credentials",
+      "description": "Render currently uses rotated, least-privilege AWS access keys rather than workload identity federation."
+    },
+    {
+      "id": "single-relay-broker",
+      "description": "The relay broker is a single managed service; tested recovery is automatic reconnect after broker restoration, not uninterrupted high availability."
+    },
+    {
+      "id": "complete-recovery-drill-pending",
+      "description": "The isolated full database, object, KMS-replica, retained-key, and clean-environment recovery drill remains open."
+    },
+    {
+      "id": "platform-signing-pending",
+      "description": "Canonical platform signing and notarization are not yet configured."
+    },
+    {
+      "id": "single-operator-recovery",
+      "description": "Recovery administration currently depends on one human operator and has no independent recovery or security contact."
+    }
+  ],
+  "auditIntake": [
+    "Pin the commit and verify the working tree and dependency lockfiles.",
+    "Reproduce all commands listed in reproduction in a clean environment.",
+    "Review every trust boundary, construction, shared fixture, and failure path listed here.",
+    "Inspect log, trace, error, crash, and support paths for prohibited data.",
+    "Review dependency, build provenance, artifact verification, and secret-handling boundaries.",
+    "Report findings with source location, exploit preconditions, impact, and a reproducible test."
+  ]
+}

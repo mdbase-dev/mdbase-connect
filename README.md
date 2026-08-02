@@ -133,8 +133,11 @@ For the detailed trust model, see
 [Architecture](docs/architecture.md), [Encryption](docs/encryption.md), and
 [Hosted collections](docs/hosted-provider.md). Security assumptions, abuse
 cases, and prerelease residual risks are collected in the
-[Threat model](docs/threat-model.md). Please use the private reporting process
-in the [Security policy](SECURITY.md) for suspected vulnerabilities.
+[Threat model](docs/threat-model.md). The source and test map for independent
+review is the explicitly unaudited
+[Security audit preparation package](docs/security-audit-package.md). Please
+use the private reporting process in the [Security policy](SECURITY.md) for
+suspected vulnerabilities.
 
 ## Command line
 

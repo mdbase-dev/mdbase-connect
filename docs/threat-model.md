@@ -166,12 +166,12 @@ allowlist of fields instead of serializing request or database objects.
 ## Residual risks before stable
 
 The beta deliberately accepts several risks that require production
-infrastructure, publisher accounts, or an explicit product decision rather
-than another local refactor. The following remain stable-release gates:
+infrastructure or publisher accounts rather than another local refactor.
+First-contact connector trust and the managed key service plus staging rotation
+drill are complete. The following remain stable-release gates:
 
-- an explicit first-contact connector trust or transparency decision;
-- a managed key service plus rehearsed key rotation;
-- verified encrypted backup, restoration, and deletion behavior; and
+- verified encrypted backup, restoration, key recovery, and deletion behavior;
+  and
 - canonical platform signing and notarization.
 
 These are machine-readable gates in
@@ -183,6 +183,9 @@ complete with durable evidence.
 An independent security audit, including the custom cryptographic protocol and
 implementation, remains planned separately. It is not a stable-release gate;
 release notes and security claims must state whether that audit has occurred.
+The internal, source-mapped preparation package is
+[Security audit preparation](./security-audit-package.md); it is not an
+independent audit or certification.
 
 ## Verification map
 

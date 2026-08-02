@@ -57,9 +57,9 @@ random per-collection data key. A versioned wrapping boundary supports the
 legacy local deployment key and AWS KMS envelopes carrying the immutable key
 ARN. Exact KMS encryption context binds each wrapped key to its environment,
 purpose, and collection. PostgreSQL retains only the wrapped key, ciphertext,
-and the explicit metadata listed below. Live staging activation, rotation, and
-isolated restore drills remain release operations work;
-private/zero-knowledge hosting is not implemented.
+and the explicit metadata listed below. Live staging activation and a complete
+V1-to-V2 rotation drill have passed; the isolated full recovery drill remains
+release operations work. Private/zero-knowledge hosting is not implemented.
 
 Local Markdown files are also plaintext from mdbase's perspective. Operating
 system full-disk encryption, encrypted home directories, and device access
@@ -206,7 +206,9 @@ monotonic unsigned 64-bit counter. Canonical context strings and envelope
 schemas are shared across Rust and TypeScript and covered by cross-runtime
 tests. An independent security audit, including external cryptographic review,
 remains planned but is not a stable-release gate. Public security claims must
-state whether that audit has occurred.
+state whether that audit has occurred. The source-mapped
+[security audit preparation package](./security-audit-package.md) is internal
+preparation, not evidence that such a review has occurred.
 
 ### Downgrade behavior
 
@@ -445,8 +447,6 @@ and decrypted recovery material never enter audit events.
 
 - native application key storage for a future non-browser SDK;
 - independent protocol review and systematic log, trace, and crash-path audit;
-- activate managed wrapping in staging, rewrap legacy envelopes, rotate to a
-  second KMS key, and prove cold operation with the old runtime key disabled;
 - exercise database, object, KMS-replica, retained-old-key, and credential-loss
   recovery in an isolated environment; and
 - verify managed volume and backup encryption in the production environment.

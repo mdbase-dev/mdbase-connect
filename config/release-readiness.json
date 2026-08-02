@@ -16,9 +16,15 @@
       "id": "managed-key-service-and-rotation-drill",
       "title": "Managed key service and rotation drill",
       "owner": "Service operations owner",
-      "status": "required",
-      "evidence": [],
-      "notes": "Move the hosted provider master key into a managed key service, document rotation, and retain evidence from a successful non-production rotation drill."
+      "status": "complete",
+      "evidence": [
+        "https://github.com/mdbase-dev/mdbase-connect/pull/157",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/43",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/44",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/49",
+        "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/50"
+      ],
+      "notes": "AWS KMS wrapping is active in staging. The recorded drill rewrapped all collection and provider-check envelopes from V1 to V2, proved cold operation while V1 was disabled, replaced and rejected the old workload credential, and passed exact-image health plus signed semantic acceptance. V1 remains enabled only as a retained recovery artifact and is unavailable to the active workload."
     },
     {
       "id": "backup-encryption-and-restore-drill",
