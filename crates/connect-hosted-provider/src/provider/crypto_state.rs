@@ -10,10 +10,6 @@ pub(super) fn optional_encrypted_record(
         .transpose()
 }
 
-pub(super) fn collection_key_aad(collection_id: Uuid) -> Vec<u8> {
-    aad(("collection_key", collection_id))
-}
-
 pub(super) fn resources_aad(collection_id: Uuid) -> Vec<u8> {
     aad(("resources", collection_id))
 }

@@ -19,7 +19,9 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, row.get("wrapped_data_key"))
+            .await?;
         let resources: SyncCollectionResources = self.crypto.decrypt_json(
             &data_key,
             row.get("resources_ciphertext"),
@@ -128,7 +130,9 @@ impl HostedProvider {
         .await?;
         let mut has_more =
             record_rows.len() > limit as usize || resource_rows.len() > limit as usize;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let mut events = Vec::new();
         for row in record_rows {
             let sequence = number(row.get::<i64, _>("sequence"), "change sequence")?;
@@ -220,7 +224,9 @@ impl HostedProvider {
             )
         })?;
         let head = number(collection.get::<i64, _>("head"), "collection head")?;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let working_set = self.working_set(collection_id).await;
         let mut cached = working_set.lock().await;
         if cached
@@ -315,7 +321,9 @@ impl HostedProvider {
             ));
         }
         let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
-        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let data_key = self
+            .collection_key(collection_id, &wrapped_data_key)
+            .await?;
         if let Some(ciphertext) = row.get::<Option<Vec<u8>>, _>("response_ciphertext") {
             let response = self.crypto.decrypt_json(
                 &data_key,

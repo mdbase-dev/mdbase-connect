@@ -223,10 +223,106 @@ async fn rejects_wrong_context_and_invalid_unwrapped_lengths() {
     );
 }
 
+#[tokio::test]
+async fn coalesces_concurrent_cache_misses_and_keys_cache_entries_by_envelope_digest() {
+    let service = Arc::new(FakeManagedService::healthy());
+    let writer = KeyWrappingRuntime::managed_for_test(service.clone(), None);
+    let wrapped = writer
+        .wrap_data_key(&[0x21; KEY_BYTES], &context())
+        .await
+        .unwrap();
+    let reader = KeyWrappingRuntime::managed_for_test(service.clone(), None)
+        .with_data_key_cache(8, std::time::Duration::from_secs(60))
+        .unwrap();
+    let mut tasks = Vec::new();
+    for _ in 0..24 {
+        let reader = reader.clone();
+        let wrapped = wrapped.clone();
+        tasks.push(tokio::spawn(async move {
+            reader.unwrap_data_key(&wrapped, &context()).await.unwrap()
+        }));
+    }
+    for task in tasks {
+        assert_eq!(task.await.unwrap().as_ref(), &[0x21; KEY_BYTES]);
+    }
+    assert_eq!(service.contexts.lock().unwrap().len(), 2);
+
+    let mut changed = wrapped;
+    *changed.last_mut().unwrap() ^= 1;
+    assert_ne!(
+        reader
+            .unwrap_data_key(&changed, &context())
+            .await
+            .unwrap()
+            .as_ref(),
+        &[0x21; KEY_BYTES]
+    );
+    assert_eq!(service.contexts.lock().unwrap().len(), 3);
+}
+
 #[test]
 fn key_check_context_never_contains_a_collection_identifier() {
     let context = KeyWrapContext::provider_key_check("production").unwrap();
     let values = context.encryption_context();
     assert_eq!(values["mdbase:purpose"], "provider-key-check");
     assert!(!values.contains_key("mdbase:collection-id"));
+}
+
+#[tokio::test]
+#[ignore = "requires MDBASE_TEST_KMS_KEY_ID, MDBASE_TEST_KMS_RECOVERY_KEY_ID, and AWS credentials"]
+async fn live_aws_kms_primary_and_recovery_replica_round_trip() {
+    let key_id = std::env::var("MDBASE_TEST_KMS_KEY_ID").unwrap();
+    let recovery_key_id = std::env::var("MDBASE_TEST_KMS_RECOVERY_KEY_ID").unwrap();
+    let primary = AwsKmsKeyWrapper::from_default_chain(
+        "ap-southeast-1",
+        key_id,
+        "staging",
+        3,
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    let recovery = AwsKmsKeyWrapper::from_default_chain(
+        "ap-southeast-2",
+        recovery_key_id,
+        "staging",
+        3,
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    let primary = KeyWrappingRuntime::aws_kms(primary, None);
+    let recovery = KeyWrappingRuntime::aws_kms(recovery, None);
+    let context = context();
+    let data_key = [0x37; KEY_BYTES];
+    let wrapped = primary.wrap_data_key(&data_key, &context).await.unwrap();
+    assert_eq!(
+        primary
+            .unwrap_data_key(&wrapped, &context)
+            .await
+            .unwrap()
+            .as_ref(),
+        &data_key
+    );
+    assert_eq!(
+        recovery
+            .unwrap_data_key(&wrapped, &context)
+            .await
+            .unwrap()
+            .as_ref(),
+        &data_key
+    );
+    let wrong_context = KeyWrapContext::collection(
+        "staging",
+        Uuid::parse_str("01999999-9999-7999-8999-999999999999").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        primary
+            .unwrap_data_key(&wrapped, &wrong_context)
+            .await
+            .unwrap_err()
+            .kind,
+        KeyWrapErrorKind::InvalidCiphertext
+    );
 }

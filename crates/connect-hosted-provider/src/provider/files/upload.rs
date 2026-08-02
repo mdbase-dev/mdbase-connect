@@ -35,7 +35,9 @@ impl HostedProvider {
                 "The file exceeds this hosted collection's per-file limit.",
             ));
         }
-        let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, row.get("wrapped_data_key"))
+            .await?;
         if let Some(existing) = self
             .load_upload_transfer(collection_id, request.transfer_id, &data_key)
             .await?
@@ -709,8 +711,9 @@ impl HostedProvider {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(hosted_collection_not_found)?;
-        let data_key =
-            self.collection_key(transfer.collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(transfer.collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let locked_transfer = sqlx::query(
             "SELECT state, receipt_ciphertext FROM hosted_provider_file_transfers WHERE id = $1 FOR UPDATE",
         )

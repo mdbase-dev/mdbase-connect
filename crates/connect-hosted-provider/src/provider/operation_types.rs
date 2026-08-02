@@ -37,7 +37,9 @@ impl HostedProvider {
                 "The type definition exceeds the hosted document size limit.",
             ));
         }
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let working_set = self.working_set(collection_id).await;
         let mut cached = working_set.lock().await;
         if cached
@@ -252,7 +254,9 @@ impl HostedProvider {
                 "A type pack resource exceeds the hosted document size limit.",
             ));
         }
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let working_set = self.working_set(collection_id).await;
         let mut cached = working_set.lock().await;
         if cached

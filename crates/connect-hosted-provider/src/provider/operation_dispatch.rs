@@ -373,7 +373,9 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, row.get("wrapped_data_key"))
+            .await?;
         self.crypto.decrypt_json(
             &data_key,
             row.get("resources_ciphertext"),

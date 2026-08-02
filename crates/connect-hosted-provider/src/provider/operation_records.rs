@@ -41,7 +41,9 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let data_key = self
+            .collection_key(collection_id, &wrapped_data_key)
+            .await?;
         let request_hash = operation_request_hash(operation, request_input)?;
         if let Some(row) = sqlx::query(
             r#"SELECT operation, request_hash, prepared_mutation_ciphertext
@@ -225,7 +227,9 @@ impl HostedProvider {
         .bind(collection_id)
         .fetch_one(&self.pool)
         .await?;
-        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let data_key = self
+            .collection_key(collection_id, &wrapped_data_key)
+            .await?;
         let request_hash = operation_request_hash(operation, input)?;
         let response_ciphertext = self.crypto.encrypt_json(
             &data_key,

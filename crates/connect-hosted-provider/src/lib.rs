@@ -2,6 +2,7 @@ mod blob_store;
 mod crypto;
 mod error;
 mod http;
+mod key_admin;
 mod key_wrapping;
 mod notifications;
 mod provider;
@@ -15,9 +16,10 @@ pub use blob_store::{
 pub use crypto::ProviderCrypto;
 pub use error::{ApiError, ApiResult};
 pub use http::{app, AppState};
+pub use key_admin::{HostedKeyAdmin, KeyRewrapOptions, KeyRewrapReport, KeyWrapInventory};
 pub use key_wrapping::{
     AwsKmsKeyWrapper, KeyWrapContext, KeyWrapError, KeyWrapErrorKind, KeyWrapInspection,
-    KeyWrappingRuntime, LegacyKeyWrapper,
+    KeyWrappingBackend, KeyWrappingConfig, KeyWrappingRuntime, LegacyKeyWrapper,
 };
 pub use notifications::{HostedNotificationConfig, HostedNotificationRuntime};
 pub use provider::{

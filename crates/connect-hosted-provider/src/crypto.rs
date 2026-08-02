@@ -1,30 +1,43 @@
-use base64::{engine::general_purpose, Engine as _};
 use rand_core::{OsRng, RngCore};
 use serde::{de::DeserializeOwned, Serialize};
 use subtle::ConstantTimeEq;
 
 use crate::{
     error::{ApiError, ApiResult},
+    key_wrapping::{
+        KeyWrapContext, KeyWrapError, KeyWrapErrorKind, KeyWrappingRuntime, LegacyKeyWrapper,
+    },
     symmetric_crypto::{decrypt, encrypt},
 };
 
 const KEY_BYTES: usize = 32;
 const KEY_CHECK_PLAINTEXT: &[u8] = b"mdbase-connect-hosted-provider-key-check-v1";
-const KEY_CHECK_AAD: &[u8] = b"provider-key-check-v1";
 
 #[derive(Clone)]
 pub struct ProviderCrypto {
-    master_key: [u8; KEY_BYTES],
+    key_wrapping: KeyWrappingRuntime,
+    environment: String,
 }
 
 impl ProviderCrypto {
     pub fn from_base64(value: &str) -> ApiResult<Self> {
-        let decoded = general_purpose::URL_SAFE_NO_PAD
-            .decode(value)
-            .or_else(|_| general_purpose::STANDARD.decode(value))
-            .map_err(|_| invalid_master_key())?;
-        let master_key: [u8; KEY_BYTES] = decoded.try_into().map_err(|_| invalid_master_key())?;
-        Ok(Self { master_key })
+        let legacy = LegacyKeyWrapper::from_base64(value).map_err(|_| invalid_master_key())?;
+        Ok(Self {
+            key_wrapping: KeyWrappingRuntime::legacy(legacy),
+            environment: "local".to_string(),
+        })
+    }
+
+    pub fn with_key_wrapping(
+        key_wrapping: KeyWrappingRuntime,
+        environment: impl Into<String>,
+    ) -> ApiResult<Self> {
+        let environment = environment.into();
+        KeyWrapContext::provider_key_check(environment.clone()).map_err(key_wrap_error)?;
+        Ok(Self {
+            key_wrapping,
+            environment,
+        })
     }
 
     pub fn generate_data_key(&self) -> [u8; KEY_BYTES] {
@@ -33,12 +46,19 @@ impl ProviderCrypto {
         key
     }
 
-    pub fn create_key_check(&self) -> ApiResult<Vec<u8>> {
-        encrypt(&self.master_key, KEY_CHECK_PLAINTEXT, KEY_CHECK_AAD)
+    pub async fn create_key_check(&self) -> ApiResult<Vec<u8>> {
+        self.key_wrapping
+            .wrap_bytes(KEY_CHECK_PLAINTEXT, &self.key_check_context()?)
+            .await
+            .map_err(key_wrap_error)
     }
 
-    pub fn verify_key_check(&self, value: &[u8]) -> ApiResult<()> {
-        let plaintext = decrypt(&self.master_key, value, KEY_CHECK_AAD)?;
+    pub async fn verify_key_check(&self, value: &[u8]) -> ApiResult<()> {
+        let plaintext = self
+            .key_wrapping
+            .unwrap_bytes(value, &self.key_check_context()?)
+            .await
+            .map_err(key_wrap_error)?;
         if bool::from(plaintext.ct_eq(KEY_CHECK_PLAINTEXT)) {
             Ok(())
         } else {
@@ -48,14 +68,26 @@ impl ProviderCrypto {
         }
     }
 
-    pub fn wrap_data_key(&self, data_key: &[u8; KEY_BYTES], aad: &[u8]) -> ApiResult<Vec<u8>> {
-        encrypt(&self.master_key, data_key, aad)
+    pub async fn wrap_data_key(
+        &self,
+        data_key: &[u8; KEY_BYTES],
+        collection_id: uuid::Uuid,
+    ) -> ApiResult<Vec<u8>> {
+        self.key_wrapping
+            .wrap_data_key(data_key, &self.collection_context(collection_id)?)
+            .await
+            .map_err(key_wrap_error)
     }
 
-    pub fn unwrap_data_key(&self, wrapped: &[u8], aad: &[u8]) -> ApiResult<[u8; KEY_BYTES]> {
-        decrypt(&self.master_key, wrapped, aad)?
-            .try_into()
-            .map_err(|_| ApiError::internal("The hosted collection data key is invalid."))
+    pub async fn unwrap_data_key(
+        &self,
+        wrapped: &[u8],
+        collection_id: uuid::Uuid,
+    ) -> ApiResult<zeroize::Zeroizing<[u8; KEY_BYTES]>> {
+        self.key_wrapping
+            .unwrap_data_key(wrapped, &self.collection_context(collection_id)?)
+            .await
+            .map_err(key_wrap_error)
     }
 
     pub fn encrypt_json<T: Serialize>(
@@ -101,6 +133,45 @@ impl ProviderCrypto {
     ) -> ApiResult<Vec<u8>> {
         decrypt(data_key, value, aad)
     }
+
+    pub fn active_key_ref(&self) -> &str {
+        self.key_wrapping.active_key_ref()
+    }
+
+    fn collection_context(&self, collection_id: uuid::Uuid) -> ApiResult<KeyWrapContext> {
+        KeyWrapContext::collection(self.environment.clone(), collection_id).map_err(key_wrap_error)
+    }
+
+    fn key_check_context(&self) -> ApiResult<KeyWrapContext> {
+        KeyWrapContext::provider_key_check(self.environment.clone()).map_err(key_wrap_error)
+    }
+}
+
+fn key_wrap_error(error: KeyWrapError) -> ApiError {
+    tracing::error!(kind = ?error.kind, "hosted provider key-wrapping operation failed");
+    match error.kind {
+        KeyWrapErrorKind::Throttled | KeyWrapErrorKind::Timeout | KeyWrapErrorKind::Unavailable => {
+            ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "managed_key_service_unavailable",
+                "The hosted provider key service is temporarily unavailable.",
+            )
+        }
+        KeyWrapErrorKind::AccessDenied
+        | KeyWrapErrorKind::Configuration
+        | KeyWrapErrorKind::Disabled
+        | KeyWrapErrorKind::WrongKey => ApiError::new(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "key_wrapping_unavailable",
+            "The hosted provider cannot access its configured key hierarchy.",
+        ),
+        KeyWrapErrorKind::InvalidCiphertext
+        | KeyWrapErrorKind::InvalidEnvelope
+        | KeyWrapErrorKind::InvalidResponse
+        | KeyWrapErrorKind::UnsupportedEnvelope => {
+            ApiError::internal("The hosted provider stored key material is invalid or unsupported.")
+        }
+    }
 }
 
 fn invalid_master_key() -> ApiError {
@@ -118,16 +189,24 @@ mod tests {
         ProviderCrypto::from_base64("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap()
     }
 
-    #[test]
-    fn wraps_keys_and_authenticates_payload_identity() {
+    #[tokio::test]
+    async fn wraps_keys_and_authenticates_payload_identity() {
         let crypto = crypto();
         let data_key = crypto.generate_data_key();
-        let wrapped = crypto.wrap_data_key(&data_key, b"collection:one").unwrap();
+        let collection_id = uuid::Uuid::new_v4();
+        let wrapped = crypto
+            .wrap_data_key(&data_key, collection_id)
+            .await
+            .unwrap();
         assert_ne!(&wrapped[13..45], data_key.as_slice());
-        let unwrapped = crypto.unwrap_data_key(&wrapped, b"collection:one").unwrap();
-        assert_eq!(unwrapped, data_key);
+        let unwrapped = crypto
+            .unwrap_data_key(&wrapped, collection_id)
+            .await
+            .unwrap();
+        assert_eq!(unwrapped.as_ref(), &data_key);
         assert!(crypto
-            .unwrap_data_key(&wrapped, b"collection:other")
+            .unwrap_data_key(&wrapped, uuid::Uuid::new_v4())
+            .await
             .is_err());
     }
 

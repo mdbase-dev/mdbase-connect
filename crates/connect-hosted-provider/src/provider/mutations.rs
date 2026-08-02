@@ -78,7 +78,9 @@ impl HostedProvider {
                 "Hosted collection not found.",
             )
         })?;
-        let data_key = self.collection_key(collection_id, &wrapped_data_key)?;
+        let data_key = self
+            .collection_key(collection_id, &wrapped_data_key)
+            .await?;
         if let Some(row) = sqlx::query(
             "SELECT mutation_hash, receipt_ciphertext FROM hosted_provider_mutation_receipts WHERE replica_id = $1 AND mutation_id = $2",
         )

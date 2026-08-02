@@ -2,7 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use aws_config::{retry::RetryConfig, BehaviorVersion};
-use aws_sdk_kms::{primitives::Blob, Client};
+use aws_sdk_kms::{
+    primitives::Blob,
+    types::{KeySpec, KeyState, KeyUsageType},
+    Client,
+};
 use aws_smithy_types::{error::metadata::ProvideErrorMetadata, timeout::TimeoutConfig};
 use aws_types::region::Region;
 use zeroize::Zeroizing;
@@ -44,9 +48,35 @@ impl AwsKmsKeyWrapper {
             .timeout_config(timeout_config)
             .load()
             .await;
+        let client = Client::new(&config);
+        let response = tokio::time::timeout(
+            operation_timeout,
+            client.describe_key().key_id(&active_key_id).send(),
+        )
+        .await
+        .map_err(|_| KeyWrapError::timeout())?
+        .map_err(|error| classify_service_error(error.as_service_error()))?;
+        let metadata = response
+            .key_metadata()
+            .ok_or_else(KeyWrapError::invalid_response)?;
+        if !metadata.enabled()
+            || metadata.key_state() != Some(&KeyState::Enabled)
+            || metadata.key_usage() != Some(&KeyUsageType::EncryptDecrypt)
+            || metadata.key_spec() != Some(&KeySpec::SymmetricDefault)
+        {
+            return Err(KeyWrapError::new(
+                KeyWrapErrorKind::Disabled,
+                "The configured AWS KMS key is not an enabled symmetric encryption key.",
+            ));
+        }
+        let active_key_ref = metadata
+            .arn()
+            .ok_or_else(KeyWrapError::invalid_response)?
+            .to_string();
+        validate_kms_key_ref(&active_key_ref)?;
         Ok(Self {
-            client: Client::new(&config),
-            active_key_id: active_key_id.into(),
+            client,
+            active_key_id: active_key_ref.into(),
             environment: environment.into(),
             operation_timeout,
         })

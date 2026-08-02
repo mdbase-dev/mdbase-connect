@@ -979,9 +979,17 @@ try {
     provider.url,
     controlDatabase
   );
-  await connectCommand(desktopProfile, [
-    "mirror", "remove", desktopMirror.replica_id, "--yes"
-  ]);
+  await waitFor(async () => {
+    try {
+      await connectCommand(desktopProfile, [
+        "mirror", "remove", desktopMirror.replica_id, "--yes"
+      ]);
+      return true;
+    } catch (error) {
+      if (error?.stderr?.includes('"code":"mirror_busy"')) return false;
+      throw error;
+    }
+  }, "Daemon-managed mirror remained busy during removal", 400);
   assert.deepEqual(await connectCommand(desktopProfile, ["mirror", "list"]), []);
   await stopConnectDaemon(desktopProfile, desktopDaemon);
 
@@ -2187,7 +2195,6 @@ schema:
 
   process.stdout.write("mdbase PostgreSQL hosted provider e2e passed\n");
 } finally {
-  delete globalThis.location;
   if (notificationCallbackServer) {
     await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   }
@@ -3681,7 +3688,15 @@ async function authorizeHostedApplicationByCreating(authorizationUrl, cookie) {
       name: /Add Workout Inline E2E’s starter type/
     })).toBeChecked();
     await page.getByRole("button", { name: "Set up and allow Workout Inline E2E" }).click();
-    await expect(page.getByText("Access approved", { exact: true })).toBeVisible();
+    const outcome = await Promise.race([
+      page.getByText("Access approved", { exact: true })
+        .waitFor({ state: "visible" })
+        .then(() => "approved"),
+      page.locator(".message.error").waitFor({ state: "visible" }).then(() => "error")
+    ]);
+    if (outcome === "error") {
+      throw new Error(`Inline hosted authorization failed: ${await page.locator(".message.error").innerText()}`);
+    }
   } finally {
     await browser.close();
   }

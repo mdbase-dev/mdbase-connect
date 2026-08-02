@@ -66,6 +66,43 @@ Canonical documents and retained content are encrypted with a per-collection
 data key. Type labels, identifiers, revisions, sequences, sizes, deletion state,
 and keyed path tokens may remain visible as documented routing metadata.
 
+## Managed key wrapping
+
+Hosted deployments select the data-key writer with
+`MDBASE_CONNECT_HOSTED_KEY_WRAPPER`. `local` requires
+`MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY`; `aws-kms` requires
+`MDBASE_CONNECT_HOSTED_KEY_ENVIRONMENT`, `MDBASE_CONNECT_HOSTED_KMS_KEY_ID`,
+and `MDBASE_CONNECT_HOSTED_KMS_REGION`. AWS credentials come from the standard
+SDK credential chain. The database URL, provider internal token, legacy master
+key, and R2 credentials are environment-only settings rather than command-line
+arguments so they do not enter shell history or process listings.
+
+The service resolves a configured KMS alias to an immutable enabled symmetric
+key ARN at startup. Its least-privilege identity needs `DescribeKey`, plus only
+`Encrypt` and `Decrypt` on that environment's key under the exact encryption
+context in [ADR 0003](decisions/0003-managed-provider-key-wrapping.md). `/ready`
+re-verifies the stored provider key-check at a bounded interval; a short failed
+probe cache prevents health polling from amplifying a KMS outage.
+
+The release image also contains `mdbase-hosted-key-admin`. It accepts database
+and legacy-key secrets only from `DATABASE_URL` and
+`MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY`. With the same non-secret KMS
+configuration as the provider, the migration sequence is:
+
+```bash
+mdbase-hosted-key-admin inspect
+mdbase-hosted-key-admin rewrap --dry-run
+mdbase-hosted-key-admin rewrap --finalize-key-check
+mdbase-hosted-key-admin inspect
+```
+
+Inspection streams aggregate envelope counts and never emits collection IDs,
+ciphertexts, or plaintext keys. Dry-run performs real exact-context decrypt and
+wrap operations but rolls back every row. Rewrap locks and commits one row at a
+time, is resumable and idempotent, and refuses to finalize the key-check until
+every collection uses the active key ARN. Keep the legacy key configured until
+a KMS-only cold restart and semantic staging exercise pass.
+
 Hosted collection files use a separate object data plane. PostgreSQL retains
 encrypted paths and descriptors, capabilities, transfer journals, exact
 idempotent receipts, revision history, quotas, and the shared record/file

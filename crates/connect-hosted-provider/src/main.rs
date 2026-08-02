@@ -1,9 +1,9 @@
 use std::{net::IpAddr, sync::Arc, time::Duration};
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    app, AppState, HostedNotificationConfig, HostedProvider, ProviderCrypto, ProviderLimits,
-    R2BlobStore, R2Config,
+    app, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend, KeyWrappingConfig,
+    ProviderCrypto, ProviderLimits, R2BlobStore, R2Config,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -11,12 +11,47 @@ use tracing_subscriber::EnvFilter;
 #[derive(Debug, Parser)]
 #[command(name = "mdbase-connect-hosted-provider")]
 struct Arguments {
-    #[arg(long, env = "DATABASE_URL")]
-    database_url: String,
-    #[arg(long, env = "MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN")]
-    internal_token: String,
-    #[arg(long, env = "MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")]
-    master_key: String,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KEY_WRAPPER",
+        value_enum,
+        default_value = "local"
+    )]
+    key_wrapper: KeyWrapperBackend,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KEY_ENVIRONMENT",
+        default_value = "local"
+    )]
+    key_environment: String,
+    #[arg(long, env = "MDBASE_CONNECT_HOSTED_KMS_KEY_ID")]
+    kms_key_id: Option<String>,
+    #[arg(long, env = "MDBASE_CONNECT_HOSTED_KMS_REGION")]
+    kms_region: Option<String>,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KMS_MAX_ATTEMPTS",
+        default_value_t = 3
+    )]
+    kms_max_attempts: u32,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KMS_TIMEOUT_SECONDS",
+        default_value_t = 5
+    )]
+    kms_timeout_seconds: u64,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KEY_CACHE_ENTRIES",
+        default_value_t = 1_024
+    )]
+    key_cache_entries: usize,
+    #[arg(
+        long,
+        env = "MDBASE_CONNECT_HOSTED_KEY_CACHE_TTL_SECONDS",
+        default_value_t = 300
+    )]
+    key_cache_ttl_seconds: u64,
     #[arg(long, env = "MDBASE_CONNECT_CONTROL_PLANE_URL")]
     control_plane_url: Option<String>,
     #[arg(long, env = "HOST", default_value = "127.0.0.1")]
@@ -93,10 +128,6 @@ struct Arguments {
     r2_endpoint: String,
     #[arg(long, env = "MDBASE_CONNECT_R2_BUCKET")]
     r2_bucket: String,
-    #[arg(long, env = "MDBASE_CONNECT_R2_ACCESS_KEY_ID")]
-    r2_access_key_id: String,
-    #[arg(long, env = "MDBASE_CONNECT_R2_SECRET_ACCESS_KEY")]
-    r2_secret_access_key: String,
     #[arg(
         long,
         env = "MDBASE_CONNECT_R2_MULTIPART_PART_BYTES",
@@ -123,9 +154,37 @@ struct Arguments {
     allow_insecure_r2: bool,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum KeyWrapperBackend {
+    Local,
+    AwsKms,
+}
+
+struct RuntimeSecrets {
+    database_url: String,
+    internal_token: String,
+    master_key: Option<String>,
+    r2_access_key_id: String,
+    r2_secret_access_key: String,
+}
+
+impl RuntimeSecrets {
+    fn from_environment() -> Result<Self, std::io::Error> {
+        Ok(Self {
+            database_url: required_environment("DATABASE_URL")?,
+            internal_token: required_environment("MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN")?,
+            master_key: optional_environment("MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")?,
+            r2_access_key_id: required_environment("MDBASE_CONNECT_R2_ACCESS_KEY_ID")?,
+            r2_secret_access_key: required_environment("MDBASE_CONNECT_R2_SECRET_ACCESS_KEY")?,
+        })
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = Arguments::parse();
+    let mut secrets = RuntimeSecrets::from_environment()?;
     if arguments.maintenance_interval_seconds == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -147,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let crypto = ProviderCrypto::from_base64(&arguments.master_key)?;
+    let crypto = provider_crypto(&arguments, secrets.master_key.take()).await?;
     let limits = ProviderLimits {
         max_records_per_collection: arguments.max_records_per_collection,
         max_bytes_per_collection: arguments.max_bytes_per_collection,
@@ -163,14 +222,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .control_plane_url
             .map(|control_plane_url| HostedNotificationConfig {
                 control_plane_url,
-                internal_token: arguments.internal_token.clone(),
+                internal_token: secrets.internal_token.clone(),
             });
     let r2_config = if arguments.allow_insecure_r2 {
         R2Config::new_insecure_loopback(
             arguments.r2_endpoint,
             arguments.r2_bucket,
-            arguments.r2_access_key_id,
-            arguments.r2_secret_access_key,
+            secrets.r2_access_key_id,
+            secrets.r2_secret_access_key,
             arguments.r2_multipart_part_bytes,
             arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
@@ -179,8 +238,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         R2Config::new(
             arguments.r2_endpoint,
             arguments.r2_bucket,
-            arguments.r2_access_key_id,
-            arguments.r2_secret_access_key,
+            secrets.r2_access_key_id,
+            secrets.r2_secret_access_key,
             arguments.r2_multipart_part_bytes,
             arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
@@ -188,14 +247,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let blob_store = Arc::new(R2BlobStore::new(r2_config));
     let provider = HostedProvider::connect(
-        &arguments.database_url,
+        &secrets.database_url,
         crypto,
         limits,
         blob_store,
         notification_config,
     )
     .await?;
-    let state = AppState::new(provider.clone(), &arguments.internal_token)?;
+    let state = AppState::new(provider.clone(), &secrets.internal_token)?;
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
         arguments.retain_changes,
@@ -219,6 +278,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = notification_recovery.await;
     result?;
     Ok(())
+}
+
+async fn provider_crypto(
+    arguments: &Arguments,
+    legacy_master_key: Option<String>,
+) -> Result<ProviderCrypto, Box<dyn std::error::Error>> {
+    let environment = arguments.key_environment.clone();
+    let runtime = KeyWrappingConfig {
+        backend: match arguments.key_wrapper {
+            KeyWrapperBackend::Local => KeyWrappingBackend::Local,
+            KeyWrapperBackend::AwsKms => KeyWrappingBackend::AwsKms,
+        },
+        environment: environment.clone(),
+        legacy_master_key,
+        kms_key_id: arguments.kms_key_id.clone(),
+        kms_region: arguments.kms_region.clone(),
+        kms_max_attempts: arguments.kms_max_attempts,
+        kms_timeout: Duration::from_secs(arguments.kms_timeout_seconds),
+        cache_entries: arguments.key_cache_entries,
+        cache_ttl: Duration::from_secs(arguments.key_cache_ttl_seconds),
+    }
+    .build()
+    .await?;
+    Ok(ProviderCrypto::with_key_wrapping(runtime, environment)?)
+}
+
+fn required_environment(name: &'static str) -> Result<String, std::io::Error> {
+    optional_environment(name)?.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("required environment variable {name} is missing or empty"),
+        )
+    })
+}
+
+fn optional_environment(name: &'static str) -> Result<Option<String>, std::io::Error> {
+    match std::env::var(name) {
+        Ok(value) if value.trim().is_empty() => Ok(None),
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("environment variable {name} is not valid Unicode"),
+        )),
+    }
 }
 
 async fn maintain_history(provider: HostedProvider, retain_changes: u64, period: Duration) {

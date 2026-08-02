@@ -29,6 +29,10 @@ impl HostedProvider {
                             let provider = Self {
                                 pool,
                                 crypto,
+                                key_readiness: Arc::new(Mutex::new(KeyReadinessState {
+                                    last_checked: Instant::now(),
+                                    healthy: true,
+                                })),
                                 limits,
                                 working_sets: Arc::new(Mutex::new(HashMap::new())),
                                 notifications,
@@ -98,6 +102,7 @@ impl HostedProvider {
     pub async fn ready(&self) -> ApiResult<NotificationRecoveryStatus> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         self.blob_store.ready().await?;
+        self.verify_key_readiness().await?;
         let status = self.notification_recovery.read().await.clone();
         if status.configured && status.recovery != "ok" {
             return Err(ApiError::new(
@@ -107,6 +112,33 @@ impl HostedProvider {
             ));
         }
         Ok(status)
+    }
+
+    async fn verify_key_readiness(&self) -> ApiResult<()> {
+        // Serialize probes so a burst of health requests performs at most one KMS
+        // decrypt. A short failure cache prevents an unavailable key service from
+        // being amplified by the platform's readiness polling.
+        let mut readiness = self.key_readiness.lock().await;
+        if !readiness.should_probe(Instant::now()) {
+            return if readiness.healthy {
+                Ok(())
+            } else {
+                Err(key_readiness_unavailable())
+            };
+        }
+
+        match verify_stored_database_key(&self.pool, &self.crypto).await {
+            Ok(()) => {
+                readiness.last_checked = Instant::now();
+                readiness.healthy = true;
+                Ok(())
+            }
+            Err(error) => {
+                readiness.last_checked = Instant::now();
+                readiness.healthy = false;
+                Err(error)
+            }
+        }
     }
 
     pub async fn upsert_notification_grant(
@@ -152,5 +184,33 @@ impl HostedProvider {
                 Err(error)
             }
         }
+    }
+}
+
+fn key_readiness_unavailable() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "key_readiness_unavailable",
+        "The hosted provider cannot currently verify its configured key hierarchy.",
+    )
+}
+
+#[cfg(test)]
+mod key_readiness_tests {
+    use super::*;
+
+    #[test]
+    fn successful_and_failed_checks_have_bounded_probe_intervals() {
+        let start = Instant::now();
+        let mut state = KeyReadinessState {
+            last_checked: start,
+            healthy: true,
+        };
+        assert!(!state.should_probe(start + KEY_READINESS_SUCCESS_TTL - Duration::from_millis(1)));
+        assert!(state.should_probe(start + KEY_READINESS_SUCCESS_TTL));
+
+        state.healthy = false;
+        assert!(!state.should_probe(start + KEY_READINESS_FAILURE_TTL - Duration::from_millis(1)));
+        assert!(state.should_probe(start + KEY_READINESS_FAILURE_TTL));
     }
 }

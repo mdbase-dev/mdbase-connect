@@ -1,16 +1,19 @@
 mod aws;
+mod cache;
 mod envelope;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::symmetric_crypto::{decrypt, encrypt};
+use cache::{DataKeyCache, DataKeyCacheKey};
 
 pub use aws::AwsKmsKeyWrapper;
 
@@ -84,6 +87,60 @@ pub enum KeyWrapInspection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyWrappingBackend {
+    Local,
+    AwsKms,
+}
+
+pub struct KeyWrappingConfig {
+    pub backend: KeyWrappingBackend,
+    pub environment: String,
+    pub legacy_master_key: Option<String>,
+    pub kms_key_id: Option<String>,
+    pub kms_region: Option<String>,
+    pub kms_max_attempts: u32,
+    pub kms_timeout: Duration,
+    pub cache_entries: usize,
+    pub cache_ttl: Duration,
+}
+
+impl KeyWrappingConfig {
+    pub async fn build(self) -> Result<KeyWrappingRuntime, KeyWrapError> {
+        let legacy_master_key = self.legacy_master_key.map(Zeroizing::new);
+        let legacy = legacy_master_key
+            .as_deref()
+            .map(|value| LegacyKeyWrapper::from_base64(value.as_str()))
+            .transpose()?;
+        let runtime = match self.backend {
+            KeyWrappingBackend::Local => KeyWrappingRuntime::legacy(legacy.ok_or_else(|| {
+                KeyWrapError::configuration(
+                    "The legacy provider key is required for local key wrapping.",
+                )
+            })?),
+            KeyWrappingBackend::AwsKms => {
+                if !matches!(self.environment.as_str(), "staging" | "production") {
+                    return Err(KeyWrapError::configuration(
+                        "The AWS KMS environment must be staging or production.",
+                    ));
+                }
+                let key_id = required_setting(self.kms_key_id, "AWS KMS key ID")?;
+                let region = required_setting(self.kms_region, "AWS KMS region")?;
+                let kms = AwsKmsKeyWrapper::from_default_chain(
+                    region,
+                    key_id,
+                    self.environment,
+                    self.kms_max_attempts,
+                    self.kms_timeout,
+                )
+                .await?;
+                KeyWrappingRuntime::aws_kms(kms, legacy)
+            }
+        };
+        runtime.with_data_key_cache(self.cache_entries, self.cache_ttl)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyWrapPurpose {
     CollectionDataKey,
     ProviderKeyCheck,
@@ -148,7 +205,7 @@ impl KeyWrapContext {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct LegacyKeyWrapper {
     key: [u8; KEY_BYTES],
 }
@@ -224,6 +281,7 @@ pub struct KeyWrappingRuntime {
     active: ActiveKeyWriter,
     legacy_reader: Option<LegacyKeyWrapper>,
     managed_reader: Option<Arc<dyn ManagedKeyService>>,
+    data_key_cache: DataKeyCache,
 }
 
 impl KeyWrappingRuntime {
@@ -232,6 +290,7 @@ impl KeyWrappingRuntime {
             active: ActiveKeyWriter::Legacy(wrapper.clone()),
             legacy_reader: Some(wrapper),
             managed_reader: None,
+            data_key_cache: DataKeyCache::new(0, Duration::ZERO),
         }
     }
 
@@ -241,6 +300,7 @@ impl KeyWrappingRuntime {
             active: ActiveKeyWriter::Managed(managed.clone()),
             legacy_reader,
             managed_reader: Some(managed),
+            data_key_cache: DataKeyCache::new(1_024, Duration::from_secs(300)),
         }
     }
 
@@ -253,7 +313,22 @@ impl KeyWrappingRuntime {
             active: ActiveKeyWriter::Managed(managed.clone()),
             legacy_reader,
             managed_reader: Some(managed),
+            data_key_cache: DataKeyCache::new(0, Duration::ZERO),
         }
+    }
+
+    pub fn with_data_key_cache(
+        mut self,
+        max_entries: usize,
+        ttl: Duration,
+    ) -> Result<Self, KeyWrapError> {
+        if max_entries > 100_000 || ttl > Duration::from_secs(24 * 60 * 60) {
+            return Err(KeyWrapError::configuration(
+                "The hosted data-key cache configuration is invalid.",
+            ));
+        }
+        self.data_key_cache = DataKeyCache::new(max_entries, ttl);
+        Ok(self)
     }
 
     pub fn active_key_ref(&self) -> &str {
@@ -272,7 +347,11 @@ impl KeyWrappingRuntime {
         data_key: &[u8; KEY_BYTES],
         context: &KeyWrapContext,
     ) -> Result<Vec<u8>, KeyWrapError> {
-        self.wrap_bytes(data_key, context).await
+        let wrapped = self.wrap_bytes(data_key, context).await?;
+        if let Some(cache_key) = data_key_cache_key(context, &wrapped) {
+            self.data_key_cache.insert(cache_key, data_key).await;
+        }
+        Ok(wrapped)
     }
 
     pub async fn unwrap_data_key(
@@ -280,6 +359,26 @@ impl KeyWrappingRuntime {
         wrapped: &[u8],
         context: &KeyWrapContext,
     ) -> Result<Zeroizing<[u8; KEY_BYTES]>, KeyWrapError> {
+        let cache_key = self
+            .data_key_cache
+            .is_enabled()
+            .then(|| data_key_cache_key(context, wrapped))
+            .flatten();
+        if let Some(cache_key) = &cache_key {
+            if let Some(key) = self.data_key_cache.get(cache_key).await {
+                return Ok(key);
+            }
+        }
+        let _gate = if let Some(cache_key) = &cache_key {
+            Some(self.data_key_cache.lock(cache_key).await)
+        } else {
+            None
+        };
+        if let Some(cache_key) = &cache_key {
+            if let Some(key) = self.data_key_cache.get(cache_key).await {
+                return Ok(key);
+            }
+        }
         let plaintext = self.unwrap_bytes(wrapped, context).await?;
         if plaintext.len() != KEY_BYTES {
             return Err(KeyWrapError::new(
@@ -289,6 +388,9 @@ impl KeyWrappingRuntime {
         }
         let mut key = [0_u8; KEY_BYTES];
         key.copy_from_slice(&plaintext);
+        if let Some(cache_key) = cache_key {
+            self.data_key_cache.insert(cache_key, &key).await;
+        }
         Ok(Zeroizing::new(key))
     }
 
@@ -349,10 +451,33 @@ fn validate_environment(value: String) -> Result<String, KeyWrapError> {
     Ok(value)
 }
 
+fn data_key_cache_key(context: &KeyWrapContext, wrapped: &[u8]) -> Option<DataKeyCacheKey> {
+    if context.purpose != KeyWrapPurpose::CollectionDataKey {
+        return None;
+    }
+    Some(DataKeyCacheKey::new(
+        &context.environment,
+        context.collection_id?,
+        Sha256::digest(wrapped).into(),
+    ))
+}
+
 fn canonical_aad(value: impl Serialize) -> Result<Vec<u8>, KeyWrapError> {
     serde_json::to_vec(&value).map_err(|_| {
         KeyWrapError::configuration("The legacy key-wrapping identity could not serialize.")
     })
+}
+
+fn required_setting(value: Option<String>, name: &'static str) -> Result<String, KeyWrapError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            KeyWrapError::configuration(match name {
+                "AWS KMS key ID" => "The AWS KMS key ID is required.",
+                "AWS KMS region" => "The AWS KMS region is required.",
+                _ => "A managed key setting is required.",
+            })
+        })
 }
 
 #[cfg(test)]

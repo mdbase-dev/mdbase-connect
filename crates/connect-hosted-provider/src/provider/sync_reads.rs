@@ -41,7 +41,9 @@ impl HostedProvider {
         let head = number(row.get::<i64, _>("head"), "collection head")?;
         let retained_after = number(row.get::<i64, _>("retained_after"), "retained cursor")?;
         let resource_revision: String = row.get("resource_revision");
-        let data_key = self.collection_key(collection_id, row.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, row.get("wrapped_data_key"))
+            .await?;
         let mut resources: SyncCollectionResources = self.crypto.decrypt_json(
             &data_key,
             row.get("resources_ciphertext"),
@@ -140,7 +142,9 @@ impl HostedProvider {
                 "The replica scope changed; open a new sync session.",
             ));
         }
-        let data_key = self.collection_key(collection_id, lease.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, lease.get("wrapped_data_key"))
+            .await?;
         let rows = sqlx::query(
             r#"SELECT record_id, revision, types, sequence, payload_ciphertext
                FROM (
@@ -264,7 +268,9 @@ impl HostedProvider {
                 "The replica scope changed; open a new sync session.",
             ));
         }
-        let data_key = self.collection_key(collection_id, lease.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, lease.get("wrapped_data_key"))
+            .await?;
         let rows = sqlx::query(
             r#"SELECT file_id, revision, size, object_key, payload_ciphertext, sequence
                FROM (
@@ -379,7 +385,9 @@ impl HostedProvider {
             collection.get::<i64, _>("retained_after"),
             "retained cursor",
         )?;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         if after < retained_after {
             return Ok(SyncChangesPage {
                 protocol_version: SYNC_PROTOCOL_VERSION,

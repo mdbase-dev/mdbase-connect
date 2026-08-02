@@ -276,9 +276,7 @@ impl HostedProvider {
         }
         let collection_id = row.get::<Uuid, _>("collection_id");
         let wrapped: Vec<u8> = row.get("wrapped_data_key");
-        let data_key = self
-            .crypto
-            .unwrap_data_key(&wrapped, &collection_key_aad(collection_id))?;
+        let data_key = self.crypto.unwrap_data_key(&wrapped, collection_id).await?;
         let previous_digest: Option<String> = row.get("manifest_digest");
         let previous_revision: Option<String> = row.get("source_revision");
         let manifest_changed = previous_digest.as_deref() != Some(&manifest.manifest_digest)
@@ -381,9 +379,7 @@ impl HostedProvider {
         }
         let collection_id = row.get::<Uuid, _>("collection_id");
         let wrapped: Vec<u8> = row.get("wrapped_data_key");
-        let data_key = self
-            .crypto
-            .unwrap_data_key(&wrapped, &collection_key_aad(collection_id))?;
+        let data_key = self.crypto.unwrap_data_key(&wrapped, collection_id).await?;
         sqlx::query(
             "DELETE FROM hosted_provider_authority_import_records
              WHERE import_id = $1 AND page = $2",
@@ -436,15 +432,13 @@ impl HostedProvider {
         authorize_authority_import(&row, token)?;
         if authority_import_state(&row, "import_state")? == ProviderAuthorityImportState::Uploaded {
             let mut result = provider_authority_import(&row)?;
-            result.contracts = authority_import_contracts(self, &row)?;
+            result.contracts = authority_import_contracts(self, &row).await?;
             transaction.commit().await?;
             return Ok(result);
         }
         let collection_id = row.get::<Uuid, _>("collection_id");
         let wrapped: Vec<u8> = row.get("wrapped_data_key");
-        let data_key = self
-            .crypto
-            .unwrap_data_key(&wrapped, &collection_key_aad(collection_id))?;
+        let data_key = self.crypto.unwrap_data_key(&wrapped, collection_id).await?;
         let manifest_ciphertext: Vec<u8> = row
             .get::<Option<Vec<u8>>, _>("manifest_ciphertext")
             .ok_or_else(|| {
@@ -830,7 +824,7 @@ impl HostedProvider {
                 ));
             }
             let mut result = provider_authority_import(&row)?;
-            result.contracts = authority_import_contracts(self, &row)?;
+            result.contracts = authority_import_contracts(self, &row).await?;
             transaction.commit().await?;
             return Ok(result);
         }
@@ -871,7 +865,7 @@ impl HostedProvider {
         .fetch_one(&mut *transaction)
         .await?;
         let mut result = provider_authority_import(&saved)?;
-        result.contracts = authority_import_contracts(self, &row)?;
+        result.contracts = authority_import_contracts(self, &row).await?;
         transaction.commit().await?;
         Ok(result)
     }

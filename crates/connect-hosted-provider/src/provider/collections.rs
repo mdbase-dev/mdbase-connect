@@ -62,9 +62,7 @@ impl HostedProvider {
         }
         let (resources, documents) = template::resources(template_name)?;
         let data_key = self.crypto.generate_data_key();
-        let wrapped_data_key = self
-            .crypto
-            .wrap_data_key(&data_key, &collection_key_aad(collection_id))?;
+        let wrapped_data_key = self.crypto.wrap_data_key(&data_key, collection_id).await?;
         let resources_ciphertext =
             self.crypto
                 .encrypt_json(&data_key, &resources, &resources_aad(collection_id))?;

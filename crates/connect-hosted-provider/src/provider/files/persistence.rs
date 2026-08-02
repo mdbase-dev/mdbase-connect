@@ -21,7 +21,10 @@ impl HostedProvider {
         replica_from_row(row)
     }
 
-    pub(super) async fn load_collection_key(&self, collection_id: Uuid) -> ApiResult<[u8; 32]> {
+    pub(super) async fn load_collection_key(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<zeroize::Zeroizing<[u8; 32]>> {
         let wrapped: Vec<u8> = sqlx::query_scalar(
             "SELECT wrapped_data_key FROM hosted_provider_collections WHERE id = $1 AND state = 'active'",
         )
@@ -29,7 +32,7 @@ impl HostedProvider {
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(hosted_collection_not_found)?;
-        self.collection_key(collection_id, &wrapped)
+        self.collection_key(collection_id, &wrapped).await
     }
 
     pub(super) async fn load_current_file(

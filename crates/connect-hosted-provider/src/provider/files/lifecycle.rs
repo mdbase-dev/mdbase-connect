@@ -66,7 +66,9 @@ impl HostedProvider {
             request_origin,
         )?;
         let collection = lock_file_collection(&mut transaction, collection_id).await?;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let mutation = FileMutationIdentity {
             data_key: &data_key,
             collection_id,
@@ -235,7 +237,9 @@ impl HostedProvider {
             request_origin,
         )?;
         let collection = lock_file_collection(&mut transaction, collection_id).await?;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let mutation = FileMutationIdentity {
             data_key: &data_key,
             collection_id,

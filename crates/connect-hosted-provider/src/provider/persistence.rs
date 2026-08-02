@@ -10,6 +10,7 @@ pub(super) async fn verify_database_key(
 ) -> Result<(), DatabaseKeyError> {
     let candidate = crypto
         .create_key_check()
+        .await
         .map_err(DatabaseKeyError::Invalid)?;
     sqlx::query(
         r#"INSERT INTO hosted_provider_metadata (singleton, key_check)
@@ -26,7 +27,19 @@ pub(super) async fn verify_database_key(
             .map_err(DatabaseKeyError::Database)?;
     crypto
         .verify_key_check(&key_check)
+        .await
         .map_err(DatabaseKeyError::Invalid)
+}
+
+pub(super) async fn verify_stored_database_key(
+    pool: &PgPool,
+    crypto: &ProviderCrypto,
+) -> ApiResult<()> {
+    let key_check: Vec<u8> =
+        sqlx::query_scalar("SELECT key_check FROM hosted_provider_metadata WHERE singleton = true")
+            .fetch_one(pool)
+            .await?;
+    crypto.verify_key_check(&key_check).await
 }
 
 pub(super) async fn authenticate_in(

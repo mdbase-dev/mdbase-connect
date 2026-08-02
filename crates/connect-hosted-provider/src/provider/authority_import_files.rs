@@ -51,7 +51,7 @@ impl HostedProvider {
                 "A finalized authority import cannot accept file uploads.",
             ));
         }
-        let data_key = self.authority_import_data_key(&row)?;
+        let data_key = self.authority_import_data_key(&row).await?;
         let manifest = self.authority_import_manifest(&row, &data_key, import_id)?;
         let file = manifest
             .files
@@ -189,7 +189,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        let data_key = self.authority_import_data_key(&row)?;
+        let data_key = self.authority_import_data_key(&row).await?;
         let transfer = self
             .load_import_file_transfer(&mut transaction, request.transfer_id, &data_key)
             .await?
@@ -261,7 +261,7 @@ impl HostedProvider {
         let mut transaction = self.pool.begin().await?;
         let row = authority_import_row(&mut transaction, import_id).await?;
         authorize_authority_import(&row, token)?;
-        let data_key = self.authority_import_data_key(&row)?;
+        let data_key = self.authority_import_data_key(&row).await?;
         let mut transfer = self
             .load_import_file_transfer(&mut transaction, request.transfer_id, &data_key)
             .await?
@@ -311,12 +311,14 @@ impl HostedProvider {
         Ok(import_file_receipt(&transfer))
     }
 
-    fn authority_import_data_key(&self, row: &PgRow) -> ApiResult<[u8; 32]> {
+    async fn authority_import_data_key(
+        &self,
+        row: &PgRow,
+    ) -> ApiResult<zeroize::Zeroizing<[u8; 32]>> {
         let collection_id: Uuid = row.get("collection_id");
-        self.crypto.unwrap_data_key(
-            &row.get::<Vec<u8>, _>("wrapped_data_key"),
-            &collection_key_aad(collection_id),
-        )
+        self.crypto
+            .unwrap_data_key(&row.get::<Vec<u8>, _>("wrapped_data_key"), collection_id)
+            .await
     }
 
     fn authority_import_manifest(

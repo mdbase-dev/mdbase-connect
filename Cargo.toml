@@ -62,7 +62,7 @@ tower-http = { version = "0.7.0", features = ["cors", "limit", "request-id", "tr
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4", "v5", "v7", "serde"] }
 url = "2"
-zeroize = "1"
+zeroize = { version = "1", features = ["derive"] }
 
 [profile.profiling]
 inherits = "release"

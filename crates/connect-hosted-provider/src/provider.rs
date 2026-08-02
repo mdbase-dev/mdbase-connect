@@ -85,8 +85,26 @@ use policy::*;
 
 const SNAPSHOT_PAGE_SIZE: i64 = 200;
 const DATABASE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const KEY_READINESS_SUCCESS_TTL: Duration = Duration::from_secs(60);
+const KEY_READINESS_FAILURE_TTL: Duration = Duration::from_secs(5);
 type WorkingSetSlot = Arc<Mutex<Option<CachedCollection>>>;
 type WorkingSetRegistry = Arc<Mutex<HashMap<Uuid, WorkingSetSlot>>>;
+
+struct KeyReadinessState {
+    last_checked: Instant,
+    healthy: bool,
+}
+
+impl KeyReadinessState {
+    fn should_probe(&self, now: Instant) -> bool {
+        let ttl = if self.healthy {
+            KEY_READINESS_SUCCESS_TTL
+        } else {
+            KEY_READINESS_FAILURE_TTL
+        };
+        now.saturating_duration_since(self.last_checked) >= ttl
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ProviderLimits {
@@ -142,6 +160,7 @@ impl Default for ProviderLimits {
 pub struct HostedProvider {
     pool: PgPool,
     crypto: ProviderCrypto,
+    key_readiness: Arc<Mutex<KeyReadinessState>>,
     limits: ProviderLimits,
     working_sets: WorkingSetRegistry,
     notifications: Option<HostedNotificationRuntime>,
@@ -370,7 +389,7 @@ fn validate_contract_setup_targets(
     Ok(())
 }
 
-fn hosted_migrator() -> sqlx::migrate::Migrator {
+pub(crate) fn hosted_migrator() -> sqlx::migrate::Migrator {
     let mut migrator = sqlx::migrate!("./migrations");
     migrator.set_ignore_missing(true);
     migrator

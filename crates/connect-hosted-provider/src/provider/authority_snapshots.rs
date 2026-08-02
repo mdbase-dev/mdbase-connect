@@ -74,7 +74,7 @@ pub(super) fn provider_authority_import(row: &PgRow) -> ApiResult<ProviderAuthor
     })
 }
 
-pub(super) fn authority_import_contracts(
+pub(super) async fn authority_import_contracts(
     provider: &HostedProvider,
     row: &PgRow,
 ) -> ApiResult<Vec<CollectionContractDescriptor>> {
@@ -82,7 +82,8 @@ pub(super) fn authority_import_contracts(
     let wrapped_data_key: Vec<u8> = row.get("wrapped_data_key");
     let data_key = provider
         .crypto
-        .unwrap_data_key(&wrapped_data_key, &collection_key_aad(collection_id))?;
+        .unwrap_data_key(&wrapped_data_key, collection_id)
+        .await?;
     let manifest_ciphertext: Option<Vec<u8>> = row.get("manifest_ciphertext");
     let manifest: AuthorityImportManifest = provider.crypto.decrypt_json(
         &data_key,

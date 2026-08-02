@@ -90,7 +90,9 @@ impl HostedProvider {
         let next_epoch = current_epoch
             .checked_add(1)
             .ok_or_else(|| ApiError::internal("The collection authority epoch is exhausted."))?;
-        let data_key = self.collection_key(collection_id, collection.get("wrapped_data_key"))?;
+        let data_key = self
+            .collection_key(collection_id, collection.get("wrapped_data_key"))
+            .await?;
         let resources =
             load_resource_documents(&mut transaction, &self.crypto, &data_key, collection_id)
                 .await?;
