@@ -662,7 +662,7 @@ test("relay request and response discriminators reject malformed wire messages",
   const hello = {
     type: "relay_hello",
     protocol_version: 1,
-    connector_version: "0.1.0-beta.21",
+    connector_version: "0.1.0-beta.22",
     capabilities: [
       "authorization-activation",
       "encrypted-relay",
