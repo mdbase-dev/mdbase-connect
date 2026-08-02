@@ -1,6 +1,7 @@
 # Encryption architecture
 
-Status: encrypted relay and standard hosted encryption implemented
+Status: encrypted relay, first-contact trust, standard hosted encryption, and
+managed hosted key wrapping implemented
 
 ## Purpose
 
@@ -44,15 +45,21 @@ downgrade behavior. Connector identity material lives in the operating-system
 credential store. Existing owner-only `relay-identity.key` installations are
 migrated into that store, read back for identity verification, and only then
 have the legacy file removed. Verifying first contact and auditing logs remain
-public-release gates.
+public-release gates. First contact now uses a signed application authorization
+request, stable application-installation identity, and an independently derived
+short authentication string. Portal approval still chooses the collection and
+permissions; the local connector separately accepts or rejects the exact new
+installation before it stores the grant.
 
 The hosted provider encrypts canonical records, retained versions, change
 payloads, mutation receipts, and collection resources with AES-256-GCM under a
-random per-collection data key. It wraps that key with the provider deployment
-master key and authenticates ciphertext identity as associated data. PostgreSQL
-retains the wrapped key, ciphertext, and the explicit metadata listed below.
-Key-service integration, online key rotation, and restore drills remain release
-operations work; private/zero-knowledge hosting is not implemented.
+random per-collection data key. A versioned wrapping boundary supports the
+legacy local deployment key and AWS KMS envelopes carrying the immutable key
+ARN. Exact KMS encryption context binds each wrapped key to its environment,
+purpose, and collection. PostgreSQL retains only the wrapped key, ciphertext,
+and the explicit metadata listed below. Live staging activation, rotation, and
+isolated restore drills remain release operations work;
+private/zero-knowledge hosting is not implemented.
 
 Local Markdown files are also plaintext from mdbase's perspective. Operating
 system full-disk encryption, encrypted home directories, and device access
@@ -142,33 +149,33 @@ removes the connector's active grant key and blocks relay routing. Losing an
 application key requires authorization again; it never puts the underlying
 local collection at risk.
 
-### Active control-plane attacks
+### First-contact authentication
 
 Server-mediated public-key discovery protects against passive observation,
 payload logging, database disclosure, and an honest-but-curious control plane.
-An actively malicious control plane could try to replace public keys during the
-first authorization and become a man in the middle.
+The signed authorization request additionally prevents the server from
+silently substituting application installation or per-grant keys.
 
-The protocol should make that boundary explicit. Increasing levels of active
-server resistance are possible:
+For the first grant from an application installation to a local connector, the
+application and connector derive the same short authentication string from
+their independently held keys and the exact first-contact transcript. The
+application shows its value through the SDK while the connector shows its
+value locally through the desktop or headless CLI. The connector stores trust
+only after the user confirms an exact match. A mismatch, expired request,
+changed installation key, changed connector key, replayed request, or absent
+local confirmation fails closed. Later grants may reuse the exact trusted
+installation identity; changing its key material requires first contact again.
 
-1. **Grant binding and key continuity.** The connector signs the approved key
-   binding, and applications pin the connector identity after first use. Later
-   substitutions become visible.
-2. **Key transparency.** Connector identity changes appear in an append-only,
-   auditable account log.
-3. **User verification.** A short authentication string or QR flow confirms a
-   first connection through a path outside the relay.
+This comparison is separate from portal consent. The portal remains the only
+place that selects a collection and permissions, and connector trust endpoints
+cannot create or broaden a grant. Hosted-only grants do not cross a local
+connector and therefore do not require local first-contact approval.
 
-The SDK now enforces connector key continuity within a grant: refresh and
-policy rotation may change the scope epoch and key ID, but a different
-connector identity, agreement key, application key, or grant ID fails closed
-and requires explicit reauthorization. This detects substitution after the
-first approved binding; it does not authenticate first contact.
-
-The first public release should choose and document one of these levels after a
-focused threat-model review. It must not describe server-mediated first contact
-as protection against an actively malicious server.
+The comparison resists an active control plane only when the user compares the
+application and connector displays through independently trusted surfaces. A
+compromised application or connector display remains within that endpoint's
+trust boundary. Append-only key transparency is a possible later defense and
+is not part of the current claim.
 
 ### Encrypted envelope
 
@@ -253,11 +260,13 @@ encryption below. Deployment verification and restore drills are release gates.
 
 ### Collection envelope encryption
 
-Each hosted collection receives a random 256-bit data-encryption key. A
-deployment master key supplied to the Rust provider wraps that collection key.
-PostgreSQL stores the wrapped collection key and encrypted content. Provider
-startup verifies the supplied master key against an authenticated database key
-check and refuses a mismatched key.
+Each hosted collection receives a random 256-bit data-encryption key. The Rust
+provider wraps that collection key through one explicitly selected writer:
+the legacy local AES-256-GCM wrapper or the managed AWS KMS wrapper. PostgreSQL
+stores a bounded self-describing envelope with the wrapping scheme and, for
+KMS, the immutable key ARN returned by AWS. Provider startup resolves aliases,
+checks the enabled symmetric key, and verifies an authenticated database key
+check before reporting readiness.
 
 AES-256-GCM envelopes carry a random 96-bit nonce. Associated data binds each
 envelope to its purpose and identity: collection resources to the collection;
@@ -270,10 +279,14 @@ The provider decrypts records to evaluate authorized operations through
 and durable caches. Memory clearing has platform limits, so operational
 isolation remains part of the protection.
 
-The current provider does not support live master-key or collection-key
-rotation. Backup restoration must use the original provider master key. A
-versioned key-service integration, rotation procedure, and restore drill remain
-release operations work.
+The aggregate-only key administration tool inspects envelope counts and
+rewraps one locked collection at a time. It is resumable, idempotent, supports
+a real-operation dry run, and finalizes the provider key-check only after every
+active collection uses the configured immutable KMS key. Alias movement affects
+new writes only; existing envelopes continue to name their old key until they
+are rewrapped. A bounded old-key disablement drill and an isolated restore must
+pass before legacy access is retired. The accepted design and exact context are
+documented in [ADR 0003](./decisions/0003-managed-provider-key-wrapping.md).
 
 ### Hosted metadata
 
@@ -396,8 +409,9 @@ Keys have distinct lifecycles:
 - per-grant application keys are created during authorization, rotated on
   reauthorization or policy change, and discarded on disconnect or revocation;
 - standard hosted collection keys are generated by the provider and wrapped by
-  its deployment master key. Versioned rotation and a formally exercised key
-  destruction procedure remain to be implemented;
+  a versioned local or AWS KMS key envelope. Rotation rewrites only these small
+  DEK envelopes, retains immutable old-key references for backups, and removes
+  legacy reader access only after cold-start and recovery evidence;
 - private hosted collection keys are generated and wrapped on user devices,
   shared only with approved device/application keys, and covered by an explicit
   recovery procedure.
@@ -415,20 +429,26 @@ and decrypted recovery material never enter audit events.
 - browser non-extractable keys, atomic counters, encrypted operations, binding
   refresh, and fail-closed behavior;
 - opaque relay routing and cross-runtime end-to-end coverage;
-- per-collection hosted data keys wrapped by a deployment master key;
+- signed authorization, stable installation identity, independently displayed
+  first-contact codes, exact local trust persistence, and desktop/headless
+  acceptance, rejection, and revocation;
+- per-collection hosted data keys and authenticated content envelopes;
+- versioned local and AWS KMS wrappers, exact-context KMS envelopes, bounded
+  zeroizing DEK cache, stored-key readiness checks, and aggregate-only
+  inspect/rewrap/finalization tooling;
 - authenticated encryption for hosted documents, resources, retained versions,
   change images, and mutation receipts;
 - keyed record-path lookup without plaintext record paths in PostgreSQL; and
 - ciphertext tamper, wrong-key, two-provider race, sync, and operation tests.
 
-### Next: security review and key operations
+### Next: live key and recovery operations
 
 - native application key storage for a future non-browser SDK;
-- first-contact connector identity verification or key transparency;
 - independent protocol review and systematic log, trace, and crash-path audit;
-- move hosted key wrapping to a versioned managed-key boundary;
-- implement and exercise rotation, restore, deletion, and key-service outage
-  procedures; and
+- activate managed wrapping in staging, rewrap legacy envelopes, rotate to a
+  second KMS key, and prove cold operation with the old runtime key disabled;
+- exercise database, object, KMS-replica, retained-old-key, and credential-loss
+  recovery in an isolated environment; and
 - verify managed volume and backup encryption in the production environment.
 
 ### Later: private hosted prototype
@@ -462,12 +482,14 @@ The relay-only encryption milestone is complete when:
 
 ## Decisions still open
 
-- first-contact authentication against an actively malicious control plane;
+- append-only connector/application key transparency beyond explicit
+  first-contact comparison;
 - relay key rotation intervals and message limits;
 - visible relay metadata, including whether operation names remain visible;
 - any future plaintext metadata or query-index leakage for standard hosted
   collections;
-- hosted key-service availability, rotation, and disaster-recovery procedure;
+- production hosted key retention and recovery-region policy after the staging
+  drills establish measured recovery time and dependencies;
 - private-hosted recovery and contract-scoped key distribution.
 
 The relay guarantee can be implemented independently of hosted sync. Hosted
