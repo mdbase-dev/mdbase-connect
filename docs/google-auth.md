@@ -1,7 +1,7 @@
 # Google authentication
 
 mdbase connect supports Google Identity Services alongside GitHub OAuth. The
-portal uses Google's rendered button, receives a signed ID token in the browser,
+editor uses Google's rendered button, receives a signed ID token in the browser,
 and sends it to the Connect server. The server validates the signature, issuer,
 audience, expiry, and a one-time nonce before creating its own session. Google
 access and refresh tokens are neither requested nor stored.
@@ -12,22 +12,34 @@ Use separate Google Cloud projects for development and production. In each
 project, configure Google Auth Platform branding and create a **Web
 application** client.
 
-For the production client, add this authorized JavaScript origin:
+For the production client, add these authorized JavaScript origins:
 
 ```text
 https://connect.mdbase.dev
+https://editor.mdbase.dev
+https://editor-staging.mdbase.dev
 ```
 
-For local development, add the exact loopback origins in use, such as:
+`https://connect.mdbase.dev` preserves compatibility with the former Connect
+portal. Google Identity Services now runs in the editor, so
+`https://editor.mdbase.dev` is required for production sign-in. Managed staging
+currently uses the same web client and therefore also requires its exact editor
+origin.
+
+For local development, add the exact editor origins in use, such as:
 
 ```text
-http://localhost:8787
-http://127.0.0.1:8787
+http://localhost:5173
+http://127.0.0.1:5173
 ```
 
 The integration uses the popup callback from Google Identity Services, so it
-does not require a Google authorization redirect URI. Keep the production
-client ID in deployment configuration:
+does not require a Google authorization redirect URI. Configure these values
+under **Authorized JavaScript origins**, not **Authorized redirect URIs**. An
+origin contains only the scheme, hostname, and optional port; do not include a
+path or trailing slash.
+
+Keep the production client ID in deployment configuration:
 
 ```text
 MDBASE_CONNECT_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
