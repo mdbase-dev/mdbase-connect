@@ -391,6 +391,30 @@ export interface FirstContactBinding {
   connector_agreement_public_key: string;
 }
 
+export type ApplicationAuthorizationFlow = "authorization_code" | "device_code";
+
+export interface ApplicationAuthorizationBinding {
+  protocol_version: typeof FIRST_CONTACT_PROTOCOL_VERSION;
+  application_id: string;
+  application_installation_id: string;
+  installation_agreement_public_key: string;
+  installation_signing_public_key: string;
+  grant_agreement_public_key: string;
+  grant_signing_public_key: string;
+  flow: ApplicationAuthorizationFlow;
+  authorization_nonce: string;
+  redirect_uri?: string;
+  state?: string;
+  code_challenge: string;
+  requested_operations: CollectionOperation[];
+  collection_id?: string;
+}
+
+export interface ApplicationAuthorizationProof {
+  binding: ApplicationAuthorizationBinding;
+  signature: string;
+}
+
 export interface EncryptedRelayEnvelope {
   protocol_version: 1;
   suite: typeof RELAY_ENCRYPTION_SUITE;

@@ -18,6 +18,11 @@ export {
   FirstContactCryptoError,
   type FirstContactRole
 } from "./first-contact.js";
+export {
+  applicationInstallationId,
+  authorizationSigningMessage,
+  signApplicationAuthorization
+} from "./application-identity.js";
 
 export * from "./authorization-types.js";
 export * from "./collection-client.js";
@@ -37,6 +42,8 @@ export type {
   ApplicationProvisions,
   ApplicationRequirements,
   ApplicationNotifications,
+  ApplicationAuthorizationBinding,
+  ApplicationAuthorizationProof,
   CollectionChange,
   CollectionChangesPage,
   CollectionContractDescriptor,
