@@ -39,10 +39,10 @@ pub struct AgentState {
 }
 
 mod account;
+mod authorization;
 mod control;
 mod files;
 mod operations;
-mod trust;
 
 impl AgentState {
     #[cfg(test)]

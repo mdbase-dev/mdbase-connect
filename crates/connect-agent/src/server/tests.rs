@@ -251,8 +251,6 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
             collection_id: collection.id,
             operations: &operations,
             distribution: "web",
-            connector_id,
-            connector_identity: &connector_identity,
             grant_agreement_public_key: application_identity.public_key(),
             file_capability: None,
         },
@@ -274,7 +272,6 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         created_at: "2026-07-26T00:00:00Z".to_string(),
         encryption: Some(encryption),
         file_capability: None,
-        first_contact: security.first_contact,
         application_authorization: security.proof,
     };
     let activation_request_id = Uuid::new_v4();
@@ -293,18 +290,6 @@ fn live_authorization_is_acknowledged_only_after_the_grant_is_stored() {
         contract_setups: Vec::new(),
         grant: Box::new(grant.clone()),
     };
-    let activation = state.handle_relay_message(activation_request()).unwrap();
-    assert!(matches!(
-        activation,
-        RelayMessage::AuthorizationActivationResponse {
-            ok: false,
-            error: Some(ControlError { ref code, ref details, .. }),
-            ..
-        } if code == "trust_required"
-            && details.as_ref().is_some_and(|value| value.get("binding").is_some())
-            && details.as_ref().is_none_or(|value| value.get("authentication_string").is_none())
-    ));
-    registry.accept_application_trust(authorization_id).unwrap();
     let activation = state.handle_relay_message(activation_request()).unwrap();
     assert!(matches!(
         activation,
@@ -354,13 +339,10 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
             collection_id: collection.id,
             operations: &operations,
             distribution: "web",
-            connector_id,
-            connector_identity: &connector_identity,
             grant_agreement_public_key: application_identity.public_key(),
             file_capability: None,
         },
     );
-    crate::test_support::trust_application(&registry, &security, "web");
     registry
         .replace_grants(&[GrantPolicy {
             id: grant_id,
@@ -379,7 +361,6 @@ fn encrypted_operations_round_trip_and_replays_return_the_durable_receipt() {
             created_at: "2026-07-21T00:00:00Z".to_string(),
             encryption: Some(encryption.clone()),
             file_capability: None,
-            first_contact: security.first_contact,
             application_authorization: security.proof,
         }])
         .unwrap();

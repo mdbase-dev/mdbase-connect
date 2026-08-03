@@ -730,13 +730,10 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
             collection_id: collection.id,
             operations: &operations,
             distribution,
-            connector_id,
-            connector_identity: &connector,
             grant_agreement_public_key: application.public_key(),
             file_capability: Some(&file_capability),
         },
     );
-    crate::test_support::trust_application(&registry, &security, distribution);
     registry
         .replace_grants(&[GrantPolicy {
             id: grant_id,
@@ -760,7 +757,6 @@ fn fixture_for_origin(origin: &str, distribution: &str) -> Fixture {
             created_at: "2026-07-22T00:00:00Z".to_string(),
             encryption: Some(encryption.clone()),
             file_capability: Some(file_capability),
-            first_contact: security.first_contact,
             application_authorization: security.proof,
         }])
         .unwrap();

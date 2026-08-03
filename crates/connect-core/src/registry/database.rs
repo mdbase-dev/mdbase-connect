@@ -54,7 +54,6 @@ impl CollectionRegistry {
                 notification_criteria TEXT NOT NULL DEFAULT '[]',
                 encryption TEXT,
                 file_capability TEXT,
-                first_contact TEXT NOT NULL,
                 application_authorization TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -250,34 +249,6 @@ impl CollectionRegistry {
                 received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (grant_id, key_id, request_id)
             );
-            CREATE TABLE IF NOT EXISTS application_trusts (
-                id TEXT PRIMARY KEY,
-                application_id TEXT NOT NULL,
-                application_installation_id TEXT NOT NULL,
-                connector_id TEXT NOT NULL,
-                binding TEXT NOT NULL,
-                presentation TEXT NOT NULL,
-                trusted_at TEXT NOT NULL,
-                last_used_at TEXT NOT NULL,
-                UNIQUE (application_id, application_installation_id, connector_id)
-            );
-            CREATE TABLE IF NOT EXISTS pending_application_trusts (
-                request_id TEXT PRIMARY KEY,
-                application_id TEXT NOT NULL,
-                application_installation_id TEXT NOT NULL,
-                connector_id TEXT NOT NULL,
-                request TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS pending_application_trusts_expiry_idx
-                ON pending_application_trusts(expires_at);
-            CREATE INDEX IF NOT EXISTS pending_application_trusts_identity_idx
-                ON pending_application_trusts(
-                    application_id,
-                    application_installation_id,
-                    connector_id
-                );
             ",
         )?;
         // These upgrades preserve registries created by the first development MVP.
@@ -294,7 +265,6 @@ impl CollectionRegistry {
             "ALTER TABLE grants ADD COLUMN scope TEXT NOT NULL DEFAULT '{\"contracts\":[],\"access\":\"full_collection\"}'",
             "ALTER TABLE grants ADD COLUMN encryption TEXT",
             "ALTER TABLE grants ADD COLUMN file_capability TEXT",
-            "ALTER TABLE grants ADD COLUMN first_contact TEXT",
             "ALTER TABLE grants ADD COLUMN application_authorization TEXT",
             "ALTER TABLE grants ADD COLUMN notification_criteria TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE collection_file_transfers ADD COLUMN owner_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'",
@@ -319,13 +289,30 @@ impl CollectionRegistry {
             "DELETE FROM grants WHERE json_extract(scope, '$.access') IS NULL",
             [],
         )?;
-        // First-contact trust is a deliberate pre-release protocol break. Old local grants have
-        // no app-signed installation binding and cannot be upgraded safely; they must be
-        // authorized again through the normal portal flow.
+        // Application authorization v2 is a deliberate pre-release protocol break. Existing
+        // local grants cannot be upgraded because their installation identity used a different
+        // key hierarchy. Reauthorization creates a fresh, exact proof.
         connection.execute(
             "DELETE FROM grants
-             WHERE first_contact IS NULL OR application_authorization IS NULL",
+             WHERE application_authorization IS NULL
+                OR COALESCE(
+                     json_extract(application_authorization, '$.binding.protocol_version'),
+                     -1
+                   ) <> 2",
             [],
+        )?;
+        let has_first_contact = connection
+            .prepare("PRAGMA table_info(grants)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|column| column == "first_contact");
+        if has_first_contact {
+            connection.execute("ALTER TABLE grants DROP COLUMN first_contact", [])?;
+        }
+        connection.execute_batch(
+            "DROP TABLE IF EXISTS pending_application_trusts;
+             DROP TABLE IF EXISTS application_trusts;",
         )?;
         // Registries created before the bounded replay window cannot safely distinguish a fresh
         // out-of-order counter from one accepted before counters were recorded. Start their
