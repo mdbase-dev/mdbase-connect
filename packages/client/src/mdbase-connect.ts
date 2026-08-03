@@ -19,7 +19,7 @@ import {
   type RegistrationProblemCode
 } from "./outcomes.js";
 import { MdbaseApplicationSession, type MdbaseApplicationSessionOptions } from "./application-session.js";
-import { MdbaseSession, type MdbaseSessionOptions, type MdbaseUnavailableReason } from "./session.js";
+import type { MdbaseUnavailableReason } from "./session.js";
 import type { Application } from "./internal-types.js";
 
 export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
@@ -43,10 +43,6 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       () => this.internals.authorize(options),
       AUTHORIZATION_PROBLEM_CODES
     );
-  }
-
-  createSession(options: MdbaseSessionOptions): MdbaseSession<Frontmatter> {
-    return new MdbaseSession(this, options);
   }
 
   createApplicationSession(

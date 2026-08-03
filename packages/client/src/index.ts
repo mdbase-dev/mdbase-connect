@@ -38,7 +38,7 @@ export * from "./notifications.js";
 export * from "./outcomes.js";
 export * from "./operation-types.js";
 export * from "./selection.js";
-export * from "./session.js";
+export type { MdbaseUnavailableReason } from "./session.js";
 export { createPkce } from "./runtime-utils.js";
 
 export type {

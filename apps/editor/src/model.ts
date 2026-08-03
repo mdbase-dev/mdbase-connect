@@ -38,7 +38,7 @@ export interface ConnectionSummary {
   collectionId: string;
   displayName?: string;
   operations: string[];
-  missingOperations?: string[];
+  missingCapabilities?: string[];
   route?: MdbaseConnectionRoute;
   directAccess?: DirectAccessStatus;
 }

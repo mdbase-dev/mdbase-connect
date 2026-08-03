@@ -28,7 +28,7 @@ import {
 } from "./outcomes.js";
 import type {
   MdbaseSelectionHistory,
-  MdbaseSessionSelection
+  MdbaseApplicationSelection
 } from "./selection.js";
 
 export interface MdbaseSessionConnect<Frontmatter extends JsonObject> {
@@ -47,7 +47,7 @@ export interface MdbaseSessionConnect<Frontmatter extends JsonObject> {
 }
 
 export interface MdbaseSessionOptions {
-  selection: MdbaseSessionSelection;
+  selection: MdbaseApplicationSelection;
   operations?: CollectionOperation[];
   autoSelect?: "only" | "never";
 }
@@ -79,7 +79,7 @@ export type MdbaseSessionSnapshot<Frontmatter extends JsonObject = JsonObject> =
 
 export class MdbaseSession<Frontmatter extends JsonObject = JsonObject> {
   private readonly operations: CollectionOperation[];
-  private readonly selection: MdbaseSessionSelection;
+  private readonly selection: MdbaseApplicationSelection;
   private readonly autoSelect: "only" | "never";
   private readonly listeners = new Set<() => void>();
   private snapshot: MdbaseSessionSnapshot<Frontmatter>;

@@ -26,11 +26,11 @@ import {
   type AuthorizationProblemCode,
   type SessionProblemCode
 } from "./outcomes.js";
-import type { MdbaseSessionSelection, MdbaseSelectionHistory } from "./selection.js";
+import type { MdbaseApplicationSelection, MdbaseSelectionHistory } from "./selection.js";
 import { MdbaseSession, type MdbaseUnavailableReason } from "./session.js";
 
 export interface MdbaseApplicationSessionOptions {
-  selection: MdbaseSessionSelection;
+  selection: MdbaseApplicationSelection;
   autoSelect?: "only" | "never";
   verificationStore?: MdbaseApplicationVerificationStore;
 }

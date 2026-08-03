@@ -9,20 +9,20 @@ import { Wordmark } from "./Brand";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
 
-export function ConnectScreen({ notice, missingOperations = [], connections, onConnect, onOpen, onForget }: {
+export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget }: {
   notice?: string;
-  missingOperations?: string[];
+  missingCapabilities?: string[];
   connections: ConnectionSummary[];
   onConnect: () => void;
   onOpen: (collectionId: string) => void;
   onForget: (connection: ConnectionSummary) => void;
 }) {
-  const updatingAccess = missingOperations.length > 0;
+  const updatingAccess = missingCapabilities.length > 0;
   return <main className="connect-screen"><section>
     <Wordmark />
     <h1>Your notes,<br />as files.</h1>
     <p className="connect-copy">{updatingAccess
-      ? `Update access to ${accessSummary(missingOperations)} in this collection.`
+      ? `Update access to ${accessSummary(missingCapabilities)} in this collection.`
       : "Choose the collection you want to write in."}</p>
     {connections.length > 0 && <div className="saved-collections" aria-label="Recent collections">
       <p>Recent collections</p>
@@ -88,22 +88,22 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
 }
 
 
-function accessSummary(operations: string[]): string {
+function accessSummary(capabilities: string[]): string {
   const labels: Record<string, string> = {
-    describe: "inspect the collection",
-    changes: "sync changes",
-    read: "open notes",
-    query: "list and search notes",
-    validate: "check notes",
-    create: "create notes",
-    update: "edit notes",
-    delete: "delete notes",
-    rename: "move notes",
-    read_type: "manage type definitions",
-    create_type: "manage type definitions",
-    update_type: "manage type definitions"
+    "collection.inspect": "inspect the collection",
+    "records.watch": "sync changes",
+    "records.read": "open notes",
+    "records.query": "list and search notes",
+    "records.validate": "check notes",
+    "records.create": "create notes",
+    "records.update": "edit notes",
+    "records.delete": "delete notes",
+    "records.rename": "move notes",
+    "definitions.read": "manage type definitions",
+    "definitions.create": "manage type definitions",
+    "definitions.update": "manage type definitions"
   };
-  const missing = [...new Set(operations.map((operation) => labels[operation] ?? operation.replaceAll("_", " ")))];
+  const missing = [...new Set(capabilities.map((capability) => labels[capability] ?? capability.replaceAll(".", " ")))];
   if (missing.length < 2) return missing[0] ?? "use the editor";
   if (missing.length === 2) return `${missing[0]} and ${missing[1]}`;
   return `${missing.slice(0, -1).join(", ")}, and ${missing.at(-1)}`;

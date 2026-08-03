@@ -35,7 +35,7 @@ import {
 } from "./contract-catalog";
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { AppPhase, ConnectionState, ContractCatalogLoadState, CreationContext, MobileHistoryState, MobilePane, Surface } from "./app-state-types";
-import { gatewayError, missingCoreOperations, missingTypeOperations } from "./gateway";
+import { gatewayError, missingCoreCapabilities, missingTypeCapabilities } from "./gateway";
 import { useCollectionAuthorization } from "./collection-authorization";
 import { OpeningScreen, TypeWorkspaceLoading } from "./LoadingScreens";
 import { backlinksFor, linkSuggestions, unresolvedNoteTarget } from "./links";
@@ -598,7 +598,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         const snapshot = gateway.sessionSnapshot();
         setSessionSnapshot(snapshot);
         const connection = snapshot.status === "ready" ? snapshot.connection : null;
-        if (connection && missingCoreOperations(connection).length === 0) await start();
+        if (connection && missingCoreCapabilities(connection).length === 0) await start();
         else {
           setPhase("disconnected");
         }
@@ -864,7 +864,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
     try {
       const snapshot = gateway.sessionSnapshot();
       if (snapshot.status === "unavailable"
-        || (snapshot.status === "ready" && missingCoreOperations(snapshot.connection).length > 0)) {
+        || (snapshot.status === "ready" && missingCoreCapabilities(snapshot.connection).length > 0)) {
         await authorizeCollection("selected");
       }
       else await authorizeCollection("choose");
@@ -937,7 +937,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
       await flushCollectionWork();
       const selected = gateway.selectConnection(collectionId);
       clearCollectionWorkspace();
-      if (missingCoreOperations(selected).length > 0) {
+      if (missingCoreCapabilities(selected).length > 0) {
         setPhase("disconnected");
         await authorizeCollection("selected");
         return;
@@ -1747,7 +1747,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   if (phase === "disconnected") return <>
     <ConnectScreen
       notice={notice}
-      missingOperations={missingCoreOperations(connectionSummary)}
+      missingCapabilities={missingCoreCapabilities(connectionSummary)}
       connections={sessionSnapshot.connections}
       onConnect={() => void connectFromConnectScreen()}
       onOpen={(collectionId) => void openSavedCollection(collectionId)}
@@ -1804,7 +1804,7 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
   const mutationNotice = editorNotice ?? (activePendingRename
     ? "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
     : undefined);
-  const typeAccessMissing = missingTypeOperations(connectionSummary);
+  const typeAccessMissing = missingTypeCapabilities(connectionSummary);
   const editorLeadingActions = layout.listCollapsed ? <>
     {layout.collectionCollapsed && <PaneControl label="Show collections sidebar" action="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
     <PaneControl label={`Show ${listName} sidebar`} action="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />

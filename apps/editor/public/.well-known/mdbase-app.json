@@ -20,20 +20,10 @@
         "records.update",
         "records.delete",
         "records.rename",
-        "views.list",
-        "views.execute",
-        "views.source.read",
-        "views.source.create",
-        "views.source.update",
-        "views.source.delete",
         "definitions.read",
         "definitions.create",
         "definitions.update",
-        "definitions.type-pack.apply",
-        "timers.list",
-        "timers.put",
-        "timers.cancel",
-        "timers.reconcile"
+        "definitions.type-pack.apply"
       ]
     },
     "access": "full_collection"

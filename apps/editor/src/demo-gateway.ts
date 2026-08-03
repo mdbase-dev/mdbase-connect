@@ -107,7 +107,7 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   protected currentConnection(): ConnectionSummary | null {
-    return { collectionId: "demo", operations: ["all"], missingOperations: [] };
+    return { collectionId: "demo", operations: ["all"], missingCapabilities: [] };
   }
 
   protected emitSessionChange(): void {

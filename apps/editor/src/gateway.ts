@@ -7,9 +7,9 @@ import {
   type CollectionDescription,
   type MdbaseConnection,
   type MdbaseConnectionInfo,
-  type MdbaseOperation as CollectionOperation,
-  type MdbaseSession,
-  type MdbaseSessionSnapshot,
+  type ApplicationCapabilityId,
+  type MdbaseApplicationSession,
+  type MdbaseApplicationSessionSnapshot,
   type JsonObject,
   type MdbaseDiagnostic,
   type QueryRecord,
@@ -38,41 +38,33 @@ import type {
   TypePackApplyResult
 } from "./model";
 
-export const CORE_COLLECTION_OPERATIONS: CollectionOperation[] = [
-  "describe",
-  "changes",
-  "read",
-  "query",
-  "validate",
-  "create",
-  "update",
-  "delete",
-  "rename"
+export const CORE_CAPABILITIES: ApplicationCapabilityId[] = [
+  "collection.inspect",
+  "records.watch",
+  "records.read",
+  "records.query",
+  "records.validate",
+  "records.create",
+  "records.update",
+  "records.delete",
+  "records.rename"
 ];
 
-export const TYPE_DEFINITION_OPERATIONS: CollectionOperation[] = [
-  "read_type",
-  "create_type",
-  "update_type"
+export const TYPE_DEFINITION_CAPABILITIES: ApplicationCapabilityId[] = [
+  "definitions.read",
+  "definitions.create",
+  "definitions.update"
 ];
 
-const INSTALL_TYPE_PACK_OPERATION: CollectionOperation = "apply_type_pack";
-
-export const FULL_COLLECTION_OPERATIONS: CollectionOperation[] = [
-  ...CORE_COLLECTION_OPERATIONS,
-  ...TYPE_DEFINITION_OPERATIONS,
-  INSTALL_TYPE_PACK_OPERATION
-];
-
-export function missingCoreOperations(connection: ConnectionSummary | null): string[] {
-  return connection?.missingOperations?.filter((operation) =>
-    CORE_COLLECTION_OPERATIONS.includes(operation as CollectionOperation)
+export function missingCoreCapabilities(connection: ConnectionSummary | null): string[] {
+  return connection?.missingCapabilities?.filter((capability) =>
+    CORE_CAPABILITIES.includes(capability as ApplicationCapabilityId)
   ) ?? [];
 }
 
-export function missingTypeOperations(connection: ConnectionSummary | null): string[] {
-  return connection?.missingOperations?.filter((operation) =>
-    TYPE_DEFINITION_OPERATIONS.includes(operation as CollectionOperation)
+export function missingTypeCapabilities(connection: ConnectionSummary | null): string[] {
+  return connection?.missingCapabilities?.filter((capability) =>
+    TYPE_DEFINITION_CAPABILITIES.includes(capability as ApplicationCapabilityId)
   ) ?? [];
 }
 
@@ -80,7 +72,7 @@ const FIRST_PAGE_SIZE = 200;
 const PAGE_SIZE = 1_000;
 
 export class ConnectCollectionGateway implements CollectionGateway {
-  private readonly session: MdbaseSession<NoteFrontmatter>;
+  private readonly session: MdbaseApplicationSession<NoteFrontmatter>;
   private readonly renamePreflights = new Map<string, import("@mdbase-dev/connect").RenamePreflightResult>();
   private readonly deletePreflights = new Map<string, import("@mdbase-dev/connect").DeletePreflightResult>();
 
@@ -93,8 +85,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
       manifest: new URL(".well-known/mdbase-app.json", appRoot).href,
       redirectUri: appRoot.href
     });
-    this.session = connect.createSession({
-      operations: FULL_COLLECTION_OPERATIONS,
+    this.session = connect.createApplicationSession({
       selection: new MdbaseBrowserSelection({
         fallbackPath: appRoot.pathname
       }),
@@ -373,8 +364,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 
   private activeConnection(): MdbaseConnection<NoteFrontmatter> | null {
-    const snapshot = this.session.getSnapshot();
-    return snapshot.status === "ready" ? snapshot.connection : null;
+    return this.session.connection();
   }
 
   private readySummary(): ConnectionSummary | null {
@@ -389,9 +379,9 @@ export class ConnectCollectionGateway implements CollectionGateway {
   }
 }
 
-function summarizeSession(snapshot: MdbaseSessionSnapshot<NoteFrontmatter>): CollectionSessionSnapshot {
+function summarizeSession(snapshot: MdbaseApplicationSessionSnapshot): CollectionSessionSnapshot {
   const connections = snapshot.connections.map(summarizeConnection);
-  if (snapshot.status === "unselected") return { status: "unselected", connections };
+  if (snapshot.status === "opening" || snapshot.status === "unselected") return { status: "unselected", connections };
   if (snapshot.status === "unavailable") {
     return {
       status: "unavailable",
@@ -400,14 +390,17 @@ function summarizeSession(snapshot: MdbaseSessionSnapshot<NoteFrontmatter>): Col
       connections
     };
   }
-  return {
+  if (snapshot.status === "ready" || snapshot.status === "authorization_required") return {
     status: "ready",
     connection: {
       ...summarizeConnection(snapshot.info),
-      missingOperations: snapshot.access.missingOperations
+      missingCapabilities: Object.values(snapshot.capabilities.values)
+        .filter((capability) => capability?.state !== "available")
+        .map((capability) => capability!.id)
     },
     connections
   };
+  return { status: "unselected", connections };
 }
 
 function summarizeConnection(connection: MdbaseConnectionInfo): ConnectionSummary {

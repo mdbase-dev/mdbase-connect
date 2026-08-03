@@ -17,6 +17,24 @@ await writeFile(target, `${JSON.stringify({
   redirect_uris: [appUrl],
   requirements: {
     contracts: [],
+    capabilities: {
+      contract_version: 1,
+      required: [
+        "collection.inspect",
+        "records.watch",
+        "records.read",
+        "records.query",
+        "records.validate",
+        "records.create",
+        "records.update",
+        "records.delete",
+        "records.rename",
+        "definitions.read",
+        "definitions.create",
+        "definitions.update",
+        "definitions.type-pack.apply",
+      ],
+    },
     access: "full_collection"
   }
 }, null, 2)}\n`);

@@ -1,19 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  MdbaseBrowserSelection,
   MdbaseCollectionClient,
   ConnectOutcomeError,
   connectFailure,
   connectProblem,
   connectSuccess,
-  MdbaseSession,
+  type MdbaseApplicationSessionSnapshot,
   type DirectAccessStatus,
   type MdbaseConnection,
-  type MdbaseConnectionInfo,
-  type MdbaseSessionSnapshot
+  type MdbaseConnectionInfo
 } from "@mdbase-dev/connect";
-import { ConnectCollectionGateway, FULL_COLLECTION_OPERATIONS, gatewayError } from "./gateway";
+import { ConnectCollectionGateway, gatewayError } from "./gateway";
 import type { NoteDocument, NoteListProgress, NoteSummary } from "./model";
+
+const TEST_OPERATIONS = [
+  "describe", "changes", "read", "query", "validate", "create", "update",
+  "delete", "rename", "read_type", "create_type", "update_type",
+  "assess_type_pack", "apply_type_pack"
+] as const;
 
 describe("ConnectCollectionGateway collection index", () => {
   it("loads the complete structure before hydrating note bodies on demand", async () => {
@@ -129,39 +133,6 @@ describe("ConnectCollectionGateway recovery operations", () => {
     history.replaceState(null, "", originalLocation);
   });
 
-  it("replaces a stale browser bookmark when opening a saved collection without reloading", async () => {
-    const originalLocation = `${location.pathname}${location.search}${location.hash}`;
-    history.replaceState(null, "", "/?collection=stale-collection");
-    const saved = sessionConnection("saved-collection", "Saved notes");
-    const connect = {
-      connections: () => [saved.info()],
-      connection: (collectionId: string) => collectionId === saved.collectionId ? saved : null,
-      unavailableReason: () => null,
-      onConnectionsChange: () => () => undefined
-    };
-    const session = new MdbaseSession(connect as never, {
-      operations: FULL_COLLECTION_OPERATIONS,
-      selection: new MdbaseBrowserSelection(),
-      autoSelect: "never"
-    });
-
-    await session.start();
-    expect(session.getSnapshot()).toMatchObject({
-      status: "unavailable",
-      collectionId: "stale-collection"
-    });
-
-    const selected = session.select("saved-collection", { history: "replace" });
-
-    expect(selected).toMatchObject({ ok: true, value: saved });
-    expect(session.getSnapshot()).toMatchObject({
-      status: "ready",
-      collectionId: "saved-collection"
-    });
-    expect(new URL(location.href).searchParams.get("collection")).toBe("saved-collection");
-    history.replaceState(null, "", originalLocation);
-  });
-
   it("turns stale connector grants into a clear authorization action", () => {
     expect(gatewayError(new ConnectOutcomeError(connectProblem(
       "direct_operation_rejected",
@@ -191,7 +162,7 @@ describe("ConnectCollectionGateway recovery operations", () => {
       collectionId: "collection",
       displayName: "Notes",
       operations: ["read"],
-      missingOperations: ["update"],
+      missingCapabilities: ["records.update"],
       route: "relay",
       directAccess: "unavailable"
       }
@@ -474,25 +445,34 @@ function injectConnection(
         displayName: bound.displayName!,
         operations: bound.operations!,
         scope: {} as never,
+        authority: { kind: "connector" as const, durability: "computer" as const },
         route: bound.route!,
         directAccess: bound.directAccess!
       };
+      const missingCapabilities = bound.authorizationCapabilities!().missingOperations
+        .map((operation) => operation === "update" ? "records.update" : operation);
       return {
-        status: "ready",
+        status: missingCapabilities.length ? "authorization_required" : "ready",
         collectionId: bound.collectionId!,
-        connection: bound,
         info,
-        access: {
-          authorized: true,
-          sufficient: false,
-          collectionId: bound.collectionId!,
-          grantedOperations: bound.operations!,
-          missingOperations: bound.authorizationCapabilities!().missingOperations
+        capabilities: {
+          contractVersion: 1,
+          requiredAvailable: missingCapabilities.length === 0,
+          values: Object.fromEntries(missingCapabilities.map((id) => [id, {
+            id,
+            requirement: "required",
+            state: "requires_authorization",
+            operations: ["update"],
+            missingOperations: ["update"],
+            evidence: []
+          }]))
         },
+        ...(missingCapabilities.length ? {} : { verification: "verified" as const }),
         connections: [info]
-      } as unknown as MdbaseSessionSnapshot;
+      } as unknown as MdbaseApplicationSessionSnapshot;
     },
-    authorize
+    authorize,
+    connection: bound as unknown as MdbaseConnection
   });
   return { authorize };
 }
@@ -500,12 +480,13 @@ function injectConnection(
 function injectSession(
   gateway: ConnectCollectionGateway,
   session: {
-    getSnapshot: () => MdbaseSessionSnapshot;
+    getSnapshot: () => MdbaseApplicationSessionSnapshot;
     authorize?: (...args: unknown[]) => unknown;
     start?: () => Promise<unknown>;
     subscribe?: (listener: () => void) => () => void;
     select?: (collectionId: string) => unknown;
     forget?: (collectionId: string) => void;
+    connection?: MdbaseConnection;
   }
 ): void {
   Object.defineProperty(gateway, "session", {
@@ -514,9 +495,15 @@ function injectSession(
       subscribe: session.subscribe ?? (() => () => undefined),
       select: (collectionId: string) => legacyOutcome(session.select?.(collectionId) ?? (() => {
         const snapshot = session.getSnapshot();
-        if (snapshot.status !== "ready") throw new Error("No selected connection.");
-        return snapshot.connection;
+        if (!("collectionId" in snapshot)) throw new Error("No selected connection.");
+        return sessionConnection(snapshot.collectionId, "Notes");
       })()),
+      connection: () => session.connection ?? (() => {
+        const snapshot = session.getSnapshot();
+        return "collectionId" in snapshot
+          ? sessionConnection(snapshot.collectionId, "Notes")
+          : null;
+      })(),
       authorize: async (target: unknown) => legacyOutcome(await (session.authorize?.(target) ?? { kind: "redirecting" as const })),
       forget: session.forget ?? vi.fn(),
       getSnapshot: session.getSnapshot
@@ -543,7 +530,7 @@ function sessionConnection(collectionId: string, displayName: string): MdbaseCon
   const info: MdbaseConnectionInfo = {
     collectionId,
     displayName,
-    operations: FULL_COLLECTION_OPERATIONS,
+    operations: [...TEST_OPERATIONS],
     scope: {} as never,
     authority: { kind: "connector", durability: "computer" },
     route: "relay",
@@ -556,7 +543,7 @@ function sessionConnection(collectionId: string, displayName: string): MdbaseCon
       authorized: true,
       sufficient: true,
       collectionId,
-      grantedOperations: FULL_COLLECTION_OPERATIONS,
+      grantedOperations: [...TEST_OPERATIONS],
       missingOperations: []
     }),
     onConnectionChange: () => () => undefined

@@ -1,7 +1,7 @@
 import type { MdbaseFirstContactChallenge } from "@mdbase-dev/connect";
 import type { Dispatch, SetStateAction } from "react";
 import { useState } from "react";
-import { missingCoreOperations } from "./gateway";
+import { missingCoreCapabilities } from "./gateway";
 import type {
   CollectionAuthorizationTarget,
   CollectionGateway,
@@ -37,7 +37,7 @@ export function useCollectionAuthorization(input: {
       input.setSessionSnapshot(next);
       if (
         next.status === "ready"
-        && missingCoreOperations(next.connection).length === 0
+        && missingCoreCapabilities(next.connection).length === 0
         && (
           input.phase !== "ready"
           || previous.status !== "ready"

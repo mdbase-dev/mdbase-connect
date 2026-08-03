@@ -6,7 +6,7 @@ import { connectError } from "./errors.js";
 
 export type MdbaseSelectionHistory = "push" | "replace";
 
-export interface MdbaseSessionSelection {
+export interface MdbaseApplicationSelection {
   selectedCollectionId(): string | null;
   select(collectionId: string | null, options?: { history?: MdbaseSelectionHistory }): void;
   authorizationReturnTo(): string | undefined;
@@ -22,7 +22,7 @@ export interface MdbaseBrowserSelectionOptions {
 }
 
 /** URL-backed collection selection for browser and browser-shell applications. */
-export class MdbaseBrowserSelection implements MdbaseSessionSelection {
+export class MdbaseBrowserSelection implements MdbaseApplicationSelection {
   private readonly collectionParameter: string;
   private readonly fallbackPath: string;
   private readonly listeners = new Set<() => void>();
@@ -120,7 +120,7 @@ export class MdbaseBrowserSelection implements MdbaseSessionSelection {
   }
 }
 
-export class MdbaseMemorySelection implements MdbaseSessionSelection {
+export class MdbaseMemorySelection implements MdbaseApplicationSelection {
   private collectionId: string | null = null;
   private readonly listeners = new Set<() => void>();
 
