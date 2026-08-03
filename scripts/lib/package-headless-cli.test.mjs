@@ -41,22 +41,22 @@ esac
     const packaged = await packageHeadlessCli({
       platform: "linux",
       arch: "x64",
-      version: "0.1.0-beta.26",
+      version: "0.1.0-beta.27",
       binary,
       outputDirectory,
       repositoryRoot
     });
-    assert.equal(packaged.artifactName, "mdbase-cli-0.1.0-beta.26-linux-x64.tar.gz");
+    assert.equal(packaged.artifactName, "mdbase-cli-0.1.0-beta.27-linux-x64.tar.gz");
     const listing = spawnSync("tar", ["-tzf", packaged.artifactPath], { encoding: "utf8" });
     assert.equal(listing.status, 0);
-    assert.match(listing.stdout, /mdbase-0\.1\.0-beta\.26-linux-x64\/mdbase$/m);
+    assert.match(listing.stdout, /mdbase-0\.1\.0-beta\.27-linux-x64\/mdbase$/m);
     assert.match(listing.stdout, /README\.md$/m);
     assert.match(listing.stdout, /LICENSE$/m);
 
     const unsigned = await packageHeadlessCli({
       platform: "windows",
       arch: "x64",
-      version: "0.1.0-beta.26",
+      version: "0.1.0-beta.27",
       binary,
       outputDirectory,
       filenameMode: "unsigned-preview",
@@ -64,7 +64,7 @@ esac
     });
     assert.equal(
       unsigned.artifactName,
-      "mdbase-cli-0.1.0-beta.26-windows-x64-UNSIGNED.tar.gz"
+      "mdbase-cli-0.1.0-beta.27-windows-x64-UNSIGNED.tar.gz"
     );
     assert.ok((await readFile(unsigned.artifactPath)).length > 0);
   } finally {
@@ -78,7 +78,7 @@ test("rejects ambiguous or unsupported release identities", async () => {
     packageHeadlessCli({
       platform: "freebsd",
       arch: "x64",
-      version: "0.1.0-beta.26",
+      version: "0.1.0-beta.27",
       binary: "/missing",
       outputDirectory: "/missing"
     }),
