@@ -18,6 +18,7 @@ import {
   type ConnectOutcome,
   type RegistrationProblemCode
 } from "./outcomes.js";
+import { MdbaseApplicationSession, type MdbaseApplicationSessionOptions } from "./application-session.js";
 import { MdbaseSession, type MdbaseSessionOptions, type MdbaseUnavailableReason } from "./session.js";
 import type { Application } from "./internal-types.js";
 
@@ -46,6 +47,19 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
 
   createSession(options: MdbaseSessionOptions): MdbaseSession<Frontmatter> {
     return new MdbaseSession(this, options);
+  }
+
+  createApplicationSession(
+    options: MdbaseApplicationSessionOptions
+  ): MdbaseApplicationSession<Frontmatter> {
+    return new MdbaseApplicationSession(this, options);
+  }
+
+  manifest(): Promise<ConnectOutcome<import("@mdbase-dev/connect-protocol").MdbaseAppManifest, RegistrationProblemCode>> {
+    return captureConnectOutcome(
+      () => this.internals.manifestDeclaration(),
+      REGISTRATION_PROBLEM_CODES
+    );
   }
 
   environment(): MdbaseConnectEnvironment {

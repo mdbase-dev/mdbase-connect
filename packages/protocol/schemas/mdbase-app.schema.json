@@ -107,8 +107,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["contracts"],
-    "properties": {
-      "access": {
+      "properties": {
+        "capabilities": { "$ref": "#/$defs/capabilityRequirements" },
+        "access": {
         "enum": ["contract", "full_collection"],
         "description": "Access boundary requested after compatibility and provisioning checks."
       },
@@ -124,6 +125,62 @@
           "items": { "$ref": "#/$defs/contract" }
         }
       }
+    },
+    "capabilityRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "required"],
+      "properties": {
+        "contract_version": { "const": 1 },
+        "required": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/applicationCapability" }
+        },
+        "optional": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/applicationCapability" }
+        }
+      }
+    },
+    "applicationCapability": {
+      "enum": [
+        "collection.inspect",
+        "records.watch",
+        "records.read",
+        "records.query",
+        "records.validate",
+        "records.create",
+        "records.update",
+        "records.delete",
+        "records.rename",
+        "views.list",
+        "views.execute",
+        "views.source.read",
+        "views.source.create",
+        "views.source.update",
+        "views.source.delete",
+        "definitions.read",
+        "definitions.create",
+        "definitions.update",
+        "definitions.type-pack.inspect",
+        "definitions.type-pack.apply",
+        "timers.list",
+        "timers.put",
+        "timers.cancel",
+        "timers.reconcile",
+        "sync.offline-replica",
+        "notifications.background-delivery",
+        "files.list",
+        "files.read",
+        "files.add",
+        "files.replace",
+        "files.move",
+        "files.delete"
+      ]
     },
     "fileRequirement": {
       "type": "object",

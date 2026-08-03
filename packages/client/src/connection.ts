@@ -279,6 +279,9 @@ export class MdbaseConnection<Frontmatter extends JsonObject = JsonObject> {
       operations: [...token.operations],
       scope: token.scope,
       ...(token.fileCapability ? { fileCapability: token.fileCapability } : {}),
+      authority: token.authority
+        ? { kind: "hosted", durability: "provider" }
+        : { kind: "connector", durability: "computer" },
       route: this.transport.route,
       directAccess: this.transport.directAccess
     } : null;

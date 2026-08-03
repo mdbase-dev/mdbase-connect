@@ -2567,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-cli"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "clap",
  "directories",
@@ -2600,7 +2600,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-core"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "chrono",
  "directories",
@@ -2624,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-daemon"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "async-trait",
  "axum",
@@ -2659,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-hosted-provider"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -2702,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-mirror"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-protocol"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -2743,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "mdbase-connect-runtime"
-version = "0.1.0-beta.27"
+version = "0.1.0-beta.28"
 dependencies = [
  "chrono",
  "mdbase",

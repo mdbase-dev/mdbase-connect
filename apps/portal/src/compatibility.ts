@@ -61,6 +61,7 @@ const PORTABLE_PROFILE_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
+  "assess_type_pack",
   "apply_type_pack"
 ]);
 

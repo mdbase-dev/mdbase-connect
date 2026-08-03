@@ -63,6 +63,54 @@ function taskTypePack(provides = [{
 }
 
 describe("canonical developer validation", () => {
+  it("validates semantic capability contracts against application features", () => {
+    const base = {
+      manifest_version: 1 as const,
+      id: "dev.example.capabilities",
+      name: "Capabilities",
+      homepage: "https://capabilities.example/",
+      redirect_uris: ["https://capabilities.example/callback"],
+      requirements: {
+        contracts: [],
+        capabilities: {
+          contract_version: 1 as const,
+          required: ["collection.inspect", "files.read"],
+          optional: ["records.query"]
+        },
+        files: { scope: { kind: "selected_folders", folders: ["attachments"] }, actions: ["read"] }
+      }
+    };
+    expect(validateAppManifest(base)).toEqual({ valid: true, issues: [] });
+    expect(validateAppManifest({
+      ...base,
+      requirements: {
+        ...base.requirements,
+        capabilities: {
+          ...base.requirements.capabilities,
+          optional: ["collection.inspect"]
+        }
+      }
+    }).valid).toBe(false);
+    expect(validateAppManifest({
+      ...base,
+      requirements: {
+        ...base.requirements,
+        files: {
+          scope: { kind: "selected_folders", folders: ["attachments"] },
+          actions: ["read", "add"]
+        }
+      }
+    }).valid).toBe(false);
+    expect(validateAppManifest({
+      ...base,
+      provisions: { type_packs: [] }
+    }).valid).toBe(true);
+    expect(validateAppManifest({
+      ...base,
+      provisions: { type_packs: [taskTypePack()] }
+    }).valid).toBe(false);
+  });
+
   it("validates public application manifests with the packaged schema", () => {
     expect(validateAppManifest({
       manifest_version: 1,

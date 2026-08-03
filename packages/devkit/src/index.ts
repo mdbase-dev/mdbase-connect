@@ -64,6 +64,8 @@ export function validateAppManifest(
   if (!schemaResult.valid) return schemaResult;
   const originResult = validateManifestOrigins(value, options.allowLocal === true);
   if (!originResult.valid) return originResult;
+  const capabilityResult = validateCapabilityRequirements(value);
+  if (!capabilityResult.valid) return capabilityResult;
   return validateProvisionRequirements(value);
 }
 
@@ -687,6 +689,67 @@ function validateProvisionRequirements(value: unknown): ValidationResult {
   return { valid: true, issues: [] };
 }
 
+function validateCapabilityRequirements(value: unknown): ValidationResult {
+  const manifest = asObject(value);
+  const requirements = asObject(manifest.requirements);
+  const capabilities = asObject(requirements.capabilities);
+  if (Object.keys(capabilities).length === 0) return { valid: true, issues: [] };
+  const required = Array.isArray(capabilities.required)
+    ? capabilities.required.map(String)
+    : [];
+  const optional = Array.isArray(capabilities.optional)
+    ? capabilities.optional.map(String)
+    : [];
+  if (new Set(required).size !== required.length) {
+    return semanticIssue("/requirements/capabilities/required", "must not contain duplicates");
+  }
+  if (new Set(optional).size !== optional.length) {
+    return semanticIssue("/requirements/capabilities/optional", "must not contain duplicates");
+  }
+  const overlap = optional.find((capability) => required.includes(capability));
+  if (overlap) {
+    return semanticIssue(
+      "/requirements/capabilities/optional",
+      `must not repeat required capability ${overlap}`
+    );
+  }
+  const declared = new Set([...required, ...optional]);
+  const provisions = asObject(manifest.provisions);
+  if (
+    Array.isArray(provisions.type_packs)
+    && provisions.type_packs.length > 0
+    && !required.includes("definitions.type-pack.apply")
+  ) {
+    return semanticIssue(
+      "/requirements/capabilities/required",
+      "must require definitions.type-pack.apply when the application provisions definition packs"
+    );
+  }
+  if (
+    declared.has("notifications.background-delivery")
+    && !Array.isArray(asObject(manifest.notifications).criteria)
+  ) {
+    return semanticIssue(
+      "/notifications/criteria",
+      "must be declared for notifications.background-delivery"
+    );
+  }
+  const fileRequirement = asObject(requirements.files);
+  const fileActions = Array.isArray(fileRequirement.actions)
+    ? new Set(fileRequirement.actions.map(String))
+    : new Set<string>();
+  for (const action of ["list", "read", "add", "replace", "move", "delete"]) {
+    const capability = `files.${action}`;
+    if (declared.has(capability) !== fileActions.has(action)) {
+      return semanticIssue(
+        "/requirements/capabilities",
+        `${capability} and requirements.files.actions.${action} must be declared together`
+      );
+    }
+  }
+  return { valid: true, issues: [] };
+}
+
 function localManifestSchemaCandidate(value: unknown): unknown {
   const candidate = clone(value);
   const object = asObject(candidate);
@@ -755,7 +818,7 @@ function sandboxDescription(value: Partial<CollectionDescription> = {}): Collect
     collection_id: value.collection_id ?? "01900000-0000-7000-8000-000000000001",
     display_name: value.display_name ?? "Developer sandbox",
     spec_version: value.spec_version ?? "0.3.0",
-    operations: value.operations ?? ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "apply_type_pack"],
+    operations: value.operations ?? ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "assess_type_pack", "apply_type_pack"],
     change_cursor: value.change_cursor ?? 0,
     types: clone(value.types ?? []),
     contracts: clone(value.contracts ?? [])

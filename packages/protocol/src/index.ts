@@ -5,6 +5,7 @@ import type {
   FileCapability
 } from "./files.js";
 import type { CollectionOperation } from "./operations.js";
+import type { ApplicationCapabilityRequirements } from "./capabilities.js";
 import type { ContractRequirement, ContractSetupChoice, TypePackProvision } from "./type-packs.js";
 import type {
   ApplicationAuthorizationProof
@@ -12,6 +13,7 @@ import type {
 export * from "./connect-problems.generated.js";
 export * from "./files.js";
 export * from "./operations.js";
+export * from "./capabilities.js";
 export * from "./application-authorization.js";
 export * from "./type-packs.js";
 
@@ -195,6 +197,8 @@ export interface NotificationWebhook {
 
 export interface ApplicationRequirements {
   contracts: ContractRequirement[];
+  /** Versioned semantic intent compiled by Connect into exact operations. */
+  capabilities?: ApplicationCapabilityRequirements;
   /** Access boundary requested after compatibility and provisioning checks. */
   access?: "contract" | "full_collection";
   /** Restrict authorization to durable provider-backed collections. */

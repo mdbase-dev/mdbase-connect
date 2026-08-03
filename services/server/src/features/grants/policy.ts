@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { operationsForApplicationCapabilities } from "@mdbase-dev/connect-protocol";
 import type {
   ApplicationProvisions,
   ApplicationRequirements,
+  CollectionOperation,
   CollectionContractDescriptor,
   ContractRequirement,
   GrantEncryption,
@@ -19,6 +21,7 @@ const FULL_COLLECTION_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
+  "assess_type_pack",
   "apply_type_pack"
 ]);
 
@@ -29,6 +32,7 @@ const PORTABLE_PROFILE_OPERATIONS = new Set([
   "read_type",
   "create_type",
   "update_type",
+  "assess_type_pack",
   "apply_type_pack"
 ]);
 
@@ -82,10 +86,14 @@ export function operationsAllowedByRequirements(
   operations: readonly string[],
   requirements: ApplicationRequirements | null | undefined
 ): boolean {
-  return requirements?.access === "full_collection"
-    || operations.every(
-      (operation) => !FULL_COLLECTION_OPERATIONS.has(operation)
-    );
+  if (
+    requirements?.access !== "full_collection"
+    && operations.some((operation) => FULL_COLLECTION_OPERATIONS.has(operation))
+  ) return false;
+  const declared = requirements?.capabilities;
+  if (!declared) return true;
+  const allowed = new Set(operationsForApplicationCapabilities(declared));
+  return operations.every((operation) => allowed.has(operation as CollectionOperation));
 }
 
 export function assertOperationsAllowedByRequirements(
@@ -104,7 +112,9 @@ export function assertOperationsAllowedByRequirements(
   }
   if (!operationsAllowedByRequirements(operations, requirements)) {
     throw new RequestValidationError(
-      "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
+      requirements?.capabilities
+        ? "The requested collection operations exceed the application's declared capabilities."
+        : "Saved views, collection-wide validation, and type definitions require the application manifest to request full collection access."
     );
   }
 }

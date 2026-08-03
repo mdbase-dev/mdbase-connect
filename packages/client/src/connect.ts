@@ -73,6 +73,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly navigate?: (url: string) => void | Promise<void>;
   readonly credentialStorage: MdbaseConnectEnvironment["credentialStorage"];
   private application: Application | null = null;
+  private manifestPromise: Promise<MdbaseAppManifest> | null = null;
   private readonly completionPromises = new Map<string, Promise<MdbaseAuthorizationResult<Frontmatter>>>();
   private readonly connectionCache = new Map<string, MdbaseConnection<Frontmatter>>();
   private readonly listeners = new Set<(connections: MdbaseConnectionInfo[]) => void>();
@@ -133,12 +134,18 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const response = await connectFetch(`${this.serverUrl}/v1/apps/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest: await this.loadManifest() })
+      body: JSON.stringify({ manifest: await this.manifestDeclaration() })
     }, "temporarily_unavailable", "Application registration is temporarily unavailable.");
     const body = await response.json();
     if (!response.ok) throw apiError(body, "discovery_failed", "Application discovery failed.", response.status);
     this.application = body.application;
     return this.application!;
+  }
+
+  manifestDeclaration(): Promise<MdbaseAppManifest> {
+    if (this.manifestPromise) return this.manifestPromise;
+    this.manifestPromise = this.loadManifest();
+    return this.manifestPromise;
   }
 
   private async loadManifest(): Promise<MdbaseAppManifest> {

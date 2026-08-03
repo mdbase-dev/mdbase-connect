@@ -55,11 +55,22 @@ pub struct ApplicationRequirements {
     #[serde(default)]
     pub contracts: Vec<ContractRequirement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ApplicationCapabilityRequirements>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access: Option<ApplicationAccess>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_kind: Option<ApplicationCollectionKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<ApplicationFileRequirement>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationCapabilityRequirements {
+    pub contract_version: u8,
+    #[serde(default)]
+    pub required: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -25,6 +25,9 @@ export interface MdbaseConnectionInfo {
   operations: CollectionOperation[];
   scope: GrantScope;
   fileCapability?: FileCapability;
+  authority:
+    | { kind: "hosted"; durability: "provider" }
+    | { kind: "connector"; durability: "computer" };
   route: MdbaseConnectionRoute;
   directAccess: DirectAccessStatus;
 }

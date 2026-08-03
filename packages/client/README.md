@@ -22,8 +22,7 @@ const mdbase = new MdbaseConnect({
   manifest: new URL(".well-known/mdbase-app.json", location.href).href,
   redirectUri: "https://workouts.example/auth/mdbase/callback"
 });
-const session = mdbase.createSession({
-  operations: ["describe", "changes", "read", "query", "update"],
+const session = mdbase.createApplicationSession({
   selection: new MdbaseBrowserSelection()
 });
 
@@ -49,7 +48,8 @@ if (session.getSnapshot().status === "unselected") {
 
 const snapshot = session.getSnapshot();
 if (snapshot.status !== "ready") throw new Error("Choose an authorized collection.");
-const connection = snapshot.connection;
+const connection = session.connection();
+if (!connection) throw new Error("The ready session has no active connection.");
 const queried = await connection.query({ types: ["workout"] });
 if (!queried.ok) {
   renderProblem(queried.problem);
@@ -78,12 +78,32 @@ reserved for programming errors and broken SDK invariants. See
 problem model, setup failures, mutation uncertainty, and UI guidance.
 
 `MdbaseConnect` is the application-level authorization registry.
-`MdbaseSession` is the normal application boundary: it owns active collection
-selection, authorization completion, access capabilities, and one
-reactive snapshot. Use `getSnapshot()` and `subscribe()` directly or through
-your framework's external-store integration. A snapshot is `unselected`,
-`ready`, or `unavailable`; an unavailable bookmark includes the explicit
-collection ID and reason instead of collapsing every recovery state to `null`.
+`MdbaseApplicationSession` is the normal application boundary: it owns active
+collection selection, authorization completion, semantic capabilities,
+definition compatibility, and one reactive snapshot. Applications declare
+versioned capabilities in their manifest; they never maintain a parallel array
+of protocol operations. Use `getSnapshot()` and `subscribe()` directly or
+through your framework's external-store integration.
+
+The session distinguishes `authorization_required`, `checking_definitions`,
+`definition_review_required`, `ready`, `unavailable`, and `blocked`. Definition
+inspection is read-only. If an update is needed, render the supplied plan and
+apply the exact assessment the user reviewed:
+
+```ts
+const snapshot = session.getSnapshot();
+if (snapshot.status === "definition_review_required") {
+  renderDefinitionChanges(snapshot.updates);
+  const applied = await session.applyDefinitionUpdates();
+  if (!applied.ok) renderProblem(applied.problem);
+}
+```
+
+A `ready` snapshot may be `cached` for immediate startup and is then reverified
+in the background. Route details remain diagnostics; feature UI should read
+`snapshot.capabilities`, whose values explain whether a capability is available,
+needs authorization/setup, is temporarily unavailable, or is unsupported by the
+selected authority.
 
 `MdbaseBrowserSelection` keeps the stable collection ID in
 `?collection=<id>`, preserves unrelated path/query/hash and router state, and

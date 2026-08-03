@@ -545,6 +545,7 @@ function sessionConnection(collectionId: string, displayName: string): MdbaseCon
     displayName,
     operations: FULL_COLLECTION_OPERATIONS,
     scope: {} as never,
+    authority: { kind: "connector", durability: "computer" },
     route: "relay",
     directAccess: "unavailable"
   };

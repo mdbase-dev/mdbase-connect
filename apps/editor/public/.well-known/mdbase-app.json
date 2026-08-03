@@ -8,6 +8,34 @@
   ],
   "requirements": {
     "contracts": [],
+    "capabilities": {
+      "contract_version": 1,
+      "required": [
+        "collection.inspect",
+        "records.watch",
+        "records.read",
+        "records.query",
+        "records.validate",
+        "records.create",
+        "records.update",
+        "records.delete",
+        "records.rename",
+        "views.list",
+        "views.execute",
+        "views.source.read",
+        "views.source.create",
+        "views.source.update",
+        "views.source.delete",
+        "definitions.read",
+        "definitions.create",
+        "definitions.update",
+        "definitions.type-pack.apply",
+        "timers.list",
+        "timers.put",
+        "timers.cancel",
+        "timers.reconcile"
+      ]
+    },
     "access": "full_collection"
   }
 }
