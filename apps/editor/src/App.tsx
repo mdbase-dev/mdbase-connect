@@ -84,6 +84,7 @@ import { initialEditorSurface, loadPreferences, savePreferences, type EditorPref
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 import { SettingsView } from "./SettingsView";
+import { structuralChangesRequireRefresh } from "./structural-change-reconciliation";
 import { NEW_TYPE_SOURCE } from "./type-constants";
 import { useCollectionIndex } from "./use-collection-index";
 import {
@@ -649,14 +650,8 @@ export function App({ gateway }: { gateway: CollectionGateway }) {
         const shouldRefreshTypes = typesChanged;
         typesChanged = false;
         const currentPaths = new Set(indexController.getSnapshot().notes.map((note) => note.path));
-        const shouldRefreshIndex = indexChanged || structuralChanges.some((change) => {
-          const path = typeof change.payload.path === "string" ? change.payload.path : undefined;
-          const from = typeof change.payload.from === "string" ? change.payload.from : undefined;
-          const to = typeof change.payload.to === "string" ? change.payload.to : undefined;
-          if (change.type === "mdbase.record.created") return !path || !currentPaths.has(path);
-          if (change.type === "mdbase.record.deleted") return !path || currentPaths.has(path);
-          return !from || !to || currentPaths.has(from) || !currentPaths.has(to);
-        });
+        const shouldRefreshIndex = indexChanged
+          || structuralChangesRequireRefresh(structuralChanges, currentPaths);
         structuralChanges.length = 0;
         indexChanged = false;
         if (shouldRefreshIndex) void loadIndex().catch((error) => {
