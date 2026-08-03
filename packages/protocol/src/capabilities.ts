@@ -22,6 +22,7 @@ export const APPLICATION_CAPABILITY_DEFINITIONS = {
   "views.source.create": ["create_view_source"],
   "views.source.update": ["update_view_source"],
   "views.source.delete": ["delete_view_source"],
+  "definitions.contracts.current": [],
   "definitions.read": ["read_type"],
   "definitions.create": ["create_type"],
   "definitions.update": ["update_type"],

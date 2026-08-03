@@ -23,6 +23,7 @@ import {
   connectSuccess,
   type ConnectOutcome,
   type CollectionTypeProblemCode,
+  type AuthorizationProblemCode,
   type SessionProblemCode
 } from "./outcomes.js";
 import type { MdbaseSessionSelection, MdbaseSelectionHistory } from "./selection.js";
@@ -189,6 +190,12 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     return this.requireBase().authorize(target, options);
   }
 
+  handleAuthorizationCallback(
+    callbackUrl: string
+  ): Promise<ConnectOutcome<MdbaseConnection<Frontmatter>, AuthorizationProblemCode>> {
+    return this.requireBase().handleAuthorizationCallback(callbackUrl);
+  }
+
   ensureCapabilities(
     capabilities: ApplicationCapabilityId[]
   ): Promise<ConnectOutcome<
@@ -263,7 +270,11 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
       this.publish({ status: "authorization_required", ...context });
       return;
     }
-    const provisions = this.manifest.provisions?.type_packs ?? [];
+    const managesDefinitions = this.manifest.requirements?.capabilities?.required
+      .includes("definitions.type-pack.apply") ?? false;
+    const provisions = managesDefinitions
+      ? this.manifest.provisions?.type_packs ?? []
+      : [];
     if (provisions.length === 0) {
       this.publish({ status: "ready", verification: "verified", ...context });
       return;
@@ -286,7 +297,9 @@ export class MdbaseApplicationSession<Frontmatter extends JsonObject = JsonObjec
     const manifest = this.requireManifest();
     if (!connection || connection.collectionId !== context.collectionId) return;
     const entries: DefinitionReviewEntry[] = [];
-    for (const provision of manifest.provisions?.type_packs ?? []) {
+    const managesDefinitions = manifest.requirements?.capabilities?.required
+      .includes("definitions.type-pack.apply") ?? false;
+    for (const provision of managesDefinitions ? manifest.provisions?.type_packs ?? [] : []) {
       const outcome = await connection.assessTypePack({
         provision,
         installed_by: manifest.id

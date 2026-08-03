@@ -716,14 +716,35 @@ function validateCapabilityRequirements(value: unknown): ValidationResult {
   const declared = new Set([...required, ...optional]);
   const provisions = asObject(manifest.provisions);
   if (
-    Array.isArray(provisions.type_packs)
-    && provisions.type_packs.length > 0
-    && !required.includes("definitions.type-pack.apply")
+    Array.isArray(requirements.contracts)
+    && requirements.contracts.length > 0
+    && requirements.access !== "full_collection"
+    && !required.includes("definitions.contracts.current")
   ) {
     return semanticIssue(
       "/requirements/capabilities/required",
-      "must require definitions.type-pack.apply when the application provisions definition packs"
+      "must require definitions.contracts.current for contract-scoped requirements"
     );
+  }
+  if (declared.has("definitions.type-pack.apply")) {
+    if (requirements.access !== "full_collection") {
+      return semanticIssue(
+        "/requirements/access",
+        "must be full_collection for definitions.type-pack.apply"
+      );
+    }
+    if (!required.includes("definitions.type-pack.apply")) {
+      return semanticIssue(
+        "/requirements/capabilities/required",
+        "must require definitions.type-pack.apply when it is declared"
+      );
+    }
+    if (!Array.isArray(provisions.type_packs) || provisions.type_packs.length === 0) {
+      return semanticIssue(
+        "/provisions/type_packs",
+        "must contain a pack for definitions.type-pack.apply"
+      );
+    }
   }
   if (
     declared.has("notifications.background-delivery")

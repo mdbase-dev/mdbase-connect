@@ -87,6 +87,26 @@ function effectiveCapability(
       reason: "The current grant does not include every operation for this capability."
     };
   }
+  if (id === "definitions.contracts.current") {
+    const approved = new Set(connection.scope.contracts.map(
+      ({ id, version, digest }) => `${id}@${version}:${digest}`
+    ));
+    const missingContracts = (manifest.requirements?.contracts ?? []).filter(
+      ({ id, version, digest }) => !approved.has(`${id}@${version}:${digest}`)
+    );
+    if (missingContracts.length > 0) {
+      return {
+        ...base,
+        state: "requires_authorization",
+        reason: "The current grant does not approve the exact required contract definitions.",
+        evidence: [...base.evidence, {
+          source: "authorization",
+          fact: `Missing ${missingContracts.map(({ id, version }) => `${id}@${version}`).join(", ")}.`
+        }],
+        details: { missingContracts }
+      };
+    }
+  }
   if (id.startsWith("files.")) {
     const action = id.slice("files.".length);
     if (!connection.fileCapability?.actions.includes(action as FileAction)) {

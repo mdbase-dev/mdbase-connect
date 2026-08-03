@@ -107,7 +107,15 @@ describe("canonical developer validation", () => {
     }).valid).toBe(true);
     expect(validateAppManifest({
       ...base,
-      provisions: { type_packs: [taskTypePack()] }
+      provisions: { type_packs: [taskTypePack([])] }
+    }).valid).toBe(true);
+    expect(validateAppManifest({
+      ...base,
+      requirements: {
+        ...base.requirements,
+        access: "contract",
+        contracts: [{ id: "example.work-item", version: "1.0.0", digest: workItemDigest }]
+      }
     }).valid).toBe(false);
   });
 
