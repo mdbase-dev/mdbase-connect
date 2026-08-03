@@ -10,6 +10,7 @@ use futures_util::{stream, Stream};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::pin::Pin;
 use std::time::Duration;
 use url::Url;
@@ -24,7 +25,7 @@ pub type BlobStreamError = Box<dyn std::error::Error + Send + Sync>;
 pub type BlobByteStream =
     Pin<Box<dyn Stream<Item = Result<Bytes, BlobStreamError>> + Send + 'static>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct R2Config {
     pub endpoint: String,
     pub bucket: String,
@@ -35,6 +36,26 @@ pub struct R2Config {
     pub download_part_bytes: u64,
     pub presign_ttl: Duration,
     allow_insecure_loopback: bool,
+}
+
+impl fmt::Debug for R2Config {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("R2Config")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("access_key_id", &"[redacted]")
+            .field("secret_access_key", &"[redacted]")
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "[redacted]"),
+            )
+            .field("multipart_part_bytes", &self.multipart_part_bytes)
+            .field("download_part_bytes", &self.download_part_bytes)
+            .field("presign_ttl", &self.presign_ttl)
+            .field("allow_insecure_loopback", &self.allow_insecure_loopback)
+            .finish()
+    }
 }
 
 impl R2Config {
@@ -728,6 +749,11 @@ mod tests {
         assert!(url.query_pairs().any(|(name, value)| {
             name.eq_ignore_ascii_case("X-Amz-Security-Token") && value == "temporary-session"
         }));
+        let debug = format!("{:?}", store.config);
+        assert!(debug.contains("[redacted]"));
+        assert!(!debug.contains("temporary-access"));
+        assert!(!debug.contains("temporary-secret"));
+        assert!(!debug.contains("temporary-session"));
     }
 
     #[test]
