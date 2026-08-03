@@ -418,12 +418,14 @@ jobs:
             --command "SELECT concat(
                          grant_json #>> '{notification_criteria,0,event,id}',
                          '|',
-                         grant_json #>> '{notification_criteria,0,event,version}'
+                         grant_json #>> '{notification_criteria,0,event,version}',
+                         '|',
+                         grant_json #>> '{notification_criteria,0,event,digest}'
                        )
                        FROM hosted_provider_notification_grants
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
           echo "Migrated notification contract: $contract"
-          [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
+          [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
 
   hosted-provider:
     runs-on: ubuntu-latest
