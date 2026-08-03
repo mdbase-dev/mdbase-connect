@@ -20,6 +20,7 @@ import {
   signApplicationAuthorization,
   unwrapConnectOutcome
 } from "../packages/client/dist/index.js";
+import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -1524,29 +1525,6 @@ async function fileExists(path) {
     if (error?.code === "ENOENT") return false;
     throw error;
   }
-}
-
-async function poll(action, failureMessage) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await action();
-    if (result) return result;
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
-  }
-  throw new Error(failureMessage);
-}
-
-async function availableTcpPort() {
-  const server = createServer();
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Could not reserve an end-to-end loopback port");
-  }
-  await new Promise((resolveClose) => server.close(resolveClose));
-  return address.port;
 }
 
 async function openManifestServer() {

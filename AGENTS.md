@@ -13,4 +13,7 @@
 - Keep Rust and TypeScript protocol changes versioned and compatible.
 - Run `cargo fmt --all`, `cargo test --workspace`, `pnpm typecheck`, `pnpm test`,
   and `pnpm e2e` before handing off changes that affect the request path.
+- Use `pnpm test:fast`, `pnpm test:integration`, and the narrowest registered
+  `pnpm test:system -- --suite ...` selection for test-infrastructure changes;
+  use `pnpm test:all` only when every local system boundary is required.
 - `MDBASE_CONNECT_DEV_AUTH=1` is for local development only.

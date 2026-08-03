@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, execFile } from "node:child_process";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
@@ -17,6 +16,7 @@ import {
   applicationInstallationId,
   signApplicationAuthorization
 } from "../packages/client/dist/index.js";
+import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
 
 process.env.NODE_ENV = "test";
 const run = promisify(execFile);
@@ -738,32 +738,6 @@ function canConnect(port) {
     });
     socket.connect(port, "127.0.0.1");
   });
-}
-
-async function availableTcpPort() {
-  const server = createServer();
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Could not reserve a test port");
-  await new Promise((resolveClose) => server.close(resolveClose));
-  return address.port;
-}
-
-async function poll(action, failureMessage, attempts = 100, delayMs = 100) {
-  let lastError;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const result = await action();
-      if (result) return result;
-    } catch (error) {
-      lastError = error;
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
-  }
-  throw new Error(failureMessage, { cause: lastError });
 }
 
 function assert(condition, message) {

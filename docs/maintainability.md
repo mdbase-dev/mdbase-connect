@@ -85,6 +85,11 @@ pnpm test
 pnpm package:audit
 ```
 
+`pnpm test:fast`, `pnpm test:integration`, and `pnpm test:system` are the
+canonical test tiers. `pnpm test:all` is the exhaustive local entry point;
+select individual system suites while iterating rather than repeatedly paying
+for unrelated environments.
+
 Run the browser persistence and accessibility suites for browser, portal, or
 desktop changes. Run the local, relay, sync, provider, and containerized
 journeys for changes that touch their boundary. See

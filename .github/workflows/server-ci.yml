@@ -116,9 +116,10 @@ jobs:
         with:
           node-version: 24
       - run: docker build --file deploy/docker/Dockerfile.server --tag mdbase-connect-server:test .
-      - run: docker build --file deploy/docker/Dockerfile.hosted-provider --tag mdbase-connect-hosted-provider:test .
       - run: docker build --file deploy/docker/Dockerfile.nats --tag mdbase-connect-nats:test .
-      - run: MDBASE_CONNECT_E2E_BUILD=0 node scripts/container-e2e.mjs
+      - run: >-
+          MDBASE_CONNECT_E2E_BUILD=0
+          node test/system/run.mjs --suite container --no-prepare
 
   previous-release-upgrade:
     name: Previous release upgrade and OAuth
@@ -142,93 +143,8 @@ jobs:
       CANDIDATE_IMAGE: mdbase-connect-server:upgrade-candidate
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build candidate server
-        run: >-
-          docker build
-          --file deploy/docker/Dockerfile.server
-          --tag "$CANDIDATE_IMAGE"
-          .
-
-      - name: Create the previous release schema
-        run: |
-          . .github/previous-release.env
-          docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
-          docker run --rm --network host \
-            --env DATABASE_URL \
-            "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" \
-            node services/server/dist/migrate.js
-
-      - name: Upgrade with candidate migrations
-        run: |
-          docker run --rm --network host \
-            --env DATABASE_URL \
-            "$CANDIDATE_IMAGE" \
-            node services/server/dist/migrate.js
-
-      - name: Exercise the upgraded OAuth authorization write path
-        run: |
-          cleanup() {
-            docker logs mdbase-connect-upgrade-candidate || true
-            docker rm --force mdbase-connect-upgrade-candidate >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          docker run --detach --name mdbase-connect-upgrade-candidate \
-            --network host \
-            --env DATABASE_URL \
-            --env PUBLIC_URL=http://127.0.0.1:8787 \
-            --env MDBASE_CONNECT_DEV_AUTH=1 \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
-            "$CANDIDATE_IMAGE" >/dev/null
-
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8787/ready >/dev/null; then
-              break
-            fi
-            if [ "$attempt" = 30 ]; then
-              echo "Candidate server did not become ready." >&2
-              exit 1
-            fi
-            sleep 2
-          done
-
-          registration=$(curl --fail --silent --show-error \
-            --header 'content-type: application/json' \
-            --data '{"manifest":{"manifest_version":1,"id":"dev.mdbase.release-canary","name":"Release canary","homepage":"http://127.0.0.1:8787","redirect_uris":["http://127.0.0.1:8787/callback"],"requirements":{"contracts":[],"access":"full_collection"}}}' \
-            http://127.0.0.1:8787/v1/apps/register)
-          application_id=$(jq --raw-output '.application.id' <<<"$registration")
-          manifest_digest=$(jq --raw-output '.application.manifest_digest' <<<"$registration")
-          test -n "$application_id"
-          [[ "$manifest_digest" =~ ^[a-f0-9]{64}$ ]]
-
-          cookie_jar="$RUNNER_TEMP/oauth-cookie"
-          curl --fail --silent --show-error \
-            --cookie-jar "$cookie_jar" \
-            --header 'content-type: application/json' \
-            --data '{"name":"Release canary","email":"release-canary@example.com"}' \
-            http://127.0.0.1:8787/v1/dev/session >/dev/null
-          authorization=$(docker run --rm "$CANDIDATE_IMAGE" \
-            node packages/protocol/scripts/create-release-canary-authorization.mjs \
-            "$application_id" "$manifest_digest")
-          authorization_id=$(jq --raw-output '.authorization_id' <<<"$authorization")
-          authorization_uri=$(curl --fail --silent --show-error \
-            --header 'content-type: application/x-www-form-urlencoded' \
-            --data-urlencode "client_id=$(jq --raw-output '.form.client_id' <<<"$authorization")" \
-            --data-urlencode "redirect_uri=$(jq --raw-output '.form.redirect_uri' <<<"$authorization")" \
-            --data-urlencode "code_challenge=$(jq --raw-output '.form.code_challenge' <<<"$authorization")" \
-            --data-urlencode 'code_challenge_method=S256' \
-            --data-urlencode "state=$(jq --raw-output '.form.state' <<<"$authorization")" \
-            --data-urlencode "operations=$(jq --raw-output '.form.operations' <<<"$authorization")" \
-            --data-urlencode "application_authorization=$(jq --compact-output '.form.application_authorization | fromjson' <<<"$authorization")" \
-            http://127.0.0.1:8787/oauth/authorization_request |
-            jq --raw-output '.authorization_uri')
-          [[ "$authorization_uri" == "http://127.0.0.1:8787/oauth/authorize?request_id=$authorization_id" ]]
-          location=$(curl --silent --show-error \
-            --cookie "$cookie_jar" \
-            --output /dev/null \
-            --write-out '%{redirect_url}' \
-            "$authorization_uri")
-          [[ "$location" == "http://127.0.0.1:8787/authorize/$authorization_id" ]]
+      - name: Exercise the previous-server upgrade contract
+        run: test/upgrade/server-from-previous
 
   previous-provider-upgrade:
     name: Previous provider notification recovery
@@ -250,226 +166,10 @@ jobs:
     env:
       DATABASE_URL: postgres://mdbase:previous-provider-upgrade@127.0.0.1:5432/mdbase_provider_upgrade
       CANDIDATE_IMAGE: mdbase-connect-hosted-provider:upgrade-candidate
-      PROVIDER_INTERNAL_TOKEN: previous-provider-upgrade-internal-token
-      PROVIDER_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      MDBASE_CONNECT_R2_ENDPOINT: http://127.0.0.1:9000
-      MDBASE_CONNECT_R2_BUCKET: upgrade-canary
-      MDBASE_CONNECT_R2_ACCESS_KEY_ID: upgrade-canary
-      MDBASE_CONNECT_R2_SECRET_ACCESS_KEY: upgrade-canary-secret
-      MDBASE_CONNECT_ALLOW_INSECURE_R2: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build candidate provider
-        run: >-
-          docker build
-          --file deploy/docker/Dockerfile.hosted-provider
-          --tag "$CANDIDATE_IMAGE"
-          .
-
-      - name: Start test-only R2 readiness stub
-        run: |
-          node --input-type=module --eval '
-            import { createServer } from "node:http";
-            const body = [
-              "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-              "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">",
-              "<Name>upgrade-canary</Name><Prefix>v1/</Prefix><KeyCount>0</KeyCount>",
-              "<MaxKeys>1</MaxKeys><IsTruncated>false</IsTruncated>",
-              "</ListBucketResult>",
-            ].join("");
-            createServer((_request, response) => {
-              response.writeHead(200, {
-                "content-type": "application/xml",
-                "content-length": Buffer.byteLength(body),
-              });
-              response.end(body);
-            }).listen(9000, "127.0.0.1");
-          ' >"$RUNNER_TEMP/mdbase-upgrade-r2.log" 2>&1 &
-          r2_pid=$!
-          echo "$r2_pid" >"$RUNNER_TEMP/mdbase-upgrade-r2.pid"
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:9000 >/dev/null; then
-              exit 0
-            fi
-            if ! kill -0 "$r2_pid" >/dev/null 2>&1 || [ "$attempt" = 30 ]; then
-              cat "$RUNNER_TEMP/mdbase-upgrade-r2.log"
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Create the previous provider schema
-        run: |
-          . .github/previous-release.env
-          docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
-          docker run --detach --name mdbase-provider-previous \
-            --network host \
-            --env DATABASE_URL \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
-            --env MDBASE_CONNECT_R2_ENDPOINT \
-            --env MDBASE_CONNECT_R2_BUCKET \
-            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
-            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
-            "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
-              break
-            fi
-            if [ "$attempt" = 30 ]; then
-              docker logs mdbase-provider-previous
-              exit 1
-            fi
-            sleep 2
-          done
-          docker rm --force mdbase-provider-previous >/dev/null
-
-      - name: Seed the persisted previous release notification shape
-        run: |
-          docker run --rm --interactive --network host \
-            --env PGPASSWORD=previous-provider-upgrade \
-            postgres:18-alpine \
-            psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
-            --set ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO hosted_provider_collections
-            (id, template, spec_version, max_records, max_content_bytes,
-             max_document_bytes, max_replicas, resource_revision,
-             wrapped_data_key, resources_ciphertext)
-          VALUES
-            ('11111111-1111-4111-8111-111111111111', 'mdbase', '0.3',
-             100, 1000000, 100000, 10, 'legacy', '\x00', '\x00');
-
-          INSERT INTO hosted_provider_notification_grants
-            (grant_id, collection_id, grant_json)
-          VALUES (
-            '22222222-2222-4222-8222-222222222222',
-            '11111111-1111-4111-8111-111111111111',
-            '{
-              "id":"22222222-2222-4222-8222-222222222222",
-              "application_id":"33333333-3333-4333-8333-333333333333",
-              "application_name":"Upgrade canary",
-              "application_homepage":"https://example.test",
-              "application_origin":"https://example.test",
-              "collection_id":"11111111-1111-4111-8111-111111111111",
-              "collection_name":"Upgrade canary",
-              "operations":["changes"],
-              "scope":{"contracts":[],"access":"full_collection"},
-              "notification_criteria":[{
-                "id":"task.reminder",
-                "event":{"id":"mdbase.runtime.timer.fired","version":"1.0.0"},
-                "presentation":{"title":"Task reminder"}
-              }],
-              "created_at":"2026-07-29T00:00:00Z"
-            }'::jsonb
-          );
-          SQL
-
-      - name: Reopen persisted state with the previous release
-        run: |
-          . .github/previous-release.env
-          docker run --detach --name mdbase-provider-previous-migration \
-            --network host \
-            --env DATABASE_URL \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
-            --env MDBASE_CONNECT_R2_ENDPOINT \
-            --env MDBASE_CONNECT_R2_BUCKET \
-            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
-            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
-            "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
-              break
-            fi
-            if [ "$attempt" = 30 ]; then
-              docker logs mdbase-provider-previous-migration
-              exit 1
-            fi
-            sleep 2
-          done
-          docker rm --force mdbase-provider-previous-migration >/dev/null
-
-          previous_contract=$(docker run --rm --network host \
-            --env PGPASSWORD=previous-provider-upgrade \
-            postgres:18-alpine \
-            psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
-            --set ON_ERROR_STOP=1 \
-            --tuples-only --no-align \
-            --command "SELECT concat(
-                         grant_json #>> '{notification_criteria,0,event,id}',
-                         '|',
-                         grant_json #>> '{notification_criteria,0,event,version}'
-                       )
-                       FROM hosted_provider_notification_grants
-                       WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Previous release notification contract: $previous_contract"
-          [[ "$previous_contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
-
-      - name: Require candidate recovery readiness
-        run: |
-          cleanup() {
-            docker logs mdbase-provider-upgrade-candidate || true
-            docker rm --force mdbase-provider-upgrade-candidate >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          docker run --detach --name mdbase-provider-upgrade-candidate \
-            --network host \
-            --env DATABASE_URL \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
-            --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
-            --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
-            --env MDBASE_CONNECT_R2_ENDPOINT \
-            --env MDBASE_CONNECT_R2_BUCKET \
-            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
-            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
-            "$CANDIDATE_IMAGE" >/dev/null
-
-          for attempt in {1..30}; do
-            readiness=$(curl --silent http://127.0.0.1:8790/ready || true)
-            if jq -e '
-              .status == "ready" and
-              .notifications.configured == true and
-              .notifications.recovery == "ok" and
-              .notifications.consecutive_failures == 0
-            ' <<<"$readiness" >/dev/null; then
-              break
-            fi
-            if [ "$attempt" = 30 ]; then
-              echo "Candidate provider did not recover upgraded notification state." >&2
-              exit 1
-            fi
-            sleep 2
-          done
-
-          contract=$(docker run --rm --network host \
-            --env PGPASSWORD=previous-provider-upgrade \
-            postgres:18-alpine \
-            psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
-            --set ON_ERROR_STOP=1 \
-            --tuples-only --no-align \
-            --command "SELECT concat(
-                         grant_json #>> '{notification_criteria,0,event,id}',
-                         '|',
-                         grant_json #>> '{notification_criteria,0,event,version}',
-                         '|',
-                         grant_json #>> '{notification_criteria,0,event,digest}'
-                       )
-                       FROM hosted_provider_notification_grants
-                       WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
-          echo "Recovered notification contract: $contract"
-          [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
-
-      - name: Stop test-only R2 readiness stub
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/mdbase-upgrade-r2.pid" ]; then
-            r2_pid=$(<"$RUNNER_TEMP/mdbase-upgrade-r2.pid")
-            kill "$r2_pid" >/dev/null 2>&1 || true
-          fi
+      - name: Exercise the previous-provider recovery contract
+        run: test/upgrade/provider-from-previous
 
   hosted-provider:
     runs-on: ubuntu-latest
@@ -519,10 +219,10 @@ jobs:
       - run: cargo build --locked --workspace
       # Exercise the local connector/browser request path in normal CI as well
       # as the durable hosted-provider path below.
-      - run: node scripts/e2e.mjs
-      - run: node scripts/relay-e2e.mjs
-      - run: node scripts/hosted-provider-e2e.mjs
-      - run: pnpm e2e:files:adversarial
+      - run: node test/system/run.mjs --suite local --no-prepare
+      - run: node test/system/run.mjs --suite relay --no-prepare
+      - run: node test/system/run.mjs --suite provider --no-prepare
+      - run: node test/system/run.mjs --suite files-adversarial --no-prepare
       # Electron runs natively with an isolated profile while the control
       # plane uses the same packaged Docker boundary as production.
-      - run: xvfb-run -a node apps/desktop/scripts/docker-server-e2e.mjs
+      - run: node test/system/run.mjs --suite desktop --no-prepare

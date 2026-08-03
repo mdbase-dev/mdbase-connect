@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
+# shellcheck source=test/upgrade/lib.sh
+source "$repo_root/test/upgrade/lib.sh"
+# The release pin is resolved from the repository root above.
+# shellcheck disable=SC1091
+source "$repo_root/.github/previous-release.env"
+
+CANDIDATE_IMAGE=${CANDIDATE_IMAGE:-mdbase-connect-hosted-provider:upgrade-candidate}
+PROVIDER_INTERNAL_TOKEN=${PROVIDER_INTERNAL_TOKEN:-previous-provider-upgrade-internal-token}
+PROVIDER_MASTER_KEY=${PROVIDER_MASTER_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA}
+MDBASE_CONNECT_R2_ENDPOINT=${MDBASE_CONNECT_R2_ENDPOINT:-http://127.0.0.1:9000}
+MDBASE_CONNECT_R2_BUCKET=${MDBASE_CONNECT_R2_BUCKET:-upgrade-canary}
+MDBASE_CONNECT_R2_ACCESS_KEY_ID=${MDBASE_CONNECT_R2_ACCESS_KEY_ID:-upgrade-canary}
+MDBASE_CONNECT_R2_SECRET_ACCESS_KEY=${MDBASE_CONNECT_R2_SECRET_ACCESS_KEY:-upgrade-canary-secret}
+MDBASE_CONNECT_ALLOW_INSECURE_R2=${MDBASE_CONNECT_ALLOW_INSECURE_R2:-true}
+export PROVIDER_INTERNAL_TOKEN PROVIDER_MASTER_KEY
+export MDBASE_CONNECT_R2_ENDPOINT MDBASE_CONNECT_R2_BUCKET
+export MDBASE_CONNECT_R2_ACCESS_KEY_ID MDBASE_CONNECT_R2_SECRET_ACCESS_KEY
+export MDBASE_CONNECT_ALLOW_INSECURE_R2
+upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE
+
+r2_pid=
+cleanup() {
+  for container in \
+    mdbase-provider-previous \
+    mdbase-provider-previous-migration \
+    mdbase-provider-upgrade-candidate
+  do
+    docker logs "$container" >/dev/null 2>&1 || true
+    upgrade_remove_container "$container"
+  done
+  if [[ -n $r2_pid ]]; then
+    kill "$r2_pid" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+start_previous_provider() {
+  local name=$1
+  docker run --detach --name "$name" \
+    --network host \
+    --env DATABASE_URL \
+    --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
+    --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+    --env MDBASE_CONNECT_R2_ENDPOINT \
+    --env MDBASE_CONNECT_R2_BUCKET \
+    --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+    --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+    --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
+    "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
+  if ! upgrade_wait_http http://127.0.0.1:8790/ready 'previous provider'; then
+    docker logs "$name"
+    return 1
+  fi
+  upgrade_remove_container "$name"
+}
+
+query_notification_contract() {
+  local include_digest=${1:-false}
+  local digest_expression=
+  if [[ $include_digest == true ]]; then
+    digest_expression=", '|', grant_json #>> '{notification_criteria,0,event,digest}'"
+  fi
+  docker run --rm --network host \
+    --env PGPASSWORD=previous-provider-upgrade \
+    postgres:18-alpine \
+    psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+    --set ON_ERROR_STOP=1 \
+    --tuples-only --no-align \
+    --command "SELECT concat(
+                 grant_json #>> '{notification_criteria,0,event,id}',
+                 '|',
+                 grant_json #>> '{notification_criteria,0,event,version}'
+                 $digest_expression
+               )
+               FROM hosted_provider_notification_grants
+               WHERE grant_id = '22222222-2222-4222-8222-222222222222'"
+}
+
+upgrade_phase 'building candidate provider'
+docker build \
+  --file "$repo_root/deploy/docker/Dockerfile.hosted-provider" \
+  --tag "$CANDIDATE_IMAGE" \
+  "$repo_root"
+
+upgrade_phase 'starting the test-only S3 readiness stub'
+node "$repo_root/test/upgrade/r2-readiness-stub.mjs" \
+  >"${RUNNER_TEMP:-/tmp}/mdbase-upgrade-r2.log" 2>&1 &
+r2_pid=$!
+if ! upgrade_wait_http http://127.0.0.1:9000 'S3 readiness stub' 30 1; then
+  cat "${RUNNER_TEMP:-/tmp}/mdbase-upgrade-r2.log"
+  exit 1
+fi
+
+upgrade_phase 'creating the previous provider schema'
+docker pull "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE"
+start_previous_provider mdbase-provider-previous
+
+upgrade_phase 'seeding the persisted previous-release notification shape'
+docker run --rm --interactive --network host \
+  --env PGPASSWORD=previous-provider-upgrade \
+  postgres:18-alpine \
+  psql --host 127.0.0.1 --username mdbase --dbname mdbase_provider_upgrade \
+  --set ON_ERROR_STOP=1 \
+  <"$repo_root/test/upgrade/provider-notification.sql"
+
+upgrade_phase 'reopening persisted state with the previous release'
+start_previous_provider mdbase-provider-previous-migration
+previous_contract=$(query_notification_contract)
+printf 'Previous release notification contract: %s\n' "$previous_contract"
+[[ $previous_contract == "mdbase.runtime.timer.fired|1.0.0" ]]
+
+upgrade_phase 'requiring candidate recovery readiness'
+docker run --detach --name mdbase-provider-upgrade-candidate \
+  --network host \
+  --env DATABASE_URL \
+  --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
+  --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+  --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
+  --env MDBASE_CONNECT_R2_ENDPOINT \
+  --env MDBASE_CONNECT_R2_BUCKET \
+  --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+  --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+  --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
+  "$CANDIDATE_IMAGE" >/dev/null
+
+recovered=false
+for attempt in {1..30}; do
+  readiness=$(curl --silent http://127.0.0.1:8790/ready || true)
+  if jq -e '
+    .status == "ready" and
+    .notifications.configured == true and
+    .notifications.recovery == "ok" and
+    .notifications.consecutive_failures == 0
+  ' <<<"$readiness" >/dev/null; then
+    recovered=true
+    break
+  fi
+  sleep 2
+done
+if ! $recovered; then
+  docker logs mdbase-provider-upgrade-candidate
+  printf 'Candidate provider did not recover upgraded notification state.\n' >&2
+  exit 1
+fi
+
+contract=$(query_notification_contract true)
+printf 'Recovered notification contract: %s\n' "$contract"
+[[ $contract == "mdbase.runtime.timer.fired|1.0.0|sha256:41105be7a7abf33b31ced47e1e1965242236e40ccaea286b959b0a8c591f5642" ]]
+printf 'Previous provider notification recovery path passed.\n'

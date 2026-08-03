@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { createConnectEnvironment } from "./lib/connect-environment.mjs";
 import { resolveDevelopmentOrigins } from "./lib/development-origins.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -11,55 +11,44 @@ if (existsSync(environmentFile)) process.loadEnvFile(environmentFile);
 const command = process.argv[2] ?? "up";
 const projectName = process.env.MDBASE_CONNECT_DEV_PROJECT ?? "mdbase-connect-dev";
 const bindPort = process.env.MDBASE_CONNECT_BIND_PORT ?? "8787";
+const natsPort = process.env.MDBASE_CONNECT_NATS_BIND_PORT ?? "4222";
 const origins = resolveDevelopmentOrigins(process.env, bindPort);
-const compose = [
-  "compose",
-  "--file",
-  resolve(repoRoot, "docker-compose.yml"),
-  "--project-name",
-  projectName
-];
-
-const commands = {
-  up: ["up", "--detach", "--build", "--wait", "--wait-timeout", "180"],
-  down: ["down", "--remove-orphans", "--timeout", "5"],
-  reset: ["down", "--volumes", "--remove-orphans", "--timeout", "5"],
-  status: ["ps"],
-  logs: ["logs", "--follow", "--no-color"]
-};
-
-if (command === "url") {
-  console.log(origins.publicUrl);
-} else if (!(command in commands)) {
-  console.error("Usage: dev-environment.mjs <up|down|reset|status|logs|url>");
-  process.exitCode = 2;
-} else {
-  await runDocker(commands[command]);
-  if (command === "reset") await runDocker(commands.up);
-  if (command === "up" || command === "reset") {
-    console.log(`mdbase connect development environment: ${origins.publicUrl}`);
+const environment = await createConnectEnvironment({
+  projectName,
+  connectPort: Number(bindPort),
+  natsPort: Number(natsPort),
+  build: true,
+  disposable: false,
+  randomizeCredentials: false,
+  environment: {
+    PUBLIC_URL: origins.publicUrl,
+    MDBASE_CONNECT_MANAGEMENT_ORIGINS: origins.managementOrigins.join(","),
+    MDBASE_EDITOR_ORIGIN: origins.editorOrigin
   }
-}
+});
 
-function runDocker(arguments_) {
-  return new Promise((resolveRun, reject) => {
-    const child = spawn("docker", [...compose, ...arguments_], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        PUBLIC_URL: origins.publicUrl,
-        MDBASE_CONNECT_MANAGEMENT_ORIGINS: origins.managementOrigins.join(","),
-        MDBASE_EDITOR_ORIGIN: origins.editorOrigin,
-        MDBASE_CONNECT_BIND_PORT: bindPort
-      },
-      stdio: "inherit"
-    });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolveRun();
-      else reject(new Error(
-        `Docker Compose failed${signal ? ` with ${signal}` : ` with exit code ${code}`}`
-      ));
-    });
-  });
+switch (command) {
+  case "url":
+    console.log(origins.publicUrl);
+    break;
+  case "up":
+    await environment.up();
+    console.log(`mdbase connect development environment: ${origins.publicUrl}`);
+    break;
+  case "down":
+    await environment.down();
+    break;
+  case "reset":
+    await environment.reset();
+    console.log(`mdbase connect development environment: ${origins.publicUrl}`);
+    break;
+  case "status":
+    await environment.status();
+    break;
+  case "logs":
+    await environment.logs();
+    break;
+  default:
+    console.error("Usage: dev-environment.mjs <up|down|reset|status|logs|url>");
+    process.exitCode = 2;
 }

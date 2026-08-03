@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { availableTcpPort } from "./lib/test-runtime.mjs";
 
 process.env.NODE_ENV = "test";
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -15,7 +15,7 @@ const {
 const { DirectoryMirror } = await import("../packages/sync/dist/node.js");
 
 const database = await createDatabase("memory");
-const port = await availablePort();
+const port = await availableTcpPort();
 const { app } = await buildApp({
   db: database,
   devAuth: true,
@@ -188,16 +188,4 @@ async function expectSyncFailure(action, expectedCode) {
     throw error;
   }
   throw new Error(`Expected sync failure ${expectedCode}`);
-}
-
-async function availablePort() {
-  const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", resolve);
-  });
-  const address = probe.address();
-  if (!address || typeof address === "string") throw new Error("Could not reserve an HTTP port");
-  await new Promise((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
-  return address.port;
 }

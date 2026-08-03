@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
+# shellcheck source=test/upgrade/lib.sh
+source "$repo_root/test/upgrade/lib.sh"
+# The release pin is resolved from the repository root above.
+# shellcheck disable=SC1091
+source "$repo_root/.github/previous-release.env"
+
+CANDIDATE_IMAGE=${CANDIDATE_IMAGE:-mdbase-connect-server:upgrade-candidate}
+upgrade_require DATABASE_URL MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE
+
+cleanup() {
+  docker logs mdbase-connect-upgrade-candidate >/dev/null 2>&1 || true
+  upgrade_remove_container mdbase-connect-upgrade-candidate
+}
+trap cleanup EXIT
+
+upgrade_phase 'building candidate server'
+docker build \
+  --file "$repo_root/deploy/docker/Dockerfile.server" \
+  --tag "$CANDIDATE_IMAGE" \
+  "$repo_root"
+
+upgrade_phase 'creating the previous release schema'
+docker pull "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE"
+docker run --rm --network host \
+  --env DATABASE_URL \
+  "$MDBASE_CONNECT_PREVIOUS_SERVER_IMAGE" \
+  node services/server/dist/migrate.js
+
+upgrade_phase 'applying candidate migrations'
+docker run --rm --network host \
+  --env DATABASE_URL \
+  "$CANDIDATE_IMAGE" \
+  node services/server/dist/migrate.js
+
+upgrade_phase 'exercising the upgraded OAuth authorization write path'
+docker run --detach --name mdbase-connect-upgrade-candidate \
+  --network host \
+  --env DATABASE_URL \
+  --env PUBLIC_URL=http://127.0.0.1:8787 \
+  --env MDBASE_CONNECT_DEV_AUTH=1 \
+  --env MDBASE_CONNECT_ALLOW_INSECURE_MANIFESTS=1 \
+  "$CANDIDATE_IMAGE" >/dev/null
+if ! upgrade_wait_http \
+    http://127.0.0.1:8787/ready 'candidate server'; then
+  docker logs mdbase-connect-upgrade-candidate
+  exit 1
+fi
+
+registration=$(curl --fail --silent --show-error \
+  --header 'content-type: application/json' \
+  --data '{"manifest":{"manifest_version":1,"id":"dev.mdbase.release-canary","name":"Release canary","homepage":"http://127.0.0.1:8787","redirect_uris":["http://127.0.0.1:8787/callback"],"requirements":{"contracts":[],"access":"full_collection"}}}' \
+  http://127.0.0.1:8787/v1/apps/register)
+application_id=$(jq --raw-output '.application.id' <<<"$registration")
+manifest_digest=$(jq --raw-output '.application.manifest_digest' <<<"$registration")
+test -n "$application_id"
+[[ $manifest_digest =~ ^[a-f0-9]{64}$ ]]
+
+cookie_jar=${RUNNER_TEMP:-/tmp}/oauth-cookie
+curl --fail --silent --show-error \
+  --cookie-jar "$cookie_jar" \
+  --header 'content-type: application/json' \
+  --data '{"name":"Release canary","email":"release-canary@example.com"}' \
+  http://127.0.0.1:8787/v1/dev/session >/dev/null
+authorization=$(docker run --rm "$CANDIDATE_IMAGE" \
+  node packages/protocol/scripts/create-release-canary-authorization.mjs \
+  "$application_id" "$manifest_digest")
+authorization_id=$(jq --raw-output '.authorization_id' <<<"$authorization")
+authorization_uri=$(curl --fail --silent --show-error \
+  --header 'content-type: application/x-www-form-urlencoded' \
+  --data-urlencode "client_id=$(jq --raw-output '.form.client_id' <<<"$authorization")" \
+  --data-urlencode "redirect_uri=$(jq --raw-output '.form.redirect_uri' <<<"$authorization")" \
+  --data-urlencode "code_challenge=$(jq --raw-output '.form.code_challenge' <<<"$authorization")" \
+  --data-urlencode 'code_challenge_method=S256' \
+  --data-urlencode "state=$(jq --raw-output '.form.state' <<<"$authorization")" \
+  --data-urlencode "operations=$(jq --raw-output '.form.operations' <<<"$authorization")" \
+  --data-urlencode "application_authorization=$(jq --compact-output '.form.application_authorization | fromjson' <<<"$authorization")" \
+  http://127.0.0.1:8787/oauth/authorization_request |
+  jq --raw-output '.authorization_uri')
+[[ $authorization_uri == "http://127.0.0.1:8787/oauth/authorize?request_id=$authorization_id" ]]
+location=$(curl --silent --show-error \
+  --cookie "$cookie_jar" \
+  --output /dev/null \
+  --write-out '%{redirect_url}' \
+  "$authorization_uri")
+[[ $location == "http://127.0.0.1:8787/authorize/$authorization_id" ]]
+
+printf 'Previous server upgrade and OAuth path passed.\n'

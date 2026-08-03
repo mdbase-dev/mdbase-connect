@@ -6,6 +6,34 @@ supports black-box server tests, native Electron tests, and application tests
 from sibling repositories without reading the operator's normal Connect
 profile or credentials.
 
+## Test tiers and entry points
+
+Connect uses one vocabulary from local iteration through release acceptance:
+
+- `pnpm test` runs JavaScript and TypeScript unit/component tests;
+- `pnpm test:fast` adds the complete Rust workspace tests with an isolated
+  test-only credential backend;
+- `pnpm test:integration` runs browser-storage and accessibility boundaries;
+- `pnpm test:system -- --list` shows the registered black-box suites;
+- `pnpm test:system -- --suite local,relay` selects system suites; and
+- `pnpm test:all` runs every local tier, including all system suites.
+
+The existing `e2e:*` commands remain focused aliases for individual registered
+system suites. The system runner owns build prerequisites and deduplicates them
+when several suites are selected. CI, which has already built the workspace,
+uses `--no-prepare` and retains one named step per suite for useful failure
+diagnostics.
+
+Previous-release server and provider recovery tests live under
+`test/upgrade/`. GitHub Actions supplies disposable PostgreSQL services, while
+the versioned scenario programs own image construction, fixtures, polling,
+assertions, diagnostics, and cleanup. Workflow YAML contains no embedded SQL
+or test-only servers.
+
+Use the narrowest tier that proves an invariant. Real PostgreSQL, NATS,
+containers, browsers, Electron, and previous images remain system boundaries;
+ordinary policy and state-machine defects should fail in the fast tier.
+
 ## Trust and isolation
 
 Development authentication replaces the external GitHub or Google identity
@@ -25,6 +53,12 @@ The environment has four isolation boundaries:
 
 Automated cleanup removes the containers, network, database volume, Electron
 profile, connector state, and fixture collection even when an assertion fails.
+
+The shared lifecycle implementation is
+`scripts/lib/connect-environment.mjs`. Both the persistent development command
+and disposable tests use it for Compose invocation, readiness, restart,
+diagnostics, and cleanup. `scripts/lib/connect-test-environment.mjs` is a stable
+compatibility facade for consumer repositories.
 
 ## Interactive environment
 
@@ -105,8 +139,11 @@ pnpm e2e:ecosystem
 ```
 
 The existing `pnpm e2e:provider` suite remains the production hosted-authority
-boundary. Render staging remains responsible for real external OAuth, HTTPS,
-proxy, deployment, and multi-service release acceptance.
+boundary. Its browser scenarios live under `scripts/system/provider/`, while
+the top-level program owns shared provider fixtures and lifecycle. Add new
+independent provider journeys as scenario modules instead of extending the
+orchestrator. Render staging remains responsible for real external OAuth,
+HTTPS, proxy, deployment, and multi-service release acceptance.
 
 ## Consumer repository tests
 

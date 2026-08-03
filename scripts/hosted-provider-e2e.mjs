@@ -22,6 +22,9 @@ import {
   MDBASE_RECORD_CREATED_CONTRACT,
   MDBASE_TIMER_FIRED_CONTRACT
 } from "../packages/protocol/dist/index.js";
+import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
+import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
+import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
 
 process.env.NODE_ENV = "test";
 const execute = promisify(execFile);
@@ -383,7 +386,7 @@ try {
   phase("running a hosted mutation through the durable notification runtime");
   const notificationSignals = [];
   const notificationRequests = [];
-  const callbackPort = await availablePort();
+  const callbackPort = await availableTcpPort();
   notificationCallbackServer = createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -865,7 +868,7 @@ try {
 
   phase("provisioning collections and replicas through the Node control plane");
   controlDatabase = await createDatabase("memory");
-  const controlPort = await availablePort();
+  const controlPort = await availableTcpPort();
   const controlUrl = `http://127.0.0.1:${controlPort}`;
   const localEditor = await startEditorServer();
   editorServer = localEditor.server;
@@ -1004,7 +1007,17 @@ try {
   await stopConnectDaemon(desktopProfile, desktopDaemon);
 
   phase("exercising hosted lifecycle and writable enrollment in a real browser");
-  await portalLifecycleE2E(controlUrl, provider.url, browserMirrorRoot);
+  await portalLifecycleE2E({
+    controlUrl,
+    providerUrl: provider.url,
+    browserMirrorDirectory: browserMirrorRoot,
+    repoRoot,
+    internalToken,
+    mirrorProfileDirectory,
+    waitForOutput,
+    execute,
+    rawRequest
+  });
 
   phase("moving hosted authority through the CLI and browser confirmation flow");
   await authorityPromotionCliE2E(
@@ -1343,7 +1356,14 @@ schema:
   globalThis.fetch = originalFetch;
 
   phase("authorizing a real file URL directly against the hosted data plane");
-  await portableHostedFileE2E(controlUrl, cookie, genericCollectionId, portableRoot);
+  await portableHostedFileE2E({
+    controlUrl,
+    cookie,
+    collectionId: genericCollectionId,
+    directory: portableRoot,
+    repoRoot,
+    controlRequest
+  });
 
   assert.equal(
     (
@@ -2276,375 +2296,6 @@ async function startEditorServer() {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Editor server is unavailable");
   return { server, origin: `http://127.0.0.1:${address.port}` };
-}
-
-async function portableHostedFileE2E(controlUrl, cookie, collectionId, directory) {
-  const bundle = (await readFile(
-    join(repoRoot, "packages", "client", "dist", "browser", "mdbase-connect.min.js"),
-    "utf8"
-  )).replaceAll("</script", "<\\/script");
-  const file = join(directory, "portable-hosted.html");
-  await writeFile(file, `<!doctype html>
-<meta charset="utf-8">
-<title>Portable hosted mdbase E2E</title>
-<button id="connect">Connect</button>
-<output id="code"></output>
-<script>${bundle}</script>
-<script>
-  const manager = new MdbaseConnect.MdbaseConnect({
-    serverUrl: ${JSON.stringify(controlUrl)},
-    manifest: {
-      manifest_version: 1,
-      distribution: "portable",
-      id: "dev.mdbase.portable-hosted-e2e",
-      name: "Portable Hosted E2E",
-      project_url: "https://apps.example/portable-hosted-e2e",
-      requirements: {
-        access: "full_collection",
-        contracts: [],
-        collection_kind: "hosted"
-      }
-    }
-  });
-  globalThis.portableHarness = {
-    environment: manager.environment(),
-    initialConnections: manager.connections().length
-  };
-  const nativeFetch = globalThis.fetch.bind(globalThis);
-  globalThis.fetch = async (input, init = {}) => {
-    const url = String(input);
-    if (url.includes("/v1/authorities/") && init.headers?.authorization) {
-      globalThis.portableHarness.capturedRequest = {
-        url,
-        method: init.method,
-        headers: { ...init.headers },
-        body: init.body
-      };
-    }
-    return nativeFetch(input, init);
-  };
-  document.querySelector("#connect").onclick = () => {
-    manager.authorize({
-      operations: ["describe", "query", "create", "sync"],
-      openVerification() {},
-      onDeviceCode(authorization) {
-        globalThis.portableHarness.authorization = authorization;
-        document.querySelector("#code").textContent = authorization.userCode;
-      }
-    }).then(async (authorizationOutcome) => {
-      const { connection } = MdbaseConnect.unwrapConnectOutcome(authorizationOutcome);
-      const created = MdbaseConnect.unwrapConnectOutcome(await connection.create({
-        path: "portable-hosted-e2e.md",
-        frontmatter: { title: "Created from a downloaded file" },
-        body: "Direct to the hosted provider."
-      }));
-      const description = MdbaseConnect.unwrapConnectOutcome(await connection.describe());
-      const records = MdbaseConnect.unwrapConnectOutcome(await connection.query({
-        where: 'file.path == "portable-hosted-e2e.md"'
-      }));
-      globalThis.portableHarness.result = {
-        route: connection.route,
-        collectionId: connection.collectionId,
-        displayName: description.display_name,
-        created: created.path === "portable-hosted-e2e.md",
-        records: records.results.length,
-        syncAvailable: connection.sync() !== null,
-        connections: manager.connections().length
-      };
-    }).catch((error) => {
-      globalThis.portableHarness.error = {
-        code: error && (error.problem?.code || error.code),
-        message: error && error.message
-      };
-    });
-  };
-</script>`);
-
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.goto(new URL(`file://${file}`).href);
-    const environment = await page.evaluate(() => globalThis.portableHarness);
-    assert.equal(environment.environment.applicationOrigin, "null");
-    assert.equal(environment.environment.credentialStorage, "memory");
-    assert.equal(environment.initialConnections, 0);
-    await page.click("#connect");
-    await page.waitForFunction(() => Boolean(globalThis.portableHarness.authorization));
-    const authorization = await page.evaluate(
-      () => globalThis.portableHarness.authorization
-    );
-    const claimed = await controlRequest(
-      controlUrl,
-      "/v1/device-authorization-requests/lookup",
-      cookie,
-      {
-        method: "POST",
-        body: { user_code: authorization.userCode }
-      }
-    );
-    const pending = await controlRequest(
-      controlUrl,
-      `/v1/authorization-requests/${claimed.request_id}`,
-      cookie
-    );
-    assert.ok(pending.collections.length > 0);
-    assert.ok(pending.collections.every((collection) => collection.kind === "hosted"));
-    assert.ok(pending.collections.some((collection) => collection.id === collectionId));
-    await controlRequest(
-      controlUrl,
-      `/v1/authorization-requests/${claimed.request_id}/approve`,
-      cookie,
-      {
-        method: "POST",
-        body: {
-          collection_id: collectionId,
-          operations: ["describe", "query", "create", "sync"]
-        }
-      }
-    );
-    await page.waitForFunction(
-      () => Boolean(globalThis.portableHarness.result || globalThis.portableHarness.error),
-      undefined,
-      { timeout: 20_000 }
-    );
-    const result = await page.evaluate(() => globalThis.portableHarness);
-    assert.equal(result.error, undefined);
-    assert.deepEqual(result.result, {
-      route: "remote",
-      collectionId,
-      displayName: "Hosted writing",
-      created: true,
-      records: 1,
-      syncAvailable: true,
-      connections: 1
-    });
-    const captured = result.capturedRequest;
-    assert.ok(captured.headers["x-mdbase-proof-signature"]);
-    const noProof = await fetch(captured.url, {
-      method: captured.method,
-      headers: {
-        authorization: captured.headers.authorization,
-        "content-type": captured.headers["content-type"],
-        origin: "null"
-      },
-      body: captured.body
-    });
-    assert.equal(noProof.status, 401);
-    assert.equal((await noProof.json()).error.code, "authority_proof_required");
-    const noProofOrOrigin = await fetch(captured.url, {
-      method: captured.method,
-      headers: {
-        authorization: captured.headers.authorization,
-        "content-type": captured.headers["content-type"]
-      },
-      body: captured.body
-    });
-    assert.equal(noProofOrOrigin.status, 403);
-    assert.equal((await noProofOrOrigin.json()).error.code, "origin_denied");
-    const replay = await fetch(captured.url, {
-      method: captured.method,
-      headers: { ...captured.headers, origin: "null" },
-      body: captured.body
-    });
-    assert.equal(replay.status, 401);
-    assert.equal((await replay.json()).error.code, "authority_proof_replayed");
-    const tampered = await fetch(captured.url, {
-      method: captured.method,
-      headers: { ...captured.headers, origin: "null" },
-      body: `${captured.body} `
-    });
-    assert.equal(tampered.status, 401);
-    assert.equal((await tampered.json()).error.code, "invalid_authority_proof");
-    const missingOrigin = await fetch(captured.url, {
-      method: captured.method,
-      headers: captured.headers,
-      body: captured.body
-    });
-    assert.equal(missingOrigin.status, 403);
-    assert.equal((await missingOrigin.json()).error.code, "origin_denied");
-
-    const independentPage = await context.newPage();
-    await independentPage.goto(new URL(`file://${file}`).href);
-    const independent = await independentPage.evaluate(() => globalThis.portableHarness);
-    assert.equal(independent.initialConnections, 0);
-    assert.equal(independent.environment.credentialStorage, "memory");
-    await independentPage.close();
-    await context.close();
-  } finally {
-    await browser.close();
-  }
-}
-
-async function portalLifecycleE2E(controlUrl, providerUrl, browserMirrorDirectory) {
-  const browser = await chromium.launch({ headless: true });
-  let connector;
-  try {
-    const page = await browser.newPage();
-    await page.goto(`${controlUrl}/login`);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "New hosted collection" }).click();
-    await page.getByLabel("Collection name").fill("Browser E2E collection");
-    await page.getByRole("button", { name: "Create", exact: true }).click();
-    await page.getByRole("link", { name: "All collections" }).click();
-    const row = page.locator(".connect-collection-row").filter({
-      hasText: "Browser E2E collection"
-    });
-    await expect(row).toBeVisible();
-    await expect(row).toContainText("Hosted by mdbase");
-
-    const dashboard = await page.evaluate(async (server) => {
-      const response = await fetch(`${server}/v1/me`, { credentials: "include" });
-      return response.json();
-    }, controlUrl);
-    const collectionId = dashboard.hosted_collections.find(
-      (collection) => collection.display_name === "Browser E2E collection"
-    ).id;
-    const editorUrl = new URL("/", page.url());
-    editorUrl.searchParams.set("collection", collectionId);
-    editorUrl.searchParams.set("server", controlUrl);
-    await expect(row.getByRole("link", { name: "Open", exact: true }))
-      .toHaveAttribute("href", editorUrl.href);
-    await expect(row.getByRole("link", { name: "Sync folder" }))
-      .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
-
-    const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
-    connector = spawn(process.execPath, [
-      mirrorCli,
-      "connect",
-      browserMirrorDirectory,
-      "--server", controlUrl,
-      "--collection", collectionId,
-      "--name", "Browser writable mirror",
-      "--no-open"
-    ], {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let connectorOutput = "";
-    let connectorError = "";
-    connector.stdout.on("data", (chunk) => { connectorOutput += chunk; });
-    connector.stderr.on("data", (chunk) => { connectorError += chunk; });
-    const verificationUri = await waitForOutput(
-      () => connectorOutput.match(/https?:\/\/[^\s]+\/mirror\/[0-9a-f-]+/)?.[0],
-      "Mirror CLI did not print a browser approval URL"
-    );
-    await page.goto(verificationUri);
-    await expect(page.getByRole("heading", { name: "Browser writable mirror" })).toBeVisible();
-    await expect(page.getByLabel("Hosted collection").locator("option:checked"))
-      .toHaveText("Browser E2E collection");
-    await page.getByRole("button", { name: "Sync this collection" }).click();
-    await expect(page.getByRole("heading", { name: "Return to your computer." })).toBeVisible();
-    const connectorExit = connector.exitCode
-      ?? await new Promise((resolveExit) => connector.once("exit", resolveExit));
-    assert.equal(connectorExit, 0, `Mirror CLI failed:\n${connectorError}\n${connectorOutput}`);
-    assert.match(connectorOutput, /Sync connected/);
-    await assert.rejects(
-      () => readFile(join(browserMirrorDirectory, ".mdbase", "connect-mirror.json"), "utf8"),
-      { code: "ENOENT" }
-    );
-    assert.equal(
-      (
-        await stat(join(await mirrorProfileDirectory(browserMirrorDirectory), "credentials.json"))
-      ).mode & 0o777,
-      0o600
-    );
-    const browserStatus = JSON.parse(
-      (await execute(process.execPath, [mirrorCli, "status", browserMirrorDirectory, "--json"])).stdout
-    );
-    assert.equal(browserStatus.state, "up_to_date");
-
-    await page.goto(controlUrl);
-    await page.getByRole("link", { name: "All collections" }).click();
-    const connectedRow = page.locator(".connect-collection-row").filter({
-      hasText: "Browser E2E collection"
-    });
-    await connectedRow.getByText("Synced folders", { exact: true }).click();
-    await expect(connectedRow).toContainText("Browser writable mirror");
-    await expect(connectedRow).toContainText("Two-way sync");
-    await connectedRow.getByRole("button", { name: "Revoke" }).click();
-    await connectedRow.getByRole("button", { name: "Revoke", exact: true }).click();
-    await expect(connectedRow.getByText("Browser writable mirror")).toHaveCount(0, {
-      timeout: 20_000
-    });
-
-    await connectedRow.getByRole("button", { name: "Rename" }).click();
-    await connectedRow.getByLabel("Rename Browser E2E collection")
-      .fill("Browser renamed collection");
-    await connectedRow.getByRole("button", { name: "Save", exact: true }).click();
-    const renamedRow = page.locator(".connect-collection-row").filter({
-      hasText: "Browser renamed collection"
-    });
-    await expect(renamedRow).toBeVisible({ timeout: 20_000 });
-    await renamedRow.getByRole("button", { name: "Delete" }).click();
-    await renamedRow.getByRole("button", { name: "Delete permanently" }).click();
-    await expect(page.getByText("Browser renamed collection", { exact: true })).toHaveCount(0, {
-      timeout: 20_000
-    });
-
-    await page.getByRole("button", { name: "New hosted collection" }).click();
-    await page.getByLabel("Collection name").fill("Account deletion collection");
-    await page.getByRole("button", { name: "Create", exact: true }).click();
-    const deletionCollection = page.locator(".connect-collection-row").filter({
-      hasText: "Account deletion collection"
-    });
-    await expect(deletionCollection).toBeVisible();
-    const deletionDashboard = await page.evaluate(async (server) => {
-      const response = await fetch(`${server}/v1/me`, { credentials: "include" });
-      return response.json();
-    }, controlUrl);
-    const deletionCollectionId = deletionDashboard.hosted_collections.find(
-      (collection) => collection.display_name === "Account deletion collection"
-    ).id;
-
-    await page.getByRole("link", { name: "Account & sessions" }).click();
-    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
-    await expect(page.getByRole("main").getByText(
-      "Account deletion collection",
-      { exact: true }
-    )).toBeVisible();
-    const account = await page.evaluate(async (server) => {
-      const response = await fetch(`${server}/v1/account`, { credentials: "include" });
-      return response.json();
-    }, controlUrl);
-    const accountCollection = account.storage.collections.find(
-      (collection) => collection.id === deletionCollectionId
-    );
-    assert.equal(account.storage.status, "available");
-    assert.equal(accountCollection.usage.collection_id, deletionCollectionId);
-    assert.equal(accountCollection.usage.max_content_bytes, 1024 * 1024 * 1024);
-    await page.getByRole("button", { name: "Delete account…" }).click();
-    await expect(page.getByText(/Local files are never removed/)).toBeVisible();
-    await expect(page.getByText(
-      "Local collection and mirror files remain on your computers.",
-      { exact: true }
-    )).toBeVisible();
-    await page.getByLabel("Type DELETE to confirm").fill("DELETE");
-    await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
-    await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
-      .toBeVisible();
-    assert.equal(
-      (
-        await rawRequest(
-          providerUrl,
-          `/internal/v1/collections/${deletionCollectionId}/usage`,
-          { token: internalToken }
-        )
-      ).status,
-      404
-    );
-    assert.match(
-      await readFile(join(browserMirrorDirectory, "mdbase.yaml"), "utf8"),
-      /spec_version: 0\.3\.0/
-    );
-  } finally {
-    if (connector?.exitCode === null && connector.signalCode === null) connector.kill("SIGTERM");
-    await browser.close();
-  }
 }
 
 async function authorityPromotionCliE2E(
@@ -3773,18 +3424,6 @@ async function startObjectStore() {
   return `http://127.0.0.1:${port}`;
 }
 
-async function availablePort() {
-  const server = createServer();
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Could not reserve a local port");
-  await new Promise((resolveClose) => server.close(resolveClose));
-  return address.port;
-}
-
 function connectProfile(stateDirectory) {
   return {
     stateDirectory,
@@ -4220,10 +3859,6 @@ async function rawRequest(url, path, options = {}) {
 
 async function expectSyncError(action, code) {
   await assert.rejects(action, (error) => error instanceof SyncError && error.code === code);
-}
-
-function delay(milliseconds) {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 function percentile(values, quantile) {
