@@ -30,6 +30,7 @@ pub struct R2Config {
     pub bucket: String,
     pub access_key_id: String,
     pub secret_access_key: String,
+    pub session_token: Option<String>,
     pub multipart_part_bytes: u64,
     pub download_part_bytes: u64,
     pub presign_ttl: Duration,
@@ -51,6 +52,7 @@ impl R2Config {
             bucket: bucket.into(),
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
+            session_token: None,
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
@@ -74,6 +76,7 @@ impl R2Config {
             bucket: bucket.into(),
             access_key_id: access_key_id.into(),
             secret_access_key: secret_access_key.into(),
+            session_token: None,
             multipart_part_bytes,
             download_part_bytes,
             presign_ttl,
@@ -82,6 +85,12 @@ impl R2Config {
         config.validate()?;
         config.endpoint = config.endpoint.trim_end_matches('/').to_string();
         Ok(config)
+    }
+
+    pub fn with_session_token(mut self, session_token: Option<String>) -> ApiResult<Self> {
+        self.session_token = session_token;
+        self.validate()?;
+        Ok(self)
     }
 
     fn validate(&self) -> ApiResult<()> {
@@ -101,6 +110,10 @@ impl R2Config {
             || self.bucket.len() > 255
             || self.access_key_id.trim().is_empty()
             || self.secret_access_key.trim().is_empty()
+            || self
+                .session_token
+                .as_ref()
+                .is_some_and(|token| token.trim().is_empty())
             || !(MIN_MULTIPART_PART_BYTES..=MAX_MULTIPART_PART_BYTES)
                 .contains(&self.multipart_part_bytes)
             || !(MIN_DOWNLOAD_PART_BYTES..=MAX_DOWNLOAD_PART_BYTES)
@@ -139,7 +152,7 @@ impl R2BlobStore {
         let credentials = Credentials::new(
             config.access_key_id.clone(),
             config.secret_access_key.clone(),
-            None,
+            config.session_token.clone(),
             None,
             "mdbase-connect-r2",
         );
@@ -604,10 +617,16 @@ mod tests {
             8 * 1024 * 1024,
             Duration::from_secs(900),
         )
+        .unwrap()
+        .with_session_token(Some("temporary-session".to_string()))
         .unwrap();
         let store = R2BlobStore::new(valid);
         assert_eq!(store.upload_part_size(), 8 * 1024 * 1024);
         assert_eq!(store.download_part_size(), 8 * 1024 * 1024);
+        assert_eq!(
+            store.config.session_token.as_deref(),
+            Some("temporary-session")
+        );
 
         for invalid in [
             R2Config::new(
@@ -668,6 +687,18 @@ mod tests {
             8 * 1024 * 1024,
             Duration::from_secs(900),
         )
+        .is_err());
+        assert!(R2Config::new(
+            "https://account.r2.cloudflarestorage.com",
+            "bucket",
+            "access",
+            "secret",
+            8 * 1024 * 1024,
+            8 * 1024 * 1024,
+            Duration::from_secs(900),
+        )
+        .unwrap()
+        .with_session_token(Some("   ".to_string()))
         .is_err());
     }
 

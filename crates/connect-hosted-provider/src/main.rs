@@ -167,6 +167,7 @@ struct RuntimeSecrets {
     master_key: Option<String>,
     r2_access_key_id: String,
     r2_secret_access_key: String,
+    r2_session_token: Option<String>,
 }
 
 impl RuntimeSecrets {
@@ -177,6 +178,7 @@ impl RuntimeSecrets {
             master_key: optional_environment("MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY")?,
             r2_access_key_id: required_environment("MDBASE_CONNECT_R2_ACCESS_KEY_ID")?,
             r2_secret_access_key: required_environment("MDBASE_CONNECT_R2_SECRET_ACCESS_KEY")?,
+            r2_session_token: optional_environment("MDBASE_CONNECT_R2_SESSION_TOKEN")?,
         })
     }
 }
@@ -244,7 +246,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments.r2_download_part_bytes,
             Duration::from_secs(arguments.r2_presign_ttl_seconds),
         )?
-    };
+    }
+    .with_session_token(secrets.r2_session_token)?;
     let blob_store = Arc::new(R2BlobStore::new(r2_config));
     let provider = HostedProvider::connect(
         &secrets.database_url,
