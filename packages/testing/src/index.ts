@@ -3,9 +3,21 @@ import {
   type ApplicationCapabilityRequirements,
   type CollectionOperation,
   type FileCapability,
+  type GrantEncryption,
   type GrantScope,
   type MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
+import {
+  connectorRelayFixture,
+  generateConnectorKey,
+  type FixtureRelayBinding,
+  type MdbaseConnectorRelayFixture
+} from "./relay.js";
+
+export type {
+  MdbaseConnectorRelayFixture,
+  MdbaseFixtureRelayOperation
+} from "./relay.js";
 
 export interface MdbaseTestPage {
   evaluate<Result, Argument>(
@@ -50,6 +62,8 @@ export interface MdbaseBrowserFixtureOptions {
 }
 
 export interface MdbaseBrowserFixtureController {
+  /** Connector-side encrypted relay harness for route-level consumer tests. */
+  relay?: MdbaseConnectorRelayFixture;
   /** Apply the fixture to the currently loaded app origin. */
   apply(page: MdbaseTestPage): Promise<void>;
   expire(page: MdbaseTestPage): Promise<void>;
@@ -64,6 +78,7 @@ interface BrowserFixtureSeed {
   collectionId: string;
   keyHandle: string;
   authorityKind: MdbaseFixtureAuthority["kind"];
+  connectorAgreementPublicKey?: string;
   directAccess?: "enabled" | "disabled";
   token: Record<string, unknown>;
 }
@@ -77,9 +92,18 @@ export async function installMdbaseBrowserFixture(
   page: MdbaseTestPage,
   options: MdbaseBrowserFixtureOptions
 ): Promise<MdbaseBrowserFixtureController> {
-  const seed = fixtureSeed(options);
-  await page.evaluate(writeSeed, seed);
+  const connector = options.authority.kind === "connector"
+    ? await generateConnectorKey()
+    : undefined;
+  const seed = fixtureSeed(options, connector?.publicKey);
+  const binding = await page.evaluate(writeSeed, seed);
+  if (connector && !binding) {
+    throw new Error("Connector browser fixtures require IndexedDB and WebCrypto.");
+  }
   return {
+    ...(connector && binding
+      ? { relay: connectorRelayFixture(connector.privateKey, binding) }
+      : {}),
     apply: (target) => target.evaluate(writeSeed, seed).then(() => undefined),
     expire: (target) => target.evaluate(updateToken, {
       tokenKey: seed.tokenKey,
@@ -94,7 +118,10 @@ export async function installMdbaseBrowserFixture(
   };
 }
 
-function fixtureSeed(options: MdbaseBrowserFixtureOptions): BrowserFixtureSeed {
+function fixtureSeed(
+  options: MdbaseBrowserFixtureOptions,
+  connectorAgreementPublicKey?: string
+): BrowserFixtureSeed {
   const manifestSource = "manifestUrl" in options.application
     ? options.application.manifestUrl
     : `bundle:${options.application.manifest.id}`;
@@ -110,6 +137,7 @@ function fixtureSeed(options: MdbaseBrowserFixtureOptions): BrowserFixtureSeed {
     collectionId: options.collection.id,
     keyHandle: `fixture:${options.application.manifest.id}:${options.collection.id}`,
     authorityKind: options.authority.kind,
+    ...(connectorAgreementPublicKey ? { connectorAgreementPublicKey } : {}),
     ...(options.directAccess ? { directAccess: options.directAccess } : {}),
     token: {
       version: 1,
@@ -148,8 +176,9 @@ function operationsForManifest(
   return operationsForApplicationCapabilities(requirements);
 }
 
-async function writeSeed(seed: BrowserFixtureSeed): Promise<void> {
+async function writeSeed(seed: BrowserFixtureSeed): Promise<FixtureRelayBinding | undefined> {
   let token = { ...seed.token };
+  let relayBinding: FixtureRelayBinding | undefined;
   if (
     typeof indexedDB !== "undefined"
     && typeof crypto !== "undefined"
@@ -214,28 +243,31 @@ async function writeSeed(seed: BrowserFixtureSeed): Promise<void> {
         }
       };
     } else {
-      const connector = await crypto.subtle.generateKey(
-        { name: "ECDH", namedCurve: "P-256" },
-        true,
-        ["deriveBits"]
-      ) as CryptoKeyPair;
+      if (!seed.connectorAgreementPublicKey) {
+        throw new Error("Connector fixture key material is unavailable.");
+      }
+      const grantId = crypto.randomUUID();
+      const encryption: GrantEncryption = {
+        protocol_version: 1,
+        suite: "P256-HKDF-SHA256-AES256GCM",
+        key_id: `fixture-${crypto.randomUUID()}`,
+        scope_epoch: 1,
+        connector_id: crypto.randomUUID(),
+        collection_id: seed.collectionId,
+        application_agreement_public_key: agreementPublicKey,
+        connector_agreement_public_key: seed.connectorAgreementPublicKey
+      };
       token = {
         ...token,
-        grantId: crypto.randomUUID(),
+        grantId,
         keyHandle: seed.keyHandle,
         applicationOrigin: location.origin,
-        encryption: {
-          protocol_version: 1,
-          suite: "P256-HKDF-SHA256-AES256GCM",
-          key_id: `fixture-${crypto.randomUUID()}`,
-          scope_epoch: 1,
-          connector_id: crypto.randomUUID(),
-          collection_id: seed.collectionId,
-          application_agreement_public_key: agreementPublicKey,
-          connector_agreement_public_key: encode(
-            await crypto.subtle.exportKey("raw", connector.publicKey)
-          )
-        }
+        encryption
+      };
+      relayBinding = {
+        grantId,
+        applicationId: String(token.clientId),
+        encryption
       };
     }
   }
@@ -247,6 +279,7 @@ async function writeSeed(seed: BrowserFixtureSeed): Promise<void> {
   if (seed.directAccess) {
     localStorage.setItem(`mdbase-connect:direct:${location.origin}`, seed.directAccess);
   }
+  return relayBinding;
 
   function encode(value: ArrayBuffer): string {
     return btoa(String.fromCharCode(...new Uint8Array(value)))

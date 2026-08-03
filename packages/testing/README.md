@@ -14,5 +14,8 @@ encrypted-grant metadata used by the browser SDK. Hosted fixtures create the
 authority proof key as well. Navigate to the application origin, install the
 fixture, then reload. The installation promise does not resolve until the keys
 and token are both durable, so startup cannot race a partially written grant.
+Connector fixtures also expose `fixture.relay`, which decrypts route-level test
+requests and encrypts matching success responses with the production relay
+profile. Consumer tests never need to know or reproduce grant cryptography.
 
 The fixture grants no production backdoor and is intended only for test builds.
