@@ -1,6 +1,6 @@
 # ADR 0002: First-contact application trust
 
-- Status: accepted
+- Status: superseded by ADR 0004
 - Date: 2026-08-02
 
 ## Context
