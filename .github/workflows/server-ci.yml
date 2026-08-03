@@ -252,6 +252,11 @@ jobs:
       CANDIDATE_IMAGE: mdbase-connect-hosted-provider:upgrade-candidate
       PROVIDER_INTERNAL_TOKEN: previous-provider-upgrade-internal-token
       PROVIDER_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      MDBASE_CONNECT_R2_ENDPOINT: http://127.0.0.1:9000
+      MDBASE_CONNECT_R2_BUCKET: upgrade-canary
+      MDBASE_CONNECT_R2_ACCESS_KEY_ID: upgrade-canary
+      MDBASE_CONNECT_R2_SECRET_ACCESS_KEY: upgrade-canary-secret
+      MDBASE_CONNECT_ALLOW_INSECURE_R2: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -262,6 +267,28 @@ jobs:
           --tag "$CANDIDATE_IMAGE"
           .
 
+      - name: Start test-only R2 readiness stub
+        run: |
+          node --input-type=module --eval '
+            import { createServer } from "node:http";
+            createServer((_request, response) => {
+              response.writeHead(200);
+              response.end();
+            }).listen(9000, "127.0.0.1");
+          ' >"$RUNNER_TEMP/mdbase-upgrade-r2.log" 2>&1 &
+          r2_pid=$!
+          echo "$r2_pid" >"$RUNNER_TEMP/mdbase-upgrade-r2.pid"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:9000 >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$r2_pid" >/dev/null 2>&1 || [ "$attempt" = 30 ]; then
+              cat "$RUNNER_TEMP/mdbase-upgrade-r2.log"
+              exit 1
+            fi
+            sleep 1
+          done
+
       - name: Create the previous provider schema
         run: |
           . .github/previous-release.env
@@ -271,6 +298,11 @@ jobs:
             --env DATABASE_URL \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
@@ -334,6 +366,11 @@ jobs:
             --env DATABASE_URL \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$MDBASE_CONNECT_PREVIOUS_PROVIDER_IMAGE" >/dev/null
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8790/ready >/dev/null; then
@@ -365,16 +402,7 @@ jobs:
 
       - name: Require candidate migration and recovery readiness
         run: |
-          node --input-type=module --eval '
-            import { createServer } from "node:http";
-            createServer((_request, response) => {
-              response.writeHead(200);
-              response.end();
-            }).listen(9000, "127.0.0.1");
-          ' >/tmp/mdbase-upgrade-r2.log 2>&1 &
-          r2_pid=$!
           cleanup() {
-            kill "$r2_pid" >/dev/null 2>&1 || true
             docker logs mdbase-provider-upgrade-candidate || true
             docker rm --force mdbase-provider-upgrade-candidate >/dev/null 2>&1 || true
           }
@@ -385,11 +413,11 @@ jobs:
             --env MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN="$PROVIDER_INTERNAL_TOKEN" \
             --env MDBASE_CONNECT_HOSTED_PROVIDER_MASTER_KEY="$PROVIDER_MASTER_KEY" \
             --env MDBASE_CONNECT_CONTROL_PLANE_URL=http://127.0.0.1:9 \
-            --env MDBASE_CONNECT_R2_ENDPOINT=http://127.0.0.1:9000 \
-            --env MDBASE_CONNECT_R2_BUCKET=upgrade-canary \
-            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID=upgrade-canary \
-            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY=upgrade-canary-secret \
-            --env MDBASE_CONNECT_ALLOW_INSECURE_R2=true \
+            --env MDBASE_CONNECT_R2_ENDPOINT \
+            --env MDBASE_CONNECT_R2_BUCKET \
+            --env MDBASE_CONNECT_R2_ACCESS_KEY_ID \
+            --env MDBASE_CONNECT_R2_SECRET_ACCESS_KEY \
+            --env MDBASE_CONNECT_ALLOW_INSECURE_R2 \
             "$CANDIDATE_IMAGE" >/dev/null
 
           for attempt in {1..30}; do
@@ -424,6 +452,14 @@ jobs:
                        WHERE grant_id = '22222222-2222-4222-8222-222222222222'")
           echo "Migrated notification contract: $contract"
           [[ "$contract" == "mdbase.runtime.timer.fired|1.0.0" ]]
+
+      - name: Stop test-only R2 readiness stub
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mdbase-upgrade-r2.pid" ]; then
+            r2_pid=$(<"$RUNNER_TEMP/mdbase-upgrade-r2.pid")
+            kill "$r2_pid" >/dev/null 2>&1 || true
+          fi
 
   hosted-provider:
     runs-on: ubuntu-latest
