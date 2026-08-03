@@ -253,6 +253,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const folders = screen.getByRole("group", { name: "Folders" });
+    await waitFor(() => expect(folders).toHaveAttribute("aria-busy", "false"));
     expect(within(folders).queryByRole("button", { name: /^Show notes in Projects\/Alpha,/ })).not.toBeInTheDocument();
     const disclosure = within(folders).getByRole("button", { name: "Expand Projects" });
     await user.click(disclosure);
@@ -294,6 +295,7 @@ describe("mdbase editor", () => {
 
     await screen.findByRole("heading", { name: "Writing" });
     const tags = screen.getByRole("group", { name: "Tags" });
+    await waitFor(() => expect(tags).toHaveAttribute("aria-busy", "false"));
     await user.click(within(tags).getByRole("button", { name: "Tags" }));
     fireEvent.contextMenu(within(tags).getByRole("button", { name: /^Show notes tagged #ideas,/ }), {
       clientX: 60,

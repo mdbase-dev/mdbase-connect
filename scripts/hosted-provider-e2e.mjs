@@ -2693,6 +2693,12 @@ async function authorityPromotionCliE2E(
   const recovered = await connectCommand(profile, ["mirror", "list"]);
   assert.equal(recovered.length, 1);
   assert.equal(recovered[0].replica_id, mirror.replica_id);
+  await waitFor(async () => {
+    const [status] = await connectCommand(profile, ["mirror", "list"]);
+    return status?.replica_id === mirror.replica_id
+      && status.syncing === false
+      && status.state === "up_to_date";
+  }, "Recovered promotion mirror did not become idle", 400);
 
   const promotion = spawn(connectBinary, connectArguments(profile, [
     "--json", "mirror", "promote", mirror.replica_id, "--no-open"
