@@ -14,14 +14,14 @@ export {
   type FileTransferBinding
 } from "./file-crypto.js";
 export {
-  deriveFirstContactSas,
-  FirstContactCryptoError,
-  type FirstContactRole
-} from "./first-contact.js";
-export {
+  ApplicationIdentityStoreError,
+  IndexedDbApplicationIdentityStore,
+  MemoryApplicationIdentityStore,
   applicationInstallationId,
   authorizationSigningMessage,
-  signApplicationAuthorization
+  signApplicationAuthorization,
+  type ApplicationIdentity,
+  type ApplicationIdentityStore
 } from "./application-identity.js";
 
 export * from "./authorization-types.js";
@@ -62,7 +62,6 @@ export type {
   ContractRequirement,
   DataContractViewIdentity,
   GrantScope,
-  FirstContactBinding,
   JsonObject,
   MdbaseAppManifest,
   NotificationCriterion,

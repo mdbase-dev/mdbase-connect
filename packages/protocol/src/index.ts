@@ -17,7 +17,7 @@ export * from "./type-packs.js";
 
 export const CONTROL_PROTOCOL_VERSION = 1 as const;
 export const ENCRYPTED_RELAY_PROTOCOL_VERSION = 1 as const;
-export const FIRST_CONTACT_PROTOCOL_VERSION = 1 as const;
+export const APPLICATION_AUTHORIZATION_PROTOCOL_VERSION = 2 as const;
 export const LOOPBACK_PROTOCOL_VERSION = 1 as const;
 export const DEFAULT_LOOPBACK_PORT = 28_485 as const;
 export const RELAY_ENCRYPTION_SUITE = "P256-HKDF-SHA256-AES256GCM" as const;
@@ -25,7 +25,7 @@ export const SYNC_PROTOCOL_VERSION = 1 as const;
 export const CONTRACT_SETUP_CAPABILITY = "contract-setup-v1" as const;
 export const FILE_RELAY_CAPABILITY = "file-relay-v1" as const;
 export const RELAY_REQUIRED_CAPABILITIES = [
-  "application-trust-v1",
+  "application-authorization-v2",
   "authorization-activation",
   "encrypted-relay",
   "policy-ack"
@@ -285,14 +285,13 @@ export interface GrantPolicy {
   created_at: string;
   encryption?: GrantEncryption;
   file_capability?: FileCapability;
-  first_contact: FirstContactBinding;
   application_authorization: ApplicationAuthorizationProof;
 }
 
 /** Presentation-only grant shape used outside a local authorization boundary. */
 export type GrantSummary = Omit<
   GrantPolicy,
-  "first_contact" | "application_authorization"
+  "application_authorization"
 >;
 
 export interface GrantEncryption {
@@ -303,16 +302,6 @@ export interface GrantEncryption {
   connector_id: string;
   collection_id: string;
   application_agreement_public_key: string;
-  connector_agreement_public_key: string;
-}
-
-export interface FirstContactBinding {
-  protocol_version: typeof FIRST_CONTACT_PROTOCOL_VERSION;
-  application_id: string;
-  application_installation_id: string;
-  application_agreement_public_key: string;
-  application_signing_public_key: string;
-  connector_id: string;
   connector_agreement_public_key: string;
 }
 

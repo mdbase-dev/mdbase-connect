@@ -109,8 +109,10 @@ export const REGISTRATION_PROBLEM_CODES = [
 export type AuthorizationProblemCode =
   | RegistrationProblemCode
   | "access_denied"
+  | "application_identity_unavailable"
   | "approval_window_blocked"
   | "authorization_cancelled"
+  | "authorization_replayed"
   | "browser_required"
   | "collection_access_denied"
   | "collection_configuration_invalid"
@@ -128,19 +130,21 @@ export type AuthorizationProblemCode =
   | "device_authorization_failed"
   | "encryption_required"
   | "expired_token"
-  | "first_contact_handler_required"
+  | "invalid_application_authorization"
   | "invalid_callback"
   | "invalid_device_authorization_response"
-  | "invalid_first_contact"
   | "invalid_token_response"
   | "scope_denied"
+  | "reconnect_required"
   | "token_exchange_failed";
 
 export const AUTHORIZATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
   "access_denied",
+  "application_identity_unavailable",
   "approval_window_blocked",
   "authorization_cancelled",
+  "authorization_replayed",
   "browser_required",
   "collection_access_denied",
   "collection_configuration_invalid",
@@ -158,12 +162,12 @@ export const AUTHORIZATION_PROBLEM_CODES = [
   "device_authorization_failed",
   "encryption_required",
   "expired_token",
-  "first_contact_handler_required",
+  "invalid_application_authorization",
   "invalid_callback",
   "invalid_device_authorization_response",
-  "invalid_first_contact",
   "invalid_token_response",
   "scope_denied",
+  "reconnect_required",
   "token_exchange_failed"
 ] as const satisfies readonly AuthorizationProblemCode[];
 

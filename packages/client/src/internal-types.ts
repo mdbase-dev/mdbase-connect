@@ -30,7 +30,6 @@ export interface StoredAuthorization {
   collectionId?: string;
   returnTo?: string;
   keyHandle?: string;
-  installationKeyHandle?: string;
   authorizationId?: string;
   applicationAgreementPublicKey?: string;
   applicationSigningPublicKey?: string;

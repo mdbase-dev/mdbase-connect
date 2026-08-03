@@ -82,4 +82,9 @@ export class MdbaseConnect<Frontmatter extends JsonObject = JsonObject> {
       this.connection(connection.collectionId)?.forget();
     }
   }
+
+  /** Forget a public TOFU pin after independently verifying a replaced connector. */
+  forgetConnectorIdentity(connectorId: string): void {
+    this.internals.forgetConnectorIdentity(connectorId);
+  }
 }

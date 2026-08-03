@@ -5,7 +5,7 @@ import {
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  applicationInstallationIdFromPublicKeys,
+  applicationInstallationIdFromPublicKey,
   authorizationSigningMessage
 } from "../dist/index.js";
 import {
@@ -31,8 +31,7 @@ test("release canary uses the canonical signed authorization flow", async () => 
   assert.deepEqual(binding.requested_operations, ["describe"]);
   assert.equal(
     binding.application_installation_id,
-    await applicationInstallationIdFromPublicKeys(
-      binding.installation_agreement_public_key,
+    await applicationInstallationIdFromPublicKey(
       binding.installation_signing_public_key
     )
   );

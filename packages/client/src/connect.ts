@@ -5,7 +5,7 @@ import type {
   MdbaseAppManifest
 } from "@mdbase-dev/connect-protocol";
 import {
-  FIRST_CONTACT_PROTOCOL_VERSION,
+  APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   DEFAULT_LOOPBACK_PORT,
   ENCRYPTED_RELAY_PROTOCOL_VERSION,
   RELAY_ENCRYPTION_SUITE
@@ -13,7 +13,16 @@ import {
 import { abortableDelay } from "./async.js";
 import type { MdbaseDeviceAuthorization } from "./authorization-types.js";
 import { randomBase64Url } from "./base64.js";
-import { applicationInstallationId, signApplicationAuthorization } from "./application-identity.js";
+import {
+  ApplicationIdentityStoreError,
+  IndexedDbApplicationIdentityStore,
+  MemoryApplicationIdentityStore,
+  applicationIdentity,
+  applicationInstallationId,
+  signApplicationAuthorization,
+  type ApplicationIdentity,
+  type ApplicationIdentityStore
+} from "./application-identity.js";
 import {
   MdbaseConnection,
   type MdbaseAuthorizationOutcome,
@@ -29,7 +38,6 @@ import {
   validateGrantEncryption,
   type GrantKeyStore
 } from "./crypto.js";
-import { applicationIdentity, presentFirstContact } from "./first-contact-presentation.js";
 import { connectError, serverConnectError } from "./errors.js";
 import {
   DEFAULT_OPERATIONS,
@@ -68,6 +76,7 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
   readonly storage: Storage;
   readonly relayEncryption: "required" | "disabled";
   readonly keyStore: GrantKeyStore;
+  readonly identityStore: ApplicationIdentityStore;
   readonly directAccessMode: "auto" | "disabled";
   readonly loopbackUrl: string;
   readonly navigate?: (url: string) => void | Promise<void>;
@@ -97,7 +106,12 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     this.keyStore = options.keyStore ?? (
       opaquePortable ? new MemoryGrantKeyStore() : new IndexedDbGrantKeyStore()
     );
-    this.credentialStorage = options.storage || options.keyStore
+    this.identityStore = options.identityStore ?? (
+      opaquePortable
+        ? new MemoryApplicationIdentityStore()
+        : new IndexedDbApplicationIdentityStore()
+    );
+    this.credentialStorage = options.storage || options.keyStore || options.identityStore
       ? "custom"
       : this.storage instanceof MemoryStorage ? "memory" : "persistent";
     this.directAccessMode = options.directAccess ?? "auto";
@@ -185,7 +199,8 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
     const portableDeclared = typeof this.manifest !== "string"
       && this.manifest.distribution === "portable";
-    const popup = !(portableDeclared && options.openVerification)
+    const popup = portableDeclared
+      && !options.openVerification
       && !this.navigate
       && typeof window !== "undefined"
       ? window.open(
@@ -209,13 +224,13 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         options.openVerification ? null : popup
       );
     }
-    return this.authorizeWeb(application, options, popup);
+    popup?.close();
+    return this.authorizeWeb(application, options);
   }
 
   private async authorizeWeb(
     application: Application,
-    options: MdbaseAuthorizeOptions,
-    popup: Window | null
+    options: MdbaseAuthorizeOptions
   ): Promise<MdbaseAuthorizationOutcome<Frontmatter>> {
     const { verifier, challenge } = await createPkce();
     const state = randomBase64Url(24);
@@ -225,16 +240,21 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       : undefined;
     const keyHandle = `grant:${application.id}:${state}`;
     const grantKey = await this.keyStore.create(keyHandle);
-    const installation = await applicationIdentity(this.keyStore, this.serverUrl, application);
+    let installation: ApplicationIdentity;
+    try {
+      installation = await this.loadApplicationIdentity(application);
+    } catch (error) {
+      await this.keyStore.delete(keyHandle);
+      throw error;
+    }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
-      protocol_version: FIRST_CONTACT_PROTOCOL_VERSION,
+      protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
       authorization_id: authorizationId,
       application_id: application.id,
       application_manifest_digest: application.manifest_digest,
       application_installation_id: await applicationInstallationId(installation),
-      installation_agreement_public_key: installation.agreementPublicKey,
       installation_signing_public_key: installation.signingPublicKey,
       grant_agreement_public_key: grantKey.agreementPublicKey,
       grant_signing_public_key: grantKey.signingPublicKey,
@@ -261,7 +281,6 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
       collectionId: targetCollectionId,
       returnTo: options.returnTo,
       keyHandle,
-      installationKeyHandle: installation.handle,
       authorizationId,
       applicationAgreementPublicKey: grantKey.agreementPublicKey,
       applicationSigningPublicKey: grantKey.signingPublicKey
@@ -296,99 +315,23 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         typeof body.authorization_uri !== "string"
         || body.authorization_id !== authorizationId
         || !Number.isInteger(body.expires_in)
-        || !Number.isInteger(body.interval)
         || body.expires_in <= 0
-        || body.interval <= 0
       ) {
         throw connectError(
           "invalid_device_authorization_response",
-          "The authorization service returned an invalid polling response."
+          "The authorization service returned an invalid authorization response."
         );
       }
       if (this.navigate) await this.navigate(body.authorization_uri);
-      else if (popup) popup.location.href = body.authorization_uri;
+      else if (typeof location !== "undefined") location.assign(body.authorization_uri);
       else {
         throw connectError(
           "browser_required",
-          "The approval window was blocked. Allow popups for this application and try again."
+          "Authorization navigation requires a browser environment."
         );
       }
-
-      const expiresAt = Date.now() + body.expires_in * 1_000;
-      let intervalSeconds = body.interval;
-      let shownFirstContact = "";
-      while (Date.now() < expiresAt) {
-        await abortableDelay(intervalSeconds * 1_000, options.signal);
-        if (options.signal?.aborted) {
-          throw connectError(
-            "authorization_cancelled",
-            "Application authorization was cancelled."
-          );
-        }
-        let statusResponse: Response;
-        try {
-          statusResponse = await fetch(`${this.serverUrl}/oauth/authorization_status`, {
-            method: "POST",
-            headers: { "content-type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({
-              client_id: application.id,
-              authorization_id: authorizationId,
-              code_verifier: verifier
-            }),
-            signal: options.signal
-          });
-        } catch (cause) {
-          if (options.signal?.aborted) {
-            throw connectError(
-              "authorization_cancelled",
-              "Application authorization was cancelled.",
-              { cause }
-            );
-          }
-          continue;
-        }
-        const statusBody = await statusResponse.json();
-        if (!statusResponse.ok) {
-          const code = oauthErrorCode(statusBody);
-          if (code === "authorization_pending") {
-            if (statusBody.first_contact) {
-              shownFirstContact = await presentFirstContact(
-                statusBody.first_contact,
-                application,
-                installation,
-                options,
-                shownFirstContact
-              );
-            }
-            continue;
-          }
-          if (code === "slow_down") {
-            intervalSeconds += 2;
-            continue;
-          }
-          throw apiError(
-            statusBody,
-            "token_exchange_failed",
-            "Application authorization could not be completed.",
-            statusResponse.status
-          );
-        }
-        if (typeof statusBody.authorization_redirect !== "string") {
-          throw connectError(
-            "invalid_token_response",
-            "The authorization service returned an invalid completion response."
-          );
-        }
-        const result = await this.performAuthorizationCompletion(
-          statusBody.authorization_redirect,
-          state
-        );
-        popup?.close();
-        return { kind: "connected", ...result };
-      }
-      throw connectError("expired_token", "The application authorization expired.");
+      return { kind: "redirecting" };
     } catch (error) {
-      popup?.close();
       this.storage.removeItem(this.pendingKey(state));
       await this.keyStore.delete(keyHandle);
       if (options.signal?.aborted) {
@@ -417,17 +360,23 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     const { verifier, challenge } = await createPkce();
     const keyHandle = `grant:${application.id}:${randomBase64Url(24)}`;
     const grantKey = await this.keyStore.create(keyHandle);
-    const installation = await applicationIdentity(this.keyStore, this.serverUrl, application);
+    let installation: ApplicationIdentity;
+    try {
+      installation = await this.loadApplicationIdentity(application);
+    } catch (error) {
+      popup?.close();
+      await this.keyStore.delete(keyHandle);
+      throw error;
+    }
     const operations = uniqueOperations(options.operations ?? DEFAULT_OPERATIONS);
     const authorizationId = crypto.randomUUID();
     const issuedAt = new Date();
     const proof = await signApplicationAuthorization({
-      protocol_version: FIRST_CONTACT_PROTOCOL_VERSION,
+      protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
       authorization_id: authorizationId,
       application_id: application.id,
       application_manifest_digest: application.manifest_digest,
       application_installation_id: await applicationInstallationId(installation),
-      installation_agreement_public_key: installation.agreementPublicKey,
       installation_signing_public_key: installation.signingPublicKey,
       grant_agreement_public_key: grantKey.agreementPublicKey,
       grant_signing_public_key: grantKey.signingPublicKey,
@@ -523,7 +472,6 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     }
 
     let intervalSeconds = authorization.intervalSeconds;
-    let shownFirstContact = "";
     try {
       while (Date.now() < authorization.expiresAt) {
         await abortableDelay(intervalSeconds * 1_000, options.signal);
@@ -560,15 +508,6 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
         if (!tokenResponse.ok) {
           const code = oauthErrorCode(tokenBody);
           if (code === "authorization_pending") {
-            if (tokenBody.first_contact) {
-              shownFirstContact = await presentFirstContact(
-                tokenBody.first_contact,
-                application,
-                installation,
-                options,
-                shownFirstContact
-              );
-            }
             continue;
           }
           if (code === "slow_down") {
@@ -825,6 +764,10 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
           "Authorization returned an invalid encrypted relay binding."
         );
       }
+      this.pinConnectorIdentity(
+        body.encryption.connector_id,
+        body.encryption.connector_agreement_public_key
+      );
       if (
         body.encryption.collection_id !== collectionId
         || typeof body.grant_id !== "string"
@@ -893,6 +836,40 @@ export class MdbaseConnectInternals<Frontmatter extends JsonObject> {
     this.connectionCache.delete(collectionId);
     this.emitConnections();
     return token;
+  }
+
+  forgetConnectorIdentity(connectorId: string): void {
+    this.storage.removeItem(this.connectorPinKey(connectorId));
+  }
+
+  private pinConnectorIdentity(connectorId: string, publicKey: string): void {
+    const key = this.connectorPinKey(connectorId);
+    const previous = parseStored<{ version: 1; publicKey: string }>(this.storage.getItem(key));
+    if (previous && (previous.version !== 1 || previous.publicKey !== publicKey)) {
+      throw connectError(
+        "connector_identity_changed",
+        "The connector identity changed since this application first connected. Forget the saved connector identity only after verifying the computer, then authorize again."
+      );
+    }
+    if (!previous) this.storage.setItem(key, JSON.stringify({ version: 1, publicKey }));
+  }
+
+  private connectorPinKey(connectorId: string): string {
+    return `mdbase-connect:${this.serverUrl}:connector-pin:${connectorId}`;
+  }
+
+  private async loadApplicationIdentity(application: Application) {
+    try {
+      return await applicationIdentity(this.identityStore, this.serverUrl, application);
+    } catch (cause) {
+      throw connectError(
+        "application_identity_unavailable",
+        cause instanceof ApplicationIdentityStoreError
+          ? cause.message
+          : "The application installation identity is unavailable.",
+        { cause }
+      );
+    }
   }
 
   removeToken(

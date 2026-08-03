@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPkce,
-  deriveFirstContactSas,
   MdbaseBrowserSelection,
   MdbaseCollectionClient,
   MdbaseConnect,
@@ -10,6 +9,7 @@ import {
   connectError,
   connectSuccess,
   isRetryableConnectError,
+  MemoryApplicationIdentityStore,
   MemoryGrantKeyStore,
   parseMdbaseNativeNotificationData,
   parseMdbasePushPayload,
@@ -561,12 +561,10 @@ describe("provider-neutral collection client", () => {
     const keyStore = new MemoryGrantKeyStore();
     const opened = vi.fn();
     const shown: string[] = [];
-    const firstContactShown: string[] = [];
     const connectorKeys = new MemoryGrantKeyStore();
     const connectorIdentity = await connectorKeys.create("connector");
     const connectorId = "01933333-3333-7333-8333-333333333333";
     let applicationAgreementPublicKey = "";
-    let firstContact: import("@mdbase-dev/connect-protocol").FirstContactBinding;
     let polls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
       const url = String(request);
@@ -583,15 +581,6 @@ describe("provider-neutral collection client", () => {
         const form = new URLSearchParams(String(init?.body));
         const proof = JSON.parse(form.get("application_authorization")!);
         applicationAgreementPublicKey = proof.binding.grant_agreement_public_key;
-        firstContact = {
-          protocol_version: 1,
-          application_id: proof.binding.application_id,
-          application_installation_id: proof.binding.application_installation_id,
-          application_agreement_public_key: proof.binding.installation_agreement_public_key,
-          application_signing_public_key: proof.binding.installation_signing_public_key,
-          connector_id: connectorId,
-          connector_agreement_public_key: connectorIdentity.agreementPublicKey
-        };
         expect(form.get("operations")).toBe("describe,query");
         return jsonResponse({
           device_code: "device-secret",
@@ -610,8 +599,7 @@ describe("provider-neutral collection client", () => {
         if (polls === 1) {
           return jsonResponse({
             error: "authorization_pending",
-            error_description: "Pending.",
-            first_contact: firstContact
+            error_description: "Pending."
           }, 400);
         }
         return jsonResponse({
@@ -650,23 +638,17 @@ describe("provider-neutral collection client", () => {
     const authorization = connect.authorize({
       operations: ["describe", "query"],
       onDeviceCode: ({ userCode }) => shown.push(userCode),
-      onFirstContact: ({ authenticationString }) => firstContactShown.push(authenticationString),
       openVerification: opened
     });
     await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
     expect(shown).toEqual(["ABCD-EFGH"]);
-    await vi.advanceTimersByTimeAsync(1_000);
-    await vi.waitFor(() => expect(firstContactShown).toHaveLength(1));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
 
     await expect(authorization).resolves.toMatchObject({
       ok: true,
       value: { connection: { collectionId: portableCollectionId } }
     });
     expect(connect.connections()).toHaveLength(1);
-    expect(firstContactShown).toEqual([
-      await deriveFirstContactSas(firstContact!, "connector", connectorIdentity)
-    ]);
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -2078,6 +2060,7 @@ describe("authorization renewal", () => {
       redirectUri: "https://tasks.example/callback",
       storage,
       keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
       relayEncryption: "disabled",
       navigate
     });
@@ -2100,11 +2083,48 @@ describe("authorization renewal", () => {
       collectionId: TEST_COLLECTION_ID,
       returnTo: "/today?filter=open"
     });
-    controller.abort();
     await expect(outcome).resolves.toMatchObject({
-      ok: false,
-      problem: { code: "authorization_cancelled" }
+      ok: true,
+      value: { kind: "redirecting" }
     });
+  });
+
+  it("returns a typed problem when persistent application identity is unavailable", async () => {
+    const keyStore = new MemoryGrantKeyStore();
+    const deleteKey = vi.spyOn(keyStore, "delete");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      application: registeredApplication()
+    }));
+    const manager = new MdbaseConnect({
+      serverUrl: "https://connect.example",
+      manifest: {
+        manifest_version: 1,
+        id: "dev.tasks",
+        name: "Tasks",
+        homepage: "https://tasks.example/",
+        redirect_uris: ["https://tasks.example/callback"]
+      },
+      redirectUri: "https://tasks.example/callback",
+      storage: new MemoryStorage(),
+      keyStore,
+      identityStore: {
+        async get() { throw new Error("identity database unavailable"); },
+        async create() { throw new Error("identity database unavailable"); },
+        async delete() {}
+      },
+      relayEncryption: "disabled",
+      navigate: vi.fn()
+    });
+
+    await expect(manager.authorize({ operations: ["query"] })).resolves.toMatchObject({
+      ok: false,
+      problem: {
+        code: "application_identity_unavailable",
+        category: "compatibility",
+        recovery: "upgrade_application"
+      }
+    });
+    expect(deleteKey).toHaveBeenCalledOnce();
   });
 
   it("cleans up a denied authorization without disturbing saved connections", async () => {
@@ -2254,6 +2274,7 @@ describe("authorization renewal", () => {
       redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
       keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
       relayEncryption: "disabled",
       navigate
     });
@@ -2352,6 +2373,7 @@ describe("authorization renewal", () => {
       redirectUri: "dev.worklog.app://auth/mdbase/callback",
       storage,
       keyStore: new MemoryGrantKeyStore(),
+      identityStore: new MemoryApplicationIdentityStore(),
       relayEncryption: "disabled",
       navigate
     });

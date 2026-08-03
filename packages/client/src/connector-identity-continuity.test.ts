@@ -6,7 +6,7 @@ const CONNECTOR_ID = "22222222-2222-4222-8222-222222222222";
 const GRANT_ID = "33333333-3333-4333-8333-333333333333";
 
 describe("connector identity continuity", () => {
-  it("accepts policy rotation but rejects a connector substitution during renewal", async () => {
+  it("pins a connector across renewal and fresh grants until explicitly reset", async () => {
     const storage = new MemoryStorage();
     const keys = new MemoryGrantKeyStore();
     const application = await keys.create("grant-key");
@@ -78,6 +78,31 @@ describe("connector identity continuity", () => {
       scope_epoch: 2,
       connector_agreement_public_key: firstConnector.agreementPublicKey
     });
+
+    manager.connection(COLLECTION_ID)!.forget();
+    const freshApplication = await keys.create("fresh-grant-key");
+    expect(() => internals.storeTokenResponse(
+      tokenResponse(
+        freshApplication.agreementPublicKey,
+        secondConnector.agreementPublicKey,
+        1
+      ),
+      "application",
+      "fresh-grant-key"
+    )).toThrow(expect.objectContaining({
+      problem: expect.objectContaining({ code: "connector_identity_changed" })
+    }));
+
+    manager.forgetConnectorIdentity(CONNECTOR_ID);
+    expect(() => internals.storeTokenResponse(
+      tokenResponse(
+        freshApplication.agreementPublicKey,
+        secondConnector.agreementPublicKey,
+        1
+      ),
+      "application",
+      "fresh-grant-key"
+    )).not.toThrow();
   });
 });
 

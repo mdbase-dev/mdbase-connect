@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import {
-  applicationInstallationIdFromPublicKeys,
+  applicationInstallationIdFromPublicKey,
   authorizationSigningMessage
 } from "../dist/index.js";
 
@@ -16,7 +16,6 @@ const P256_ORDER = BigInt(
 const P256_HALF_ORDER = P256_ORDER / 2n;
 
 export async function createReleaseCanaryAuthorization(applicationId, manifestDigest) {
-  const installationAgreement = keyPair();
   const installationSigning = keyPair();
   const grantAgreement = keyPair();
   const grantSigning = keyPair();
@@ -25,15 +24,13 @@ export async function createReleaseCanaryAuthorization(applicationId, manifestDi
   const codeChallenge = "A".repeat(43);
   const state = "release-canary";
   const binding = {
-    protocol_version: 1,
+    protocol_version: 2,
     authorization_id: randomUUID(),
     application_id: applicationId,
     application_manifest_digest: manifestDigest,
-    application_installation_id: await applicationInstallationIdFromPublicKeys(
-      installationAgreement.publicKey,
+    application_installation_id: await applicationInstallationIdFromPublicKey(
       installationSigning.publicKey
     ),
-    installation_agreement_public_key: installationAgreement.publicKey,
     installation_signing_public_key: installationSigning.publicKey,
     grant_agreement_public_key: grantAgreement.publicKey,
     grant_signing_public_key: grantSigning.publicKey,

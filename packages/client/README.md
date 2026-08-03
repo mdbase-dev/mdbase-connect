@@ -33,14 +33,7 @@ if (!started.ok) {
   return;
 }
 if (session.getSnapshot().status === "unselected") {
-  const authorized = await session.authorize("choose", {
-    onFirstContact: ({ authenticationString }) => {
-      showPersistentSecurityPrompt({
-        title: "Compare with mdbase connect",
-        code: authenticationString
-      });
-    }
-  });
+  const authorized = await session.authorize("choose");
   if (!authorized.ok) {
     renderProblem(authorized.problem);
     return;
@@ -111,15 +104,14 @@ Collection IDs are opaque non-secret locators that may appear in browser
 history and logs. Grants remain the authorization boundary, and names are
 display text that may change.
 
-When the chosen collection is owned by a computer that has not seen this
-application installation before, `onFirstContact` is required. The SDK derives
-the eight-character value locally from the application's non-extractable
-installation key and the connector key; it never accepts a value supplied by
-the control plane. Keep the value visible while the user compares and accepts
-the exact same value in mdbase connect. Headless operators use
-`mdbase connect trust list`, `trust show <id>`, and
-`trust accept <id> --code XXXX-XXXX`. Hosted-only authorization does not invoke
-this callback.
+The SDK keeps one non-extractable P-256 installation signing identity per
+server/application and signs every authorization ceiling with it. Grant
+agreement and signing keys remain disposable and are replaced on
+reauthorization. For local collections, the SDK also pins the connector public
+key after the first successful authorization and rejects silent replacement as
+`connector_identity_changed`, even after the grant is forgotten. Only call
+`forgetConnectorIdentity(connectorId)` after independently verifying an
+intentional connector replacement.
 
 Bundled v1 application manifests can declare runtime notification criteria.
 Register a service worker from a user gesture to receive standards-based Web
@@ -423,10 +415,11 @@ allows a host to choose another persistence boundary.
 Native shells can pass `navigate` to open the approval URL in the system
 browser and list a reverse-domain callback such as
 `dev.mdbase.worklog://auth/mdbase/callback` in the bundled declaration. Its
-scheme must match the declaration ID. The application remains alive, polls the
-PKCE-bound status endpoint, displays first contact when required, and receives
-the completed connection directly from `authorize()`; the browser does not
-carry credentials back through a deep link.
+scheme must match the declaration ID. `authorize()` returns `redirecting`; the
+browser redirects to the declared callback with a short-lived code and state,
+and the shell passes that URL to `completeAuthorization()`. PKCE prevents the
+callback code from being exchanged without the pending application state and
+verifier.
 
 New authorizations require encrypted relay protocol 1 by default. The SDK keeps
 independent non-extractable P-256 ECDH agreement and ECDSA signing keys plus an
