@@ -111,7 +111,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     hosted_collections_available?: boolean;
     unavailable_connectors: UnavailableConnector[];
   } | null>(null);
-  const [status, setStatus] = useState<"pending" | "setting_up" | "trust_required" | "approved" | "denied">("pending");
+  const [status, setStatus] = useState<"pending" | "setting_up" | "approved" | "denied">("pending");
   const [structuralSetupRequested, setStructuralSetupRequested] = useState(false);
   const [continuingInDesktop, setContinuingInDesktop] = useState(
     () => new URLSearchParams(location.search).get("continue_in_desktop") === "1"
@@ -155,7 +155,7 @@ export function Authorization({ requestId }: { requestId: string }) {
     async function checkStatus() {
       try {
         const value = await api<{
-          status: "pending" | "setting_up" | "trust_required" | "approved" | "denied";
+          status: "pending" | "setting_up" | "approved" | "denied";
           redirect_uri?: string;
         }>(`/v1/authorization-requests/${requestId}/status`);
         if (returning.current) return;
@@ -220,7 +220,7 @@ export function Authorization({ requestId }: { requestId: string }) {
                 : [...current.collections, collection]
             } : current)}
           />
-        </> : status === "setting_up" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Finishing collection setup…</h2><p>Your choices are being checked with the collection’s main copy. The application does not have access yet.</p></> : status === "trust_required" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Compare the first-contact code.</h2><p>The application and mdbase connect now show the same independently calculated code. Compare them, then accept that exact code on the computer hosting this collection. This page will finish automatically; the application does not have access yet.</p></> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
+        </> : status === "setting_up" ? <><p className="eyebrow outcome-label">Approval recorded</p><h2>Finishing collection setup…</h2><p>Your choices are being checked with the collection’s main copy. The application does not have access yet.</p></> : status === "approved" ? <><p className="eyebrow outcome-label">Access approved</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will finish connecting with its one-time device code. You can close this window." : "Your approved collection and permissions will follow you back."}</p></> : <><p className="eyebrow outcome-label">Access denied</p><h2>{authorization.distribution === "portable" ? "Return to the downloaded application." : "Returning to the application…"}</h2><p>{authorization.distribution === "portable" ? "The file will learn that access was not granted. You can close this window." : "The application will show that access was not granted."}</p></>}
       </section>
     </main>
   );

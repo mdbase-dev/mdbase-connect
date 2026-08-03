@@ -14,14 +14,12 @@ test("chooses a remote authority collection and performs CRUD through its provid
 
   await page.goto("/");
   await expect(page.getByText("Choose the collection you want to write in.")).toBeVisible();
-  const popupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  const approval = await popupPromise;
-  await expect(approval).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
-  const collection = approval.getByRole("combobox", { name: "Collection" });
+  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const collection = page.getByRole("combobox", { name: "Collection" });
   await expect(collection).toHaveValue(collectionId);
   await expect(collection).toContainText("Hosted writing · Hosted by mdbase");
-  await approval.getByRole("button", { name: "Allow access" }).click();
+  await page.getByRole("button", { name: "Allow access" }).click();
 
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome to hosted writing");
@@ -66,22 +64,20 @@ test("returns to the newly chosen remote authority when switching collections", 
   await authority.install();
 
   await page.goto("/");
-  const firstPopupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose a collection" }).click();
-  const firstApproval = await firstPopupPromise;
-  await firstApproval.getByRole("button", { name: "Allow access" }).click();
+  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  await page.getByRole("button", { name: "Allow access" }).click();
   await expect(page.getByRole("heading", { name: "Hosted writing" })).toBeVisible();
 
   await page.getByRole("button", {
     name: "Switch collection, current collection Hosted writing"
   }).click();
-  const secondPopupPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Choose another collection" }).click();
 
-  const secondApproval = await secondPopupPromise;
-  const collection = secondApproval.getByRole("combobox", { name: "Collection" });
+  await expect(page).toHaveURL(/connect\.mdbase\.dev\/oauth\/authorize/);
+  const collection = page.getByRole("combobox", { name: "Collection" });
   await collection.selectOption(secondCollectionId);
-  await secondApproval.getByRole("button", { name: "Allow access" }).click();
+  await page.getByRole("button", { name: "Allow access" }).click();
 
   await expect(page).toHaveURL(new RegExp(`collection=${secondCollectionId}`));
   await expect(page.getByRole("heading", { name: "Research" })).toBeVisible();
@@ -163,8 +159,7 @@ class RemoteAuthorityHarness {
       return json(route, {
         authorization_id: authorizationId,
         authorization_uri: `https://connect.mdbase.dev/oauth/authorize?request_id=${authorizationId}`,
-        expires_in: 600,
-        interval: 1
+        expires_in: 600
       });
     }
     if (url.pathname === "/oauth/authorize") {
@@ -178,17 +173,6 @@ class RemoteAuthorityHarness {
       const authorization = this.authorizations.get(url.searchParams.get("request_id")!);
       if (!authorization) return json(route, { error: "not_found" }, 404);
       authorization.collectionId = url.searchParams.get("collection_id")!;
-      return json(route, { ok: true });
-    }
-    if (url.pathname === "/oauth/authorization_status") {
-      const form = new URLSearchParams(request.postData() ?? "");
-      const authorization = this.authorizations.get(form.get("authorization_id")!);
-      if (!authorization?.collectionId) {
-        return json(route, {
-          error: "authorization_pending",
-          error_description: "The user has not completed the authorization request."
-        }, 400);
-      }
       const callback = new URL(authorization.redirectUri);
       callback.searchParams.set(
         "code",
@@ -197,7 +181,7 @@ class RemoteAuthorityHarness {
           : "hosted-code"
       );
       callback.searchParams.set("state", authorization.state);
-      return json(route, { authorization_redirect: callback.href });
+      return json(route, { redirect_uri: callback.href });
     }
     if (url.pathname === "/oauth/token") {
       const code = new URLSearchParams(request.postData() ?? "").get("code");
@@ -391,8 +375,9 @@ function authorizationPage(authorizationId: string): string {
       <script>
         document.getElementById("allow").addEventListener("click", async () => {
           const collection = document.querySelector("select").value;
-          await fetch("/test/approve?request_id=${authorizationId}&collection_id=" + encodeURIComponent(collection));
-          document.querySelector("main").innerHTML = "<h1>Access approved</h1><p>Return to the application.</p>";
+          const response = await fetch("/test/approve?request_id=${authorizationId}&collection_id=" + encodeURIComponent(collection));
+          const result = await response.json();
+          location.assign(result.redirect_uri);
         });
       </script>
     </body></html>`;

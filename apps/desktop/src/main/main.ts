@@ -488,35 +488,6 @@ function registerIpc(): void {
     if (typeof paused !== "boolean") throw new Error("Invalid pause setting.");
     return requestReadyAgent("access.pause", { paused }, 10_000);
   });
-  ipcMain.handle("connect:trust:snapshot", async (event) => {
-    trustedIpc(event);
-    return requestReadyAgent("application-trust.snapshot", undefined, 8_000);
-  });
-  ipcMain.handle("connect:trust:accept", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid first-contact confirmation.");
-    if (
-      typeof value.requestId !== "string"
-      || typeof value.authenticationString !== "string"
-      || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/u.test(value.authenticationString)
-    ) {
-      throw new Error("Enter the exact eight-character first-contact code.");
-    }
-    return requestReadyAgent("application-trust.accept", {
-      request_id: value.requestId,
-      authentication_string: value.authenticationString
-    }, 10_000);
-  });
-  ipcMain.handle("connect:trust:reject", async (event, requestId: unknown) => {
-    trustedIpc(event);
-    if (typeof requestId !== "string") throw new Error("Invalid first-contact request.");
-    return requestReadyAgent("application-trust.reject", { request_id: requestId }, 10_000);
-  });
-  ipcMain.handle("connect:trust:revoke", async (event, trustId: unknown) => {
-    trustedIpc(event);
-    if (typeof trustId !== "string") throw new Error("Invalid application trust.");
-    return requestReadyAgent("application-trust.revoke", { id: trustId }, 10_000);
-  });
   ipcMain.handle("connect:account:rename-computer", async (event, name: unknown) => {
     trustedIpc(event);
     if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {

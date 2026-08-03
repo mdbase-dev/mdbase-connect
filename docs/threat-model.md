@@ -167,8 +167,9 @@ allowlist of fields instead of serializing request or database objects.
 
 The beta deliberately accepts several risks that require production
 infrastructure or publisher accounts rather than another local refactor.
-First-contact connector trust and the managed key service plus staging rotation
-drill are complete. The following remain stable-release gates:
+Signed application identity, connector-key continuity, and the managed key
+service plus staging rotation drill are complete. The following remain
+stable-release gates:
 
 - verified encrypted backup, restoration, key recovery, and deletion behavior;
   and

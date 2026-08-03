@@ -4,7 +4,6 @@ import type {
   CollectionTypeDocument,
   JsonObject,
   MdbaseDiagnostic,
-  MdbaseFirstContactChallenge,
   MutationProgress,
   MdbaseUnavailableReason,
   RenamePreflightResult,
@@ -169,7 +168,6 @@ export interface CollectionGateway {
 
 export interface CollectionAuthorizationOptions {
   signal?: AbortSignal;
-  onFirstContact?: (challenge: MdbaseFirstContactChallenge) => void | Promise<void>;
 }
 
 export type TypeDocument = CollectionTypeDocument;

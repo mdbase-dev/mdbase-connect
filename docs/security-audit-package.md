@@ -11,7 +11,8 @@ that an independent assessor has approved the design.
 
 ## Review scope
 
-The package covers application authorization, first-contact trust, encrypted
+The package covers signed application authorization, installation and connector
+identity continuity, encrypted
 relay traffic, local connector enforcement, hosted-provider enforcement and
 encryption, managed data-key wrapping, and release artifact integrity. Collection
 semantics remain implemented by `mdbase-rs`; this repository is responsible for
@@ -27,18 +28,19 @@ The central authority rule is intentionally redundant:
 - the hosted provider is the final boundary for a hosted collection; and
 - no control-plane status or capability can bypass either final boundary.
 
-Portal consent and first-contact trust answer different questions. Portal
-consent selects the collection and permissions. First contact proves that the
-application installation and local connector comparing the code hold the keys
-being bound. First contact applies to direct and relayed access to a
-computer-owned collection, not to hosted-only grants or computer/account login.
+Portal consent selects the collection and permissions. The application
+installation signature fixes the request ceiling and fresh grant keys before
+that consent. For local encrypted grants, the SDK pins the connector key on the
+first successful authorization and rejects later replacement. This continuity
+check applies to direct and relayed local access; it is not independent
+authentication of a connector on first use.
 
 ## Trust-boundary map
 
 | Boundary | Final security decision | Primary implementation |
 | --- | --- | --- |
-| Application authorization | Installation signature fixes the requested ceiling | `crates/connect-protocol/src/first_contact.rs` |
-| First contact | Local connector persists exact installation trust after independent code comparison | `crates/connect-core/src/registry/application_trust.rs` |
+| Application authorization | Installation signature fixes the requested ceiling | `crates/connect-protocol/src/application_authorization.rs` |
+| Identity continuity | Stable installation key signs fresh grants; SDK rejects a changed connector key | `packages/client/src/application-identity.ts` |
 | Encrypted relay | Connector decrypts and rechecks its locally cached exact grant | `crates/connect-agent/src/server/operations.rs` |
 | Local filesystem | Connector applies canonical path, resource, file, scope, and grant policy | `crates/connect-core/src/registry/grants.rs` |
 | Control plane | Portal consent narrows authority; routing checks fail closed | `services/server/src/features/authorizations/approval-service.ts` |
@@ -57,9 +59,8 @@ Its implemented constructions are:
 
 - application authorization: P-256 ECDSA/SHA-256 over a domain-separated,
   length-delimited transcript, with canonical 64-byte IEEE-P1363 low-S
-  signatures and distinct installation/grant agreement/signing keys;
-- first contact: P-256 ECDH, transcript-bound HKDF-SHA-256, and 40 output bits
-  shown as `XXXX-XXXX` Crockford Base32 on independently controlled displays;
+  signatures, one stable installation signing key, and distinct fresh grant
+  agreement/signing keys;
 - relay: P-256 ECDH, separate request/response HKDF-SHA-256 keys, and
   AES-256-GCM whose nonce and associated data bind a monotonic counter and the
   complete grant/routing context;
@@ -73,7 +74,7 @@ Its implemented constructions are:
   version encryption context.
 
 The Rust and TypeScript implementations share versioned fixtures for
-application authorization, first contact, record/file encryption, and relay
+application authorization, record/file encryption, and relay
 file framing. Reviewers should still verify transcript ambiguity resistance,
 ECDSA malleability handling in each runtime, counter allocation and exhaustion,
 replay persistence, error equivalence, downgrade behavior, and key lifetime.
@@ -131,9 +132,8 @@ items are:
 - the relay leaks documented traffic metadata and has one broker service;
 - standard hosted mode trusts the live provider; private/zero-knowledge hosting
   is not implemented;
-- the 40-bit first-contact value requires an accurate human comparison across
-  independent endpoint displays, and there is no append-only key-transparency
-  log;
+- connector TOFU detects key replacement only after the first successful
+  authorization, and there is no append-only key-transparency log;
 - future native SDK key storage still needs platform-keystore integration;
 - Render uses narrowly scoped, rotated static AWS credentials rather than
   workload identity federation;
@@ -141,8 +141,8 @@ items are:
   gates; and
 - recovery administration currently depends on one operator.
 
-An assessor should prioritize authorization-ceiling confusion, substituted-key
-first contact, replay/counter persistence, relay metadata tampering, local-path
+An assessor should prioritize authorization-ceiling confusion, installation or
+connector key substitution, replay/counter persistence, relay metadata tampering, local-path
 materialization, hosted proof/capability confusion, ciphertext identity swaps,
 KMS context/key-reference substitution, rotation interruption, recovery without
 the original context, secret-bearing diagnostics, and release artifact

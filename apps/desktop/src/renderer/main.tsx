@@ -80,7 +80,6 @@ function App() {
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
-  const [applicationTrust, setApplicationTrust] = useState<ApplicationTrustSnapshot>({ pending: [], trusted: [] });
   const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
   const [mirrors, setMirrors] = useState<DesktopMirrorSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -104,7 +103,6 @@ function App() {
         window.mdbaseConnect.getLaunchAtLogin().then(setStartup),
         window.mdbaseConnect.getCloudConfig().then(setCloud),
         window.mdbaseConnect.accessSnapshot().then(setAccess),
-        window.mdbaseConnect.applicationTrustSnapshot().then(setApplicationTrust),
         window.mdbaseConnect.listActivity(100).then(setActivity),
         window.mdbaseConnect.hostedSnapshot().then(setHosted).catch(() => {
           setHosted((current) => ({ ...current, online: false }));
@@ -250,7 +248,7 @@ function App() {
       <ProductSidebar
         route={route}
         collectionCount={collectionCount}
-        pendingCount={combinedAccess.pending_authorizations.length + applicationTrust.pending.length}
+        pendingCount={combinedAccess.pending_authorizations.length}
         connection={connection}
         computerName={`${access.account?.connector_name ?? "This computer"} · ${collectionCount} ${plural(collectionCount, "collection", "collections")}`}
         onSelect={selectRoute}
@@ -305,7 +303,6 @@ function App() {
           <Access
             cloud={cloud}
             access={combinedAccess}
-            applicationTrust={applicationTrust}
             focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
             resumeAuthorization={authorizationTarget !== null}
             busy={busy}
@@ -357,10 +354,9 @@ function App() {
   );
 }
 
-function Access({ cloud, access, applicationTrust, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
+function Access({ cloud, access, focusedRequestId, resumeAuthorization, busy, onAct, onNotice }: {
   cloud: CloudSetting;
   access: AccessSnapshot;
-  applicationTrust: ApplicationTrustSnapshot;
   focusedRequestId: string | null;
   resumeAuthorization: boolean;
   busy: boolean;
@@ -374,16 +370,10 @@ function Access({ cloud, access, applicationTrust, focusedRequestId, resumeAutho
   if (!cloud.configured) return <PairingPanel resumeAuthorization={resumeAuthorization} />;
   return (
     <div className="workspace-stack">
-      <ApplicationTrustSection
-        snapshot={applicationTrust}
-        busy={busy}
-        onAct={onAct}
-        onNotice={onNotice}
-      />
       <section>
         <SectionHeading title="Portal approvals" note="Collection choice and permissions stay in the portal; this computer never substitutes a local approval." count={access.pending_authorizations.length} />
         {access.pending_authorizations.length === 0 ? (
-          <Empty title="No portal approvals are waiting" text="New connection requests are reviewed in the portal. First-contact verification appears separately above when needed." />
+          <Empty title="No portal approvals are waiting" text="New connection requests are reviewed in the portal." />
         ) : (
           <div className="request-list">
             {pendingAuthorizations.map((request) => <PortalApprovalRequest
@@ -410,72 +400,6 @@ function Access({ cloud, access, applicationTrust, focusedRequestId, resumeAutho
 
     </div>
   );
-}
-
-function ApplicationTrustSection({ snapshot, busy, onAct, onNotice }: {
-  snapshot: ApplicationTrustSnapshot;
-  busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
-  onNotice(value: string): void;
-}) {
-  return <section className="application-trust-section">
-    <SectionHeading
-      title="First-contact verification"
-      note="Portal approval records the collection and permissions. This local comparison verifies the application installation."
-      count={snapshot.pending.length}
-    />
-    {snapshot.pending.length > 0 ? <div className="trust-request-list">
-      {snapshot.pending.map((request) => {
-        const presentation = request.presentation;
-        const origin = presentation.application_distribution === "portable"
-          ? presentation.application_project_url
-            ? `Downloaded file · ${host(presentation.application_project_url)}`
-            : "Downloaded file"
-          : host(presentation.application_homepage);
-        return <article className="trust-request" key={request.request_id}>
-          <div className="trust-request-copy">
-            <h3>{presentation.application_name}</h3>
-            <code>{origin}</code>
-            <p>Compare this code with the code shown by the application. Trust it only when every character matches.</p>
-          </div>
-          <code className="trust-authentication-string" aria-label="First-contact code">
-            {request.authentication_string}
-          </code>
-          <div className="trust-request-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
-              await window.mdbaseConnect.rejectApplicationTrust(request.request_id);
-              onNotice(`${presentation.application_name} was rejected on this computer.`);
-            })}>Reject</button>
-            <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
-              await window.mdbaseConnect.acceptApplicationTrust({
-                requestId: request.request_id,
-                authenticationString: request.authentication_string
-              });
-              onNotice(`${presentation.application_name} was verified on this computer.`);
-            })}>Codes match — trust application</button>
-          </div>
-          <small>Expires {relativeTime(request.expires_at)}</small>
-        </article>;
-      })}
-    </div> : <p className="trust-empty">No application installations are waiting for local verification.</p>}
-
-    {snapshot.trusted.length > 0 && <details className="trusted-installations">
-      <summary>Trusted installations <span>{snapshot.trusted.length}</span></summary>
-      <div>{snapshot.trusted.map((trust) => <div className="trusted-installation-row" key={trust.id}>
-        <div>
-          <strong>{trust.presentation.application_name}</strong>
-          <small>Last used {relativeTime(trust.last_used_at)}</small>
-        </div>
-        <button className="quiet-action danger" disabled={busy} onClick={() => {
-          if (!window.confirm(`Revoke local trust for ${trust.presentation.application_name}? Its local collection access will stop immediately.`)) return;
-          void onAct(async () => {
-            await window.mdbaseConnect.revokeApplicationTrust(trust.id);
-            onNotice(`${trust.presentation.application_name} is no longer trusted on this computer.`);
-          });
-        }}>Revoke trust</button>
-      </div>)}</div>
-    </details>}
-  </section>;
 }
 
 function PortalApprovalRequest({ request, focused, busy, onAct }: {

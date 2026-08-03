@@ -970,41 +970,7 @@ describe("mdbase editor", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
-    expect(authorize).toHaveBeenCalledWith("choose", expect.objectContaining({
-      signal: expect.anything(),
-      onFirstContact: expect.any(Function)
-    }));
-  });
-
-  it("keeps the independently derived first-contact code visible until local confirmation", async () => {
-    const gateway = new DemoCollectionGateway(1);
-    const disconnected = Object.create(gateway) as CollectionGateway;
-    let authorizationSignal: AbortSignal | undefined;
-    disconnected.authorize = vi.fn(async (_target, options) => {
-      authorizationSignal = options?.signal;
-      await options?.onFirstContact?.({
-        authenticationString: "7M4P-Q2KR",
-        applicationId: "01911111-1111-7111-8111-111111111111",
-        connectorId: "01922222-2222-7222-8222-222222222222",
-        binding: {} as never
-      });
-      await new Promise<void>((resolve) => options?.signal?.addEventListener("abort", () => resolve(), { once: true }));
-    });
-    disconnected.sessionSnapshot = () => ({ status: "unselected", connections: [] });
-    render(<App gateway={disconnected} />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Choose a collection" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Verify this application" });
-    expect(dialog).toHaveTextContent("7M4P-Q2KR");
-    expect(dialog).toHaveTextContent("mdbase connect trust list");
-    expect(dialog).toHaveTextContent("Waiting for local confirmation");
-
-    await user.click(within(dialog).getByRole("button", { name: "Cancel authorization" }));
-    expect(authorizationSignal?.aborted).toBe(true);
-    await waitFor(() => expect(screen.queryByRole("alertdialog", {
-      name: "Verify this application"
-    })).not.toBeInTheDocument());
+    expect(authorize).toHaveBeenCalledWith("choose");
   });
 
   it("authorizes the requested collection from a portal deep link", async () => {
@@ -1026,10 +992,7 @@ describe("mdbase editor", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Choose another collection" }));
 
     expect(authorize).toHaveBeenCalledOnce();
-    expect(authorize).toHaveBeenCalledWith("selected", expect.objectContaining({
-      signal: expect.anything(),
-      onFirstContact: expect.any(Function)
-    }));
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("returns to collection authorization when the SDK invalidates a stale grant", async () => {
@@ -1059,10 +1022,7 @@ describe("mdbase editor", () => {
     expect(screen.getByText(/edit notes and move notes/i)).toBeInTheDocument();
     expect(screen.getByText(/shows only what needs to be added/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledWith("selected", expect.objectContaining({
-      signal: expect.anything(),
-      onFirstContact: expect.any(Function)
-    }));
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("keeps note editing available when only optional type access is missing", async () => {
@@ -1084,10 +1044,7 @@ describe("mdbase editor", () => {
     expect(await screen.findByRole("heading", { name: "Type access needed" })).toBeInTheDocument();
     expect(screen.getByText(/Notes are ready/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Update access" }));
-    expect(authorize).toHaveBeenCalledWith("selected", expect.objectContaining({
-      signal: expect.anything(),
-      onFirstContact: expect.any(Function)
-    }));
+    expect(authorize).toHaveBeenCalledWith("selected");
   });
 
   it("shows a dropped connection and offers an immediate retry", async () => {

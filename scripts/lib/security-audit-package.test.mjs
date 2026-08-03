@@ -7,7 +7,7 @@ const repositoryRoot = path.resolve(import.meta.dirname, "../..");
 const manifestPath = path.join(repositoryRoot, "config/security-audit-package.json");
 const requiredBoundaryIds = [
   "application-authorization",
-  "first-contact-sas",
+  "identity-continuity",
   "relay-encryption",
   "local-policy",
   "control-plane-policy",
@@ -20,7 +20,6 @@ const requiredLimitationIds = [
   "endpoint-compromise",
   "control-plane-metadata",
   "standard-hosted-provider-trust",
-  "human-sas-comparison",
   "no-key-transparency",
   "render-static-aws-credentials",
   "single-relay-broker",

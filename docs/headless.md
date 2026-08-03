@@ -45,14 +45,11 @@ mdbase --state-dir /secure/persistent/state connect daemon run
 ```
 
 The daemon is the final authorization boundary for local collections. Portal
-approval still selects the collection and permissions; first contact is then
-confirmed locally, including in a fully headless session:
-
-```bash
-mdbase --json connect trust list
-mdbase --json connect trust show REQUEST_ID
-mdbase --json connect trust accept REQUEST_ID --code AUTHENTICATION_STRING
-```
+approval selects the collection and permissions; the daemon then verifies the
+application installation signature and persists the exact signed grant without
+an additional local ceremony. Reauthorizing the same installation updates its
+grant keys, while a different installation key produces a different identity.
+This behavior is identical in desktop and fully headless sessions.
 
 Do not expose the local control socket or named pipe over a network. Back up the
 state directory and OS credential store according to the recovery guidance for

@@ -36,7 +36,6 @@ let environment;
 let pairingApp;
 let connectedApp;
 let portalBrowser;
-let consumerAuthorizationAbort;
 
 try {
   editor = await startEditorServer();
@@ -196,8 +195,6 @@ try {
   );
   const consumerStorage = memoryStorage();
   let authorizationUrl;
-  let applicationFirstContactCode;
-  consumerAuthorizationAbort = new AbortController();
   const consumer = new MdbaseConnect({
     serverUrl: environment.serverUrl,
     manifest,
@@ -208,11 +205,7 @@ try {
   });
   const authorization = consumer.authorize({
     operations: ["describe"],
-    target: { kind: "collection", collectionId: collection.id },
-    onFirstContact: ({ authenticationString }) => {
-      applicationFirstContactCode = authenticationString;
-    },
-    signal: consumerAuthorizationAbort.signal
+    target: { kind: "collection", collectionId: collection.id }
   });
   await waitForValue(
     async () => authorizationUrl,
@@ -229,30 +222,13 @@ try {
   await portalPage
     .getByRole("button", { name: "Allow Docker fixture consumer" })
     .click();
-  await portalPage
-    .getByRole("heading", { name: "Compare the first-contact code." })
-    .waitFor();
-  await waitForValue(
-    async () => applicationFirstContactCode,
-    (value) => typeof value === "string",
-    15_000
+  await portalPage.waitForURL("https://desktop-docker-e2e.example/callback**", {
+    timeout: 15_000
+  });
+  assert.deepEqual(unwrapConnectOutcome(await authorization), { kind: "redirecting" });
+  const authorized = unwrapConnectOutcome(
+    await consumer.completeAuthorization(portalPage.url())
   );
-  await connectedWindow.getByRole("button", { name: /App access/ }).click();
-  const connectorFirstContactCode = connectedWindow.getByLabel("First-contact code");
-  await connectorFirstContactCode.waitFor({ timeout: 15_000 });
-  assert.equal(
-    await connectorFirstContactCode.textContent(),
-    applicationFirstContactCode,
-    "the application and connector must independently present the same first-contact code"
-  );
-  await connectedWindow
-    .getByRole("button", { name: "Codes match — trust application" })
-    .click();
-  await portalPage
-    .getByRole("heading", { name: "Returning to the application…" })
-    .waitFor({ timeout: 15_000 });
-  const authorized = unwrapConnectOutcome(await authorization);
-  assert.equal(authorized.kind, "connected");
   const described = unwrapConnectOutcome(
     await authorized.connection.describe()
   );
@@ -337,7 +313,6 @@ try {
   await environment?.compose(["logs", "--no-color"]).catch(() => {});
   throw error;
 } finally {
-  consumerAuthorizationAbort?.abort();
   for (const userData of [pairingData, connectedData].filter(Boolean)) {
     await run(executable, [
       "--state-dir",
