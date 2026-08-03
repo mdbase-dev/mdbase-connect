@@ -187,7 +187,7 @@ try {
     "Concurrent cross-instance relay burst was incomplete");
 
   const encryption = {
-    protocol_version: 1,
+    protocol_version: 2,
     suite: "P256-HKDF-SHA256-AES256GCM",
     key_id: `enc_${randomUUID()}`,
     scope_epoch: 1,
@@ -445,7 +445,6 @@ async function seed(db, hash) {
     application_id: applicationId,
     application_manifest_digest: "00".repeat(32),
     application_installation_id: await applicationInstallationId(installationKey),
-    installation_agreement_public_key: installationKey.agreementPublicKey,
     installation_signing_public_key: installationKey.signingPublicKey,
     grant_agreement_public_key: grantKey.agreementPublicKey,
     grant_signing_public_key: grantKey.signingPublicKey,
@@ -459,15 +458,6 @@ async function seed(db, hash) {
     requested_operations: ["read", "query"],
     collection_id: collectionId
   }, installationKey);
-  const firstContact = {
-    protocol_version: 1,
-    application_id: applicationId,
-    application_installation_id: applicationAuthorization.binding.application_installation_id,
-    application_agreement_public_key: installationKey.agreementPublicKey,
-    application_signing_public_key: installationKey.signingPublicKey,
-    connector_id: connectorId,
-    connector_agreement_public_key: connectorKey.agreementPublicKey
-  };
   await db.query(
     "INSERT INTO users (id, email, name) VALUES ($1, $2, $3)",
     [userId, "relay-e2e@example.com", "Relay E2E"]
@@ -499,8 +489,9 @@ async function seed(db, hash) {
   await db.query(
     `INSERT INTO grants
        (id, user_id, application_id, collection_id, operations, scope,
-        application_origin, application_authorization, first_contact, activated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9::jsonb, now())`,
+        application_origin, application_authorization,
+        application_installation_id, activated_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, now())`,
     [
       grantId,
       userId,
@@ -510,7 +501,7 @@ async function seed(db, hash) {
       JSON.stringify({ contracts: [], access: "full_collection" }),
       "https://relay-e2e.example",
       JSON.stringify(applicationAuthorization),
-      JSON.stringify(firstContact)
+      applicationAuthorization.binding.application_installation_id
     ]
   );
   await db.query(

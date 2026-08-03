@@ -1,10 +1,11 @@
 import {
   generateKeyPairSync,
+  type KeyObject,
   randomUUID,
   sign
 } from "node:crypto";
 import {
-  applicationInstallationIdFromPublicKeys,
+  applicationInstallationIdFromPublicKey,
   authorizationSigningMessage,
   type ApplicationAuthorizationBinding,
   type ApplicationAuthorizationProof,
@@ -31,22 +32,20 @@ export async function testApplicationAuthorization(input: {
   issuedAt?: Date;
   grantAgreementPublicKey?: string;
   grantSigningPublicKey?: string;
+  installationIdentity?: TestApplicationIdentity;
 }): Promise<ApplicationAuthorizationProof> {
-  const installationAgreement = keyPair();
-  const installationSigning = keyPair();
+  const installationSigning = input.installationIdentity ?? keyPair();
   const grantAgreement = keyPair();
   const grantSigning = keyPair();
   const issuedAt = input.issuedAt ?? new Date();
   const binding: ApplicationAuthorizationBinding = {
-    protocol_version: 1,
+    protocol_version: 2,
     authorization_id: input.authorizationId ?? randomUUID(),
     application_id: input.applicationId,
     application_manifest_digest: input.applicationManifestDigest,
-    application_installation_id: await applicationInstallationIdFromPublicKeys(
-      installationAgreement.publicKey,
+    application_installation_id: await applicationInstallationIdFromPublicKey(
       installationSigning.publicKey
     ),
-    installation_agreement_public_key: installationAgreement.publicKey,
     installation_signing_public_key: installationSigning.publicKey,
     grant_agreement_public_key:
       input.grantAgreementPublicKey ?? grantAgreement.publicKey,
@@ -69,6 +68,15 @@ export async function testApplicationAuthorization(input: {
     { key: installationSigning.privateKey, dsaEncoding: "ieee-p1363" }
   ));
   return { binding, signature: signature.toString("base64url") };
+}
+
+export interface TestApplicationIdentity {
+  privateKey: KeyObject;
+  publicKey: string;
+}
+
+export function createTestApplicationIdentity(): TestApplicationIdentity {
+  return keyPair();
 }
 
 function keyPair() {

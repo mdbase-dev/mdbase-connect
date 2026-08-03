@@ -442,11 +442,11 @@ async function notificationFixture(
   );
   await db.query(
     `INSERT INTO grants
-       (id, user_id, application_id, ${hosted ? "hosted_collection_id" : "collection_id"},
+      (id, user_id, application_id, ${hosted ? "hosted_collection_id" : "collection_id"},
         operations, scope, application_origin, notification_criteria,
-        application_authorization, first_contact)
+        application_authorization, application_installation_id)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb,
-             '{}'::jsonb, '{}'::jsonb)`,
+             '{"binding":{"protocol_version":2}}'::jsonb, $9)`,
     [
       grantId,
       userId,
@@ -463,7 +463,8 @@ async function notificationFixture(
           body: "Open Tasks to see the latest update.",
           tag: "task-change"
         }
-      }])
+      }]),
+      randomUUID()
     ]
   );
   await db.query(

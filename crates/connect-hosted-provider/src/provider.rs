@@ -219,6 +219,10 @@ pub struct UpdateApplicationReplica {
     pub allowed_operations: Vec<String>,
     #[serde(default)]
     pub file_capability: Option<FileCapability>,
+    #[serde(default)]
+    pub allowed_origin: Option<String>,
+    #[serde(default)]
+    pub proof_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

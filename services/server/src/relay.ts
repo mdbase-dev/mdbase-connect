@@ -11,7 +11,6 @@ import type {
   GrantPolicy,
   GrantScope,
   ApplicationAuthorizationProof,
-  FirstContactBinding,
   ConnectProblem,
   RelayFileFrame
 } from "@mdbase-dev/connect-protocol";
@@ -363,7 +362,6 @@ export class RelayHub {
       encryption: unknown | null;
       file_capability: unknown | null;
       application_authorization: ApplicationAuthorizationProof;
-      first_contact: FirstContactBinding;
       notification_criteria: unknown[];
       created_at: string;
     }>(
@@ -376,7 +374,7 @@ export class RelayHub {
               a.icon AS application_icon,
               c.local_id, c.display_name AS collection_name, g.operations, g.scope,
               g.encryption, g.file_capability, g.application_authorization,
-              g.first_contact, g.notification_criteria, g.created_at
+              g.notification_criteria, g.created_at
        FROM grants g
        JOIN collections c ON c.id = g.collection_id
        JOIN applications a ON a.id = g.application_id
@@ -407,7 +405,6 @@ export class RelayHub {
       created_at: grant.created_at,
       ...(grant.encryption ? { encryption: grant.encryption } : {}),
       ...(grant.file_capability ? { file_capability: grant.file_capability } : {}),
-      first_contact: grant.first_contact,
       application_authorization: grant.application_authorization
     }));
     const message = {

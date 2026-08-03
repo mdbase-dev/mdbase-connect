@@ -294,6 +294,8 @@ export class HostedProviderClient {
       fullCollection: boolean;
       allowedOperations: string[];
       fileCapability?: FileCapability;
+      allowedOrigin?: string;
+      proofPublicKey?: string;
     }
   ): Promise<void> {
     await this.request(
@@ -308,7 +310,9 @@ export class HostedProviderClient {
         allowed_operations: hostedReplicaCollectionOperations(
           policy.allowedOperations
         ),
-        ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {})
+        ...(policy.fileCapability ? { file_capability: policy.fileCapability } : {}),
+        ...(policy.allowedOrigin ? { allowed_origin: policy.allowedOrigin } : {}),
+        ...(policy.proofPublicKey ? { proof_public_key: policy.proofPublicKey } : {})
       }
     );
   }

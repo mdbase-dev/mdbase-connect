@@ -4,7 +4,7 @@ import {
 } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
-  applicationInstallationIdFromPublicKeys,
+  applicationInstallationIdFromPublicKey,
   authorizationSigningMessage,
   type ApplicationAuthorizationFlow,
   type ApplicationAuthorizationProof,
@@ -36,12 +36,11 @@ const fileRequirementSchema = z.object({
 }).strict();
 
 const bindingSchema = z.object({
-  protocol_version: z.literal(1),
+  protocol_version: z.literal(2),
   authorization_id: z.uuid(),
   application_id: z.uuid(),
   application_manifest_digest: z.string().regex(/^[0-9a-f]{64}$/),
   application_installation_id: z.uuid(),
-  installation_agreement_public_key: z.string().min(80).max(200),
   installation_signing_public_key: z.string().min(80).max(200),
   grant_agreement_public_key: z.string().min(80).max(200),
   grant_signing_public_key: z.string().min(80).max(200),
@@ -130,7 +129,6 @@ export async function verifyApplicationAuthorization(
     throw new ApplicationAuthorizationError();
   }
   const keys = [
-    binding.installation_agreement_public_key,
     binding.installation_signing_public_key,
     binding.grant_agreement_public_key,
     binding.grant_signing_public_key
@@ -138,7 +136,7 @@ export async function verifyApplicationAuthorization(
   if (
     keys.some((key) => !isP256PublicKey(key))
     || new Set(keys).size !== keys.length
-    || await applicationInstallationIdFromPublicKeys(keys[0]!, keys[1]!)
+    || await applicationInstallationIdFromPublicKey(keys[0]!)
       !== binding.application_installation_id
   ) {
     throw new ApplicationAuthorizationError();
